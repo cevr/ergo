@@ -230,6 +230,16 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "test-bins-temp-link",
+      "origin": "wf10 fu-test-bins",
+      "file": "cmd/ergo/test.go",
+      "from": "\t\tExecutable: l.name + \".test\",\n",
+      "to": "",
+      "rule": "ergo test links a package's test binary into the cache's executable entry, so a warm run of an unchanged module links nothing.",
+      "killers": ["cmd/ergo:TestWarmModuleTestLinksNothing"],
+      "anchor": {"tests": ["cmd/ergo:TestWarmModuleTestLinksNothing"]}
     }
   ]
 }

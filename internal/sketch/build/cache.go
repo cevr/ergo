@@ -84,6 +84,9 @@ type Module struct {
 	// module was built in the process's private root and not published.
 	Private  bool
 	Manifest Manifest
+	// Executable is the path of the module's executable in the cache's
+	// executable entry (LinkCached); "" for a module linked elsewhere.
+	Executable string
 	// release gives back the build's shared lock on the module's directory
 	// and, for a private module, its lease on the private root.
 	release func()

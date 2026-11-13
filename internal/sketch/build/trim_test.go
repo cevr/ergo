@@ -537,9 +537,10 @@ func TestNoTrimWithoutLocks(t *testing.T) {
 	}
 }
 
-// TestTrimKeepsYoungAndRemovesOld: one complete pass over entries and
-// staging aged on both sides of their limits removes exactly the old ones
-// (the acceptance check's P1 and P2, in process).
+// TestTrimKeepsYoungAndRemovesOld: one complete pass over entries,
+// executable entries and staging aged on both sides of their limits removes
+// exactly the old ones (the acceptance check's P1 and P2, in process). Its
+// executable entries kill bins-untrimmed.
 func TestTrimKeepsYoungAndRemovesOld(t *testing.T) {
 	needLocks(t)
 	root := t.TempDir()
@@ -553,6 +554,7 @@ func TestTrimKeepsYoungAndRemovesOld(t *testing.T) {
 	want := map[string]bool{}
 	for i, age := range []time.Duration{0, time.Hour, unusedLimit - 2*time.Minute, unusedLimit + 2*time.Minute, 3 * unusedLimit} {
 		want[plant("modules", fmt.Sprintf("entry-%d", i), age)] = age < unusedLimit
+		want[plant("bins", fmt.Sprintf("entry-%d-variant", i), age)] = age < unusedLimit
 	}
 	for i, age := range []time.Duration{0, stagingLifetime - 2*time.Minute, stagingLifetime + 2*time.Minute, 3 * stagingLifetime} {
 		want[plant("staging", fmt.Sprintf("key.%d", i), age)] = age < stagingLifetime

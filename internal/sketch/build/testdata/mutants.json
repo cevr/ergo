@@ -1,0 +1,41 @@
+{
+  "about": "The emission cache and its executable entries: a module linked into its entry is held there until Release, a warm link of an unchanged module runs no link action, and the trim bounds the entries by age.",
+  "mutants": [
+    {
+      "name": "bins-relinked",
+      "origin": "wf10 fu-test-bins",
+      "file": "internal/sketch/build/executable.go",
+      "from": "dir := filepath.Join(bins, m.Key+\"-\"+executableVariant(t))",
+      "to": "dir := filepath.Join(bins, m.Key+\"-\"+executableVariant(t)+time.Now().Format(\"150405.000000000\"))",
+      "rule": "A warm link of an unchanged module with the same toolchain reuses its executable entry and runs no link action.",
+      "killers": ["internal/sketch/build:TestLinkCachedLinksOnce"]
+    },
+    {
+      "name": "bins-unheld",
+      "origin": "wf10 fu-test-bins",
+      "file": "internal/sketch/build/executable.go",
+      "from": "\t\tif err := lockShared(f); err != nil {",
+      "to": "\t\tif err := error(nil); err != nil {",
+      "rule": "An executable entry is held, so no trim removes it, from before its link until Release, after the executable exits.",
+      "killers": ["internal/sketch/build:TestLinkCachedLinksOnce"]
+    },
+    {
+      "name": "bins-variant-shared",
+      "origin": "wf10 fu-test-bins",
+      "file": "internal/sketch/build/executable.go",
+      "from": "t.GOFLAGS, strings.Join(t.Tags, \",\")} {",
+      "to": "t.GOFLAGS, strings.Join(nil, \",\")} {",
+      "rule": "Two toolchains that differ in target, flags or tags link one module into two entries, so they never relink each other's executable.",
+      "killers": ["internal/sketch/build:TestLinkCachedLinksOnce"]
+    },
+    {
+      "name": "bins-untrimmed",
+      "origin": "wf10 fu-test-bins",
+      "file": "internal/sketch/build/trim.go",
+      "from": "\t\t{filepath.Join(c.Root, \"bins\"), c.trimEntry},\n",
+      "to": "",
+      "rule": "The trim removes the executable entries no run used for unusedLimit, as it removes module entries.",
+      "killers": ["internal/sketch/build:TestTrimKeepsYoungAndRemovesOld"]
+    }
+  ]
+}

@@ -24,6 +24,17 @@ func lockShared(f *os.File) error {
 	}
 }
 
+// lockExclusive takes an exclusive lock on f, waiting while another lock
+// is held.
+func lockExclusive(f *os.File) error {
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			return err
+		}
+	}
+}
+
 // tryLockExclusive takes an exclusive lock on f without waiting, and
 // reports whether it did.
 func tryLockExclusive(f *os.File) bool {

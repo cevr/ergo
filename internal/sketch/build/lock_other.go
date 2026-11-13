@@ -10,4 +10,6 @@ const leasesSupported = false
 
 func lockShared(*os.File) error { return nil }
 
+func lockExclusive(*os.File) error { return nil }
+
 func tryLockExclusive(*os.File) bool { return false }

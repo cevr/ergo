@@ -233,6 +233,13 @@ type BuildRequest struct {
 	Source string
 	// Output is the executable to write.
 	Output string
+	// Executable, when set, names the executable in the cache's
+	// executable entry of the module (build.Cache.LinkCached), which a
+	// warm build of an unchanged program does not link again; Output is
+	// then written only when the module has no such entry. The returned
+	// module's Executable is the path written, and the caller holds it
+	// until it calls the module's Release, after the executable exits.
+	Executable string
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
@@ -335,6 +342,15 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
+	if req.Executable != "" {
+		linked, err := req.Cache.LinkCached(module, req.Toolchain, req.Executable, req.Stderr)
+		if !errors.Is(err, build.ErrNoExecutableCache) {
+			if err != nil {
+				return module, err
+			}
+			return linked, nil
+		}
+	}
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
 		return module, err

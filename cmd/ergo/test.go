@@ -78,19 +78,27 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// (runtime.md, Explored schedules).
 		tc.Tags = []string{"ergoexplore"}
 	}
+	// The test binary is linked into the module's executable entry in the
+	// cache, so a warm run of an unchanged package links nothing
+	// (build/executable.go); a module with no entry is linked to binary.
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeTest,
-		Source:    l.source.Admitted(),
-		Output:    binary,
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		Stderr:    os.Stderr,
+		Mode:       build.ModeTest,
+		Source:     l.source.Admitted(),
+		Output:     binary,
+		Executable: l.name + ".test",
+		Cache:      build.Cache{Root: root},
+		Toolchain:  tc,
+		Stderr:     os.Stderr,
 	})
+	defer module.Release()
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
 	}
 	if err != nil {
 		return err
+	}
+	if module.Executable != "" {
+		binary = module.Executable
 	}
 	// The binary names the source, as it was given here (a file or a
 	// package's folder), in a refuted case's or law's replay line (X1b),
