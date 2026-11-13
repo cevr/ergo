@@ -45,11 +45,13 @@ type Text {
 // document's writing allocates it once, or again only past eight deep.
 type text { out []byte, stack []element, depth int }
 
-// element is an element open: its name, and whether it holds a list,
-// whose values each take an item element. An object or a list is the
+// element is an element open: its name, whether it holds a list, whose
+// values each take an item element, and end, the length of the text
+// when its start tag was written (WireWrite adds an attribute to a start
+// tag that nothing has followed yet). An object or a list is the
 // content of the innermost element open when it begins, so that element
 // says whether a value written next is a list's.
-type element { name string, list bool }
+type element { name string, list bool, end int }
 
 extern go append func appendString(out []byte, s string) []byte
 
@@ -60,9 +62,9 @@ func raw(t *text, s string) { t.out = appendString(t.out, s) }
 // push opens an element named name, whose start tag was written.
 func push(t *text, name string) {
 	if t.depth < len(t.stack) {
-		t.stack[t.depth] = element{name: name, list: false}
+		t.stack[t.depth] = element{name: name, list: false, end: len(t.out)}
 	} else {
-		t.stack = t.stack.Append(element{name: name, list: false})
+		t.stack = t.stack.Append(element{name: name, list: false, end: len(t.out)})
 	}
 	t.depth = t.depth + 1
 }
@@ -270,7 +272,7 @@ func Encode[T wire](c Codec[T], v T) string {
 // emptyStack is a stack eight elements deep, the one allocation it
 // takes for most documents.
 func emptyStack() []element {
-	let e = element{name: "", list: false}
+	let e = element{name: "", list: false, end: 0}
 	[]element{e, e, e, e, e, e, e, e}
 }
 

@@ -1,17 +1,21 @@
 // Package catalog is a shop's product catalog and the feed it publishes:
 // the products, each listing's status as a machine, and Feed, the
-// contract a feed's format keeps. It is pure, and names no format: the
-// binary chooses one (cmd/catalog binds xmlfeed's).
+// contract a feed's format keeps. It is pure, and names a format only in
+// the type of a product's sku, an xml.Attribute: the feed writes it as an
+// attribute of the product's element, and every other format as its
+// string (the record says it, nothing infers it). The binary chooses the
+// format (cmd/catalog binds xmlfeed's).
 
+import ergo.dev/xml
 import machines
 import strconv
 
 // Catalog is a shop's products, in the order the shop lists them.
 type Catalog { Shop string, Products []Product }
 
-// Product is one product: its price in cents, its listing's status, the
-// units in stock and its tags.
-type Product { Sku string, Title string, Cents int64, Status Status, Stock int, Tags []string }
+// Product is one product: its sku, its price in cents, its listing's
+// status, the units in stock and its tags.
+type Product { Sku xml.Attribute, Title string, Cents int64, Status Status, Stock int, Tags []string }
 
 // Status is where a product's listing is.
 type Status = Draft{} | Listed{} | SoldOut{} | Retired{}
@@ -129,7 +133,7 @@ func Sample(n int) Catalog {
 			0
 		}
 		products = products.Append(Product{
-			Sku:    "SKU-" + strconv.Itoa(1000+i),
+			Sku:    xml.Attribute{Value: "SKU-" + strconv.Itoa(1000+i)},
 			Title:  if i%3 == 0 { "Mug & saucer <set of " + strconv.Itoa(2+i%4) + ">" } else { "Notebook no. " + strconv.Itoa(i) },
 			Cents:  int64(250 + i*37%9000),
 			Status: status,

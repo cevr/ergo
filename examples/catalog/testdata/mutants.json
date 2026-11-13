@@ -136,6 +136,46 @@
       "killers": [
         "examples:catalog"
       ]
+    },
+    {
+      "name": "xml-attribute-never-in-tag",
+      "origin": "wf10 REF CX1c",
+      "file": "modules/xml/attribute.ergo",
+      "from": "\t\tif field.name != \"_\" && !parent.list",
+      "to": "\t\tif false && field.name != \"_\" && !parent.list",
+      "rule": "A record's leading Attribute fields are attributes of its start tag (law AttributesAreInTheStartTag; the feed case). Element text reads back the same, so the round trip holds.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-attribute-not-read",
+      "origin": "wf10 REF CX1c",
+      "file": "modules/xml/reader.ergo",
+      "from": "\tif r.a.next > 0 && r.attribute() {",
+      "to": "\tif false && r.a.next > 0 && r.attribute() {",
+      "rule": "The reader gives an object's attributes back as its first keys (law AttributesRoundTrip; the check case's sku attribute).",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-attribute-value-unescaped",
+      "origin": "wf10 REF CX1c",
+      "file": "modules/xml/attribute.ergo",
+      "from": "\t\t\tt.escape(a.Value, true)\n",
+      "to": "\t\t\tt.escape(a.Value, false)\n",
+      "rule": "An attribute value escapes its quote, tab and line feed (law AttributesRoundTrip over any text).",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-attribute-overwrites-short",
+      "origin": "wf10 REF CX1c",
+      "file": "modules/xml/attribute.ergo",
+      "from": "\t\t\tt.out[at+2+n] = '\"'\n",
+      "to": "",
+      "rule": "The attribute's opening quote is written over the last byte of the field's element tag (law AttributesRoundTrip: the text is malformed without it).",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
     }
   ]
 }

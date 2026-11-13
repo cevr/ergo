@@ -1,0 +1,51 @@
+// Attribute is a field that this module's writer writes as an attribute
+// of the record's element, <product sku="a1">, as Go's `xml:",attr"` tag
+// and quick-xml's `@sku` rename do; the reader gives an element's
+// attributes back as its first keys. It is written in the record's type,
+// so nothing is inferred: `type Product { SKU xml.Attribute, Title string }`.
+//
+// Every other format sees its Value: its by-name pair (Wire, ParseAttribute)
+// makes it a string in JSON. Only Text's provider writes it otherwise,
+// with WireWrite, the write of its own type a format's package may
+// declare (types.md, Codecs 9).
+//
+// (The token of the pull reader is Attr, a start tag's attribute, as in
+// Go's encoding/xml.)
+type Attribute { Value string }
+
+func ParseAttribute(v string) Attribute { Attribute{Value: v} }
+
+func Wire(a Attribute) string { a.Value }
+
+// WireWrite writes a as an attribute of the element of the record being
+// written. The codec has just opened the field's element (Key); when the
+// record's element has no content yet, the empty field element becomes
+// the attribute in the record's start tag. Elsewhere (an item of a list,
+// the root, a field after the record's content, such as a union's tag,
+// or a key that is not an XML name) a is the element's text, as a string
+// is, which the reader reads back the same.
+func WireWrite(a Attribute, t *text) {
+	if t.depth >= 2 {
+		let field = t.stack[t.depth-1]
+		let parent = t.stack[t.depth-2]
+		let tag = len(field.name) + 2
+		if field.name != "_" && !parent.list && field.end == len(t.out) && parent.end == field.end-tag {
+			t.depth = t.depth - 1
+			// The record's '>' and "<name>" are as long as ` name="`, so
+			// that is written over them in place; the value and '>' follow.
+			let at = parent.end - 1
+			let n = len(field.name)
+			t.out[at] = ' '
+			for i in 0..n {
+				t.out[at+1+i] = field.name[i]
+			}
+			t.out[at+1+n] = '='
+			t.out[at+2+n] = '"'
+			t.escape(a.Value, true)
+			t.raw("\">")
+			t.stack[t.depth-1].end = len(t.out)
+			return
+		}
+	}
+	t.String(a.Value)
+}

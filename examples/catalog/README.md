@@ -14,13 +14,14 @@ The program is a module of packages (`ergo.mod`: `module catalog`), in the Go la
 
 | folder | what it holds |
 | --- | --- |
-| `catalog/` | The domain: `Catalog`, `Product`, the listing's `Status` and `Event` unions and the machine `Listing` over them (laws `AlwaysRetirable`, `Ends`), `Count`, `Sample`, and `Feed`, the contract a feed's format keeps (law `ReadsBack`), with its typed failure `Unreadable`. It names no format. |
+| `catalog/` | The domain: `Catalog`, `Product` (its `Sku` an `xml.Attribute`), the listing's `Status` and `Event` unions and the machine `Listing` over them (laws `AlwaysRetirable`, `Ends`), `Count`, `Sample`, and `Feed`, the contract a feed's format keeps (law `ReadsBack`), with its typed failure `Unreadable`. It names a format only in `Sku`'s type. |
 | `xmlfeed/` | `Feed`'s XML provider, on the module's `Encode` and `Decode`; it turns the codec's failures into `Unreadable`. |
 | `cmd/catalog/` | The binary. `main.ergo` parses the command (a union, matched exhaustively) and is the one place that binds `catalog.Feed` to `xmlfeed`'s provider. |
 
 ## What it shows
 
-- **A module's codec takes std json's path.** `xml.Text` is a sealed operation type with one provider, so `encode(v, t)` on `let t Text = text{…}` is a cell writer: each event is a direct call. A record's key folds at build time (`Name` of a constant key), so `Key("sku")` unfolds to `raw("<sku>")` and `RawJoins`, proved by `ergo test` and written to `ergo.laws`, joins it with the text before it. The buffer is borrowed from std `strings` with the type's size hint, as std json's is, so an encode allocates its result and the element stack, nothing per value: numbers are appended in place by std `strconv`'s appenders, as std json's are.
+- **A module's codec takes std json's path.** `xml.Text` is a sealed operation type with one provider, so `encode(v, t)` on `let t Text = text{…}` is a cell writer: each event is a direct call. A record's key folds at build time (`Name` of a constant key), so `Key("title")` unfolds to `raw("<title>")` and `RawJoins`, proved by `ergo test` and written to `ergo.laws`, joins it with the text before it. The buffer is borrowed from std `strings` with the type's size hint, as std json's is, so an encode allocates its result and the element stack, nothing per value: numbers are appended in place by std `strconv`'s appenders, as std json's are.
+- **A field the record marks as an attribute.** `Product.Sku` is an `xml.Attribute`, so the feed writes `<item sku="SKU-1000">` and JSON writes `"sku": "SKU-1000"`: the module's `WireWrite` writes its own type when the writer is its `Text`, and every other format writes the type's string (types.md, Codecs 9). The record says it; nothing is inferred. It costs no allocation: the attribute is written over the field's `<sku>` tag in place. The `check` case reads one product's sku from an attribute and another's from an element.
 - **A streaming reader.** `xml.Parser` is a pull reader: `Next` gives one token at a time and keeps only the names of the elements open. `Decode` checks the whole text with it first (`Check`, which builds no token), so no value is built from a text that is not well formed, then reads the value straight from the checked text: a string with no reference to replace is a slice of the input. Its reader holds its place in its own fields: `Decode` binds it to `xml.Cursor`, a cell of a sealed operation type, and lends the cell to `decode[T]` as its `Reader`.
 - **Laws, machines and typed failures.** `Listing` is a machine whose laws `ergo test` decides on the whole graph. `Feed.ReadsBack` holds for the provider the binary binds. The module's laws are seeded properties of the codec: round trip, well-formed output, and a malformed document rejected with its offset, line and column. `Unreadable` carries either the place in the text or the value's path; `check` prints whichever it has.
 
@@ -36,7 +37,7 @@ go run ./scripts/examples catalog
 
 ## Cases
 
-`feed` (three products), `check` (a feed written by hand: an XML declaration, comments, a CDATA section, character references, an empty element and a field the catalog does not have), `malformed` (an end tag that closes the wrong element: its line and column), `shape` (a stock that is not an integer: its path), `receipt` (two products) and `usage`.
+`feed` (three products), `check` (a feed written by hand: an XML declaration, comments, a CDATA section, character references, an empty element, an sku as an attribute and as an element, and an attribute and a field the catalog does not have), `malformed` (an end tag that closes the wrong element: its line and column), `shape` (a stock that is not an integer: its path), `receipt` (two products) and `usage`.
 
 ## Limits found
 

@@ -13,7 +13,7 @@ import strings
 // cell (types.md, Interface assignability 6), and lends the cell to
 // decode[T] as its Reader, so each read writes the place in the cell, as
 // std json's runtime reader writes its own.
-type reader { text string, c cursor }
+type reader { text string, c cursor, a attrs }
 
 // Cursor is a reader of a checked document: the prelude's Reader,
 // sealed here (seal), so its one provider, reader, is a cell that
@@ -46,10 +46,39 @@ func seal(r *reader) {}
 // took last begins, for Key.
 type cursor { at int, closed bool, tag int }
 
+// attrs is where the reader is among the attributes of the object being
+// read, which it gives back as the object's first keys, before its
+// elements (an Attribute field reads one): next is where the next one
+// may start in the object's start tag, 0 when none is left; key, kend,
+// val and end are the name and the quoted value of the one More took,
+// key 0 when More took none. (Offset 0 is the document's first byte, so
+// no attribute starts there.)
+type attrs { next int, key int, kend int, val int, end int }
+
+// noAttrs is the state outside a start tag.
+let noAttrs = attrs{next: 0, key: 0, kend: 0, val: 0, end: 0}
+
 // readerOf is a reader of the checked text whose root element starts at
 // the first start tag.
 func readerOf(text string) reader {
-	reader{text: text, c: taken(text, blank(text, 0))}
+	reader{text: text, c: taken(text, blank(text, 0)), a: noAttrs}
+}
+
+// attribute takes the next attribute of the object's start tag, when it
+// has one more. (The key attribute of a <_> element is a key too: a
+// record has no field "key" that its own element would not write after
+// it, and the last key read wins.)
+func attribute(r *reader) bool {
+	let i = skipSpace(r.text, r.a.next)
+	if i >= len(r.text) || r.text[i] == '>' || r.text[i] == '/' {
+		r.a = noAttrs
+		return false
+	}
+	let kend = nameAt(r.text, i)
+	let q = skipSpace(r.text, skipSpace(r.text, kend)+1)
+	let end = find(r.text, q+1, strings.Slice(r.text, q, q+1))
+	r.a = attrs{next: end + 1, key: i, kend: kend, val: q + 1, end: end}
+	true
 }
 
 // blank is the first offset at or after i that is not white space, a
@@ -162,6 +191,14 @@ func value(text string, c cursor) (string, cursor, bool) {
 // read is the text of the value at c, the reader's place, which it takes,
 // or the failure of a value of the kind want that holds an element.
 func read(r *reader, c cursor, want string) string fails WireWrongKind {
+	if r.a.key > 0 {
+		let v = unescape(r.text, r.a.val, r.a.end) catch {
+		case Malformed:
+			""
+		}
+		r.a = attrs{..r.a, key: 0}
+		return v
+	}
 	let s, next, ok = value(r.text, c)
 	if !ok {
 		return WireWrongKind{Path: Path(r), Want: want}
@@ -211,6 +248,9 @@ func Path(r *reader) string {
 func nameAtTag(text string, i int) string { strings.Slice(text, i+1, nameAt(text, i+1)) }
 
 func TakeNull(r *reader) bool {
+	if r.a.key > 0 {
+		return false
+	}
 	let c = r.c
 	if c.closed {
 		return false
@@ -237,7 +277,7 @@ func TakeNull(r *reader) bool {
 
 func Peek(r *reader) WireKind {
 	let c = r.c
-	if c.closed {
+	if c.closed || r.a.key > 0 {
 		return WireString
 	}
 	let k = blank(r.text, c.at)
@@ -309,6 +349,9 @@ func Float(r *reader) float64 fails WireWrongKind {
 
 // begin opens an object or a list: its content is elements, not text.
 func begin(r *reader, want string) fails WireWrongKind {
+	if r.a.key > 0 {
+		return WireWrongKind{Path: Path(r), Want: want}
+	}
 	let c = r.c
 	if c.closed {
 		return
@@ -321,11 +364,16 @@ func begin(r *reader, want string) fails WireWrongKind {
 
 func BeginList(r *reader) fails WireWrongKind { try begin(r, "list") }
 
-func BeginObject(r *reader) fails WireWrongKind { try begin(r, "object") }
+// BeginObject starts an object; its start tag's attributes are its
+// first keys.
+func BeginObject(r *reader) fails WireWrongKind {
+	try begin(r, "object")
+	r.a = attrs{..noAttrs, next: nameAt(r.text, r.c.tag+1)}
+}
 
 func Tag(r *reader) string fails WireMissingField {
 	let c = r.c
-	if !c.closed {
+	if !c.closed && r.a.key == 0 {
 		let k = blank(r.text, c.at)
 		if startsElement(r.text, k) && nameAtTag(r.text, k) == "_tag" {
 			let name, next, _ = value(r.text, taken(r.text, k))
@@ -339,6 +387,9 @@ func Tag(r *reader) string fails WireMissingField {
 // More takes the next value's start tag, when there is one before the
 // end of the object or list.
 func More(r *reader) bool {
+	if r.a.next > 0 && r.attribute() {
+		return true
+	}
 	let c = r.c
 	if c.closed {
 		return false
@@ -355,6 +406,9 @@ func More(r *reader) bool {
 // Key is the name of the element More took: a field's key, or the key
 // attribute of a <_> element.
 func Key(r *reader) string {
+	if r.a.key > 0 {
+		return strings.Slice(r.text, r.a.key, r.a.kend)
+	}
 	let i = r.c.tag
 	let name = nameAtTag(r.text, i)
 	if name != "_" {
@@ -380,6 +434,10 @@ func Key(r *reader) string {
 // Skip takes the rest of the value whose start tag was taken, through its
 // end tag.
 func Skip(r *reader) {
+	if r.a.key > 0 {
+		r.a = attrs{..r.a, key: 0}
+		return
+	}
 	let c = r.c
 	if c.closed {
 		r.c = cursor{at: c.at, closed: false, tag: c.tag}
@@ -411,4 +469,7 @@ func Skip(r *reader) {
 }
 
 // End takes the rest of the object or list, through its end tag.
-func End(r *reader) { Skip(r) }
+func End(r *reader) {
+	r.a = noAttrs
+	Skip(r)
+}
