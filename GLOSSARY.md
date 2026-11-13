@@ -278,7 +278,7 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **Decider** (pattern): The pair of an aggregate's pure functions, `Decide(s S, c C) []E fails R` and `Evolve(s S, e E) S`, with its initial state. `Decide` has no `needs` row and `Evolve` no row at all, so a replay of the same commands gives the same events and state. A rejection is a record in `Decide`'s error row.
 
-**Envelope** (pattern; module `domain`'s record planned, DK2): The record a command travels in, with its id and the context the domain needs (actor, tenant, time), so `Decide` takes the context as data and never as an ambient value.
+**Envelope** (pattern; module `domain`'s record planned, DK2): The record a command travels in, with its id and the context the domain reads (actor, tenant, time), so `Decide` takes the context as data and never as an ambient value.
 
 **Receipt** (pattern): The answer to a command the context took: the command's id and the position of its events in the context's log. A resend of the same id gets the first receipt and changes nothing.
 
