@@ -101,30 +101,28 @@ law SubmitOnlyWhenAllValid(n int, name string, e int, email string, settled bool
 }
 
 // EmailIsThePattern: local@host.top parses back as that address when no
-// part is empty or holds a space or an @; a space (any Unicode space, as
-// the pattern's \s), a second @, or no dot with text on both sides makes
-// it Malformed.
+// part is empty or holds a space or an @; a space (one of JavaScript's \s,
+// upstream's), a second @, or no dot with text on both sides fails the
+// where.
 law EmailIsThePattern(local string, host string, top string, cut int, space int) {
 	let a = clean(local, "a")
 	let h = clean(host, "b")
 	let t = clean(top, "c")
 	let text = a + "@" + h + "." + t
 	let e = ParseEmail(text) catch {
-	case Required, Malformed:
+	case Unsatisfied:
 		return false
 	}
 	let at = ((cut % len(text)) + len(text)) % len(text)
 	let spaces = []string{" ", "\t", "\u00a0", "\u2003"}
 	let sp = spaces[((space%len(spaces))+len(spaces))%len(spaces)]
-	malformed(text[:at]+sp+text[at:]) && malformed(text+"@x.y") && malformed(a+"@"+h+t) && malformed(a+"@."+h+t) && Text(e) == text
+	malformed(text[:at]+sp+text[at:]) && malformed(text+"@x.y") && malformed(a+"@"+h+t) && malformed(a+"@."+h+t) && string(e) == text
 }
 
 func malformed(text string) bool {
 	let _ = ParseEmail(text) catch {
-	case Malformed:
+	case Unsatisfied:
 		return true
-	case Required:
-		return false
 	}
 	false
 }

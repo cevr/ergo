@@ -7,7 +7,7 @@ Tag: `default`.
 ## How it works
 
 - Package `subscribe` is the domain.
-  - The valid values are types: `Name` is refined, `type Name string where len(it) >= 2`, so the where derives `ParseName` and the law `NameWhere`; `Email` has an unexported field, so only `ParseEmail` builds one. `ParseEmail` is upstream's pattern `^[^\s@]+@[^\s@]+\.[^\s@]+$`, written by hand, and fails `Required` or `Malformed`.
+  - The valid values are types: `Name` is refined, `type Name string where len(it) >= 2`, so the where derives `ParseName` and the law `NameWhere`; `Email` is refined by upstream's pattern, `type Email string where matches(it, "…")` (types.md, Refinements 11), with JavaScript's spaces spelled out in the class for upstream's `\s`; the compiler compiles the pattern to a Go matcher, and the where derives `ParseEmail` and the law `EmailWhere`. `EmailField` gives an empty text `Required` and a text the pattern refuses `Malformed`.
   - A field is `Field[T, W] { Text, Verdict }`, with `Verdict = Unchecked | Checking[T]{Value} | Valid[T]{Value} | Invalid[W]{Why}`. The reasons are types: `TooShort` for the name, `EmailWhy = Required | Malformed | Taken` for the email. `NameSaid` and `EmailSaid` give upstream's texts.
   - The state `Form` is the three fields and the stage of the submit, `Stage = Editing | Sending | Sent{Text} | Refused`. The machine `Subscribing` has two kinds of work: a `Checking` email asks `Subscribers.Taken`, and a `Sending` form asks `Subscribers.Join`.
   - An edit of the name or the note is a `Stay`: it keeps the entry, so a check under way goes on. An edit of the email is an `Enter`: it opens a new entry, so a check of an older address ends, and the runner drops its answer. Upstream carries the address in the answer and compares it with the field; here the old answer never arrives.
@@ -26,7 +26,7 @@ Each upstream story and scene test, and what restates it, is a line of `origin/t
 - `EditClearsThatFieldsError`: outside a submit, an edit sets its field to the field its text gives, an earlier error included, and touches nothing else; during a submit it changes nothing.
 - `StaleCheckIsDropped`: an email edit opens a new entry, a name or note edit keeps it, and a check's answer when no check is under way changes nothing.
 - `SubmitOnlyWhenAllValid`: over forms the user can reach, a submit starts exactly when the form is not sending, the name is valid or empty, and the email has passed its check.
-- `EmailIsThePattern`: an address built of clean parts parses back; a space of any kind, a second `@`, or a domain with no inner dot is `Malformed`.
+- `EmailIsThePattern`: an address built of clean parts parses back; a space of JavaScript's `\s`, a second `@`, or a domain with no inner dot fails the where.
 - `NameWhere` (derived from the where), `Subscribers.TakenIgnoresCase` (contract; runs for `memory.List`, and under the `Subscribers` context in `cmd/fk-form`).
 
 The mutants these kill are in `testdata/mutants.json`.

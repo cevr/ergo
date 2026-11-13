@@ -98,26 +98,26 @@
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     },
     {
-      "name": "fk5-email-tab-ok", "origin": "wf10/fk5a",
+      "name": "fkre-email-ascii-space", "origin": "wf10/fkre",
       "file": "examples/fk-form/subscribe/fields.ergo",
-      "from": "len(strings.Fields(s)) == 1 && strings.Fields(s)[0] == s",
-      "to": "!strings.Contains(s, \" \")",
-      "rule": "An address holds no space of any kind, as the pattern's \\s (law EmailIsThePattern; the cases have only the ASCII space).",
+      "from": "\"[^\\\\s\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff@]+@",
+      "to": "\"[^\\\\s@]+@",
+      "rule": "An address's local part holds no space of JavaScript's \\s, upstream's, not only the ASCII ones (law EmailIsThePattern; the cases have only the ASCII space).",
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     },
     {
-      "name": "fk5-domain-dot-at-edge", "origin": "wf10/fk5a",
+      "name": "fkre-domain-any-rune-for-dot", "origin": "wf10/fkre",
       "file": "examples/fk-form/subscribe/fields.ergo",
-      "from": "!strings.Contains(domain[1:len(domain)-1], \".\")",
-      "to": "!strings.Contains(domain, \".\")",
-      "rule": "The domain's dot has text on both sides (law EmailIsThePattern; case invalid).",
+      "from": "@]+\\\\.[^",
+      "to": "@]+.[^",
+      "rule": "The domain has a dot with text on both sides, not any rune there (law EmailIsThePattern).",
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     },
     {
       "name": "fk5-memory-admin-case", "origin": "wf10/fk5a",
       "file": "examples/fk-form/memory/list.ergo",
       "from": "text == \"admin@test.com\"",
-      "to": "subscribe.Text(e) == \"admin@test.com\"",
+      "to": "string(e) == \"admin@test.com\"",
       "rule": "The list finds an address in any case of its letters (law Subscribers.TakenIgnoresCase; no case uses this address).",
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     }

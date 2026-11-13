@@ -9,12 +9,12 @@ import strings
 type List {}
 
 func Taken(_ List, e subscribe.Email) bool {
-	let text = strings.ToLower(subscribe.Text(e))
+	let text = strings.ToLower(string(e))
 	text == "test@example.com" || text == "demo@email.com" || text == "admin@test.com"
 }
 
 func Join(_ List, s subscribe.Subscription) fails subscribe.JoinFailed {
-	if strings.HasSuffix(strings.ToLower(subscribe.Text(s.Email)), ".invalid") {
+	if strings.HasSuffix(strings.ToLower(string(s.Email)), ".invalid") {
 		return subscribe.JoinFailed
 	}
 }
