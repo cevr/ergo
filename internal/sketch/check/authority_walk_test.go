@@ -53,11 +53,12 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"expanding": {why: "splice state"},
 	},
 	"Field": {
-		"WireKey": {why: "literal codec metadata holds no type"},
-		"Type":    {sel: "Type"},
-		"Name":    {why: "a name: every field is walked, hidden or not"},
-		"Pos":     {why: "a position"},
-		"origin":  {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
+		"WireKey":  {why: "literal codec metadata holds no type"},
+		"Type":     {sel: "Type"},
+		"Name":     {why: "a name: every field is walked, hidden or not"},
+		"Pos":      {why: "a position"},
+		"origin":   {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
+		"provider": {why: "an Ergo provider field's NewF and Call: functions of the field type's package, whose types the field's Type already names (the field type at its A and G)"},
 	},
 	"Interface": {
 		"Methods": {sel: "Methods"},
