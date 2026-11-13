@@ -687,6 +687,50 @@
       "killers": [
         "runtime/v1:TestHTTPServerMatchesModel"
       ]
+    },
+    {
+      "name": "gx7-main-no-floor",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/exit.go",
+      "from": "\theapFloor(os.Getenv) // heap.go\n",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program's main installs the heap floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-dropped",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "\tballast = make([]byte, heapFloorBytes)\n",
+      "to": "\t_ = make([]byte, heapFloorBytes)\n",
+      "rule": "runtime.md Entry (GX7): the ballast stays live, so the collector's goal keeps the floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-gogc",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOGC\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOGC gets Go's policy as written.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-memlimit",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOMEMLIMIT\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOMEMLIMIT spends none of it on a ballast.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
     }
   ]
 }
