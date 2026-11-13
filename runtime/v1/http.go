@@ -525,8 +525,9 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 		s.mu.Unlock()
 		close(s.stopping)
 		_ = srv.Close() // unblock even a partial header or body read
+		// Closing a connection cuts its sleep (enter), so the timers end
+		// with the connections.
 		s.requests.Interrupt()
-		s.timers.Interrupt()
 		var causes rt.Cause
 		s.workers.Wait()
 		s.requests.End()
