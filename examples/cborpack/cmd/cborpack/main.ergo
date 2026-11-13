@@ -45,6 +45,8 @@ func Parse(args []string) Command fails os.Exit {
 
 func jsonText(idx registry.Index) string { json.Encode(json.Codec[registry.Index]{MaxBytes: 0, MaxDepth: 0}, idx) }
 
+func cborText(idx registry.Index) string { cbor.Encode(idx) }
+
 // allocs is the heap allocations of one call of f, after a first call.
 func allocs(f escaping func()) int needs go.Foreign {
 	f()
@@ -57,9 +59,9 @@ func main() fails os.Exit needs Console | Ambient | go.Foreign {
 		Console.Println(hex.Encode(cbor.Encode(registry.Sample(h.N))))
 	case Receipt as r:
 		let idx = registry.Sample(r.N)
-		let c = allocs(func() { let _ = cbor.Encode(idx) })
+		let c = allocs(func() { let _ = cborText(idx) })
 		let j = allocs(func() { let _ = jsonText(idx) })
-		Console.Println("cbor \(len(cbor.Encode(idx))) bytes, \(c) allocations per encode")
+		Console.Println("cbor \(len(cborText(idx))) bytes, \(c) allocations per encode")
 		Console.Println("json \(len(jsonText(idx))) bytes, \(j) allocations per encode")
 	}
 }

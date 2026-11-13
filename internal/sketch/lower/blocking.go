@@ -195,6 +195,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// bodies that neither wait nor release; Borrow and Give take and
 	// give a pooled buffer, which waits for nothing.
 	"StringsBorrow":     {},
+	"StringsHint":       {},
 	"StringsGive":       {},
 	"StringsFromBytes":  {},
 	"StringsSplit":      {},

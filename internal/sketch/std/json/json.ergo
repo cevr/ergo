@@ -91,7 +91,7 @@ type Text {
 	floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish() string,
+	finish(hint int) string,
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -265,9 +265,9 @@ func Key(t *text, k string) {
 
 func Written(t *text) string { bytesText(t.out) }
 
-func finish(t *text) string {
+func finish(t *text, hint int) string {
 	let s = strings.FromBytes(t.out)
-	t.out = strings.Give(t.out)
+	t.out = strings.Give(t.out, hint)
 	s
 }
 
@@ -422,11 +422,13 @@ type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
 // (Its Text's buffer is borrowed, strings.Borrow and Give, as
-// encoding/json keeps its encodeState: no other code sees it.)
+// encoding/json keeps its encodeState: no other code sees it. The hint
+// is T's, so an encode after a GC allocates one buffer of T's last size.)
 func Encode[T wire](c Codec[T], v T) string {
-	let t Text = text{comma: false, html: false, out: strings.Borrow()}
+	let hint = strings.Hint[text, T]()
+	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
 	encode(v, t)
-	t.finish()
+	t.finish(hint)
 }
 
 // Decode is the T that text writes: Malformed when the text breaks

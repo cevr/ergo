@@ -1,18 +1,25 @@
-// Borrow and Give lend a writer its buffer, as encoding/json keeps its
-// encodeState in a pool: a writer that builds a text in a []byte borrows
-// an empty buffer, appends to it, takes its text with FromBytes, and gives
-// the buffer back for the next writer. Any module's writer may borrow
-// (std json's Encode is one, a module's own codec another), so a text
-// encoded again allocates its result and no buffer, whoever wrote the
-// codec. A buffer that grew out of the pool's size is not kept.
+// Hint, Borrow and Give lend a writer its buffer, as encoding/json keeps
+// its encodeState in a pool: a writer that builds a text in a []byte
+// borrows an empty buffer, appends to it, takes its text with FromBytes,
+// and gives the buffer back for the next writer. Any module's writer may
+// borrow (std json's Encode is one, a module's own codec another), so a
+// text encoded again allocates its result and no buffer, whoever wrote
+// the codec. Each writer type W writing a value type T has a size hint,
+// the length of its last text, so a borrow after a GC emptied the pool
+// allocates one buffer of that size, not a small one regrown.
 
-// Borrow is an empty buffer from the pool.
-extern go ergo.local/prototype/runtime/v1.StringsBorrow func Borrow() []byte
+// Hint is the size hint of a writer of type W writing a T, the handle its
+// Borrow and Give take.
+extern go ergo.local/prototype/runtime/v1.StringsHint func Hint[W, T]() int
 
-// Give puts out's buffer back in the pool and gives out, so a writer
-// gives its buffer back in place, `t.out = strings.Give(t.out)`: nothing
-// may read or write out after.
-extern go ergo.local/prototype/runtime/v1.StringsGive func Give(out []byte) []byte
+// Borrow is an empty buffer of at least hint's size.
+extern go ergo.local/prototype/runtime/v1.StringsBorrow func Borrow(hint int) []byte
+
+// Give records out's length in hint, puts out's buffer back in the pool
+// and gives out, so a writer gives its buffer back in place,
+// `t.out = strings.Give(t.out, hint)`: nothing may read or write out
+// after.
+extern go ergo.local/prototype/runtime/v1.StringsGive func Give(out []byte, hint int) []byte
 
 // FromBytes is the text of b, a copy of its bytes.
 extern go ergo.local/prototype/runtime/v1.StringsFromBytes func FromBytes(b []byte) string

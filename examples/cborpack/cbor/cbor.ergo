@@ -53,7 +53,7 @@ type Item {
 	text(s string),
 	// finish is the bytes written, and gives the buffer back (Encode
 	// only: nothing may use the Item after).
-	finish() string,
+	finish(hint int) string,
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
@@ -155,9 +155,9 @@ func Tag(t *item, name string) {
 
 func Key(t *item, k string) { t.text(k) }
 
-func finish(t *item) string {
+func finish(t *item, hint int) string {
 	let s = strings.FromBytes(t.out)
-	t.out = strings.Give(t.out)
+	t.out = strings.Give(t.out, hint)
 	s
 }
 
@@ -165,7 +165,8 @@ func finish(t *item) string {
 // (Its Item's buffer is borrowed, strings.Borrow and Give, as std json's
 // Encode borrows its Text's.)
 func Encode[T wire](v T) string {
-	let t Item = item{out: strings.Borrow()}
+	let hint = strings.Hint[item, T]()
+	let t Item = item{out: strings.Borrow(hint)}
 	encode(v, t)
-	t.finish()
+	t.finish(hint)
 }
