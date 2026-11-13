@@ -100,7 +100,7 @@ law InterruptCancels(v View) {
 			if d.Output != Cancelled {
 				return false
 			}
-		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Ignore, Reject:
+		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Tell[Mode, Choice], Ignore, Reject:
 			return false
 		}
 	}

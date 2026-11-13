@@ -46,7 +46,7 @@ func Lived(p Policy, results []Result, cost duration) (Outcome, int) {
 			match d {
 			case Done[Outcome] as done:
 				return (done.Output, tries)
-			case Enter[Phase], Stay[Phase], Emit[Phase, Outcome]:
+			case Enter[Phase], Stay[Phase], Emit[Phase, Outcome], Tell[Phase, Outcome]:
 				phase = machines.Next(phase, d)
 			case Ignore:
 				return (GaveUp{N: r.N, At: r.Ends, Why: "ignored"}, tries)
@@ -93,7 +93,7 @@ law RetryWaitsItsBackoff(p Policy, at int) {
 		Step(e.Next, Start{At: end + Backoff(q, 1) - 1ns, Takes: 1s}) == Reject || Backoff(q, 1) == 0s
 	case Done[Outcome]:
 		q.Attempts == 1
-	case Stay[Phase], Emit[Phase, Outcome], Ignore, Reject:
+	case Stay[Phase], Emit[Phase, Outcome], Tell[Phase, Outcome], Ignore, Reject:
 		false
 	}
 }

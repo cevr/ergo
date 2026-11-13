@@ -20,7 +20,7 @@ func told(p Pad, signals []Signal) []string {
 		case Emit[Pad, Output] as e:
 			out = out.Append(said(e.Output))
 		case Enter[Pad]:
-		case Stay[Pad]:
+		case Stay[Pad], Tell[Pad, Output]:
 		case Ignore:
 			out = out.Append("ignore")
 		case Reject:

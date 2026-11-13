@@ -62,7 +62,7 @@ func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 		match d {
 		case Reject:
 			(Ended{State: r.State}, rs)
-		case Emit[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
 			let mut next = rs
 			next[id] = machines.Next(r, d)
 			(Stopped, next)

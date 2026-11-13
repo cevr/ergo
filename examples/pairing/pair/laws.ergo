@@ -90,7 +90,7 @@ func enters(d Decision[Flow, Result]) Option[Flow] {
 		Some{x.Next}
 	case Emit[Flow, Result] as x:
 		Some{x.Next}
-	case Ignore:
+	case Ignore, Tell[Flow, Result]:
 		None
 	case Reject:
 		None
@@ -114,7 +114,7 @@ func fold(s Flow, signals []Signal) (Flow, Option[Result]) {
 			at = x.Next
 		case Emit[Flow, Result] as x:
 			at = x.Next
-		case Ignore:
+		case Ignore, Tell[Flow, Result]:
 		case Reject:
 		}
 	}
@@ -148,7 +148,7 @@ law CancelAlwaysEnds(n int, digits []int, text string) {
 		false
 	case Stay[Flow]:
 		false
-	case Emit[Flow, Result]:
+	case Emit[Flow, Result], Tell[Flow, Result]:
 		false
 	case Ignore:
 		false

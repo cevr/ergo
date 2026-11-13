@@ -19,7 +19,7 @@ func trace(q Quiz, signals []Signal) string {
 			out = out.Append(Key(e.Next))
 		case Stay[Quiz]:
 			out = out.Append("stay")
-		case Emit[Quiz, Picked]:
+		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
 			out = out.Append("emit")
 		case Ignore:
 			out = out.Append("ignore")

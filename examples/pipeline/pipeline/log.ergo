@@ -47,7 +47,7 @@ func Evolve(d Desk, e Entry) Desk {
 		match retry.Step(j.Attempt, retry.Failed) {
 		case Enter[retry.Attempt] as n:
 			Waiting{Book: b, Job: Job{..j, Attempt: n.Next}}
-		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
+		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Tell[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
 			within(d, b)
 		}
 	case run.Retried as r:

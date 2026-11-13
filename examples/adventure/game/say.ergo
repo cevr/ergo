@@ -111,7 +111,7 @@ func Say(s State, line string, d Decision[State, Ending]) []string {
 		case Go, Quit, Blank:
 			[]string{}
 		}
-	case Emit[State, Ending]:
+	case Emit[State, Ending], Tell[State, Ending]:
 		Unreachable("Step never emits: what a step tells is worked out here")
 	case Ignore, Reject:
 		[]string{}

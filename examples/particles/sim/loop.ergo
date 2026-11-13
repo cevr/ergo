@@ -49,7 +49,7 @@ func Play(w world.World, keys string, frames int, pace Pace) Game needs Schedule
 			case Done[Game] as q:
 				Screen.Show(Frame{N: n + 1, Phase: "quit", G: q.Output})
 				return q.Output
-			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Ignore, Reject:
+			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
 			}
 			phase = machines.Next(phase, d)
 		case None:

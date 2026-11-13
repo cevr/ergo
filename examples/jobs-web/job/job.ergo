@@ -102,7 +102,7 @@ type Lifecycle machine[Run, Signal] {
 				if e.Output != r.State || !jobs.Terminal(e.Output) {
 					return false
 				}
-			case Enter[Run], Stay[Run], Ignore, Reject, Done[jobs.State]:
+			case Enter[Run], Stay[Run], Tell[Run, jobs.State], Ignore, Reject, Done[jobs.State]:
 			}
 		}
 		ends <= 1

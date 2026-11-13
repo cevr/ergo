@@ -46,7 +46,7 @@ law EndIsDone(ns []int) {
 	match Step(m, End) {
 	case Done[[]Block] as d:
 		d.Output == Open(m)
-	case Enter[Mode], Stay[Mode], Emit[Mode, []Block], Ignore, Reject:
+	case Enter[Mode], Stay[Mode], Emit[Mode, []Block], Tell[Mode, []Block], Ignore, Reject:
 		false
 	}
 }

@@ -16,7 +16,7 @@ func Run(m Mode, ks []keys.Key) Outcome {
 	for k in ks {
 		let d = Step(now, k)
 		match d {
-		case Enter[Mode], Stay[Mode], Emit[Mode, Choice]:
+		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Tell[Mode, Choice]:
 			now = machines.Next(now, d)
 			frames = frames.Append(now)
 		case Ignore:

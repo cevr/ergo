@@ -68,7 +68,7 @@ func Count(es []Event, word string) int {
 // to Suspended is an Emit, which tells its event.
 func endsTold(d Decision[Display, Event]) bool {
 	match d {
-	case Emit[Display, Event]:
+	case Emit[Display, Event], Tell[Display, Event]:
 		true
 	case Enter[Display] as e:
 		Name(e.Next) != "suspended"

@@ -150,7 +150,7 @@ type Picker machine[Quiz, Signal] {
 			Key(machines.Next(e.Next, Tried(e.Next, Back))) == Key(q)
 		case Stay[Quiz]:
 			false
-		case Emit[Quiz, Picked]:
+		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
 			false
 		case Ignore:
 			false
@@ -211,7 +211,7 @@ type Picker machine[Quiz, Signal] {
 				}
 			case Stay[Quiz]:
 				return false
-			case Emit[Quiz, Picked]:
+			case Emit[Quiz, Picked], Tell[Quiz, Picked]:
 				return false
 			case Ignore:
 				return false
@@ -236,7 +236,7 @@ type Picker machine[Quiz, Signal] {
 			false
 		case Stay[Quiz]:
 			false
-		case Emit[Quiz, Picked]:
+		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
 			false
 		case Ignore:
 			false

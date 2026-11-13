@@ -140,7 +140,7 @@ func forged(slots []Slot, credit int, name string, refused bool) bool {
 		before.Count > 0 && after.Count == before.Count-1 && before.Cost <= credit
 	case Reject:
 		refused
-	case Stay[State], Emit[State, []Slot], Ignore, Done[[]Slot]:
+	case Stay[State], Emit[State, []Slot], Tell[State, []Slot], Ignore, Done[[]Slot]:
 		false
 	}
 }

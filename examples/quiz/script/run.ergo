@@ -88,7 +88,7 @@ func Run() int needs Console | io.Stdin | quiz.Sets {
 		case Enter[quiz.Quiz] as e:
 			Show(e.Next)
 		case Stay[quiz.Quiz]:
-		case Emit[quiz.Quiz, quiz.Picked]:
+		case Emit[quiz.Quiz, quiz.Picked], Tell[quiz.Quiz, quiz.Picked]:
 		case Ignore:
 		case Reject:
 		}

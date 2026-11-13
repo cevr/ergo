@@ -93,7 +93,7 @@ func apply(b Book, id string, c run.Command) Book fails run.WrongState | run.Wro
 			log = log.Append(Entry{Run: id, Event: ev})
 		}
 		Book{..b, Runs: b.Runs.Put(id, e.Next), Log: log}
-	case Enter[run.Run], Stay[run.Run], Ignore, Reject, Done[[]run.Event]:
+	case Enter[run.Run], Stay[run.Run], Tell[run.Run, []run.Event], Ignore, Reject, Done[[]run.Event]:
 		b
 	}
 }
@@ -167,7 +167,7 @@ func ran(b Book, j Job, ok bool) Decision[Desk, []Entry] fails run.WrongState | 
 			Enter[Desk]{Next: Waiting{Book: next, Job: Job{..j, Attempt: e.Next}}}
 		case Done[retry.Order]:
 			try settle(try apply(next, j.Run, run.GiveUp{Stage: j.Stage}))
-		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Ignore, Reject:
+		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Tell[retry.Attempt, retry.Order], Ignore, Reject:
 			Unreachable("a failed try either waits or gives up")
 		}
 	case run.Unsubmitted, run.Queued, run.Done:
@@ -182,7 +182,7 @@ func due(b Book, j Job) Decision[Desk, []Entry] fails run.WrongState | run.Wrong
 	case Emit[retry.Attempt, retry.Order] as e:
 		let next = try apply(b, j.Run, run.Retry{Stage: j.Stage})
 		Enter[Desk]{Next: Busy{Book: next, Job: Job{..j, Attempt: e.Next}}}
-	case Enter[retry.Attempt], Stay[retry.Attempt], Done[retry.Order], Ignore, Reject:
+	case Enter[retry.Attempt], Stay[retry.Attempt], Tell[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
 		Ignore
 	}
 }
@@ -260,7 +260,7 @@ func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.Wrong
 		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, len(BookOf(k.Next).Log)))
 	case Ignore:
 		Ignore
-	case Emit[Desk, []Entry], Reject, Done[[]Entry]:
+	case Emit[Desk, []Entry], Tell[Desk, []Entry], Reject, Done[[]Entry]:
 		Unreachable("the desk enters, stays or ignores")
 	}
 }

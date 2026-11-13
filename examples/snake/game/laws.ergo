@@ -88,7 +88,7 @@ law OverIsFinal(seed int, score int) {
 		match Step(over, Quit) {
 		case Done[int] as d:
 			d.Output == score
-		case Enter[Mode], Stay[Mode], Emit[Mode, int], Ignore, Reject:
+		case Enter[Mode], Stay[Mode], Emit[Mode, int], Tell[Mode, int], Ignore, Reject:
 			false
 		}
 	}
@@ -164,7 +164,7 @@ func Word(d Decision[Mode, int]) string {
 		"enter"
 	case Stay[Mode]:
 		"stay"
-	case Emit[Mode, int]:
+	case Emit[Mode, int], Tell[Mode, int]:
 		"emit"
 	case Ignore:
 		"ignore"

@@ -131,14 +131,14 @@ func Matches(c Compiled, text string) bool {
 		match d {
 		case Done[bool] as o:
 			return o.Output
-		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
 		}
 		s = machines.Next(s, d)
 	}
 	match m.Step(s, End) {
 	case Done[bool] as o:
 		o.Output
-	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
 		Unreachable("Step is Done at the End of every text")
 	}
 }

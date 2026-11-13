@@ -157,14 +157,14 @@ func runTags(p Program, text string, start int, find bool) Tagged {
 		match d {
 		case Done[Tagged] as o:
 			return o.Output
-		case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Ignore, Reject:
+		case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Tell[Tags, Tagged], Ignore, Reject:
 		}
 		s = machines.Next(s, d)
 	}
 	match m.Step(s, End) {
 	case Done[Tagged] as o:
 		o.Output
-	case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Ignore, Reject:
+	case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Tell[Tags, Tagged], Ignore, Reject:
 		Unreachable("StepTags is Done at the End of every text")
 	}
 }

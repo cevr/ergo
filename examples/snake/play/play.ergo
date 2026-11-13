@@ -46,7 +46,7 @@ func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs Random {
 		match d {
 		case Done[int]:
 			return (at, true)
-		case Enter[game.Mode], Stay[game.Mode], Emit[game.Mode, int], Ignore, Reject:
+		case Enter[game.Mode], Stay[game.Mode], Emit[game.Mode, int], Tell[game.Mode, int], Ignore, Reject:
 		}
 		at = machines.Next(at, d)
 	}
