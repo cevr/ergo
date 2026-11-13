@@ -273,6 +273,7 @@
     "TestWallClockStaleRow": 0
   },
   "ergo.local/prototype/internal/rpcgen": {
+    "TestCliArgsRoundTrip": 5.03,
     "TestRpcLoopbackAgrees": 5.05
   },
   "ergo.local/prototype/internal/sketch/api": {
