@@ -177,7 +177,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Static.End":      {},
 	"OwningParts":     {},
 	"Owned.TakeField": {},
-	"Scope.Drop":      {},
+	// A local written in place: its entry releases the local (inplace.go).
+	"OwningAt":      {},
+	"OwningPartsAt": {},
+	"Scope.Drop":    {},
 	// A std body's release of a result it drops (Releaser; Gap 47) runs
 	// on the releasing task, which NewDrop receives as its hidden task.
 	"NewDrop":   {task: true},

@@ -604,6 +604,9 @@ func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
 		return
 	}
 	fc.line(fc.own(v, d, v.Type, fc.locals[v], site))
+	if fc.frame == nil || fc.frame.static == nil {
+		fc.ownAt(v, d, fc.l.owned[v], fc.locals[v], site)
+	}
 }
 
 // ownTemp registers the value of x, a temporary its statement owns (R43),
@@ -869,6 +872,7 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 	fc.releaseAt(id)
 	fc.line(target + " = " + t)
 	fc.line(h + " = " + next)
+	fc.ownAt(v, cl, h, target, id)
 	return true
 }
 

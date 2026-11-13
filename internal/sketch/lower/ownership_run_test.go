@@ -34,7 +34,11 @@ import (
 // mutants.json, L8-B1): release at function end, not iteration end; a
 // statement's temporaries not released; a moved local still released; a
 // reassignment does not release the old value; a returned local released
-// by its frame; the branch releases skipped.
+// by its frame; the branch releases skipped. Each seed also runs
+// genHandleRun's program (EXH1), once in each release lowering: a
+// declared root written in place, whose release must see its writes
+// (exh1-in-place-release-stale, exh1-in-place-static-slot,
+// exh1-in-place-receiver-unseen).
 func TestOwnershipRunModel(t *testing.T) {
 	needsBuild(t)
 	seeds, first := 48, 1
@@ -47,20 +51,34 @@ func TestOwnershipRunModel(t *testing.T) {
 	}
 	type runCase struct {
 		name, src, want string
+		seed            int
 	}
 	var cases []runCase
 	var programs []*lowered
 	for seed := first; seed < first+seeds; seed++ {
 		src, want := genOwnRun(seed)
 		name := fmt.Sprintf("ownrun_%d", seed)
-		cases = append(cases, runCase{name, src, want})
+		cases = append(cases, runCase{name, src, want, seed})
 		programs = append(programs, mustLower(t, name, src))
+	}
+	// EXH1: a declared root's handles, admitted uses only, under both
+	// release lowerings (static, and the list form "scope").
+	for seed := first; seed < first+seeds; seed++ {
+		src, want := genHandleRun(seed)
+		static := fmt.Sprintf("ownhandle_%d", seed)
+		cases = append(cases, runCase{static, src, want, seed})
+		programs = append(programs, mustLower(t, static, src))
+		prev := SetReleaseLoweringForTest("scope")
+		list := fmt.Sprintf("ownhandle_list_%d", seed)
+		cases = append(cases, runCase{list, src, want, seed})
+		programs = append(programs, mustLower(t, list, src))
+		SetReleaseLoweringForTest(prev)
 	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
 	}
-	for i, c := range cases {
+	for _, c := range cases {
 		cmd := exec.Command(exes[c.name])
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -70,7 +88,7 @@ func TestOwnershipRunModel(t *testing.T) {
 			got += "defect\n"
 		}
 		if got != c.want {
-			t.Errorf("seed %d (ERGO_SEED=%d replays)\n%s\ngot:\n%s\nwant:\n%s\nstderr:\n%s", first+i, first+i, numbered(c.src), got, c.want, stderr.String())
+			t.Errorf("%s (seed %d; ERGO_SEED=%d replays)\n%s\ngot:\n%s\nwant:\n%s\nstderr:\n%s", c.name, c.seed, c.seed, numbered(c.src), got, c.want, stderr.String())
 		}
 	}
 }
