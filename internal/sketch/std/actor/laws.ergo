@@ -185,6 +185,60 @@ law FeedStepsInOrder(xs []int) {
 	}
 }
 
+// Paces is a pacer: the reading its entry opened at, the beats it was
+// given, and how many carried a reading other than the opening reading
+// plus Pace.
+type Paces { Opened time.Time, Count int, Wrong int }
+
+// Pace is how long a pacer's entry waits for its beat.
+let Pace = 5ms
+
+// paceAt is a pacer opened at the reading at.
+func paceAt(at time.Time) Paces { Paces{Opened: at, Count: 0, Wrong: 0} }
+
+// paceStep counts a beat and opens a new entry at its reading, which arms
+// the next beat; a beat whose reading is not the opening plus Pace is
+// wrong.
+func paceStep(p Paces, at time.Time) Decision[Paces, Never] {
+	let wrong = if at.Equal(p.Opened.Add(Pace)) { p.Wrong } else { p.Wrong + 1 }
+	Enter[Paces]{Next: Paces{Opened: at, Count: p.Count + 1, Wrong: wrong}}
+}
+
+// paceEvery is every entry's timer: the reading it fires at, Pace after
+// the entry opened.
+func paceEvery(p Paces) Option[machines.Every[time.Time]] { Some{machines.Every[time.Time]{In: Pace, Signal: paceSignal}} }
+
+func paceSignal(at time.Time) time.Time { at }
+
+// Pacer is the pacer as a machine, opened at its input's reading.
+type Pacer machine[Paces, time.Time] { initial: paceAt, step: paceStep, after: paceEvery }
+
+// pacedOn: an actor's Every timer gives its signal at the clock's reading
+// when it fires: on m, moved Pace at a time, each of 1 to 4 beats reads
+// its entry's opening plus Pace.
+func pacedOn(m time.Manual, n int) bool needs time.Clock | Scheduler {
+	let beats = 1 + ((n % 4) + 4) % 4
+	let a = StartMachine(machines.Start(Pacer{}, time.Clock.Now()), 1, func(o Never) {})
+	for _ in 0..beats {
+		time.Advance(m, Pace)
+	}
+	let s = WaitFor(a, func(p Paces) bool { p.Count >= beats }) catch {
+	case Stopped:
+		return false
+	}
+	a.Stop()
+	s.Wrong == 0
+}
+
+// EveryFiresWithTheReading: an actor's machines.Every timer gives its
+// signal at the reading of the clock provider when it fires (FKG1).
+law EveryFiresWithTheReading(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m, time.Clock: m } {
+		pacedOn(m, n)
+	}
+}
+
 // can: Can is the pure step's answer in the actor's state while it runs,
 // and false once it has ended (after a Done among the signals).
 func can(signals []int, e int) bool needs Scheduler {

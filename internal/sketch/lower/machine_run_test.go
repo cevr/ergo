@@ -892,7 +892,7 @@ func opened(at time.Time) Beats { Beats{Opened: at, Count: 0, Wrong: 0} }
 func pulse(b Beats, p Pulse) Decision[Beats, Never] {
 	match p {
 	case Beat as t:
-		let wrong = if t.At == b.Opened.Add(Tempo) { b.Wrong } else { b.Wrong + 1 }
+		let wrong = if t.At.Equal(b.Opened.Add(Tempo)) { b.Wrong } else { b.Wrong + 1 }
 		Enter[Beats]{Next: Beats{Opened: t.At, Count: b.Count + 1, Wrong: wrong}}
 	case Nudge as n:
 		Enter[Beats]{Next: Beats{Opened: n.At, Count: b.Count, Wrong: b.Wrong}}
@@ -923,7 +923,7 @@ func EveryCarriesTheReading(gaps []int) bool {
 			return false
 		}
 		let b = machines.LastState(o)
-		b.Wrong == 0 && b.Count >= 3 && b.Opened == start.Add(at + time.Times(Tempo, 3))
+		b.Wrong == 0 && b.Count >= 3 && b.Opened.Equal(start.Add(at + time.Times(Tempo, 3)))
 	}
 }
 
@@ -935,7 +935,7 @@ test MachinesEveryCarriesTheReading(gaps []int) { assert EveryCarriesTheReading(
 var machinesLawStatements = map[string]string{
 	"machines RunSplits":              `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }`,
 	"machines NextTakesItsState":      `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
-	"machines EveryCarriesTheReading": `EveryCarriesTheReading(gaps []int) { let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let mut trace = []Timed[Pulse]{} let mut at = 0s for g in gaps { at = at + time.Times(1ms, ((g % 20) + 20) % 20) trace = trace.Append(Timed[Pulse]{At: at, Signal: Nudge{At: start.Add(at)}}) } let o = RunTimed(Start(Metronome{}, start), trace, at + time.Times(Tempo, 3)) catch { case Rejected: return false } let b = LastState(o) b.Wrong == 0 && b.Count >= 3 && b.Opened == start.Add(at + time.Times(Tempo, 3)) } }`,
+	"machines EveryCarriesTheReading": `EveryCarriesTheReading(gaps []int) { let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let mut trace = []Timed[Pulse]{} let mut at = 0s for g in gaps { at = at + time.Times(1ms, ((g % 20) + 20) % 20) trace = trace.Append(Timed[Pulse]{At: at, Signal: Nudge{At: start.Add(at)}}) } let o = RunTimed(Start(Metronome{}, start), trace, at + time.Times(Tempo, 3)) catch { case Rejected: return false } let b = LastState(o) b.Wrong == 0 && b.Count >= 3 && b.Opened.Equal(start.Add(at + time.Times(Tempo, 3))) } }`,
 	"machines UntimedRunsAsRun":       `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let c = testing.NewVirtualClock(0) let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) } from(0, signals, 0, []int{}) == timed }`,
 }
 
