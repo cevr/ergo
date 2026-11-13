@@ -31,15 +31,6 @@ func recursiveTestCommand(opts fileOptions) error {
 		}
 		checked := l.analysis.Root()
 		pkg := checked.Package
-		// A package with no test and no law has nothing to run, so nothing
-		// is built and run, as go test reports "[no test files]": its
-		// initializers (a main package's lets) never run. Its summary is the
-		// runner's for no test. A receipt or a --run name still builds it;
-		// --law skips it below, as it skips every package without that law.
-		if len(pkg.Tests) == 0 && len(pkg.LawRuns) == 0 && module.law == "" && module.receiptDir == "" && one.run == "" {
-			fmt.Fprintln(os.Stdout, "PASS (0 tests)")
-			return nil
-		}
 		if module.law != "" {
 			found := false
 			for _, run := range pkg.LawRuns {

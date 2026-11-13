@@ -76,11 +76,28 @@ second `ergo test ./...` over an unchanged module links nothing. The cache's
 trim removes an entry that no run used for its age limit, as it does
 emitted modules.
 
+A passing run's output is cached in that entry, as `go test` caches a
+passing result. A later run with the same key prints the same output, then
+`ergo: cached pass replayed; --count 1 runs it again` on stderr, and neither
+invokes the go command nor runs the binary. The key holds everything the
+verdict reads: the test binary (the emitted module, the Go target, flags and
+tags), the binary's arguments (source, revision, `--seed`, `--states`, `--law`,
+`--skip-law`, `--run`), the memory limit, the go command (its path, size and
+modification time), and every `GO*`, `CGO_*` and `ERGO_*` environment variable.
+A test reads no host, since only a program's entry provides `Ambient` and
+`go.Foreign` ([runtime](spec/runtime.md#explored-schedules), Explored
+schedules 6), so no file or other variable can change a verdict. A failing run
+is never cached. `--count 1` (the only count) always runs, and so do
+`--receipt` and `--explore` runs.
+
 Test output names each package by its module import path. A package with no
-test and no law prints `PASS (0 tests)` and is neither built nor run, as `go
-test` reports `[no test files]`: its initializers, such as a `cmd/<name>` main
-package's lets, never run. With `--receipt` or `--run` it is built and run as
-before. An assertion or law
+test and no law is neither built nor run, as `go test` reports `[no test
+files]`: its initializers, such as a `cmd/<name>` main package's lets, never
+run. Its run is the one its test binary would make: `PASS (0 tests)`, a
+receipt with no law run under `--receipt`, the binary's usage error (exit 2)
+for a `--run` name, and `FAIL no law NAME in this package (--law)` (exit 1)
+for a `--law` name. This holds for one package and for `./...`; only a
+schedule search (`--explore dfs|pct|random`) still builds it. An assertion or law
 failure does not hide later packages: the command exits 1 if any selected package
 failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
 and target options keep their per-package meaning. Recursive check writes one

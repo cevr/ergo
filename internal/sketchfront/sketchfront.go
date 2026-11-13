@@ -240,6 +240,11 @@ type BuildRequest struct {
 	// module's Executable is the path written, and the caller holds it
 	// until it calls the module's Release, after the executable exits.
 	Executable string
+	// Reuse, when set, is asked with the module before its link; when it
+	// reports true (the caller has what the link would serve, such as a
+	// cached test result), Build returns the module unlinked, and runs no
+	// go command.
+	Reuse func(build.Module) bool
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
@@ -342,6 +347,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
+	if req.Reuse != nil && req.Reuse(module) {
+		return module, nil
+	}
 	if req.Executable != "" {
 		linked, err := req.Cache.LinkCached(module, req.Toolchain, req.Executable, req.Stderr)
 		if !errors.Is(err, build.ErrNoExecutableCache) {

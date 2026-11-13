@@ -90,7 +90,8 @@ func TestModuleLawSelectionReceipts(t *testing.T) {
 // e5-fmt, e5-fatal and e5-empty; previous CLI tests select one package,
 // never a module pattern. Its cmd/app package (fu-test-main) kills
 // test-main-initialized: a package with nothing to test is built and run,
-// and its package let's defect stops the module's tests.
+// and its package let's defect stops the module's tests; and, run alone
+// with a receipt, it kills empty-receipt-builds (g-b2).
 func TestModuleCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("module command process acceptance runs in the full tier")
@@ -135,6 +136,12 @@ func TestModuleCommands(t *testing.T) {
 		t.Fatalf("fixed module law: exit %d\n%s\n%s", code, out, err)
 	}
 	order(out)
+	// g-b2: the package is not built for one package and a receipt either;
+	// its receipt is the empty run's (TestEmptyRunMatchesTheRunner).
+	receipt := filepath.Join(t.TempDir(), "app.json")
+	if out, err, code = run("test", "cmd/app", "--receipt", receipt); code != 0 || out != "PASS (0 tests)\n" {
+		t.Fatalf("one package with nothing to test, with a receipt: exit %d\n%s\n%s", code, out, err)
+	}
 	if out, err, code = run("check", "./..."); code != 0 {
 		t.Fatalf("fixed module check: exit %d\n%s\n%s", code, out, err)
 	}

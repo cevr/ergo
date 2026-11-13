@@ -127,8 +127,11 @@ type fileOptions struct {
 	law, skipLaw string
 	// run is test's --run NAME: the one test or law the test binary runs,
 	// plain or explored; empty runs every one (X8).
-	run  string
-	file string
+	run string
+	// uncached is test's --count 1: the run neither replays nor keeps a
+	// cached result (testcache.go), as go test -count=1.
+	uncached bool
+	file     string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -154,6 +157,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	selected, ran := false, false
 	platform, platformed := "", false
 	stepsGiven, bytesGiven := false, false
+	count, counted := "", false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -168,6 +172,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
 			opts.run, ran = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--count="); ok {
+			count, counted = value, true
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--states="); ok {
@@ -200,11 +208,13 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--count":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "--count":
+				count, counted = args[i+1], true
 			case "--eval-steps":
 				opts.evalSteps, stepsGiven = args[i+1], true
 			case "--eval-bytes":
@@ -274,6 +284,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--seed is only supported by check and test")
 	case ran && command != "test":
 		return opts, fmt.Errorf("--run is only supported by test")
+	case counted && command != "test":
+		return opts, fmt.Errorf("--count is only supported by test")
+	case counted && count != "1":
+		return opts, fmt.Errorf("--count takes 1, a run that ignores the cached result, not %q", count)
 	case ran && opts.run == "":
 		return opts, fmt.Errorf("--run takes the name of a test or a law")
 	case seeded && !validSeed(opts.seed):
@@ -300,6 +314,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, err
 	}
 	opts.file = positional[0]
+	opts.uncached = counted
 	if opts.search.mode != "" {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true

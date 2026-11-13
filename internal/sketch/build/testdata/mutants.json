@@ -36,6 +36,15 @@
       "to": "",
       "rule": "The trim removes the executable entries no run used for unusedLimit, as it removes module entries.",
       "killers": ["internal/sketch/build:TestTrimKeepsYoungAndRemovesOld"]
+    },
+    {
+      "name": "results-unmarked",
+      "origin": "wf10 g-b2",
+      "file": "internal/sketch/build/results.go",
+      "from": "\t\tmark(entry, info, time.Now())\n",
+      "to": "\t\t_ = info\n",
+      "rule": "A result hit marks its executable entry used, so a package whose runs only replay keeps its entry from the trim.",
+      "killers": ["internal/sketch/build:TestResultHitMarksItsEntry"]
     }
   ]
 }
