@@ -77,13 +77,24 @@ func SlicesContains[T comparable](xs []T, x T) bool { return slices.Contains(xs,
 //ergo:pure
 func SlicesIndex[T comparable](xs []T, x T) int { return slices.Index(xs, x) }
 
-// SlicesReverse is a copy of xs in the reverse order.
+// SlicesReverse is a copy of xs in the reverse order. Where xs is
+// consumed (no binding reads it after the call), the lowering calls its
+// owned form SlicesReverseOwned, which reverses xs in place.
 //
 //ergo:pure
+//ergo:owned SlicesReverseOwned
 func SlicesReverse[T any](xs []T) []T {
 	out := slices.Clone(xs)
 	slices.Reverse(out)
 	return out
+}
+
+// SlicesReverseOwned reverses xs in place and returns it: SlicesReverse's
+// owned form, called on a consumed slice. It writes its argument, so it is
+// not marked pure.
+func SlicesReverseOwned[T any](xs []T) []T {
+	slices.Reverse(xs)
+	return xs
 }
 
 // SlicesClone is slices.Clone(xs): a copy of xs in a new array, so a write

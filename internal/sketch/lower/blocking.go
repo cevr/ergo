@@ -249,6 +249,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesContains":       {},
 	"SlicesIndex":          {},
 	"SlicesReverse":        {},
+	"SlicesReverseOwned":   {},
 	"SlicesClone":          {},
 	"SlicesConcat":         {},
 	"SlicesRepeat":         {},

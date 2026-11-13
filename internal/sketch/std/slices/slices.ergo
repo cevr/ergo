@@ -59,7 +59,10 @@ func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E ne
 	-1
 }
 
-// Reverse is a copy of xs in the reverse order.
+// Reverse is a copy of xs in the reverse order. Where no binding reads xs
+// after the call (a fresh slice, a local read no more), it reverses xs's
+// own array with no copy, as Go's Reverse does (types.md, Bindings 2,
+// consumed arguments).
 extern go ergo.local/prototype/runtime/v1.SlicesReverse func Reverse[T](xs []T) []T
 
 // Max is the largest element of xs, or None when xs is empty. A float NaN
@@ -151,9 +154,10 @@ func Collect[T](s Seq[T]) []T {
 }
 
 // Sorted is the values of s in ascending order, in a new slice:
-// Sort(Collect(s)) with one slice, not two.
+// Sort(Collect(s)) with one slice, not two, since Sort sorts the fresh
+// slice Collect returns in place.
 func Sorted[T ordered](s Seq[T]) []T {
-	sortOwned(Collect(s))
+	Sort(Collect(s))
 }
 
 // Values is xs as a Seq: each element, in order.
@@ -204,4 +208,3 @@ func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fa
 extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs []T) T
 extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
 extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
-extern go ergo.local/prototype/runtime/v1.SlicesSortOwned func sortOwned[T ordered](xs []T) []T

@@ -115,6 +115,8 @@ func TestStdSlicesLaws(t *testing.T) {
 		stable := SlicesSortStableFunc(xs, func(a, b int) int { return cmp.Compare(a/4, b/4) })
 		reversed := SlicesReverse(xs)
 		owned := SlicesSortOwned(slices.Clone(xs))
+		in := slices.Clone(xs)
+		ownedRev := SlicesReverseOwned(in)
 		cloned := SlicesClone(xs)
 		if !slices.Equal(cloned, xs) {
 			t.Fatalf("case %d: Clone(%v) = %v", i, xs, cloned)
@@ -129,6 +131,13 @@ func TestStdSlicesLaws(t *testing.T) {
 		}
 		if !slices.Equal(owned, SlicesSort(xs)) {
 			t.Fatalf("case %d: SortOwned(%v) = %v, want Sort's", i, xs, owned)
+		}
+		if !slices.Equal(ownedRev, SlicesReverse(xs)) {
+			t.Fatalf("case %d: ReverseOwned(%v) = %v, want Reverse's", i, xs, ownedRev)
+		}
+		// The owned form reverses its argument's own array: no copy.
+		if len(in) > 0 && &ownedRev[0] != &in[0] {
+			t.Fatalf("case %d: ReverseOwned(%v) copied its argument", i, xs)
 		}
 		// SortStableKeepsTies: the key is x % 3; of equal keys, the first
 		// in xs stays first.
