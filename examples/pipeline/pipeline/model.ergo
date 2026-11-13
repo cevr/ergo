@@ -1,0 +1,89 @@
+// Model, the in-process provider of Pipeline: a durable actor of
+// Dispatch over a journal. Its operations send the command to the actor
+// and read the receipt from the state that the command committed.
+
+import actor
+import journal
+import pipeline/board
+import pipeline/run
+
+// DeskActor is the running context.
+type DeskActor = actor.Actor[Desk, Signal, Decision[Desk, []Entry], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
+
+// Model is the context as a Pipeline. Open makes one.
+type Model { desk DeskActor }
+
+// Open runs the context over the journal j: it starts in the state that
+// j replays, and keeps each committed signal in j (a snapshot each 16)
+// before anyone sees the state. The runner and the clock are the
+// caller's.
+func Open(j journal.Journal[Desk, Signal]) Model fails journal.Failed | journal.Diverged needs Runner | Scheduler {
+	Model{desk: try journal.Start(Dispatch{}, j, 16, 8, func(es []Entry) {})}
+}
+
+// send asks the desk to take env, and is the receipt of env's ID.
+func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	let _ = m.desk.Ask(Ask{Env: env}) catch {
+	case actor.Stopped:
+		return Unavailable
+	case run.WrongState as e:
+		return e
+	case run.WrongStage as e:
+		return e
+	case run.Closed as e:
+		return e
+	case run.BadLength as e:
+		return e
+	case NoSuchRun as e:
+		return e
+	}
+	match BookOf(m.desk.State()).Seen.Get(env.ID) {
+	case Some[Receipt] as r:
+		r.Value
+	case None:
+		Unavailable
+	}
+}
+
+func Submit(m Model, c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Submit{Stages: c.Stages}})
+}
+
+func Cancel(m Model, c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Cancel{Why: c.Why}})
+}
+
+func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Retry{Stage: c.Stage}})
+}
+
+func Board(m Model) board.View { BookOf(m.desk.State()).Board }
+
+func RunOf(m Model, id string) run.Run fails NoSuchRun {
+	match BookOf(m.desk.State()).Runs.Get(id) {
+	case Some[run.Run] as r:
+		r.Value
+	case None:
+		NoSuchRun{Run: id}
+	}
+}
+
+// Settle waits until the runner runs no try: the context is idle, or a
+// failed try waits for its backoff. It is the desk's state then.
+func Settle(m Model) Desk fails Unavailable {
+	actor.WaitFor(m.desk, func(d Desk) bool { !IsBusy(d) }) catch {
+	case actor.Stopped:
+		return Unavailable
+	}
+}
+
+// Log is the context's log so far.
+func Log(m Model) []Entry { BookOf(m.desk.State()).Log }
+
+// Stop stops the context. (Model has no Close: it is a handle that a
+// context binds and the binary copies, not a resource one owner holds.)
+func Stop(m Model) {
+	m.desk.Stop() catch {
+	case _:
+	}
+}

@@ -1,0 +1,109 @@
+// The rules of a run, as laws of its machine and of its fold.
+
+import slices
+
+// Life is the run as a machine: its step is Handle, so a durable actor
+// of it keeps the commands and replays them (std journal).
+type Life machine[Run, Command] {
+	initial: Unsubmitted,
+	step:    Handle,
+
+	// ClosedIsFinal: a run that ended refuses every command with Closed,
+	// whatever its outcome.
+	law ClosedIsFinal(o Outcome, c Command) {
+		let _ = Handle(Done{Outcome: o}, c) catch {
+		case Closed:
+			return true
+		case WrongState, WrongStage, BadLength:
+			return false
+		}
+		false
+	},
+}
+
+// Forward is the command that moves a run in s one step on, for the laws
+// of the packages that follow runs: a submit of 1 to 3 stages, a start,
+// a finish of the stage it is at (passed when ok), a retry of a failed
+// stage when ok, else a give-up. A run that ended gets a cancel, which
+// it refuses.
+func Forward(s Run, ok bool, stages int) Command {
+	match s {
+	case Unsubmitted:
+		Submit{Stages: 1 + ((stages%3)+3)%3}
+	case Queued:
+		Start
+	case Running as r:
+		Finish{Stage: r.Next, OK: ok}
+	case Failing as f:
+		if ok { Retry{Stage: f.Stage} } else { GiveUp{Stage: f.Stage} }
+	case Done:
+		Cancel{Why: "late"}
+	}
+}
+
+// Drive is the events of a run of stages (1 to 3) whose runner answers
+// oks in order: each answer finishes the stage the run is at, and a
+// failed stage is retried. It stops when the run ends or the answers do.
+func Drive(stages int, oks []bool) []Event {
+	let n = 1 + ((stages%3)+3)%3
+	let mut s Run = Unsubmitted
+	let mut log = []Event{}
+	for c in []Command{Submit{Stages: n}, Start} {
+		let es = Decide(s, c) catch {
+		case WrongState, WrongStage, Closed, BadLength:
+			[]Event{}
+		}
+		s = Fold(s, es)
+		log = slices.Concat(log, es)
+	}
+	for ok in oks {
+		let c = match s {
+		case Running as r:
+			Finish{Stage: r.Next, OK: ok}
+		case Failing as f:
+			Retry{Stage: f.Stage}
+		case Unsubmitted, Queued, Done:
+			break
+		}
+		let es = Decide(s, c) catch {
+		case WrongState, WrongStage, Closed, BadLength:
+			[]Event{}
+		}
+		s = Fold(s, es)
+		log = slices.Concat(log, es)
+	}
+	log
+}
+
+// StagesPassInOrder: the stages of a run pass one after the other, from
+// the first; a retry is of the stage that failed; a run finishes only
+// after its last stage passed.
+law StagesPassInOrder(stages int, oks []bool) {
+	let mut want = 0
+	let mut length = 0
+	for e in Drive(stages, oks) {
+		match e {
+		case Submitted as m:
+			length = m.Stages
+		case StagePassed as p:
+			if p.Stage != want {
+				return false
+			}
+			want = want + 1
+		case StageFailed as f:
+			if f.Stage != want {
+				return false
+			}
+		case Retried as r:
+			if r.Stage != want {
+				return false
+			}
+		case Finished:
+			if want != length {
+				return false
+			}
+		case Started, Abandoned, Stopped:
+		}
+	}
+	true
+}

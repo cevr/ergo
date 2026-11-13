@@ -1,0 +1,9 @@
+# Two runs; stage 2 fails its first two tries (-fail 2:2).
+submit build 3
+submit docs 1
+board
+wait
+board
+show build
+resend 2
+cancel docs late

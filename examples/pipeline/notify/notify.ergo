@@ -1,0 +1,34 @@
+// Package notify is the pipeline's policy: an event of a run that ended
+// gives a notice for the operator. React is pure, so a log replayed
+// gives the same notices.
+
+import pipeline/run
+
+// Notice is what the operator is told.
+type Notice = Passed{ID string} | GaveUp{ID string, Stage int} | Cancelled{ID string, Why string}
+
+// React is the notices that the event e of the run id gives.
+func React(id string, e run.Event) []Notice {
+	match e {
+	case run.Finished:
+		[]Notice{Passed{ID: id}}
+	case run.Abandoned as a:
+		[]Notice{GaveUp{ID: id, Stage: a.Stage}}
+	case run.Stopped as s:
+		[]Notice{Cancelled{ID: id, Why: s.Why}}
+	case run.Submitted, run.Started, run.StagePassed, run.StageFailed, run.Retried:
+		[]Notice{}
+	}
+}
+
+// Text is the notice as a line.
+func Text(n Notice) string {
+	match n {
+	case Passed as p:
+		"! \(p.ID) passed"
+	case GaveUp as g:
+		"! \(g.ID) gave up at stage \(g.Stage + 1)"
+	case Cancelled as c:
+		"! \(c.ID) was cancelled: \(c.Why)"
+	}
+}

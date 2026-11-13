@@ -1,0 +1,62 @@
+// Package pipeline holds the contracts the domain needs and the context
+// that runs it. Pipeline is the Api: one operation type, commands and
+// reads as operations, laws beside them; every surface (the CLI here; the
+// RPC client, the screens and the replica later) is a provider of it or
+// calls it. Runner is the external system that runs a stage. Dispatch is
+// the context's machine: one actor holds every run of the context and
+// calls each run's Decide and Evolve (through run.Handle). Model is the
+// in-process provider of Pipeline over a durable actor of Dispatch.
+
+import pipeline/board
+import pipeline/run
+
+// SubmitRun asks for a new run Run of Stages stages. ID names the
+// command: a resend with the same ID is answered with the first receipt
+// and changes nothing.
+type SubmitRun { ID string, Run string, Stages int }
+
+// CancelRun asks to stop the run Run.
+type CancelRun { ID string, Run string, Why string }
+
+// RetryRun asks to try the failed stage Stage (0 is the first) of the
+// run Run now, without waiting for its backoff.
+type RetryRun { ID string, Run string, Stage int }
+
+// Receipt is the answer to a command that was taken: the command's ID,
+// and the number of events in the context's log once its events were
+// written.
+type Receipt { Command string, Position int }
+
+// NoSuchRun: no run has the name.
+type NoSuchRun { Run string }
+
+// Unavailable: the context does not run (it stopped).
+type Unavailable {}
+
+// Pipeline is the Api of a build pipeline.
+type Pipeline {
+	Submit(c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	Cancel(c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	Retry(c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	Board() board.View,
+	RunOf(id string) run.Run fails NoSuchRun,
+
+	// DuplicateIsNoop: a command sent twice is taken once: the resend
+	// gets the first receipt.
+	law DuplicateIsNoop(c SubmitRun) { DuplicateIsNoop(c) },
+}
+
+// DuplicateIsNoop submits c (with 1 to 3 stages) twice. A first submit
+// that is refused (the run exists) proves nothing and passes.
+func DuplicateIsNoop(c SubmitRun) bool needs Pipeline {
+	let once = SubmitRun{..c, Stages: 1 + ((c.Stages%3)+3)%3}
+	let first = Pipeline.Submit(once) catch {
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+		return true
+	}
+	let again = Pipeline.Submit(once) catch {
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+		return false
+	}
+	again == first
+}

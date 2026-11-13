@@ -1,0 +1,42 @@
+> submit build 2
+  taken as c3 at log position 1
+  build: submitted (stages: 2)
+  build: started
+  build: stage 1 failed
+> submit docs 1
+  taken as c4 at log position 4
+  docs: submitted (stages: 1)
+> board
+  queued: docs
+  running: -
+  failing: build
+  passed: -
+  stopped: -
+> cancel docs no longer needed
+  taken as c6 at log position 5
+  docs: cancelled: no longer needed
+  ! docs was cancelled: no longer needed
+> retry build 2
+  refused: the run is at stage 1, not 2
+> retry build 1
+  taken as c8 at log position 6
+  build: stage 1 is tried again
+  build: stage 1 passed
+  build: stage 2 passed
+  build: finished
+  ! build passed
+> board
+  queued: -
+  running: -
+  failing: -
+  passed: build
+  stopped: docs
+> cancel ghost x
+  refused: no run is named ghost
+> submit huge 12
+  refused: a run has 1 to 9 stages, not 12
+> submit build 1
+  refused: the run has ended (passed)
+> show docs
+  docs: cancelled (no longer needed)
+the runner ran 3 tries

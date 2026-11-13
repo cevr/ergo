@@ -1,0 +1,1 @@
+pipeline: -fail takes STAGE:TRIES, not two

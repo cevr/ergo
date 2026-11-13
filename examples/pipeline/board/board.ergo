@@ -1,0 +1,123 @@
+// Package board is the pipeline's view: the runs by column, each column
+// in the order its runs came into it. It is a fold over the events of
+// every run (Apply), and the law BoardIsFoldOfEvents says that the fold
+// is the board of the runs' states.
+
+import pipeline/run
+
+// View is the board. Each run is in one column.
+type View {
+	Queued  []string,
+	Running []string,
+	Failing []string,
+	Passed  []string,
+	Stopped []string,
+}
+
+// Empty is the board with no run.
+let Empty = View{Queued: []string{}, Running: []string{}, Failing: []string{}, Passed: []string{}, Stopped: []string{}}
+
+// Column is a column of the board.
+type Column = InQueue{} | InRun{} | InFailure{} | InPassed{} | InStopped{}
+
+// ColumnOf is the column of a run in the state r, or None for a run that
+// was never submitted.
+func ColumnOf(r run.Run) Option[Column] {
+	match r {
+	case run.Unsubmitted:
+		None
+	case run.Queued:
+		Some[Column]{Value: InQueue}
+	case run.Running:
+		Some[Column]{Value: InRun}
+	case run.Failing:
+		Some[Column]{Value: InFailure}
+	case run.Done as d:
+		match d.Outcome {
+		case run.Passed:
+			Some[Column]{Value: InPassed}
+		case run.GaveUp, run.Cancelled:
+			Some[Column]{Value: InStopped}
+		}
+	}
+}
+
+// moved is the column that the event e moves a run to, or None when the
+// run stays where it is.
+func moved(e run.Event) Option[Column] {
+	match e {
+	case run.Submitted:
+		Some[Column]{Value: InQueue}
+	case run.Started, run.Retried:
+		Some[Column]{Value: InRun}
+	case run.StageFailed:
+		Some[Column]{Value: InFailure}
+	case run.Finished:
+		Some[Column]{Value: InPassed}
+	case run.Abandoned, run.Stopped:
+		Some[Column]{Value: InStopped}
+	case run.StagePassed:
+		None
+	}
+}
+
+func without(xs []string, id string) []string {
+	let mut out = []string{}
+	for x in xs {
+		if x != id {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// put is v with id at the end of column c.
+func put(v View, c Column, id string) View {
+	match c {
+	case InQueue:
+		View{..v, Queued: v.Queued.Append(id)}
+	case InRun:
+		View{..v, Running: v.Running.Append(id)}
+	case InFailure:
+		View{..v, Failing: v.Failing.Append(id)}
+	case InPassed:
+		View{..v, Passed: v.Passed.Append(id)}
+	case InStopped:
+		View{..v, Stopped: v.Stopped.Append(id)}
+	}
+}
+
+// Apply is v after the event e of the run id: an event that moves the
+// run takes it out of its column and puts it last in the new one.
+func Apply(v View, id string, e run.Event) View {
+	match moved(e) {
+	case Some[Column] as c:
+		let out = View{Queued: without(v.Queued, id), Running: without(v.Running, id), Failing: without(v.Failing, id), Passed: without(v.Passed, id), Stopped: without(v.Stopped, id)}
+		put(out, c.Value, id)
+	case None:
+		v
+	}
+}
+
+// Of is the board of the runs in the order they moved last (order, the
+// first id first), from their states alone.
+func Of(order []string, runs Map[string, run.Run]) View {
+	let mut v = Empty
+	for id in order {
+		let r = match runs.Get(id) {
+		case Some[run.Run] as s:
+			s.Value
+		case None:
+			continue
+		}
+		match ColumnOf(r) {
+		case Some[Column] as c:
+			v = put(v, c.Value, id)
+		case None:
+		}
+	}
+	v
+}
+
+// Size is the number of runs on v.
+func Size(v View) int { len(v.Queued) + len(v.Running) + len(v.Failing) + len(v.Passed) + len(v.Stopped) }

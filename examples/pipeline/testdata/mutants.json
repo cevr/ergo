@@ -1,0 +1,109 @@
+{
+  "about": "pipeline's application mutants; each is judged by the example's tests and laws (scripts/examples), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "px1-decide-cancels-closed", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/run/run.ergo",
+      "from": "\tcase (Done, _):\n\t\tClosed{Status: StatusOf(s)}\n",
+      "to": "\tcase (Done, Submit as m):\n\t\t[]Event{Submitted{Stages: m.Stages}}\n\tcase (Done, _):\n\t\tClosed{Status: StatusOf(s)}\n",
+      "rule": "A run that ended takes no command, a submit of its name included: Life.ClosedIsFinal.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-evolve-drops-pass", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/run/run.ergo",
+      "from": "\tcase (Running as r, StagePassed):\n\t\tRunning{Stages: r.Stages, Next: r.Next + 1}\n",
+      "to": "\tcase (Running as r, StagePassed):\n\t\tr\n",
+      "rule": "A passed stage moves the run to the next one: StagesPassInOrder.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-board-two-columns", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/board/board.ergo",
+      "from": "Failing: without(v.Failing, id),",
+      "to": "Failing: v.Failing,",
+      "rule": "A run that moves leaves its old column: BoardIsFoldOfEvents.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-board-keeps-retried", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/board/board.ergo",
+      "from": "\tcase run.Started, run.Retried:\n\t\tSome[Column]{Value: InRun}\n",
+      "to": "\tcase run.Started:\n\t\tSome[Column]{Value: InRun}\n\tcase run.Retried:\n\t\tNone\n",
+      "rule": "A retried run runs again: BoardIsFoldOfEvents.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-retry-gives-up-early", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/retry/retry.ergo",
+      "from": "\t\tif t.Try >= t.P.Attempts {\n",
+      "to": "\t\tif t.Try+1 >= t.P.Attempts {\n",
+      "rule": "A stage is tried Attempts times: GivesUpAfterAttempts.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-retry-order-number", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/retry/retry.ergo",
+      "from": "Output: Again{Try: b.Try + 1}}",
+      "to": "Output: Again{Try: b.Try * 2}}",
+      "rule": "Each of the saga's orders names the next try, the third too: GivesUpAfterAttempts (the desk reads the next attempt, not the order, and WaitsItsBackoff sees the first order only, which this mutant keeps right).",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-retry-timer-half", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/retry/retry.ergo",
+      "from": "Timeout[Signal]{In: Delay(b.P, b.Try), Signal: Due}",
+      "to": "Timeout[Signal]{In: duration(int64(Delay(b.P, b.Try)) / 2), Signal: Due}",
+      "rule": "The next try is ordered when its whole wait ends: WaitsItsBackoff.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-notify-failed-stage", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/notify/notify.ergo",
+      "from": "\tcase run.Submitted, run.Started, run.StagePassed, run.StageFailed, run.Retried:\n",
+      "to": "\tcase run.StageFailed as f:\n\t\t[]Notice{GaveUp{ID: id, Stage: f.Stage}}\n\tcase run.Submitted, run.Started, run.StagePassed, run.Retried:\n",
+      "rule": "Only a run that ended gives a notice: OneNoticePerEnd.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-flaky-counts-calls", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/memory/runner.ergo",
+      "from": "\tattempt > n\n",
+      "to": "\tf.ran.Get() > n\n",
+      "rule": "A runner answers by the try, not by the calls before it: Runner.Repeatable for Flaky.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-desk-no-dedupe", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/pipeline/desk.ergo",
+      "from": "\tcase Some[Receipt]:\n\t\treturn Ignore\n",
+      "to": "\tcase Some[Receipt]:\n",
+      "rule": "A resend gets the first receipt: ModelTakesEachCommandOnce.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-handle-keeps-state", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/run/run.ergo",
+      "from": "\tEmit{Next: Fold(s, es), Output: es}\n",
+      "to": "\tEmit{Next: s, Output: es}\n",
+      "rule": "The step's next state is the fold of its events: SceneAgreesWithStory.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-offline-passes", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/pipeline/desk.ergo",
+      "from": "OnFailure: func(u Offline) Signal { Ran{OK: false} }",
+      "to": "OnFailure: func(u Offline) Signal { Ran{OK: true} }",
+      "rule": "An offline runner is a failed try: SceneAgreesWithStory.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px1-desk-last-first", "origin": "wf10/domain PX1",
+      "file": "examples/pipeline/pipeline/desk.ergo",
+      "from": "\tfor i, id in b.Queue {\n",
+      "to": "\tfor i, id in slices.Reverse(b.Queue) {\n",
+      "rule": "Runs start in the order they were submitted: SceneAgreesWithStory.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    }
+  ]
+}

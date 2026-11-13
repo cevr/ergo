@@ -1,0 +1,5 @@
+# ergo test cannot build a Model for the member law of Pipeline: a Model
+# holds an actor that a context opens (Open needs a Runner and a
+# Scheduler). pipeline/laws.ergo's ModelTakesEachCommandOnce opens one and
+# runs the same body against it.
+skip law Pipeline.DuplicateIsNoop for Model: its values have no generator: actor.Actor[Desk, Signal, Decision[Desk, []Entry], NoSuchRun | run.BadLength | run.Closed | run.WrongStage | run.WrongState] is an operation type with no builder: neither actor nor actortest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewModel() Model with no rows would build one for each case

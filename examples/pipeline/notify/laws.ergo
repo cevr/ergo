@@ -1,0 +1,27 @@
+// The rule of the policy as a law over generated runs.
+
+import pipeline/run
+
+// OneNoticePerEnd: over the events of a run driven by any answers (and
+// cancelled at the step cancelAt, if it has one), the policy gives one
+// notice when the run ends and none before.
+law OneNoticePerEnd(stages int, oks []bool, cancelAt int) {
+	let mut s run.Run = run.Unsubmitted
+	let mut notices = 0
+	for i, ok in oks {
+		let c = if i == cancelAt { run.Cancel{Why: "stop"} } else { run.Forward(s, ok, stages) }
+		let es = run.Decide(s, c) catch {
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength:
+			[]run.Event{}
+		}
+		for e in es {
+			let told = len(React("r", e))
+			s = run.Evolve(s, e)
+			notices = notices + told
+			if told > 0 && !run.IsDone(s) {
+				return false
+			}
+		}
+	}
+	notices == (if run.IsDone(s) { 1 } else { 0 })
+}
