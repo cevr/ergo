@@ -193,6 +193,8 @@ type lowerer struct {
 	// owned is the Go name of each owned value's entry (release.go, B1):
 	// keyed by its *check.Var or its temporary's syntax.Expr.
 	owned map[any]string
+	// reassignedVars are the owned locals an assignment replaces (reassigned).
+	reassignedVars map[*check.Var]bool
 	// handed is each part a value being built took over (handParts).
 	handed map[syntax.Expr]bool
 	// Root registration callbacks for repeated moving task bodies (R12).

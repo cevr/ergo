@@ -160,6 +160,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Hand":          {},
 	"Returned":      {},
 	"Owned.Release": {},
+	// ReleaseLatestFirst releases a scope's end in the frame list's order
+	// where an assignment re-registered a local (R41; releaseAt).
+	"ReleaseLatestFirst": {},
 	// Generated release (release.go, B2; resources R3, R37, R39): a value
 	// whose parts hold resources registers through OwningParts, a field
 	// taken in place marks its entry (Owned.TakeField), and its release

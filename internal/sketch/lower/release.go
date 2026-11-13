@@ -955,6 +955,22 @@ func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 // ends inside the frame: last acquired first. A value whose entry left
 // the list (a hand-off on this path) is skipped by its entry (R21).
 func (fc *funcCtx) releaseAt(key syntax.Node) {
+	// The plan lists the values last declared first. An assignment that
+	// replaces an owned local's value registers the new value then (R41),
+	// so where the plan names such a local the scope's values are released
+	// in the order of the frame's list, last registered first (R5), which
+	// may differ from the plan's on each path (ReleaseLatestFirst).
+	var hs []string
+	latest := false
+	defer func() {
+		if latest && len(hs) > 1 {
+			fc.line(fc.runtimeCall("ReleaseLatestFirst", fc.ownBinding("ReleaseLatestFirst", key), "", "", hs, "", nil, nil, key))
+			return
+		}
+		for _, h := range hs {
+			fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+		}
+	}()
 	for _, r := range fc.l.info.Releases[key] {
 		var h string
 		if r.Var != nil {
@@ -980,8 +996,34 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 				continue
 			}
 		}
-		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+		hs = append(hs, h)
+		latest = latest || r.Var != nil && fc.l.reassigned(r.Var)
 	}
+}
+
+// reassigned reports an owned local that an assignment of the package
+// replaces (R41; releaseAt).
+func (l *lowerer) reassigned(v *check.Var) bool {
+	if l.reassignedVars == nil {
+		l.reassignedVars = map[*check.Var]bool{}
+		for _, s := range l.srcs {
+			syntax.Inspect(s.file, func(n syntax.Node) bool {
+				a, ok := n.(*syntax.AssignStmt)
+				if !ok {
+					return true
+				}
+				for _, lhs := range a.Lhs {
+					if id, ok := unparen(lhs).(*syntax.Ident); ok {
+						if w, _ := l.info.Uses[id].(*check.Var); w != nil && l.info.OwnedVars[w] != nil {
+							l.reassignedVars[w] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return l.reassignedVars[v]
 }
 
 // releaseName names a planned release for an internal compiler error.

@@ -343,6 +343,7 @@ var bodyTable = map[string]bodyFact{
 	"RegisterInlines":           {body: Body{Params: []Param{{Type: "[]struct{Call, Parent int}"}}}},
 	"RegisterMachine":           {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}}, Params: []Param{{Type: "MachineGraph"}}}},
 	"Release":                   {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "func()", Func: &Body{}}}}},
+	"ReleaseLatestFirst":        {body: Body{Params: []Param{{Type: "...*Owned"}}}},
 	"ReturnStatic":              {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*uint64"}, {Type: "*uint64"}, {Type: "uint64"}, {Type: "T"}}, Results: []string{"T"}}},
 	"Returned":                  {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Owned"}, {Type: "T"}}, Results: []string{"T"}}},
 	"Running.Chunks":            {body: Body{Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[ExecChunk]"}}},
