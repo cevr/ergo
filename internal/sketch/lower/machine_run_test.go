@@ -726,10 +726,10 @@ func main() {
 }
 
 // TestMachineAfterRefusals: a machine's after names a package function
-// from its state to Option[Timeout[E]] with no rows, since the runner
-// calls it after a commit. Diagnostic rows: they alone catch a checker
-// that admits an after of another type or with a row, which no program
-// that builds can show.
+// from its state to Option[Timeout[E]] (or Option[machines.Every[E]]) with
+// no rows, since the runner calls it after a commit. Diagnostic rows: they
+// alone catch a checker that admits an after of another type or with a
+// row, which no program that builds can show.
 func TestMachineAfterRefusals(t *testing.T) {
 	head := `type St = A{}
 type Sig = Go{}
@@ -740,7 +740,7 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	machine := "type M machine[St, Sig] {\n\tinitial: A,\n\tstep:    step,\n\tafter:   timer,\n}\n\nfunc main() {}\n"
 	for _, c := range []struct{ name, timer, want string }{
 		{"signal", "func timer(e Sig) Option[Timeout[Sig]] { None }\n\n",
-			"S108 the after timer of machine M must have the type func(St) Option[Timeout[Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
+			"S108 the after timer of machine M must have the type func(St) Option[Timeout[Sig]], or Option[machines.Every[Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
 		{"row", "func timer(s St) Option[Timeout[Sig]] {\n\tConsole.Println(\"x\")\n\tNone\n}\n\n",
 			"S108 cannot use func(St) Option[Timeout[Sig]] needs Console as func(St) Option[Timeout[Sig]] in machine M's after: its capability row {Console} is wider than {}"},
 		{"unknown", "", "S104 unknown function timer"},

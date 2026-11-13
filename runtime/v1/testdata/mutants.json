@@ -656,8 +656,8 @@
       "name": "fkg1-firing-unmarked",
       "origin": "wf10 FKG1",
       "file": "runtime/v1/runtime.go",
-      "from": "c := t.WithValue(machineFiring{}, true)",
-      "to": "c := t.WithValue(machineFiring{}, nil)",
+      "from": "func MachineFiringOn(t *rt.Task) { t.SetFiring(true) }",
+      "to": "func MachineFiringOn(t *rt.Task) { t.SetFiring(false) }",
       "rule": "runtime.md, Machines and actors 9 (FKG1): MachineFiring marks the task while the After runs.",
       "killers": [
         "lower:TestStdMachinesLawsRun"

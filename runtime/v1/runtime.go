@@ -133,25 +133,22 @@ func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *Mach
 	return &MachineTimerDefect{Machine: machine, State: name + fmt.Sprintf("%+v", v), In: in}
 }
 
-// machineFiring is the context-value key of the firing mark (MachineFiring).
-type machineFiring struct{}
+// MachineFiringOn is the Go body of std machines' firingOn (FKG1): it sets
+// the firing mark of t, the runner's task, which MachineFiringOff clears.
+// machines.RunTimed and std actor's runner call a state's After between
+// the two when its timer fires. A declared machine whose after gives a
+// machines.Every reads the mark in its After (MachineFiringNow) and makes
+// the signal from time.Clock's reading; outside the mark it makes it from
+// the zero time, since the runner then reads only In. The mark is a field
+// of the task, so it costs no allocation.
+func MachineFiringOn(t *rt.Task) { t.SetFiring(true) }
 
-// MachineFiring is the Go body of std machines' firing (FKG1): after(s)
-// with the firing mark bound on t, the runner's task, while it runs. A
-// declared machine whose after gives a machines.Every reads the mark in
-// its After (MachineFiringNow) and makes the signal from time.Clock's
-// reading; outside the mark it makes it from the zero time, since the
-// runner then reads only In. machines.RunTimed and std actor's runner call
-// a state's After this way when its timer fires.
-func MachineFiring[S, T any](t *rt.Task, after func(S) T, s S) T {
-	c := t.WithValue(machineFiring{}, true)
-	defer c.End()
-	return after(s)
-}
+// MachineFiringOff clears t's firing mark (MachineFiringOn).
+func MachineFiringOff(t *rt.Task) { t.SetFiring(false) }
 
 // MachineFiringNow reports whether t runs a state's After for a timer that
-// fires (MachineFiring).
-func MachineFiringNow(t *rt.Task) bool { return t.Value(machineFiring{}) != nil }
+// fires (MachineFiringOn).
+func MachineFiringNow(t *rt.Task) bool { return t.Firing() }
 
 // TextList is a list's text from its elements' texts: [a b c].
 func TextList(elems []string) string { return "[" + strings.Join(elems, " ") + "]" }

@@ -6,11 +6,11 @@ Tag: `default`.
 
 ## How it works
 
-- Package `watch` is the machine `Stopwatch`. The state `Watch` is `Stopped{Elapsed} | Running{Before, Since, Elapsed}`, and the signal is `Start | Stop | Reset | Ticked`. The step reads `time.Clock`. Start records the clock's reading in `Since`, and the time shown so far in `Before`. The `Running` state owns its timer (the machine's `after`): its entry arms `Ticked` after 10 ms. A tick shows `Before` plus the clock's time since `Since`, then enters `Running` again, which arms the next tick. Stop reads the clock the same way. So the shown time is the clock's elapsed time and never a count of ticks: a late tick, or ticks that come bunched, lose nothing. Stopping or resetting ends the entry and drops the timer, so a stopped watch never ticks. A press that does not apply (start while running, stop while stopped) is ignored and keeps the entry, so it does not move the next tick.
-- Package `script` reads lines `@MS start|stop|reset` and a last `@MS end`, and replays the presses with `machines.RunTimed`.
+- Package `watch` is the machine `Stopwatch`. The state `Watch` is `Stopped{Elapsed} | Running{Before, Since, Elapsed}`, and the signal is `Pressed{Button, At} | Ticked{At}`, each carrying the clock's reading, so the step reads no clock. Start records the press's reading in `Since`, and the time shown so far in `Before`. The `Running` state owns its timer (the machine's `after`, a `machines.Every`): its entry arms a tick 10 ms later, and the runner makes it `Ticked{At}` from the clock's reading when it fires. A tick shows `Before` plus the time from `Since` to its reading, then enters `Running` again, which arms the next tick. Stop does the same with its own reading. So the shown time is the clock's elapsed time and never a count of ticks: a late tick, or ticks that come bunched, lose nothing. Stopping or resetting ends the entry and drops the timer, so a stopped watch never ticks. A press that does not apply (start while running, stop while stopped) is ignored and keeps the entry, so it does not move the next tick.
+- Package `script` reads lines `@MS start|stop|reset` and a last `@MS end`, and replays the presses with `machines.RunTimed`; `Replay` gives each press the clock's reading at its time.
 - `cmd/fk-stopwatch` binds `time.Clock` and `Scheduler` to a `testing.VirtualClock`, so a script of an hour takes no wall time.
 
-Upstream keeps `{elapsedMs, isRunning, startTime}` and reads the clock in two commands (`DetermineStartTime`, `DetermineTickTime`) and a tick subscription keyed on `isRunning`. Here `isRunning` is the state's mode, the subscription is the `Running` state's timer, and the step reads the clock, so no command is needed. Ergo's form is not fully pure: a timer's signal is a fixed value (`Timeout{In, Signal}`) and cannot carry the time it fired, and `machines.RunTimed` runs no work. So the clock reading cannot come in as signal data, and the step needs `time.Clock` instead. Every law of the step therefore binds a clock (ledger row FK1-g1). One choice departs from upstream: Stop keeps the time up to the press, by the clock, where upstream keeps the time of the last tick and loses the rest.
+Upstream keeps `{elapsedMs, isRunning, startTime}` and reads the clock in two commands (`DetermineStartTime`, `DetermineTickTime`) and a tick subscription keyed on `isRunning`. Here `isRunning` is the state's mode, the subscription is the `Running` state's timer, and the readings come in as signal data (a `machines.Every` timer, FKG1), so no command is needed and the step is pure: no test or law of it binds a clock. One choice departs from upstream: Stop keeps the time up to the press, by the clock, where upstream keeps the time of the last tick and loses the rest.
 
 ## Upstream tests
 
@@ -34,7 +34,7 @@ Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what r
 
 ## Laws
 
-Each law folds the step over generated presses and ticks on a `time.Manual` that the law moves itself. A tick can come late (gaps up to 2.5 s, where the timer asks for 10 ms) or bunched with others at one instant.
+Each law folds the step over generated presses and ticks, each carrying a reading the law moves itself; none binds a clock. A tick can come late (gaps up to 2.5 s, where the timer asks for 10 ms) or bunched with others at one instant.
 
 - `ShownIsClockElapsed`: after every press and every tick, the watch shows the clock's elapsed time while it ran (up to its last tick, when it runs). The model sums the clock's running intervals and counts no tick, so a tick count fails it.
 - `ElapsedGrowsOnlyWhileRunning`: no step takes time away except a reset, which shows zero; a stopped watch's time moves only by a reset.

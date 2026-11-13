@@ -22,8 +22,8 @@
       "name": "fkg1-runtimed-fires-plain",
       "origin": "wf10 FKG1",
       "file": "internal/sketch/std/machines/machines.ergo",
-      "from": "\tmatch firing(m.After, s) {",
-      "to": "\tmatch m.After(s) {",
+      "from": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {\n\tfiringOn()",
+      "to": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {\n\tfiringOff()",
       "rule": "runtime.md, Machines and actors 9 (FKG1): RunTimed makes a timer's signal under the firing mark, so an Every timer reads the clock.",
       "killers": [
         "lower:TestStdMachinesLawsRun"
@@ -33,8 +33,8 @@
       "name": "fkg1-actor-fires-plain",
       "origin": "wf10 FKG1",
       "file": "internal/sketch/std/actor/actor.ergo",
-      "from": "\tstart(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {\n\t\tmatch firing(m.After, at) {",
-      "to": "\tstart(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {\n\t\tmatch m.After(at) {",
+      "from": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {\n\tfiringOn()",
+      "to": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {\n\tfiringOff()",
       "rule": "runtime.md, Machines and actors 9 (FKG1): the actor's runner makes a timer's signal under the firing mark.",
       "killers": [
         "lower:TestStdActorLawsRun"

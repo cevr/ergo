@@ -1380,7 +1380,7 @@ The table has one row per std package, the prelude included. The Effect module i
   - `base64`: Go's two alphabets as the union `Encoding`;
   - `sync`: `Ref`, `TxRef`, `Atomically`, `Latch`;
   - `testing`: `T`, `VirtualClock`, `Discard`, `Idle`.
-- **New:** `tasks`, `schedule` (the schedule algebra, with laws), `retry`, `timeout`, `trace`, `log`, `metric`, `batch`, `actor` (the live machine runner: `StartMachine`, `Send`, `Ask`, `State`, `Stop`, `Changes`, `Dropped`, `Feed`, `Can`), `machines` (the runs of a machine value: the pure `Run` and `From`, `RunTimed` with state timers on the context's `time.Clock` and `Scheduler`, `Start` for a machine with an input, `Next`, `Initial`, `Can`), `html`.
+- **New:** `tasks`, `schedule` (the schedule algebra, with laws), `retry`, `timeout`, `trace`, `log`, `metric`, `batch`, `actor` (the live machine runner: `StartMachine`, `Send`, `Ask`, `State`, `Stop`, `Changes`, `Dropped`, `Feed`, `Can`), `machines` (the runs of a machine value: the pure `Run` and `From`, `RunTimed` with state timers on the context's `time.Clock` and `Scheduler`, `Every` for a timer whose signal carries the clock's reading when it fires, `Start` for a machine with an input, `Next`, `Initial`, `Can`), `html`.
 
 ## Schedule
 

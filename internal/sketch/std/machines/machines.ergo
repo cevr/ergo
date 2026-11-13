@@ -50,12 +50,14 @@ type Work[E, R] { Start func(send func(e E)) needs R }
 // interval Tick and Foldkit's Stream.tick give the same reading.
 type Every[E] { In duration, Signal func(at time.Time) E }
 
-// firing is after(s) with the runner's firing mark on the calling task: a
-// declared machine's After, called this way, gives an Every timer's
-// signal at time.Clock's reading now (Every). RunTimed and the actor's
-// runner call a state's After this way when its timer fires, and plainly
-// when the entry opens, where only In is read.
-extern go ergo.local/prototype/runtime/v1.MachineFiring func firing[S, T](after func(s S) T, s S) T
+// firingOn sets the runner's firing mark on the calling task, and
+// firingOff clears it: a declared machine's After, called between them,
+// gives an Every timer's signal at time.Clock's reading now (Every).
+// RunTimed and the actor's runner call a state's After so when its timer
+// fires, and plainly when the entry opens, where only In is read.
+extern go ergo.local/prototype/runtime/v1.MachineFiringOn func firingOn()
+
+extern go ergo.local/prototype/runtime/v1.MachineFiringOff func firingOff()
 
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in
@@ -220,7 +222,10 @@ func arm[S, E, O, F, R, W](timers []armed[S], m Machine[S, E, O, F, R, W], s S, 
 // signal carries time.Clock's reading now. After is a function of the
 // state alone, so it gives the timer it gave when the entry opened.
 func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
-	match firing(m.After, s) {
+	firingOn()
+	let timer = m.After(s)
+	firingOff()
+	match timer {
 	case Some[Timeout[E]] as t:
 		t.Value.Signal
 	case None:
