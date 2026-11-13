@@ -24,7 +24,6 @@ runtime/v1/exec_start.go	newRunning	no task: the goroutine that closes chunks on
 runtime/v1/exec_start.go	Running.send	no task: a pipe reader goroutine hands a chunk to the reading task, or drops it once finish begins
 runtime/v1/exec_start.go	hostProc.reap	no task: the reaper goroutine waits for the process's exit
 runtime/v1/exec_start.go	ExecReplay	no task: the replay goroutine feeds the recorded chunks
-runtime/v1/http.go	httpServer.ServeHTTP	no task: net/http's connection goroutine hands its call to the serve loop
 runtime/v1/http_client.go	httpStreamRead	no task: the response reader goroutine hands an event to the reading task
 runtime/v1/gocall.go	Call	no task: the Go caller waits, after the root task's run, for the context watcher that interrupted it to end (batch 16b's IG11 fix meets MK1)
 
