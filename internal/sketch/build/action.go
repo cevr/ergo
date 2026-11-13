@@ -36,7 +36,8 @@ type Toolchain struct {
 	// direct path of Build (direct.go).
 	GoBuild bool
 	// Strip links without the symbol table and DWARF (`-ldflags=-s -w`):
-	// the default of `ergo build`, which `--debug` turns off. The pclntab
+	// the default of `ergo build`, `run` and `test`, which `--debug` turns
+	// off (compile-speed CS7). The pclntab
 	// stays, so tracebacks and the defect report do not change. The flag
 	// stands first in the action's GOFLAGS, so an -ldflags of the user's
 	// own GOFLAGS replaces it, as a later flag does in the go command.

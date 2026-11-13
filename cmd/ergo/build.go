@@ -157,19 +157,28 @@ func placeWarm(w *warm, opts fileOptions, place func(name, output string) string
 }
 
 // buildAction is the Go build action of opts' command: the go command
-// ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
-// opts.platform, always stated, so the go env file's GOOS and GOARCH never
-// choose it. The emitted module is the same for every platform; Go's
-// action cache keys the link on the platform.
+// ERGO_GO selects (goCommand) with the user's GOFLAGS (actionFor).
 func buildAction(opts fileOptions) (build.Toolchain, error) {
-	tc := build.HostToolchain()
 	selected, err := goCommand()
 	if err != nil {
 		return build.Toolchain{}, err
 	}
+	return actionFor(opts, selected), nil
+}
+
+// actionFor is the Go build action of opts' command with the go command
+// selected: linking for opts.platform, always stated, so the go env file's
+// GOOS and GOARCH never choose it, and without the symbol table and DWARF
+// (-s -w) unless --debug is given, for build, run and test alike
+// (compile-speed CS7: about half of a link's work; a traceback and a
+// defect report are the same). The emitted module is the same for every
+// platform and either link; the link key holds both (build/direct.go).
+func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
+	tc := build.HostToolchain()
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
-	return tc, nil
+	tc.Strip = !opts.debug
+	return tc
 }
 
 // goCommand is the go command every build and `ergo bind go` run

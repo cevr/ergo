@@ -76,9 +76,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 		return nil
 	}
 	selected, _ := toolchain.Status(os.Getenv, root)
-	tc := build.HostToolchain()
-	tc.Go, tc.Root = selected.Go, selected.Root
-	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc := actionFor(opts, selected)
 	return &tc
 }
 

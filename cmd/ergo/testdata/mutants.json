@@ -359,6 +359,8 @@
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
     },
-    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}}
+    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-debug-flag-ignored","origin":"wf10 compile-speed CS7","file":"cmd/ergo/build.go","from":"\ttc.Strip = !opts.debug\n","to":"\ttc.Strip = true\n","rule":"--debug keeps the symbol table and DWARF: its link adds no -s -w.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"cs-strip-only-build","origin":"wf10 compile-speed CS7","file":"cmd/ergo/build.go","from":"\ttc.Strip = !opts.debug\n","to":"\ttc.Strip = !opts.debug && opts.command == \"build\"\n","rule":"ergo run and ergo test link stripped by default, as ergo build does (compile-speed CS7).","killers":["cmd/ergo:TestRunAndTestLinkStripped"]}
   ]
 }

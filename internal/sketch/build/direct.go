@@ -668,6 +668,15 @@ func (d *direct) modinfo(tg *target) string {
 	return start + info.String() + end
 }
 
+// LinkFlags are the flags the direct path's link adds for t: -s -w when t
+// strips, as go build -ldflags='-s -w' does.
+func (t Toolchain) LinkFlags() []string {
+	if t.Strip {
+		return []string{"-s", "-w"}
+	}
+	return nil
+}
+
 // link runs, or reuses, the link of the root package, and writes the
 // executable to the output.
 func (d *direct) link(tg *target) error {
@@ -713,11 +722,9 @@ func (d *direct) link(tg *target) error {
 			mode = "-buildmode=pie"
 		}
 		args := []string{"-o", out, "-importcfg", cfgPath, mode, "-buildid=" + buildID(key, 4)}
-		if d.t.Strip {
-			// go build's -ldflags stand after its forced flags; under
-			// -trimpath the build information does not record them.
-			args = append(args, "-s", "-w")
-		}
+		// go build's -ldflags stand after its forced flags; under -trimpath
+		// the build information does not record them.
+		args = append(args, d.t.LinkFlags()...)
 		args = append(args, "-extld="+d.plan.CC, d.blob(all[tg.main.Module]))
 		cmd := exec.Command(d.plan.Link.Path, args...)
 		cmd.Dir = d.module.Dir
