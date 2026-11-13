@@ -51,12 +51,7 @@ func last(mb int, trace []machines.Timed[Signal], end duration) Transfer {
 		case machines.Rejected:
 			return Begin(mb)
 		}
-		match o {
-		case machines.Running[Transfer, Never] as r:
-			r.State
-		case machines.Finished[Transfer, Never] as f:
-			f.State
-		}
+		machines.LastState(o)
 	}
 }
 

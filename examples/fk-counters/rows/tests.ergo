@@ -18,12 +18,7 @@ func after(r Rows, signals []Signal) Rows {
 	case machines.Rejected:
 		return r
 	}
-	match o {
-	case machines.Running[Rows, Never] as run:
-		run.State
-	case machines.Finished[Rows, Never] as f:
-		f.State
-	}
+	machines.LastState(o)
 }
 
 func counts(r Rows) []int {

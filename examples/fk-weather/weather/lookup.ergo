@@ -19,10 +19,6 @@ type Why = NoZip{} | NotFound | Unavailable
 // its failures.
 type Signal = Edited{Text string} | Submitted{} | Got{Report Report} | NotFound | Unavailable
 
-// Never is the output of a lookup: it never ends and emits nothing, so no
-// value of Never is made.
-type Never {}
-
 // Initial is a lookup with an empty draft and nothing shown.
 func Initial() Lookup { Lookup{Draft: "", Panel: Blank} }
 

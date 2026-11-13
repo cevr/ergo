@@ -20,10 +20,6 @@ type Watch = Stopped{Elapsed duration} | Running{Before duration, Since time.Tim
 // Signal is what the watch takes: the three buttons, and its own tick.
 type Signal = Start{} | Stop{} | Reset{} | Ticked{}
 
-// Never is the output of a watch: a stopwatch never ends and emits
-// nothing, so no value of Never is made.
-type Never {}
-
 // Initial is a stopped watch at zero.
 func Initial() Watch { Stopped{Elapsed: 0s} }
 
@@ -68,12 +64,7 @@ func Replay(trace []machines.Timed[Signal], end duration) Watch needs time.Clock
 	case machines.Rejected:
 		return Initial()
 	}
-	match o {
-	case machines.Running[Watch, Never] as r:
-		r.State
-	case machines.Finished[Watch, Never] as f:
-		f.State
-	}
+	machines.LastState(o)
 }
 
 // ElapsedOf is the time w shows.

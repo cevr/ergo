@@ -16,9 +16,6 @@ type Mode =
 // answers.
 type Signal = Start{} | Stop{} | Compute{} | Started{Engine Engine} | Refused{Why string}
 
-// Never is the output of the screen: it emits nothing and never ends.
-type Never {}
-
 // Step is the transition. Start boots an engine from Off or Failed; the
 // boot's answer is Ready (a Stay: Ready keeps the entry, and with it the
 // work that holds the lease) or Failed; Stop turns a booting or ready

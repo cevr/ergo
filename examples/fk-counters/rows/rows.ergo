@@ -19,9 +19,6 @@ type Rows { Items []Row, Next int }
 // own signal for the row with the key.
 type Signal = Add{} | Remove{Key int} | At{Key int, Sig counter.Signal}
 
-// Never is the output of the list: it never ends and emits nothing.
-type Never {}
-
 // Initial is three fresh counters, keys 0 to 2.
 func Initial() Rows {
 	Rows{Items: []Row{fresh(0), fresh(1), fresh(2)}, Next: 3}

@@ -9,10 +9,6 @@ type Count { N int }
 // Signal is what a counter takes: its two buttons.
 type Signal = Increment{} | Decrement{}
 
-// Never is the output of a counter: it never ends and emits nothing, so
-// no value of Never is made.
-type Never {}
-
 // Initial is a counter at zero.
 func Initial() Count { Count{N: 0} }
 

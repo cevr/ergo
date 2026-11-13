@@ -13,7 +13,7 @@ The plan asks for both of upstream's ways to hold work in flight, kept side by s
 
 The law `ShapesAgree` is the model-based test of shape B against shape A. Over generated starts, cancels, cancel-alls, restarts (also for ids with no transfer) and clock moves, both show the same transfers in the same states after every press and at the end.
 
-Shape A is the idiom. Its model is 94 lines (`transfer` 48, `board` 46) against shape B's 138 (`emitted` 71, `registry` 67). Its rules are laws of one step of one transfer (`CancelledNeverBecomesDone`, `RestartOnlyFromCancelled`), so they hold for every transfer, while shape B's hold only through the registry. Cancellation is the end of an entry, not a protocol with two outcomes.
+Shape A is the idiom. Its model is 93 lines (`transfer` 47, `board` 46) against shape B's 138 (`emitted` 71, `registry` 67). Its rules are laws of one step of one transfer (`CancelledNeverBecomesDone`, `RestartOnlyFromCancelled`), so they hold for every transfer, while shape B's hold only through the registry. Cancellation is the end of an entry, not a protocol with two outcomes.
 
 Two things the port found:
 

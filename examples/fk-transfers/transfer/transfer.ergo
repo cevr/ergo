@@ -36,9 +36,6 @@ type Transfer = Sending{MB int} | Sent{MB int} | Cancelled{MB int}
 // Signal is what a transfer takes: the two buttons, and its own arrival.
 type Signal = Cancel{} | Restart{} | Arrived{}
 
-// Never is the output of a transfer: it emits nothing and never ends.
-type Never {}
-
 // Step is the transition. Cancel ends a sending transfer; Arrived ends it
 // sent; Restart sends a cancelled one again from the start. Every other
 // pair is ignored: a cancel of a sent or cancelled transfer, a restart of

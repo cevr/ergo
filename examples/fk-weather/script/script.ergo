@@ -52,7 +52,7 @@ func Run() int needs Console | io.Stdin | Scheduler | weather.Forecast {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let a = actor.StartMachine(weather.Weather{}, 8, func(o weather.Never) {})
+	let a = actor.StartMachine(weather.Weather{}, 8, func(o Never) {})
 	let mut l = a.State()
 	Console.Println(Show(l))
 	for e in events {

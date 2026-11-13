@@ -10,7 +10,7 @@ import fktransfers/transfer
 import machines
 
 // Child is one transfer's actor.
-type Child = actor.Actor[transfer.Transfer, transfer.Signal, Decision[transfer.Transfer, transfer.Never]]
+type Child = actor.Actor[transfer.Transfer, transfer.Signal, Decision[transfer.Transfer, Never]]
 
 // Item is one transfer of the board: its id, its file and its actor.
 type Item { ID int, File transfer.File, Child Child }
@@ -25,7 +25,7 @@ func New() Board { Board{Items: []Item{}, Next: 0} }
 // Start starts the next transfer, sending at once.
 func Start(b Board) Board needs Scheduler {
 	let f = transfer.FileFor(b.Next)
-	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n transfer.Never) {})
+	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n Never) {})
 	Board{Items: b.Items.Append(Item{ID: b.Next, File: f, Child: child}), Next: b.Next + 1}
 }
 

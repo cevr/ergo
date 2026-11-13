@@ -17,10 +17,6 @@ type Stage = Editing{} | Sending{} | Sent{Text string} | Refused{}
 // the submit. JoinFailed is the submit's failure and also a signal.
 type Signal = NameEdited{Text string} | EmailEdited{Text string} | NoteEdited{Text string} | Submitted{} | Checked{Taken bool} | Joined{} | JoinFailed
 
-// Never is the output of a form: it never ends and emits nothing, so no
-// value of Never is made.
-type Never {}
-
 // Initial is the empty form.
 func Initial() Form {
 	Form{Name: NameField(""), Email: Field[Email, EmailWhy]{Text: "", Verdict: Unchecked}, Note: "", Stage: Editing}

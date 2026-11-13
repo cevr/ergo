@@ -61,7 +61,7 @@ func Run() int needs Console | io.Stdin | Scheduler | subscribe.Subscribers {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let a = actor.StartMachine(subscribe.Subscribing{}, 8, func(o subscribe.Never) {})
+	let a = actor.StartMachine(subscribe.Subscribing{}, 8, func(o Never) {})
 	let mut f = a.State()
 	Console.Println(Show(f))
 	for e in events {

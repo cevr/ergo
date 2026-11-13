@@ -91,7 +91,7 @@ type Seen { Before engine.Mode, Mode engine.Mode, Held int, Booted int }
 func Play(lines []Line, end duration, clock time.Manual) []Seen needs Scheduler {
 	let pool = memory.OnClock(clock, BootTakes())
 	with context { engine.Engines: pool } {
-		let screen = actor.StartMachine(engine.Panel{}, 4, func(n engine.Never) {})
+		let screen = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
 		let mut out = []Seen{}
 		let mut now = 0s
 		for l in lines {
@@ -120,7 +120,7 @@ func Play(lines []Line, end duration, clock time.Manual) []Seen needs Scheduler 
 
 // ask steps s on the screen and waits for it: the screen never ends
 // before Play stops it, so Stopped cannot come.
-func ask(screen actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, engine.Never]], s engine.Signal) {
+func ask(screen actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, Never]], s engine.Signal) {
 	let _ = screen.Ask(s) catch {
 	case actor.Stopped:
 		return
