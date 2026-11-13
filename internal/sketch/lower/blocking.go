@@ -219,6 +219,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsBuilderGrow":       {},
 	"StringsBuilderText":       {},
 	"StringsBuilderTextOwned":  {},
+	// SB2: the Builder's byte writes and the byte conversion.
+	"StringsBuilderAppendBytes": {},
+	"StringsBuilderAppendFrom":  {},
+	"StringsBytes":              {},
 	// std-align S1c: the rest of Go's strings and strconv that the std
 	// takes, and utf8; pure, as above.
 	"StringsReplaceAll":   {},

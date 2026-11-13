@@ -41,6 +41,8 @@
       "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
       "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
       "killers": ["lower:TestStdSlicesLawsRun"]
-    }
+    },
+    {"name":"sb2-writefrom-start","origin":"wf10 SB2","file":"internal/sketch/std/strings/builder.ergo","from":"{ b.buf = builderAppendFrom(b.buf, start, n) }","to":"{ b.buf = builderAppendFrom(b.buf, 0, n) }","rule":"stdlib.md strings 11: WriteFrom copies from start (law WriteFromRepeats).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]},
+    {"name":"sb2-frombytes-drops","origin":"wf10 SB2","file":"internal/sketch/std/strings/bytes.ergo","from":"func FromBytes(bs []byte) string { builderText(bs) }","to":"func FromBytes(bs []byte) string { builderText(bs[:len(bs)/2]) }","rule":"stdlib.md strings 11: FromBytes is the text of its bytes (law BytesRoundTrip).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]}
   ]
 }

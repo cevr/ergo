@@ -1,0 +1,14 @@
+// Bytes and text: a []byte and a string convert both ways, as Go's
+// []byte(s) and string(bs).
+
+// Bytes is the bytes of s, a copy: a change to them never reaches s.
+func Bytes(s string) []byte { stringsBytes(s) }
+
+// FromBytes is the text of bs. It copies the bytes, as Go's string(bs),
+// unless bs is consumed (nothing reads it after the call: a local dead
+// after it, or a fresh result), when the text takes the bytes over with no
+// copy (types.md, Bindings 2, consumed arguments): a program that builds a
+// []byte and then makes it a string pays one buffer, not two.
+func FromBytes(bs []byte) string { builderText(bs) }
+
+extern go ergo.local/prototype/runtime/v1.StringsBytes func stringsBytes(s string) []byte

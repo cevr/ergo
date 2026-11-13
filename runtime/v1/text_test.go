@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"math"
 	"math/rand/v2"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -268,6 +269,39 @@ func textBenches() []textBench {
 			g.Grow(256)
 			textSink = g.Cap()
 		}},
+		// SB2: a write of bytes, an LZ77 run from the buffer's own text
+		// (Go has no such write: hand Go appends its own slice, byte by
+		// byte where the run overlaps), and []byte(s).
+		{"BuilderAppendBytes", "StringsBuilderAppendBytes", func() {
+			var b []byte
+			for range 16 {
+				b = StringsBuilderAppendBytes(b, built[:6])
+			}
+			textSink = len(b)
+		}, func() {
+			var g []byte
+			for range 16 {
+				g = append(g, built[:6]...)
+			}
+			textSink = len(g)
+		}},
+		{"BuilderAppendFrom", "StringsBuilderAppendFrom", func() {
+			b := append([]byte(nil), "abc"...)
+			for range 16 {
+				b = StringsBuilderAppendFrom(b, len(b)-3, 40)
+			}
+			textSink = len(b)
+		}, func() {
+			b := append([]byte(nil), "abc"...)
+			for range 16 {
+				start := len(b) - 3
+				for k := range 40 {
+					b = append(b, b[start+k])
+				}
+			}
+			textSink = len(b)
+		}},
+		{"Bytes", "StringsBytes", func() { textSink = len(StringsBytes(s)) }, func() { textSink = len([]byte(s)) }},
 		{"BuilderText", "StringsBuilderText", func() { textSink = StringsBuilderText(built) }, func() { textSink = goBuilt.String() }},
 		{"BuilderTextOwned", "StringsBuilderTextOwned", func() { textSink = StringsBuilderTextOwned(built) }, func() { textSink = goBuilt.String() }},
 		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
@@ -538,4 +572,35 @@ func TestStringsSliceIsADefect(t *testing.T) {
 		}
 	}()
 	StringsSlice("hello", 2, 9)
+}
+
+// TestBuilderAppendFromIsADefect: WriteFrom out of range is a defect
+// (stdlib.md strings 11): a negative count panics with WriteFrom's message,
+// a start outside the text, or at its end with a count above 0, with Go's
+// slice or index error; a count of 0 inside the text or at its end is no
+// write. The law WriteFromRepeats covers every start and count in range.
+// Mutants: sb2-appendfrom-negative (the count check dropped) returns the
+// buffer for the first row; sb2-appendfrom-unchecked (the start check
+// before the loop dropped) loops for ever on the last row, a start at the
+// end, where a pass copies nothing, and the test binary's deadline stops
+// it.
+func TestBuilderAppendFromIsADefect(t *testing.T) {
+	for _, start := range []int{0, 3} {
+		if got := string(StringsBuilderAppendFrom([]byte("abc"), start, 0)); got != "abc" {
+			t.Fatalf("AppendFrom(abc, %d, 0) = %q", start, got)
+		}
+	}
+	for _, c := range []struct{ start, n int }{{0, -1}, {-1, 0}, {4, 0}, {-1, 1}, {4, 1}, {3, 1}} {
+		func() {
+			defer func() {
+				r := recover()
+				msg, _ := r.(string)
+				_, bounds := r.(runtime.Error)
+				if c.n < 0 && msg != "strings.Builder.WriteFrom: negative count" || c.n >= 0 && !bounds {
+					t.Fatalf("AppendFrom(abc, %d, %d) panicked with %v, want WriteFrom's message or a slice or index error", c.start, c.n, r)
+				}
+			}()
+			StringsBuilderAppendFrom([]byte("abc"), c.start, c.n)
+		}()
+	}
 }
