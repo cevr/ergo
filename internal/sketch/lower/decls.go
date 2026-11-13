@@ -722,6 +722,14 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if _, isRecord := n.Obj.Decl.Spec.(*syntax.StructType); !isRecord {
 		return nil, false
 	}
+	if _, bound := check.GoTypeOf(n); bound {
+		// A record whose declaration names a runtime Go type (`extern go
+		// …/runtime/v1.RPCMalformed type Malformed {…}`, FD1-g2): the
+		// runtime declares the Go type, and Go takes a method only in its
+		// receiver's package, so the function stays a Go function. Its calls
+		// follow, as funcDecl decides both.
+		return nil, false
+	}
 	var own []*check.TypeParam
 	for _, tp := range f.Sig.TParams {
 		if tp.Kind == check.KindType {
