@@ -226,6 +226,19 @@ func (l *lowerer) nameTests() {
 	}
 	if l.ir != nil {
 		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
+		// A law's asserts may take a helper in the IR too: each is named,
+		// since a law of another package is shown under its own Info.
+		for _, r := range l.runLaws() {
+			if r.Law == nil {
+				continue
+			}
+			syntax.Inspect(r.Law.Decl, func(n syntax.Node) bool {
+				if a, ok := n.(*syntax.AssertStmt); ok {
+					l.pkgName(assertShowKey(a), "ergoAssertShow")
+				}
+				return true
+			})
+		}
 	}
 }
 
