@@ -219,7 +219,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.InterpolatedString:
 		return b.text(x, p)
 	case *syntax.FuncLit:
-		return b.funcLit(x, nil) // ir_closure.go
+		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
 		if len(pre) > 0 {

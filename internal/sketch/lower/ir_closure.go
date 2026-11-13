@@ -24,7 +24,7 @@ func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
 	for _, p := range s.Params {
 		parts = append(parts, b.goType(p.Type, site))
 	}
-	res := " (struct{}, error)"
+	res := b.fc.valueResults(nil) // the emitter's (struct{}, error)
 	if len(s.Results) == 1 {
 		res = " (" + b.goType(s.Results[0], site) + ", error)"
 	}
@@ -46,12 +46,12 @@ func hasSig(t check.Type) bool {
 	}
 }
 
-// funcLit is the function literal x, or with x nil the trailing block of
+// closureLit is the function literal x, or with x nil the trailing block of
 // the call site (its block): the emitter's funcLit. A literal that copies
 // or moves what it captures, that is a frame of its own (an owned
 // parameter, a body that needs a frame) or that a known callback takes
 // stays the emitter's.
-func (b *irBuilder) funcLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr {
+func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr {
 	l := b.l
 	var n syntax.Node = x
 	var list []syntax.Stmt

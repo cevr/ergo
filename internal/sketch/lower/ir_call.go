@@ -133,7 +133,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		pre, irArgs := b.operands(args)
 		if x.Trailing != nil {
-			irArgs = append(irArgs, b.funcLit(nil, x)) // ir_closure.go
+			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}
 		if !fd.pure {
 			// The environment first, after a method's receiver
