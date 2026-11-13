@@ -2518,7 +2518,7 @@
       "name": "fkg2-empty-not-marked",
       "origin": "wf10 FKG2",
       "file": "internal/sketch/check/match.go",
-      "from": "\t\t\tif r.c.uninhabited(u.at(i)) {\n\t\t\t\tif col.empty == nil {",
+      "from": "\t\t\tif u.mayHoldNever() && r.c.uninhabited(u.at(i)) {\n\t\t\t\tif col.empty == nil {",
       "to": "\t\t\tif false && r.c.uninhabited(u.at(i)) {\n\t\t\t\tif col.empty == nil {",
       "rule": "types.md, Never (FKG2): a match leaves out the variants that hold a Never.",
       "killers": [
@@ -2600,6 +2600,28 @@
       "rule": "types.md, Never (FKG2): fails Never is refused: no fails says it once.",
       "killers": [
         "check:TestNeverRefusals"
+      ]
+    },
+    {
+      "name": "fkg2-eager-never",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/match.go",
+      "from": "\t\t\tif u.mayHoldNever() && r.c.uninhabited(u.at(i)) {",
+      "to": "\t\t\tif r.c.uninhabited(u.at(i)) {",
+      "rule": "types.md, Never (FKG2): a switch substitutes a union's variants to ask for a Never only when the origin or a type argument names one (D16: no switch work is superlinear).",
+      "killers": [
+        "check:TestGenericDefaultSwitchLinear"
+      ]
+    },
+    {
+      "name": "fkg2-targs-not-read",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/never.go",
+      "from": "\t\tif namesNever(s.m[tp], 0) {",
+      "to": "\t\tif false && namesNever(s.m[tp], 0) {",
+      "rule": "types.md, Never (FKG2): an instance whose type argument is Never (Decision[S, Never]) has variants with no value.",
+      "killers": [
+        "check:TestNeverTotality"
       ]
     }
   ]

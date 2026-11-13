@@ -142,7 +142,7 @@ func (r *patResolver) columnOf(t Type) (column, colInfo) {
 	if u := r.c.subjectUnion(t); u != nil {
 		col := column{size: u.len()}
 		for i := range u.len() {
-			if r.c.uninhabited(u.at(i)) {
+			if u.mayHoldNever() && r.c.uninhabited(u.at(i)) {
 				if col.empty == nil {
 					col.empty = map[int]bool{}
 				}

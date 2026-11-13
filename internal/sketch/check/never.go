@@ -43,6 +43,67 @@ func (c *checker) uninhabited(t Type) bool {
 	return uninhabitedIn(t, map[Type]bool{})
 }
 
+// mayHoldNever reports whether a variant of s may have no value: a
+// variant of the origin holds a Never, or a type argument names one. Only
+// then are the variants substituted to ask (switchUnion: a switch over n
+// instances of a k-variant union does O(n + k) work, and a default-only
+// switch instantiates no variant; the origin's answer is computed once).
+func (s *switchUnion) mayHoldNever() bool {
+	c := s.c
+	if c.neverOrigins == nil {
+		c.neverOrigins = map[*Union]bool{}
+	}
+	held, ok := c.neverOrigins[s.orig]
+	if !ok {
+		for _, v := range s.orig.Variants {
+			if c.uninhabited(v) {
+				held = true
+				break
+			}
+		}
+		c.neverOrigins[s.orig] = held
+	}
+	if held {
+		return true
+	}
+	for _, tp := range s.tps {
+		if namesNever(s.m[tp], 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// namesNever reports whether t is or holds a Never as far as its written
+// form shows: Never itself, a record or tuple with no value, or a type
+// argument of t that names one. It substitutes nothing.
+func namesNever(t Type, depth int) bool {
+	if t == nil || depth > 8 {
+		return false
+	}
+	if IsNever(t) {
+		return true
+	}
+	switch t := t.(type) {
+	case *Named:
+		if t.Orig == nil {
+			return uninhabitedIn(t, map[Type]bool{})
+		}
+		for _, a := range t.TArgs {
+			if namesNever(a, depth+1) {
+				return true
+			}
+		}
+	case *Tuple:
+		for _, e := range t.Types {
+			if namesNever(e, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func uninhabitedIn(t Type, seen map[Type]bool) bool {
 	if IsNever(t) {
 		return true
