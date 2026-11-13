@@ -423,6 +423,9 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
 	}
+	if execUnsupported != "" {
+		return nil, ExecFailed{Name: name, Reason: execUnsupported}
+	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			reason := "not a directory"
@@ -434,7 +437,7 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	}
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = execGroupAttr()
 	if len(env) > 0 {
 		keys := make([]string, 0, len(env))
 		for k := range env {
@@ -538,7 +541,7 @@ func execSignalGroup(group int, sig syscall.Signal) {
 	if execSignalHook != nil {
 		execSignalHook(group, sig)
 	}
-	_ = syscall.Kill(-group, sig)
+	_ = execKill(-group, sig)
 }
 
 // replayProc is a program that has already ended with status: the Script
