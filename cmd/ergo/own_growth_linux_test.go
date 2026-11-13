@@ -47,7 +47,9 @@ import (
 // (mdhtml), 4.75 (router) and 3.41 (ownring), and the head 2.03, 1.96 and
 // 2.08 (2026-11-13). The mutant it alone catches: a hand-over that keeps
 // values right but copies anyway (own-lineage or own-consume never taken,
-// fieldOwned never owning), which no value property sees.
+// fieldOwned never owning), which no value property sees. It builds with
+// -report copies and checks the growing site's line, so a silent copy
+// report fails too (mutant own-copy-report-silent).
 func TestHandoverGrowsLinearly(t *testing.T) {
 	needsBuild(t)
 	runtime.LockOSThread()
@@ -67,18 +69,20 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		name string
 		path string
 		base int
+		// site is a line the copy report must print: the growing site.
+		site string
 		// run is the command and the stdin of the program at size n.
 		run func(bin string, n int) (*exec.Cmd, string)
 	}
 	programs := []program{
-		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, func(bin string, n int) (*exec.Cmd, string) {
+		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:155:10 in place", func(bin string, n int) (*exec.Cmd, string) {
 			var b strings.Builder
 			for i := range n {
 				fmt.Fprintf(&b, "Paragraph %d with *em* and `code`.\n\n", i)
 			}
 			return exec.Command(bin), b.String()
 		}},
-		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, func(bin string, n int) (*exec.Cmd, string) {
+		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:289:38 one extender", func(bin string, n int) (*exec.Cmd, string) {
 			lines := []string{"route 1 logs disk", "route 2 metrics socket", "route 3 alerts stdout"}
 			topics := []string{"logs", "metrics", "alerts"}
 			for i := range n {
@@ -86,17 +90,22 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			}
 			return exec.Command(bin), strings.Join(lines, "\n") + "\n"
 		}},
-		{"ownring", filepath.Join(ws, "cmd", "ergo", "testdata", "ownring", "ring.ergo"), 1000, func(bin string, n int) (*exec.Cmd, string) {
+		{"ownring", filepath.Join(ws, "cmd", "ergo", "testdata", "ownring", "ring.ergo"), 1000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n), strconv.Itoa(20*n)), ""
 		}},
 	}
 	for _, p := range programs {
 		bin := filepath.Join(dir, p.name)
-		build := exec.Command(cli, "build", "-o", bin, p.path)
+		build := exec.Command(cli, "build", "-report", "copies", "-o", bin, p.path)
 		var out bytes.Buffer
 		build.Stdout, build.Stderr = &out, &out
 		if err := proclimit.Run(build, 4<<30); err != nil {
 			t.Fatalf("ergo build %s: %v\n%s", p.path, err, out.Bytes())
+		}
+		// The copy report names the growing site's form (a report that
+		// lists no site, or the wrong form, fails here).
+		if p.site != "" && !strings.Contains(out.String(), p.site) {
+			t.Errorf("ergo build -report copies %s: no line with %q in\n%s", p.name, p.site, out.Bytes())
 		}
 		const rounds = 3
 		var d1s, d2s []float64

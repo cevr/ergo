@@ -240,6 +240,15 @@
       "to": "g.Reason = in.Reason",
       "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
+    },
+    {
+      "name": "own-copy-report-silent",
+      "origin": "wf10 OWN1",
+      "file": "internal/sketchfront/inspect.go",
+      "from": "\tunit.Copies = report\n",
+      "to": "\t_ = report\n",
+      "rule": "ergo build -report copies prints the form of each Append and Concat site (tooling.md; types.md, Bindings 2).",
+      "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
     }
   ]
 }
