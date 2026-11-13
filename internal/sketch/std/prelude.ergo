@@ -320,6 +320,11 @@ type Task[T, E] {
 	// stops the task and waits until it has ended, as Stop does, and drops
 	// its typed failure; a Task is a resource.
 	Close(),
+	// drain gives back the result the body returned that no Wait took,
+	// for the owner's release after Close (resources R13, Q5; types.md,
+	// Operation types: a type that keeps values declares the operation that
+	// gives them back). Only the release calls it.
+	drain() []T takes,
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

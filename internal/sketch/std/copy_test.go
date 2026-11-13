@@ -732,6 +732,24 @@ func callTableDecl(d ast.Decl, text string) bool {
 	return false
 }
 
+// TestQueueCopyKeepsItsValues is NP3c's acceptance (STD-NOPRIV plan §1.1):
+// std queue copied into a user package checks with no "has no release"
+// diagnostic. Queue[T] declares the operation that gives back what it
+// keeps (drain), and the release rule reads that declaration, not the
+// package. Before, only a std type whose runtime body had a Drain had a
+// release, so the copy's Queue of a type parameter had none. The copy's
+// other diagnostics (the extern door, NP4e) are not this rule's. Mutant
+// keeps-drain-read-by-name (drainMethod accepts only std's) brings the
+// diagnostic back.
+func TestQueueCopyKeepsItsValues(t *testing.T) {
+	pair := checkCopy(t, "queue")
+	for _, d := range pair.diags {
+		if strings.Contains(d.Message, "has no release") {
+			t.Errorf("the queue copy: %s %s", d.Code, d.Message)
+		}
+	}
+}
+
 func mapsKeys[V any](m map[string]V) func(func(string) bool) {
 	return func(yield func(string) bool) {
 		for k := range m {

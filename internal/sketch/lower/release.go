@@ -507,16 +507,24 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 		}
 	}
 	if d.Drain != nil {
-		// A std queue of resources (Q7, R13): Drain ends admission and
+		// An operation type that keeps values (Q7, R13; STD-NOPRIV NP3c):
+		// the operation it declares to give them back (check.DrainOp)
 		// gives the values left, oldest first; they are released last
-		// entered first.
+		// entered first. A queue's drain also ends admission.
 		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
-		n, _ := d.Type.(*check.Named)
-		if n == nil {
-			ice(g.site, "a drain of %s, which is no named operation type", d.Type)
+		op := check.DrainOp(d.Type)
+		if op == nil {
+			ice(g.site, "a drain of %s, which declares no drain operation", d.Type)
 		}
-		name := n.Obj.Name + ".Drain"
-		drain := g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		var drain string
+		if n, ok := d.Type.(*check.Named); ok && g.fc.l.runtimeType(n, g.site) != "" {
+			// A runtime-backed type: its operations are the Go methods of
+			// the runtime's type, whose Go names are exported.
+			name := n.Obj.Name + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
+			drain = g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		} else {
+			drain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)
+		}
 		b.WriteString(xs + " := " + drain + "; for " + i + " := len(" + xs + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + xs + "[" + i + "]; " + g.release(d.Drain, e) + "}; ")
 	}
 	if len(d.Variants) > 0 {

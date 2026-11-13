@@ -1425,7 +1425,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
 | `internal/sketch/check/match.go:reusableBinderName` | `Decision` |
 | `internal/sketch/check/ownership.go:checker.checkOwnership` | `Close` |
-| `internal/sketch/check/ownership.go:ownWalk.valuesSeq` | `Values`, the iteration operation |
 | `internal/sketch/check/releaseneeds.go:checker.releaseWider` | `Close` |
 | `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
 | `internal/sketch/check/takes.go:checker.takesPass` | `Close` |

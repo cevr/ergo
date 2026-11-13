@@ -36,7 +36,7 @@ maps	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 math	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 os	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
-queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
+queue	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 rand	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 rpc	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std

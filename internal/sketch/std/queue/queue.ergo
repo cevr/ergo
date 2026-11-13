@@ -36,6 +36,13 @@ type Queue[T] {
 	// from 0 to the capacity. The value of a Push that still waits for
 	// room is not counted. It never waits.
 	Len() int,
+	// drain is the queue's release when its values are resources
+	// (resources R13, Q7; types.md, Operation types: a type that keeps
+	// values declares the operation that gives them back): it ends
+	// admission, as End does, and gives every value left, oldest first.
+	// The owner's release releases them last entered first. Only the
+	// release calls it; it never waits.
+	drain() []T takes,
 
 	// EndIsIdempotent: a second End returns at once and never fails.
 	law EndIsIdempotent() {

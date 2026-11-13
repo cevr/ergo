@@ -55,10 +55,11 @@ type Drop struct {
 	// Variants are the union's variants that hold a resource; the active
 	// one is released.
 	Variants []*Drop
-	// Drain is the release of each value a std operation type holds (Q7,
-	// R13, Q5): its runtime body's Drain gives them, a queue's values left
-	// (Drain ends admission) or a Task's result no Wait delivered (after
-	// its Close), released last entered first; nil for none.
+	// Drain is the release of each value an operation type keeps (Q7,
+	// R13, Q5): the operation the type declares to give them back
+	// (DrainOp) gives them, a queue's values left (its drain ends
+	// admission) or a Task's result no Wait delivered (after its Close),
+	// released last entered first; nil for none.
 	Drain *Drop
 	// Own is, for a type with a written Close, the release of its parts
 	// that the Close's function runs after its body (R3): every caller of
@@ -108,46 +109,54 @@ type dropWalk struct {
 	bad  string
 }
 
-// drain is the release of the values an operation type t holds through a
-// taking operation (Q7, R13): only a std operation type whose runtime body
-// declares Drain (a reviewed body, as v1.MovesOnly: `queue.Queue[T]`'s
-// Drain ends admission and gives the values left); nil for any other.
+// drain is the release of the values an operation type t keeps (Q7, R13;
+// questions Q6 of STD-NOPRIV): the type declares the operation that gives
+// back what it keeps (DrainOp), and each value it gives is released. Any
+// package's operation type keeps values the same way: queue.Queue[T]'s
+// drain ends admission and gives the values left, a Task's gives the
+// result no Wait delivered. nil when t declares none.
 func (w *dropWalk) drain(t Type, it *Interface) *Drop {
-	n, ok := t.(*Named)
-	if !ok || n.origin().Obj == nil || !n.origin().Obj.Pkg.Std() {
+	m := drainMethod(it)
+	if m == nil {
 		return nil
 	}
-	if _, err := v1.BodyOf(n.origin().Obj.Name + ".Drain"); err != nil {
-		return nil
-	}
-	sub := map[*TypeParam]Type{}
-	for i, tp := range n.origin().TParams {
-		if i < len(n.TArgs) {
-			sub[tp] = n.TArgs[i]
+	elem := m.Sig.Results[0].(*Slice).Elem
+	if n, ok := t.(*Named); ok {
+		sub := map[*TypeParam]Type{}
+		for i, tp := range n.origin().TParams {
+			if i < len(n.TArgs) {
+				sub[tp] = n.TArgs[i]
+			}
+		}
+		if len(sub) > 0 {
+			elem = w.c.subst(elem, sub)
 		}
 	}
+	return w.visit(elem)
+}
+
+// DrainOp is the operation of the operation type t that gives back the
+// values t keeps, or nil (STD-NOPRIV NP3c; resources R13): an operation
+// that takes the value itself (a bare takes), has no parameter and no
+// failure, and gives one slice. The value's generated release calls it
+// (after its Close, if it has one) and releases each value it gives, last
+// first. Its name is free; std's spell it drain, unexported, so only the
+// type's package calls it.
+func DrainOp(t Type) *Method {
+	it := asInterface(t)
+	if it == nil {
+		return nil
+	}
+	return drainMethod(it)
+}
+
+func drainMethod(it *Interface) *Method {
 	for _, m := range it.Methods {
-		if m.Sig == nil {
+		if m.Sig == nil || !m.Sig.TakesSelf || len(m.Sig.Params) != 0 || len(m.Sig.Results) != 1 || !m.Sig.Errors.Empty() || m.Sig.Fallible {
 			continue
 		}
-		var held []Type
-		for _, i := range m.Sig.Takes {
-			if i >= 0 && i < len(m.Sig.Params) {
-				held = append(held, m.Sig.Params[i].Type)
-			}
-		}
-		if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {
-			// An operation that takes the value and gives its one result
-			// (Task's Wait): the value holds that result until it is taken.
-			held = append(held, m.Sig.Results[0])
-		}
-		for _, pt := range held {
-			if len(sub) > 0 {
-				pt = w.c.subst(pt, sub)
-			}
-			if p := w.visit(pt); p != nil {
-				return p
-			}
+		if _, ok := m.Sig.Results[0].(*Slice); ok {
+			return m
 		}
 	}
 	return nil
@@ -217,7 +226,7 @@ func (w *dropWalk) visit(t Type) *Drop {
 		if d.Close == nil {
 			d.Close = w.c.closeOperation(t, nil, "Close")
 		}
-		// A std body's Drain gives what the value still holds after its
+		// The declared drain gives what the value still holds after its
 		// Close (a Task's unread result, Q5) or in place of one (a queue's
 		// values left, Q7).
 		d.Drain = w.drain(t, u)

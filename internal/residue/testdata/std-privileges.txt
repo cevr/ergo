@@ -46,7 +46,6 @@ language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a 
 language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
 language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
 language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the release operation	-
-language	internal/sketch/check/ownership.go:ownWalk.valuesSeq	Values, the iteration operation	-
 language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
 language	internal/sketch/check/takes.go:checker.takesPass	Close, the release operation	-
@@ -71,7 +70,6 @@ language	internal/sketch/lower/values.go:preludeMapWrite	the prelude Delete and 
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
 debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
-debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/drop.go:releasesResult	a std extern's hidden result release	NP4b
 debt	internal/sketch/check/durable.go:MakesHost	actor.NewHost by name (the body fact "makes an unbound cell and acts on nothing")	NP4b
 debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
@@ -81,8 +79,7 @@ debt	internal/sketch/check/extern.go:externValue	a std extern's value-ness from 
 debt	internal/sketch/check/footprint.go:pureStd	only a std extern is pure	NP4b
 debt	internal/sketch/check/lend.go:callbackKeeper	a std body that keeps a callback, by name	NP4b
 debt	internal/sketch/check/lend.go:ownWalk.drainsLends	a std body that drains lends, by name	NP4b
-debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
-debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
+debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std operation's Go body holds a taken value until it returns (the lowering's holdTaken); the Go body is NP4c's declaration	NP4c
 debt	internal/sketch/check/running.go:checker.running	a std body that stops running code, by name	NP4b
 debt	internal/sketch/check/script.go:returnsRunning	a std body that stops running code, by name	NP4b
 debt	internal/sketch/check/script.go:scriptArg	testing.Script by name	NP3d
