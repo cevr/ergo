@@ -28,10 +28,17 @@ func Live() OpenMeteo fails http.InvalidClient | http.InvalidLimits needs Ambien
 }
 
 // The parts of the services' answers the forecast reads. A key the
-// records do not name is skipped.
+// records do not name is skipped. The forecast's keys are snake case, so
+// now's fields name them (a field's codec key, types.md Codecs 2), as
+// Effect's Schema.fromKey and Go's `json:"temperature_2m"` tag do.
 type place { Name string, Latitude float64, Longitude float64, Admin1 json.Optional[string] }
 type places { Results json.Optional[[]place] }
-type now { Temperature_2m float64, Relative_humidity_2m float64, Wind_speed_10m float64, Weather_code int }
+type now {
+	Temperature float64 "temperature_2m",
+	Humidity    float64 "relative_humidity_2m",
+	WindSpeed   float64 "wind_speed_10m",
+	Code        int "weather_code",
+}
 type conditions { Current now }
 
 // Fetch finds the place of zip, then the weather there. A geocoding
@@ -77,10 +84,10 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 	}
 	weather.Report{
 		Zip:         zip,
-		Temperature: Round(c.Current.Temperature_2m),
-		Description: Describe(c.Current.Weather_code),
-		Humidity:    Round(c.Current.Relative_humidity_2m),
-		WindSpeed:   Round(c.Current.Wind_speed_10m),
+		Temperature: Round(c.Current.Temperature),
+		Description: Describe(c.Current.Code),
+		Humidity:    Round(c.Current.Humidity),
+		WindSpeed:   Round(c.Current.WindSpeed),
 		Location:    p.Name,
 		Region:      region,
 	}

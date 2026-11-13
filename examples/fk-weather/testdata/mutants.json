@@ -104,6 +104,22 @@
       "to": "\tcase Loading:\n\t\tfalse\n",
       "rule": "A lookup in Loading waits for its fetch (the cases: the script then shows no answer).",
       "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fkw-weather-keys-swapped",
+      "origin": "wf10 REF FKW",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "\tHumidity    float64 \"relative_humidity_2m\",\n\tWindSpeed   float64 \"wind_speed_10m\",",
+      "to": "\tHumidity    float64 \"wind_speed_10m\",\n\tWindSpeed   float64 \"relative_humidity_2m\",",
+      "rule": "Each field of the forecast reads the answer's key it names (a field's codec key): upstream's story test sees the humidity and the wind speed apart.",
+      "anchor": {
+        "tests": [
+          "examples:fk-weather"
+        ]
+      },
+      "killers": [
+        "examples:fk-weather"
+      ]
     }
   ]
 }
