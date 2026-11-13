@@ -152,7 +152,7 @@ func TestWarmAnswerAgreesWithFullBuild(t *testing.T) {
 	if err := os.WriteFile(other, append(data, 0), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	seeds := []uint64{1, 2}
+	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv("ERGO_WARM_SEED"); s != "" {
 		var seed uint64
 		fmt.Sscan(s, &seed)
@@ -196,10 +196,12 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		}
 		return filepath.Join(w.root, "lib", name)
 	}
-	for i := range 14 {
+	// After the first build, every kind of step once, in a seeded order.
+	kinds := r.Perm(13)
+	for i := range 1 + len(kinds) {
 		edited, concurrent, trimmed := false, false, false
 		var step string
-		switch k := r.IntN(13); {
+		switch k := kinds[(i+len(kinds)-1)%len(kinds)]; {
 		case i == 0:
 			step, edited = "first build", true
 		case k == 0:
@@ -220,8 +222,9 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 			step, edited = fmt.Sprintf("asset %c, size and time kept", w.banner), true
 			keepStamp(filepath.Join(w.root, "lib", "banner.txt"), func() { warmModule(t, w.root, w.value, w.banner) })
 		case k == 4 && !w.extra:
-			step, edited, w.extra, w.hidden = "add lib/extra.ergo (a second Value)", true, true, false
-			smokeWrite(t, w.root, "lib/extra.ergo", "func Value() int {\n\t7\n}\n")
+			name := []string{"Extra", "Value"}[r.IntN(2)]
+			step, edited, w.extra, w.hidden = "add lib/extra.ergo declaring "+name, true, true, false
+			smokeWrite(t, w.root, "lib/extra.ergo", "func "+name+"() int {\n\t7\n}\n")
 		case k == 4:
 			step, edited = "remove the extra file", true
 			os.Remove(extraPath())
