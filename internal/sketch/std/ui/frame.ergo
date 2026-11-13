@@ -5,21 +5,22 @@ import arena
 // runs a view and commits the pass. The nodes live in one arena, so the
 // tree holds Refs, not pointers.
 type Frame[E] {
-	nodes  arena.Of[node[E]],
-	root   arena.Ref[node[E]],
-	specs  []spec[E],
-	cells  []cellSpec,
-	loads  []loadSpec[E],
-	seen   Map[slotOf, int],
-	index  Map[int, Map[ident, arena.Ref[node[E]]]],
-	parent int,
-	each   CallSite,
-	key    Key,
-	epoch  int,
-	ops    []Op[E],
-	jobs   []Job[E],
-	keys   []func(k KeyPress) Option[E],
-	anims  []func(at duration) E,
+	nodes   arena.Of[node[E]],
+	root    arena.Ref[node[E]],
+	specs   []spec[E],
+	cells   []cellSpec,
+	loads   []loadSpec[E],
+	seen    Map[slotOf, int],
+	index   Map[kid, arena.Ref[node[E]]],
+	indexed Map[int, bool],
+	parent  int,
+	each    CallSite,
+	key     Key,
+	epoch   int,
+	ops     []Op[E],
+	jobs    []Job[E],
+	keys    []func(k KeyPress) Option[E],
+	anims   []func(at duration) E,
 	rowRuns int,
 }
 
@@ -33,6 +34,12 @@ type Id[E] { ref arena.Ref[node[E]] }
 // under the same parent and its kind stays.
 type ident { site CallSite, each CallSite, key Key, n int }
 
+// kid is a node's identity among the children of one parent: parent is
+// the parent's spec index plus one (0 the root). The pass's index of the
+// last pass's children is flat, one entry a child, so a lookup reads one
+// entry and copies no sibling list (GP frame cost, UC-1).
+type kid { parent int, id ident }
+
 // base is ident without n.
 type base { site CallSite, each CallSite, key Key }
 
@@ -44,14 +51,14 @@ type slotOf { parent int, b base }
 // (a Field, a Toggle, a Submit), and the cells and loads read directly
 // under it.
 type node[E] {
-	node   Node[E],
-	id     ident,
-	kids   []arena.Ref[node[E]],
-	onText Option[func(t string) E],
+	node    Node[E],
+	id      ident,
+	kids    []arena.Ref[node[E]],
+	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
-	binds  Option[bound[E]],
-	cells  Map[ident, Cell],
-	loads  Map[ident, slot],
+	binds   Option[bound[E]],
+	cells   Map[ident, Cell],
+	loads   Map[ident, slot],
 }
 
 // bound is the cell an event on a node writes: the cell id of node owner.
@@ -62,14 +69,14 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // pass with its identity (prev, Null for none) and the node of this pass
 // (ref, set by Commit).
 type spec[E] {
-	node   Node[E],
-	id     ident,
-	parent int,
-	prev   arena.Ref[node[E]],
-	ref    arena.Ref[node[E]],
-	onText Option[func(t string) E],
+	node    Node[E],
+	id      ident,
+	parent  int,
+	prev    arena.Ref[node[E]],
+	ref     arena.Ref[node[E]],
+	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
-	binds  Option[cellAt],
+	binds   Option[cellAt],
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -82,7 +89,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[kid, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -103,7 +110,8 @@ func begin[E](f *Frame[E]) {
 	f.cells = []cellSpec{}
 	f.loads = []loadSpec[E]{}
 	f.seen = Map[slotOf, int]{}
-	f.index = Map[int, Map[ident, arena.Ref[node[E]]]]{}
+	f.index = Map[kid, arena.Ref[node[E]]]{}
+	f.indexed = Map[int, bool]{}
 	f.parent = -1
 	f.each = nowhere
 	f.key = NoKey
@@ -147,17 +155,13 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 		return arena.Null[node[E]]()
 	}
 	let k = f.parent + 1
-	let mut kids = Map[ident, arena.Ref[node[E]]]{}
-	match f.index.Get(k) {
-	case Some[Map[ident, arena.Ref[node[E]]]] as m:
-		kids = m.Value
-	case None:
+	if f.indexed.Get(k) == None {
 		for r in nodeAt(f, o).kids {
-			kids[nodeAt(f, r).id] = r
+			f.index[kid{parent: k, id: nodeAt(f, r).id}] = r
 		}
-		f.index[k] = kids
+		f.indexed[k] = true
 	}
-	match kids.Get(id) {
+	match f.index.Get(kid{parent: k, id: id}) {
 	case Some[arena.Ref[node[E]]] as r:
 		r.Value
 	case None:
