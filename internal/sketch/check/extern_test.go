@@ -1282,13 +1282,26 @@ func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied |
 }
 
 func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
-	exec.Ended(try f.Run(c), s)
+	exec.Ended(s, try f.Run(c))
 }
 
 func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
 
 func main() {
 	with context { exec.Runner: Fake{Ran: Map[string, int]{}} } { run() }
+}
+`,
+		// NP3c: Keeps is the release's contract; a queue implements it
+		// and still never converts to it (its drain is the runtime's).
+		// Mutant keeps-converts admits it.
+		"keeps-value": `import queue
+
+func use(k Keeps[int]) {}
+
+func main() {
+	let q = queue.New[int](1)
+	use(q) // want S108
+	q.End()
 }
 `,
 		"queue-param": queueMine + `
