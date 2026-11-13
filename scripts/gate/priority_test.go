@@ -81,7 +81,7 @@ func TestRecordedTimeOrdersTheNextRun(t *testing.T) {
 	if err := writeStepTimes(cache, stepTimes{"late": {100}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	// late needs pre, so late never finds the slot free: pre, unrecorded,
+	// late waits on pre and so never finds the slot free: pre, unrecorded,
 	// goes before the steps of 50 s only through late's chain, and late,
 	// queued once pre ends, takes the slot after the step then running.
 	steps := []*Step{{Name: "pre", Argv: []string{"true"}}}
