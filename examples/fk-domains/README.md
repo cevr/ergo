@@ -1,6 +1,6 @@
 # fk-domains
 
-A domain search, ported from `foldkit/foldkit-domains` at `039c941a` (MIT, (c) 2025 Devin Jameson; `origin/`). This is stage a, unit FD1a of plan §20: the domain, its Api and the server, with no pages yet. The binary searches the sample registry from the command line, or serves it over Effect RPC at `/rpc`, where a stock client of the original can call it.
+A domain search, ported from `foldkit/foldkit-domains` at `039c941a` (MIT, (c) 2025 Devin Jameson; `origin/`). This is stage a of plan §20: the domain, its Api and the server (FD1a), and the pure parts of the search page (FD2a), with no pages yet. The binary searches the sample registry from the command line, or serves it over Effect RPC at `/rpc`, where a stock client of the original can call it.
 
 Tag: `default`.
 
@@ -23,6 +23,16 @@ fk-domains bench 1000             # the P11 workload (below)
 - `loopback` is the generated client of a sample registry served in process (`rpc.Loopback`). The `Registry` laws run against it as against `sample`, so they hold through the wire.
 - `server` answers HTTP with the original's refusals (`src/server/rpc.ts`).
 - `cmd/fk-domains` is the only place that binds `domains.Registry` (to `sample`).
+- `search/` holds the pure parts of the search page (unit FD2a). Each part is a set of functions on values, with no clock and no `ui`, and the search machine (FD3a) will hold them in its state.
+  - `search/cache` is the original's keyed query cache (`domainsQuery.ts`): an entry stays fresh for a set time, and at most a set number of entries stay settled.
+    - The time is an argument.
+    - Each load gets a new generation, and an answer is taken only for the generation its entry is waiting on. So a late answer of a load that was cut, or replaced by a newer one, changes nothing.
+    - A hit makes the entry the most recent, but it never makes it fresher. The least recent settled entry is the one evicted, and an entry still loading is never evicted.
+    - Law `CacheFollowsModel` runs drawn reads, loads, answers (current and late), cuts and clock advances against a plain-list reference model.
+  - `search/plan` chooses the next range to load. The ranges are the original's (`domainPlanning.ts`): the top 4 listings, the rest of the first page of 60, then pages of 60. A price order or the available-only filter loads the whole catalog in one request instead.
+    - Its work reads only the rows the window shows, and law `StepWorkIsFlat` counts it at 556, 1,000, 10,000 and 100,000 listings.
+  - `search/window` is the virtual list's window. Every row has the same height, so the window is a division with no measuring pass, and `WindowIsBounded` holds for every count.
+  - `search/route` maps the URL to a route and back. The URL holds the query, the TLD filter, the available-only filter and the order. A parameter with an invalid value falls back to its default, and any path but `/` is `NotFound`.
 
 ## How it differs from the original, and why
 
