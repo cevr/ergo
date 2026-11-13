@@ -37,6 +37,23 @@ import (
 // the store of the current toolchain and the lock that guards its filling.
 const stdStoreDir = "ergo-closure-std"
 
+// stdStoreVariable names the directory of the std store when set: the gate
+// sets it for its closure sweep steps to one directory beside their own
+// temporary directories, so that the sweeps of one gate run share one
+// store. Under each step's own TMPDIR every sweep filled a store of its own
+// (781 MB each, ten at once in a merge tier's sandbox: 7.7 GB of its
+// 12 GB, and ENOSPC in the sweeps; fu-gate-sandbox).
+const stdStoreVariable = "ERGO_CLOSURE_STD_DIR"
+
+// stdStoreParent is the directory of the std store: stdStoreVariable, or
+// stdStoreDir under the temporary directory.
+func stdStoreParent() string {
+	if dir := os.Getenv(stdStoreVariable); dir != "" {
+		return dir
+	}
+	return filepath.Join(os.TempDir(), stdStoreDir)
+}
+
 // stdStoreComplete marks a store whose builds all ended.
 const stdStoreComplete = "complete"
 
@@ -103,7 +120,7 @@ func fillStdStore(root string) (string, error) {
 	fmt.Fprintf(sum, "%s\n%v\n", out, stdBuilds())
 	key := hex.EncodeToString(sum.Sum(nil))[:16]
 
-	parent := filepath.Join(os.TempDir(), stdStoreDir)
+	parent := stdStoreParent()
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}

@@ -167,6 +167,20 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
+// sweepStdVariable names the directory of the closure sweep's std store
+// (internal/closure, stdStoreVariable). Each step's TMPDIR is its own
+// (stepTempDir), and the store lived under it: every sweep step filled a
+// store of its own, 781 MB each, ten at once in a merge tier's sandbox
+// (7.7 GB of its 12 GB; ENOSPC in the sweeps, fu-gate-sandbox). The sweeps
+// of a run share sweepStdDir, beside the steps' directories: in the merge
+// tier's sandbox, inside its scratch temporary directory.
+const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
+
+// sweepStdDir is the one std store directory of the run's sweeps.
+func sweepStdDir() string {
+	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
+}
+
 // sweepStep runs the closure sweep over selection, one package directory,
 // whose expected seconds are weight (sweepWeight). The sweep runs a
 // package's test binary in runs of at most a set recorded test time each
@@ -182,7 +196,7 @@ func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
 		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,

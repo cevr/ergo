@@ -174,6 +174,16 @@
       "to": "d := hangDeadline(0)",
       "rule": "A swept run's deadline is ten times its recorded cost, not a fixed bound.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
+    },
+    {
+      "name": "gatesandbox-std-store-under-tmpdir",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "\tif dir := os.Getenv(stdStoreVariable); dir != \"\" {\n",
+      "to": "\tif dir := \"\"; dir != \"\" {\n",
+      "rule": "A sweep given ERGO_CLOSURE_STD_DIR shares that std store and builds nothing, whatever its TMPDIR. The edited file is a test file, which coverage does not instrument.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
     }
   ]
 }
