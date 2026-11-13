@@ -15,25 +15,32 @@ bucket count, two counts and the sum of the counts `Bump` returned.
   bump of one bucket leaves another unchanged).
 - `cmd/bucketstore/`: the binary.
 
-## What it shows: the entry rule
+## What it shows: the entry rule and the entry move-out
 
 A Map entry has no write path in Ergo: `m[k].f = v` is refused, and a
 write replaces a whole entry. So a read of an entry (`m.Get(b)`) keeps
 nothing that a later write through `m` can change, and the lowering copies
-nothing at the read (docs/spec/types.md, Bindings). A copy of a Map is a
-copy of its table (`maps.Clone`), never of every entry.
+nothing at the read (docs/spec/types.md, Bindings).
+
+`Bump` is a read-modify-write of one bucket: `k = v.Value`, a write
+through `k`, `m[b] = k`. Nothing between the read and the store reads `m`
+and `k` dies at the store, so the lowering moves the bucket out of the Map
+and writes it in place (the entry move-out). To keep that sound, the
+store's Map type is entry-written: a copy of it copies its buckets too, so
+the cell's copy-if-shared function is deep; it runs only when the cell's
+value is shared.
 
 Counted receipt: allocations of one `Bump` on a store of K buckets, from
 the Go of the program built by the compiler before the rule (base
-e02194103) and at the rule's head (scratch harness, Go's `runtime.MemStats`).
+e02194103), at the entry rule (MAPCOPY round 1, 983a6a13a) and with the
+move-out (scratch harness, Go's `runtime.MemStats`).
 
-| store | before | after |
-| --- | --- | --- |
-| 500 buckets | 3015 allocations, 426377 B | 9 allocations, 1072 B |
-| 1000 buckets | 6017 allocations, 851376 B | 9 allocations, 1072 B |
+| store | base | entry rule | move-out |
+| --- | --- | --- | --- |
+| 500 buckets | 3015 allocations, 426377 B | 9 allocations, 1072 B | 5 allocations, 560 B |
+| 1000 buckets | 6017 allocations, 851378 B | 9 allocations, 1072 B | 5 allocations, 560 B |
 
-Copy sites in `Bump`'s Go: 3 before (the whole store, entry by entry, at
-the `Get`; the bucket, deep; the cell's copy, entry by entry), 2 after: the bucket the callback
-changes (a shallow copy of its two Maps: the entry may be shared with an
-earlier read, which the compiler cannot rule out) and the cell's
-copy-if-shared function, which runs only when the cell's value is shared.
+Copy sites in `Bump`'s Go: 3 at base (the whole store, entry by entry, at
+the `Get`; the bucket, deep; the cell's copy, entry by entry), 2 at the
+entry rule (the bucket, a copy of its two Maps; the cell's copy), 1 with
+the move-out: the cell's copy-if-shared function.

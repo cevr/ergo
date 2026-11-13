@@ -1,0 +1,75 @@
+// Package threads files the messages of an inbox into threads: a Map from
+// a thread's name to its messages, in the order they came, and a count of
+// the unread ones. Filing a message reads its thread out of the Map,
+// appends to it and stores it back; the lowering moves the thread out and
+// back in place (the entry move-out, docs/spec/types.md, Bindings), so
+// filing costs the same however long the thread is.
+
+// Msg is one message.
+type Msg { Thread string, From string, Body string }
+
+// Inbox is the threads and the unread count of each.
+type Inbox { threads Map[string, []Msg], unread Map[string, int] }
+
+// New is an empty inbox.
+func New() Inbox {
+	Inbox{threads: Map[string, []Msg]{}, unread: Map[string, int]{}}
+}
+
+// Filed is the outcome of filing a message: it opened a thread, joined
+// one, or was refused for an empty body.
+type Filed = Opened{Thread string} | Joined{Thread string, Count int} | EmptyBody{}
+
+// File puts m at the end of its thread.
+func File(b *Inbox, m Msg) Filed {
+	if len(m.Body) == 0 {
+		return EmptyBody
+	}
+	let mut msgs = []Msg{}
+	match b.threads.Get(m.Thread) {
+	case Some[[]Msg] as t:
+		msgs = t.Value
+	case None:
+	}
+	let opened = len(msgs) == 0
+	msgs = msgs.Append(m)
+	let count = len(msgs)
+	b.threads[m.Thread] = msgs
+	b.unread[m.Thread] = Unread(*b, m.Thread) + 1
+	if opened {
+		return Opened{Thread: m.Thread}
+	}
+	Joined{Thread: m.Thread, Count: count}
+}
+
+// Thread is the messages of a thread, oldest first; empty when there are
+// none.
+func Thread(b Inbox, name string) []Msg {
+	match b.threads.Get(name) {
+	case Some[[]Msg] as t:
+		t.Value
+	case None:
+		[]Msg{}
+	}
+}
+
+// Unread is the number of messages of a thread not yet read.
+func Unread(b Inbox, name string) int {
+	match b.unread.Get(name) {
+	case Some[int] as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+// MarkRead reads a thread: its unread count goes to zero, and the count
+// it had is returned.
+func MarkRead(b *Inbox, name string) int {
+	let n = Unread(*b, name)
+	b.unread[name] = 0
+	n
+}
+
+// Threads is the number of threads.
+func Threads(b Inbox) int { len(b.threads) }

@@ -1,0 +1,45 @@
+// inbox N files N messages into seven threads (message i into thread
+// i % 7), reads one thread, and prints the threads, the longest thread and
+// what is left unread.
+
+import os
+import strconv
+import inbox/threads
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: inbox N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let mut b = threads.New()
+	let mut opened = 0
+	let mut longest = 0
+	for i in 0..n {
+		let m = threads.Msg{Thread: "thread\(i % 7)", From: "sender\(i % 3)", Body: "message \(i)"}
+		match threads.File(&b, m) {
+		case threads.Opened:
+			opened = opened + 1
+		case threads.Joined as j:
+			if j.Count > longest {
+				longest = j.Count
+			}
+		case threads.EmptyBody:
+			return os.Exit{Code: 1, Message: "message \(i) refused"}
+		}
+	}
+	let read = threads.MarkRead(&b, "thread0")
+	let mut unread = 0
+	for t in 0..7 {
+		unread = unread + threads.Unread(b, "thread\(t)")
+	}
+	Console.Println("threads \(threads.Threads(b)) opened \(opened) longest \(longest)")
+	Console.Println("read \(read) unread \(unread)")
+	let last = threads.Thread(b, "thread\((n - 1) % 7)")
+	if len(last) > 0 {
+		Console.Println("last: \(last[len(last) - 1].Body)")
+	}
+}
