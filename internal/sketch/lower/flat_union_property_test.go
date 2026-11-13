@@ -904,7 +904,7 @@ func addStats(a, b knownStats) knownStats {
 // carrierNames are the ways a call carries a value (carry.go), one fixed
 // union each: carrierCalls is its use in main (%d: the union, the union,
 // a variant index) and carrierDecls the generic carriers.
-var carrierNames = []string{"tail", "return", "pass", "let", "capture", "function value"}
+var carrierNames = []string{"tail", "return", "pass", "let", "capture", "function value", "literal result"}
 
 var carrierCalls = map[string]string{
 	"tail":           "showU%d(idAny(mkU%d(%d)))",
@@ -913,6 +913,7 @@ var carrierCalls = map[string]string{
 	"let":            "showU%d(letAny(mkU%d(%d)))",
 	"capture":        "\"\\(litAny(mkU%[1]d(%[3]d)))\"",
 	"function value": "\"\\(callAny(func(v U%[1]d) int { len(showU%[1]d(v)) }, mkU%[2]d(%[3]d)))\"",
+	"literal result": "showU%[1]d(callR(func() U%[1]d { mkU%[2]d(%[3]d) }))",
 }
 
 const carrierDecls = `func retAny[T](x T) T {
@@ -936,6 +937,8 @@ func litAny[T](x T) int {
 
 func callAny[T](f func(T) int, x T) int { f(x) }
 
+func callR[T](f func() T) T { f() }
+
 `
 
 // unionPaths are the shapes of generated unions the fixed seeds reach: a
@@ -945,7 +948,7 @@ var unionPaths = []string{
 	"union in a flat union", "union shares a slot", "union two slots of one type", "union shared too wide, slot per variant",
 	"field int", "field string", "field bool", "field slice", "field Option", "field union",
 	"union flat by use", "union carried past the bound", "union past the use bound",
-	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value",
+	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value", "carried by literal result",
 	"niche on", "niche off", "niche off by a record", "no match tree",
 }
 

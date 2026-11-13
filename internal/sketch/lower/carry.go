@@ -29,7 +29,9 @@ import (
 // A union is carried (carriedUnions) when some call of the program passes
 // a value whose type is the union to a carrying parameter, of an Ergo body
 // (a generic one too: a parameter of type T carries a union T stands for)
-// or of a callee the lowering cannot see.
+// or of a callee the lowering cannot see; and when a function value
+// returns it (a function literal, or a declared function used other than
+// in a call), since its caller is one the lowering cannot see.
 //
 // The flat form keeps one more bound, on memory, not registers: a slice
 // of a flat union holds every element at the size of its widest form, so
@@ -68,7 +70,34 @@ func (l *lowerer) carriedUnions() map[*check.TypeName]bool {
 	for _, p := range l.sourcedPkgs() {
 		info := p.Info
 		for _, f := range p.Files() {
+			// called are the names a call calls, seen at the call before
+			// its callee (Inspect visits a parent first).
+			called := map[*syntax.Ident]bool{}
 			syntax.Inspect(f, func(n syntax.Node) bool {
+				if x, ok := n.(*syntax.CallExpr); ok {
+					fun := unparen(x.Fun)
+					if ix, ok := fun.(*syntax.IndexExpr); ok {
+						fun = unparen(ix.X)
+					}
+					switch fn := fun.(type) {
+					case *syntax.Ident:
+						called[fn] = true
+					case *syntax.SelectorExpr:
+						called[fn.Sel] = true
+					}
+				}
+				switch y := n.(type) {
+				case *syntax.FuncLit:
+					// A function value's result goes to a caller the
+					// lowering cannot see: it carries.
+					if sig, ok := info.Types[y].(*check.Signature); ok {
+						l.carryResults(sig)
+					}
+				case *syntax.Ident:
+					if g, ok := info.Uses[y].(*check.Func); ok && g.Sig != nil && !called[y] {
+						l.carryResults(g.Sig) // a declared function taken as a value
+					}
+				}
 				x, ok := n.(*syntax.CallExpr)
 				if !ok {
 					return true
@@ -98,6 +127,18 @@ func (l *lowerer) carriedUnions() map[*check.TypeName]bool {
 		}
 	}
 	return l.carried
+}
+
+// carryResults marks carried every union a result of sig is: the result
+// of a function value goes to a caller the lowering cannot see.
+func (l *lowerer) carryResults(sig *check.Signature) {
+	for _, t := range sig.Results {
+		if u, ok := t.(*check.Named); ok {
+			if _, union := u.Underlying().(*check.Union); union {
+				l.carried[u.Obj] = true
+			}
+		}
+	}
 }
 
 // passCarries reports whether operand j of the call c is carried on by its
