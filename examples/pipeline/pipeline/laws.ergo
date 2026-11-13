@@ -3,8 +3,8 @@
 // opens), so this law opens one, with a scripted runner and a manual
 // clock, and runs the member law's body against it.
 
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import testing
 import time
 
@@ -13,8 +13,8 @@ law ModelTakesEachCommandOnce(c SubmitRun) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
 	with context { Scheduler: time.NewManual(0), Runner: s } {
-		let m = Open(memory.New[Desk, Signal]()) catch {
-		case journal.Failed, journal.Diverged:
+		let m = Open(memory.New[Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		let ok = with context { Pipeline: m } { DuplicateIsNoop(c) }

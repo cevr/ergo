@@ -4,8 +4,8 @@
 // screen shows it sending, then its receipt).
 
 import actor
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import pipeline/board
 import pipeline/pipeline
 import pipeline/run
@@ -74,8 +74,8 @@ law HeldTryShowsRunningThenPassed(pick int) {
 	runner.Run.Hold()
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
-		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
-		case journal.Failed, journal.Diverged:
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})

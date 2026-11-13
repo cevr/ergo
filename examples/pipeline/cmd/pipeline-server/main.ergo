@@ -3,14 +3,14 @@
 // at /health, on one listener. It prints the address it listens on
 // first, so a client (`pipeline --server URL`) can find it. This binary
 // is the only place that chooses the providers of the served context: a
-// memory runner whose every stage passes, std's memory journal and the
+// memory runner whose every stage passes, module domain's memory log and the
 // live clock.
 
 import flag
 import http
 import io
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import os
 import runners pipeline/memory
 import rpc
@@ -55,11 +55,11 @@ func main() fails os.Exit needs Ambient {
 		io.Stdout.Println("listening \(l.Addr())")
 	}
 	with context { Scheduler: NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
-		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
-		case journal.Failed as f:
-			return os.Exit{Code: 1, Message: "pipeline-server: the journal failed: \(f.Reason)"}
-		case journal.Diverged as d:
-			return os.Exit{Code: 1, Message: "pipeline-server: the journal diverged at signal \(d.At)"}
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		case domain.Conflict, domain.Reused:
+			return os.Exit{Code: 1, Message: "pipeline-server: the log refused a record"}
+		case domain.Unkept as u:
+			return os.Exit{Code: 1, Message: "pipeline-server: the log could not keep a record: \(u.Reason)"}
 		}
 		with context { pipeline.Pipeline: m } {
 			http.Serve(l, limits, Route) catch {

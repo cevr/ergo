@@ -1,5 +1,5 @@
 // The laws of the surfaces. Each surface runs on a context of its own: a
-// durable actor of Dispatch over a memory journal, a runner whose first
+// durable actor of Dispatch over a memory event log (module domain), a runner whose first
 // stage fails its first tries, and a manual clock that no one moves, so a
 // failed stage waits for a retry. After each request the surface settles
 // its context, so the runner's tries are part of what the next request
@@ -7,8 +7,8 @@
 
 import actor
 import flag
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import runners pipeline/memory
 import rpc
 import pipeline/pipeline
@@ -217,12 +217,12 @@ type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{} | ThroughScreen{}
 
 // answers plays rs on the surface s, on a context of its own whose first
 // stage fails its first failing tries.
-func answers(s Surface, rs []Request, failing int) []string fails journal.Failed | journal.Diverged {
+func answers(s Surface, rs []Request, failing int) []string fails domain.Conflict | domain.Reused | domain.Unkept {
 	let mut table = Map[int, int]{}
 	table[0] = ((failing % 3) + 3) % 3
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
-		let m = try pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]())
+		let m = try pipeline.Open(memory.New[pipeline.Entry]())
 		let out = match s {
 		case ThroughModel:
 			onModel(rs, m)
@@ -245,19 +245,19 @@ func answers(s Surface, rs []Request, failing int) []string fails journal.Failed
 law SurfacesAgree(acts []int, failing int) {
 	let rs = requests(acts)
 	let byModel = answers(ThroughModel, rs, failing) catch {
-	case journal.Failed, journal.Diverged:
+	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
 	let byWire = answers(ThroughWire, rs, failing) catch {
-	case journal.Failed, journal.Diverged:
+	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
 	let byLine = answers(ThroughLine, rs, failing) catch {
-	case journal.Failed, journal.Diverged:
+	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
 	let byScreen = answers(ThroughScreen, rs, failing) catch {
-	case journal.Failed, journal.Diverged:
+	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
 	byWire == byModel && byLine == byModel && byScreen == byModel
@@ -267,8 +267,8 @@ law SurfacesAgree(acts []int, failing int) {
 // generated client over the wire.
 law LoopbackTakesEachCommandOnce(c pipeline.SubmitRun) {
 	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
-		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
-		case journal.Failed, journal.Diverged:
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		let ok = with context { pipeline.Pipeline: Loopback(m) } { pipeline.DuplicateIsNoop(c) }

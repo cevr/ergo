@@ -5,12 +5,13 @@
 // says; its clock is a manual clock that only `wait` moves, so a run
 // prints the same lines on every host. Package pipeline is the Api and
 // the context; this binary is the only place that chooses the providers:
-// the runner, the journal (std's memory journal) and the clock.
+// the runner, the event log (module domain's memory log), the cursor of
+// the notices' follower and the clock.
 
 import flag
 import io
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import os
 import runners pipeline/memory
 import pipeline/notify
@@ -21,6 +22,7 @@ import pipeline/run
 import rpc
 import strconv
 import strings
+import sync
 import time
 
 let failFlag = flag.String("fail", "", "STAGE:TRIES: stage STAGE (1 is the first) fails its first TRIES tries; a negative TRIES makes the runner offline for them").Repeated()
@@ -182,10 +184,10 @@ func send(id string, o Order) Option[string] needs pipeline.Pipeline {
 // Play runs the orders against the context m, line by line, and is what
 // it shows: each line, the answer, then what the pipeline did until the
 // runner runs no try: each new event of the log and each notice it gives
-// (!). The clock moves only for wait.
-func Play(lines []string, orders Map[int, Order], m pipeline.Model, clock time.Manual) []string fails pipeline.Unavailable needs pipeline.Pipeline {
+// (!), which the follower "notify" reads from log after its cursor. The
+// clock moves only for wait.
+func Play(lines []string, orders Map[int, Order], m pipeline.Model, log domain.Log[pipeline.Entry], cursor domain.Cursor, clock time.Manual) []string fails pipeline.Unavailable needs pipeline.Pipeline {
 	let mut out = []string{}
-	let mut shown = 0
 	for i, line in lines {
 		let n = i + 1
 		let o = match orders.Get(n) {
@@ -232,17 +234,29 @@ func Play(lines []string, orders Map[int, Order], m pipeline.Model, clock time.M
 			}
 		}
 		let _ = try pipeline.Settle(m)
-		let log = pipeline.Log(m)
-		for k in shown..len(log) {
-			let e = log[k]
-			out = out.Append("  \(e.Run): \(eventText(e.Event))")
-			for note in notify.React(e.Run, e.Event) {
-				out = out.Append("  " + notify.Text(note))
-			}
+		for l in told(log, cursor) {
+			out = out.Append(l)
 		}
-		shown = len(log)
 	}
 	out
+}
+
+// told is what the follower "notify" tells of the records of log after its
+// cursor: each event, and each notice the policy gives for it.
+func told(log domain.Log[pipeline.Entry], cursor domain.Cursor) []string {
+	let lines = sync.NewRef([]string{})
+	let _ = domain.Follow(log, cursor, "notify", pipeline.Stream, func(d domain.Delivery[pipeline.Entry]) fails domain.Unkept {
+		for e in d.Record.Events {
+			lines.Update(func(xs []string) []string { xs.Append("  \(e.Run): \(eventText(e.Event))") })
+			for note in notify.React(e.Run, e.Event) {
+				lines.Update(func(xs []string) []string { xs.Append("  " + notify.Text(note)) })
+			}
+		}
+	}) catch {
+	case domain.Unkept:
+		0
+	}
+	lines.Get()
 }
 
 // Remote is a command line that names a server: `--server URL` then a
@@ -319,10 +333,10 @@ func main() fails os.Exit needs Ambient | Console {
 		return os.Exit{Code: 2, Message: "pipeline: line \(b.Line): \(b.Why)"}
 	}
 	let shown = session(lines, orders, table) catch {
-	case journal.Failed as f:
-		return os.Exit{Code: 1, Message: "pipeline: the journal failed: \(f.Reason)"}
-	case journal.Diverged as d:
-		return os.Exit{Code: 1, Message: "pipeline: the journal diverged at signal \(d.At)"}
+	case domain.Conflict, domain.Reused:
+		return os.Exit{Code: 1, Message: "pipeline: the log refused a record"}
+	case domain.Unkept as u:
+		return os.Exit{Code: 1, Message: "pipeline: the log could not keep a record: \(u.Reason)"}
 	case pipeline.Unavailable:
 		return os.Exit{Code: 1, Message: "pipeline: the context stopped"}
 	}
@@ -337,14 +351,15 @@ func prepare(lines []string, values []string) (Map[int, Order], Map[int, int]) f
 }
 
 // session binds the providers: a memory runner of the table, a manual
-// clock and a memory journal. It plays the script and ends with the
+// clock, a memory log and the notices' memory cursor. It plays the script and ends with the
 // number of tries the runner ran.
-func session(lines []string, orders Map[int, Order], table Map[int, int]) []string fails journal.Failed | journal.Diverged | pipeline.Unavailable {
+func session(lines []string, orders Map[int, Order], table Map[int, int]) []string fails domain.Conflict | domain.Reused | domain.Unkept | pipeline.Unavailable {
 	let runner = runners.New(table)
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
-		let m = try pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]())
-		let said = with context { pipeline.Pipeline: m } { try Play(lines, orders, m, clock) }
+		let log = memory.New[pipeline.Entry]()
+		let m = try pipeline.Open(log)
+		let said = with context { pipeline.Pipeline: m } { try Play(lines, orders, m, log, memory.NewCursor(), clock) }
 		pipeline.Stop(m)
 		said.Append("the runner ran \(runners.Ran(runner)) tries")
 	}

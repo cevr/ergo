@@ -6,7 +6,6 @@
 // the retry saga's timer.
 
 import machines
-import pipeline/board
 import pipeline/retry
 import pipeline/run
 import slices
@@ -19,14 +18,14 @@ type Envelope { ID string, Run string, Command run.Command }
 type Entry { Run string, Event run.Event }
 
 // Book is what every state of the desk holds: each run by name, the runs
-// that wait for the runner (in submission order), the log, the receipt
-// of each command taken (by its ID), and the board.
+// that wait for the runner (in submission order), the log, and the receipt
+// of each command taken (by its ID). The board is a follower of the
+// log (board.Projection), not part of the desk.
 type Book {
 	Runs  Map[string, run.Run],
 	Queue []string,
 	Log   []Entry,
 	Seen  Map[string, Receipt],
-	Board board.View,
 }
 
 // Job is the stage the desk runs: the run, the stage, and the retry
@@ -45,7 +44,7 @@ type Desk = Idle{Book Book} | Busy{Book Book, Job Job} | Waiting{Book Book, Job 
 type Signal = Ask{Env Envelope} | Ran{OK bool} | Due{}
 
 // Fresh is the desk with no run.
-let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}, Seen: Map[string, Receipt]{}, Board: board.Empty}}
+let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}, Seen: Map[string, Receipt]{}}}
 
 // BookOf is d's book.
 func BookOf(d Desk) Book {
@@ -85,12 +84,10 @@ func apply(b Book, id string, c run.Command) Book fails run.WrongState | run.Wro
 	match d {
 	case Emit[run.Run, []run.Event] as e:
 		let mut log = b.Log
-		let mut v = b.Board
 		for ev in e.Output {
 			log = log.Append(Entry{Run: id, Event: ev})
-			v = board.Apply(v, id, ev)
 		}
-		Book{..b, Runs: b.Runs.Put(id, e.Next), Log: log, Board: v}
+		Book{..b, Runs: b.Runs.Put(id, e.Next), Log: log}
 	case Enter[run.Run], Stay[run.Run], Ignore, Reject, Done[[]run.Event]:
 		b
 	}

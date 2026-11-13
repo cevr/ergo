@@ -1,0 +1,99 @@
+// The laws of the event log and its followers (PX-log): a scene's log
+// folds back into the desk the scene ended in, and the board that
+// follows the log is the fold of its entries.
+
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import pipeline/board
+import testing
+import time
+
+// Played is how a scene ended: the desk and the board.
+type Played { Desk Desk, Board board.View }
+
+// played plays acts on log with the runner that flaky scripts (as
+// SceneAgreesWithStory's), naming the commands from the place from on,
+// or None when the context failed.
+func played(acts []Act, from int, flaky []int, log domain.Log[Entry]) Option[Played] {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline {
+		match answerOf(flaky, stage, attempt) {
+		case Some[bool] as a:
+			a.Value
+		case None:
+			Offline{Why: "down"}
+		}
+	})
+	let clock = time.NewManual(0)
+	let d, v = with context { Scheduler: clock, Runner: s } { sceneOn(acts, from, clock, log) } catch {
+	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
+		return None
+	}
+	Some[Played]{Value: Played{Desk: d, Board: v}}
+}
+
+// RecoverAgrees: the stream a scene wrote folds back (Rebuild, which a
+// restart runs) into the desk the scene ended in: its runs, its log, the
+// receipt of each command, the runs still queued, and the job with its
+// try.
+law RecoverAgrees(acts []Act, flaky []int) {
+	let log = memory.New[Entry]()
+	match played(acts, 0, flaky, log) {
+	case Some[Played] as p:
+		Rebuild(log.Read(Stream, 0)) == Normal(p.Value.Desk)
+	case None:
+		false
+	}
+}
+
+// RestartGoesOn: a context stopped after the acts before cut and opened
+// again over the same log (a restart: it recovers by Rebuild, then
+// appends after the last record) plays the rest of the acts to the desk
+// that the story of all of them gives.
+law RestartGoesOn(acts []Act, flaky []int, cut int) { restarted(acts, flaky, cut) }
+
+// RestartMidStage: RestartGoesOn for one run of two stages whose first
+// stage fails once (and the operator retries it) and whose second fails
+// twice, cut anywhere: a restart while the second stage waits goes on
+// with that stage's own try, not the first stage's failures too.
+law RestartMidStage(waits int, cut int) {
+	let mut acts = []Act{Submits{Pick: 0, Stages: 1}, Retries{Pick: 0, Stage: 0}}
+	for _ in 0..small(waits)+1 {
+		acts = acts.Append(Waits)
+	}
+	restarted(acts, []int{1, 2}, cut)
+}
+
+// restarted is whether the acts, played on a log, stopped after the acts
+// before cut and played on again, end in the story's desk.
+func restarted(acts []Act, flaky []int, cut int) bool {
+	let k = len(acts) + 1
+	let at = ((cut % k) + k) % k
+	let log = memory.New[Entry]()
+	match played(acts[0:at], 0, flaky, log) {
+	case Some[Played]:
+	case None:
+		return false
+	}
+	match played(acts[at:len(acts)], at, flaky, log) {
+	case Some[Played] as p:
+		Normal(p.Value.Desk) == Normal(Story(acts, flaky))
+	case None:
+		false
+	}
+}
+
+// BoardFollowsTheLog: the board, a follower of the log, is the fold of
+// the desk's entries.
+law BoardFollowsTheLog(acts []Act, flaky []int) {
+	match played(acts, 0, flaky, memory.New[Entry]()) {
+	case Some[Played] as p:
+		let mut v = board.Empty
+		for e in BookOf(p.Value.Desk).Log {
+			v = board.Apply(v, e.Run, e.Event)
+		}
+		p.Value.Board == v
+	case None:
+		false
+	}
+}

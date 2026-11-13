@@ -168,6 +168,54 @@
       "to": "\t\tDescribe(sh.Notice)\n",
       "rule": "While a command is in flight the screen says so: view.HeldAskShowsSendingThenReceipt.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-receipt-counts-start", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\t\t\t\town = own - 1\n",
+      "to": "\t\t\t\town = own\n",
+      "rule": "A command's receipt is the log's length after its own events, before the start its step gave: RecoverAgrees.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-queue-keeps-started", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\tb = Book{..b, Queue: queue}\n",
+      "to": "\tb = Book{..b, Queue: order}\n",
+      "rule": "The rebuilt queue holds only the runs still queued: RecoverAgrees.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-failures-count-every-stage", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\t\t\tif f.Stage == stage {\n",
+      "to": "\t\t\tif f.Stage >= 0 {\n",
+      "rule": "A rebuilt job counts the failed tries of its own stage only: RecoverAgrees, RestartGoesOn.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-save-keeps-stale-position", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\t\tat.Set(r.Position)\n\t}\n}\n",
+      "to": "\t\tat.Set(r.Position - 1)\n\t}\n}\n",
+      "rule": "Each step appends at the position after the last record, so the log refuses none: SceneAgreesWithStory, RecoverAgrees.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-board-skips-record", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/pipeline/projection.ergo",
+      "from": "\t\tif d.Record.Position <= s.At {\n",
+      "to": "\t\tif d.Record.Position <= s.At + 1 {\n",
+      "rule": "The board takes every record the follower delivers: BoardFollowsTheLog.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pxlog-notify-forgets-cursor", "origin": "wf10/domain PX-log",
+      "file": "examples/pipeline/cmd/pipeline/main.ergo",
+      "from": "\t\tfor l in told(log, cursor) {\n",
+      "to": "\t\tfor l in told(log, memory.NewCursor()) {\n",
+      "rule": "The notices' follower tells each record once, from its saved cursor: the cases' recorded output.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]
 }

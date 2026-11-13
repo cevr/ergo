@@ -1,9 +1,11 @@
 // Model, the in-process provider of Pipeline: a durable actor of
-// Dispatch over a journal. Its operations send the command to the actor
-// and read the receipt from the state that the command committed.
+// Dispatch, event-sourced on a domain.Log (log.ergo). Its operations send
+// the command to the actor and read the receipt from the state that the
+// command committed; Board reads the board, a follower of the log.
 
 import actor
-import journal
+import github.com/cevr/ergo/modules/domain
+import sync
 import pipeline/board
 import pipeline/run
 
@@ -11,14 +13,16 @@ import pipeline/run
 type DeskActor = actor.Actor[Desk, Signal, Decision[Desk, []Entry], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
 // Model is the context as a Pipeline. Open makes one.
-type Model { desk DeskActor } implements Pipeline
+type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
 
-// Open runs the context over the journal j: it starts in the state that
-// j replays, and keeps each committed signal in j (a snapshot each 16)
+// Open runs the context over log: it starts in the desk that the stream
+// Stream folds to, and appends the entries of each step to the stream
 // before anyone sees the state. The runner and the clock are the
 // caller's.
-func Open(j journal.Journal[Desk, Signal]) Model fails journal.Failed | journal.Diverged needs Runner | Scheduler {
-	Model{desk: try journal.Start(Dispatch{}, j, 16, 8, func(es []Entry) {})}
+func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+	let at = sync.NewRef(0)
+	let desk = try actor.StartDurable(Dispatch{}, 8, func(es []Entry) {}, recoverFrom(log, at), saveTo(log, at))
+	Model{desk: desk, log: log, board: NewProjection()}
 }
 
 // send asks the desk to take env, and is the receipt of env's ID.
@@ -57,7 +61,9 @@ func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | 
 	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Retry{Stage: c.Stage}})
 }
 
-func Board(m Model) board.View { BookOf(m.desk.State()).Board }
+// Board is the board after every record of the log: its follower takes
+// the records it has not seen first.
+func Board(m Model) board.View { m.board.Follow(m.log) }
 
 func RunOf(m Model, id string) run.Run fails NoSuchRun {
 	match BookOf(m.desk.State()).Runs.Get(id) {
@@ -76,9 +82,6 @@ func Settle(m Model) Desk fails Unavailable {
 		return Unavailable
 	}
 }
-
-// Log is the context's log so far.
-func Log(m Model) []Entry { BookOf(m.desk.State()).Log }
 
 // Stop stops the context. (Model has no Close: it is a handle that a
 // context binds and the binary copies, not a resource one owner holds.)

@@ -1,13 +1,14 @@
 // The scene and its story. A story is the pure reference: the desk's
 // rules written again over run.Decide and run.Fold, with the runner's
 // answers read from a table. A scene plays the same acts on the real
-// program: a durable actor of Dispatch over a memory journal, its runner
+// program: a durable actor of Dispatch over a memory event log (module domain), its runner
 // a testing.Script, its clock a time.Manual that only the scene moves.
 // The law SceneAgreesWithStory says both end in the same desk.
 
-import journal
-import journal/memory
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import pipeline/board
+
 import pipeline/retry
 import pipeline/run
 import testing
@@ -62,12 +63,10 @@ func record(b Book, id string, c run.Command) Option[Book] {
 		return None
 	}
 	let mut log = b.Log
-	let mut v = b.Board
 	for e in es {
 		log = log.Append(Entry{Run: id, Event: e})
-		v = board.Apply(v, id, e)
 	}
-	Some[Book]{Value: Book{..b, Runs: b.Runs.Put(id, run.Fold(s, es)), Log: log, Board: v}}
+	Some[Book]{Value: Book{..b, Runs: b.Runs.Put(id, run.Fold(s, es)), Log: log}}
 }
 
 // must is the book that record gives for a command the story knows the
@@ -224,14 +223,22 @@ func waited(d Desk, flaky []int) Desk {
 	}
 }
 
-// scene plays the acts on a context opened over a fresh memory journal,
-// with the runner and the clock of the caller's context, and is the
-// desk at the end. After each act it waits until the runner runs no
-// try; a Waits moves the clock an hour.
-func scene(acts []Act, clock time.Manual) Desk fails journal.Failed | journal.Diverged | Unavailable needs Runner | Scheduler {
-	let m = try Open(memory.New[Desk, Signal]())
+// scene plays the acts on a context opened over a fresh memory log, with
+// the runner and the clock of the caller's context, and is the desk at
+// the end.
+func scene(acts []Act, clock time.Manual) Desk fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+	let d, _ = try sceneOn(acts, 0, clock, memory.New[Entry]())
+	d
+}
+
+// sceneOn plays the acts on a context opened over log, naming the
+// commands from the place from on, and is the desk and the board at the
+// end. After each act it waits until the runner
+// runs no try; a Waits moves the clock an hour.
+func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (Desk, board.View) fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+	let m = try Open(log)
 	for i, a in acts {
-		match envelopeOf(i, a) {
+		match envelopeOf(from+i, a) {
 		case Some[Envelope] as e:
 			let _ = send(m, e.Value) catch {
 			case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
@@ -245,8 +252,9 @@ func scene(acts []Act, clock time.Manual) Desk fails journal.Failed | journal.Di
 		let _ = try Settle(m)
 	}
 	let d = m.desk.State()
+	let v = Board(m)
 	Stop(m)
-	d
+	(d, v)
 }
 
 // SceneAgreesWithStory: the program, played act by act with a scripted
@@ -264,7 +272,7 @@ law SceneAgreesWithStory(acts []Act, flaky []int) {
 	})
 	let clock = time.NewManual(0)
 	let got = with context { Scheduler: clock, Runner: s } { scene(acts, clock) } catch {
-	case journal.Failed, journal.Diverged, Unavailable:
+	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
 		return false
 	}
 	got == want

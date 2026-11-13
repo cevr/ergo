@@ -17,7 +17,7 @@ What Ergo adds to the source library's model: `Decide` has no `needs` row, so it
 | Durability | `journal.Start(m, j, every, capacity, sink)` keeps the committed signals and snapshots, and replays them. An event log of commands, with positions and receipts, is module `domain` (`modules/domain`, DK2): `Log[E]`, and `Sourced`, whose save appends the step's events and whose recover folds the stream | exists |
 | Laws | Inside the machine (`law ClosedIsFinal`), at top level, and on the Api's operation type. Each is seeded, shrunk and replayable | exists |
 | View (read model) | A fold over events, with a law that the view equals the fold of the log | exists |
-| Policy (an event causes a command or a notice) | A pure function `React(e E) []C`, run by a follower of the log: `domain.Follow(log, cursor, follower, stream, handle)` delivers each record after the follower's saved cursor, in order, at least once, and a command the handle sends takes the id `domain.SentID(delivery, index)` (follower, stream, position, index), so a second delivery is a resend the log keeps once (law `RedeliveryAddsNothing`) | exists ([modules/domain](../modules/domain/README.md)); `examples/pipeline` runs `React` over its desk's log, not yet on a follower |
+| Policy (an event causes a command or a notice) | A pure function `React(e E) []C`, run by a follower of the log: `domain.Follow(log, cursor, follower, stream, handle)` delivers each record after the follower's saved cursor, in order, at least once, and a command the handle sends takes the id `domain.SentID(delivery, index)` (follower, stream, position, index), so a second delivery is a resend the log keeps once (law `RedeliveryAddsNothing`) | exists ([modules/domain](../modules/domain/README.md)); `examples/pipeline` runs `React` and its board as followers of its desk's log (`cmd/pipeline` `told`, `pipeline/projection.ergo`) |
 | Saga (a process over time) | A machine of its own, with a timer (`after`) and `work` | exists |
 | External system | An operation type with laws, bound in `cmd/<name>/main.ergo`; a `testing.Script` of it in a scene | exists |
 | Context (actor, tenant, time, command id) | Data in the command's envelope, never an ambient value (rule 3) | pattern |
@@ -48,7 +48,7 @@ type Command = Submit{Stages int} | Start{} | Finish{Stage int, OK bool} | Retry
 type Event = Submitted{Stages int} | Started{} | StagePassed{Stage int} | StageFailed{Stage int} | Retried{Stage int} | Finished{} | Abandoned{Stage int} | Stopped{Why string}
 ```
 
-**Rule 2. `Decide` has no `needs` row; `Evolve` is total; the step is `Decide` then the fold.** A rejection is a record in `Decide`'s row, with its evidence as fields. `journal.Start` refuses a step that is not pure (S108), so a durable actor of the machine replays to the same state.
+**Rule 2. `Decide` has no `needs` row; `Evolve` is total; the step is `Decide` then the fold.** A rejection is a record in `Decide`'s row, with its evidence as fields. A durable actor (`actor.StartDurable`, which `journal.Start` and `examples/pipeline`'s event log both run on) refuses a step that is not pure (S108), so a durable actor of the machine replays to the same state.
 
 <!-- quote examples/pipeline/run/run.ergo Decide Evolve Handle -->
 ```go
@@ -294,6 +294,32 @@ func React(id string, e run.Event) []Notice {
 }
 ```
 
+**The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`Rebuild`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
+
+<!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn -->
+```go
+// RestartGoesOn: a context stopped after the acts before cut and opened
+// again over the same log (a restart: it recovers by Rebuild, then
+// appends after the last record) plays the rest of the acts to the desk
+// that the story of all of them gives.
+law RestartGoesOn(acts []Act, flaky []int, cut int) {
+	let k = len(acts) + 1
+	let at = ((cut % k) + k) % k
+	let log = memory.New[Entry]()
+	match played(acts[0:at], 0, flaky, log) {
+	case Some[Played]:
+	case None:
+		return false
+	}
+	match played(acts[at:len(acts)], at, flaky, log) {
+	case Some[Played] as p:
+		Normal(p.Value.Desk) == Normal(Story(acts, flaky))
+	case None:
+		false
+	}
+}
+```
+
 **A saga is a machine of its own**, with a timer on its waiting state; its laws run under `machines.RunTimed` on a virtual clock:
 
 <!-- quote examples/pipeline/retry/retry.ergo Saga -->
@@ -327,7 +353,7 @@ law SceneAgreesWithStory(acts []Act, flaky []int) {
 	})
 	let clock = time.NewManual(0)
 	let got = with context { Scheduler: clock, Runner: s } { scene(acts, clock) } catch {
-	case journal.Failed, journal.Diverged, Unavailable:
+	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
 		return false
 	}
 	got == want
