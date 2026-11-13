@@ -54,5 +54,6 @@ func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
 	if c.Root != "" && root != c.Root {
 		return At(text, blank(text, 0), "the root element is <"+root+">, not <"+c.Root+">")
 	}
-	try decode[T](readerOf(text))
+	let r Cursor = readerOf(text)
+	try decode[T](r)
 }

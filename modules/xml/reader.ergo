@@ -1,6 +1,5 @@
 import strconv
 import strings
-import sync
 
 // reader gives a checked document's values back in the order decode[T]
 // asks for them: a provider of the prelude's Reader that reads the text
@@ -10,10 +9,36 @@ import sync
 // value through its end tag. White space between elements, comments and
 // processing instructions hold no value and are passed over.
 //
-// It holds its place in a sync.Ref, as std codec's Replay does: a cell
-// cannot be passed as the prelude's Reader, so decode[T] cannot read
-// from a provider a let binds by a cell (std-nopriv inbox, 2026-11-13).
-type reader { text string, c sync.Ref[cursor] }
+// It holds its place in its own field c: Decode binds it to a Cursor, a
+// cell (types.md, Interface assignability 6), and lends the cell to
+// decode[T] as its Reader, so each read writes the place in the cell, as
+// std json's runtime reader writes its own.
+type reader { text string, c cursor }
+
+// Cursor is a reader of a checked document: the prelude's Reader,
+// sealed here (seal), so its one provider, reader, is a cell that
+// decode[T] may borrow.
+type Cursor {
+	TakeNull() bool,
+	Peek() WireKind,
+	Number() string fails WireWrongKind,
+	Path() string,
+	Bool() bool fails WireWrongKind,
+	Int() int64 fails WireWrongKind,
+	Uint() uint64 fails WireWrongKind,
+	Float() float64 fails WireWrongKind,
+	String() string fails WireWrongKind,
+	BeginList() fails WireWrongKind,
+	BeginObject() fails WireWrongKind,
+	Tag() string fails WireMissingField,
+	More() bool,
+	Key() string,
+	Skip(),
+	End(),
+	seal(),
+}
+
+func seal(r *reader) {}
 
 // cursor is a reader's place: at is the next byte of the value being
 // read. closed says that value's element was <name/>, so its content is
@@ -24,10 +49,7 @@ type cursor { at int, closed bool, tag int }
 // readerOf is a reader of the checked text whose root element starts at
 // the first start tag.
 func readerOf(text string) reader {
-	let r = reader{text: text, c: sync.NewRef[cursor](cursor{at: 0, closed: false, tag: 0})}
-	let k = blank(text, 0)
-	r.c.Set(taken(text, k))
-	r
+	reader{text: text, c: taken(text, blank(text, 0))}
 }
 
 // blank is the first offset at or after i that is not white space, a
@@ -139,19 +161,19 @@ func value(text string, c cursor) (string, cursor, bool) {
 
 // read is the text of the value at c, the reader's place, which it takes,
 // or the failure of a value of the kind want that holds an element.
-func read(r reader, c cursor, want string) string fails WireWrongKind {
+func read(r *reader, c cursor, want string) string fails WireWrongKind {
 	let s, next, ok = value(r.text, c)
 	if !ok {
 		return WireWrongKind{Path: Path(r), Want: want}
 	}
-	r.c.Set(next)
+	r.c = next
 	s
 }
 
 // wrong is the failure of a value of the kind want at c, the reader's
 // place before it read the value's text.
-func wrong(r reader, c cursor, want string) WireWrongKind {
-	r.c.Set(c)
+func wrong(r *reader, c cursor, want string) WireWrongKind {
+	r.c = c
 	WireWrongKind{Path: Path(r), Want: want}
 }
 
@@ -159,8 +181,8 @@ func wrong(r reader, c cursor, want string) WireWrongKind {
 // root, each with its index among its parent's elements,
 // "/catalog[0]/products[1]/item[2]". It reads the text again up to the
 // reader's place, only for a failure's text.
-func Path(r reader) string {
-	let at = r.c.Get().at
+func Path(r *reader) string {
+	let at = r.c.at
 	let mut p = NewParser(r.text, 0)
 	let mut names = []string{}
 	let mut counts = []int{0}
@@ -188,8 +210,8 @@ func Path(r reader) string {
 // nameAtTag is the name of the start tag at i.
 func nameAtTag(text string, i int) string { strings.Slice(text, i+1, nameAt(text, i+1)) }
 
-func TakeNull(r reader) bool {
-	let c = r.c.Get()
+func TakeNull(r *reader) bool {
+	let c = r.c
 	if c.closed {
 		return false
 	}
@@ -209,12 +231,12 @@ func TakeNull(r reader) bool {
 	if !startsEnd(r.text, close) {
 		return false
 	}
-	r.c.Set(cursor{at: past(r.text, close), closed: false, tag: c.tag})
+	r.c = cursor{at: past(r.text, close), closed: false, tag: c.tag}
 	true
 }
 
-func Peek(r reader) WireKind {
-	let c = r.c.Get()
+func Peek(r *reader) WireKind {
+	let c = r.c
 	if c.closed {
 		return WireString
 	}
@@ -228,12 +250,12 @@ func Peek(r reader) WireKind {
 	}
 }
 
-func String(r reader) string fails WireWrongKind { try read(r, r.c.Get(), "string") }
+func String(r *reader) string fails WireWrongKind { try read(r, r.c, "string") }
 
-func Number(r reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c.Get(), "number")) }
+func Number(r *reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
 
-func Bool(r reader) bool fails WireWrongKind {
-	let c = r.c.Get()
+func Bool(r *reader) bool fails WireWrongKind {
+	let c = r.c
 	match strings.TrimSpace(try read(r, c, "bool")) {
 	case "true":
 		true
@@ -244,8 +266,8 @@ func Bool(r reader) bool fails WireWrongKind {
 	}
 }
 
-func Int(r reader) int64 fails WireWrongKind {
-	let c = r.c.Get()
+func Int(r *reader) int64 fails WireWrongKind {
+	let c = r.c
 	let s = try read(r, c, "int")
 	strconv.ParseInt(strings.TrimSpace(s), 10, 64) catch {
 	case _:
@@ -253,8 +275,8 @@ func Int(r reader) int64 fails WireWrongKind {
 	}
 }
 
-func Uint(r reader) uint64 fails WireWrongKind {
-	let c = r.c.Get()
+func Uint(r *reader) uint64 fails WireWrongKind {
+	let c = r.c
 	let s = try read(r, c, "uint")
 	let digits = strings.TrimSpace(s)
 	if digits == "" {
@@ -276,8 +298,8 @@ func Uint(r reader) uint64 fails WireWrongKind {
 	n
 }
 
-func Float(r reader) float64 fails WireWrongKind {
-	let c = r.c.Get()
+func Float(r *reader) float64 fails WireWrongKind {
+	let c = r.c
 	let s = try read(r, c, "float")
 	strconv.ParseFloat(strings.TrimSpace(s)) catch {
 	case _:
@@ -286,8 +308,8 @@ func Float(r reader) float64 fails WireWrongKind {
 }
 
 // begin opens an object or a list: its content is elements, not text.
-func begin(r reader, want string) fails WireWrongKind {
-	let c = r.c.Get()
+func begin(r *reader, want string) fails WireWrongKind {
+	let c = r.c
 	if c.closed {
 		return
 	}
@@ -297,17 +319,17 @@ func begin(r reader, want string) fails WireWrongKind {
 	}
 }
 
-func BeginList(r reader) fails WireWrongKind { try begin(r, "list") }
+func BeginList(r *reader) fails WireWrongKind { try begin(r, "list") }
 
-func BeginObject(r reader) fails WireWrongKind { try begin(r, "object") }
+func BeginObject(r *reader) fails WireWrongKind { try begin(r, "object") }
 
-func Tag(r reader) string fails WireMissingField {
-	let c = r.c.Get()
+func Tag(r *reader) string fails WireMissingField {
+	let c = r.c
 	if !c.closed {
 		let k = blank(r.text, c.at)
 		if startsElement(r.text, k) && nameAtTag(r.text, k) == "_tag" {
 			let name, next, _ = value(r.text, taken(r.text, k))
-			r.c.Set(cursor{at: next.at, closed: false, tag: c.tag})
+			r.c = cursor{at: next.at, closed: false, tag: c.tag}
 			return strings.TrimSpace(name)
 		}
 	}
@@ -316,24 +338,24 @@ func Tag(r reader) string fails WireMissingField {
 
 // More takes the next value's start tag, when there is one before the
 // end of the object or list.
-func More(r reader) bool {
-	let c = r.c.Get()
+func More(r *reader) bool {
+	let c = r.c
 	if c.closed {
 		return false
 	}
 	let k = blank(r.text, c.at)
 	if startsElement(r.text, k) {
-		r.c.Set(taken(r.text, k))
+		r.c = taken(r.text, k)
 		return true
 	}
-	r.c.Set(cursor{at: k, closed: false, tag: c.tag})
+	r.c = cursor{at: k, closed: false, tag: c.tag}
 	false
 }
 
 // Key is the name of the element More took: a field's key, or the key
 // attribute of a <_> element.
-func Key(r reader) string {
-	let i = r.c.Get().tag
+func Key(r *reader) string {
+	let i = r.c.tag
 	let name = nameAtTag(r.text, i)
 	if name != "_" {
 		return name
@@ -357,10 +379,10 @@ func Key(r reader) string {
 
 // Skip takes the rest of the value whose start tag was taken, through its
 // end tag.
-func Skip(r reader) {
-	let c = r.c.Get()
+func Skip(r *reader) {
+	let c = r.c
 	if c.closed {
-		r.c.Set(cursor{at: c.at, closed: false, tag: c.tag})
+		r.c = cursor{at: c.at, closed: false, tag: c.tag}
 		return
 	}
 	let mut i = c.at
@@ -385,8 +407,8 @@ func Skip(r reader) {
 			i = if next < 0 { len(r.text) } else { next }
 		}
 	}
-	r.c.Set(cursor{at: i, closed: false, tag: c.tag})
+	r.c = cursor{at: i, closed: false, tag: c.tag}
 }
 
 // End takes the rest of the object or list, through its end tag.
-func End(r reader) { Skip(r) }
+func End(r *reader) { Skip(r) }
