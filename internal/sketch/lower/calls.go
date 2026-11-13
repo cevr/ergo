@@ -208,8 +208,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
+		if g := fc.uiGroup(x, c); g != nil {
+			return fc.groupCall(x, c, g) // a component call (uigroup.go)
+		}
 		sp := fc.specAt(x, c)
-		if sp == nil && fc.inlineAt(x, c) {
+		if sp == nil && fc.inGroup != x && fc.inlineAt(x, c) {
 			return "", false, false // the value is fc.inlined
 		}
 		fd := fc.l.useFunc(c.Func, x)

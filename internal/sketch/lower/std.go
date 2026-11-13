@@ -108,7 +108,7 @@ var runtimeProtocols = map[string]bool{
 	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
 	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
 	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
-	"http.BodyFile": true, "fs.HostRoot": true,
+	"http.BodyFile": true, "fs.HostRoot": true, "ui.GroupArgs": true,
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.

@@ -339,6 +339,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	// copy of a shared value under the same lock.
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
+	// std ui groups (P-ui, skipping; stdlib.md, UI 13): the memo of a
+	// frame's group arguments, one task's, with no lock and no wait.
+	"NewUIArgs":  {},
+	"UIArgsPut":  {},
+	"UIArgsSame": {},
+	"UIArgsSet":  {},
+	"UIArgsFree": {},
+	"UIArgsHeld": {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
 	// an Op holds its mutex for one step and calls no program code.
 	"NewOp":     {},

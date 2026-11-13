@@ -21,6 +21,15 @@ type Frame[E] {
 	keys   []func(k KeyPress) Option[E],
 	anims  []func(at duration) E,
 	rowRuns int,
+	// Groups (group.ergo): the arguments' memo, the groups kept from the
+	// last pass, this pass's groups, the one being written (-1 none), the
+	// groups' identities counted apart from the nodes', and the bodies run.
+	args   GroupArgs,
+	kept   Map[groupKey[E], keptGroup[E]],
+	groups []groupRec[E],
+	group  int,
+	groupSeen Map[slotOf, int],
+	groupRuns int,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -82,7 +91,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], keptGroup[E]]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -110,6 +119,10 @@ func begin[E](f *Frame[E]) {
 	f.keys = []func(k KeyPress) Option[E]{}
 	f.anims = []func(at duration) E{}
 	f.rowRuns = 0
+	f.groups = []groupRec[E]{}
+	f.group = -1
+	f.groupSeen = Map[slotOf, int]{}
+	f.groupRuns = 0
 }
 
 // identify is the identity of the next entry at site under the current
@@ -250,6 +263,7 @@ func Commit[E comparable](f *Frame[E]) []Op[E] {
 	let kids = childLists(f)
 	reconcile(f, kids, -1, f.root, kids[0])
 	settle(f)
+	keepGroups(f)
 	f.ops
 }
 
