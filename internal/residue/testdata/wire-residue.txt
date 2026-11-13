@@ -114,6 +114,7 @@ internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower
 internal/sketch/lower/testdata/mutants.json	      "name": "option-wire-swapped",
 internal/sketch/lower/testdata/mutants.json	      "rule": "wire: a record's Option field round-trips
 internal/sketch/lower/testdata/mutants.json	"killers": ["examples:wire-config"]
+scripts/examples/fast-tier.txt	wire-config
 internal/sketch/lower/testdata/mutants.json	"file": "internal/sketch/lower/wire.go",
 internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent of the projection and Go codec.
 internal/sketch/lower/wire.go	*

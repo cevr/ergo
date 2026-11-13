@@ -292,10 +292,15 @@ const fastExamplesFile = "scripts/examples/fast-tier.txt"
 // fastExamples narrows the fast tier's examples step to the programs of
 // fastExamplesFile. 35 of the 51 default programs were named by no ledger
 // row: 147 of the step's 208 ergo test runs, 261 s (gate-speed.md).
-// A missing or empty list is an error, never a silent full or empty run.
+// A missing or empty list is an error, never a silent full or empty run;
+// a module with no runner (a test's fixture) has no list to read, and
+// the step, if it runs there, fails (examplesRunnerInputs).
 func fastExamples(root string, steps []*Step) error {
 	i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == examplesStepName })
 	if i < 0 {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
 		return nil
 	}
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fastExamplesFile)))
