@@ -55,12 +55,26 @@ func Make(d Doc, edits []Edit, after int) Doc {
 	if len(edits) == 0 {
 		return d
 	}
-	let mut b = d.Buf
-	for e in edits {
-		b = apply(b, e)
-	}
 	let c = Change{Edits: edits, Before: d.Caret, After: after}
-	Doc{Buf: b, Caret: after, Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}
+	Doc{Buf: forward(d.Buf, edits, 0), Caret: after, Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}
+}
+
+// forward is b with edits[i:] made in order, and backward b with the
+// inverses of edits[:i+1] made last first. They pass the buffer from one
+// edit to the next as an argument: a `let mut` copy of the buffer would
+// copy its line index on every keystroke (GP/editor-gui-gaps.md, OWN1).
+func forward(b piece.Buffer, edits []Edit, i int) piece.Buffer {
+	if i >= len(edits) {
+		return b
+	}
+	forward(apply(b, edits[i]), edits, i+1)
+}
+
+func backward(b piece.Buffer, edits []Edit, i int) piece.Buffer {
+	if i < 0 {
+		return b
+	}
+	backward(apply(b, inverse(edits[i])), edits, i-1)
 }
 
 // Undo takes back the last change; it is d when there is none.
@@ -69,13 +83,7 @@ func Undo(d Doc) Doc {
 		return d
 	}
 	let c = d.Undo[len(d.Undo)-1]
-	let mut b = d.Buf
-	let mut i = len(c.Edits) - 1
-	for i >= 0 {
-		b = apply(b, inverse(c.Edits[i]))
-		i = i - 1
-	}
-	Doc{Buf: b, Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
+	Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
 }
 
 // Redo makes the last undone change again; it is d when there is none.
@@ -84,11 +92,7 @@ func Redo(d Doc) Doc {
 		return d
 	}
 	let c = d.Redo[len(d.Redo)-1]
-	let mut b = d.Buf
-	for e in c.Edits {
-		b = apply(b, e)
-	}
-	Doc{Buf: b, Caret: c.After, Undo: d.Undo.Append(c), Redo: drop(d.Redo), Dirty: true}
+	Doc{Buf: forward(d.Buf, c.Edits, 0), Caret: c.After, Undo: d.Undo.Append(c), Redo: drop(d.Redo), Dirty: true}
 }
 
 func drop(cs []Change) []Change { slices.Slice(cs, 0, len(cs)-1) }
