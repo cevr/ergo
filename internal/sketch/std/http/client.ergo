@@ -157,7 +157,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPDo func send(origin string, limits
 type Handler { handle escaping func(Request) Response needs Streaming } implements Net
 
 // InMemory is a Net that answers with handle.
-func InMemory(handle escaping func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
+func InMemory(handle own func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
 
 func Send(h Handler, r Request) Response fails RequestFailed {
 	with context { Streaming: NewRecorder() } { h.handle(r) }

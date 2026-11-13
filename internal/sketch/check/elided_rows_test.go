@@ -42,7 +42,7 @@ func main() needs Console {
 `},
 		// It is the type inference gives when no argument binds E.
 		{"same-as-inferred", elidedRowsPrelude + `
-func make[C, E](name string, f escaping func() C fails E) Command[C, E] { Command[C, E]{Name: name, Build: f} }
+func make[C, E](name string, f own func() C fails E) Command[C, E] { Command[C, E]{Name: name, Build: f} }
 
 func run() int {
 	let c Command[int] = make("one", one)

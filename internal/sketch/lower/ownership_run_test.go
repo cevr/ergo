@@ -344,7 +344,7 @@ func use(r Res) needs Console {
 	Console.Println("use \(r.id)")
 }
 
-func keep(r Res) needs Console takes r {
+func keep(r own Res) needs Console {
 	Console.Println("keep \(r.id)")
 }
 

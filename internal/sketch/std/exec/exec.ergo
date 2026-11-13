@@ -185,7 +185,7 @@ type Running {
 	// masked even when the caller has been stopped. Start outside a
 	// timeout, Wait inside it, and Stop in its Expired catch to observe
 	// the status after termination. Close is the scope-release form.
-	Stop() int takes,
+	own Stop() int,
 }
 
 // Runner runs a program to its end, or starts it. A stop of the calling

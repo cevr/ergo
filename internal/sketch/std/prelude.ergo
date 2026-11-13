@@ -203,7 +203,7 @@ type Context[R] { install func() needs R }
 // value (owner q26; types.md, Bindings), and the lowering appends in place
 // only for xs = xs.Append(x) or a dead xs. With resource elements it takes
 // xs and x: the result is their one owner (#197 L8 A3, resources R14).
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T takes xs, x
+extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs own []T, x own T) []T
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
@@ -222,7 +222,7 @@ extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K,
 // Take gives up m and returns the value at k (Some, or None if absent)
 // and the map without k. Resource values and the remainder have separate
 // owners. With plain-data values, m is unchanged (mode crossing).
-extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m Map[K, V], k K) (Option[V], Map[K, V]) takes m
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
@@ -305,7 +305,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 // Interface assignability 1).
 // law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
 type Closer {
-	Close() takes,
+	own Close(),
 }
 
 // Task is a started task: task.Go() { … } yields one
@@ -313,7 +313,7 @@ type Closer {
 type Task[T, E] {
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
-	Wait() T fails E takes,
+	own Wait() T fails E,
 	Stop(),
 	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
 	// its owner's scope calls it at the scope's end when no Wait took the

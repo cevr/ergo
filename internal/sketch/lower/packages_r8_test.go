@@ -367,7 +367,7 @@ var (
 	}
 	r7EscapingKeys = []pkgSource{
 		{"/v7/a.ergo", "func a() int fails E[func(g func())] { 1 }\n"},
-		{"/v7/b.ergo", "func b() int fails E[func(g escaping func())] { 2 }\n"},
+		{"/v7/b.ergo", "func b() int fails E[func(g own func())] { 2 }\n"},
 		{"/v7/main.ergo", "type E[T] { V T }\nfunc both(n int) int { if n == 0 { return try a() }; try b() }\nfunc main() { let _ = both(0) catch { case _: 0 } }\n"},
 	}
 	r7RowValueRefusal = []pkgSource{

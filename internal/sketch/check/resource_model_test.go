@@ -306,7 +306,7 @@ func (g *resGen) program() (string, []string) {
 	g.add("type Rel { ..Closer }")
 	g.add("type Named { Name() string }")
 	g.add("type G[T] { v T, n int }")
-	g.add("type Box[T] { Put(v T) takes v }")
+	g.add("type Box[T] { Put(v own T) }")
 	g.add("type View[T] { Get() T }")
 	for i, d := range g.decls {
 		// Every type declares Named (cv below); the release by its mode.
@@ -397,7 +397,7 @@ func (g *resGen) program() (string, []string) {
 		}
 	}
 	if g.r.IntN(2) == 0 {
-		g.add("func tg[T](p T, q G[T], r []T) takes p, q, r {}")
+		g.add("func tg[T](p own T, q own G[T], r own []T) {}")
 	}
 	if g.r.IntN(3) == 0 {
 		ln := g.add("func tw(p int) takes w {}")

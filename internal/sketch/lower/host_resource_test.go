@@ -146,11 +146,11 @@ func newHresImporter(t *testing.T) hresImporter {
 	return newHresImporterOf(t, false)
 }
 
-// staleClauses matches the clauses ESC1's ergo bind writes (a resource
-// argument's takes, a callback's escaping). Without them the binding is
+// staleClauses matches the mode word ergo bind writes (own on a kept
+// resource argument, receiver, operation or callback; ESC1, q168). Without it the binding is
 // the one an older ergo bind wrote, or an edited one: the checker must
 // hold it to the reviewed Go clauses itself (check/hostclauses.go).
-var staleClauses = regexp.MustCompile(` takes(?: [A-Za-z_][A-Za-z0-9_]*(?:, [A-Za-z_][A-Za-z0-9_]*)*)?|escaping `)
+var staleClauses = regexp.MustCompile(`\bown `)
 
 // newHresImporterOf is newHresImporter; stale strips staleClauses.
 func newHresImporterOf(t *testing.T, stale bool) hresImporter {

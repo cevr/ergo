@@ -3,47 +3,47 @@
 
 // ergo:go type Cloner interface
 extern go hash.Cloner type Cloner {
-	BlockSize() int needs go.Foreign takes,
-	Clone() Cloner fails go.Error needs go.Foreign takes,
-	Reset() needs go.Foreign takes,
-	Size() int needs go.Foreign takes,
-	Sum(b []byte) []byte needs go.Foreign takes,
-	Write(p []byte) int fails go.Error needs go.Foreign takes,
+	own BlockSize() int needs go.Foreign,
+	own Clone() Cloner fails go.Error needs go.Foreign,
+	own Reset() needs go.Foreign,
+	own Size() int needs go.Foreign,
+	own Sum(b []byte) []byte needs go.Foreign,
+	own Write(p []byte) int fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Hash interface
 extern go hash.Hash type Hash {
-	BlockSize() int needs go.Foreign takes,
-	Reset() needs go.Foreign takes,
-	Size() int needs go.Foreign takes,
-	Sum(b []byte) []byte needs go.Foreign takes,
-	Write(p []byte) int fails go.Error needs go.Foreign takes,
+	own BlockSize() int needs go.Foreign,
+	own Reset() needs go.Foreign,
+	own Size() int needs go.Foreign,
+	own Sum(b []byte) []byte needs go.Foreign,
+	own Write(p []byte) int fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Hash32 interface
 extern go hash.Hash32 type Hash32 {
-	BlockSize() int needs go.Foreign takes,
-	Reset() needs go.Foreign takes,
-	Size() int needs go.Foreign takes,
-	Sum(b []byte) []byte needs go.Foreign takes,
-	Sum32() uint32 needs go.Foreign takes,
-	Write(p []byte) int fails go.Error needs go.Foreign takes,
+	own BlockSize() int needs go.Foreign,
+	own Reset() needs go.Foreign,
+	own Size() int needs go.Foreign,
+	own Sum(b []byte) []byte needs go.Foreign,
+	own Sum32() uint32 needs go.Foreign,
+	own Write(p []byte) int fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Hash64 interface
 extern go hash.Hash64 type Hash64 {
-	BlockSize() int needs go.Foreign takes,
-	Reset() needs go.Foreign takes,
-	Size() int needs go.Foreign takes,
-	Sum(b []byte) []byte needs go.Foreign takes,
-	Sum64() uint64 needs go.Foreign takes,
-	Write(p []byte) int fails go.Error needs go.Foreign takes,
+	own BlockSize() int needs go.Foreign,
+	own Reset() needs go.Foreign,
+	own Size() int needs go.Foreign,
+	own Sum(b []byte) []byte needs go.Foreign,
+	own Sum64() uint64 needs go.Foreign,
+	own Write(p []byte) int fails go.Error needs go.Foreign,
 }
 
 // ergo:go type XOF interface
 extern go hash.XOF type XOF {
-	BlockSize() int needs go.Foreign takes,
-	Read(p []byte) int fails go.Error needs go.Foreign takes,
-	Reset() needs go.Foreign takes,
-	Write(p []byte) int fails go.Error needs go.Foreign takes,
+	own BlockSize() int needs go.Foreign,
+	own Read(p []byte) int fails go.Error needs go.Foreign,
+	own Reset() needs go.Foreign,
+	own Write(p []byte) int fails go.Error needs go.Foreign,
 }

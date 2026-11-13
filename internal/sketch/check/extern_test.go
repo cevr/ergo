@@ -23,7 +23,7 @@ const p3Text = "an extern function is called directly; wrap it in a literal: fun
 // detect a missing contract in a particular standard-library declaration.
 func TestExecStopTakes(t *testing.T) {
 	_, diags := check.CheckSource(`import exec
-func stopped(p exec.Running) int takes p {
+func stopped(p own exec.Running) int {
 	_ = p.Stop()
 	p.Wait()
 }
@@ -478,7 +478,7 @@ func main() {
 
 type Mine {}
 
-func Answer(_ Mine, f escaping func() int) {}
+func Answer(_ Mine, f own func() int) {}
 func Calls(_ Mine) []testing.NoArgs { []testing.NoArgs{} }
 
 func use(o testing.Op[testing.NoArgs, func() int]) { _ = o.Calls() }
@@ -531,7 +531,7 @@ func main() {
 	"prelude.Task": `type Fault {}
 type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 
@@ -803,7 +803,7 @@ type Mine {} implements Closer
 func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
 func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
 func Wait(_ Mine) int { 0 }
-func Stop(m Mine) int takes m { Close(m); 0 }
+func Stop(m own Mine) int { Close(m); 0 }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
@@ -1096,7 +1096,7 @@ func pass(m Mine) {
 		"task": `type Fault {}
 type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 

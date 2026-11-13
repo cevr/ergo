@@ -10,7 +10,7 @@ func typed() func(int64) int64 {
 	func(a int64) int64 { a + 1 }
 }
 
-func keep(f escaping func(int64) int64) Holder {
+func keep(f own func(int64) int64) Holder {
 	Holder{Run: f}
 }
 

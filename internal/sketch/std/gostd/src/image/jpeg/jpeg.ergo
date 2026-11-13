@@ -5,16 +5,16 @@ import go image
 import go io
 
 // ergo:go func Decode(r io.Reader) (image.Image, error)
-extern go image/jpeg.Decode func Decode(r io.Reader) image.Image fails go.Error needs go.Foreign takes r
+extern go image/jpeg.Decode func Decode(r own io.Reader) image.Image fails go.Error needs go.Foreign
 
 // ergo:go func DecodeConfig(r io.Reader) (image.Config, error)
-extern go image/jpeg.DecodeConfig func DecodeConfig(r io.Reader) image.Config fails go.Error needs go.Foreign takes r
+extern go image/jpeg.DecodeConfig func DecodeConfig(r own io.Reader) image.Config fails go.Error needs go.Foreign
 
 // ergo:go const DefaultQuality untyped int
 extern go image/jpeg.DefaultQuality let DefaultQuality int
 
 // ergo:go func Encode(w io.Writer, m image.Image, o *Options) error
-extern go image/jpeg.Encode func Encode(w io.Writer, m image.Image, o *Options) fails go.Error needs go.Foreign takes w, m, o
+extern go image/jpeg.Encode func Encode(w own io.Writer, m own image.Image, o own *Options) fails go.Error needs go.Foreign
 
 // ergo:go type FormatError string
 extern go image/jpeg.FormatError type FormatError string
@@ -29,8 +29,8 @@ extern go image/jpeg.Options type Options {
 
 // ergo:go type Reader interface
 extern go image/jpeg.Reader type Reader {
-	Read(p []byte) int fails go.Error needs go.Foreign takes,
-	ReadByte() byte fails go.Error needs go.Foreign takes,
+	own Read(p []byte) int fails go.Error needs go.Foreign,
+	own ReadByte() byte fails go.Error needs go.Foreign,
 }
 
 // ergo:go type UnsupportedError string

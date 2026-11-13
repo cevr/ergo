@@ -474,7 +474,7 @@ func TestLawSites(t *testing.T) {
 		// does; a law's parameter of a function type is non-escaping.
 		{"a non-escaping law parameter", `type Runner {
 	Apply(f func(int) int) bool,
-	Keep(f escaping func(int) int) bool,
+	Keep(f own func(int) int) bool,
 
 	law Applies(f func(int) int) { Apply(f) },
 	law Keeps(f func(int) int) { Keep(f) }, // want S108

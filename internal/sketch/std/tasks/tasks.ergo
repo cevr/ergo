@@ -168,7 +168,7 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 // binds. f is escaping: its calls run on other tasks, at once, so a
 // literal f writes no let mut of its caller (types.md, Function values 2
 // and 3); a result it builds is its own.
-extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f own func(x A) B fails E needs R) []B fails E needs R
 
 // Closed is the failure of Go on a Set that admits no more tasks: FailFast
 // ended it, or it was stopped. Like queue.Closed, it is a normal end of
@@ -244,7 +244,7 @@ extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, l
 // caller's, and returns at once. The body keeps running after Go returns,
 // so it is escaping. It fails with Closed, and starts nothing, when set
 // admits no more tasks.
-extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R
+extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body own func() fails E needs R) fails Closed needs R
 
 // setFailed is the failure of a member in the Set laws.
 type setFailed {}

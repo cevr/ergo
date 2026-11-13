@@ -351,8 +351,8 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 			return "", false // one result at most (IG6)
 		}
 		// A generated package is in no reviewed table of synchronous
-		// callbacks, so every callback is escaping (IG6).
-		s := "escaping func(" + strings.Join(ps, ", ") + ")"
+		// callbacks, so every callback is kept: own (IG6, q168).
+		s := "own func(" + strings.Join(ps, ", ") + ")"
 		if res != "" {
 			s += " " + res
 		}
@@ -481,7 +481,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want := map[string]verdict{
 		"S": {ergo: "type S { X int, }"},
 		"D": {ergo: "type D int"},
-		"I": {ergo: "type I { M() int needs go.Foreign takes, }"},
+		"I": {ergo: "type I { own M() int needs go.Foreign, }"},
 	}
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
@@ -514,11 +514,11 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		// ESC1's lifetime policy: a resource-capable receiver (a pointer,
 		// or a type whose Close makes it a resource) is taken, since no
 		// review lists Close as a lend.
-		takes := ""
+		mode := ""
 		if pointer || i < 2 {
-			takes = " takes r"
+			mode = "own "
 		}
-		want[name+".Close"] = verdict{ergo: "func (r " + recv + ") Close" + ergoSig + " needs go.Foreign" + takes}
+		want[name+".Close"] = verdict{ergo: "func (r " + mode + recv + ") Close" + ergoSig + " needs go.Foreign"}
 		want[fmt.Sprintf("Value%d", i)] = verdict{refused: true}
 		want[fmt.Sprintf("Pointer%d", i)] = verdict{refused: true}
 		if i < 2 {
@@ -585,9 +585,9 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	refused := false
 	var params []string // Go params
 	var ergoParams []string
-	var takes []string
+	ergoRecv := recv
 	if recv == "s *S" {
-		takes = append(takes, "s")
+		ergoRecv = "s own *S" // a pointer receiver is kept (q168)
 	}
 	if recv == "" && r.IntN(4) == 0 {
 		switch r.IntN(7) {
@@ -599,12 +599,10 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 			goTP, ergoTP, g.tparams = []string{"T cmp.Ordered"}, []string{"T ordered"}, []string{"T"}
 		case 3:
 			goTP, ergoTP, g.tparams = []string{"Q ~[]E", "E any"}, []string{"E"}, []string{"E"}
-			params, ergoParams = append(params, "q Q"), append(ergoParams, "q []E")
-			takes = append(takes, "q")
+			params, ergoParams = append(params, "q Q"), append(ergoParams, "q own []E")
 		case 4:
 			goTP, ergoTP, g.tparams = []string{"M ~map[K]V", "K comparable", "V any"}, []string{"K comparable", "V"}, []string{"K", "V"}
-			params, ergoParams = append(params, "m M"), append(ergoParams, "m Map[K, V]")
-			takes = append(takes, "m")
+			params, ergoParams = append(params, "m M"), append(ergoParams, "m own Map[K, V]")
 		case 5:
 			goTP, g.tparams, refused = []string{"T interface{ ~int | ~string }"}, []string{"T"}, true
 		case 6:
@@ -616,10 +614,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, fmt.Sprintf("a%d %s", i, t.goText()))
 		s, ok := ref(t, param, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s", i, s))
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, fmt.Sprintf("a%d", i))
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s%s", i, mode, s))
 	}
 	variadic := r.IntN(4) == 0
 	if variadic {
@@ -627,10 +626,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, "rest ..."+t.goText())
 		s, ok := ref(t, inner, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, "rest []"+s)
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, "rest")
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, "rest "+mode+"[]"+s)
 	}
 	results := g.results(0)
 	res, fails, ok := refResults(results, false)
@@ -644,7 +644,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	key := name
 	if recv != "" {
 		head += "(" + recv + ") "
-		ergoHead += "(" + recv + ") "
+		ergoHead += "(" + ergoRecv + ") "
 		key = "S." + name
 	}
 	tp := ""
@@ -671,8 +671,5 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		e += " fails go.Error"
 	}
 	e += " needs go.Foreign"
-	if len(takes) > 0 {
-		e += " takes " + strings.Join(takes, ", ")
-	}
 	want[key] = verdict{ergo: squash(e), variadic: variadic}
 }

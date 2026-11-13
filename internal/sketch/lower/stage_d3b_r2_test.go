@@ -128,7 +128,7 @@ func runAll[T](fs []func() T) {
 	}
 }
 
-func later[T](f escaping func() T) func() T { f }
+func later[T](f own func() T) func() T { f }
 
 func outer[T](f func(g func() T) int) int { 3 }
 

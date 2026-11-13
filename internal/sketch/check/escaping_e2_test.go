@@ -26,14 +26,14 @@ type Box[T] { V T }
 type F func(int) int
 type Runner {
 	Run(g func(int) int) int,
-	Keep(g escaping func(int) int) int,
+	Keep(g own func(int) int) int,
 }
 type Svc { Get() int }
 
-func take(g escaping func(int) int) int { 0 }
+func take(g own func(int) int) int { 0 }
 func pass(g func(int) int) int { g(1) }
 func gen[T](x T) int { 0 }
-func later(body escaping func() int) int { 0 }
+func later(body own func() int) int { 0 }
 func now(body func() int) int { body() }
 func give(g func(int) int) func(int) int { func(x int) int { x } }
 func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }

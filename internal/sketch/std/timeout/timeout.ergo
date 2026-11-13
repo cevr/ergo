@@ -11,7 +11,7 @@ type Expired {}
 // f is escaping because it runs on another task. In particular, lending a
 // caller-owned resource here would also lend task-affine resources such as
 // tasks.Set, whose operations must run on their owning task.
-extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f escaping func() A fails E needs R) A fails E | Expired needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f own func() A fails E needs R) A fails E | Expired needs R | Scheduler
 
 // The laws bind a time.Manual as the Scheduler: a law cannot hold Ambient,
 // so it binds no host provider, and the deadline passes only when the law

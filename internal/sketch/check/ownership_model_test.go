@@ -585,9 +585,9 @@ func lend(r Res) {}
 
 func held(r Res) bool { true }
 
-func keep(r Res) takes r {}
+func keep(r own Res) {}
 
-func take(r Res) int takes r { 0 }
+func take(r own Res) int { 0 }
 
 func both(r Res, n int) {}
 
@@ -618,7 +618,7 @@ func Get(r Res) int { r.id }
 
 func lendBox(b Box) {}
 
-func keepBox(b Box) takes b {}
+func keepBox(b own Box) {}
 
 func lendCloser(c Closes) {}
 

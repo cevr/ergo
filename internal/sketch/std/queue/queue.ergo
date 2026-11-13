@@ -12,7 +12,7 @@ type Queue[T] {
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
 	// takes v: a resource moves into the queue (resources R13).
-	Push(v T) fails Closed takes v,
+	Push(v own T) fails Closed,
 	// Pop takes the value at the front, waiting while the queue is open and
 	// empty. It fails with Closed when the queue is closed and empty.
 	Pop() T fails Closed,

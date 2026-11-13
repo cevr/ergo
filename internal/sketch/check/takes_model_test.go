@@ -80,15 +80,15 @@ func open(n int) Res { Res{id: n} }
 
 func lend(r Res) {}
 
-func keep(r Res) takes r {}
+func keep(r own Res) {}
 
 func cond(n int) bool { n > 2 }
 
-func use(f func(n int, a Res, b Res, g func(r Res) takes r)) {}
+func use(f func(n int, a Res, b Res, g func(r own Res))) {}
 
-func first[T](a T, b T) T takes a, b { a }
+func first[T](a own T, b own T) T { a }
 
-func keyed[K comparable](m Map[K, int], x K) K takes x { x }
+func keyed[K comparable](m Map[K, int], x own K) K { x }
 
 `
 
@@ -441,15 +441,15 @@ func Open(n int) Res { Res{id: n} }
 
 type Holder { r Res }
 
-func Keep(r Res) Holder takes r { Holder{r: r} }
+func Keep(r own Res) Holder { Holder{r: r} }
 
 func hold(r Res) Holder { Keep(r) }
 
-func Hold(r Res) Holder takes r { hold(r) }
+func Hold(r own Res) Holder { hold(r) }
 
 func Dup[T](x T) (T, T) { (x, x) }
 
-func Pass[T](x T) T takes x { x }
+func Pass[T](x own T) T { x }
 `
 	main := `import lib
 import slices

@@ -65,7 +65,7 @@ func main() {}
 // copy site (the resource leaks silently).
 func TestGenericDropRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `func drop[T](x T) takes x {}
+	src := ofPrelude + `func drop[T](x own T) {}
 
 func main() {
 	drop(1)
@@ -128,11 +128,11 @@ func TestArrayOwnership(t *testing.T) {
 // resources leak silently).
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Keeper[T] { Put(v T) takes v }
+	src := ofPrelude + `type Keeper[T] { Put(v own T) }
 
 type Mem { n int } implements Keeper[Res]
 
-func Put(m Mem, v Res) takes v { Close(v) }
+func Put(m Mem, v own Res) { Close(v) }
 
 func main() {
 	let b Keeper[Res] = Mem{n: 1}

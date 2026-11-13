@@ -274,7 +274,7 @@ law Named(a Money) { Flag(a == a) }
 	x == n
 }
 `},
-	{"a non-escaping function parameter", `func keep(f escaping func(int) int) bool {
+	{"a non-escaping function parameter", `func keep(f own func(int) int) bool {
 	true
 }
 
@@ -392,7 +392,7 @@ func count(n int) int fails Bad {
 	n
 }
 
-func keep(f escaping func(int) int) bool {
+func keep(f own func(int) int) bool {
 	true
 }
 
