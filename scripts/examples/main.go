@@ -270,6 +270,9 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
+		case file == "origin" && entry.IsDir():
+			delete(present, file)
+			problems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)
 		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
@@ -309,6 +312,10 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
+		case file == "origin" && entry.IsDir():
+			// A Foldkit port's origin folder (FK0): no record.sh goes with it.
+			delete(present, file)
+			problems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)
 		case file == "go.mod" || file == "go.sum":
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
@@ -413,7 +420,7 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		}
 	}
 	if present["origin"] != present["record.sh"] {
-		problem("origin and record.sh go together: a port names its original in origin and runs it in record.sh")
+		problem("origin and record.sh go together: a port names its original in the file origin and runs it in record.sh (a Foldkit port's origin is a folder with no record.sh)")
 	}
 	p.port = present["record.sh"]
 	if present["tags"] {
