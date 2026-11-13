@@ -36,6 +36,67 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
+    },
+    {
+      "name": "fk0-each-table-is-title", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "each: m[1] == \".each\"", "to": "each: false",
+      "rule": "An .each call's title is the first literal after its table, not a value of the table.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-effect-not-a-test", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "^(?:test|it)(?:\\.effect)?(\\.each|\\.only|\\.skip)?$", "to": "^(?:test|it)(\\.each|\\.only|\\.skip)?$",
+      "rule": "it.effect and it.effect.each are tests (Foldkit's Effect-vitest form).",
+      "anchor": {"tests": ["scripts/examples:TestOriginFollowsUpstream"]},
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-test-inside-a-string", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "\t\t\ti = endOfString(src, i) + 1\n", "to": "\t\t\ti++\n",
+      "rule": "A test name inside a string literal (a title that says \"it (\") is not a call.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-title-not-collapsed", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "titles = append(titles, strings.Join(strings.Fields(src[j+1:end]), \" \"))", "to": "titles = append(titles, src[j+1:end])",
+      "rule": "A title across lines is one line of tests.txt, with its spaces collapsed.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-any-file-is-upstream", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "return strings.HasSuffix(name, \"story.test.ts\") || strings.HasSuffix(name, \"scene.test.ts\")", "to": "return strings.HasSuffix(name, \".ts\")",
+      "rule": "Only story and scene test files are restated.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-empty-restatement", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "if at < 0 || strings.TrimSpace(line[at+4:]) == \"\" {", "to": "if at < 0 {",
+      "rule": "Every line names its restatement, or not restated with a reason.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-doubled-line", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "case have[key] > want[key]:", "to": "case false:",
+      "rule": "A title has as many lines as upstream has tests of that title.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-extra-line", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "if want[key] == 0 {", "to": "if false {",
+      "rule": "A line for a test upstream does not have is refused.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-origin-folder-unchecked", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)\n", "to": "",
+      "rule": "A program of packages with an origin folder has its tests.txt checked.",
+      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
+    },
+    {
+      "name": "fk0-origin-folder-unchecked-single", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
+      "rule": "A program of one folder with an origin folder has its tests.txt checked.",
+      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
     }
   ]
 }

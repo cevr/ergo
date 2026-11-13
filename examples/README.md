@@ -20,7 +20,7 @@ A program folder holds:
 - `README.md`: what the program shows and how it works.
 - `tags`: one line of words from `default slow net cc tty gui ts`. `default` stands alone. The other tags keep a program out of the default gate: `slow` (a case runs longer than the budget), `net` (it uses the network), `cc` (it needs a C compiler), `tty` (it needs a terminal), `gui` (it opens a window) and `ts` (it has a TypeScript side; see "TypeScript leg"). The `tty` and `gui` legs are not built yet, so selecting such a program is an error.
 - `cases/`: one folder per case, at least one.
-- `origin` and `record.sh`, both or neither: a port names its original program in `origin`, and `record.sh` runs that original (see "Record leg").
+- `origin` and `record.sh`, both or neither: a port names its original program in the file `origin`, and `record.sh` runs that original (see "Record leg"). A port of a Foldkit example holds `origin/`, a folder, instead, with no `record.sh` (see "Ports of Foldkit examples").
 - `expected-skips`, optional: the `skip law …` lines that the program's `ergo test` may print, one per line exactly as printed, with `#` lines for the reason. The test leg fails on any other skip line (fs4).
 - `explored`, optional: the tests and laws whose schedules the explore leg searches, one per line, `PACKAGE NAME --explore dfs|pct|random [FLAG...]` (`PACKAGE` is the package folder relative to the program, `.` for a program of one folder), with `#` lines for the reason. The leg runs `ergo test PACKAGE --run NAME --explore …` ([stdlib](../docs/spec/stdlib.md#explored-schedules)); it fails when the search finds a failing schedule or when the run did not run NAME alone, and then it runs the replay command the failure printed and says whether the schedule replays to the same failure. A race an ordinary run meets only rarely is a failing schedule here.
 - `testdata/`, if the program reads fixture files.
@@ -31,7 +31,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - `cmd/<program>/main.ergo`: the binary's package, named after the program folder. `cmd/` holds nothing else. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`.
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
-- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored` and `testdata/`, as above.
+- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh` (or the folder `origin/`), `expected-skips`, `explored` and `testdata/`, as above.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
@@ -76,3 +76,42 @@ The runner tests every package, as `go test ./...` does, whether or not it decla
 A port's goldens come from the original program, never from the port. `go run ./scripts/examples -record PROGRAM` runs `sh <program>/record.sh ARGS...` for each case, as the case leg runs a program (the same directory, environment, input and process group), and writes `expected.out`, `expected.err` (only when stderr is not empty) and `expected.status` (only when the status is not 0). It removes a stale `expected.err` or `expected.status`. An original that writes over the cap fails and records nothing. `record.sh` finds its original from its own path (`$0`). `-record -check` runs the original the same way and compares its output with the goldens, and writes nothing. A program without `record.sh` cannot be recorded.
 
 An original program has no record leg: its goldens come from an independent model or are written by hand, and a review checks them.
+
+## Ports of Foldkit examples
+
+The `fk-` programs port Foldkit's examples (`conformance/upstream/foldkit-d21db423`, MIT) and `foldkit/foldkit-domains`. A port keeps the upstream behaviour and tests, not Foldkit's shapes: there is no Message union with completion variants, no Command or Subscription records, and no blocks.
+
+**The origin folder.** A port holds `origin/` where a CLI port holds an `origin` file and `record.sh`. Its original runs in a browser, so it has no record leg. The folder holds:
+
+- `README.md`: the upstream path, the commit and the license.
+- `source`: one line, the path from the repository root to the vendored upstream folder (for example `conformance/upstream/foldkit-d21db423/examples/stopwatch`).
+- `tests.txt`: one line per upstream story or scene test, `FILE: TITLE -> RESTATEMENT`. FILE is the test file's path under `source` (each `*story.test.ts` and `*scene.test.ts` in it). TITLE is the test's title as written, with its spaces collapsed; an `.each` table is one test. RESTATEMENT names the Ergo test, law or script that restates the test, or says `not restated: REASON`. Lines that start with `#` are comments.
+- Anything else the port keeps of its original, such as measurements or recorded server answers.
+
+The layout check reads the titles from the vendored files (`test(`, `it(`, `it.effect(` and their `.each`, `.only` and `.skip` forms), so nothing is pinned. A title that `tests.txt` lacks, a title it has more often than upstream does, a line for a test that upstream does not have, and a line with no restatement are each a layout error.
+
+**How a Foldkit program maps** (corpus plan §18.1):
+
+| Foldkit | Ergo |
+| --- | --- |
+| `Model` and `Message` as Schema values and types | `type` records and unions, declared once. A status field becomes a union of modes |
+| `update` returning `{ model, commands }` | the machine's step returning a `Decision` |
+| `Command.define` | work that a state owns (`machines.Work`): the state is the command's data and the end of the entry cancels it. Or an `Emit` of a command union, run by the actor's sink |
+| `Subscription` | the state's timer (`after`), a Listen work, `actor.Feed`, or `ui.Tick` |
+| `ManagedResource` | a resource owned by the entry of the state that needs it: a Listen work acquires it, and the end of the entry releases it |
+| Submodel, `Got*Message`, OutMessage | a pure child whose step the parent calls, or `actor.Child`; the output arrives through `Emit`/`Done` and `toParent` |
+| `view`, `h.keyed`, a load the view asks for | a view with `needs ui.Slot[Signal]`, `ui.Each` with a typed key, `ui.Load` and `ui.Async` |
+| Routing | a route union with parse and print (a round-trip law), and `ui.Location` |
+| Story test | an Ergo `test` over the step, `machines.Run` or `RunTimed`, or a live actor on a `time.Manual`. `Command.resolve` is "feed the result signal" or "move the clock" |
+| Scene test | a `ui.Script` run on `ui.TestHost` |
+
+Three limits apply, and each port's ledger records where it meets them. L1: an `Emit` opens a new entry. L2: a state has one work. L3: children live in one entry. A port that finds a form around a limit says so in its README.
+
+**Lifetimes, per kind of work:**
+
+| Owner | What it owns, and when it ends |
+| --- | --- |
+| The program | the providers of `main`'s `with context`, released when `main` returns |
+| One entry of a machine state | its work, its timer, its children and the resources its work holds, all ended when the entry ends (an `Enter`, `Done`, or the actor's stop) |
+| One `ui.Load` epoch | its fetch, cancelled when a pass no longer writes the load, with a late answer dropped |
+| One mounted view instance | its `ui.State`, dropped when the instance leaves the tree |
