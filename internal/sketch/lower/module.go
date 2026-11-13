@@ -764,6 +764,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
 	})
 	b.WriteString("func main() {\n")
+	// A main that needs go.Foreign may write the host's stdout through
+	// Go's os.Stdout, which v1's buffer cannot see, so its standard output
+	// stays direct (stdlib.md io 10).
+	if usesGoForeign(main.Sig.Uses) {
+		b.WriteString("\t" + rt + ".StdoutDirect()\n")
+	}
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
 	// interruption (runtime.md, Exit causes). The environment holds that
@@ -775,6 +781,16 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		}
 		return s + "\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n"
 	}) + ")\n}\n\n" + l.hostDecl(name, provided, "the entry binds"))
+}
+
+// usesGoForeign reports a row that holds go.Foreign.
+func usesGoForeign(uses *check.Row) bool {
+	for _, cap := range rowElems(uses) {
+		if n, ok := cap.(*check.Named); ok && check.IsGoForeign(n) {
+			return true
+		}
+	}
+	return false
 }
 
 // rootTask is the Go closure a root task runs (main's, the test build's,

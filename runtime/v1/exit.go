@@ -443,7 +443,17 @@ func ergoStack(stack []byte) []string {
 //
 //ergo:host
 func Main(body func(*rt.Task) error) {
-	os.Exit(report(os.Stderr, runMain(body)))
+	os.Exit(mainStatus(body))
+}
+
+// mainStatus runs body as Main does and returns its exit status, with
+// standard output flushed: each reason goes to standard error after what
+// standard output holds (stderrSink), and the rest of standard output is
+// written before the status is returned (stdlib.md io 10).
+func mainStatus(body func(*rt.Task) error) int {
+	status := report(stderrSink{}, runMain(body))
+	flushStdout()
+	return status
 }
 
 // runMain runs body as the root task and returns its canonical exit.

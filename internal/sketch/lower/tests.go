@@ -681,6 +681,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	seed := locals.alloc("seed")
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
+	// The harness writes its report through Go's os.Stdout, so a test's
+	// host output stays direct and in order with it (stdlib.md io 10).
+	b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
 		s := l.initSlot(env)
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"

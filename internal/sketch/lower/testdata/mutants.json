@@ -4020,6 +4020,9 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
-    }
+    },
+    {"name":"sb8-foreign-buffered","origin":"wf10 SB8","file":"internal/sketch/lower/module.go","from":"\tif usesGoForeign(main.Sig.Uses) {\n","to":"\tif false && usesGoForeign(main.Sig.Uses) {\n","rule":"stdlib.md io 10: a main that needs go.Foreign keeps standard output direct.","killers":["lower:TestEntryKeepsStdoutDirect"]},
+    {"name":"sb8-every-main-direct","origin":"wf10 SB8","file":"internal/sketch/lower/module.go","from":"\tif usesGoForeign(main.Sig.Uses) {\n","to":"\tif true || usesGoForeign(main.Sig.Uses) {\n","rule":"stdlib.md io 10: a main without go.Foreign is buffered when not on a terminal.","killers":["lower:TestEntryKeepsStdoutDirect"]},
+    {"name":"sb8-test-buffered","origin":"wf10 SB8","file":"internal/sketch/lower/tests.go","from":"\tb.WriteString(\"\\t\" + rt + \".StdoutDirect()\\n\")\n\tb.WriteString(\"\\t\" + rt + \".Main(\"","to":"\tb.WriteString(\"\\t\" + rt + \".Main(\"","rule":"stdlib.md io 10: the test build keeps standard output direct.","killers":["lower:TestEntryKeepsStdoutDirect"]}
   ]
 }

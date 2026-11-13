@@ -507,6 +507,7 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 		return fail(execErr(name, err))
 	}
 	cmd.WaitDelay = execWaitDelay
+	flushStdout() // the child starts after what was printed (stdlib.md io 10)
 	err = cmd.Start()
 	for _, w := range writes {
 		_ = w.Close() // the program holds its own copies

@@ -630,19 +630,20 @@ type ReadFailed struct {
 func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason + "}" }
 
 // IOPrint is the body of io.Host's Print: text on standard output, as it
-// is, in one write.
+// is, in one write; buffered when standard output is not a terminal
+// (writeStdout).
 //
 //ergo:host
 func IOPrint(text string) {
-	_, _ = os.Stdout.WriteString(text)
+	writeStdout(text)
 }
 
 // IOEprint is the body of io.Errors' Eprint: text on standard error, as it
-// is, in one write.
+// is, in one write, after what standard output holds (stderrSink).
 //
 //ergo:host
 func IOEprint(text string) {
-	_, _ = os.Stderr.WriteString(text)
+	_, _ = io.WriteString(stderrSink{}, text)
 }
 
 // IOIsTerminal is the body of io.Host's IsTerminal: whether standard
@@ -715,6 +716,7 @@ type lineReader struct {
 	err     error         // the read error after buf (io.EOF at the end), taken once
 	reading bool          // a read goroutine is out
 	landed  chan struct{} // closed when the read out lands
+	flush   func()        // run before a read goes to the host (standard input's: flushStdout)
 }
 
 func newLineReader(r io.Reader) *lineReader {
@@ -746,6 +748,9 @@ func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int
 			return nil, err, true
 		}
 		if !l.reading {
+			if l.flush != nil {
+				l.flush()
+			}
 			l.reading = true
 			l.landed = make(chan struct{})
 			go l.read()
@@ -811,6 +816,7 @@ func stdinReader() *lineReader {
 	defer stdinMu.Unlock()
 	if stdin == nil || stdinFile != os.Stdin {
 		stdin, stdinFile = newLineReader(os.Stdin), os.Stdin
+		stdin.flush = flushStdout // a read that waits on the host shows what was printed first
 	}
 	return stdin
 }
