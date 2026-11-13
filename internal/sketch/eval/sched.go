@@ -45,6 +45,9 @@ type taskState struct {
 	ctxv   *ctxBinding
 	ranges []*sliceRange
 	cur    *etask
+	// argStack holds the arguments of the task's Ergo calls in progress
+	// (stackArgs): each task has its own, as its calls nest.
+	argStack []Value
 }
 
 // etask is one task of the obligation.

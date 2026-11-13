@@ -22,8 +22,8 @@ type interp struct {
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
-	factInfo   *check.Info
-	facts      factTable
+	factInfo *check.Info
+	facts    factTable
 	// params and owners are a function's parameters and a declaration's
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var
@@ -242,7 +242,10 @@ func unparen(x syntax.Expr) syntax.Expr {
 // function with a body). It returns the result, or a ctlFail with the
 // callee's failure.
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
-	if at != nil && len(fn.Sig.TParams) > 0 && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
+	if len(fn.Sig.TParams) == 0 {
+		return in.callResolved(fr, at, fn, nil, args)
+	}
+	if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
 		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
 	}
 	// Each type argument is read in the caller's substitution.

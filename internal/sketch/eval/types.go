@@ -3,6 +3,7 @@ package eval
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -145,6 +146,22 @@ func argsKey(n *check.Named, env *tenv) string {
 	if len(n.TArgs) == 0 {
 		return ""
 	}
+	if env == nil {
+		// Outside a generic body the key is n's alone: made once (O32).
+		if k, ok := plainKeys.Load(n); ok {
+			return k.(string)
+		}
+		k := buildArgsKey(n, nil)
+		plainKeys.Store(n, k)
+		return k
+	}
+	return buildArgsKey(n, env)
+}
+
+// plainKeys are the argsKey of each Named outside a generic body.
+var plainKeys sync.Map
+
+func buildArgsKey(n *check.Named, env *tenv) string {
 	var b strings.Builder
 	for i, a := range n.TArgs {
 		if i > 0 {

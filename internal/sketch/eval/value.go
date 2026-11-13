@@ -36,6 +36,35 @@ type record struct {
 	fields []Value
 }
 
+// newRecord is a record of t with n fields, all nil: the record and its
+// fields one allocation when n is small (ORACLE O32).
+func newRecord(t *check.Named, key string, n int) *record {
+	switch {
+	case n <= 2:
+		p := &struct {
+			r record
+			a [2]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	case n <= 4:
+		p := &struct {
+			r record
+			a [4]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	case n <= 8:
+		p := &struct {
+			r record
+			a [8]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	}
+	return &record{t: t, key: key, fields: make([]Value, n)}
+}
+
 type tuple struct{ elems []Value }
 
 type unit struct{}

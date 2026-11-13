@@ -32,6 +32,9 @@ type facts struct {
 	call     *check.Call     // a call's
 	instance *check.Instance
 	pattern  *check.Pattern
+	def      check.Object    // an identifier's Defs entry
+	releases []check.Release // what the node releases when it ends
+	match    *check.Match
 }
 
 // factTable holds the facts of one package's expressions, by node: the
@@ -135,6 +138,7 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	switch h := x.(type) {
 	case *syntax.Ident:
 		f.use = info.Uses[h]
+		f.def = info.Defs[h]
 		f.bare, _ = f.use.(*check.TypeName)
 	case *syntax.SelectorExpr:
 		if id, ok := unparen(h.X).(*syntax.Ident); ok {
@@ -146,8 +150,33 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	case *syntax.CallExpr:
 		f.call = info.Calls[h]
 	}
+	f.releases, f.match = info.Releases[x], info.Matches[x]
 	t.put(k, f)
 	return f
+}
+
+// stmtOf is the facts of s, a statement of info's package: what it
+// releases and the match it is.
+func (t factTable) stmtOf(info *check.Info, s syntax.Node) *facts {
+	if x, ok := s.(syntax.Expr); ok {
+		return t.of(info, x)
+	}
+	k := nodeKey(s)
+	if f := t.get(k); f != nil {
+		return f
+	}
+	f := &facts{releases: info.Releases[s], match: info.Matches[s]}
+	t.put(k, f)
+	return f
+}
+
+// sx is the facts of s, a statement or other node of fr's package that is
+// no expression.
+func (in *interp) sx(fr *frame, s syntax.Node) *facts {
+	if fr.tab == nil {
+		fr.tab = in.table(fr.info)
+	}
+	return fr.tab.stmtOf(fr.info, s)
 }
 
 // paramsOf is the parameters of fn's declaration, in order, a nil for an

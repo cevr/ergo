@@ -242,7 +242,7 @@ func (in *interp) releaseAt(fr *frame, key syntax.Node) *abrupt {
 	if len(fr.info.Releases) == 0 || key == nil {
 		return nil
 	}
-	for _, r := range fr.info.Releases[key] {
+	for _, r := range in.sx(fr, key).releases {
 		var e *owned
 		if r.Var != nil {
 			e = fr.lookupOwned(r.Var)

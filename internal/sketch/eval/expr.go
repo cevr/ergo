@@ -536,8 +536,12 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
 	}
 	s := structOf(n)
-	out := &record{t: n, key: argsKey(n, t.env), fields: make([]Value, len(s.Fields))}
-	set := make([]bool, len(s.Fields))
+	out := newRecord(n, argsKey(n, t.env), len(s.Fields))
+	var setBuf [16]bool // which fields have a value: on the stack for most records
+	set := setBuf[:]
+	if len(s.Fields) > len(setBuf) {
+		set = make([]bool, len(s.Fields))
+	}
 	var base *record
 	if x.Base != nil {
 		b, ab := in.expr(fr, x.Base)
@@ -663,7 +667,7 @@ func (in *interp) try(fr *frame, x *syntax.TryExpr) (Value, *abrupt) {
 // try, and is a defect in a total catch (Catch 6). A defect, an exhausted
 // budget and a failure already leaving the frame are never caught.
 func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *abrupt) {
-	m := fr.info.Matches[x]
+	m := in.fx(fr, x).match
 	if m == nil {
 		ice("a catch with no Matches entry")
 	}
@@ -676,7 +680,7 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	}
 	for _, a := range x.Arms {
 		for _, te := range a.Types {
-			p := fr.info.Patterns[te]
+			p := in.fx(fr, te).pattern
 			if p == nil {
 				ice("a catch arm with no Patterns entry")
 			}
@@ -768,6 +772,17 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *
 			}
 			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
 		}
+		if ergoBody && x.Trailing == nil && len(held) == 0 && !c.Func.Pkg.Host() {
+			// An Ergo body binds its arguments to its parameters and
+			// keeps no slice of them.
+			args, mark, ab := in.stackArgs(fr, x, c)
+			if ab != nil {
+				return nil, ab
+			}
+			v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+			in.argStack = in.argStack[:mark]
+			return v, ab
+		}
 		args, ab := in.args(fr, x, c)
 		if ab != nil {
 			for _, id := range held {
@@ -842,6 +857,33 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 	in.handParts(fr, c.Recv)
 	in.handParts(fr, x.Args...)
 	return args, nil
+}
+
+// stackArgs is args on the interpreter's argument stack, for a callee
+// that only binds them to its parameters (ORACLE O32): no slice is made
+// per call. The caller pops the stack to mark once the call returns.
+func (in *interp) stackArgs(fr *frame, x *syntax.CallExpr, c *check.Call) (args []Value, mark int, ab *abrupt) {
+	mark = len(in.argStack)
+	if c.Recv != nil {
+		v, ab := in.receiver(fr, c.Recv, c.Func)
+		if ab != nil {
+			in.argStack = in.argStack[:mark]
+			return nil, mark, ab
+		}
+		in.argStack = append(in.argStack, v)
+	}
+	for _, a := range x.Args {
+		v, ab := in.expr(fr, a)
+		if ab != nil {
+			in.argStack = in.argStack[:mark]
+			return nil, mark, ab
+		}
+		in.argStack = append(in.argStack, v)
+	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
+	n := len(in.argStack)
+	return in.argStack[mark:n:n], mark, nil
 }
 
 // callLiteral runs a function literal called where it is written: its

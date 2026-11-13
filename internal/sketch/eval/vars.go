@@ -68,7 +68,11 @@ func (t *varTable) put(i int, s *slot) {
 // bind binds v to a new slot holding val.
 func (t *varTable) bind(v *check.Var, val Value) {
 	if i := t.find(v); i >= 0 {
-		t.put(i, &slot{v: val})
+		// Bound again (a loop's variable, a let in a loop): the old
+		// binding's life has ended, and nothing holds its slot past it (a
+		// borrow is never stored, a range ends with its loop, a literal
+		// shares the table, a task copies it), so the slot is reused.
+		*t.at(i) = slot{v: val}
 		return
 	}
 	if t.n < inlineVars {

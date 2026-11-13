@@ -264,13 +264,13 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 		if id.Name == "_" {
 			return nil
 		}
-		if w, ok := fr.info.Defs[id].(*check.Var); ok {
+		if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 			fr.bind(w, v)
 			in.ownVar(fr, w, p)
 			return nil
 		}
 	}
-	pat := fr.info.Patterns[p]
+	pat := in.fx(fr, p).pattern
 	if pat == nil {
 		ice("a for binding with neither a Defs nor a Patterns entry")
 	}
@@ -311,7 +311,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		if len(spec.Values) != 1 {
 			ice("a let pattern with %d values", len(spec.Values))
 		}
-		p := fr.info.Patterns[spec.Pattern]
+		p := in.fx(fr, spec.Pattern).pattern
 		if p == nil {
 			ice("a let pattern with no Patterns entry")
 		}
@@ -338,7 +338,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 			ice("a let of %d names over %T", len(spec.Names), v)
 		}
 		for i, id := range spec.Names {
-			if w, ok := fr.info.Defs[id].(*check.Var); ok {
+			if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 				fr.bind(w, tup.elems[i])
 				in.ownVar(fr, w, id)
 			}
@@ -357,7 +357,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 			vals[i] = v
 		}
 		for i, id := range spec.Names {
-			if w, ok := fr.info.Defs[id].(*check.Var); ok {
+			if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 				fr.bind(w, vals[i])
 				in.ownVar(fr, w, id)
 			}
@@ -365,13 +365,13 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return nil
 	}
 	id := spec.Names[0]
-	if p := fr.info.Patterns[id]; p != nil && p.Kind != check.PatBind {
+	if p := in.fx(fr, id).pattern; p != nil && p.Kind != check.PatBind {
 		// A known single name tests a type or constant the checker proved
 		// irrefutable; the value runs for its effect.
 		_, ab := in.expr(fr, spec.Values[0])
 		return ab
 	}
-	if c, ok := fr.info.Defs[id].(*check.Context); ok && c.Local {
+	if c, ok := in.fx(fr, id).def.(*check.Context); ok && c.Local {
 		// A local context is a recipe with no value: each with that names
 		// it builds its providers in place (rows.md, Context 9; effects.go).
 		return nil
@@ -383,7 +383,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		}
 		return nil
 	}
-	v, ok := fr.info.Defs[id].(*check.Var)
+	v, ok := in.fx(fr, id).def.(*check.Var)
 	if !ok {
 		ice("the let %s has no Defs entry", id.Name)
 	}
@@ -521,7 +521,7 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
-		v, ok := fr.info.Uses[x].(*check.Var)
+		v, ok := in.fx(fr, x).use.(*check.Var)
 		if !ok {
 			ice("an assignment to %s, which is no variable", x.Name)
 		}
@@ -610,7 +610,8 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int
 		if ab != nil {
 			return nil, ab
 		}
-		next := &record{t: c.t, key: c.key, fields: append([]Value(nil), c.fields...)}
+		next := newRecord(c.t, c.key, len(c.fields))
+		copy(next.fields, c.fields)
 		next.fields[i] = inner
 		return next, nil
 	case sliceV:
@@ -664,7 +665,7 @@ func fieldIndex(t *check.Named, name string) int {
 // constant equals the subject, else its `_` or default case (Go's switch;
 // lower/body.go valueMatch).
 func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, *abrupt) {
-	if fr.info.Matches[s] == nil {
+	if in.sx(fr, s).match == nil {
 		ice("a value match with no Matches entry")
 	}
 	tag, ab := in.expr(fr, s.Tag)
@@ -723,10 +724,14 @@ func (in *interp) arm(fr *frame, cl *syntax.CaseClause, ret bool) (Value, *abrup
 // typeMatch runs any other match: the first clause one of whose patterns
 // matches the subjects, its bindings bound; a default clause last.
 func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Value, *abrupt) {
-	if fr.info.Matches[s] == nil {
+	if in.sx(fr, s).match == nil {
 		ice("a match with no Matches entry")
 	}
-	subjects := make([]Value, len(s.Subjects))
+	var one Value // the one subject, with no slice made for it
+	var subjects []Value
+	if len(s.Subjects) != 1 {
+		subjects = make([]Value, len(s.Subjects))
+	}
 	for i, g := range s.Subjects {
 		v, ab := in.expr(fr, g.X)
 		if ab == nil {
@@ -738,20 +743,26 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 		if ab != nil {
 			return nil, ab
 		}
-		subjects[i] = v
+		if subjects == nil {
+			one = v
+		} else {
+			subjects[i] = v
+		}
 	}
-	v, ab := in.typeArms(fr, s, subjects, ret)
+	subject := one
+	if subjects != nil {
+		subject = tuple{elems: subjects}
+	}
+	v, ab := in.typeArms(fr, s, subject, ret)
 	if ab == nil {
 		ab = in.releaseAt(fr, s)
 	}
 	return v, ab
 }
 
-func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value, ret bool) (Value, *abrupt) {
-	var subject Value = tuple{elems: subjects}
-	if len(subjects) == 1 {
-		subject = subjects[0]
-	}
+// typeArms runs the clause of s that takes subject: the one subject's
+// value, or the tuple of them all.
+func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subject Value, ret bool) (Value, *abrupt) {
 	var def *syntax.CaseClause
 	for _, cl := range s.Clauses {
 		if len(cl.List) == 0 {
