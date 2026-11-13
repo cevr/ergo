@@ -23,7 +23,9 @@ import (
 //     in another field: one copy, of the window;
 //   - chain param, chain loop, chain put, chain delete: Append, Put and
 //     Delete on the result of another: one copy of a shared source, none
-//     of a let mut root's;
+//     of a let mut root's; chain root, a chain on a shared []Map into a
+//     let mut whose Maps are then written, which only the agreement
+//     reads: the shared Maps must not see the writes;
 //   - copy root: a let mut copy of the Map, written, while the root is
 //     read after: one copy, of the table;
 //   - entry rmw: an entry moved into a let mut, written and stored back:
@@ -89,6 +91,14 @@ func szM(v Map[int, int]) int {
 }
 
 func szB(v Box) int { szM(v.M) * 7 + szS(v.S) }
+
+func szMs(v []Map[int, int]) int {
+	let mut t = len(v) * 10000
+	for i, m in v {
+		t = t + (i + 1) * szM(m)
+	}
+	t
+}
 
 // head and cell keep both imports used in every seed.
 func head(s []int) []int { slices.Slice(s, 0, 1) }
@@ -224,7 +234,18 @@ func (g *copyGen) shape(combo int) {
 		}
 	default:
 		// The chains, over a slice or a Map of int.
-		switch g.r.IntN(4) {
+		switch g.r.IntN(5) {
+		case 4:
+			// A chain on a shared source into a root, whose Maps are
+			// then written: the shared Maps must not see it. Only the
+			// agreement reads it (want -1).
+			shape = "chain root"
+			head = fmt.Sprintf("func %s(x []Map[int, int], a Map[int, int]) int {\n", name)
+			body = "\tlet mut y = x.Append(a).Append(a)\n\ty[0][9] = 9\n\ty[1][9] = 9\n\ty[2][8] = 8\n\tszMs(x) * 3 + szM(a) * 5 + szMs(y)\n"
+			want = -1
+			call = func() {
+				g.main.WriteString(fmt.Sprintf("\tlet x%d = []Map[int, int]{Map[int, int]{1: 1}}\n\tlet a%d = Map[int, int]{2: 2}\n\tConsole.Println(\"\\(%s(x%d, a%d)) \\(szMs(x%d)) \\(szM(a%d))\")\n", g.n, g.n, name, g.n, g.n, g.n, g.n))
+			}
 		case 0:
 			shape = "chain param"
 			head = fmt.Sprintf("func %s(x []int, a int) int {\n", name)
@@ -316,7 +337,7 @@ func copyPaths() []string {
 		}
 		out = append(out, "ref modify "+e.k)
 	}
-	out = append(out, "window borrow", "window local", "copy root borrow", "copy root local", "chain param", "chain loop", "chain put", "chain delete")
+	out = append(out, "window borrow", "window local", "copy root borrow", "copy root local", "chain param", "chain loop", "chain put", "chain delete", "chain root")
 	return out
 }
 
@@ -329,6 +350,9 @@ func TestCopyCountsMatchModel(t *testing.T) {
 		p := mustLower(t, fmt.Sprintf("copycount%d", seed), src)
 		mainGo := p.mainGo()
 		for _, name := range g.order {
+			if g.model[name] < 0 {
+				continue // read by the agreement only
+			}
 			text := goFuncsOf(t, mainGo, name)
 			if got := len(copyOps.FindAllString(text, -1)); got != g.model[name] {
 				t.Errorf("seed %d, %s: the lowering makes %d copies, the model %d\nReplay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=%d\n--- Go\n%s\n--- source\n%s", seed, name, got, g.model[name], seed, text, src)
