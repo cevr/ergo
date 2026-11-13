@@ -35,10 +35,15 @@ type Unavailable {}
 
 // Pipeline is the Api of a build pipeline.
 type Pipeline {
+	// Submit starts a new run of 1 to 9 stages; a resend of the ID gets the first receipt.
 	Submit(c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Cancel stops a run that has not ended, with the reason why.
 	Cancel(c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Retry tries the failed stage of a run now, without waiting for its backoff.
 	Retry(c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Board is every run by column: queued, running, failing, passed, stopped.
 	Board() board.View,
+	// RunOf is the state of the run named id.
 	RunOf(id string) run.Run fails NoSuchRun,
 
 	// DuplicateIsNoop: a command sent twice is taken once: the resend

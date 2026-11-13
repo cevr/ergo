@@ -9,10 +9,13 @@ import actor
 import flag
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
+import github.com/cevr/ergo/modules/mcp
+import json
 import runners pipeline/memory
 import rpc
 import pipeline/pipeline
 import pipeline/pipeline/pipelinecli
+import pipeline/pipeline/pipelinemcp
 import pipeline/pipeline/pipelinerpc
 import pipeline/board
 import pipeline/run
@@ -124,6 +127,39 @@ func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs 
 	out
 }
 
+// byTools is the MCP server's answers: each request as the tools/call
+// message of its tool (pipelinemcp.Arguments), answered by mcp.Handle over
+// the generated tools of m; a tool's text is its value or its failure.
+func byTools(rs []Request, m pipeline.Model) []string {
+	let server = mcp.Server{Name: "pipeline", Version: "1", Tools: pipelinemcp.Tools(m)}
+	let mut out = []string{}
+	for r in rs {
+		out = settled(out.Append(toolText(server, r)), m)
+	}
+	out.Append(toolText(server, pipelinerpc.BoardRequest))
+}
+
+// toolText is the text of the tools/call answer to r.
+func toolText(server mcp.Server, r Request) string {
+	let (name, arguments) = pipelinemcp.Arguments(r)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let called = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return "not a tool result"
+		}
+		if len(called.Content) != 1 {
+			return "not one text block"
+		}
+		called.Content[0].Text
+	case mcp.Refused as e:
+		"refused: \(e.Message)"
+	case mcp.Silent:
+		"no answer"
+	}
+}
+
 // typing is the acts that fill the form's fields.
 func typing(id string, name string, n string, why string) []ui.Act {
 	[]ui.Act{ui.TypeInto{Label: "id", Text: id}, ui.TypeInto{Label: "run", Text: name}, ui.TypeInto{Label: "number", Text: n}, ui.TypeInto{Label: "why", Text: why}}
@@ -213,7 +249,7 @@ func column(s string) []string {
 }
 
 // Surface is a road from a list of requests to the answers.
-type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{} | ThroughScreen{}
+type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{} | ThroughScreen{} | ThroughTools{}
 
 // answers plays rs on the surface s, on a context of its own whose first
 // stage fails its first failing tries.
@@ -232,6 +268,8 @@ func answers(s Surface, rs []Request, failing int) []string fails domain.Conflic
 			asLines(rs, m)
 		case ThroughScreen:
 			onScreen(rs, m, clock)
+		case ThroughTools:
+			byTools(rs, m)
 		}
 		pipeline.Stop(m)
 		out
@@ -240,8 +278,9 @@ func answers(s Surface, rs []Request, failing int) []string fails domain.Conflic
 
 // SurfacesAgree: one list of requests gets the same answers, rejections
 // included, and leaves the same board, through the model, through the
-// generated RPC client over the wire, and as command lines that the
-// generated CLI prints and parses.
+// generated RPC client over the wire, as command lines that the
+// generated CLI prints and parses, on the screen, and as MCP tool calls
+// that the generated tools answer through module mcp's server.
 law SurfacesAgree(acts []int, failing int) {
 	let rs = requests(acts)
 	let byModel = answers(ThroughModel, rs, failing) catch {
@@ -260,7 +299,11 @@ law SurfacesAgree(acts []int, failing int) {
 	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
-	byWire == byModel && byLine == byModel && byScreen == byModel
+	let byTools = answers(ThroughTools, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	byWire == byModel && byLine == byModel && byScreen == byModel && byTools == byModel
 }
 
 // LoopbackTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for the
