@@ -246,7 +246,104 @@ func (c *checker) declares(t Type, op Type) bool {
 // (resources R1).
 func (c *checker) implementsCloser(t Type) bool {
 	cl := c.closer()
-	return cl != nil && slices.ContainsFunc(c.declaredOps(t), func(o *Named) bool { return o.origin() == cl })
+	if cl == nil {
+		return false
+	}
+	if n, ok := t.(*Named); ok && (n.origin() == cl || isGoCloser(n)) {
+		return true
+	}
+	return slices.ContainsFunc(c.declaredOps(t), func(o *Named) bool { return o.origin() == cl })
+}
+
+// undeclared is why the value type v is not a value of the operation type
+// op at a use (a conversion, a context entry, a constraint, a law's
+// provider): v does not declare that it implements op; "" when it does,
+// or when the old method-set rule still decides. Go's method sets decide
+// between two Go types (interop.md, Checking), and a protocol of the
+// runtime (an unnamed interface) is met by its functions. The message
+// names the clause to write.
+func (c *checker) undeclared(v, op Type, site string) string {
+	opn, ok := op.(*Named)
+	if !ok {
+		return ""
+	}
+	it := asInterface(opn)
+	if it == nil || it.Set != SetAll {
+		return ""
+	}
+	if c.declares(v, op) {
+		return ""
+	}
+	if vn, ok := v.(*Named); ok && asInterface(vn) != nil && vn.origin() == opn.origin() {
+		// Two instances of one operation type (a Task whose row
+		// widens): their operations decide, as an instance's do.
+		return ""
+	}
+	if legacyRecord != nil && c.implements(v, it, true) == "" {
+		// ergo fix: the old rule admits the pair, and the fix writes it.
+		c.recordLegacy(v, op, site)
+		return ""
+	}
+	e := v
+	if p, ok := e.(*Pointer); ok {
+		e = p.Elem
+	}
+	if r := refElem(e); r != nil {
+		e = r
+	}
+	if ScriptOf(e) != nil {
+		// A Script has the operations of its capability (script.go,
+		// rule 4): std declares it for every capability.
+		return ""
+	}
+	if isHostNamed(e) && isHostNamed(op) {
+		return ""
+	}
+	n, ok := e.(*Named)
+	if !ok {
+		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
+	}
+	o := n.origin()
+	switch {
+	case o.Obj == nil || o.Obj.Pkg == nil:
+		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
+	case o.Obj.Pkg.Host():
+		return fmt.Sprintf("%s is a Go type and does not implement %s: wrap it in a record that implements %s (interop.md, Checking)", v, op, op)
+	case asInterface(n) != nil:
+		return fmt.Sprintf("%s does not include %s: write ..%s in %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
+	case o.Obj.Pkg != c.pkg:
+		return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after its body in package %s, or wrap the value in a record that implements %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Pkg.Name, op)
+	}
+	return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after %s's body (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
+}
+
+// declaredInstance is the instance of the operation type op's origin that
+// the value type v declares (its clause, at v's type arguments), or nil:
+// inference reads the written instance (Generics 6), and the conversion
+// that follows reads the declaration.
+func (in *inferer) declaredInstance(op, v Type) Type {
+	opn, ok := op.(*Named)
+	if !ok {
+		return nil
+	}
+	for _, d := range in.c.declaredOps(v) {
+		if d.origin() == opn.origin() {
+			return d
+		}
+	}
+	return nil
+}
+
+// clauseUnmet reports a use of a declared pair whose clause failed at the
+// type (S106 there): the use stays silent. A *T function that implements
+// through the clause on T still needs &x at a conversion (Borrows 6), so
+// that use is not silent.
+func (c *checker) clauseUnmet(v Type, it *Interface) bool {
+	n, ok := v.(*Named)
+	if !ok || asInterface(n) != nil || len(n.origin().impls) == 0 || n.origin().Obj.Pkg.Host() {
+		return false
+	}
+	return c.implements(&Pointer{Elem: v}, it, true) != ""
 }
 
 // checkImplementsClauses checks each written clause of the package at its
@@ -281,7 +378,7 @@ func (c *checker) checkImplementsClauses() {
 				// and returns nothing. It may need capabilities, which
 				// the scope that releases it provides; a call through a
 				// Closer value is checked at the conversion.
-				if c.closeMethod(n) == nil {
+				if c.closeFunc(n) == nil {
 					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1)", n.Obj.Name, op, n.Obj.Name)
 				}
 				continue
@@ -526,7 +623,7 @@ func (c *checker) recordLegacyReleases() {
 			}
 			continue
 		}
-		if c.closeMethod(n) != nil {
+		if c.closeFunc(n) != nil {
 			legacyRecord(LegacyPair{Type: tn, Pkg: c.pkg.Path, Op: cl, Site: "release"})
 		}
 	}

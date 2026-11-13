@@ -255,8 +255,14 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 			}
 			return true
 		case xi != nil:
+			if d := in.declaredInstance(x, y); d != nil {
+				return in.nify(x, d, mode, depth)
+			}
 			return in.implements(xi, y, depth)
 		case yi != nil:
+			if d := in.declaredInstance(y, x); d != nil {
+				return in.nify(d, y, mode, depth)
+			}
 			return in.implements(yi, x, depth)
 		}
 	}

@@ -350,10 +350,16 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
-		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+		if why := c.undeclared(v, t, "conversion"); why != "" {
 			return assignment{}, why
 		}
-		c.recordLegacy(v, t, "conversion")
+		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+			if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {
+				// The clause failed at the type (S106 there).
+				return assignment{clause: assignIdentical}, ""
+			}
+			return assignment{}, why
+		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
@@ -1005,10 +1011,15 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	if why := c.implements(t, it, true); why != "" {
+	if why := c.undeclared(t, constraint, "constraint"); why != "" {
 		return why
 	}
-	c.recordLegacy(t, constraint, "constraint")
+	if why := c.implements(t, it, true); why != "" {
+		if c.clauseUnmet(t, it) {
+			return "" // the clause failed at the type (S106 there)
+		}
+		return why
+	}
 	return ""
 }
 

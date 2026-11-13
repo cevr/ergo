@@ -19,7 +19,7 @@ type Close struct {
 // `Close()` takes the value it is called on (closeOpTakes), so an
 // implementation matches its operation type. closeFacts admits or refuses
 // the Close itself.
-func closeTakes(f *Func) {
+func (c *checker) closeTakes(f *Func) {
 	sig := f.Sig
 	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
 		return
@@ -28,7 +28,9 @@ func closeTakes(f *Func) {
 	if p, ok := recv.(*Pointer); ok {
 		recv = p.Elem
 	}
-	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil {
+	// Only the release of a type that implements Closer takes its
+	// receiver (R1): any other Close is an ordinary function.
+	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil && c.implementsCloser(n) {
 		sig.Takes = []int{0}
 	}
 }
@@ -56,7 +58,7 @@ func (c *checker) closeFacts() {
 		if p, ok := recv.(*Pointer); ok {
 			recv = p.Elem
 		}
-		if n, ok := recv.(*Named); !ok || ownTypeParam(n, f) != nil {
+		if n, ok := recv.(*Named); !ok || ownTypeParam(n, f) != nil || !c.implementsCloser(n) {
 			continue
 		}
 		if !c.types.resolve(f.Sig.Errors).Empty() {
@@ -68,7 +70,7 @@ func (c *checker) closeFacts() {
 	}
 	for _, tn := range c.pkg.Types {
 		it := asInterface(tn.Type)
-		if it == nil {
+		if it == nil || !c.implementsCloser(tn.Type) {
 			continue
 		}
 		m := it.method("Close")
@@ -173,7 +175,8 @@ func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
 		t = p.Constraint
 	}
 	it := asInterface(t)
-	if it == nil {
+	if it == nil || !c.implementsCloser(t) {
+		// Only an operation type that includes Closer releases (R1).
 		return nil
 	}
 	m := it.method("Close")
