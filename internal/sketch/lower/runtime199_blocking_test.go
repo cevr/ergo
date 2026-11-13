@@ -238,6 +238,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
+		// X3: a Map's keys in order, a new slice (the Writer path) or on
+		// the json Text's key stack (the fast path); no wait.
+		"WireKeys": true, "JSONKeys": true, "JSONKeysDone": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
