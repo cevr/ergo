@@ -32,14 +32,25 @@ import (
 // prints the first few, each with where the object was first reached.
 // ERGO_CENSUS_ONLY=<name> runs the examples whose name has it.
 //
-// Mutant (sketchfront ledger): the loader shows the test every checked
-// package (cs5b1-hook-skipped). The census found no write outside
-// lazyState, so no product mutant is unique to it yet: it is the guard
-// CS5b-2 and CS6 build on (cs5b.md §5, §7).
+// Mutants (sketchfront ledger): a function whose first parameter is an
+// alias of an imported type is not a member of that type, so checking the
+// importer adds no method to its import (cs5b1-alias-owner-imported; Go:
+// no method on a non-local type); the loader shows the test every checked
+// package (cs5b1-hook-skipped).
 func TestImporterLeavesImportUnchanged(t *testing.T) {
 	programs := multiPackageExamples(t)
-	if testing.Short() && len(programs) > 4 {
-		programs = programs[:4]
+	if testing.Short() {
+		// The examples whose importers write the most lazy state (census.md),
+		// and jobs, whose api package declares a function on an alias of an
+		// imported type (routesOf).
+		var some []exampleDir
+		for _, p := range programs {
+			switch p.name {
+			case "backups/cmd/backups", "bookmarks/cmd/bookmarks", "jobs/cmd/jobs", "stack-builder/cmd/stack-builder":
+				some = append(some, p)
+			}
+		}
+		programs = some
 	}
 	for _, dir := range programs {
 		if only := os.Getenv("ERGO_CENSUS_ONLY"); only != "" && !strings.Contains(dir.name, only) {
