@@ -570,6 +570,11 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 		for _, op := range it.Methods {
 			method, f := c.methodOf(targs[i], op.Name)
 			if method == nil {
+				if c.clauseUnmet(targs[i], it) {
+					// The clause failed at the type (S106 there); the
+					// program does not build, and the use stays silent.
+					return ""
+				}
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
