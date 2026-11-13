@@ -1399,6 +1399,15 @@
       "to": "\t\tks = append(ks, c)",
       "rule": "A for over a Map binds each key itself, the record, not the text the evaluator holds it by.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o31-reported-arguments-dropped",
+      "origin": "wf10 ORACLE O31",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\tout.Case, out.Arguments = k+1, shown(shows)",
+      "to": "\t\t\tout.Case, out.Arguments = k+1, nil",
+      "rule": "A refuted case reports the arguments it ran with, written when it is reported.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
     }
   ]
 }

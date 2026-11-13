@@ -222,30 +222,43 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		if p.Listed {
 			listed = p.At(k)
 		}
-		args := make([]Argument, 0, len(p.Inputs))
+		// A case's arguments are written only when the case is reported:
+		// a passing case's text was work no one read (ORACLE O31). The
+		// values are the generated ones, which the body cannot change: a
+		// write copies a store its slot does not own.
+		shows := make([]func() Argument, 0, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
-			text := ""
 			if p.Listed {
 				v = in.listValue(cf, listed[i])
 			} else if input.Provider != nil && input.Provider.Ctor != nil {
 				ctor := input.Provider.Ctor
 				var vs []Value
-				var shown []string
 				for _, param := range ctor.Sig.Params {
-					a := in.generate(cf, r, param.Type, testplan.Depth, nil)
-					vs = append(vs, a)
-					shown = append(shown, in.argument(cf, param.Type, a))
+					vs = append(vs, in.generate(cf, r, param.Type, testplan.Depth, nil))
 				}
 				v = mustValue(in.call(cf, nil, ctor, nil, vs))
-				text = ctor.Name + "(" + strings.Join(shown, ", ") + ")"
+				shows = append(shows, func() Argument {
+					shown := make([]string, len(vs))
+					for j, param := range ctor.Sig.Params {
+						shown[j] = in.argument(cf, param.Type, vs[j])
+					}
+					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+				})
 			} else {
 				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
 			}
-			if text == "" {
-				text = in.argument(cf, input.Type, v)
+			switch {
+			case len(shows) > i:
+			case input.Provider != nil:
+				// A provider's state may change as its operations run:
+				// its text is the one it had before the case.
+				a := Argument{Name: input.Name, Value: in.argument(cf, input.Type, v)}
+				shows = append(shows, func() Argument { return a })
+			default:
+				gv := v
+				shows = append(shows, func() Argument { return Argument{Name: input.Name, Value: in.argument(cf, input.Type, gv)} })
 			}
-			args = append(args, Argument{Name: input.Name, Value: text})
 			if input.Provider != nil {
 				v = &operation{value: v, conv: input.Provider.Conv, env: cf.env}
 			}
@@ -269,12 +282,21 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, args
+			out.Case, out.Arguments = k+1, shown(shows)
 			return
 		}
 	}
 	out.Case = 0
 	return
+}
+
+// shown is the arguments of a reported case, written now.
+func shown(shows []func() Argument) []Argument {
+	args := make([]Argument, len(shows))
+	for i, show := range shows {
+		args[i] = show()
+	}
+	return args
 }
 
 func statusOf(ab *abrupt) Status {

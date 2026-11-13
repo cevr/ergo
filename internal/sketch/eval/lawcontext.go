@@ -67,16 +67,16 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		r.Start(k + 1)
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
-		args := make([]Argument, 0, len(law.Params))
+		shows := make([]func() Argument, 0, len(law.Params))
 		for i, v := range law.Params {
 			a := in.generate(cf, r, types[i], testplan.Depth, nil)
-			args = append(args, Argument{Name: v.Name, Value: in.argument(cf, types[i], a)})
+			shows = append(shows, func() Argument { return Argument{Name: v.Name, Value: in.argument(cf, types[i], a)} })
 			cf.bind(v, a)
 		}
 		caps, built, ab := in.acquire(cf, law.Decl, lc.With)
 		if ab != nil {
 			out.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
-			out.Case, out.Arguments = k+1, args
+			out.Case, out.Arguments = k+1, shown(shows)
 			return
 		}
 		key := typeKey(cf.rt(cap))
@@ -102,7 +102,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, args
+			out.Case, out.Arguments = k+1, shown(shows)
 			return
 		}
 	}
