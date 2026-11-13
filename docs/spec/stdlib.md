@@ -1457,6 +1457,70 @@ The reviewed facts of a Go body (pure, host, inert, its hidden arguments, moves 
 
 Every other read of std membership or a std name is debt, listed with the change that removes it in `internal/residue/testdata/std-privileges.txt`; the list only shrinks. `TestCompilerReadsNoStdMembership` holds the source to these lists. The proof is the copy: a std package copied into a user module checks, lowers and counts the same (`TestStdCopyAgrees`, with the packages that still differ and why in `internal/sketch/std/testdata/std-copy.txt`).
 
+## The body contract
+
+An `extern go` declaration binds a Go body. The **body contract** is everything the compiler may rely on about that body ([GLOSSARY](../../GLOSSARY.md), Body contract). It is written for any module, and std reads it the same way (STD-NOPRIV NP4a; decisions Q2 and Q6 of the plan). Each fact has one home:
+
+- **A clause on the Ergo declaration**, when a caller's check depends on the fact. The checker reads Ergo source, and a caller sees only the declaration.
+- **A mark on the Go body**, a directive line in the doc comment of the Go function, when only the lowering needs the fact, or when the fact is a property of the Go code that the reviewed rules check against that code.
+
+The compiler reads every fact by the body that the declaration names, never by the package that declares it. The checker reads them in `check.BodyOf` and `check.OpBodyOf`, and the lowering in `lower/bodycontract.go`.
+
+| Fact | Meaning | Home | Read by | State |
+| --- | --- | --- | --- | --- |
+| pure | A call runs no capability, starts no task and calls no unknown code. | Mark `//ergo:pure`, checked against the body (`pureRefusal`: imports, host reach). | the checker's footprint, the lowering's purity (Pure bodies) | built (NP4b) |
+| host | The body reaches host state. | Mark `//ergo:host`. A body that reaches the host without it is refused (`hostReach`). | the checker | built |
+| moves only | A generic body only moves its type parameters' values. | runtime/v1's table `movesOnly` (`v1.MovesOnly`), keyed by the body. | the checker | built; the mark is a follow-up |
+| keeps a callback | The body runs a callback on a child task, whose captures move to its root, and a parameter or the result keeps it. | runtime/v1's tables (`v1.MovingBody`, `v1.CallbackKeeper`). | the checker | built; the mark is a follow-up |
+| drains | An operation does not return while its keeper's callback still runs. | runtime/v1's table (`v1.DrainsLends`). | the checker | built |
+| stops running code | A release that stops code still running. | runtime/v1's table (`v1.StopsRunning`). | the checker | built |
+| makes its result | Every `return` gives `make(…)` or `nil`, so the result is fresh. | The body's form, read from the Go code (`lower/gobody.go`). | the lowering | built |
+| appends | The result is the first (slice) operand with elements added at its end, as Go's `append` gives, so the value rule treats the call as the prelude's `Append`. | The body's form: every `return` gives the first parameter or a call whose first argument is it (`lower/gobody.go`, `goBodyAppends`). | the lowering | built |
+| takes its operand over | An owned form takes the first argument over, so a consumed argument's storage is kept with no copy. | Mark `//ergo:owned Name` naming a body of the same shape. | the lowering | built |
+| waits | Which task a call waits on, or none. | Mark `//ergo:wait KIND` (Calling policy, above). | the lowering | built (NP4d) |
+| releases | The body is a checked `Close`'s or an exit action's release. | Mark `//ergo:release caller` or `frame`. | the lowering | built (NP4d) |
+| reads context | The body reads the calling task's context values. | Its hidden `ContextPackage` parameter. | the lowering | built |
+| hidden arguments | Values the lowering supplies at the call. | The body's Go parameter types (Hidden arguments, above). | both | built |
+| requires a pure function | A parameter whose argument must be pure (a durable step). | Clause `pure` on the parameter, in the family of `escaping`, `takes` and `lent` (Q6). | the checker | NP3a |
+| a Go type for an Ergo type | A record or operation type that is a runtime Go type. | `extern go` on the type declaration names its Go type (Q6). | the checker and the lowering | NP4c |
+
+The tables of runtime/v1 (`moves.go`) and the `inert` fact of `actor.NewHost` (`v1.Inert`) are keyed by the body's name in runtime/v1, never by an Ergo name, so a copy of a std package binds the same facts (`TestBodyFactsFollowTheBody`). They become marks when another module needs them. A module's own body (interop.md, Trusted Go 3) has none of them yet.
+
+**The hidden-argument convention is the runtime's public Go calling convention.** The types `*v1.Scope`, `v1.Site`, `*rt.Task`, `v1.Sleeper`, `v1.ContextPackage` and `v1.Releaser[T]`, in the order of Hidden arguments, and the marks of the table above are a public interface of `ergo.local/prototype/runtime`. They change only with the language version, as Go's own exported API does. A Go body in any module can follow the convention.
+
+**The trust rule (Q2).** Go that Ergo does not check is bound only when someone vouches for it. The root module's `ergo.mod` names the modules whose Go it trusts:
+
+```
+module app
+trust app
+```
+
+The toolchain vouches for what it ships, std and the prelude, by the same rule, with no line. An untrusted package's extern of the runtime, or of a body of its module's own Go package, is S108 naming the line to write ([interop.md, Trusted Go](interop.md#trusted-go)).
+
+Two examples follow. A trusted module binds a runtime body with hidden arguments as std does:
+
+```
+extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool
+```
+
+and binds a body of its own Go package:
+
+```go
+//ergo:wait caller
+func Poll(t *rt.Task, n int) int { t.Check(); return n + 1 }
+```
+
+```
+extern go example.com/app/gohost.Poll func poll(n int) int
+```
+
+Decided: a mark is a directive line, `//ergo:NAME ARGS`, in the doc comment of the Go function, one per fact, each at most once (Go's own `//go:` directive form). Decided by "Go idioms beat novel notation".
+Decided: a body with no `//ergo:wait` is refused, not read as `none`. A missing mark is a missing fact, and failing closed is the rule for unchecked code.
+Decided: the hidden arguments are read from the Go parameter types, with no mark, because the Go type is already the binding and a second spelling could disagree.
+Decided: the four tables of `runtime/v1/moves.go` stay tables keyed by the body until a second module needs those facts. The key is the body, so they grant std no privilege.
+
+*Prior art:* OCaml's `external` attributes (`[@@noalloc]`, `[@unboxed]`) sit on the declaration and are read for any module. GHC's primop attributes sit on each primop's declaration. Go's compiler reads the runtime's ABI from the runtime's declarations (`mkbuiltin.go`). Erlang NIFs state their scheduling class (dirty CPU or IO) on the C function. Gleam's and ReScript's externals have no hidden arguments and no facts: the call is opaque.
+
 ## Packages by origin
 
 - **Same as Go:** `strings`, `strconv`, `utf8`, `slices`, `maps`, `cmp`, `math`, `bits`, `csv` (Go's `encoding/csv`), `hex`, `sha256`, `crc32`, `time`, `rand`, `os`, `fs`, `net`, `sql`.

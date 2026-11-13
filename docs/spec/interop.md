@@ -196,7 +196,7 @@ A user `extern go P.F func name(sig)` names a function of P's binding, and its w
 
 ## Trusted Go
 
-Status: **implemented** for a module's own packages (STD-NOPRIV NP4e, NP4d; decision Q2 of the plan). The runtime's Go API (`ergo.local/prototype/runtime/v1`) is a public calling convention: a body takes hidden arguments that the lowering supplies (the frame, the call site, the task, the scheduler, the context package; [stdlib](stdlib.md), Hidden arguments), and the checker reads the body's facts from its declaration's target (`check.BodyOf`), never from the package that declares it. Such Go is not checked by Ergo, so someone vouches for it.
+Status: **implemented** for a module's own packages (STD-NOPRIV NP4e, NP4d; decision Q2 of the plan). The runtime's Go API (`ergo.local/prototype/runtime/v1`) is a public calling convention: a body takes hidden arguments that the lowering supplies (the frame, the call site, the task, the scheduler, the context package; [stdlib](stdlib.md), Hidden arguments), and the checker reads the body's facts from its declaration's target (`check.BodyOf`), never from the package that declares it. Such Go is not checked by Ergo, so someone vouches for it. What a body promises, fact by fact, and where each fact is written (a clause on the Ergo declaration or a mark on the Go body) is the body contract ([stdlib](stdlib.md#the-body-contract); STD-NOPRIV NP4a).
 
 1. **The trust line.** `ergo.mod` holds `module NAME` and then lines `trust MODULE`, each naming once a module whose Go the root vouches for. A module trusts its own Go with its own name:
 
