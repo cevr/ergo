@@ -23,6 +23,12 @@ func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fa
 	body() catch {
 	case err:
 		cut(f, m)
+		if f.nstops < len(f.stops) {
+			f.stops[f.nstops] = at
+		} else {
+			f.stops = f.stops.Append(at)
+		}
+		f.nstops = f.nstops + 1
 		return err
 	}
 	f.each = m.each

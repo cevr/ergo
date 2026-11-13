@@ -12,20 +12,22 @@ import task
 // shows, and run counts the actors it has run, so the end of an earlier
 // one is told apart.
 type Session[S, E, D, F] {
-	frame     Frame[E],
-	actor     actor.Actor[S, E, D, F],
-	view      func(f *Frame[E], s S),
-	post      func(ev Event[E]),
-	inflight  Map[int, Task[bool]],
-	stale     sync.Ref[bool],
-	watch     Task[bool],
-	exit      func(a actor.Actor[S, E, D, F]) Option[Crash[F]],
-	alive     func(a actor.Actor[S, E, D, F], e E) bool,
-	fresh     Option[func() actor.Actor[S, E, D, F]],
-	crashView func(f *Frame[E], c Crash[F]),
-	report    func(c Crash[F]),
-	crash     Option[Crash[F]],
-	run       int,
+	frame       Frame[E],
+	actor       actor.Actor[S, E, D, F],
+	view        func(f *Frame[E], s S),
+	post        func(ev Event[E]),
+	inflight    Map[int, Task[bool]],
+	stale       sync.Ref[bool],
+	watch       Task[bool],
+	exit        func(a actor.Actor[S, E, D, F]) Option[Crash[F]],
+	alive       func(a actor.Actor[S, E, D, F], e E) bool,
+	fresh       Option[func() actor.Actor[S, E, D, F]],
+	crashView   func(f *Frame[E], c Crash[F]),
+	report      func(c Crash[F]),
+	crash       Option[Crash[F]],
+	run         int,
+	signals     int,
+	passSignals int,
 }
 
 // Start renders the first pass of view over a's state and starts its
@@ -47,7 +49,7 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping fu
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[E, F], report: noReport[F], crash: None, run: 0}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[E, F], report: noReport[F], crash: None, run: 0, signals: 0, passSignals: 0}
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
@@ -91,6 +93,8 @@ func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 	case None:
 		Render(&s.frame, s.view, s.actor.State())
 	}
+	s.passSignals = s.signals
+	s.signals = 0
 	for j in Jobs(&s.frame) {
 		match j {
 		case Fetch[E] as x:
@@ -161,23 +165,34 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 		}
 		for e in signals {
 			if !(try signal(s, e)) {
-				return runPass(s)
+				return judgedPass(s)
 			}
 		}
-		return runPass(s)
+		return judgedPass(s)
 	case _:
 	}
 	let done = Handle(&s.frame, ev)
 	match done.Signal {
 	case Some[E] as e:
 		let _ = try signal(s, e.Value)
-		return runPass(s)
+		return judgedPass(s)
 	case None:
 	}
 	if done.Changed {
-		return runPass(s)
+		return judgedPass(s)
 	}
 	[]Op[E]{}
+}
+
+// judgedPass is a pass an event of the loop caused (an input, a fetch's
+// result, a frame), whose Slow signals the session sends (judge). A pass
+// of a commit the loop did not cause (Committed: a work's reply, and the
+// Slow signals themselves) is not judged, so a slow warning is never
+// judged on its own account.
+func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+	let ops = runPass(s)
+	judge(s)
+	ops
 }
 
 // signal sends e to the actor, and is false when the actor crashed with
@@ -213,7 +228,24 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 			return actor.Stopped
 		}
 	}
+	s.signals = s.signals + 1
 	true
+}
+
+// judge sends the Slow signals of the pass just rendered, when the view
+// asked for them (OnSlow).
+func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
+	match s.frame.slow {
+	case Some[slowWatch[E]] as w:
+		let over = slows(SessionStats(s), w.Value.budget)
+		for x in over {
+			s.actor.Send(w.Value.on(x)) catch {
+			case actor.Stopped:
+				return
+			}
+		}
+	case None:
+	}
 }
 
 // crashed takes the crash c and renders the crash view.
