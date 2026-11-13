@@ -66,6 +66,30 @@ test Grow {
 	assert grow(3) == 6
 }
 `,
+	"own-read": `type Block { Kind int, Lines []string }
+
+type Store { blocks []Block }
+
+func total(p *Store) int {
+	let mut n = 0
+	for i in 0..len(p.blocks) {
+		let b = p.blocks[i]
+		p.blocks[i].Kind = b.Kind + 1
+		n += len(b.Lines)
+	}
+	n
+}
+
+func main() needs Console {
+	let mut s = Store{blocks: []Block{Block{Kind: 0, Lines: []string{"a"}}}}
+	Console.Println("\(total(&s))")
+}
+
+test Total {
+	let mut s = Store{blocks: []Block{Block{Kind: 0, Lines: []string{"a"}}}}
+	assert total(&s) == 1
+}
+`,
 	"own-lineage": `type Bag { Items []int, N int }
 
 func step(b Bag, x int) Bag {

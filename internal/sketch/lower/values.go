@@ -1781,7 +1781,9 @@ func containsNode(list []syntax.Node, n syntax.Node) bool {
 // needsCopy reports whether the kept use o of the root vv must copy.
 func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	if vv.ptr {
-		return true // the caller writes after the call
+		// The caller writes after the call, unless the value never
+		// outlives the body (storeread.go, own-read).
+		return !w.keptRead(vv, o)
 	}
 	if !vv.mut {
 		return false
@@ -1802,7 +1804,7 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	}
 	for _, wr := range vv.writes {
 		if w.later(vv, o, wr) {
-			return true
+			return !w.keptRead(vv, o)
 		}
 	}
 	return false

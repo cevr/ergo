@@ -61,6 +61,8 @@ type handoverGen struct {
 	bags    []hbag          // the lets b0, b1, … of run
 	m       hbag            // the root m
 	doc     []int           // the root doc
+	store   []hbag          // the root st's bags
+	reads   int             // the lets r1, r2, … of the store's reads
 	reached map[string]bool
 }
 
@@ -103,7 +105,54 @@ func (g *handoverGen) stmt() {
 		b.n++
 		return b
 	}
-	switch k := g.r.IntN(14); k {
+	switch k := g.r.IntN(17); k {
+	case 14:
+		g.reached["store add"] = true
+		g.line(fmt.Sprintf("st.bags = st.bags.Append(b%d)", i))
+		g.store = append(g.store, src.copy())
+	case 15:
+		// A read of a store element through a borrow, a write of the
+		// store, then a read of the let (storeread.go, own-read).
+		if len(g.store) == 0 {
+			return
+		}
+		j := g.r.IntN(len(g.store))
+		kind := []string{"Kind", "Item", "Push", "Pass", "Method"}[g.r.IntN(5)]
+		g.reached["peek "+kind] = true
+		g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
+		b := g.store[j].copy()
+		e := &g.store[j]
+		switch kind {
+		case "Kind":
+			e.n += v
+		case "Push":
+			e.items = append(append([]int(nil), e.items...), v)
+		default:
+			if len(e.items) > 0 {
+				e.items[0] = v
+			}
+		}
+		g.out.WriteString(hdig(b.items) + fmt.Sprintf(",%d ", b.n))
+	case 16:
+		// The same through the let mut root st itself.
+		if len(g.store) == 0 {
+			return
+		}
+		j := g.r.IntN(len(g.store))
+		g.reached["root read then write"] = true
+		g.reads++
+		n := g.reads
+		g.line(fmt.Sprintf("let r%d = st.bags[%d]", n, j))
+		b := g.store[j].copy()
+		if g.r.IntN(2) == 0 {
+			g.line(fmt.Sprintf("st.bags[%d].N = %d", j, v))
+			g.store[j].n = v
+		} else if len(g.store[j].items) > 0 {
+			g.line(fmt.Sprintf("st.bags[%d].Items[0] = %d", j, v))
+			g.store[j].items[0] = v
+		}
+		g.line(fmt.Sprintf("out = out + dig(r%d.Items) + \",\\(r%d.N) \"", n, n))
+		g.out.WriteString(hdig(b.items) + fmt.Sprintf(",%d ", b.n))
 	case 12:
 		g.reached["ring on a live let"] = true
 		g.bind(fmt.Sprintf("ring(b%d, %d)", i, v), ring(src, v))
@@ -210,15 +259,73 @@ func ring(b Bag, v int) Bag {
 	Bag{Items: items, N: b.N + 1}
 }
 
+// A store of bags, read through a borrow (storeread.go, own-read): each
+// peek reads an element into a let, writes the store, then reads the let.
+type Store { bags []Bag }
+
+func show(b Bag) string {
+	"\(dig(b.Items)),\(b.N)"
+}
+
+// The write is to a scalar field: the let needs no copy.
+func peekKind(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	s.bags[i].N = s.bags[i].N + v
+	show(b)
+}
+
+// The write is to an element of the slice the let holds: it must copy.
+func peekItem(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	if len(s.bags[i].Items) > 0 {
+		s.bags[i].Items[0] = v
+	}
+	show(b)
+}
+
+// An Append in place on the element's field.
+func peekPush(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	s.bags[i].Items = s.bags[i].Items.Append(v)
+	show(b)
+}
+
+func poke(s *Store, i int, v int) {
+	if len(s.bags[i].Items) > 0 {
+		s.bags[i].Items[0] = v
+	}
+}
+
+// The borrow passed on writes the element's slice.
+func peekPass(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	poke(s, i, v)
+	show(b)
+}
+
+func set(s *Store, i int, v int) {
+	if len(s.bags[i].Items) > 0 {
+		s.bags[i].Items[0] = v
+	}
+}
+
+// A pointer method on the borrow writes the element's slice.
+func peekMethod(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	s.set(i, v)
+	show(b)
+}
+
 func run() string {
 	let mut out = ""
+	let mut st = Store{bags: []Bag{}}
 	let mut m = Bag{Items: []int{}, N: 0}
 	let mut doc = []int{}
 	let b0 = Bag{Items: []int{}, N: 0}
 `)
 	g.bags = []hbag{{items: []int{}}}
 	g.m = hbag{items: []int{}}
-	for range 80 {
+	for range 110 {
 		g.stmt()
 	}
 	for i, b := range g.bags {
@@ -277,6 +384,35 @@ func TestHandoverAgrees(t *testing.T) {
 			t.Errorf("no lowering of seeds %v calls %s", seeds, form)
 		}
 	}
+	// own-read is taken where it may be and refused where it may not
+	// (programs[0] is the rule's lowering of the first seed).
+	body := func(src, name string) string {
+		// A function whose first parameter is a borrow lowers to a method.
+		i := strings.Index(src, "func "+name+"(")
+		if i < 0 {
+			i = strings.Index(src, ") "+name+"(")
+		}
+		if i < 0 {
+			return ""
+		}
+		end := strings.Index(src[i:], "\nfunc ")
+		if end < 0 {
+			return src[i:]
+		}
+		return src[i : i+end]
+	}
+	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true} {
+		b := body(programs[0].mainGo(), name)
+		if b == "" || strings.Contains(b, "Clone") != copies {
+			var named []string
+			for _, l := range strings.Split(programs[0].mainGo(), "\n") {
+				if strings.Contains(l, name) {
+					named = append(named, l)
+				}
+			}
+			t.Errorf("the rule's %s copies %v, want %v:\n%s\n%s", name, !copies, copies, b, strings.Join(named, "\n"))
+		}
+	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		t.Fatalf("the hand-over programs do not build (seeds %v)", seeds)
@@ -294,7 +430,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

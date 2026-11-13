@@ -102,6 +102,15 @@ var shortcuts = []shortcut{
 		mutant:     "own-lineage-result-fresh",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "own-read",
+		class:      valueClass,
+		admission:  "keptRead",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-read-element-write-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
 }
 
 // shortcutNamed is the registry's row named name.
