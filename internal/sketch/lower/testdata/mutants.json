@@ -4082,6 +4082,17 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "inline-label-no-statement",
+      "origin": "wf10 fu-catch-arm",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\t\tfc.line(ret.label + \": ;\")",
+      "to": "\t\tfc.line(ret.label + \":\")",
+      "rule": "An inlined body's end label is followed by a statement, so an inlined call may end a match or catch arm (UC H8a parse defect).",
+      "killers": [
+        "lower:TestInlinedCallEndsAnArm"
+      ]
     }
   ]
 }

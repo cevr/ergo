@@ -817,7 +817,10 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	}
 	fc.line("}")
 	if strings.Contains(body, jump) {
-		fc.line(ret.label + ":")
+		// A label needs a statement: the call may end a match or catch
+		// arm, where the next token is a case (UC H8a). The empty
+		// statement is explicit, so gofmt keeps it.
+		fc.line(ret.label + ": ;")
 	}
 	if ret.err != "" {
 		fc.line("_ = " + ret.err)
