@@ -23,8 +23,8 @@ import (
 //     with the reason; lines that start with # are comments;
 //   - README.md: the upstream path, the commit and the license;
 //
-// and whatever else the port keeps of its original (measurements, a
-// recorded wire). The check reads the titles from the vendored files, so
+// and whatever else the port keeps of its original (measurements,
+// recorded server answers). The check reads the titles from the vendored files, so
 // nothing is pinned: a title that tests.txt lacks, one it has twice, one
 // that the upstream does not have, and a line with no restatement are
 // layout errors.

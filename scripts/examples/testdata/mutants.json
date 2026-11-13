@@ -47,6 +47,7 @@
       "name": "fk0-effect-not-a-test", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
       "from": "^(?:test|it)(?:\\.effect)?(\\.each|\\.only|\\.skip)?$", "to": "^(?:test|it)(\\.each|\\.only|\\.skip)?$",
       "rule": "it.effect and it.effect.each are tests (Foldkit's Effect-vitest form).",
+      "anchor": {"tests": ["scripts/examples:TestOriginFollowsUpstream"]},
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     },
     {

@@ -86,7 +86,7 @@ The `fk-` programs port Foldkit's examples (`conformance/upstream/foldkit-d21db4
 - `README.md`: the upstream path, the commit and the license.
 - `source`: one line, the path from the repository root to the vendored upstream folder (for example `conformance/upstream/foldkit-d21db423/examples/stopwatch`).
 - `tests.txt`: one line per upstream story or scene test, `FILE: TITLE -> RESTATEMENT`. FILE is the test file's path under `source` (each `*story.test.ts` and `*scene.test.ts` in it). TITLE is the test's title as written, with its spaces collapsed; an `.each` table is one test. RESTATEMENT names the Ergo test, law or script that restates the test, or says `not restated: REASON`. Lines that start with `#` are comments.
-- Anything else the port keeps of its original, such as measurements or a recorded wire.
+- Anything else the port keeps of its original, such as measurements or recorded server answers.
 
 The layout check reads the titles from the vendored files (`test(`, `it(`, `it.effect(` and their `.each`, `.only` and `.skip` forms), so nothing is pinned. A title that `tests.txt` lacks, a title it has more often than upstream does, a line for a test that upstream does not have, and a line with no restatement are each a layout error.
 
