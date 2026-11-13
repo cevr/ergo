@@ -285,6 +285,8 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 // OCONVIFACE) with the reason from the same clauses, as this returns the
 // Conversion.
 func (c *checker) assignability(v, t Type) (assignment, string) {
+	capture := c.capture // the caller's go.Foreign capture, this call's only
+	c.capture = nil
 	// A type with an invalid part was reported where it came from (D3).
 	if containsInvalid(v) || containsInvalid(t) || c.identical(v, t) {
 		return assignment{clause: assignIdentical}, ""
@@ -339,11 +341,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
 		cell := false
-		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+		if why := c.implementsCapturing(v, it, !c.hostLendArg(t), capture); why != "" {
 			// A value provider whose functions take *v moves into a cell
 			// (cells.go): *v implements t where v does not.
 			n, named := v.(*Named)
-			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implements(&Pointer{Elem: v}, it, !c.hostLendArg(t)) != "" {
+			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implementsCapturing(&Pointer{Elem: v}, it, !c.hostLendArg(t), capture) != "" {
 				return assignment{}, why
 			}
 			if refusal := c.cellRefusal(v, t, it); refusal != "" {
@@ -732,6 +734,19 @@ func fnPkg(fn *Func) *Package {
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
 // the check is linear in the method count (#122).
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
+	return c.implementsCapturing(v, it, checkReceiver, nil)
+}
+
+// implementsCapturing is implements where, with capture not nil, a method
+// whose capability row exceeds the operation's by go.Foreign alone is
+// admitted, and *capture is set when v implements it with such a method:
+// the site that builds the provider holds go.Foreign for it, as a provider
+// built by a constructor captures what its constructor needed (README Gap
+// 17; #37 for every other capability). go.Foreign has no provider value
+// (rows.md, Entry 4), so the operation's Go call needs nothing at run time
+// that the build site did not have.
+func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
+	foreign := false
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
 	ptr := false
@@ -745,7 +760,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	}
 	if s := ScriptOf(v); s != nil && !ptr {
 		// A Script has the operations of its capability (script.go, rule 4).
-		if why := c.implements(s, it, checkReceiver); why != "" {
+		if why := c.implementsCapturing(s, it, checkReceiver, capture); why != "" {
 			return fmt.Sprintf("%s: %s", v, why)
 		}
 		return ""
@@ -790,7 +805,11 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 			return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, m.Name, rowText(ge.minus(c.types, m.Sig.Errors)), rowText(m.Sig.Errors))
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
-			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17 stays with #37)", v, m.Name, rowText(gu.minus(c.types, m.Sig.Uses)))
+			extra := gu.minus(c.types, m.Sig.Uses)
+			if capture == nil || !goForeignRow(extra) {
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+			}
+			foreign = true
 		}
 		if why := c.releaseWider(v, m); why != "" {
 			return why
@@ -809,6 +828,9 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 		if c.takesEffect(got, recv) != c.takesEffect(m.Sig, recv) {
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
+	}
+	if foreign {
+		*capture = true
 	}
 	return ""
 }

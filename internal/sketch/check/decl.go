@@ -27,6 +27,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
+	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
 	pkg = n.runOnce(files)

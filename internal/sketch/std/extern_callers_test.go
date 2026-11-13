@@ -393,7 +393,7 @@ func checkFixture(t *testing.T, name string, f *syntax.File, src string) *check.
 	t.Helper()
 	fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 	for _, d := range ds {
-		if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+		if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 			t.Fatalf("%s: %v\n%s", name, ds, src)
 		}
 	}

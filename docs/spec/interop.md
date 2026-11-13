@@ -194,6 +194,23 @@ A user `extern go P.F func name(sig)` names a function of P's binding, and its w
 
 *Prior art:* Swift's API notes change an imported C signature (nullability, the `NSError **` convention, names) without touching the header, and the compiler applies them at the call; Kotlin's platform types are the opposite choice, an unchecked `T!`. Gleam and ReScript externals trust their written types; Borgo maps `(T, bool)` to `Option<T>` for every function, which loses `strings.CutPrefix`'s `after` when not found, so Ergo makes it an opt-in adapter.
 
+## Trusted Go
+
+Status: **implemented** for a module's own packages (STD-NOPRIV NP4e; decision Q2 of the plan). The runtime's Go API (`ergo.local/prototype/runtime/v1`) is a public calling convention: a body takes hidden arguments that the lowering supplies (the frame, the call site, the task, the scheduler, the context package; [stdlib](stdlib.md), Hidden arguments), and the checker reads the body's facts from its declaration's target (`check.BodyOf`), never from the package that declares it. Such Go is not checked by Ergo, so someone vouches for it.
+
+1. **The trust line.** `ergo.mod` holds `module NAME` and then lines `trust MODULE`, each naming once a module whose Go the root vouches for. A module trusts its own Go with its own name:
+
+   ```
+   module app
+   trust app
+   ```
+
+   The toolchain vouches for what it ships: std and the prelude are trusted by the same rule, with no line. A `trust` of a std path is S108 in `ergo.mod`.
+2. **The door.** An `extern go` whose target is in the runtime module binds a body of `runtime/v1` when its package's module is trusted: `extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool`. Its call is lowered as std's is, hidden arguments included, so a copy of a std package in a trusted module checks and lowers to the same Go (std `TestStdCopyAgrees`). In an untrusted package it is S108 naming the line to write; in a package with no module it is S108 that says no `ergo.mod` can trust it. A trusted target outside `runtime/v1` (`runtime/rt` is the prelude's) or a body the runtime's table lacks is S108 with its reason.
+3. **Not yet.** A module's own Go package of bodies with hidden arguments: the lowering reads the convention of `runtime/v1` bodies only until the wait and release policy is a mark on the body (NP4d). A required module's trust (CORPUS MD3) and `ergo inspect deps` showing the toolchain's line are follow-ups.
+
+*Prior art:* OCaml's `external` and Gleam's `@external` give any module the binding std has, with no vouching; Roc's platforms are the one place host code enters, chosen by the application; Go's `//go:linkname` into the runtime is refused for new code outside a list the toolchain keeps. Ergo keeps the binding open, as OCaml and Gleam do, and names the vouching in the root's file, as Roc names its platform.
+
 ## Go calls Ergo
 
 1. **An Ergo value as a Go interface.** A value of a type of the program converts to a Go interface type of `import go` where its functions provide the interface's operations, as for an operation type: `io.WriteString(w, s)` with an Ergo record `w` that has `func Write(w W, p []byte) int fails go.Error needs go.Foreign`. A provider needs nothing but `go.Foreign`. The lowering wraps the value in an adapter, one Go type per Go interface, whose methods call one Go callback per operation, made at the conversion as a callback is ([Callbacks](#callbacks)): the method runs the Ergo function on the task of the code that converted it, Go's arguments and results cross as a callback's do (a `go.Error` is Go's own error, a slice a copy), a failure is Go's error, and a defect is a Go panic through Go's frames. A Go value converts to a Go interface by Go's own conversion.

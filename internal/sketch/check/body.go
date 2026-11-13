@@ -1,6 +1,8 @@
 package check
 
 import (
+	"strings"
+
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -38,6 +40,10 @@ type Body struct {
 	Inert bool
 	// Hidden are the body's hidden parameters, in their order.
 	Hidden []v1.Hidden
+	// Value: the body takes no hidden argument, no type parameter and no
+	// function, and its result is no deferred Seq, so the extern may be a
+	// function value (externValue; G1, P3).
+	Value bool
 	// MovesOnly: a generic body that only moves its type parameters'
 	// values (v1.MovesOnly).
 	MovesOnly bool
@@ -67,10 +73,27 @@ func BodyOf(f *Func) Body {
 	if body, err := v1.BodyOf(name); err == nil {
 		b.Known = true
 		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
+		b.Value = valueBody(body)
 	}
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)
 	b.Keeper, b.Keeps = v1.CallbackKeeper(name)
 	return b
+}
+
+// valueBody reports a body a function value may stand for: no hidden
+// argument (the call-only reason of P3, so scope.OnExit still runs in its
+// source frame), no type parameter, no function parameter, and no deferred
+// Seq result.
+func valueBody(body v1.Body) bool {
+	if len(body.Hidden) > 0 || len(body.TypeParams) > 0 {
+		return false
+	}
+	for _, p := range body.Params {
+		if p.Func != nil {
+			return false
+		}
+	}
+	return !(len(body.Results) == 1 && strings.HasPrefix(body.Results[0], "iter.Seq["))
 }
 
 // releasesResult reports an extern whose bound body takes the hidden

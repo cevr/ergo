@@ -350,7 +350,7 @@ func checkCopy(t *testing.T, path string) copyPair {
 			under = p
 		}
 	}
-	pair.copied, pair.diags = check.CheckTest("copy/"+path, files, nil, under)
+	pair.copied, pair.diags = check.CheckTest("copy/"+path, files, copyTrust{}, under)
 	pair.unit = lower.Unit{Package: pair.copied, Files: files, Sources: sources}
 	return pair
 }
@@ -509,6 +509,14 @@ func copyMain(path string, refs []string) string {
 	b.WriteString("}\n")
 	return b.String()
 }
+
+// copyTrust is the importer of a copy: std, and the root module's trust
+// line for the copy's module, `trust copy` (docs/spec/interop.md, Trusted
+// Go), so the copy binds the runtime as std does (NP4e).
+type copyTrust struct{}
+
+func (copyTrust) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
+func (copyTrust) TrustsGo() (string, bool)                   { return "copy", true }
 
 // copyImporter serves the package under test (std or its copy) and std.
 type copyImporter map[string]*check.Package

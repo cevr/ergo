@@ -18,6 +18,15 @@ type Importer interface {
 	Import(path string) (*Package, error)
 }
 
+// GoTrust is an Importer that names the module of the package it checks and
+// whether the root module vouches for that module's Go (ergo.mod `trust`;
+// docs/spec/interop.md, Trusted Go). The checker reads it from the
+// importer a caller passes, never from the default std importer, so a
+// package with no module is trusted by no one.
+type GoTrust interface {
+	TrustsGo() (module string, trusted bool)
+}
+
 // Diagnostic is a located checker diagnostic. Offset and Length are a UTF-8
 // byte span into the source of the file at index File; Line and Column are
 // 1-based, and Column counts bytes.
@@ -55,6 +64,11 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 // (checked as main) or an import (TestedPath), so a package checks the
 // same either way.
 func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
+	var module string
+	var trusted bool
+	if g, ok := imp.(GoTrust); ok {
+		module, trusted = g.TrustsGo()
+	}
 	if imp == nil {
 		imp = Std
 	}
@@ -68,6 +82,7 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
+	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
@@ -225,6 +240,12 @@ type checker struct {
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// capture, when not nil, lets the next assignability admit a provider
+	// whose operations need go.Foreign beyond the operation type's row, and
+	// records that it did: the site that builds the provider is charged
+	// go.Foreign (captureForeign; README Gap 17). assignability takes it
+	// and clears it, so no nested check inherits it.
+	capture *bool
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
@@ -721,6 +742,7 @@ func prelude() preludeResult {
 		}
 		c := newChecker(std.PreludePath, nil, u)
 		c.pkg.std = true
+		c.pkg.trusted = true // the toolchain vouches for what it ships
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -875,6 +897,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true // the toolchain vouches for what it ships
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
@@ -893,6 +916,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()

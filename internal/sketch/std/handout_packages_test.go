@@ -96,7 +96,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 		}
 		fake, ds := checkPkg("fixture", row.fixture, pkgImporter{"capkg": capkg})
 		for _, d := range ds {
-			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("%s: fixture: %v", row.name, ds)
 			}
 		}

@@ -40,6 +40,7 @@ language	internal/sketch/check/contextvalues.go:contextRow	Context, the predecla
 language	internal/sketch/check/decl.go:checker.collectSelfFuncs	the prelude's ownership declarations	-
 language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the method of a failure type	-
 language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
+language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
 language	internal/sketch/check/footprint.go:preludeCollection	the prelude collection functions	-
 language	internal/sketch/check/hostres.go:checker.hostCloseFunc	Close, the release operation of a host resource	-
 language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
@@ -74,8 +75,6 @@ debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
 debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
-debt	internal/sketch/check/extern.go:checker.checkExterns	std skips the user extern rule	NP4e
-debt	internal/sketch/check/extern.go:externValue	a std extern's value-ness from its runtime body	NP4e
 debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
 debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
 debt	internal/sketch/check/script.go:scriptArg	testing.Script by name	NP3d
@@ -91,7 +90,6 @@ debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	a std provider has no 
 debt	internal/sketch/lower/calls.go:funcCtx.scopeCall	a runtime body's convention by name	NP4d
 debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	std time is imported by the runtime already	NP4c
 debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder is a std body	NP8
-debt	internal/sketch/lower/calls.go:userExtern	a user extern is a plain Go call	NP4d
 debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
 debt	internal/sketch/lower/embed.go:funcCtx.packageEmbed	the embedded FS body by name	NP4d
 debt	internal/sketch/lower/refown.go:funcCtx.ownedRefCall	a runtime body's convention by name	NP4d
@@ -102,7 +100,7 @@ debt	internal/sketch/lower/release.go:funcCtx.ownBinding	a runtime body's conven
 debt	internal/sketch/lower/release.go:funcCtx.stdOp	a std operation is a runtime body	NP4d
 debt	internal/sketch/lower/std.go:funcCtx.stdCall	a std extern calls its runtime body with hidden arguments	NP4d
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	a std record or operation type is the runtime's Go type	NP4c
-debt	internal/sketch/lower/std.go:lowerer.stdBody	only a std extern binds a runtime body	NP4d
+debt	internal/sketch/lower/std.go:lowerer.stdBody	a runtime body's convention read from runtime/v1 by name	NP4d
 debt	internal/sketch/lower/std.go:opBody	a std operation's runtime body by name	NP4d
 debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go types, by name	NP4c
 debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c

@@ -1149,7 +1149,7 @@ func NewHost() Host { Host{} }
 		// Only std binds runtime/v1 (S108); the fixture is checked as a
 		// program package, so its extern has that one diagnostic.
 		for _, d := range ds {
-			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("%s: %v", row.kind, ds)
 			}
 		}
@@ -1381,7 +1381,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				}
 				fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 				for _, d := range ds {
-					if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 						t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
 					}
 				}
@@ -1561,7 +1561,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			}
 			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 			for _, d := range ds {
-				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+				if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 					t.Fatalf("%v\n%s", ds, src)
 				}
 			}
@@ -1622,7 +1622,7 @@ extern go os.Getenv func getenv(k string) string
 func Read(_ Disk) string { hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string
-`, "only std binds the Ergo runtime"},
+`, "which a package binds only when the root module trusts its Go"},
 		{"record holding a std host provider", `import fs
 
 type Disk { H fs.Host }

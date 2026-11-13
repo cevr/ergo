@@ -117,15 +117,16 @@ func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 	return ok && l.runtimeType(n, site) != ""
 }
 
-// stdBody is the runtime/v1 body of the std extern function f, or false
-// when f's Go body is not a runtime/v1 function or f is an intrinsic, whose
-// body the lowering writes (lowerer.intrinsic). A std extern that binds a
-// runtime/v1 body BodyOf cannot read (missing, or a pure mark the reviewed
-// rules refuse) is an internal compiler error with BodyOf's error: std and
-// runtime/v1 ship with the compiler, so no user program can cause it
-// (TestStdExternsHaveBodies holds every std extern to a body).
+// stdBody is the runtime/v1 body of the extern function f, of any package,
+// or false when f's Go body is not a runtime/v1 function or f is an
+// intrinsic, whose body the lowering writes (lowerer.intrinsic). The key is
+// the target alone (STD-NOPRIV NP4e): the checker admits a runtime/v1
+// target only in a package the root trusts and only when BodyOf reads it
+// (check/extern.go runtimeDoor), so a body BodyOf cannot read is an
+// internal compiler error with BodyOf's error (TestStdExternsHaveBodies
+// holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
-	if fd.extern == "" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {
+	if fd.extern == "" || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
 	}
 	i := strings.LastIndex(fd.extern, ".")
@@ -135,7 +136,7 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 	name := fd.extern[i+1:]
 	body, err := v1.BodyOf(name)
 	if err != nil {
-		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
+		ice(fd.fn.Decl, "the function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
 	return body, name, true
 }

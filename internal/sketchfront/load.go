@@ -124,7 +124,10 @@ type loader struct {
 	platform gobind.Platform
 	root     string // the module root, or the root package's folder
 	module   string // the module name; empty with no ergo.mod
-	pkgs     map[string]*loadedPackage
+	// trusts are the modules whose Go ergo.mod vouches for (trust lines;
+	// docs/spec/interop.md, Trusted Go).
+	trusts []string
+	pkgs   map[string]*loadedPackage
 	// missing holds the reason of each local import path with no package.
 	missing map[string]string
 	state   map[*loadedPackage]int
@@ -278,13 +281,14 @@ func (l *loader) findModule(dir string) (bool, error) {
 			l.root = d
 			text := string(data)
 			l.texts[ModFile] = text
-			module, diagnostic := parseModule(text)
+			module, trusts, diagnostic := parseModule(text)
 			if diagnostic != nil {
 				diagnostic.File = ModFile
 				l.diags = append(l.diags, *diagnostic)
 				return true, nil
 			}
 			l.module = module
+			l.trusts = trusts
 			l.readGoModule()
 			return true, nil
 		case err == nil:
@@ -300,10 +304,14 @@ func (l *loader) findModule(dir string) (bool, error) {
 	}
 }
 
-// parseModule reads an ergo.mod: blank lines and one line `module NAME`.
-func parseModule(text string) (string, *report.Diagnostic) {
+// parseModule reads an ergo.mod: blank lines, one line `module NAME`, and
+// after it any number of lines `trust MODULE` (docs/spec/interop.md, Trusted
+// Go), each naming a module whose Go the root vouches for, once. It gives
+// the module name and the trusted modules in their order.
+func parseModule(text string) (string, []string, *report.Diagnostic) {
 	lines := lineStarts(text)
 	module, at := "", -1
+	var trusts []string
 	for i, start := range lines {
 		end := len(text)
 		if i+1 < len(lines) {
@@ -314,19 +322,31 @@ func parseModule(text string) (string, *report.Diagnostic) {
 			continue
 		}
 		fields := strings.Fields(line)
+		if at >= 0 && len(fields) == 2 && fields[0] == "trust" {
+			trust := fields[1]
+			col := strings.Index(line, trust) + 1
+			if reason := modulePathProblem(trust); reason != "" {
+				return "", nil, modDiagnostic(text, lines, i+1, col, "trust: "+reason+"; the toolchain trusts std")
+			}
+			if slices.Contains(trusts, trust) {
+				return "", nil, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts %s twice", trust))
+			}
+			trusts = append(trusts, trust)
+			continue
+		}
 		if at >= 0 || len(fields) != 2 || fields[0] != "module" {
-			return "", modDiagnostic(text, lines, i+1, 1, "ergo.mod holds one line, module NAME, and nothing else")
+			return "", nil, modDiagnostic(text, lines, i+1, 1, "ergo.mod holds one line, module NAME, then only lines trust MODULE")
 		}
 		module, at = fields[1], i
 		col := strings.Index(line, module) + 1
 		if reason := modulePathProblem(module); reason != "" {
-			return "", modDiagnostic(text, lines, i+1, col, reason)
+			return "", nil, modDiagnostic(text, lines, i+1, col, reason)
 		}
 	}
 	if at < 0 {
-		return "", modDiagnostic(text, lines, 1, 1, "ergo.mod holds one line, module NAME; it names no module")
+		return "", nil, modDiagnostic(text, lines, 1, 1, "ergo.mod holds one line, module NAME; it names no module")
 	}
-	return module, nil
+	return module, trusts, nil
 }
 
 func modDiagnostic(text string, lines []int, line, col int, message string) *report.Diagnostic {
@@ -392,7 +412,7 @@ func (l *loader) nestedModule(dir string) string {
 		}
 		rel := l.rel(d)
 		if data, err := l.fsys.ReadFile(name); err == nil {
-			if module, problem := parseModule(string(data)); problem == nil {
+			if module, _, problem := parseModule(string(data)); problem == nil {
 				return fmt.Sprintf("the folder %s is module %s (%s/%s); a program imports std and its own module only", rel, module, rel, ModFile)
 			}
 		}
@@ -614,6 +634,14 @@ func shippedImport(path string) (*check.Package, bool, error) {
 	}
 	p, err := check.Std.Import(path)
 	return p, true, err
+}
+
+// TrustsGo is the loader's check.GoTrust: every package it checks is in the
+// root module (a program imports std and its own module only), and the
+// root trusts that module's Go when ergo.mod has the line `trust NAME` for
+// its own name (docs/spec/interop.md, Trusted Go).
+func (l *loader) TrustsGo() (string, bool) {
+	return l.module, l.module != "" && slices.Contains(l.trusts, l.module)
 }
 
 // Import is the loader's check.Importer: std, then the checked local

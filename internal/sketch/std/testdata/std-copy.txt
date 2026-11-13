@@ -5,53 +5,53 @@
 # removes the reason. The file only moves to same: a differs row may not
 # join (stdCopyBaseline).
 
-actor	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-arena	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-atomic	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-base64	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-bits	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-cmp	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+actor	same
+arena	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+atomic	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+bits	same
+cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 codec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
-config	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+config	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 copyfixture	same
-crc32	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-csv	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-embed	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-exec	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-explore	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-filepath	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+crc32	same
+csv	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+embed	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+explore	same
+filepath	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
 flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-fs	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
-hex	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-http	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-io	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+hex	same
+http	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+io	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
 journal/memory	same
-json	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-log	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-machines	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-maps	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-math	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-os	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+json	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+log	same
+machines	same
+maps	same
+math	same
+os	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
-rand	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-rpc	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-scope	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-sha256	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-slices	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-strconv	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-strings	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-sync	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-task	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-tasks	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-term	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-testing	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-time	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-timeout	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-toml	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-trace	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-utf8	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+sha256	same
+slices	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+strconv	same
+strings	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+sync	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+term	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+testing	differs	check: S108 a record with no fields is written bare: Script[probe] (script.go derives Script for testing.Script only)	NP3d
+time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+toml	same
+trace	same
+utf8	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c

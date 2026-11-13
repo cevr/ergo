@@ -1419,6 +1419,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
 | `internal/sketch/check/extern.go:IsGoError` | `go.Error` |
+| `internal/sketch/check/extern.go:predeclaredExtern` | the prelude's externs, intrinsics whose bodies the lowering writes |
 | `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
