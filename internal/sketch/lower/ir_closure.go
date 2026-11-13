@@ -111,16 +111,16 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	inner.env = "env"
 	inner.frame = newFrame(result, true, framePolls(l.info, n))
 	inner.frame.unit = result == nil
-	fc, env, res, loops, tries, switches, label := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label
+	fc, env, res, loops, tries, switches, label, law := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law
 	defer func() {
-		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label = fc, env, res, loops, tries, switches, label
+		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, env, res, loops, tries, switches, label, law
 	}()
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
 		lit.Params = append(lit.Params, b.local(v, ids[i]))
 	}
-	b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label = inner, envLocal, result, 0, 0, 0, ""
+	b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, envLocal, result, 0, 0, 0, "", nil
 	if frameFootprint(l.info, n).EntryPoll && inner.frame.polls {
 		lit.Body = append(lit.Body, b.poll(n))
 	}

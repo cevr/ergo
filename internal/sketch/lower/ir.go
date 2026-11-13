@@ -286,6 +286,10 @@ type irBuilder struct {
 	// source local keeps its spelling unless Go's scope or one of these
 	// has it (ir_stmt.go, localName).
 	given map[string]bool
+	// law is the law whose body is built (ir_assert.go), nil in any
+	// other body and inside a function literal: each value it returns is
+	// checked where it is returned.
+	law *check.Law
 }
 
 // gate stops the body for reason; a census records it and goes on.

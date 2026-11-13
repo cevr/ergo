@@ -7,7 +7,9 @@ package lower
 // text) }` (assert); a comparison whose operands the report shows
 // (assertShown) evaluates each operand once into a local, and its
 // failure text is built by a helper of the generated part only when the
-// assert fails. See ir.go.
+// assert fails. A law (IRG6 r4) lowers to `func ergoLaw…(env, params…)
+// (bool, error)` whose every returned value is checked where it is
+// returned (lawResult). See ir.go.
 
 import (
 	"strconv"
@@ -50,6 +52,90 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	st.report.IR = append(st.report.IR, name)
 	return true
 }
+
+// lawBody gives the law, the Go function name, an IR body (lawDecl):
+// `func ergoLaw…(env, params…) (bool, error)`, each value it returns
+// checked where it is returned (lawResult). A law of a generic operation
+// type stays the emitter's.
+func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame bool) (ok bool) {
+	l, d := fc.l, law.Decl
+	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result, law: law}
+	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
+	if needsFrame {
+		b.gate("body that needs a frame")
+	}
+	if lawGenericOwner(law) != nil {
+		b.gate("law of a generic operation type")
+	}
+	b.env = b.next
+	b.next++
+	for _, v := range law.Params {
+		if v.Name != "_" {
+			b.locals[v] = b.next
+			b.part(func() { b.goType(v.Type, d) })
+		}
+		b.next++
+	}
+	b.fn = &irFunc{Name: name, Pos: b.pos(d, d.Pos()), End: b.pos(d, d.Body.Rbrace)}
+	b.names = b.tempNames(d.Body) // ir_fail.go
+	if frameFootprint(l.info, d).EntryPoll && fc.frame.polls {
+		b.fn.Body = append(b.fn.Body, b.poll(d))
+	}
+	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
+	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
+	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	if st.census != nil {
+		return false
+	}
+	st.out.Funcs = append(st.out.Funcs, *b.fn)
+	st.report.IR = append(st.report.IR, name)
+	return true
+}
+
+// lawResult checks the value x a law returns, out its return (the
+// emitter's lawResult): held once, refuted at x's site when false. A
+// failure is no result; an untried fallible call's pair stays the
+// emitter's.
+func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
+	last := out[len(out)-1]
+	if x == nil || last.K != "ret" || last.X == nil {
+		return out
+	}
+	if b.fallibleCall(x) != nil {
+		if _, implicit := b.l.info.Implicit[x]; !implicit {
+			irNo("law result of an untried fallible call")
+		}
+	}
+	l, p := b.l, last.Pos
+	at := x
+	if t, ok := unparen(x).(*syntax.TryExpr); ok {
+		at = t.X
+	}
+	held := b.temp("held", "bool", p)
+	site := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(unparen(at))}
+	decl := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(b.law.Decl)}
+	refute := &irExpr{K: "call", Pos: p, Name: l.refutedFunc(), Args: []*irExpr{site, decl}}
+	h := &irExpr{K: "local", Pos: p, I: held}
+	return append(out[:len(out)-1],
+		&irStmt{K: "def", Pos: p, Local: held, X: last.X},
+		&irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: h}, Then: []*irStmt{{K: "expr", Pos: p, X: refute}}},
+		&irStmt{K: "ret", Pos: p, X: h})
+}
+
+// refutedFunc is the harness's Refuted with the law's declaration as one
+// argument: the IR calls no variadic function. The naming pass reserves
+// its name under LowerIR and CensusIR only (nameTests).
+func (l *lowerer) refutedFunc() string {
+	name := l.pkgName(refutedKey, "ergoLawRefuted")
+	if !l.tests.lits[refutedKey] {
+		l.tests.lits[refutedKey] = true
+		l.gen.WriteString("func " + name + "(at, declaration string) {\n\t" + l.helper("Refuted") + "(at, declaration)\n}\n\n")
+	}
+	return name
+}
+
+// refutedKey is the package-scope key of refutedFunc.
+var refutedKey = pkgKey{"law refuted", nil}
 
 // assert is `assert cond` (the emitter's assert): the condition, and the
 // failure the harness reports when it is false.

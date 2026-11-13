@@ -224,6 +224,9 @@ func (l *lowerer) nameTests() {
 			return true
 		})
 	}
+	if l.ir != nil {
+		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
+	}
 }
 
 // genRoots calls f on each type the test build generates a value of: the
@@ -498,6 +501,15 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		head += fc.resultList(result, true)
 	}
 	fc.depth = 1
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
+		if sourced {
+			l.user.WriteString(l.directive(d))
+		}
+		l.user.WriteString(head + "\n\n")
+		return
+	}
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
