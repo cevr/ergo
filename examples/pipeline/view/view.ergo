@@ -1,30 +1,33 @@
-// The one view of the screen. It serves every host: the test host here,
-// and the terminal, the desktop and the page hosts later (PX3b, PX4).
+// Package view is the one view of the screen (PX3a): a function of the
+// screen's state, whose loads call the pipeline.Pipeline it is given. It
+// serves every host: the test host here, and the terminal, the desktop
+// and the page hosts later (PX3b, PX4).
 
 import pipeline/pipeline
 import pipeline/pipeline/pipelinerpc
 import pipeline/run
+import pipeline/screen
 import ui
 
 // SubmitOf, CancelOf, RetryOf and ShowOf are the requests of the form: what
 // the buttons "submit", "cancel", "retry" and "show" ask.
-func SubmitOf(f Form) Request {
-	pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: Number(f)}}
+func SubmitOf(f screen.Form) screen.Request {
+	pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: screen.Number(f)}}
 }
 
-func CancelOf(f Form) Request {
+func CancelOf(f screen.Form) screen.Request {
 	pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: f.ID, Run: f.Run, Why: f.Why}}
 }
 
-func RetryOf(f Form) Request {
-	pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: Number(f)}}
+func RetryOf(f screen.Form) screen.Request {
+	pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: screen.Number(f)}}
 }
 
-func ShowOf(f Form) Request { pipelinerpc.RunOfRequest{Id: f.Run} }
+func ShowOf(f screen.Form) screen.Request { pipelinerpc.RunOfRequest{Id: f.Run} }
 
 // Call is the reply of api to the command r. A read is not a command: its
 // reply is Unavailable (the step never sends one).
-func Call(api pipeline.Pipeline, r Request) Reply {
+func Call(api pipeline.Pipeline, r screen.Request) screen.Reply {
 	let receipt = match r {
 	case pipelinerpc.SubmitRequest as x:
 		api.Submit(x.C)
@@ -33,58 +36,58 @@ func Call(api pipeline.Pipeline, r Request) Reply {
 	case pipelinerpc.RetryRequest as x:
 		api.Retry(x.C)
 	case pipelinerpc.BoardRequest, pipelinerpc.RunOfRequest:
-		return Refused{Why: Unavailable{Cause: pipeline.Unavailable}}
+		return screen.Refused{Why: screen.Unavailable{Cause: pipeline.Unavailable}}
 	} catch {
 	case run.WrongState as e:
-		return Refused{Why: WrongState{Cause: e}}
+		return screen.Refused{Why: screen.WrongState{Cause: e}}
 	case run.WrongStage as e:
-		return Refused{Why: WrongStage{Cause: e}}
+		return screen.Refused{Why: screen.WrongStage{Cause: e}}
 	case run.Closed as e:
-		return Refused{Why: Closed{Cause: e}}
+		return screen.Refused{Why: screen.Closed{Cause: e}}
 	case run.BadLength as e:
-		return Refused{Why: BadLength{Cause: e}}
+		return screen.Refused{Why: screen.BadLength{Cause: e}}
 	case pipeline.NoSuchRun as e:
-		return Refused{Why: NoSuchRun{Cause: e}}
+		return screen.Refused{Why: screen.NoSuchRun{Cause: e}}
 	case pipeline.Unavailable as e:
-		return Refused{Why: Unavailable{Cause: e}}
+		return screen.Refused{Why: screen.Unavailable{Cause: e}}
 	}
-	Took{Receipt: receipt}
+	screen.Took{Receipt: receipt}
 }
 
 // Describe is the line the screen shows for a notice.
-func Describe(n Notice) string {
+func Describe(n screen.Notice) string {
 	match n {
-	case Quiet:
+	case screen.Quiet:
 		"ready"
-	case Said as s:
+	case screen.Said as s:
 		match s.Reply {
-		case Took as t:
+		case screen.Took as t:
 			"took \(t.Receipt.Command) at \(t.Receipt.Position)"
-		case Refused as r:
+		case screen.Refused as r:
 			"refused: " + rejection(r.Why)
 		}
 	}
 }
 
-func rejection(r Rejection) string {
+func rejection(r screen.Rejection) string {
 	match r {
-	case WrongState as e:
+	case screen.WrongState as e:
 		"\(e.Cause.Command) does not apply to a \(e.Cause.Status) run"
-	case WrongStage as e:
+	case screen.WrongStage as e:
 		"stage \(e.Cause.Got + 1) is not the failed stage \(e.Cause.Expected + 1)"
-	case Closed as e:
+	case screen.Closed as e:
 		"the run is \(e.Cause.Status)"
-	case BadLength as e:
+	case screen.BadLength as e:
 		"a run has 1 to 9 stages, not \(e.Cause.Stages)"
-	case NoSuchRun as e:
+	case screen.NoSuchRun as e:
 		"no run \(e.Cause.Run)"
-	case Unavailable:
+	case screen.Unavailable:
 		"the pipeline does not run"
 	}
 }
 
 // Sending is the line the screen shows while the command r is in flight.
-func Sending(r Request) string {
+func Sending(r screen.Request) string {
 	match r {
 	case pipelinerpc.SubmitRequest as x:
 		"sending submit \(x.C.ID)"
@@ -98,7 +101,7 @@ func Sending(r Request) string {
 }
 
 // Columns are the board's lines, one per column: "running: build, docs".
-func Columns(l Lines) []string {
+func Columns(l screen.Lines) []string {
 	[]string{"queued: " + l.Queued, "running: " + l.Running, "failing: " + l.Failing, "passed: " + l.Passed, "stopped: " + l.Stopped}
 }
 
@@ -137,8 +140,8 @@ func runText(r run.Run) string {
 }
 
 // View is the view of the screen whose Api is api: the view a host shows.
-func View(api pipeline.Pipeline) func(f *ui.Frame[Signal], s Screen) {
-	func(f *ui.Frame[Signal], s Screen) { Board(f, s, api) }
+func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Screen) {
+	func(f *ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
 }
 
 // Board shows s: the form and its buttons, the notice (or the command in
@@ -146,36 +149,36 @@ func View(api pipeline.Pipeline) func(f *ui.Frame[Signal], s Screen) {
 // version, so an answer or a refresh fetches it again; the picked run is
 // one keyed by its name and the version; a command in flight is a load
 // whose fetch calls the Api, keyed by the version it was sent at.
-func Board(f *ui.Frame[Signal], s Screen, api pipeline.Pipeline) {
-	let sh = ShownOf(s)
-	ui.Load(f, ui.ByInt(sh.Version), func() Signal { Loaded{Board: LinesOf(api.Board())} })
+func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
+	let sh = screen.ShownOf(s)
+	ui.Load(f, ui.ByInt(sh.Version), func() screen.Signal { screen.Loaded{Board: screen.LinesOf(api.Board())} })
 	match sh.Picked {
 	case Some[string] as p:
 		let id = p.Value
-		ui.Load(f, ui.ByText("\(id)@\(sh.Version)"), func() Signal {
+		ui.Load(f, ui.ByText("\(id)@\(sh.Version)"), func() screen.Signal {
 			let r = api.RunOf(id) catch {
 			case pipeline.NoSuchRun as e:
-				return RunMissing{Err: e}
+				return screen.RunMissing{Err: e}
 			}
-			RunLoaded{Run: r}
+			screen.RunLoaded{Run: r}
 		})
 	case None:
 	}
 	let status = match s {
-	case Asking as a:
+	case screen.Asking as a:
 		let req = a.Req
-		ui.Load(f, ui.ByText("ask@\(sh.Version)"), func() Signal { Replied{Reply: Call(api, req)} })
+		ui.Load(f, ui.ByText("ask@\(sh.Version)"), func() screen.Signal { screen.Replied{Reply: Call(api, req)} })
 		Sending(req)
-	case Showing:
+	case screen.Showing:
 		Describe(sh.Notice)
 	}
 	let form = sh.Form
 	ui.Column(f, ui.Plain()) {
 		ui.Row(f, ui.Plain()) {
-			ui.Input(f, form.ID, "id", func(t string) Signal { Typed{Field: IDField, Text: t} })
-			ui.Input(f, form.Run, "run", func(t string) Signal { Typed{Field: RunField, Text: t} })
-			ui.Input(f, form.N, "number", func(t string) Signal { Typed{Field: NField, Text: t} })
-			ui.Input(f, form.Why, "why", func(t string) Signal { Typed{Field: WhyField, Text: t} })
+			ui.Input(f, form.ID, "id", func(t string) screen.Signal { screen.Typed{Field: screen.IDField, Text: t} })
+			ui.Input(f, form.Run, "run", func(t string) screen.Signal { screen.Typed{Field: screen.RunField, Text: t} })
+			ui.Input(f, form.N, "number", func(t string) screen.Signal { screen.Typed{Field: screen.NField, Text: t} })
+			ui.Input(f, form.Why, "why", func(t string) screen.Signal { screen.Typed{Field: screen.WhyField, Text: t} })
 		}
 		ui.Row(f, ui.Plain()) {
 			button(f, "submit", SubmitOf(form))
@@ -188,7 +191,7 @@ func Board(f *ui.Frame[Signal], s Screen, api pipeline.Pipeline) {
 		match sh.Board {
 		case ui.Loading:
 			ui.Text(f, "loading the board")
-		case ui.Ready[Lines] as b:
+		case ui.Ready[screen.Lines] as b:
 			for line in Columns(b.Value) {
 				ui.Text(f, line)
 			}
@@ -204,8 +207,8 @@ func Board(f *ui.Frame[Signal], s Screen, api pipeline.Pipeline) {
 }
 
 // button is a button labelled label that asks r.
-func button(f *ui.Frame[Signal], label string, r Request) {
-	ui.Pressable(f, label, Ask{Req: r}) {
+func button(f *ui.Frame[screen.Signal], label string, r screen.Request) {
+	ui.Pressable(f, label, screen.Ask{Req: r}) {
 		ui.Text(f, label)
 	}
 }

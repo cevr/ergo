@@ -1,4 +1,4 @@
-// The laws of the screen: what the view shows of each reply, and two
+// The laws of the view: what the view shows of each reply, and two
 // scenes on ui.TestHost with a held call: the runner's try (the board
 // shows the run running, then passed) and the Api's own command (the
 // screen shows it sending, then its receipt).
@@ -9,13 +9,14 @@ import journal/memory
 import pipeline/board
 import pipeline/pipeline
 import pipeline/run
+import pipeline/screen
 import strings
 import testing
 import time
 import ui
 
 // texts are the values of the text nodes of shapes, in tree order.
-func texts(shapes []ui.Shape[Signal]) []string {
+func texts(shapes []ui.Shape[screen.Signal]) []string {
 	let mut out = []string{}
 	for s in shapes {
 		match s.Node {
@@ -31,23 +32,23 @@ func texts(shapes []ui.Shape[Signal]) []string {
 }
 
 // shows is whether the screen of h shows the line.
-func shows[D, F](h *ui.TestHost[Screen, Signal, D, F], line string) bool { ui.Find(h, line) != None }
+func shows[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
 
 // ReplyIsShown: the view of a screen whose last command got reply shows a
 // line that says so: "took ID at POSITION" for a receipt, "refused: " and
 // the reason for a rejection.
-law ReplyIsShown(reply Reply) {
+law ReplyIsShown(reply screen.Reply) {
 	let api = testing.Script[pipeline.Pipeline]{}
-	let s = Showing{Shown: Shown{..ShownOf(Fresh), Notice: Said{Reply: reply}}}
-	let mut f = ui.NewFrame[Signal]()
+	let s = screen.Showing{Shown: screen.Shown{..screen.ShownOf(screen.Fresh), Notice: screen.Said{Reply: reply}}}
+	let mut f = ui.NewFrame[screen.Signal]()
 	let _ = ui.Render(&f, View(api), s)
 	for line in texts(ui.FrameShape(&f)) {
 		match reply {
-		case Took as t:
+		case screen.Took as t:
 			if line == "took \(t.Receipt.Command) at \(t.Receipt.Position)" {
 				return true
 			}
-		case Refused:
+		case screen.Refused:
 			if strings.HasPrefix(line, "refused: ") && len(line) > len("refused: ") {
 				return true
 			}
@@ -77,7 +78,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 		case journal.Failed, journal.Diverged:
 			return false
 		}
-		let a = actor.StartMachine(Life{}, 8, func(r Reply) {})
+		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
 		let mut h = ui.NewTestHost(a, View(m), clock, 8) catch {
 		case ui.BadPatch:
 			return false
@@ -112,7 +113,7 @@ law HeldAskShowsSendingThenReceipt(id string, at int) {
 	api.Submit.Hold()
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock } {
-		let a = actor.StartMachine(Life{}, 8, func(r Reply) {})
+		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
 		let mut h = ui.NewTestHost(a, View(api), clock, 8) catch {
 		case ui.BadPatch:
 			return false

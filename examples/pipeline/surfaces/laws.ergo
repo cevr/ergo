@@ -17,6 +17,7 @@ import pipeline/pipeline/pipelinerpc
 import pipeline/board
 import pipeline/run
 import pipeline/screen
+import pipeline/view
 import strings
 import time
 import ui
@@ -110,7 +111,7 @@ func asLines(rs []Request, m pipeline.Model) []string {
 // is what a refresh loads, a run what "show" loads.
 func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs Scheduler {
 	let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
-	let mut h = ui.NewTestHost(a, screen.View(m), clock, 8) catch {
+	let mut h = ui.NewTestHost(a, view.View(m), clock, 8) catch {
 	case ui.BadPatch:
 		return []string{"the screen did not start"}
 	}
