@@ -65,7 +65,10 @@ law UnknownPathIsNotFound(first string, rest []int, query int) {
 	Parse(full) == NotFound{Path: full}
 }
 
-// EscapeRoundTrips: Unescape reads back what Escape writes.
+// EscapeRoundTrips: Unescape reads back what Escape writes, and what it
+// writes has none of the bytes that end a segment or a query value.
 law EscapeRoundTrips(s string) {
-	Unescape(Escape(s)) == s
+	let t = s + "/?&=#%+ "
+	let e = Escape(t)
+	Unescape(e) == t && !strings.Contains(e, "/") && !strings.Contains(e, "?") && !strings.Contains(e, "&") && !strings.Contains(e, "#") && !strings.Contains(e, "+") && !strings.Contains(e, " ")
 }

@@ -14,13 +14,18 @@ type Location {
 	// Back makes the address before the current one current, and is it.
 	Back() string fails AtStart,
 
-	// BackRestoresRoute: Back after a push returns to the address before
-	// it, so the route the program shows is the one it showed then.
+	// BackRestoresRoute: a push makes its address current, and Back after
+	// it returns to the address before, so the route the program shows is
+	// the one it showed then.
 	law BackRestoresRoute(picks []int) {
 		let paths = []string{"/", "/people", "/people/3", "/files/photos", "/people?searchText=dev", "/nowhere"}
 		for k in picks {
 			let before = Here()
-			Push(paths[((k%len(paths))+len(paths))%len(paths)])
+			let path = paths[((k%len(paths))+len(paths))%len(paths)]
+			Push(path)
+			if Here() != path {
+				return false
+			}
 			let back = Back() catch {
 			case AtStart:
 				return false
@@ -28,7 +33,7 @@ type Location {
 			if back != before || Here() != before {
 				return false
 			}
-			Push(paths[((k%len(paths))+len(paths))%len(paths)])
+			Push(path)
 		}
 		true
 	},
