@@ -18,13 +18,14 @@ type Client { inbound queue.Queue[string], outbound queue.Queue[string] } implem
 type Sender { inbound queue.Queue[string], outbound queue.Queue[string] } implements server.Peer
 
 // Pipe is a connection whose directions each hold up to capacity lines,
-// as its two ends. A write to a full connection waits for the client to
-// take a line, as a full socket buffer does; the queue has no unbounded
-// form.
-func Pipe(capacity int) (Server, Client) {
+// as its two ends and the server end's sending side, made together: the
+// Server owns its queues, so no Sender is read out of it (resources R17,
+// R39). A write to a full connection waits for the client to take a
+// line, as a full socket buffer does; the queue has no unbounded form.
+func Pipe(capacity int) (Server, Sender, Client) {
 	let inbound = queue.New[string](capacity)
 	let outbound = queue.New[string](capacity)
-	(Server{inbound: inbound, outbound: outbound}, Client{inbound: inbound, outbound: outbound})
+	(Server{inbound: inbound, outbound: outbound}, Sender{inbound: inbound, outbound: outbound}, Client{inbound: inbound, outbound: outbound})
 }
 
 // Read is the next line the client sent, or Hangup once the client hung
@@ -36,11 +37,12 @@ func Read(s Server) string fails server.Hangup {
 	}
 }
 
-// Peer is s's sending side.
-func Peer(s Server) server.Peer { Sender{inbound: s.inbound, outbound: s.outbound} }
+// End ends the connection from the server's end, as its Sender's
+// Hangup does.
+func End(s Server) { s.inbound.End() }
 
 // Close releases the server's end: the client's next Send hangs up.
-func Close(s Server) { s.inbound.End() }
+func Close(s Server) { s.End() }
 
 // Write sends line to the client; a write after the client is gone is
 // lost.

@@ -177,11 +177,12 @@ func (w *ownWalk) patternTypeLoans0(t Type, path []int, parts []patternPart, act
 func (w *ownWalk) acquireParts(parts []patternPart, local ownLocal, loans []resourceLoan, at syntax.Node) {
 	for _, p := range parts {
 		_, callable := under(p.v.Type).(*Signature)
-		if !w.tracked(p.v.Type) && !callable {
+		handle := local.handle && !w.tracked(p.v.Type) && w.c.holdsHandle(p.v.Type)
+		if !w.tracked(p.v.Type) && !callable && !handle {
 			continue
 		}
 		l := local
-		l.v, l.loanOnly = p.v, !w.tracked(p.v.Type)
+		l.v, l.loanOnly, l.handle = p.v, !w.tracked(p.v.Type) && !handle, handle
 		i := w.acquire(l)
 		if !w.st.reached {
 			continue
@@ -287,9 +288,15 @@ func (w *ownWalk) patternClauses(s *syntax.TypeSwitchStmt, subjects []syntax.Exp
 				w.info.PatternOwners[cl] = plan
 			} else {
 				local.lent, local.from = true, exprText(subject)
+				local.handle = w.handleSource(subject)
 				root, ri, ok := w.placeRoot(subject)
 				if ok {
 					local.root, local.param = root, w.vars[ri].param
+					if local.handle {
+						// A handle of a declared root is no part a
+						// taken parameter could give away (P3).
+						local.param = 0
+					}
 				} else {
 					end := lendPoint{scope: s, order: int(subject.Pos()), external: true}
 					local.lendEnd = &end

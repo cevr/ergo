@@ -182,8 +182,10 @@ type checker struct {
 	walkOps int
 	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
 	// type id; resSteps counts the walk's visits (resource.go).
-	resMemo  [2]map[int32]bool
-	resSteps int
+	resMemo [2]map[int32]bool
+	// handleMemo caches holdsHandle by interned type id (handle.go).
+	handleMemo map[int32]bool
+	resSteps   int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
 	ownSteps int

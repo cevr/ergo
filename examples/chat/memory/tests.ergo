@@ -11,16 +11,16 @@ import time
 test HangupIsFinalHolds(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
 	// and this test reads only after the hang-up.
-	let end, c = Pipe(len(lines) + 1)
+	let end, peer, c = Pipe(len(lines) + 1)
 	for l in lines {
 		c.Send(l) catch {
 		case server.Hangup:
 			assert false
 		}
 	}
-	end.Peer().Hangup()
-	// HangupIsIdempotent: a second Hangup changes nothing.
-	end.Peer().Hangup()
+	end.End()
+	// HangupIsIdempotent: a Hangup after the hang-up changes nothing.
+	peer.Hangup()
 	// The lines sent before the hang-up are read first.
 	for l in lines {
 		assert (try end.Read()) == l

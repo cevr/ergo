@@ -131,6 +131,9 @@ type ownLocal struct {
 	root     *Var
 	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
+	// handle marks a binding lent from a declared root's handle (P3,
+	// handle.go): its type need not hold a resource.
+	handle bool
 	// t is the type of a temporary that is no expression of the tree: a
 	// field an update replaces (Info.Replaced).
 	t Type
@@ -159,7 +162,7 @@ func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args
 	if !w.st.reached {
 		return
 	}
-	if t := w.typ(w.vars[i]); w.genericOnly(t) {
+	if t := w.typ(w.vars[i]); !w.vars[i].handle && w.genericOnly(t) {
 		w.copySite(t, at, what, false)
 		return
 	}
@@ -205,6 +208,10 @@ type ownWalk struct {
 	vars  []ownLocal
 	slot  map[*Var]int
 	depth int
+	// writeBack is the place an assignment being evaluated writes, such
+	// as b.xs in `b.xs = b.xs.Append(x)`: its own handle written back is
+	// no second owner (P3, handle.go).
+	writeBack string
 	// first is the frame's first slot; name its function's name; nested
 	// the text naming a nested frame ("" for a declaration).
 	first        int
@@ -762,8 +769,17 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 		return func() { w.acquireParts(parts, ownLocal{}, loans, s.Value) }
 	}
 	var out []ownLocal
+	handles := w.handleSource(s.X)
 	for _, v := range lp.Bindings {
-		if v == nil || !w.tracked(v.Type) {
+		if v == nil {
+			continue
+		}
+		if !w.tracked(v.Type) {
+			if handles && w.c.holdsHandle(v.Type) {
+				// An element of a declared root's handles is lent from
+				// that root (P3, handle.go).
+				out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), handle: true})
+			}
 			continue
 		}
 		root, _, _ := w.placeRoot(s.X)
@@ -1021,8 +1037,18 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
 			mode = mMove
+		} else if i < len(s.Lhs) && w.c.holdsHandle(w.info.Types[s.Lhs[i]]) {
+			// A handle stored into a place moves there (P3, handle.go).
+			mode = mMove
+		}
+		saved := w.writeBack
+		if i < len(s.Lhs) && len(s.Lhs) == len(s.Rhs) {
+			if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); !direct {
+				w.writeBack = exprText(s.Lhs[i])
+			}
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
+		w.writeBack = saved
 		if i < len(s.Lhs) {
 			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st.reached {
 				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
@@ -1302,6 +1328,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 				return
 			}
 		}
+		if mode == mMove {
+			w.handleMove(x, h) // a declared root's handle (P3)
+		}
 		if w.selector(x, mode, h) {
 			return
 		}
@@ -1318,6 +1347,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		if mode == mMove {
 			w.checkLoanValue(x)
+			w.handleMove(x, h) // a declared root's handle (P3)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
