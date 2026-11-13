@@ -1,0 +1,61 @@
+// The server's laws over generated sets of tools.
+
+import json
+
+// echo is a tool named name that gives its name back.
+func echo(name string) Tool {
+	Tool{Name: name, Description: "gives \(name)", Input: json.Object{Members: []json.Member{}}, Call: func(arguments json.Value) json.Value fails ToolError { json.Str{Value: name} }}
+}
+
+// serverOf is a server whose tools are named names, in order.
+func serverOf(names []string) Server {
+	let mut tools = []Tool{}
+	for n in names {
+		tools = tools.Append(echo(n))
+	}
+	Server{Name: "laws", Version: "1", Tools: tools}
+}
+
+// quoted is s as a JSON string.
+func quoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+// ListNamesEveryTool: tools/list names every tool of the server, in its
+// order, each once.
+law ListNamesEveryTool(names []string) {
+	match Handle(serverOf(names), "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}") {
+	case Answered as a:
+		let listing = json.Decode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return false
+		}
+		let mut got = []string{}
+		for t in listing.Tools {
+			got = got.Append(t.Name)
+		}
+		got == names
+	case Refused, Silent:
+		false
+	}
+}
+
+// UnknownToolIsATypedError: a call of a name that no tool has fails
+// UnknownTool, and the server answers it with the JSON-RPC error
+// "invalid params" that names it, not with a result.
+law UnknownToolIsATypedError(names []string, asked string) {
+	for n in names {
+		if n == asked {
+			return true
+		}
+	}
+	let s = serverOf(names)
+	let mut failed = false
+	let _ = Call(s, asked, json.Null) catch {
+	case UnknownTool as u:
+		failed = u.Name == asked
+		json.Null
+	case ToolError:
+		json.Null
+	}
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":" + quoted(asked) + "}}"
+	failed && Handle(s, message) == Refused{ID: json.IntNumber(7), Code: InvalidParams, Message: "unknown tool: \(asked)"}
+}

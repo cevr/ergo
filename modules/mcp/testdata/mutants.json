@@ -1,0 +1,45 @@
+{
+  "about": "module mcp's mutants; each is judged by the module's tests and laws (scripts/examples -modules mcp), not by a compiler test. The law or test that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "ap2-list-drops-last", "origin": "wf10/domain AP2",
+      "file": "modules/mcp/mcp.ergo",
+      "from": "\tfor i in 0..len(s.Tools) {\n",
+      "to": "\tfor i in 0..len(s.Tools)-1 {\n",
+      "rule": "tools/list names every tool, in order (the plan's mutant: a tool missing from the list): ListNamesEveryTool.",
+      "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
+    },
+    {
+      "name": "ap2-unknown-tool-as-result", "origin": "wf10/domain AP2",
+      "file": "modules/mcp/mcp.ergo",
+      "from": "\t\t\treturn Refused{ID: at, Code: InvalidParams, Message: \"unknown tool: \\(u.Name)\"}\n",
+      "to": "\t\t\treturn Answered{ID: at, Result: called(\"unknown tool: \\(u.Name)\", true)}\n",
+      "rule": "An unknown tool is a JSON-RPC error, not a result (the plan's mutant: a failure answered as a result): UnknownToolIsATypedError.",
+      "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
+    },
+    {
+      "name": "ap2-notification-answered", "origin": "wf10/domain AP2",
+      "file": "modules/mcp/mcp.ergo",
+      "from": "\tcase None:\n\t\t// A notification: the client wants no answer.\n\t\treturn Silent\n",
+      "to": "\tcase None:\n\t\tjson.Null\n",
+      "rule": "A notification gets no answer, a request exactly one: memory's CallAnswersOnce.",
+      "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
+    },
+    {
+      "name": "ap2-tool-error-as-rpc-error", "origin": "wf10/domain AP2",
+      "file": "modules/mcp/mcp.ergo",
+      "from": "\t\t\treturn Answered{ID: at, Result: called(e.Message, true)}\n",
+      "to": "\t\t\treturn Refused{ID: at, Code: InvalidParams, Message: e.Message}\n",
+      "rule": "A tool that ran and failed is a result whose isError is true, which the model reads: memory's Session (no law sends a failing tool's call).",
+      "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
+    },
+    {
+      "name": "ap2-messages-ignore-stop", "origin": "wf10/domain AP2",
+      "file": "modules/mcp/memory/memory.ergo",
+      "from": "\t\t\tif !yield(m) {\n\t\t\t\treturn\n\t\t\t}\n",
+      "to": "\t\t\tlet _ = yield(m)\n",
+      "rule": "The memory transport's Messages stops when its consumer breaks: Transport.StopsWhenAsked.",
+      "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
+    }
+  ]
+}

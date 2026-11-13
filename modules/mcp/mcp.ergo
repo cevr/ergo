@@ -1,0 +1,246 @@
+// Package mcp is a server of the Model Context Protocol (AP2): JSON-RPC
+// 2.0 messages, one per line, over a Transport. It answers initialize,
+// ping, tools/list and tools/call; a notification gets no answer. A
+// program gives its tools as values (a name, a description, the JSON
+// schema of the arguments, and Call) and binds the transport in its
+// cmd/<name>/main.ergo: mcp/stdio for a client that starts the program,
+// mcp/memory in tests.
+//
+// The protocol's two kinds of failure stay apart, as the specification
+// asks: a request the server cannot take (a malformed message, an unknown
+// method, an unknown tool) is a JSON-RPC error; a tool that ran and
+// failed (ToolError) is a result whose isError is true, which the model
+// reads.
+
+import json
+
+// Transport carries the messages of a session: each message the client
+// sent, one at a time, and the answers the server sends.
+type Transport {
+	// Messages is the messages the client sends, in order, until the
+	// session ends. A break stops the read.
+	Messages() Seq[string],
+	// Send sends one message to the client.
+	Send(message string),
+
+	// StopsWhenAsked: a break out of Messages ends the read; the
+	// sequence yields nothing after its consumer asked it to stop.
+	law StopsWhenAsked() {
+		let mut n = 0
+		for _ in Messages() {
+			n = n + 1
+			break
+		}
+		n <= 1
+	},
+}
+
+// ToolError is a tool that ran and failed: the model reads Message.
+type ToolError { Message string }
+
+// UnknownTool is a call of a tool the server does not have.
+type UnknownTool { Name string }
+
+// Tool is one tool: its name, what it does (the model reads it), the
+// JSON schema of its arguments, and Call, which takes the arguments and
+// gives the result as JSON.
+type Tool {
+	Name        string,
+	Description string,
+	Input       json.Value,
+	Call        func(arguments json.Value) json.Value fails ToolError,
+}
+
+// Server is a program's server: its name and version, which initialize
+// gives, and its tools, in the order tools/list lists them.
+type Server { Name string, Version string, Tools []Tool }
+
+// Version is the protocol version this server speaks.
+let Version = "2025-06-18"
+
+// Answer is what the server does with one message: answer it with a
+// result (JSON text), refuse it with a JSON-RPC error, or say nothing
+// (a notification).
+type Answer = Answered{ID json.Value, Result string} | Refused{ID json.Value, Code int, Message string} | Silent{}
+
+// The JSON-RPC 2.0 error codes the server gives.
+let ParseError = -32700
+let InvalidRequest = -32600
+let MethodNotFound = -32601
+let InvalidParams = -32602
+
+// valueCodec is the codec of an untyped JSON value.
+func valueCodec() json.Codec[json.Value] { json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0} }
+
+// Field is the member key of v, when v is an object that has one.
+func Field(v json.Value, key string) Option[json.Value] {
+	match v {
+	case json.Object as o:
+		for m in o.Members {
+			if m.Key == key {
+				return Some[json.Value]{Value: m.Value}
+			}
+		}
+		None
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		None
+	}
+}
+
+// text is v's string, when v is a JSON string.
+func text(v Option[json.Value]) Option[string] {
+	match v {
+	case Some[json.Value] as s:
+		match s.Value {
+		case json.Str as t:
+			Some[string]{Value: t.Value}
+		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// Call calls the tool name of s with arguments.
+func Call(s Server, name string, arguments json.Value) json.Value fails ToolError | UnknownTool {
+	for t in s.Tools {
+		if t.Name == name {
+			return try t.Call(arguments)
+		}
+	}
+	UnknownTool{Name: name}
+}
+
+// Info is the server's name and version, as initialize gives them.
+type Info { Name string, Version string }
+
+// Capabilities is what the server offers: tools, with no option.
+type Capabilities { Tools Empty }
+
+// Empty is a JSON object with no member.
+type Empty {}
+
+// Initialized is the result of initialize.
+type Initialized { ProtocolVersion string, Capabilities Capabilities, ServerInfo Info }
+
+// Listed is one tool in the result of tools/list.
+type Listed { Name string, Description string, InputSchema json.Value }
+
+// Listing is the result of tools/list.
+type Listing { Tools []Listed }
+
+// Content is one block of a tool's result: text.
+type Content { Type string, Text string }
+
+// Called is the result of tools/call.
+type Called { Content []Content, IsError bool }
+
+// List is the tools of s as tools/list gives them, in order.
+func List(s Server) []Listed {
+	let mut out = []Listed{}
+	for i in 0..len(s.Tools) {
+		let t = s.Tools[i]
+		out = out.Append(Listed{Name: t.Name, Description: t.Description, InputSchema: t.Input})
+	}
+	out
+}
+
+// Handle is what s does with message.
+func Handle(s Server, message string) Answer {
+	let v = json.Decode(valueCodec(), message) catch {
+	case _:
+		return Refused{ID: json.Null, Code: ParseError, Message: "parse error: the message is not JSON"}
+	}
+	let id = Field(v, "id")
+	let method = match text(Field(v, "method")) {
+	case Some[string] as m:
+		m.Value
+	case None:
+		let at = match id {
+		case Some[json.Value] as i:
+			i.Value
+		case None:
+			json.Null
+		}
+		return Refused{ID: at, Code: InvalidRequest, Message: "invalid request: no method"}
+	}
+	let at = match id {
+	case Some[json.Value] as i:
+		i.Value
+	case None:
+		// A notification: the client wants no answer.
+		return Silent
+	}
+	match method {
+	case "initialize":
+		Answered{ID: at, Result: json.Encode(json.Codec[Initialized]{MaxBytes: 0, MaxDepth: 0}, Initialized{ProtocolVersion: Version, Capabilities: Capabilities{Tools: Empty}, ServerInfo: Info{Name: s.Name, Version: s.Version}})}
+	case "ping":
+		Answered{ID: at, Result: "{}"}
+	case "tools/list":
+		Answered{ID: at, Result: json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, Listing{Tools: List(s)})}
+	case "tools/call":
+		let params = match Field(v, "params") {
+		case Some[json.Value] as p:
+			p.Value
+		case None:
+			json.Null
+		}
+		let name = match text(Field(params, "name")) {
+		case Some[string] as n:
+			n.Value
+		case None:
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: tools/call needs a name"}
+		}
+		let arguments = match Field(params, "arguments") {
+		case Some[json.Value] as a:
+			a.Value
+		case None:
+			json.Object{Members: []json.Member{}}
+		}
+		let result = Call(s, name, arguments) catch {
+		case UnknownTool as u:
+			return Refused{ID: at, Code: InvalidParams, Message: "unknown tool: \(u.Name)"}
+		case ToolError as e:
+			return Answered{ID: at, Result: called(e.Message, true)}
+		}
+		Answered{ID: at, Result: called(json.Encode(valueCodec(), result), false)}
+	case _:
+		Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+	}
+}
+
+// called is the result of tools/call with one text block.
+func called(t string, isError bool) string {
+	json.Encode(json.Codec[Called]{MaxBytes: 0, MaxDepth: 0}, Called{Content: []Content{Content{Type: "text", Text: t}}, IsError: isError})
+}
+
+// Problem is a JSON-RPC error object.
+type Problem { Code int, Message string }
+
+// Line is the message of a, None for Silent.
+func Line(a Answer) Option[string] {
+	match a {
+	case Answered as r:
+		Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"result\":" + r.Result + "}"}
+	case Refused as r:
+		Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"error\":" + json.Encode(json.Codec[Problem]{MaxBytes: 0, MaxDepth: 0}, Problem{Code: r.Code, Message: r.Message}) + "}"}
+	case Silent:
+		None
+	}
+}
+
+// Serve answers each message of t until the session ends, and is the
+// number of messages it read.
+func Serve(s Server, t Transport) int {
+	let mut n = 0
+	for message in t.Messages() {
+		n = n + 1
+		match Line(Handle(s, message)) {
+		case Some[string] as l:
+			t.Send(l.Value)
+		case None:
+		}
+	}
+	n
+}
