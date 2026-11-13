@@ -1,0 +1,143 @@
+// Package memory is infra's providers in the process's memory (IA1): a
+// cloud of directories and files with a driver for each kind, a state
+// store and a lock. They are for laws and tests: a stack runs under them
+// in process, and a Fuse makes a chosen call fail before or after its
+// effect, as a crash would.
+
+import github.com/cevr/ergo/modules/infra
+import sync
+
+// Fuse makes the n-th next call through it fail (Arm): before its effect,
+// or after it. An unarmed fuse never fails a call. Its values are copies
+// of one fuse.
+type Fuse { left sync.Ref[int], after sync.Ref[bool] }
+
+// NewFuse is an unarmed fuse.
+func NewFuse() Fuse { Fuse{left: sync.NewRef(-1), after: sync.NewRef(false)} }
+
+// Arm makes the call n calls from now (0 is the next) fail, after its
+// effect when after holds.
+func Arm(f Fuse, n int, after bool) {
+	f.after.Set(after)
+	f.left.Set(n)
+}
+
+// Armed is whether a call through f will fail.
+func Armed(f Fuse) bool { f.left.Get() >= 0 }
+
+// burn counts one call through f, and is whether it is the one to fail.
+func burn(f Fuse) bool {
+	sync.Modify(f.left, func(n int) (bool, int) {
+		if n == 0 {
+			return (true, -1)
+		}
+		if n > 0 {
+			return (false, n - 1)
+		}
+		(false, n)
+	})
+}
+
+// through runs effect as one call through f: it fails before the effect,
+// or after it, when the call is the one Arm chose.
+func through(f Fuse, id string, effect func()) fails infra.Failed {
+	let hit = burn(f)
+	if hit && !f.after.Get() {
+		return infra.Failed{ID: id, Reason: "crash before the call"}
+	}
+	effect()
+	if hit {
+		return infra.Failed{ID: id, Reason: "crash after the call"}
+	}
+}
+
+// DirProps asks for a directory at Path.
+type DirProps { Path string }
+
+// Dir is a directory that exists.
+type Dir { Path string }
+
+// FileProps asks for a file Name in the directory Dir holding Text.
+type FileProps { Dir string, Name string, Text string }
+
+// File is a file that exists: its path and its size in bytes.
+type File { Path string, Size int }
+
+// Cloud is the objects that exist, by kind and id, and the fuse every
+// driver call goes through. Its values are copies of one cloud.
+type Cloud {
+	dirs  sync.Ref[Map[string, Dir]],
+	files sync.Ref[Map[string, File]],
+	fuse  Fuse,
+}
+
+// NewCloud is an empty cloud whose calls go through fuse.
+func NewCloud(fuse Fuse) Cloud {
+	Cloud{dirs: sync.NewRef(Map[string, Dir]{}), files: sync.NewRef(Map[string, File]{}), fuse: fuse}
+}
+
+// Objects is the number of objects in c.
+func Objects(c Cloud) int { len(c.dirs.Get()) + len(c.files.Get()) }
+
+// DirIDs and FileIDs are the ids of c's objects of each kind.
+func DirIDs(c Cloud) []string {
+	let mut ids = []string{}
+	for id, _ in c.dirs.Get() {
+		ids = ids.Append(id)
+	}
+	ids
+}
+
+func FileIDs(c Cloud) []string {
+	let mut ids = []string{}
+	for id, _ in c.files.Get() {
+		ids = ids.Append(id)
+	}
+	ids
+}
+
+// Dirs is the driver of directories in a cloud.
+type Dirs { cloud Cloud }
+
+// NewDirs is the driver of directories in a new, unarmed cloud.
+func NewDirs() Dirs { Dirs{cloud: NewCloud(NewFuse())} }
+
+// DirsIn is the driver of directories in c.
+func DirsIn(c Cloud) Dirs { Dirs{cloud: c} }
+
+func Attrs(d Dirs, id string, p DirProps) Dir { Dir{Path: p.Path} }
+
+func Apply(d Dirs, id string, p DirProps) Dir fails infra.Failed {
+	let dir = Dir{Path: p.Path}
+	try through(d.cloud.fuse, id, func() { d.cloud.dirs.Update(func(m Map[string, Dir]) Map[string, Dir] { m.Put(id, dir) }) })
+	dir
+}
+
+func Read(d Dirs, id string) Option[Dir] fails infra.Failed { d.cloud.dirs.Get().Get(id) }
+
+func Delete(d Dirs, id string) fails infra.Failed {
+	try through(d.cloud.fuse, id, func() { d.cloud.dirs.Update(func(m Map[string, Dir]) Map[string, Dir] { m.Delete(id) }) })
+}
+
+// Files is the driver of files in a cloud.
+type Files { cloud Cloud }
+
+// NewFiles is the driver of files in a new, unarmed cloud.
+func NewFiles() Files { Files{cloud: NewCloud(NewFuse())} }
+
+// FilesIn is the driver of files in c.
+func FilesIn(c Cloud) Files { Files{cloud: c} }
+
+func Attrs(f Files, id string, p FileProps) File { File{Path: p.Dir + "/" + p.Name, Size: len(p.Text)} }
+
+func Apply(f Files, id string, p FileProps) File fails infra.Failed {
+	let file = f.Attrs(id, p)
+	try through(f.cloud.fuse, id, func() { f.cloud.files.Update(func(m Map[string, File]) Map[string, File] { m.Put(id, file) }) })
+	file
+}
+
+func Read(f Files, id string) Option[File] fails infra.Failed { f.cloud.files.Get().Get(id) }
+
+func Delete(f Files, id string) fails infra.Failed {
+	try through(f.cloud.fuse, id, func() { f.cloud.files.Update(func(m Map[string, File]) Map[string, File] { m.Delete(id) }) })
+}

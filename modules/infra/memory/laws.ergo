@@ -1,0 +1,324 @@
+// The model-based test of the engine on the memory providers, after the
+// design model models/infra, in a wider scope: six objects of two kinds
+// (three directories, three files in the first directory, or in /srv when
+// the stack wants no first directory), any props, two runners, a crash at
+// any call to the cloud or the state store (before or after its effect),
+// and the destroy at the end.
+
+import github.com/cevr/ergo/modules/infra
+
+// World is what the runs share: the cloud, a store per kind, the lock,
+// and the fuse every call goes through.
+type World { cloud Cloud, dirs State[DirProps], files State[FileProps], lock Lock, fuse Fuse }
+
+func newWorld() World {
+	let fuse = NewFuse()
+	World{cloud: NewCloud(fuse), dirs: NewState[DirProps](fuse), files: NewState[FileProps](fuse), lock: NewLock(), fuse: fuse}
+}
+
+// Want is what a stack wants: the props version (1 or 2) of each of the
+// six objects, 0 for "not in the stack". d0..d2 are directories, f0..f2
+// files.
+type Want { Of []int }
+
+// wantOf reads six base-3 digits of n.
+func wantOf(n int) Want {
+	let mut m = ((n % 729) + 729) % 729
+	let mut of = []int{}
+	for _ in 0..6 {
+		of = of.Append(m % 3)
+		m = m / 3
+	}
+	Want{Of: of}
+}
+
+func dirProps(i int, v int) DirProps { DirProps{Path: "/srv/d\(i)/v\(v)"} }
+
+func fileProps(dir string, i int, v int) FileProps { FileProps{Dir: dir, Name: "f\(i)", Text: "v\(v)"} }
+
+// stack is the stack of w: the directories, then the files in the first
+// directory's path (a value of one object goes to the next).
+func stack(w Want) fails infra.Failed needs infra.Kind[DirProps, Dir] | infra.Kind[FileProps, File] {
+	let mut home = "/srv"
+	for i in 0..3 {
+		if w.Of[i] != 0 {
+			let d = try infra.Kind[DirProps, Dir].Ensure("d\(i)", dirProps(i, w.Of[i]))
+			if i == 0 {
+				home = d.Path
+			}
+		}
+	}
+	for i in 0..3 {
+		if w.Of[3+i] != 0 {
+			try infra.Kind[FileProps, File].Ensure("f\(i)", fileProps(home, i, w.Of[3+i]))
+		}
+	}
+}
+
+// Ran is how a run ended: it finished, it crashed (a call failed: the
+// process is gone and the lock stays), or the lock was held.
+type Ran = Finished{Steps []infra.Step} | Crashed{} | Locked{Holder string}
+
+// run runs the stack of want in mode as holder over w.
+func run(w World, mode infra.Mode, holder string, want Want) Ran {
+	let r = infra.NewRun(mode)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let engines = []infra.Sweeper{dirs, files}
+	infra.Begin(r, w.lock, holder, engines) catch {
+	case infra.Held as h:
+		return Locked{Holder: h.Holder}
+	}
+	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
+		stack(want)
+	} catch {
+	case infra.Failed:
+		return Crashed
+	}
+	infra.Finish(r, w.lock, holder, engines) catch {
+	case infra.Failed:
+		return Crashed
+	}
+	Finished{Steps: infra.Steps(r)}
+}
+
+// destroy destroys every object of w as holder.
+func destroy(w World, holder string) Ran {
+	let r = infra.NewRun(infra.Applying)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	infra.Destroy(r, w.lock, holder, []infra.Sweeper{dirs, files}) catch {
+	case infra.Held as h:
+		return Locked{Holder: h.Holder}
+	case infra.Failed:
+		return Crashed
+	}
+	Finished{Steps: infra.Steps(r)}
+}
+
+// noOrphan: every object in the cloud has a row (models/infra NoOrphan).
+func noOrphan(w World) bool {
+	for id in DirIDs(w.cloud) {
+		if w.dirs.Get(id) == None {
+			return false
+		}
+	}
+	for id in FileIDs(w.cloud) {
+		if w.files.Get(id) == None {
+			return false
+		}
+	}
+	true
+}
+
+// liveIsTrue: a row that says live agrees with the cloud (LiveIsTrue).
+func liveIsTrue(w World) bool {
+	for r in w.dirs.List() {
+		match r.Status {
+		case infra.Live:
+			if w.cloud.dirs.Get().Get(r.ID) != (Some[Dir]{Value: Dir{Path: r.Props.Path}}) {
+				return false
+			}
+		case infra.Creating, infra.Deleting:
+		}
+	}
+	for r in w.files.List() {
+		match r.Status {
+		case infra.Live:
+			if w.cloud.files.Get().Get(r.ID) != (Some[File]{Value: File{Path: r.Props.Dir + "/" + r.Props.Name, Size: len(r.Props.Text)}}) {
+				return false
+			}
+		case infra.Creating, infra.Deleting:
+		}
+	}
+	true
+}
+
+// converged: after a finished run of want, the cloud and the stores are
+// what want asks, every row live, and the lock free (Converged).
+func converged(w World, want Want) bool {
+	let mut home = "/srv"
+	if want.Of[0] != 0 {
+		home = dirProps(0, want.Of[0]).Path
+	}
+	for i in 0..3 {
+		let d = w.dirs.Get("d\(i)")
+		let f = w.files.Get("f\(i)")
+		if want.Of[i] == 0 {
+			if d != None || w.cloud.dirs.Get().Get("d\(i)") != None {
+				return false
+			}
+		} else if d != (Some[infra.Row[DirProps]]{Value: infra.Row[DirProps]{ID: "d\(i)", Status: infra.Live, Props: dirProps(i, want.Of[i]), Seq: seqOf(d)}}) || w.cloud.dirs.Get().Get("d\(i)") == None {
+			return false
+		}
+		if want.Of[3+i] == 0 {
+			if f != None || w.cloud.files.Get().Get("f\(i)") != None {
+				return false
+			}
+		} else if f != (Some[infra.Row[FileProps]]{Value: infra.Row[FileProps]{ID: "f\(i)", Status: infra.Live, Props: fileProps(home, i, want.Of[3+i]), Seq: seqOf(f)}}) || w.cloud.files.Get().Get("f\(i)") == None {
+			return false
+		}
+	}
+	w.lock.Holder() == None
+}
+
+func seqOf[P comparable](r Option[infra.Row[P]]) int {
+	match r {
+	case Some[infra.Row[P]] as x:
+		x.Value.Seq
+	case None:
+		0
+	}
+}
+
+// newestFirst is whether the Delete steps of a destroy run take the rows
+// from the greatest Seq down, every row once.
+func newestFirst(w World, steps []infra.Step) bool {
+	let mut seqs = Map[string, int]{}
+	for r in w.dirs.List() {
+		seqs = seqs.Put("dir/"+r.ID, r.Seq)
+	}
+	for r in w.files.List() {
+		seqs = seqs.Put("file/"+r.ID, r.Seq)
+	}
+	if len(steps) != len(seqs) {
+		return false
+	}
+	let mut last = -1
+	for i, s in steps {
+		let seq = match seqs.Get(s.Kind + "/" + s.ID) {
+		case Some[int] as n:
+			n.Value
+		case None:
+			return false
+		}
+		if s.Change != infra.Delete || (i > 0 && seq >= last) {
+			return false
+		}
+		last = seq
+	}
+	true
+}
+
+// Applies plays runs on one world: run i applies the stack wantOf(runs[i])
+// as the runner r1 or r2 (they take turns); crashes[i], when there is one
+// and k = crashes[i] mod 40 is under 30, arms the fuse to fail the k-th
+// call of that run, after its effect when crashes[i]/40 is odd. A plan
+// runs before each apply with the fuse armed at the next call: a plan
+// calls no host, so the fuse is still armed after it. A runner whose run
+// crashed keeps the lock: the next runner's Begin fails Held with its
+// name, an operator breaks it, and the next runner applies. After each
+// run the rows and the cloud agree (noOrphan, liveIsTrue); after each run
+// that finished, the world is what it wanted (converged), and a second
+// plan has no step. At the end a destroy removes every object, newest
+// first.
+func Applies(runs []int, crashes []int) bool {
+	let w = newWorld()
+	let mut held Option[string] = None
+	for i, n in runs {
+		let want = wantOf(n)
+		let holder = if i%2 == 0 { "r1" } else { "r2" }
+		Arm(w.fuse, 0, false)
+		match run(w, infra.Planning, holder, want) {
+		case Finished:
+		case Crashed, Locked:
+			return false
+		}
+		if !Armed(w.fuse) {
+			return false
+		}
+		Arm(w.fuse, -1, false)
+		if i < len(crashes) {
+			let k = ((crashes[i] % 40) + 40) % 40
+			if k < 30 {
+				Arm(w.fuse, k, ((crashes[i]/40)%2+2)%2 == 1)
+			}
+		}
+		let mut ran = run(w, infra.Applying, holder, want)
+		match ran {
+		case Locked as l:
+			// The other runner crashed and holds the lock: break it.
+			if held != (Some[string]{Value: l.Holder}) {
+				return false
+			}
+			w.lock.Break(l.Holder) catch {
+			case infra.Held:
+				return false
+			}
+			ran = run(w, infra.Applying, holder, want)
+		case Finished, Crashed:
+			if held != None && held != (Some[string]{Value: holder}) {
+				// Another held the lock, and the run did not see it.
+				return false
+			}
+		}
+		Arm(w.fuse, -1, false)
+		if !noOrphan(w) || !liveIsTrue(w) {
+			return false
+		}
+		match ran {
+		case Finished:
+			held = None
+			if !converged(w, want) {
+				return false
+			}
+			match run(w, infra.Planning, holder, want) {
+			case Finished as again:
+				if len(again.Steps) != 0 {
+					return false
+				}
+			case Crashed, Locked:
+				return false
+			}
+		case Crashed:
+			held = Some[string]{Value: holder}
+		case Locked:
+			return false
+		}
+	}
+	match held {
+	case Some[string] as h:
+		w.lock.Break(h.Value) catch {
+		case infra.Held:
+			return false
+		}
+	case None:
+	}
+	let rows = len(w.dirs.List()) + len(w.files.List())
+	match destroy(w, "operator") {
+	case Finished as f:
+		if len(f.Steps) != rows {
+			return false
+		}
+	case Crashed, Locked:
+		return false
+	}
+	Objects(w.cloud) == 0 && len(w.dirs.List()) == 0 && len(w.files.List()) == 0 && w.lock.Holder() == None
+}
+
+// ApplyConverges: whatever stacks, crashes and turns of two runners, the
+// rows and the cloud agree after every run, a finished run leaves what
+// its stack wants and a second plan empty, and a destroy leaves the cloud
+// empty (models/infra NoOrphan, LiveIsTrue, Converged; IA1's wider scope).
+law ApplyConverges(runs []int, crashes []int) { Applies(runs, crashes) }
+
+// DestroyIsNewestFirst: a destroy deletes the objects in the reverse of
+// the order they were created, across kinds.
+law DestroyIsNewestFirst(runs []int) {
+	let w = newWorld()
+	for _, n in runs {
+		match run(w, infra.Applying, "r1", wantOf(n)) {
+		case Finished:
+		case Crashed, Locked:
+			return false
+		}
+	}
+	let r = infra.NewRun(infra.Planning)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	infra.Destroy(r, w.lock, "r1", []infra.Sweeper{dirs, files}) catch {
+	case infra.Held, infra.Failed:
+		return false
+	}
+	newestFirst(w, infra.Steps(r))
+}
