@@ -340,7 +340,7 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
 
-**Policy** (pattern; its log follower planned, DK3): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. Distinct from a retry policy, which is data a saga reads.
+**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads.
 
 **Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
 

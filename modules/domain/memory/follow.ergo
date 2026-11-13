@@ -1,0 +1,157 @@
+// The memory cursor of followers (DK3), and the model-based test of
+// Follow: a policy follows one stream and sends a command to another for
+// each event, while a crash hits any of its sends or of its cursor's
+// saves, before or after the write.
+
+import github.com/cevr/ergo/modules/domain
+import sync
+
+// Place is a follower's place: the follower and the stream.
+type Place { Follower string, Stream string }
+
+// placeOf is the key of follower's cursor in stream.
+func placeOf(follower string, stream string) Place { Place{Follower: follower, Stream: stream} }
+
+// Cursor is the memory cursor. Its values are copies of one cursor.
+type Cursor { at sync.Ref[Map[Place, int]] } implements domain.Cursor
+
+// NewCursor is a cursor with no follower.
+func NewCursor() Cursor { Cursor{at: sync.NewRef(Map[Place, int]{})} }
+
+func At(c Cursor, follower string, stream string) int {
+	match c.at.Get().Get(placeOf(follower, stream)) {
+	case Some[int] as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+// Save keeps at. It never fails Unkept: memory keeps it.
+func Save(c Cursor, follower string, stream string, at int) fails domain.Unkept {
+	c.at.Update(func(m Map[Place, int]) Map[Place, int] { m.Put(placeOf(follower, stream), at) })
+}
+
+// Fuse crashes one call: the left-th next send or save fails Unkept,
+// before its write, or after it when after is set. A negative left is
+// disarmed.
+type Fuse { left sync.Ref[int], after sync.Ref[bool] }
+
+func newFuse() Fuse { Fuse{left: sync.NewRef(-1), after: sync.NewRef(false)} }
+
+// arm makes the fuse crash the n-th next call (0 is the next).
+func arm(f Fuse, n int, after bool) {
+	f.left.Set(n)
+	f.after.Set(after)
+}
+
+// burn counts one call, and is whether it crashes.
+func burn(f Fuse) bool {
+	sync.Modify(f.left, func(n int) (bool, int) {
+		if n == 0 {
+			return (true, -1)
+		}
+		if n > 0 {
+			return (false, n - 1)
+		}
+		(false, n)
+	})
+}
+
+// Saves is a cursor whose saves go through a fuse.
+type Saves { inner Cursor, fuse Fuse } implements domain.Cursor
+
+func At(s Saves, follower string, stream string) int { s.inner.At(follower, stream) }
+
+func Save(s Saves, follower string, stream string, at int) fails domain.Unkept {
+	let crash = s.fuse.burn()
+	if crash && !s.fuse.after.Get() {
+		return domain.Unkept{Reason: "crash before the save"}
+	}
+	try s.inner.Save(follower, stream, at)
+	if crash {
+		return domain.Unkept{Reason: "crash after the save"}
+	}
+}
+
+// lastOf is the last position of records, 0 for none.
+func lastOf[E](records []domain.Recorded[E]) int {
+	if len(records) == 0 {
+		return 0
+	}
+	records[len(records)-1].Position
+}
+
+// relay is the policy: each event e of a delivery is a command that the
+// stream "out" of out keeps as [e], under the id SentID gives. Its sends
+// go through fuse.
+func relay(out Log[int], fuse Fuse, d domain.Delivery[int]) fails domain.Unkept {
+	for i, e in d.Record.Events {
+		let crash = fuse.burn()
+		if crash && !fuse.after.Get() {
+			return domain.Unkept{Reason: "crash before the send"}
+		}
+		let _ = out.Append("out", lastOf(out.Read("out", 0)), domain.SentID(d, i), []int{e}) catch {
+		case domain.Conflict, domain.Unkept:
+			return domain.Unkept{Reason: "the send was not kept"}
+		case domain.Reused:
+			// An id the log kept for another command: this command is
+			// lost, which the law sees.
+			domain.Receipt{ID: domain.SentID(d, i), Stream: "out", Position: 0}
+		}
+		if crash {
+			return domain.Unkept{Reason: "crash after the send"}
+		}
+	}
+}
+
+// RedeliveryAddsNothing: a policy follows the stream "in" (a record per
+// batch, an event per command it sends) and runs again after each crash,
+// one crash per value of crashes at any send or save of the run, before
+// or after the write; then once with no crash. The stream "out" then
+// holds each event once, in the order of "in" (the effect happens once,
+// in order), the cursor is at the last record, and one more Follow
+// delivers nothing.
+law RedeliveryAddsNothing(batches [][]int, crashes []int) {
+	let src = New[int]()
+	for i, events in batches {
+		src.Append("in", i, domain.CommandID("in-\(i)"), events) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+	}
+	let out = New[int]()
+	let fuse = newFuse()
+	let cursor = Saves{inner: NewCursor(), fuse: fuse}
+	let handle = func(d domain.Delivery[int]) fails domain.Unkept { try relay(out, fuse, d) }
+	for c in crashes {
+		let k = ((c % 40) + 40) % 40
+		fuse.arm(k/2, k%2 == 1)
+		let _ = domain.Follow(src, cursor, "policy", "in", handle) catch {
+		case domain.Unkept:
+			0
+		}
+	}
+	fuse.arm(-1, false)
+	let _ = domain.Follow(src, cursor, "policy", "in", handle) catch {
+	case domain.Unkept:
+		return false
+	}
+	let mut want = []int{}
+	for events in batches {
+		for e in events {
+			want = want.Append(e)
+		}
+	}
+	let mut got = []int{}
+	for r in out.Read("out", 0) {
+		for e in r.Events {
+			got = got.Append(e)
+		}
+	}
+	let again = domain.Follow(src, cursor, "policy", "in", handle) catch {
+	case domain.Unkept:
+		return false
+	}
+	got == want && cursor.At("policy", "in") == len(batches) && again == 0
+}

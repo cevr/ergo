@@ -72,6 +72,38 @@
       "to": "",
       "rule": "Every record the file log answers is in its file: ReopenedLogReads.",
       "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk3-save-before-handle", "origin": "wf10/domain DK3",
+      "file": "modules/domain/follow.ergo",
+      "from": "\t\ttry handle(Delivery[E]{Follower: follower, Stream: stream, Record: r})\n\t\ttry cursor.Save(follower, stream, r.Position)\n",
+      "to": "\t\ttry cursor.Save(follower, stream, r.Position)\n\t\ttry handle(Delivery[E]{Follower: follower, Stream: stream, Record: r})\n",
+      "rule": "A follower saves its cursor only after its handle returned, so a crash between them delivers the record again: memory's RedeliveryAddsNothing.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk3-id-without-position", "origin": "wf10/domain DK3",
+      "file": "modules/domain/follow.ergo",
+      "from": "CommandID(\"\\(d.Follower)|\\(d.Stream)@\\(d.Record.Position)#\\(index)\")",
+      "to": "CommandID(\"\\(d.Follower)|\\(d.Stream)#\\(index)\")",
+      "rule": "A command a follower sends is named by the record's position too, so two records' commands are two commands: memory's RedeliveryAddsNothing.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk3-cursor-only-forward", "origin": "wf10/domain DK3",
+      "file": "modules/domain/memory/follow.ergo",
+      "from": "{ m.Put(placeOf(follower, stream), at) }",
+      "to": "{\n\t\tmatch m.Get(placeOf(follower, stream)) {\n\t\tcase Some[int] as n:\n\t\t\tif at < n.Value {\n\t\t\t\treturn m\n\t\t\t}\n\t\tcase None:\n\t\t}\n\t\tm.Put(placeOf(follower, stream), at)\n\t}",
+      "rule": "The last save wins, behind the one before too (a projection rebuilt from the start): Cursor.LastSaveWins. Follow only moves forward, so RedeliveryAddsNothing does not see it.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk3-cursor-per-stream", "origin": "wf10/domain DK3",
+      "file": "modules/domain/memory/follow.ergo",
+      "from": "func placeOf(follower string, stream string) Place { Place{Follower: follower, Stream: stream} }",
+      "to": "func placeOf(follower string, stream string) Place { Place{Follower: \"\", Stream: stream} }",
+      "rule": "A follower's cursor is its own: Cursor.CursorsAreApart. One follower alone, as in RedeliveryAddsNothing, does not see it.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
     }
   ]
 }

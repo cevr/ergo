@@ -4,8 +4,8 @@ An Ergo module of this repository (`modules/`, MK0): the event log of a domain m
 
 | Package | What |
 | --- | --- |
-| `domain` | `CommandID`, `Envelope[C]`, `Receipt`, `Recorded[E]`; the port `Log[E]` with its laws; `Ledger`, `Begin`, `Taken`, `Commit`, `Sourced` and `Send`, the host of an aggregate over a durable actor |
-| `domain/memory` | `Log[E]` in the process's memory |
+| `domain` | `CommandID`, `Envelope[C]`, `Receipt`, `Recorded[E]`; the port `Log[E]` with its laws; `Ledger`, `Begin`, `Taken`, `Commit`, `Sourced` and `Send`, the host of an aggregate over a durable actor; `Cursor` with its laws, `Delivery`, `SentID` and `Follow`, a follower of a stream (DK3) |
+| `domain/memory` | `Log[E]` and `Cursor` in the process's memory |
 | `domain/file` | `Log[E]` in a file, one record appended at a time |
 
 An example takes it with a `require` and a `replace` to this folder in its `go.mod`.
@@ -13,6 +13,10 @@ An example takes it with a `require` and a `replace` to this folder in its `go.m
 ## Laws
 
 `Log`'s laws run against each provider: `AppendThenRead`, `PositionsAreDense`, `ConflictOnStaleExpected`, `ResendGivesFirstReceipt`, `SameIdOtherPayloadIsRefused` (sync-spike L1, L2). `memory`'s `SourcedSurvivesCrashes` is the model-based test of the host (L3): generated commands, resends and crashes at each save, before and after the write, each followed by a restart. After each step, the actor's state is the fold of the log, no answered command is lost, no command is kept twice, and the decider's own count of its decisions is the number of commands the log kept: `decide` ran once for each. `file`'s `ReopenedLogReads` holds that a log read back from its file has the records written, and that a torn last record is dropped.
+
+## Followers
+
+A policy or a projection follows a stream: `Follow(log, cursor, follower, stream, handle)` delivers each record after the follower's saved cursor to `handle`, in order, and saves the cursor once `handle` returned. A crash between the two delivers the record again, so delivery is at least once; a command that `handle` sends takes the id `SentID(delivery, index)`, made of the follower, the stream, the record's position and the command's index, and the log answers its second send with the first receipt. `Cursor`'s laws: `LastSaveWins`, `CursorsAreApart`. `memory`'s `RedeliveryAddsNothing` is the model-based test: a policy that sends a command per event, crashed at any send or save (before or after the write) and run again, leaves each event's command in the target stream once, in order.
 
 ## Decided
 
