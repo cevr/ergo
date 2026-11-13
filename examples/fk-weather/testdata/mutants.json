@@ -2,6 +2,14 @@
   "about": "fk-weather's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
   "mutants": [
     {
+      "name": "fk3-web-search-at-forecast", "origin": "wf10 STD-NOPRIV FK3-g3",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "try ask(o.net, GeocodingOrigin, \"/v1/search\", ",
+      "to": "try ask(o.net, ForecastOrigin, \"/v1/search\", ",
+      "rule": "The geocoding ask goes to the geocoding service's origin: one Network reaches both services, and its fixture routes by origin and path (test FetchGivesTheReport).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
       "name": "fk3-edit-reenters", "origin": "wf10/fk3a",
       "file": "examples/fk-weather/weather/lookup.ergo",
       "from": "\t\tStay[Lookup]{Next: Lookup{..l, Draft: e.Text}}\n",

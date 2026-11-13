@@ -11,20 +11,25 @@ import strconv
 let GeocodingOrigin = "https://geocoding-api.open-meteo.com"
 let ForecastOrigin = "https://api.open-meteo.com"
 
-// OpenMeteo is a weather.Forecast over two http.Nets: one to the
-// geocoding service, which finds the place of a zip, and one to the
-// forecast service, which gives the current weather at that place.
-type OpenMeteo { geocoding http.Net, forecast http.Net }
+// OpenMeteo is a weather.Forecast over one http.Network, which reaches
+// the two services: the geocoding service finds the place of a zip, and
+// the forecast service gives the current weather at that place.
+type OpenMeteo { net http.Network }
 
-// NewOpenMeteo is the forecast over the two Nets given; a test gives
-// http.InMemory ones.
-func NewOpenMeteo(geocoding http.Net, forecast http.Net) OpenMeteo { OpenMeteo{geocoding: geocoding, forecast: forecast} }
+// NewOpenMeteo is the forecast over the Network given; a test gives an
+// http.InMemoryNetwork that routes by origin and path.
+func NewOpenMeteo(net http.Network) OpenMeteo { OpenMeteo{net: net} }
 
-// Live is the forecast over the host network, with limits for answers of
-// a few kilobytes.
+// Services is the origin policy of the forecast: the two services, and no
+// other origin.
+let Services = http.Origins{Values: []string{GeocodingOrigin, ForecastOrigin}}
+
+// Budget is the limits of the forecast's answers: a few kilobytes.
+let Budget = http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
+
+// Live is the forecast over the host network.
 func Live() OpenMeteo fails http.InvalidClient | http.InvalidLimits needs Ambient {
-	let limits = http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
-	NewOpenMeteo(try http.NewClient(GeocodingOrigin, limits), try http.NewClient(ForecastOrigin, limits))
+	NewOpenMeteo(try http.NewNet(Services, Budget, http.NoRedirects))
 }
 
 // The parts of the services' answers the forecast reads. A key the
@@ -38,7 +43,7 @@ type conditions { Current now }
 // answer that is not 200, or that has no place, is NotFound, as upstream
 // says "Location not found"; any other failure is Unavailable.
 func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
-	let found = try ask(o.geocoding, "/v1/search", []http.Field{field("name", zip), field("count", "1"), field("language", "en"), field("format", "json")})
+	let found = try ask(o.net, GeocodingOrigin, "/v1/search", []http.Field{field("name", zip), field("count", "1"), field("language", "en"), field("format", "json")})
 	if found.Status != 200 {
 		return weather.NotFound{Zip: zip}
 	}
@@ -55,7 +60,7 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 	case json.Absent:
 		return weather.NotFound{Zip: zip}
 	}
-	let answer = try ask(o.forecast, "/v1/forecast", []http.Field{
+	let answer = try ask(o.net, ForecastOrigin, "/v1/forecast", []http.Field{
 		field("latitude", strconv.FormatFloat(p.Latitude, 'f', -1)),
 		field("longitude", strconv.FormatFloat(p.Longitude, 'f', -1)),
 		field("current", "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"),
@@ -88,10 +93,16 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 
 func field(name string, value string) http.Field { http.Field{Name: name, Value: value} }
 
-func ask(n http.Net, path string, query []http.Field) http.Response fails weather.Unavailable {
-	n.Send(http.Request{Method: "GET", Path: path, Query: query, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+// ask sends a GET of path and query to origin through n.
+func ask(n http.Network, origin string, path string, query []http.Field) http.Response fails weather.Unavailable {
+	let url = origin + path + "?" + http.EncodeQuery(query)
+	n.SendURL(http.URLRequest{URL: url, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}) catch {
 	case http.RequestFailed as f:
 		return weather.Unavailable{Reason: reason(f.Cause)}
+	case http.OriginRefused as r:
+		return weather.Unavailable{Reason: "the origin \(r.Origin) is not one of the services"}
+	case http.RedirectLimit as l:
+		return weather.Unavailable{Reason: "\(l.URL) redirects"}
 	}
 }
 

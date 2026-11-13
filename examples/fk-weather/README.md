@@ -10,7 +10,7 @@ Tag: `default`.
 - An edit is a `Stay`: it changes the draft and keeps the entry, so a fetch under way goes on. A submit while a fetch is under way is ignored. A submit of an empty draft fails at once with `NoZip`, and no fetch starts. Any other submit enters `Loading` with the trimmed draft. An answer outside `Loading` is ignored; the runner also drops an answer of an ended entry, so an answer only reaches the ask that started it.
 - `weather` declares the contract it needs, `Forecast { Fetch(zip) Report fails NotFound | Unavailable }`, with two laws.
 - Package `memory` is `Stations`, a Forecast of four fixed reports; the zip 99999 is a station that is down.
-- Package `web` is `OpenMeteo`, a Forecast over two `http.Net`s: the open-meteo geocoding service finds the place of the zip, and the forecast service gives the weather there, as upstream's `fetchWeatherEffect` does. Its tests give it `http.InMemory` Nets that answer with upstream's fixtures.
+- Package `web` is `OpenMeteo`, a Forecast over one `http.Network` whose origin policy names the two open-meteo services: the geocoding service finds the place of the zip, and the forecast service gives the weather there, as upstream's `fetchWeatherEffect` does. `Live` builds it with `http.NewNet`. Its tests give it an `http.InMemoryNetwork` that routes by origin and path, as upstream's one mock routes by the URL, and answers with upstream's fixtures.
 - Package `script` reads lines `type TEXT` and `submit` and plays them against the actor. After each event it prints `> EVENT` and then `[DRAFT] PANEL`; when the event started a fetch, it also prints the panel once the fetch has answered.
 - `cmd/fk-weather` chooses the Forecast: `memory.Stations` (the `Stations` context), or, with `-live`, `web.Live()` over the host network. Only the first runs in the cases.
 
@@ -36,7 +36,7 @@ Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what r
 
 ## Laws
 
-- `Forecast.ReportIsForTheZip`, `Forecast.NotFoundNamesTheZip` (contract): a report is the weather at the zip asked, and a zip with no place is refused with that zip. They run against `memory.Stations`, and the `web` property `ContractHoldsOverTheFixture` runs them against `OpenMeteo` over the fixture Nets (the law runner cannot build an `http.Net`; `expected-skips` lists the two skips).
+- `Forecast.ReportIsForTheZip`, `Forecast.NotFoundNamesTheZip` (contract): a report is the weather at the zip asked, and a zip with no place is refused with that zip. They run against `memory.Stations`, and the `web` property `ContractHoldsOverTheFixture` runs them against `OpenMeteo` over the fixture network (the law runner cannot build an `http.Network`; `expected-skips` lists the two skips).
 - `EditOnlyChangesTheDraft`: an edit in any state changes the draft and nothing else, and keeps the entry.
 - `ReadyShowsLatestAsk`: over generated edits, submits and answers, the lookup shows what a model with no machine says.
 
