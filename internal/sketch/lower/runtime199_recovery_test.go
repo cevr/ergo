@@ -100,8 +100,9 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"TasksRace -> RaceSpan": "guarded",
 		// tasks.Set's members, one per Go (runtime/v1 set.go).
 		"tasksGo -> Go": "guarded",
-		// HTTP's phase timers, children of the serving task.
-		"HTTPServe -> Go": "guarded",
+		// HTTP's phase sleeps, members of the server's timers group run on
+		// each connection's timer goroutine (GX4).
+		"httpServer.timeouts -> RunIn": "guarded",
 		// HTTP's function handler, a member of the server's request group
 		// run on the connection's goroutine (GX4).
 		"httpServer.ServeHTTP -> RunIn": "guarded",

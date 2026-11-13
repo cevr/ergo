@@ -229,16 +229,16 @@
     {"name":"http-body-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"in.TooLarge = true", "to":"in.Body = string(body)", "rule":"A body over the required limit is a typed body value, not a partial body.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
     {"name":"http-empty-content-type", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"w.Header()[\"Content-Type\"] = nil", "to":"w.Header().Set(\"Content-Type\", \"text/plain\")", "rule":"An empty response has no content type.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
     {"name":"http-swaps-fields", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"HTTPField{k, v}", "to":"HTTPField{v, k}", "rule":"Buffered headers and repeated query values retain their names and text.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
-    {"name":"http-truncated-body", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\twatch := in.ReadError == \"\"\n", "to":"\twatch := true\n", "rule":"A half-closed input still delivers the typed read refusal.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
-    {"name":"http-serial-handlers", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\tx := &Exchange{w: w}\n", "to":"\tx := &Exchange{w: w}\n\ts.dmu.Lock()\n\tdefer s.dmu.Unlock()\n", "rule":"Independent requests run concurrently; one blocked handler does not block admission of every other handler.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
-    {"name":"http-disconnect-ignored", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\t\t\tdefer context.AfterFunc(ctx, ct.Interrupt)()\n", "to":"", "rule":"A client abort stops its handler task and drains its cleanup.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]},
+    {"name":"http-truncated-body", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\twatch := in.ReadError == \"\" && conn != nil\n", "to":"\twatch := conn != nil\n", "rule":"A half-closed input still delivers the typed read refusal.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-serial-handlers", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\tx := &Exchange{w: w}\n", "to":"\tx := &Exchange{w: w}\n\ts.fmu.Lock()\n\tdefer s.fmu.Unlock()\n", "rule":"Independent requests run concurrently; one blocked handler does not block admission of every other handler.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
+    {"name":"http-disconnect-ignored", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"\t\t\tif c.request != nil {\n\t\t\t\tc.request.Interrupt()\n\t\t\t}\n", "to":"", "rule":"A client abort stops its handler task and drains its cleanup.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]},
     {"name":"http-idle-unbounded", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"\tcase phaseIdle:\n\t\treturn l.IdleTimeout", "to":"\tcase phaseIdle:\n\t\treturn 0", "rule":"A kept-alive connection that waits IdleTimeout for its next request is closed.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"http-body-budget-swapped", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"\tcase phaseBody:\n\t\treturn l.ReadBodyTimeout", "to":"\tcase phaseBody:\n\t\treturn l.ReadHeaderTimeout", "rule":"Each read phase is bounded by its own Limits timeout.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"http-header-not-after-idle", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"c.enterLocked(phaseHeader)", "to":"c.enterLocked(phaseFree)", "rule":"The next request's header is bounded from its first byte.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"http-body-expiry-closes", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"_ = c.Conn.SetReadDeadline(aLongTimeAgo)", "to":"_ = c.Conn.Close()", "rule":"An expired body reaches the handler as a failed read, and its answer is sent.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"http-idle-limit-unchecked", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"l.IdleTimeout > 0 && ", "to":"", "rule":"A zero or negative timeout is InvalidLimits, never an unbounded phase.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
-    {"name":"http-stop-leaves-timers", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"\t\tfor pt := range timers {\n\t\t\tcancel(pt)\n\t\t}", "to":"", "rule":"A Serve that ends on a defect stops and drains every phase timer first.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]},
-    {"name":"http-timers-overlap", "origin":"wf10 E4 r2", "file":"runtime/v1/http.go", "from":"pt.h.Task().Interrupt()", "to":"pt.h.Task().Interrupt(); if pt.c.timer == pt { pt.c.timer = nil }", "rule":"A connection has at most one live phase timer task: its old timer must be joined, not merely interrupted, before the next starts.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
+    {"name":"http-stop-leaves-timers", "origin":"wf10 E4", "file":"runtime/v1/http.go", "from":"\t\ts.timers.Interrupt()\n", "to":"", "rule":"A Serve that ends on a defect stops and drains every phase timer first.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]},
+    {"name":"http-timers-overlap", "origin":"wf10 E4 r2", "file":"runtime/v1/http.go", "from":"\tif c.sleep != nil {\n\t\tc.sleep.Interrupt()\n\t\tc.sleep = nil\n\t}\n", "to":"", "rule":"A connection has at most one live phase timer task: its old timer must be joined, not merely interrupted, before the next starts.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"client-body-budget", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tif len(body) > limits.MaxBodyBytes {", "to":"\tif false {", "rule":"A response body over the client's budget is TooLarge, never a truncated success.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
     {"name":"client-query-order", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"b.WriteString(url.QueryEscape(f.Value))", "to":"b.WriteString(f.Value)", "rule":"Query values arrive as sent: each is escaped once.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
     {"name":"client-follows-redirects", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\t\tCheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },\n", "to":"", "rule":"One request is one exchange: a 3xx comes back as sent.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
@@ -675,6 +675,17 @@
       "rule": "stdlib.md, std http Serve (GX4): a request's defect reaches the serving task, which stops the server and raises it.",
       "killers": [
         "runtime/v1:TestHTTPDisconnectAndDefects"
+      ]
+    },
+    {
+      "name": "gx4-deadline-is-disconnect",
+      "origin": "wf10 GX4",
+      "file": "runtime/v1/http.go",
+      "from": "\treturn ok && ne.Timeout()\n",
+      "to": "\treturn false\n",
+      "rule": "stdlib.md, std http Serve (GX4): only a peer that left stops a request; the read deadline net/http sets after each request does not.",
+      "killers": [
+        "runtime/v1:TestHTTPServerMatchesModel"
       ]
     }
   ]

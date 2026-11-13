@@ -393,15 +393,26 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			defer stop()
 			r := bufio.NewReader(conn)
 			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1 -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
-			armed := func(want time.Duration, step string) {
+			// armed takes the next sleep the server armed, which must be want's.
+			// A phase that one send enters and leaves at once (the header of
+			// a request sent whole) may be armed before its timer sees the
+			// change, or not at all: passing names its budget, skipped once.
+			armed := func(want time.Duration, step string, passing ...time.Duration) {
 				t.Helper()
-				select {
-				case d := <-sl.armed:
-					if d != want {
-						t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
+				for {
+					select {
+					case d := <-sl.armed:
+						if d != want && len(passing) > 0 && d == passing[0] {
+							passing = passing[1:]
+							continue
+						}
+						if d != want {
+							t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
+						}
+					case <-testwait.After(t):
+						t.Fatalf("%s armed no timer; %s", step, replay)
 					}
-				case <-testwait.After(t):
-					t.Fatalf("%s armed no timer; %s", step, replay)
+					return
 				}
 			}
 			send := func(text string) {
@@ -444,7 +455,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 				sl.Advance(limits.ReadHeaderTimeout)
 			case 2:
 				send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
-				armed(limits.ReadBodyTimeout, "the second body")
+				armed(limits.ReadBodyTimeout, "the second body", limits.ReadHeaderTimeout)
 				sl.Advance(limits.ReadBodyTimeout)
 				if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
 					t.Fatalf("the expired body: %d %q; %s", status, body, replay)

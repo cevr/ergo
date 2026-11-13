@@ -15,6 +15,7 @@ runtime/v1/actor.go	Actor.arm	handshake: the runner waits until the timer child 
 runtime/v1/actor.go	replySlot.give	no wait: the reply channel has room for its one answer; the asker is unparked first
 runtime/v1/mailbox.go	mailSender.signal	no wait: wake has room for its one token; the sender is unparked first
 runtime/v1/http.go	HTTPServe	no wait: served has room for Serve's one result
+runtime/v1/http.go	httpServer.timeouts	no task: a connection's timer goroutine waits for its next phase outside every task; only its sleeps are tasks, and they sleep on the Scheduler
 runtime/v1/http_client.go	httpDoURL	no wait: got has room for the exchange's one result
 runtime/v1/rpc.go	RPCCall	no wait: got has room for the post's one result
 
