@@ -82,7 +82,7 @@ func ReceiptOf[S, E](l Ledger[S, E], id CommandID) Option[Receipt] { l.Receipts.
 // with the events as its last record, and the command's receipt as the
 // output, as a Tell. The state's work and timer go on (runtime.md,
 // Machines and actors 9.2: a Tell neither restarts nor cancels them; laws
-// KeepKeepsTheTimer and machines.TellKeepsTheTimer).
+// KeepKeepsTheTimer and machines.StayAndTellKeepTheTimer).
 func Keep[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
 	let r = Receipt{ID: id, Stream: l.Stream, Position: l.Position + 1}
 	Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}

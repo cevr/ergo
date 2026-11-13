@@ -188,8 +188,8 @@
     {
       "name": "dk5-keep-loses-receipt", "origin": "wf10/domain DK5",
       "file": "modules/domain/sourced.ergo",
-      "from": "Receipts: l.Receipts.Put(id, Receipt{ID: id, Stream: l.Stream, Position: p}), Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
-      "to": "Receipts: l.Receipts, Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
+      "from": "Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}",
+      "to": "Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts, Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}",
       "rule": "A Keep's ledger keeps the command's receipt, which the sender reads: CommandKeepsTheWait (its second submit is kept while the desk waits).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
