@@ -5,13 +5,19 @@ import arena
 // SameShapes says so.
 type Shape[E] { Node Node[E], Kids []Shape[E] }
 
-// FrameShape is what f's last pass wrote, the children of the root.
+// FrameShape is what f's last pass wrote, the children of the root; a
+// Same the pass skipped (UC-4) wrote the subtree it kept.
 func FrameShape[E](f *Frame[E]) []Shape[E] { frameShapes(f, -1) }
 
 func frameShapes[E](f *Frame[E], p int) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for s in childrenOf(f, p) {
-		out = out.Append(Shape[E]{Node: f.specs[s].node, Kids: frameShapes[E](f, s)})
+		let sp = f.specs[s]
+		if sp.skip {
+			out = out.Append(Shape[E]{Node: sp.node, Kids: treeShapes[E](f, kidsOf(f, sp.prev))})
+		} else {
+			out = out.Append(Shape[E]{Node: sp.node, Kids: frameShapes[E](f, s)})
+		}
 	}
 	out
 }

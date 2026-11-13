@@ -297,6 +297,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Parked (ui)**: Said of a node, cell or load that a pass under a stopped group did not write or read: out of the tree and the host's copy, kept with its `Id`, cells, loads and subtree until a pass writes it again (it comes back with the same `Id`) or a pass in which no group under its parent stops (it is released). See [stdlib](docs/spec/stdlib.md#ui), UI 15.
 
+**Same (ui)**: `ui.Same(f, key) { … }`, a Box whose body runs only when its `Key` changed since the last pass: otherwise the pass keeps the subtree the body wrote then, and nothing under it runs or is compared. A cell write under it or a change of the disabled state around it runs it again. See [stdlib](docs/spec/stdlib.md#ui), UI 18.
+
 **Location (ui)**: The `ui.Location` operation type: a program's history of places (`URL`s), with `Current`, `Push`, `Replace` and `Back`, bound in `cmd/<name>/main.ergo` (a `MemoryHistory` on the desktop and in a test). A change the program did not make reaches the view as `URLChanged`, through `OnURL`. See [stdlib](docs/spec/stdlib.md#ui), UI 17.
 
 **Locator (ui)**: A `ui.Locator` value that finds nodes on a screen by role and accessible name, by label, by placeholder or by text, in tree order; a scene checks what it finds with a `ui.Matcher`. Roles and names come from the node kinds and labels. See [stdlib](docs/spec/stdlib.md#ui), UI 16.

@@ -13,7 +13,7 @@ import (
 // source fails TestUILoadModel until this restatement changes with it.
 const stdUILoadProbe = `import ui
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
 
 type Missing { V int }
 
@@ -29,7 +29,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 let slots = 6
 
 func genProg(r *rng, depth int, bounded bool) prog {
-	let kind = draw(r, 11)
+	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
 	}
@@ -61,6 +61,8 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pEach{slot: draw(r, slots), kids: kids}
 		case 10:
 			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
 		case _:
 			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
@@ -150,6 +152,17 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 			}
 		}
 		ui.Text(f, "after")
+	case pSame as x:
+		let dig = digest(x.kids, s, row)
+		if x.memo {
+			try ui.Same(f, ui.ByInt(dig)) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		} else {
+			try ui.Box(f, ui.Plain()) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		}
 	case pBound as x:
 		if x.form == 0 {
 			ui.Boundary(f) {
@@ -202,6 +215,143 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
+func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
+	let fl = ui.NewFlag(f, false)
+	ui.Toggle(f, fl, "same")
+	ui.Box(f, ui.Plain()) {
+		let inner = ui.NewFlag(f, false)
+		ui.Toggle(f, inner, "inner")
+	}
+	for c in kids {
+		try render(f, c, s, row)
+	}
+}
+
+func digest(kids []prog, s []int, row int) int {
+	let mut used = []bool{}
+	for _ in 0..slots {
+		used = used.Append(false)
+	}
+	for c in kids {
+		used = reads(c, used)
+	}
+	let mut d = row
+	for i in 0..slots {
+		d = d * 64
+		if used[i] {
+			d = d + s[i]
+		}
+	}
+	d
+}
+
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
+	match p {
+	case pText as x:
+		out[x.slot] = true
+	case pInput as x:
+		out[x.slot] = true
+	case pCheck as x:
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+func unmemo(ps []prog) []prog {
+	let mut out = []prog{}
+	for p in ps {
+		let q = match p {
+		case pBox as x:
+			pBox{slot: x.slot, kids: unmemo(x.kids)}
+		case pRow as x:
+			pRow{kids: unmemo(x.kids)}
+		case pPress as x:
+			pPress{slot: x.slot, kids: unmemo(x.kids)}
+		case pEach as x:
+			pEach{slot: x.slot, kids: unmemo(x.kids)}
+		case pBound as x:
+			pBound{form: x.form, slot: x.slot, kids: unmemo(x.kids)}
+		case pFieldset as x:
+			pFieldset{slot: x.slot, kids: unmemo(x.kids)}
+		case pSame as x:
+			pSame{kids: unmemo(x.kids), memo: false}
+		case _:
+			p
+		}
+		out = out.Append(q)
+	}
+	out
+}
+
+func sameCount(ps []prog, s []int, row int) int {
+	let mut n = 0
+	for p in ps {
+		n = n + match p {
+		case pSame:
+			1
+		case pBox as x:
+			sameCount(x.kids, s, row)
+		case pRow as x:
+			sameCount(x.kids, s, row)
+		case pPress as x:
+			sameCount(x.kids, s, row)
+		case pFieldset as x:
+			sameCount(x.kids, s, row)
+		case pEach as x:
+			let mut c = 0
+			for k in items(s[x.slot]) {
+				c = c + sameCount(x.kids, s, k)
+			}
+			c
+		case pBound as x:
+			boundCount(x, s, row)
+		case _:
+			0
+		}
+	}
+	n
+}
+
+func boundCount(x pBound, s []int, row int) int {
+	let mut c = 0
+	for k in boundRows(x, s, row) {
+		if outcomes(x.kids, s, k).fail != 0 {
+			return 0
+		}
+		c = c + sameCount(x.kids, s, k)
+	}
+	c
+}
+
 type outcome { shapes []ui.Shape[int], fail int, v int }
 
 func done(shapes []ui.Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
@@ -244,6 +394,16 @@ func model(p prog, s []int, row int) outcome {
 			return o
 		}
 		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "same", On: false}), ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: kids}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
@@ -320,6 +480,8 @@ func stopIn(p prog, s []int, row int) bool {
 	case pPress as x:
 		stopsAt(x.kids, s, row)
 	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
 		stopsAt(x.kids, s, row)
 	case pEach as x:
 		for k in items(s[x.slot]) {
@@ -562,6 +724,68 @@ func extras(f *ui.Frame[int], v int) {
 func extraShapes(v int) []ui.Shape[int] {
 	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
+}
+
+
+func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
+		return false
+	}
+	match ui.NodeOf(f, a) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+		case _:
+			if sent(ui.Handle(f, ui.Press[int]{Id: a}).Signal) != sent(ui.Handle(g, ui.Press[int]{Id: b}).Signal) {
+				return false
+			}
+		}
+	case None:
+		return false
+	}
+	if sent(ui.Handle(f, ui.Type[int]{Id: a, Text: "abc"}).Signal) != sent(ui.Handle(g, ui.Type[int]{Id: b, Text: "abc"}).Signal) {
+		return false
+	}
+	let ka = ui.Kids(f, a)
+	let kb = ui.Kids(g, b)
+	if len(ka) != len(kb) {
+		return false
+	}
+	for i in 0..len(ka) {
+		if !signalsMatch(f, g, ka[i], kb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+	let mut all = out
+	match ui.NodeOf(f, id) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+			all = all.Append(id)
+		case _:
+		}
+	case None:
+	}
+	for k in ui.Kids(f, id) {
+		all = toggles(f, k, all)
+	}
+	all
 }
 
 

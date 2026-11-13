@@ -27,6 +27,7 @@ type Frame[E] {
 	nseen   int,
 	index   Map[kid[E], arena.Ref[node[E]]],
 	indexed Map[arena.Ref[node[E]], bool],
+	held    Map[arena.Ref[node[E]], bool],
 	stopped Map[int, bool],
 	parent  int,
 	each    CallSite,
@@ -41,6 +42,7 @@ type Frame[E] {
 	anims   []func(at duration) E,
 	nanims  int,
 	rowRuns int,
+	skips   int,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -85,6 +87,10 @@ type node[E] {
 	binds   Option[bound[E]],
 	cells   Map[ident, Cell],
 	loads   Map[ident, slot],
+	run     Option[memoRun[E]],
+	dirty   bool,
+	memo    arena.Ref[node[E]],
+	up      arena.Ref[node[E]],
 }
 
 // bound is the cell an event on a node writes: the cell id of node owner.
@@ -107,6 +113,10 @@ type spec[E] {
 	onPoint Option[func(p PointerEvent) Option[E]],
 	binds   Option[cellAt],
 	off     bool,
+	memo    int,
+	same    Option[memoRun[E]],
+	skip    bool,
+	live    bool,
 	first   int,
 	last    int,
 	next    int,
@@ -123,11 +133,11 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]]()}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -153,6 +163,9 @@ func begin[E](f *Frame[E]) {
 	}
 	for p, _ in f.indexed {
 		f.indexed = f.indexed.Delete(p)
+	}
+	for p, _ in f.held {
+		f.held = f.held.Delete(p)
 	}
 	for p, _ in f.stopped {
 		f.stopped = f.stopped.Delete(p)
@@ -216,6 +229,7 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 			let k = kid[E]{owner: o, id: idOf(f, r)}
 			if !has(f.index, k) {
 				f.index[k] = r
+				f.held[r] = true
 			}
 		}
 		f.indexed[o] = true
@@ -237,7 +251,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	}
 	let i = f.nspecs
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), first: -1, last: -1, next: -1, before: lastKid(f, p)}
+	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p)}
 	if i < len(f.specs) {
 		f.specs[i] = sp
 	} else {
@@ -276,6 +290,15 @@ func lastKid[E](f *Frame[E], p int) int {
 		return f.last
 	}
 	f.specs[p].last
+}
+
+// memoOf is the nearest Same at or above spec p (-1 the root), -1 for
+// none.
+func memoOf[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return -1
+	}
+	f.specs[p].memo
 }
 
 // childrenOf is the child specs of spec p (-1 the root), in order.
@@ -472,8 +495,10 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		for s >= 0 {
 			let r = f.specs[s].prev
 			f.specs[s].ref = r
-			update(f, s, r)
-			reconcile[E](f, s, r)
+			if !f.specs[s].skip {
+				update(f, s, r)
+				reconcile[E](f, s, r)
+			}
 			s = f.specs[s].before
 		}
 		return
@@ -584,12 +609,16 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 				})
 			}
 		} else {
-			update(f, want[j], refs[j])
+			if !sp.skip {
+				update(f, want[j], refs[j])
+			}
 			if !keep[j] {
 				emit(f, Move{Id: id, Parent: parent, Before: before})
 			}
 		}
-		reconcile[E](f, want[j], refs[j])
+		if src[j] < 0 || !sp.skip {
+			reconcile[E](f, want[j], refs[j])
+		}
 	}
 }
 

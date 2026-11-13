@@ -12,8 +12,9 @@
 // only when its value is even (so a group may leave nothing); pRead,
 // drawn only under a pBound, is a read that fails with Pending or Missing by
 // the state (H8a), so a failure leaves nested containers, Each rows and
-// inner boundaries.
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog}
+// inner boundaries. pSame is a Same (UC-4) keyed by the state its kids read, with an OnKey and a Toggle of its
+// own and one in a Box under it; with memo false it is the Box a Same is, run every pass.
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
 
 // Missing is the drawn read's failure that is not Pending.
 type Missing { V int }
@@ -31,7 +32,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 let slots = 6
 
 func genProg(r *rng, depth int, bounded bool) prog {
-	let kind = draw(r, 11)
+	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
 	}
@@ -63,6 +64,8 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pEach{slot: draw(r, slots), kids: kids}
 		case 10:
 			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
 		case _:
 			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
@@ -157,6 +160,17 @@ func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
 			}
 		}
 		Text(f, "after")
+	case pSame as x:
+		let dig = digest(x.kids, s, row)
+		if x.memo {
+			try Same(f, ByInt(dig)) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		} else {
+			try Box(f, Plain()) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		}
 	case pBound as x:
 		if x.form == 0 {
 			Boundary(f) {
@@ -209,6 +223,154 @@ func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
 	}
 }
 
+// sameBody is what a pSame writes: an OnKey whose signal is its key, a
+// Toggle of its own, a Box with a Toggle (a cell its Same does not own),
+// and its kids.
+func sameBody(f *Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
+	OnKey(f, func(k KeyPress) Option[int] { Some{Value: dig} })
+	let fl = NewFlag(f, false)
+	Toggle(f, fl, "same")
+	Box(f, Plain()) {
+		let inner = NewFlag(f, false)
+		Toggle(f, inner, "inner")
+	}
+	for c in kids {
+		try render(f, c, s, row)
+	}
+}
+
+// digest is a pSame's key: the row and the state values its kids read,
+// so the kids are a function of it.
+func digest(kids []prog, s []int, row int) int {
+	let mut used = []bool{}
+	for _ in 0..slots {
+		used = used.Append(false)
+	}
+	for c in kids {
+		used = reads(c, used)
+	}
+	let mut d = row
+	for i in 0..slots {
+		d = d * 64
+		if used[i] {
+			d = d + s[i]
+		}
+	}
+	d
+}
+
+// reads marks the state slots p reads.
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
+	match p {
+	case pText as x:
+		out[x.slot] = true
+	case pInput as x:
+		out[x.slot] = true
+	case pCheck as x:
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+// unmemo is ps with every pSame run every pass.
+func unmemo(ps []prog) []prog {
+	let mut out = []prog{}
+	for p in ps {
+		let q = match p {
+		case pBox as x:
+			pBox{slot: x.slot, kids: unmemo(x.kids)}
+		case pRow as x:
+			pRow{kids: unmemo(x.kids)}
+		case pPress as x:
+			pPress{slot: x.slot, kids: unmemo(x.kids)}
+		case pEach as x:
+			pEach{slot: x.slot, kids: unmemo(x.kids)}
+		case pBound as x:
+			pBound{form: x.form, slot: x.slot, kids: unmemo(x.kids)}
+		case pFieldset as x:
+			pFieldset{slot: x.slot, kids: unmemo(x.kids)}
+		case pSame as x:
+			pSame{kids: unmemo(x.kids), memo: false}
+		case _:
+			p
+		}
+		out = out.Append(q)
+	}
+	out
+}
+
+// sameCount is the number of outermost pSames ps writes at s outside a
+// group that fails: the Sames a second pass at s keeps without running.
+// One a failing group wrote is cut and parked, so the next pass runs it.
+func sameCount(ps []prog, s []int, row int) int {
+	let mut n = 0
+	for p in ps {
+		n = n + match p {
+		case pSame:
+			1
+		case pBox as x:
+			sameCount(x.kids, s, row)
+		case pRow as x:
+			sameCount(x.kids, s, row)
+		case pPress as x:
+			sameCount(x.kids, s, row)
+		case pFieldset as x:
+			sameCount(x.kids, s, row)
+		case pEach as x:
+			let mut c = 0
+			for k in items(s[x.slot]) {
+				c = c + sameCount(x.kids, s, k)
+			}
+			c
+		case pBound as x:
+			boundCount(x, s, row)
+		case _:
+			0
+		}
+	}
+	n
+}
+
+// boundCount is sameCount of a pBound: none when its body fails in a row.
+func boundCount(x pBound, s []int, row int) int {
+	let mut c = 0
+	for k in boundRows(x, s, row) {
+		if outcomes(x.kids, s, k).fail != 0 {
+			return 0
+		}
+		c = c + sameCount(x.kids, s, k)
+	}
+	c
+}
+
 // outcome is what a program means at a state: its shapes, or the failure
 // that leaves it (0 none, 1 Pending, 2 Missing with value v).
 type outcome { shapes []Shape[int], fail int, v int }
@@ -256,6 +418,16 @@ func model(p prog, s []int, row int) outcome {
 			return o
 		}
 		done([]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []Shape[int]{leaf(ToggleNode{Label: "same", On: false}), Shape[int]{Node: BoxNode{Style: Plain()}, Kids: []Shape[int]{leaf(ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]Shape[int]{Shape[int]{Node: BoxNode{Style: Plain()}, Kids: kids}})
 	case pEach as x:
 		let mut out = []Shape[int]{}
 		for k in items(s[x.slot]) {
@@ -336,6 +508,8 @@ func stopIn(p prog, s []int, row int) bool {
 	case pPress as x:
 		stopsAt(x.kids, s, row)
 	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
 		stopsAt(x.kids, s, row)
 	case pEach as x:
 		for k in items(s[x.slot]) {
@@ -790,6 +964,140 @@ law LocatorAgreesWithAccessTree(seed int) {
 					}
 				}
 			}
+		}
+	}
+	true
+}
+
+// opsEqual is whether two patches are the same changes.
+func opsEqual(a []Op[int], b []Op[int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// signalsMatch is whether a press and a text on each node of f under id
+// send what they send on the node of g at the same place, and the trees
+// have one shape. A Toggle is not pressed: its press writes its flag.
+func signalsMatch(f *Frame[int], g *Frame[int], a Id[int], b Id[int]) bool {
+	if NodeOf(f, a) != NodeOf(g, b) {
+		return false
+	}
+	match NodeOf(f, a) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case ToggleNode:
+		case _:
+			if sent(Handle(f, Press[int]{Id: a}).Signal) != sent(Handle(g, Press[int]{Id: b}).Signal) {
+				return false
+			}
+		}
+	case None:
+		return false
+	}
+	if sent(Handle(f, Type[int]{Id: a, Text: "abc"}).Signal) != sent(Handle(g, Type[int]{Id: b, Text: "abc"}).Signal) {
+		return false
+	}
+	let ka = Kids(f, a)
+	let kb = Kids(g, b)
+	if len(ka) != len(kb) {
+		return false
+	}
+	for i in 0..len(ka) {
+		if !signalsMatch(f, g, ka[i], kb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// toggles is the Toggles under id, in tree order.
+func toggles(f *Frame[int], id Id[int], out []Id[int]) []Id[int] {
+	let mut all = out
+	match NodeOf(f, id) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case ToggleNode:
+			all = all.Append(id)
+		case _:
+		}
+	case None:
+	}
+	for k in Kids(f, id) {
+		all = toggles(f, k, all)
+	}
+	all
+}
+
+// SameEqualsRecompute (UC-4): a Same that skips its body gives what
+// running it gives. Over a run of states that change one slot or none,
+// with presses of Toggles under Sames between passes, the programs with
+// Sames (and a revived one, whose boundary fails and passes in turn) and
+// the same programs with each Same run every pass give equal patches and
+// trees, and send equal signals on every node and on a key; a pass at the
+// state of the pass before, with no press between, keeps every outermost
+// Same outside a failing group without running it (Skips).
+law SameEqualsRecompute(seed int, steps int) {
+	let mut r = seeded(seed)
+	// revived: a Same in a Box in a boundary whose read, of a slot the
+	// Same's key does not hold, fails and passes in turn, so the Box is
+	// parked and comes back while the Same's key stays.
+	let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}}
+	let ps = genRoot(&r).Append(revived)
+	let qs = unmemo(ps)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut s = genState(&r)
+	let mut again = false
+	let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+	for _ in 0..(steps%8+8)%8+2 {
+		let a = pass(&f, ps, s)
+		let b = pass(&g, qs, s)
+		if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) {
+			return false
+		}
+		if again && Skips(&f) != sameCount(ps, s, 0) {
+			return false
+		}
+		if sent(Handle(&f, key).Signal) != sent(Handle(&g, key).Signal) {
+			return false
+		}
+		let ka = Kids(&f, Root(&f))
+		let kb = Kids(&g, Root(&g))
+		if len(ka) != len(kb) {
+			return false
+		}
+		for i in 0..len(ka) {
+			if !signalsMatch(&f, &g, ka[i], kb[i]) {
+				return false
+			}
+		}
+		again = false
+		let pick = draw(&r, 4)
+		if pick == 0 {
+			again = true
+		} else if pick == 1 {
+			let ta = toggles(&f, Root(&f), []Id[int]{})
+			let tb = toggles(&g, Root(&g), []Id[int]{})
+			if len(ta) != len(tb) {
+				return false
+			}
+			if len(ta) > 0 {
+				let i = draw(&r, len(ta))
+				if Handle(&f, Press[int]{Id: ta[i]}) != Handle(&g, Press[int]{Id: tb[i]}) {
+					return false
+				}
+			}
+		} else if pick == 2 {
+			s[draw(&r, slots)] = draw(&r, 64)
+		} else {
+			s[3] = draw(&r, 3)
 		}
 	}
 	true

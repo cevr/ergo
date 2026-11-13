@@ -13,7 +13,7 @@ import (
 // source fails TestUITreeModel until this restatement changes with it.
 const stdUITreeProbe = `import ui
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
 
 type Missing { V int }
 
@@ -29,7 +29,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 let slots = 6
 
 func genProg(r *rng, depth int, bounded bool) prog {
-	let kind = draw(r, 11)
+	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
 	}
@@ -61,6 +61,8 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pEach{slot: draw(r, slots), kids: kids}
 		case 10:
 			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
 		case _:
 			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
@@ -150,6 +152,17 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 			}
 		}
 		ui.Text(f, "after")
+	case pSame as x:
+		let dig = digest(x.kids, s, row)
+		if x.memo {
+			try ui.Same(f, ui.ByInt(dig)) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		} else {
+			try ui.Box(f, ui.Plain()) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		}
 	case pBound as x:
 		if x.form == 0 {
 			ui.Boundary(f) {
@@ -202,6 +215,143 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
+func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
+	let fl = ui.NewFlag(f, false)
+	ui.Toggle(f, fl, "same")
+	ui.Box(f, ui.Plain()) {
+		let inner = ui.NewFlag(f, false)
+		ui.Toggle(f, inner, "inner")
+	}
+	for c in kids {
+		try render(f, c, s, row)
+	}
+}
+
+func digest(kids []prog, s []int, row int) int {
+	let mut used = []bool{}
+	for _ in 0..slots {
+		used = used.Append(false)
+	}
+	for c in kids {
+		used = reads(c, used)
+	}
+	let mut d = row
+	for i in 0..slots {
+		d = d * 64
+		if used[i] {
+			d = d + s[i]
+		}
+	}
+	d
+}
+
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
+	match p {
+	case pText as x:
+		out[x.slot] = true
+	case pInput as x:
+		out[x.slot] = true
+	case pCheck as x:
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+func unmemo(ps []prog) []prog {
+	let mut out = []prog{}
+	for p in ps {
+		let q = match p {
+		case pBox as x:
+			pBox{slot: x.slot, kids: unmemo(x.kids)}
+		case pRow as x:
+			pRow{kids: unmemo(x.kids)}
+		case pPress as x:
+			pPress{slot: x.slot, kids: unmemo(x.kids)}
+		case pEach as x:
+			pEach{slot: x.slot, kids: unmemo(x.kids)}
+		case pBound as x:
+			pBound{form: x.form, slot: x.slot, kids: unmemo(x.kids)}
+		case pFieldset as x:
+			pFieldset{slot: x.slot, kids: unmemo(x.kids)}
+		case pSame as x:
+			pSame{kids: unmemo(x.kids), memo: false}
+		case _:
+			p
+		}
+		out = out.Append(q)
+	}
+	out
+}
+
+func sameCount(ps []prog, s []int, row int) int {
+	let mut n = 0
+	for p in ps {
+		n = n + match p {
+		case pSame:
+			1
+		case pBox as x:
+			sameCount(x.kids, s, row)
+		case pRow as x:
+			sameCount(x.kids, s, row)
+		case pPress as x:
+			sameCount(x.kids, s, row)
+		case pFieldset as x:
+			sameCount(x.kids, s, row)
+		case pEach as x:
+			let mut c = 0
+			for k in items(s[x.slot]) {
+				c = c + sameCount(x.kids, s, k)
+			}
+			c
+		case pBound as x:
+			boundCount(x, s, row)
+		case _:
+			0
+		}
+	}
+	n
+}
+
+func boundCount(x pBound, s []int, row int) int {
+	let mut c = 0
+	for k in boundRows(x, s, row) {
+		if outcomes(x.kids, s, k).fail != 0 {
+			return 0
+		}
+		c = c + sameCount(x.kids, s, k)
+	}
+	c
+}
+
 type outcome { shapes []ui.Shape[int], fail int, v int }
 
 func done(shapes []ui.Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
@@ -244,6 +394,16 @@ func model(p prog, s []int, row int) outcome {
 			return o
 		}
 		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "same", On: false}), ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: kids}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
@@ -320,6 +480,8 @@ func stopIn(p prog, s []int, row int) bool {
 	case pPress as x:
 		stopsAt(x.kids, s, row)
 	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
 		stopsAt(x.kids, s, row)
 	case pEach as x:
 		for k in items(s[x.slot]) {
@@ -738,6 +900,127 @@ func lawLocatorAgreesWithAccessTree(seed int) bool {
 	true
 }
 
+func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
+		return false
+	}
+	match ui.NodeOf(f, a) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+		case _:
+			if sent(ui.Handle(f, ui.Press[int]{Id: a}).Signal) != sent(ui.Handle(g, ui.Press[int]{Id: b}).Signal) {
+				return false
+			}
+		}
+	case None:
+		return false
+	}
+	if sent(ui.Handle(f, ui.Type[int]{Id: a, Text: "abc"}).Signal) != sent(ui.Handle(g, ui.Type[int]{Id: b, Text: "abc"}).Signal) {
+		return false
+	}
+	let ka = ui.Kids(f, a)
+	let kb = ui.Kids(g, b)
+	if len(ka) != len(kb) {
+		return false
+	}
+	for i in 0..len(ka) {
+		if !signalsMatch(f, g, ka[i], kb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+	let mut all = out
+	match ui.NodeOf(f, id) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+			all = all.Append(id)
+		case _:
+		}
+	case None:
+	}
+	for k in ui.Kids(f, id) {
+		all = toggles(f, k, all)
+	}
+	all
+}
+
+func lawSameEqualsRecompute(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	// revived: a ui.Same in a ui.Box in a boundary whose read, of a slot the
+	// ui.Same's key does not hold, fails and passes in turn, so the ui.Box is
+	// parked and comes back while the ui.Same's key stays.
+	let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}}
+	let ps = genRoot(&r).Append(revived)
+	let qs = unmemo(ps)
+	let mut f = ui.NewFrame[int]()
+	let mut g = ui.NewFrame[int]()
+	let mut s = genState(&r)
+	let mut again = false
+	let key = ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+	for _ in 0..(steps%8+8)%8+2 {
+		let a = pass(&f, ps, s)
+		let b = pass(&g, qs, s)
+		if !opsEqual(a, b) || !ui.SameShapes(ui.FrameShape(&f), ui.FrameShape(&g)) || !ui.SameShapes(ui.TreeShape(&f), ui.TreeShape(&g)) {
+			return false
+		}
+		if again && ui.Skips(&f) != sameCount(ps, s, 0) {
+			return false
+		}
+		if sent(ui.Handle(&f, key).Signal) != sent(ui.Handle(&g, key).Signal) {
+			return false
+		}
+		let ka = ui.Kids(&f, ui.Root(&f))
+		let kb = ui.Kids(&g, ui.Root(&g))
+		if len(ka) != len(kb) {
+			return false
+		}
+		for i in 0..len(ka) {
+			if !signalsMatch(&f, &g, ka[i], kb[i]) {
+				return false
+			}
+		}
+		again = false
+		let pick = draw(&r, 4)
+		if pick == 0 {
+			again = true
+		} else if pick == 1 {
+			let ta = toggles(&f, ui.Root(&f), []ui.Id[int]{})
+			let tb = toggles(&g, ui.Root(&g), []ui.Id[int]{})
+			if len(ta) != len(tb) {
+				return false
+			}
+			if len(ta) > 0 {
+				let i = draw(&r, len(ta))
+				if ui.Handle(&f, ui.Press[int]{Id: ta[i]}) != ui.Handle(&g, ui.Press[int]{Id: tb[i]}) {
+					return false
+				}
+			}
+		} else if pick == 2 {
+			s[draw(&r, slots)] = draw(&r, 64)
+		} else {
+			s[3] = draw(&r, 3)
+		}
+	}
+	true
+}
+
 test UiIncrementalEqualsFresh(seed int, steps int) {
 	assert lawIncrementalEqualsFresh(seed, steps)
 }
@@ -757,6 +1040,10 @@ test UiPressGivesSignal(seed int) {
 test UiLocatorAgreesWithAccessTree(seed int) {
 	assert lawLocatorAgreesWithAccessTree(seed)
 }
+
+test UiSameEqualsRecompute(seed int, steps int) {
+	assert lawSameEqualsRecompute(seed, steps)
+}
 `
 
 // stdUITreeStatements is the statement of each ui law, as the ledger writes it,
@@ -767,6 +1054,7 @@ var stdUITreeStatements = map[string]string{
 	"ui KeyedIdentity":               `KeyedIdentity(seed int, count int) { let mut r = seeded(seed) let mut xs = []int{} for i in 0..(count%12+12)%12+1 { xs = xs.Append(i * 7) } let ys = shuffled(xs, &r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, keyedRows, xs)) catch { case BadPatch: return false } let before = rowIds(&f, xs) let ops = Render(&f, keyedRows, ys) Apply(&m, ops) catch { case BadPatch: return false } for op in ops { match op { case Move[int]: case _: return false } } let after = rowIds(&f, ys) if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) { return false } for x, ids in before { if after.Get(x) != (Some{Value: ids}) { return false } } true }`,
 	"ui PressGivesSignal":            `PressGivesSignal(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut ok = true for _ in 0..3 { let _ = pass(&f, ps, genState(&r)) for k in Kids(&f, Root(&f)) { ok = ok && signalsAgree(&f, k, false) } } ok }`,
 	"ui LocatorAgreesWithAccessTree": `LocatorAgreesWithAccessTree(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for _ in 0..3 { let s = genState(&r) let ops = Render(&f, func(g *Frame[int], st []int) { for p in ps { render(g, p, st, 0) catch { case Missing: Unreachable("ui laws: a read is drawn only under a boundary") case Pending: Unreachable("ui laws: a read is drawn only under a boundary") } } extras(g, st[0]) }, s) Apply(&m, ops) catch { case BadPatch: return false } let mut shapes = models(ps, s, 0) for x in extraShapes(s[0]) { shapes = shapes.Append(x) } let want = accessModel(shapes, false, "") let mut locs = []Locator{} for role in []Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Generic} { locs = locs.Append(WithRole{Role: role, Name: ""}) } let w = want[draw(&r, len(want))] locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name}) locs = locs.Append(WithLabel{Label: w.a.Name}) locs = locs.Append(WithPlaceholder{Text: w.a.Name}) locs = locs.Append(WithText{Text: w.a.Name}) for loc in locs { let mut model = []seen{} for x in want { if wants(loc, x) { model = model.Append(x) } } let got = LocateIn(&m, loc) if len(got) != len(model) { return false } for i, id in got { if AccessOf(&m, id) != model[i].a { return false } } if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) { return false } if len(model) > 0 { let x = model[0] let checked = x.a.Checked == (Some{Value: true}) let unchecked = x.a.Checked == (Some{Value: false}) if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked { return false } if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) { return false } if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) { return false } match x.a.Value { case Some[string] as v: if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) { return false } case None: if matches(&m, loc, ToHaveValue{Value: ""}) { return false } } } } } true }`,
+	"ui SameEqualsRecompute":         `SameEqualsRecompute(seed int, steps int) { let mut r = seeded(seed) // revived: a Same in a Box in a boundary whose read, of a slot the // Same's key does not hold, fails and passes in turn, so the Box is // parked and comes back while the Same's key stays. let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}} let ps = genRoot(&r).Append(revived) let qs = unmemo(ps) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut s = genState(&r) let mut again = false let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}} for _ in 0..(steps%8+8)%8+2 { let a = pass(&f, ps, s) let b = pass(&g, qs, s) if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) { return false } if again && Skips(&f) != sameCount(ps, s, 0) { return false } if sent(Handle(&f, key).Signal) != sent(Handle(&g, key).Signal) { return false } let ka = Kids(&f, Root(&f)) let kb = Kids(&g, Root(&g)) if len(ka) != len(kb) { return false } for i in 0..len(ka) { if !signalsMatch(&f, &g, ka[i], kb[i]) { return false } } again = false let pick = draw(&r, 4) if pick == 0 { again = true } else if pick == 1 { let ta = toggles(&f, Root(&f), []Id[int]{}) let tb = toggles(&g, Root(&g), []Id[int]{}) if len(ta) != len(tb) { return false } if len(ta) > 0 { let i = draw(&r, len(ta)) if Handle(&f, Press[int]{Id: ta[i]}) != Handle(&g, Press[int]{Id: tb[i]}) { return false } } } else if pick == 2 { s[draw(&r, slots)] = draw(&r, 64) } else { s[3] = draw(&r, 3) } } true }`,
 }
 
 // TestUITreeModel runs the probe's tests with --seed 1; lawledger.Run holds that

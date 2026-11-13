@@ -213,6 +213,8 @@ func settle[E](f *Frame[E]) {
 		m[l.id] = s
 		loads[o] = m
 	}
+	let mut skipped = Map[arena.Ref[node[E]], bool]{}
+	f.skips = 0
 	for i in 0..f.nspecs {
 		let s = f.specs[i]
 		let mut b Option[bound[E]] = None
@@ -221,25 +223,52 @@ func settle[E](f *Frame[E]) {
 			b = Some{Value: bound[E]{owner: made(f, c.Value.parent), id: c.Value.id}}
 		case None:
 		}
-		change(f, s.ref, func(n *node[E]) { n.binds = b })
+		if s.skip {
+			// A skipped Same keeps what its last run stored (UC-4).
+			skipped[s.ref] = true
+			f.skips = f.skips + 1
+		} else {
+			let up = memoRef(f, s.parent)
+			change(f, s.ref, func(n *node[E]) {
+				n.binds = b
+				match s.same {
+				case Some[memoRun[E]] as run:
+					n.run = Some{Value: run.Value}
+					n.dirty = false
+					n.up = up
+				case None:
+				}
+			})
+		}
+	}
+	for i in 0..f.ncells {
+		let c = f.cells[i]
+		if c.parent >= 0 {
+			let memo = memoRef(f, c.parent)
+			change(f, made(f, c.parent), func(n *node[E]) { n.memo = memo })
+		}
 	}
 	let mut parks = Map[arena.Ref[node[E]], bool]{}
 	for p, _ in f.stopped {
 		parks[made(f, p)] = true
 	}
-	keep(f, f.root, cells, loads, parks)
+	keep(f, f.root, cells, loads, parks, skipped)
 }
 
 // keep walks the tree: each node gets this pass's cells and loads, and each
 // load it held that this pass does not keep is cancelled.
 // A node that holds no cell or load and gets none keeps its empty maps:
 // only the nodes with state are written (GP frame cost, UC-2).
-func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
+// A skipped Same and what is under it keep what they hold.
+func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool], skipped Map[arena.Ref[node[E]], bool]) {
+	if has(skipped, r) {
+		return
+	}
 	if hasState(f, r) || has(cells, r) || has(loads, r) {
 		store(f, r, cells, loads, has(parks, r))
 	}
 	for i in 0..kidCount(f, r) {
-		keep[E](f, kidAt(f, r, i), cells, loads, parks)
+		keep[E](f, kidAt(f, r, i), cells, loads, parks, skipped)
 	}
 }
 
@@ -304,6 +333,16 @@ func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], M
 		m.cells = c
 		m.loads = now
 	})
+}
+
+// memoRef is the node of this pass of the nearest Same at or above spec
+// p (-1 the root), Null for none.
+func memoRef[E](f *Frame[E], p int) arena.Ref[node[E]] {
+	let m = memoOf(f, p)
+	if m < 0 {
+		return arena.Null[node[E]]()
+	}
+	f.specs[m].ref
 }
 
 // made is the node of this pass that spec index p (-1 the root) became.
@@ -387,10 +426,16 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: g.Value(x.Text)}
 		case None:
 		}
-		match n.binds {
-		case Some[bound[E]] as d:
-			out.Changed = write(f, d.Value, TextCell{Value: x.Text})
-		case None:
+		// Only a Field takes a text into its draft: a Toggle's flag and a
+		// Submit's draft take none.
+		match n.node {
+		case InputNode:
+			match n.binds {
+			case Some[bound[E]] as d:
+				out.Changed = write(f, d.Value, TextCell{Value: x.Text})
+			case None:
+			}
+		case _:
 		}
 	case Arrived[E] as a:
 		if Arrive(f, a.Epoch) {
@@ -430,6 +475,9 @@ func write[E](f *Frame[E], b bound[E], c Cell) bool {
 	match nodeAt(f, b.owner).cells.Get(b.id) {
 	case Some[Cell] as old:
 		change(f, b.owner, func(n *node[E]) { n.cells[b.id] = c })
+		if old.Value != c {
+			touched(f, b.owner)
+		}
 		old.Value != c
 	case None:
 		false
