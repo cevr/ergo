@@ -130,5 +130,11 @@ of 120 steps each (`-examples.seed=N` replays one).
 - `TestExamplesCrossBuild` builds the window binaries for darwin/arm64,
   windows/amd64 and js/wasm (screen's binding states those platforms), and
   runs the js/wasm ones headless under Node (Go's `wasm_exec_node.js`) on
-  three seeded scripts, each printing what `ui.TestHost` prints.
+  three seeded scripts, each printing what `ui.TestHost` prints. Node runs
+  them without `GOMAXPROCS`: `wasm_exec_node.js` hands node's environment
+  to the program, and Go's runtime on js/wasm dies in its own start
+  ("newosproc: not implemented") when it is over 1, before any program
+  code runs, so no fix in the program can help
+  (`TestWasmRunsUnderAnInheritedGOMAXPROCS`). A browser passes no
+  environment. Run a js/wasm binary under node with `GOMAXPROCS` unset.
 - `testdata/mutants.json` is the module's mutant ledger.

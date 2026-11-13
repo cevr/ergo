@@ -162,6 +162,15 @@
       "to": " linux/arm64\n",
       "rule": "the window binaries build for Windows and the browser: screen's binding states windows/amd64 and js/wasm, where it holds (ergo bind go)",
       "killers": ["mygo:TestExamplesCrossBuild"]
+    },
+    {
+      "name": "wasm-node-env-inherits-gomaxprocs",
+      "origin": "LY P-ui queue (GP's browser-run finding)",
+      "file": "hosts/mygo/examples_test.go",
+      "from": "\tcmd.Env = nodeEnv()\n",
+      "to": "\tcmd.Env = os.Environ()\n",
+      "rule": "a js/wasm binary under node runs without the gate's GOMAXPROCS: the Go runtime on js/wasm dies in its start with newosproc when GOMAXPROCS is over 1",
+      "killers": ["mygo:TestWasmRunsUnderAnInheritedGOMAXPROCS"]
     }
   ]
 }
