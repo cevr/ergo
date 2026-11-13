@@ -20,6 +20,7 @@ type facts struct {
 	typ      check.Type
 	val      constant.Value
 	hasVal   bool
+	cval     Value // val as a Value, once made outside a generic body
 	ctx      *check.With
 	conv     check.Conversion
 	hasConv  bool
@@ -35,7 +36,59 @@ type facts struct {
 
 // factTable holds the facts of one package's expressions, by node: the
 // pointer an expression's interface holds (nodeKey).
-type factTable map[unsafe.Pointer]*facts
+type factTable = *nodeTable
+
+// nodeTable is an open-addressed table from a node's pointer to its facts
+// (ORACLE O32): one multiply to hash, keys and values in two flat arrays,
+// a linear probe. The Go map it replaces spent a seventh of the
+// evaluator's instructions per step.
+type nodeTable struct {
+	keys  []unsafe.Pointer
+	vals  []*facts
+	n     int
+	shift uint
+}
+
+func newNodeTable() *nodeTable {
+	return &nodeTable{keys: make([]unsafe.Pointer, 1024), vals: make([]*facts, 1024), shift: 64 - 10}
+}
+
+func (t *nodeTable) slot(k unsafe.Pointer) int {
+	return int((uint64(uintptr(k)) >> 3) * 0x9E3779B97F4A7C15 >> t.shift)
+}
+
+// get is k's facts, nil when none are gathered.
+func (t *nodeTable) get(k unsafe.Pointer) *facts {
+	mask := len(t.keys) - 1
+	for i := t.slot(k); ; i = (i + 1) & mask {
+		switch t.keys[i] {
+		case k:
+			return t.vals[i]
+		case nil:
+			return nil
+		}
+	}
+}
+
+// put sets k's facts; k has none yet.
+func (t *nodeTable) put(k unsafe.Pointer, f *facts) {
+	if 2*(t.n+1) > len(t.keys) {
+		old, oldVals := t.keys, t.vals
+		t.keys, t.vals, t.n, t.shift = make([]unsafe.Pointer, 2*len(old)), make([]*facts, 2*len(old)), 0, t.shift-1
+		for i, ok := range old {
+			if ok != nil {
+				t.put(ok, oldVals[i])
+			}
+		}
+	}
+	mask := len(t.keys) - 1
+	i := t.slot(k)
+	for t.keys[i] != nil {
+		i = (i + 1) & mask
+	}
+	t.keys[i], t.vals[i] = k, f
+	t.n++
+}
 
 // nodeKey is the pointer x holds. Every syntax node is a pointer type
 // (its Pos method has a pointer receiver), so the pointer names the node,
@@ -61,7 +114,7 @@ func (in *interp) table(info *check.Info) factTable {
 		}
 		t := in.factTables[info]
 		if t == nil {
-			t = factTable{}
+			t = newNodeTable()
 			in.factTables[info] = t
 		}
 		in.factInfo, in.facts = info, t
@@ -73,7 +126,7 @@ func (in *interp) table(info *check.Info) factTable {
 // first use.
 func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	k := nodeKey(x)
-	if f := t[k]; f != nil {
+	if f := t.get(k); f != nil {
 		return f
 	}
 	f := &facts{typ: info.Types[x], ctx: info.ContextValues[x], elems: info.ImplicitElems[x], covered: info.TryCovers[x] != nil, owned: info.OwnedTemps[x], instance: info.Instances[x], pattern: info.Patterns[x]}
@@ -93,7 +146,7 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	case *syntax.CallExpr:
 		f.call = info.Calls[h]
 	}
-	t[k] = f
+	t.put(k, f)
 	return f
 }
 

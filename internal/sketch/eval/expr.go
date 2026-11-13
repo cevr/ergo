@@ -92,10 +92,16 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 // exprFacts is exprOf with x's facts.
 func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if c, ok := f.val, f.hasVal; ok {
+		if f.cval != nil && fr.env == nil {
+			return f.cval, nil
+		}
 		t := fr.rt(f.typ)
 		v, ok := fromConstant(t.t, c)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
+		}
+		if fr.env == nil {
+			f.cval = v // a constant's value, made once outside a generic body
 		}
 		return v, nil
 	}

@@ -111,7 +111,7 @@ func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
 // bind binds v to a new slot holding val.
 func (fr *frame) bind(v *check.Var, val Value) {
 	if v != nil {
-		fr.vars.set(v, &slot{v: val})
+		fr.vars.bind(v, val)
 	}
 }
 

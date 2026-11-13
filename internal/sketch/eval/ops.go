@@ -17,6 +17,30 @@ type ordered interface{ integer | float | ~string }
 // types give the target's wrapping and rounding; the defects Go panics on
 // (an integer divided by zero, a negative shift) are defects here.
 func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) (Value, *abrupt) {
+	if x, ok := a.(int64); ok {
+		if y, ok := b.(int64); ok {
+			switch op {
+			case syntax.ADD:
+				return boxInt(x + y), nil
+			case syntax.SUB:
+				return boxInt(x - y), nil
+			case syntax.MUL:
+				return boxInt(x * y), nil
+			case syntax.LSS:
+				return x < y, nil
+			case syntax.LEQ:
+				return x <= y, nil
+			case syntax.GTR:
+				return x > y, nil
+			case syntax.GEQ:
+				return x >= y, nil
+			case syntax.EQL:
+				return x == y, nil
+			case syntax.NEQ:
+				return x != y, nil
+			}
+		}
+	}
 	switch op {
 	case syntax.EQL, syntax.NEQ:
 		eq, ab := in.equal(fr, at, a, b)

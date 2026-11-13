@@ -97,7 +97,7 @@ func fromConstant(t check.Type, v constant.Value) (Value, bool) {
 func fromInt64(k check.BasicKind, i int64) (Value, bool) {
 	switch k {
 	case check.Int, check.Int64, check.Duration:
-		return i, true
+		return boxInt(i), true
 	case check.Int8:
 		return int8(i), true
 	case check.Int16:
