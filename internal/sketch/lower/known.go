@@ -230,7 +230,7 @@ func (l *lowerer) knownBody(g *check.Func, closed bool) bool {
 	}
 	info := g.Pkg.Info
 	s := g.Sig
-	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 {
+	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 || hasSlot(s) {
 		return false
 	}
 	fp, ok := info.Footprints[d]

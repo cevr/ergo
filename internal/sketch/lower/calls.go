@@ -804,13 +804,13 @@ func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 func (fc *funcCtx) typeArgs(sig *check.Signature, args []check.Type, site syntax.Node) string {
 	var out []string
 	for i, tp := range sig.TParams {
-		if tp.Kind != check.KindType {
+		if !goParam(tp) {
 			continue
 		}
 		if i >= len(args) {
 			ice(site, "a generic call with %d type arguments for %d parameters", len(args), len(sig.TParams))
 		}
-		out = append(out, fc.goType(args[i]))
+		out = append(out, fc.goArg(tp, args[i]))
 	}
 	if len(out) == 0 {
 		return ""
@@ -863,7 +863,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	}
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {
-			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
+			if goParam(tp) && !paramsMention(f.Sig, tp) {
 				unreachable(site, ruleGenericValue, "the generic function %s used as a value with no instance, and its type parameter %s in no parameter", f.Name, tp.Name)
 			}
 		}

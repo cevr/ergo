@@ -1600,6 +1600,7 @@ func trailingRows(left []*TypeParam) bool {
 // before anything is built (class E): an argument interned before costs one
 // lookup, however deep it is.
 func (c *checker) instantiate(orig *Named, targs []Type) *Named {
+	targs = c.slotArgs(orig, targs)
 	key, infer := c.types.named(orig, targs)
 	cache := c.instance
 	if infer {
@@ -1615,6 +1616,127 @@ func (c *checker) instantiate(orig *Named, targs []Type) *Named {
 	cache[key] = inst
 	c.instancesMade++
 	return inst
+}
+
+// slotArgs is targs with each type parameter's argument that is a row
+// value of one error type replaced by that type (CK-rowarg; rows.md,
+// Error rows 8; types.md, Generics 8): X[int, A] is one type whether A was
+// written as a type, written as a row, or bound through a row parameter.
+// A row value whose one element is a row parameter stays a row value; so
+// does one of several elements, or of none, or of an unknown row.
+func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
+	var out []Type
+	for i, a := range targs {
+		if i >= len(orig.TParams) || orig.TParams[i].Kind != KindType {
+			continue
+		}
+		if m := c.oneMember(a); m != nil {
+			if out == nil {
+				out = slices.Clone(targs)
+			}
+			out[i] = m
+		}
+	}
+	if out == nil {
+		return targs
+	}
+	return out
+}
+
+// markSlotParams sets TypeParam.Slot on each error row parameter of sig
+// that stands alone as a type argument of a generic type in sig's
+// parameters or results, at any depth.
+func markSlotParams(sig *Signature) {
+	own := map[*TypeParam]bool{}
+	for _, tp := range sig.TParams {
+		if tp.Kind == KindErrors {
+			own[tp] = true
+		}
+	}
+	if len(own) == 0 {
+		return
+	}
+	seen := map[Type]bool{}
+	var walk func(t Type)
+	walk = func(t Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := t.(type) {
+		case *Named:
+			orig := u.origin()
+			for i, a := range u.TArgs {
+				if i < len(orig.TParams) && orig.TParams[i].Kind == KindType {
+					if tp := SlotRow(a); tp != nil && own[tp] {
+						tp.Slot = true
+					}
+				}
+				walk(a)
+			}
+		case *Slice:
+			walk(u.Elem)
+		case *Array:
+			walk(u.Elem)
+		case *Map:
+			walk(u.Key)
+			walk(u.Elem)
+		case *Pointer:
+			walk(u.Elem)
+		case *Tuple:
+			for _, e := range u.Types {
+				walk(e)
+			}
+		case *Signature:
+			for _, p := range u.Params {
+				walk(p.Type)
+			}
+			for _, r := range u.Results {
+				walk(r)
+			}
+		}
+	}
+	for _, p := range sig.Params {
+		walk(p.Type)
+	}
+	for _, r := range sig.Results {
+		walk(r)
+	}
+}
+
+// SlotRow is the error row parameter a row value holds alone, or nil: the
+// type argument that a Slot parameter stands for (CK-rowarg).
+func SlotRow(t Type) *TypeParam {
+	u, ok := t.(*Union)
+	if !ok || u.Row == nil {
+		return nil
+	}
+	es := u.Row.Elems()
+	if len(es) != 1 {
+		return nil
+	}
+	tp, _ := es[0].(*TypeParam)
+	if tp == nil || tp.Kind != KindErrors {
+		return nil
+	}
+	return tp
+}
+
+// oneMember is the error type a row value of exactly one error type holds,
+// or nil for any other type.
+func (c *checker) oneMember(t Type) Type {
+	u, ok := t.(*Union)
+	if !ok || u.Row == nil {
+		return nil
+	}
+	es := u.Row.Elems()
+	if len(es) != 1 {
+		return nil
+	}
+	if n, ok := es[0].(*Named); ok {
+		return n
+	}
+	return nil
 }
 
 func (n *Named) instanceUnder(inst *Named) Type {
@@ -2080,6 +2202,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
+	markSlotParams(sig)
 	closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)

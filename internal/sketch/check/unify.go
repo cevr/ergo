@@ -210,6 +210,30 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		}
 		return true
 	}
+	// The row value of a free error row parameter, in a type position,
+	// binds the parameter to the argument's row: a row value's elements,
+	// or one error type (CK-rowarg; types.md, Generics 6). After row
+	// erasure Go infers the same: the parameter is a Go type parameter
+	// there, and the argument's value type its argument.
+	if xu, ok := x.(*Union); ok && xu.Row != nil && in.rowFree(xu.Row) {
+		var ar *Row
+		switch y := y.(type) {
+		case *Union:
+			if y.Row == nil {
+				return false
+			}
+			ar = y.Row
+		case *Named:
+			if !in.c.isErrorValue(y) {
+				return false
+			}
+			ar = newRow().with(in.c.types, y)
+		default:
+			return false
+		}
+		in.unifyRow(xu.Row, ar)
+		return true
+	}
 	// A named union matches one of its variants (types.md, Unions).
 	if xn, ok := x.(*Named); ok && mode&unifyExact == 0 {
 		if u := asUnion(xn); u != nil {

@@ -242,7 +242,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 		return nil
 	}
 	fd := fc.l.funcDecl(f)
-	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 {
+	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 || hasSlot(f.Sig) {
 		return nil
 	}
 	name, ok := fc.l.pkgNames[pkgKey{"spec", specKey{f, rec.tn}}]

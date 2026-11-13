@@ -476,6 +476,10 @@ func constraintOf(tp *check.TypeParam) *check.Interface {
 // as a witness value (witness.go; stage E1 orchestrator answer 2), and a
 // type declaration's fields need none.
 func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
+	if tp.Slot {
+		// A Slot row's Go argument is an error type, or error (goParam).
+		return "error"
+	}
 	if tp.Constraint == nil {
 		return "any"
 	}
@@ -981,10 +985,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		ice(site, "%s declares %d parameters and its signature has %d", f.Name, len(params), len(f.Sig.Params))
 	}
 	// Type parameters: a method's are its receiver's; a function's are its
-	// own type-kinded ones.
+	// own type-kinded ones and its Slot rows (goParam).
 	var own []*check.TypeParam
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType {
+		if goParam(tp) {
 			own = append(own, tp)
 		}
 	}

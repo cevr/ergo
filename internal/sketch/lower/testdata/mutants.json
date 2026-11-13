@@ -3951,6 +3951,50 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "ckra-slot-erased",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\treturn tp.Kind == check.KindType || tp.Slot\n",
+      "to": "\treturn tp.Kind == check.KindType\n",
+      "rule": "A Slot row is a Go type parameter constrained by error, so Go sees the member's type where Ergo does (CK-rowarg; D6: Go infers the same after row erasure).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckra-slot-arg-error",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\t\tcase *check.Named:\n\t\t\treturn tc.goType(e)\n",
+      "to": "\t\tcase *check.Named:\n\t\t\treturn \"error\"\n",
+      "rule": "A call binds a Slot row of one error type to that type's Go type: the instance the caller holds (CK-rowarg).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckra-into-slot-dropped",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\t\t\t\treturn \"any(\" + val + \").(\" + name + \")\"\n",
+      "to": "\t\t\t\t_ = name\n\t\t\t\treturn val\n",
+      "rule": "A row value written into a field whose Go type is a Slot row's Go parameter is asserted to it (CK-rowarg).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArg"
+      ]
+    },
+    {
+      "name": "ckra-inline-slot",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/inline.go",
+      "from": " || isClose(f) || hasSlot(f.Sig) {",
+      "to": " || isClose(f) {",
+      "rule": "A function with a Slot row is not inlined: an inlined body names only its type-kinded parameters, so its match would test the Go instance with error where the caller holds the member's type (CK-rowarg; a defect at run time).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
     }
   ]
 }
