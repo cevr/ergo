@@ -318,6 +318,7 @@ func fastExamples(root string, steps []*Step) error {
 	}
 	step := *steps[i]
 	step.Argv = append(slices.Clone(step.Argv), programs...)
+	step.Weight = fastExamplesWeight
 	steps[i] = &step
 	return nil
 }

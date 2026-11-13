@@ -549,11 +549,12 @@ func examplesStep(root string) (*Step, error) {
 		env = []string{examplesCacheVariable + "=" + filepath.Join(dir, "examples")}
 	}
 	return &Step{
-		Name:  examplesStepName,
-		Class: classFast,
-		Needs: []string{"build bin/ergo"},
-		Argv:  []string{"go", "run", examplesRunner},
-		Env:   env,
+		Name:   examplesStepName,
+		Class:  classFast,
+		Weight: examplesWeight,
+		Needs:  []string{"build bin/ergo"},
+		Argv:   []string{"go", "run", examplesRunner},
+		Env:    env,
 		Inputs: &Inputs{
 			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
 			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
@@ -575,6 +576,18 @@ const examplesCacheVariable = "ERGO_EXAMPLES_CACHE"
 // examplesStepName names the examples step in both tiers; the fast tier
 // narrows its programs (fastExamples).
 const examplesStepName = "examples (default)"
+
+// examplesWeight and fastExamplesWeight are the examples step's expected
+// seconds when every program builds again (a compiler edit) at the gate's
+// 2-CPU share: 434 s for the 51 default programs and 134 s for the fast
+// tier's 16 (gate-speed GS1 and GS3 receipts). The step runs no recorded
+// tests, so without them it weighed unrecordedWeight and started at 101 s
+// of the batch-18 fast tier, behind steps of seconds. A host's own record
+// (stepTimesFile) replaces them after one run.
+const (
+	examplesWeight     = 434.0
+	fastExamplesWeight = 134.0
+)
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"

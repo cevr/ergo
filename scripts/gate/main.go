@@ -858,6 +858,8 @@ func (g *gate) run(out io.Writer) int {
 	// they need take a freed slot first (slotPool).
 	slots := newSlotPool(cpus)
 	first := writerPath(g.steps, index)
+	times := readStepTimes(g.cacheDir)
+	priority := stepPriorities(g.steps, index, times)
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -877,7 +879,7 @@ func (g *gate) run(out io.Writer) int {
 			if step.MemoryHeavy {
 				held = cpus
 			}
-			slots.acquireN(first[i], step.Weight, held)
+			slots.acquireN(first[i], priority[i], held)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
 			} else {
@@ -936,6 +938,11 @@ func (g *gate) run(out io.Writer) int {
 			}
 			recording.Passed(step.Name, object, outcome, r.duration.Seconds(), r.passedAt)
 		}
+	}
+	// This run's times order the next run's steps (stepPriorities); a
+	// failure to write them costs only that order.
+	if err := writeStepTimes(g.cacheDir, times, g.steps, results); err != nil {
+		fmt.Fprintf(out, "gate: step times: %v\n", err)
 	}
 	// The end facts, collected once: the package records and the
 	// whole-gate record both compare their start keys with them.

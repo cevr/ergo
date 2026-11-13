@@ -96,6 +96,14 @@ func TestFastTierHoldsNoHeavyStep(t *testing.T) {
 	if len(narrowed) <= len(whole) || !slices.Equal(narrowed[:len(whole)], whole) {
 		t.Fatalf("fast examples argv %q; want the full tier's %q and the listed programs", narrowed, whole)
 	}
+	// It is the fast tier's longest step, so it weighs the most and takes
+	// the first slot the writers free (gate-speed GS6; it started at 101 s
+	// of the batch-18 fast tier, weighing unrecordedWeight).
+	for _, step := range fast {
+		if step.Weight > fast[fastAt].Weight {
+			t.Errorf("fast tier: %s weighs %v, more than the examples step's %v", step.Name, step.Weight, fast[fastAt].Weight)
+		}
+	}
 	for _, program := range narrowed[len(whole):] {
 		if _, err := os.Stat(filepath.Join(root, "examples", program, "tags")); err != nil {
 			t.Errorf("the fast tier names example %q: %v", program, err)
