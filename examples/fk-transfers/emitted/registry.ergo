@@ -1,0 +1,89 @@
+// The sink of shape B as a pure model: the keyed registry of transfers in
+// flight on a clock the caller moves, as Foldkit's runtime keeps one for
+// interruptible commands.
+
+import fktransfers/transfer
+import machines
+
+// Job is a transfer in flight: its id and the time it completes.
+type Job { ID int, Due duration }
+
+// Registry is the jobs in flight, in the order they started, and the time.
+type Registry { Jobs []Job, Now duration }
+
+// World is the machine's state and its sink's.
+type World { Uploads Uploads, Registry Registry }
+
+// Fresh is a board with no transfers at time 0.
+func Fresh() World { World{Uploads: Initial(), Registry: Registry{Jobs: []Job{}, Now: 0s}} }
+
+// Press steps s and runs each command it emits, in order: a start adds a
+// job due after the whole file; an interrupt removes the job and answers
+// Interrupted, or answers NotFound when no job has the id. Each answer is
+// stepped as it comes.
+func Press(w World, s Signal) World {
+	let d = Step(w.Uploads, s)
+	let mut u = machines.Next(w.Uploads, d)
+	let mut r = w.Registry
+	match d {
+	case Emit[Uploads, []Command] as em:
+		for c in em.Output {
+			match c {
+			case StartUpload as st:
+				r = Registry{Jobs: r.Jobs.Append(Job{ID: st.ID, Due: r.Now + transfer.Took(st.MB)}), Now: r.Now}
+			case Interrupt as i:
+				let mut kept = []Job{}
+				let mut found = false
+				for j in r.Jobs {
+					if j.ID == i.ID {
+						found = true
+					} else {
+						kept = kept.Append(j)
+					}
+				}
+				r = Registry{Jobs: kept, Now: r.Now}
+				let answer = Answered{ID: i.ID, Outcome: if found { Interrupted } else { NotFound }}
+				u = machines.Next(u, Step(u, answer))
+			}
+		}
+	case _:
+	}
+	World{Uploads: u, Registry: r}
+}
+
+// Wait moves the clock by d and completes every job due by then, the
+// earliest first (in start order at one instant), each as a Succeeded.
+func Wait(w World, d duration) World {
+	let now = w.Registry.Now + d
+	let mut u = w.Uploads
+	let mut jobs = w.Registry.Jobs
+	for {
+		let mut k = -1
+		for i, j in jobs {
+			if j.Due <= now && (k < 0 || j.Due < jobs[k].Due) {
+				k = i
+			}
+		}
+		if k < 0 {
+			break
+		}
+		u = machines.Next(u, Step(u, Succeeded{ID: jobs[k].ID}))
+		let mut rest = []Job{}
+		for i, j in jobs {
+			if i != k {
+				rest = rest.Append(j)
+			}
+		}
+		jobs = rest
+	}
+	World{Uploads: u, Registry: Registry{Jobs: jobs, Now: now}}
+}
+
+// Lines is the board as it shows: `ID NAME WORD` per transfer, in order.
+func Lines(w World) []string {
+	let mut out = []string{}
+	for e in w.Uploads.Items {
+		out = out.Append("\(e.ID) \(e.File.Name) \(Word(e.Status))")
+	}
+	out
+}

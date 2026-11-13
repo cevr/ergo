@@ -1,0 +1,145 @@
+// Package web holds the network provider of the weather contract: the
+// open-meteo geocoding and forecast services, asked over std http.
+
+import fkweather/weather
+import http
+import json
+import math
+import strconv
+
+// GeocodingOrigin and ForecastOrigin are the two services' origins.
+let GeocodingOrigin = "https://geocoding-api.open-meteo.com"
+let ForecastOrigin = "https://api.open-meteo.com"
+
+// OpenMeteo is a weather.Forecast over two http.Nets: one to the
+// geocoding service, which finds the place of a zip, and one to the
+// forecast service, which gives the current weather at that place.
+type OpenMeteo { geocoding http.Net, forecast http.Net }
+
+// NewOpenMeteo is the forecast over the two Nets given; a test gives
+// http.InMemory ones.
+func NewOpenMeteo(geocoding http.Net, forecast http.Net) OpenMeteo { OpenMeteo{geocoding: geocoding, forecast: forecast} }
+
+// Live is the forecast over the host network, with limits for answers of
+// a few kilobytes.
+func Live() OpenMeteo fails http.InvalidClient | http.InvalidLimits needs Ambient {
+	let limits = http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
+	NewOpenMeteo(try http.NewClient(GeocodingOrigin, limits), try http.NewClient(ForecastOrigin, limits))
+}
+
+// The parts of the services' answers the forecast reads. A key the
+// records do not name is skipped.
+type place { Name string, Latitude float64, Longitude float64, Admin1 json.Optional[string] }
+type places { Results json.Optional[[]place] }
+type now { Temperature_2m float64, Relative_humidity_2m float64, Wind_speed_10m float64, Weather_code int }
+type conditions { Current now }
+
+// Fetch finds the place of zip, then the weather there. A geocoding
+// answer that is not 200, or that has no place, is NotFound, as upstream
+// says "Location not found"; any other failure is Unavailable.
+func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
+	let found = try ask(o.geocoding, "/v1/search", []http.Field{field("name", zip), field("count", "1"), field("language", "en"), field("format", "json")})
+	if found.Status != 200 {
+		return weather.NotFound{Zip: zip}
+	}
+	let ps = json.Decode(json.Codec[places]{MaxBytes: 0, MaxDepth: 0}, found.Body) catch {
+	case _:
+		return unreadable
+	}
+	let p = match ps.Results {
+	case json.Present[[]place] as rs:
+		if len(rs.Value) == 0 {
+			return weather.NotFound{Zip: zip}
+		}
+		rs.Value[0]
+	case json.Absent:
+		return weather.NotFound{Zip: zip}
+	}
+	let answer = try ask(o.forecast, "/v1/forecast", []http.Field{
+		field("latitude", strconv.FormatFloat(p.Latitude, 'f', -1)),
+		field("longitude", strconv.FormatFloat(p.Longitude, 'f', -1)),
+		field("current", "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"),
+		field("temperature_unit", "fahrenheit"),
+		field("wind_speed_unit", "mph"),
+	})
+	if answer.Status != 200 {
+		return weather.Unavailable{Reason: "the forecast answered \(answer.Status)"}
+	}
+	let c = json.Decode(json.Codec[conditions]{MaxBytes: 0, MaxDepth: 0}, answer.Body) catch {
+	case _:
+		return unreadable
+	}
+	let region = match p.Admin1 {
+	case json.Present[string] as a:
+		a.Value
+	case json.Absent:
+		""
+	}
+	weather.Report{
+		Zip:         zip,
+		Temperature: Round(c.Current.Temperature_2m),
+		Description: Describe(c.Current.Weather_code),
+		Humidity:    Round(c.Current.Relative_humidity_2m),
+		WindSpeed:   Round(c.Current.Wind_speed_10m),
+		Location:    p.Name,
+		Region:      region,
+	}
+}
+
+func field(name string, value string) http.Field { http.Field{Name: name, Value: value} }
+
+func ask(n http.Net, path string, query []http.Field) http.Response fails weather.Unavailable {
+	n.Send(http.Request{Method: "GET", Path: path, Query: query, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+	case http.RequestFailed as f:
+		return weather.Unavailable{Reason: reason(f.Cause)}
+	}
+}
+
+// unreadable is an answer that does not decode.
+let unreadable = weather.Unavailable{Reason: "the answer could not be read"}
+
+func reason(c http.Cause) string {
+	match c {
+	case http.Refused as r:
+		r.Reason
+	case http.Transport as t:
+		t.Reason
+	case http.Malformed as m:
+		m.Reason
+	case http.TooLarge as l:
+		"an answer over \(l.Limit) bytes"
+	}
+}
+
+// Round is f rounded to the nearest integer, half up, as JavaScript's
+// Math.round, which upstream uses: Round(-2.5) is -2.
+func Round(f float64) int { int(math.Floor(f + 0.5)) }
+
+// Describe is the text of a WMO weather code, as upstream's
+// weatherCodeToDescription.
+func Describe(code int) string {
+	match code {
+	case 0:
+		"Clear sky"
+	case 1, 2, 3:
+		"Partly cloudy"
+	case 45, 48:
+		"Foggy"
+	case 51, 53, 55:
+		"Drizzle"
+	case 61, 63, 65:
+		"Rain"
+	case 66, 67:
+		"Freezing rain"
+	case 71, 73, 75, 77:
+		"Snow"
+	case 80, 81, 82:
+		"Rain showers"
+	case 85, 86:
+		"Snow showers"
+	case 95, 96, 99:
+		"Thunderstorm"
+	case _:
+		"Unknown"
+	}
+}

@@ -1,0 +1,153 @@
+// The watch's laws. Each folds the step over generated presses and ticks
+// on a time.Manual clock that the law moves itself, so a tick comes late
+// (any gap up to 2.5 s, where the timer asks for 10 ms), early, or bunched
+// with others at one instant, as a busy host delivers them.
+// ShownIsClockElapsed holds the shown time to the clock's elapsed time,
+// against a model that sums the clock's running intervals and counts no
+// tick; the plan's three laws (§18.3 FK1) state the same rules one at a
+// time.
+
+import machines
+import testing
+import time
+
+// Press is one generated input: a gap on the clock, then a signal.
+type Press { Gap duration, Signal Signal }
+
+// presses is the generated inputs: gaps of 0 to 2499 ms and every signal.
+func presses(gaps []int, words []int) []Press {
+	let mut out = []Press{}
+	for i, g in gaps {
+		let n = if i < len(words) { words[i] } else { i }
+		out = out.Append(Press{Gap: ms(pick(g, 2500)), Signal: signalOf(n)})
+	}
+	out
+}
+
+// Model is the clock's account of the watch: the time banked before the
+// current run, when the run began and when it last showed its time (the
+// start or the last tick), all as times since the clock's start.
+type Model { Running bool, Banked duration, Began duration, Shown duration }
+
+// expect is the time the model shows.
+func expect(m Model) duration {
+	if m.Running {
+		return m.Banked + (m.Shown - m.Began)
+	}
+	m.Banked
+}
+
+// model is m after s at now (the time since the clock's start). It never
+// counts a tick: a tick only moves the time the watch last showed.
+func model(m Model, s Signal, now duration) Model {
+	match s {
+	case Start:
+		if m.Running { m } else { Model{Running: true, Banked: m.Banked, Began: now, Shown: now} }
+	case Stop:
+		if m.Running { Model{Running: false, Banked: m.Banked + (now - m.Began), Began: 0s, Shown: 0s} } else { m }
+	case Reset:
+		Model{Running: false, Banked: 0s, Began: 0s, Shown: 0s}
+	case Ticked:
+		if m.Running { Model{Running: true, Banked: m.Banked, Began: m.Began, Shown: now} } else { m }
+	}
+}
+
+// ShownIsClockElapsed: after every press and every tick, late or bunched,
+// the watch shows the clock's elapsed time while it ran (up to its last
+// tick, when it runs), never a count of ticks.
+law ShownIsClockElapsed(gaps []int, words []int) {
+	let c = time.NewManual(0)
+	with context { time.Clock: c } {
+		let mut w = Initial()
+		let mut m = Model{Running: false, Banked: 0s, Began: 0s, Shown: 0s}
+		let mut now = 0s
+		for p in presses(gaps, words) {
+			time.Advance(c, p.Gap)
+			now = now + p.Gap
+			w = machines.Next(w, Step(w, p.Signal))
+			m = model(m, p.Signal, now)
+			if ElapsedOf(w) != expect(m) || IsRunning(w) != m.Running {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// ElapsedGrowsOnlyWhileRunning: no step takes time away, except a Reset,
+// which shows zero; and a stopped watch's time moves only by a Reset.
+law ElapsedGrowsOnlyWhileRunning(gaps []int, words []int) {
+	let c = time.NewManual(0)
+	with context { time.Clock: c } {
+		let mut w = Initial()
+		for p in presses(gaps, words) {
+			time.Advance(c, p.Gap)
+			let n = machines.Next(w, Step(w, p.Signal))
+			let kept = match p.Signal {
+			case Reset:
+				ElapsedOf(n) == 0s
+			case Start, Stop, Ticked:
+				ElapsedOf(n) >= ElapsedOf(w) && (IsRunning(w) || ElapsedOf(n) == ElapsedOf(w))
+			}
+			if !kept {
+				return false
+			}
+			w = n
+		}
+		true
+	}
+}
+
+// ResetIsInitial: Reset from any state the presses reach is the initial
+// watch.
+law ResetIsInitial(gaps []int, words []int) {
+	let c = time.NewManual(0)
+	with context { time.Clock: c } {
+		let mut w = Initial()
+		for p in presses(gaps, words) {
+			time.Advance(c, p.Gap)
+			if machines.Next(w, Step(w, Reset)) != Initial() {
+				return false
+			}
+			w = machines.Next(w, Step(w, p.Signal))
+		}
+		true
+	}
+}
+
+// StopThenStartKeepsElapsed: a stopped watch started and stopped again at
+// one instant shows the same time.
+law StopThenStartKeepsElapsed(e int) {
+	let c = time.NewManual(0)
+	with context { time.Clock: c } {
+		let w = Stopped{Elapsed: ms(pick(e, 86400000))}
+		let running = machines.Next(w, Step(w, Start))
+		machines.Next(running, Step(running, Stop)) == w
+	}
+}
+
+// run is the watch over trace until end on a fresh VirtualClock, whose
+// timers fire on time: its last state.
+func run(trace []machines.Timed[Signal], end duration) Watch {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { Replay(trace, end) }
+}
+
+// signalOf is a signal from a number: the three buttons and the tick.
+func signalOf(n int) Signal {
+	match pick(n, 4) {
+	case 0:
+		Start
+	case 1:
+		Stop
+	case 2:
+		Reset
+	case _:
+		Ticked
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// ms is n milliseconds.
+func ms(n int) duration { time.Times(1ms, n) }

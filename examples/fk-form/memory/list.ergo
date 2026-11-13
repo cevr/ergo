@@ -1,0 +1,20 @@
+// Package memory holds the in-memory provider of the subscription contract.
+
+import fkform/subscribe
+import strings
+
+// List is a subscribe.Subscribers whose list holds three addresses, upstream's.
+// It refuses a subscription whose address is in the .invalid domain, which
+// takes no mail, so a script can show a refused submit.
+type List {}
+
+func Taken(_ List, e subscribe.Email) bool {
+	let text = strings.ToLower(subscribe.Text(e))
+	text == "test@example.com" || text == "demo@email.com" || text == "admin@test.com"
+}
+
+func Join(_ List, s subscribe.Subscription) fails subscribe.JoinFailed {
+	if strings.HasSuffix(strings.ToLower(subscribe.Text(s.Email)), ".invalid") {
+		return subscribe.JoinFailed
+	}
+}

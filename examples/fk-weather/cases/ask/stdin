@@ -1,0 +1,15 @@
+# upstream's full flow: type a zip code, get the weather, see the result
+type 90210
+submit
+# typing keeps the last report shown until the next submit
+type 1
+type 10001
+submit
+# an empty draft fails at once: no fetch starts
+type
+submit
+# a zip with no place, and a station that is down
+type 00000
+submit
+type 99999
+submit

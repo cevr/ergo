@@ -1,0 +1,77 @@
+// Upstream's six story tests (counters/src/story.test.ts), restated, and
+// the blocks branch's init test ("creates distinct parent-owned
+// instances", examples/counters at fe37fb13, read for plan §18.8; no block
+// API is used here). Upstream's ids are strings `counter-N`; here a key is
+// the number N, and Name prints it as upstream does.
+
+import fkcounters/counter
+import machines
+
+// two is upstream's initialModel: two counters at zero, next key 2.
+func two(a int, b int) Rows {
+	Rows{Items: []Row{Row{Key: 0, Counter: counter.Count{N: a}}, Row{Key: 1, Counter: counter.Count{N: b}}}, Next: 2}
+}
+
+// after is r after each signal in order.
+func after(r Rows, signals []Signal) Rows {
+	let o = machines.From(Counters{}, r, signals) catch {
+	case machines.Rejected:
+		return r
+	}
+	match o {
+	case machines.Running[Rows, Never] as run:
+		run.State
+	case machines.Finished[Rows, Never] as f:
+		f.State
+	}
+}
+
+func counts(r Rows) []int {
+	let mut out = []int{}
+	for x in r.Items {
+		out = out.Append(x.Counter.N)
+	}
+	out
+}
+
+test AddAppendsAFreshRowWithTheNextKey {
+	// ClickedAddRow appends a fresh Counter row with the next id.
+	let r = after(two(0, 0), []Signal{Add})
+	assert len(r.Items) == 3 && Name(r.Items[2].Key) == "counter-2" && r.Items[2].Counter.N == 0 && r.Next == 3
+}
+
+test RemoveDropsOnlyThatRow {
+	// ClickedRemoveRow drops only the targeted row.
+	let r = after(two(0, 0), []Signal{Remove{Key: 0}})
+	assert len(r.Items) == 1 && r.Items[0].Key == 1
+}
+
+test IncrementGoesToItsRowOnly {
+	// GotCounterMessage routes ClickedIncrement to the matching row only.
+	assert counts(after(two(0, 0), []Signal{At{Key: 1, Sig: counter.Increment}})) == []int{0, 1}
+}
+
+test DecrementGoesToItsRowOnly {
+	// GotCounterMessage routes ClickedDecrement to the matching row only.
+	assert counts(after(two(5, 5), []Signal{At{Key: 0, Sig: counter.Decrement}})) == []int{4, 5}
+}
+
+test SignalForAMissingKeyChangesNothing {
+	// GotCounterMessage for a missing id leaves the model unchanged.
+	let r = two(0, 0)
+	assert Step(r, At{Key: 99, Sig: counter.Increment}) == Ignore
+}
+
+test RowsAccumulateIndependently {
+	// successive Messages accumulate per row independently.
+	let signals = []Signal{At{Key: 0, Sig: counter.Increment}, At{Key: 0, Sig: counter.Increment}, At{Key: 1, Sig: counter.Decrement}}
+	assert counts(after(two(0, 0), signals)) == []int{2, -1}
+}
+
+test InitialHasDistinctFreshCounters {
+	// blocks, fe37fb13: creates distinct parent-owned instances. The list
+	// starts with three counters at zero under three keys, and a signal to
+	// one leaves the other two at zero.
+	let r = after(Initial(), []Signal{At{Key: 1, Sig: counter.Increment}})
+	assert counts(Initial()) == []int{0, 0, 0} && counts(r) == []int{0, 1, 0} && Initial().Next == 3
+}
