@@ -541,7 +541,7 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..737097d
+index 0000000..93193ff
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
 @@ -0,0 +1,369 @@
@@ -604,7 +604,7 @@ index 0000000..737097d
 +		}
 +		e := &syntax.Operation{Op: op, X: l, Y: r}
 +		e.SetPos(pos)
-+		ergoValue(e, t, nil)
++		ergoValue(e, t, ergoFoldBin(op, l, r, t)) // ergoir_fold.go
 +		return e, t
 +	case "un":
 +		e0, t := c.expr(x.X)
@@ -627,7 +627,7 @@ index 0000000..737097d
 +		}
 +		e := &syntax.Operation{Op: op, X: e0}
 +		e.SetPos(pos)
-+		ergoValue(e, t, nil)
++		ergoValue(e, t, ergoFoldUn(op, e0, t))
 +		return e, t
 +	case "deref":
 +		// *p: the value a pointer points at (IRG6: a with copies the
@@ -740,7 +740,7 @@ index 0000000..737097d
 +		}
 +		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{e0}}
 +		call.SetPos(pos)
-+		ergoValue(call, t, nil)
++		ergoValue(call, t, ergoFoldConv(e0, t))
 +		return call, t
 +	case "global":
 +		v, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Var)
@@ -1224,6 +1224,143 @@ index 0000000..79650fa
 +		return false
 +	}
 +	return types2.Implements(t, ergoError().Underlying().(*types2.Interface))
++}
+diff --git a/src/cmd/compile/internal/noder/ergoir_fold.go b/src/cmd/compile/internal/noder/ergoir_fold.go
+new file mode 100644
+index 0000000..348e00d
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_fold.go
+@@ -0,0 +1,131 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: constant folding. The IR spells a constant package let
++// (a Go constant in the emitter's text) as its value; Go folds a
++// conversion, a unary or a binary operation of constants into a
++// constant, so the decoder does too: the compiled tree is the one the
++// printed text compiles to. See ergoir.go.
++
++package noder
++
++import (
++	"go/constant"
++	"go/token"
++	"math"
++
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// ergoConstOf is x's constant value, or nil.
++func ergoConstOf(x syntax.Expr) constant.Value {
++	if x == nil {
++		return nil
++	}
++	return x.GetTypeInfo().Value
++}
++
++// ergoFoldTokens are the operators folded into a constant of the
++// operands' type (no comparison, no logical operator, no shift).
++var ergoFoldTokens = map[syntax.Operator]token.Token{
++	syntax.Add: token.ADD, syntax.Sub: token.SUB, syntax.Mul: token.MUL, syntax.Div: token.QUO, syntax.Rem: token.REM,
++	syntax.And: token.AND, syntax.Or: token.OR, syntax.Xor: token.XOR, syntax.AndNot: token.AND_NOT,
++}
++
++// ergoFoldBin is l op r of type t when both are constants, or nil.
++func ergoFoldBin(op syntax.Operator, l, r syntax.Expr, t types2.Type) constant.Value {
++	lv, rv := ergoConstOf(l), ergoConstOf(r)
++	tok, ok := ergoFoldTokens[op]
++	if lv == nil || rv == nil || !ok {
++		return nil
++	}
++	if tok == token.QUO && ergoIsInteger(t) {
++		tok = token.QUO_ASSIGN // integer division
++	}
++	if (tok == token.QUO || tok == token.QUO_ASSIGN || tok == token.REM) && constant.Sign(rv) == 0 {
++		return nil
++	}
++	if tok == token.REM && !ergoIsInteger(t) {
++		return nil
++	}
++	return ergoFit(constant.BinaryOp(lv, tok, rv), t)
++}
++
++// ergoFoldUn is op x of type t when x is a constant, or nil.
++func ergoFoldUn(op syntax.Operator, x syntax.Expr, t types2.Type) constant.Value {
++	v := ergoConstOf(x)
++	if v == nil || op == syntax.Xor {
++		return nil
++	}
++	tok := map[syntax.Operator]token.Token{syntax.Not: token.NOT, syntax.Sub: token.SUB, syntax.Add: token.ADD}[op]
++	if tok == token.ILLEGAL {
++		return nil
++	}
++	return ergoFit(constant.UnaryOp(tok, v, 0), t)
++}
++
++// ergoFoldConv is t(x) when x is a constant, or nil.
++func ergoFoldConv(x syntax.Expr, t types2.Type) constant.Value {
++	v := ergoConstOf(x)
++	if v == nil {
++		return nil
++	}
++	switch {
++	case ergoIsInteger(t):
++		if v = constant.ToInt(v); v.Kind() != constant.Int {
++			return nil
++		}
++	case ergoIsNumeric(t):
++		if v = constant.ToFloat(v); v.Kind() != constant.Float {
++			return nil
++		}
++	case ergoIsString(t) && v.Kind() == constant.String, ergoIsBool(t) && v.Kind() == constant.Bool:
++	default:
++		return nil
++	}
++	return ergoFit(v, t)
++}
++
++// ergoFit is v when t represents it, or nil: an overflow stays an
++// operation, as an unrepresentable constant is Go's error.
++func ergoFit(v constant.Value, t types2.Type) constant.Value {
++	if v == nil || v.Kind() == constant.Unknown {
++		return nil
++	}
++	b, ok := t.Underlying().(*types2.Basic)
++	if !ok {
++		return nil
++	}
++	if !ergoIsInteger(t) {
++		if ergoIsNumeric(t) && v.Kind() != constant.Float && v.Kind() != constant.Int {
++			return nil
++		}
++		return v
++	}
++	if v.Kind() != constant.Int {
++		return nil
++	}
++	lo, hi := int64(math.MinInt64), uint64(math.MaxInt64)
++	switch b.Kind() {
++	case types2.Int8:
++		lo, hi = math.MinInt8, math.MaxInt8
++	case types2.Int16:
++		lo, hi = math.MinInt16, math.MaxInt16
++	case types2.Int32:
++		lo, hi = math.MinInt32, math.MaxInt32
++	case types2.Uint8:
++		lo, hi = 0, math.MaxUint8
++	case types2.Uint16:
++		lo, hi = 0, math.MaxUint16
++	case types2.Uint32:
++		lo, hi = 0, math.MaxUint32
++	case types2.Uint, types2.Uint64, types2.Uintptr:
++		lo, hi = 0, math.MaxUint64
++	}
++	if constant.Compare(v, token.LSS, constant.MakeInt64(lo)) || constant.Compare(v, token.GTR, constant.MakeUint64(hi)) {
++		return nil
++	}
++	return v
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_label.go b/src/cmd/compile/internal/noder/ergoir_label.go
 new file mode 100644
