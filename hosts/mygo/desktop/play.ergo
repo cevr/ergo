@@ -72,15 +72,63 @@ func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
 	}
 }
 
-// at is the place of a step on the node labelled label: its box's centre,
-// or the pointer's place in it.
-func at[S, E, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode {
-	match BoxOf(d, label) {
+// at is the box of the node labelled label, where a step on it presses or
+// points, after the Scrolls around it are scrolled with the wheel until
+// its centre shows, as a person scrolls to a row below the fold.
+func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let id = match Find(d, label) {
+	case Some[ui.Id[E]] as i:
+		i.Value
+	case None:
+		return ui.NoNode{Label: label}
+	}
+	try reveal(d, id)
+	match d.boxes.Get(id) {
 	case Some[layout.Box] as b:
 		b.Value
 	case None:
 		ui.NoNode{Label: label}
 	}
+}
+
+// reveal wheels each Scroll that holds id, outermost first, until the
+// centre of id's box is inside the Scroll's box.
+func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for sc in d.spots {
+		match sc.node {
+		case ui.ScrollNode:
+			if sc.id != id && holds[S, E, D, F](d, sc.id, id) {
+				match d.boxes.Get(id) {
+				case Some[layout.Box] as b:
+					let mid = b.Value.Y + b.Value.H/2
+					let top = sc.box.Y
+					let bottom = sc.box.Y + sc.box.H
+					let mut dy = float32(0)
+					if mid >= bottom {
+						dy = mid - bottom + b.Value.H/2 + 1
+					} else if mid < top {
+						dy = mid - top - b.Value.H/2 - 1
+					}
+					if dy != 0 {
+						d.w.Wheel(float64(sc.box.X+sc.box.W/2), float64(sc.box.Y+sc.box.H/2), 0, float64(dy))
+						try Drain(d)
+					}
+				case None:
+				}
+			}
+		case _:
+		}
+	}
+}
+
+// holds is whether id is below top in the window's tree.
+func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
+	for k in kidsOf(d, top) {
+		if k == id || holds[S, E, D, F](d, k, id) {
+			return true
+		}
+	}
+	false
 }
 
 // Play runs a script through the window, in order, feeding the input each

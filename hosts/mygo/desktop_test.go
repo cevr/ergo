@@ -144,8 +144,10 @@ func TestMyGoHostAgreesWithTestHost(t *testing.T) {
 var mygoAdmitted = map[string]bool{"App": true, "Application": true, "Window": true, "WindowOptions": true, "NewWindow": true, "Content": true}
 
 // TestMyGoHostPrimitivesOnly holds the host to MyGo's drawing layer
-// (H3g, q65): go/types over each non-test Go package of this module but
-// the drawing module finds every object a file uses, and refuses an
+// (H3g, q65): go/types over the host's Go packages (the root and screen;
+// not the drawing module, and not controls/, which are MyGo programs
+// written on its widgets on purpose) finds every object a file uses, and
+// refuses an
 // object of a MyGo package other than the drawing layer's (and the
 // internal packages its aliases name), and of the root package one outside
 // mygoAdmitted (a method counts as its receiver's type).

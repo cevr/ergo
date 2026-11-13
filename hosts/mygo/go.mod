@@ -19,3 +19,15 @@ require (
 // at MyGo's own path (drawing/drawing.go): Go's internal rule is by import
 // path, so it needs no fork. It goes when MyGo takes the package upstream.
 replace github.com/egoist/mygo/drawing => ./drawing
+
+// The Ergo examples whose window binaries are cmd/counter-gui and
+// cmd/todo-gui: Ergo modules this one requires (grammar.md, Required
+// modules), from their folders in this repository.
+require (
+	ergo.local/prototype/examples/countergui v0.0.0
+	ergo.local/prototype/examples/todogui v0.0.0
+)
+
+replace ergo.local/prototype/examples/countergui => ../../examples/counter-gui
+
+replace ergo.local/prototype/examples/todogui => ../../examples/todo-gui

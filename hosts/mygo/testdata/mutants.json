@@ -135,6 +135,24 @@
       "to": "\"\\n\\ngo \" + goVersion + \"\\n\"",
       "rule": "a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "X-gui-row-below-the-fold-not-scrolled-to",
+      "origin": "X-gui",
+      "file": "hosts/mygo/desktop/play.ergo",
+      "from": "\ttry reveal(d, id)\n",
+      "to": "",
+      "rule": "a step on a row below its Scroll's fold scrolls to it first, as a person does, so it presses that row and not the one painted over its box",
+      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+    },
+    {
+      "name": "X-gui-window-binary-prints-the-start",
+      "origin": "X-gui",
+      "file": "hosts/mygo/cmd/counter-gui/main.ergo",
+      "from": "counter.Summary(desktop.StateOf(&d))",
+      "to": "counter.Summary(counter.Zero)",
+      "rule": "the window binary prints the state the window's driver holds after each step",
+      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
     }
   ]
 }

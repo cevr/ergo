@@ -55,8 +55,9 @@ runs under `prlimit --data=4GiB`.
 
 ## The desktop host: `screen/`, `desktop/`
 
-This folder is also an Ergo module (`ergo.mod`, `module mygo`) beside the
-Go module, as `internal/selfhostcheck/testdata/selfhost` is: an Ergo
+This folder is also an Ergo module (`ergo.mod`, `module
+ergo.local/prototype/hosts/mygo`, the Go module's path, so another Ergo
+module can require it: grammar.md, Required modules) beside the Go module, as `internal/selfhostcheck/testdata/selfhost` is: an Ergo
 program binds Go only through `ergo bind go`, and a host outside the
 compiler cannot bind `runtime/v1` (STD-NOPRIV NP4e), so the Go half is a
 package of this Go module and the Ergo half binds it.
@@ -97,6 +98,27 @@ pass the layout, the paint list and the hit test. `-agree.seed=N` replays
 one seed. `TestMyGoHostPrimitivesOnly` scans this module's Go with
 `go/types` and refuses any MyGo object but the drawing layer's and
 `App`, `NewWindow`, `Window`, `WindowOptions` and `Content`.
+
+## The examples' windows: `cmd/counter-gui`, `cmd/todo-gui`
+
+`examples/counter-gui` and `examples/todo-gui` are Ergo modules this one
+requires (`go.mod`: `require` and a `replace` to their folders; their
+`ergo.mod` names the same module path), so their model and view run here
+unchanged on the desktop driver. Each window binary opens a MyGo window
+(`counter-gui`), or, with `-headless`, plays a scene script from standard
+input through a window with no screen and prints what the example's own
+binary prints on `ui.TestHost`. A step on a row below a Scroll's fold
+wheels the Scroll until the row shows (`desktop.Play`), as a person would.
+
+`controls/todo-gui` is the MyGo-direct control: the same list on MyGo's
+own widgets, in Go, with the same labels; `-headless` plays the same
+scripts on `ui.Tester`. It is the yardstick for the binary-size receipt,
+and it is outside `TestMyGoHostPrimitivesOnly`'s scan (a control uses
+widgets by design).
+
+`TestExamplesAgreeOnTheDesktop` builds the four Ergo binaries and the
+control and holds their output equal, byte for byte, on 20 seeded scripts
+of 120 steps each (`-examples.seed=N` replays one).
 
 ## Pins and checks
 
