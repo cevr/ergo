@@ -1635,6 +1635,17 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			// and a result that reaches no Map or slice type the argument
 			// reaches shares none of it (V6: find(t, path) is a place).
 			o.kind, o.call = occRead, p
+		case aliasLowering != "type" && c.Kind == check.CallFunc && viewExtern(c.Func) && w.recvOrFirst(p, c) == child:
+			// A view (gobody.go, goBodyView) keeps its operand only in
+			// its result, a window: the window is copied, not the operand
+			// (wf10 DF1). A window a call reads and keeps nothing of is
+			// not copied at all, unless a write to the root runs before
+			// that call ends (inFlight, by o.call).
+			if outer := w.windowRead(p); outer != nil {
+				o.kind, o.call = occRead, outer
+			} else {
+				o.call, o.deps, o.result = p, true, true
+			}
 		case aliasLowering != "type" && c.Kind == check.CallFunc && c.Func != nil && w.l.isPure(c.Func):
 			// The result-alias summary (alias.go): a result that does not
 			// depend on the argument keeps nothing of it; one that does
@@ -1649,6 +1660,49 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			}
 		}
 	}
+}
+
+// recvOrFirst is the first operand of the call x: a dot call's receiver,
+// else its first argument.
+func (w *valueWalk) recvOrFirst(x *syntax.CallExpr, c *check.Call) syntax.Node {
+	ops := callOperands(x, c)
+	if len(ops) == 0 {
+		return nil
+	}
+	return ops[0]
+}
+
+// windowRead is the call that reads the window x, a view's result, and
+// keeps nothing of it, or nil: x is an operand of len, or of a pure call,
+// Ergo or a std runtime body, whose result is a basic value or reaches no
+// Map or slice type x reaches, at a parameter it does not own (V5).
+func (w *valueWalk) windowRead(x *syntax.CallExpr) *syntax.CallExpr {
+	parent, child := w.unparenParent(x)
+	call, ok := parent.(*syntax.CallExpr)
+	if !ok || call.Fun == child {
+		return nil
+	}
+	c := w.info.Calls[call]
+	if c == nil {
+		return nil
+	}
+	if c.Kind == check.CallLen {
+		return call
+	}
+	if c.Kind != check.CallFunc || c.Func == nil || w.vf.inPlace[call] || w.vf.consumed[x] {
+		return nil
+	}
+	ergo := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+	if !(ergo && w.l.isPure(c.Func)) && !(pureStdBody(c.Func) && !c.Func.Pkg.Host() && !preludeAppend(c.Func) && !preludeMapWrite(c.Func)) {
+		return nil
+	}
+	if j := operandIndex(call, c, child); j < 0 || ergo && w.l.ownedAt(c.Func, j) {
+		return nil
+	}
+	if basicResult(w.typeOf(call)) || !w.l.mayShare(w.typeOf(call), w.typeOf(x)) {
+		return call
+	}
+	return nil
 }
 
 // dotCall is the call whose receiver is x, a dot call x.f(…) or an

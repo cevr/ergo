@@ -117,7 +117,49 @@ func (g *handoverGen) stmt() {
 		}
 		return hbag{items: append(append([]int(nil), b.items...), v), n: b.n}
 	}
-	switch k := g.r.IntN(26); k {
+	switch k := g.r.IntN(31); k {
+	case 26:
+		// A window of the root kept in a let, then the root written.
+		g.reached["window kept"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.bind(fmt.Sprintf("Bag{N: 0, Items: slices.Slice(m.Items, 0, %d)}", k), hbag{items: append([]int(nil), g.m.items[:k]...)})
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v))
+			g.m.items[0] = v
+		}
+	case 27:
+		// A window a pure call keeps (keep returns it): copied.
+		g.reached["window kept by a call"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.bind(fmt.Sprintf("Bag{N: 0, Items: keep(slices.Slice(m.Items, 0, %d))}", k), hbag{items: append([]int(nil), g.m.items[:k]...)})
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v))
+			g.m.items[0] = v
+		}
+	case 28:
+		// pop and popDig through a borrow, then an Append on the root.
+		k := g.r.IntN(len(g.m.items) + 1)
+		w := append([]int(nil), g.m.items[k:]...)
+		if g.r.IntN(2) == 0 {
+			g.reached["window popped"] = true
+			g.bind(fmt.Sprintf("Bag{N: 0, Items: pop(&m, %d)}", k), hbag{items: w})
+		} else {
+			g.reached["window read"] = true
+			g.line(fmt.Sprintf("out = out + popDig(&m, %d) + \" \"", k))
+			g.out.WriteString(hdig(w) + " ")
+		}
+		g.m.items = append(append([]int(nil), g.m.items[:k]...), v)
+		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+	case 29, 30:
+		// A window read by a call whose later operand writes the root:
+		// the call reads the window as it was.
+		g.reached["window read in flight"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.line(fmt.Sprintf("out = out + digAfter(slices.Slice(m.Items, 0, %d), set0(&m, %d)) + \" \"", k, v))
+		g.out.WriteString(hdig(g.m.items[:k]) + " ")
+		if len(g.m.items) > 0 {
+			g.m.items[0] = v
+		}
 	case 25:
 		// A one-extender site on a parameter the hand-over does not own:
 		// m takes both's result fresh only if c's array is not extended in
@@ -421,6 +463,40 @@ func mk(b Bag, v int) Bag {
 	Bag{Items: items, N: b.N}
 }
 
+// pop cuts the window [k, len) off a borrowed field and keeps it; the
+// field's next Append writes the slot the window starts at, so the window
+// is copied (gobody.go, goBodyView; wf10 DF1).
+func pop(b *Bag, k int) []int {
+	let w = slices.Slice(b.Items, k, len(b.Items))
+	b.Items = b.Items[0:k]
+	w
+}
+
+// popDig reads the window and keeps nothing of it: no copy.
+func popDig(b *Bag, k int) string {
+	let s = dig(slices.Slice(b.Items, k, len(b.Items)))
+	b.Items = b.Items[0:k]
+	s
+}
+
+// keep returns its parameter: a pure call that keeps the window.
+func keep(xs []int) []int {
+	xs
+}
+
+// set0 writes the first item of a borrowed field.
+func set0(b *Bag, v int) int {
+	if len(b.Items) > 0 {
+		b.Items[0] = v
+	}
+	v
+}
+
+// digAfter reads its window after its second operand ran.
+func digAfter(xs []int, v int) string {
+	dig(xs)
+}
+
 // trim reslices a borrowed field into itself: no copy (own-reslice).
 func trim(b *Bag) {
 	if len(b.Items) > 0 {
@@ -542,7 +618,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}
