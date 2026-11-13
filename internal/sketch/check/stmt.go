@@ -582,7 +582,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			}
 			return
 		}
-		if row := c.returnedErrorRow(s.Results[0], op.typ); row != nil && op.mode == modeValue && !c.ambiguousExit(s.Results[0], op.typ, row) {
+		if row := c.returnedErrorRow(s.Results[0], op.typ); row != nil && op.mode == modeValue {
 			c.escape(s.Results[0], row)
 			return
 		}
@@ -705,8 +705,10 @@ func (c *checker) errorValueRow(t Type) *Row {
 // func missing(k string) Missing { Missing{Key: k} } returns it (K1;
 // rows.md, Error rows 4). A declared result that is a union whose every
 // member is an error type is a value too: a value whose error types are
-// all members of it is the success value (fs1, under q27). In any other
-// body an error value is a failure. It records the decision for x, the
+// all members of it is the success value (fs1, under q27), and so is a
+// variant of a declared union result that the written row does not
+// declare (variantExit, FK3-g1). In any other body an error value is a
+// failure. It records the decision for x, the
 // returned expression, in Info.ReturnedValues.
 func (c *checker) returnedErrorRow(x syntax.Expr, t Type) *Row {
 	row := c.decideReturnedError(t)
@@ -731,17 +733,21 @@ func (c *checker) decideReturnedError(t Type) *Row {
 			return nil
 		}
 	}
+	if c.variantExit(t, row) {
+		return nil
+	}
 	return row
 }
 
-// ambiguousExit reports, at x, a value of the error type typ that ends a
-// function (a tail or a return) whose one result is a union that has typ
-// as a variant and a variant that is no error type, when the function's
-// row does not declare typ: such a value is a failure (rows.md, Tail
-// results 3), but it reads as the result's variant. The message says what
-// to write for each reading (lane MB F3). A declared row that lists typ
-// chose the failure, so it is quiet. It returns whether it reported.
-func (c *checker) ambiguousExit(x syntax.Expr, typ Type, row *Row) bool {
+// variantExit reports whether a value of the error type typ that ends a
+// function (a tail or a return) is the function's success value because
+// its one result is a union that has typ as a variant beside a variant
+// that is no error type, and the function's written row does not declare
+// typ (FK3-g1, extending fs1 under q27: the declared result decides). A
+// written row that lists typ chose the failure. An unwritten row is
+// inferred from the body, so it declares nothing here: the value is the
+// result's variant (rows.md, Tail results 3).
+func (c *checker) variantExit(typ Type, row *Row) bool {
 	t := c.fn.t
 	if t == nil || !t.isFunc || t.law || len(t.results) != 1 {
 		return false
@@ -753,11 +759,8 @@ func (c *checker) ambiguousExit(x syntax.Expr, typ Type, row *Row) bool {
 	if u := asUnion(res); u == nil || c.errorValueRow(u) != nil {
 		return false
 	}
-	if a, _ := c.assignability(typ, res); !a.ok() {
-		return false
-	}
-	c.errorf(x, CodeUndeclared, "%s is an error type, so a value of it that ends %s is a failure (rows.md, Tail results 3), and %s does not declare it; it is also a variant of %s: to return it as a value, write let v %s = %s and end with v; to fail with it, declare it in the error row", c.spelled(typ), t.name, t.name, c.spelled(res), c.spelled(res), exprText(x))
-	return true
+	a, _ := c.assignability(typ, res)
+	return a.ok()
 }
 
 // spelled is t as the source of the package being checked names it: a

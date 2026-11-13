@@ -23,12 +23,21 @@ var (
 	// value: the result is Missing; failure: int with the row {Missing};
 	// refused: int with no row, where the failure escapes (S101); named:
 	// Fail, a named union of error types that holds Missing, so the value
-	// is the success value too (fs1).
-	evTargets = []string{"value", "failure", "refused", "named"}
+	// is the success value too (fs1). variant: Sig, a union of Missing
+	// and a variant that is no error type, with no row, so the value is
+	// Sig's variant (FK3-g1); variantInferred: the same in an unexported
+	// function, whose row is inferred; variantFails: Sig with the row
+	// {Missing}, which chose the failure; elsewhere: Odd, a union of
+	// Other and Fine with no row, of which Missing is no variant, so the
+	// value is an undeclared failure (S101), as refused is.
+	evTargets = []string{"value", "failure", "refused", "named", "variant", "variantInferred", "variantFails", "elsewhere"}
 )
 
 const evDecls = `type Missing { Key string }
 type Other { Why string }
+type Fine { N int }
+type Sig = Missing | Fine
+type Odd = Other | Fine
 type Fail = Missing | Other
 func other() int fails Other { 1 }
 func missing(k string) Missing { Missing{Key: k} }
@@ -50,8 +59,11 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 	if form == "catch" && position == "tail" {
 		return "", false
 	}
-	head := map[string]string{"value": "Missing", "failure": "int fails Missing", "refused": "int", "named": "Fail"}[target]
-	other := map[string]string{"value": `Missing{Key: "other"}`, "failure": "7", "refused": "7", "named": `Other{Why: "other"}`}[target]
+	head := map[string]string{"value": "Missing", "failure": "int fails Missing", "refused": "int", "named": "Fail", "variant": "Sig", "variantInferred": "Sig", "variantFails": "Sig fails Missing", "elsewhere": "Odd"}[target]
+	other := map[string]string{"value": `Missing{Key: "other"}`, "failure": "7", "refused": "7", "named": `Other{Why: "other"}`, "elsewhere": "Fine{N: 1}"}[target]
+	if strings.HasPrefix(target, "variant") {
+		other = "Fine{N: 1}"
+	}
 	var prelude, expr string
 	switch form {
 	case "literal":
@@ -77,9 +89,9 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 
 // TestErrorValueRuleTable is the K1 property: every (form, position,
 // target) of the rule table, each with a seeded key, checks as the table
-// says (value, failure and named check; refused is one S101), and the checked
-// ones run as it says: a value target returns the Missing value, a
-// failure target fails with it. The table is enumerated whole; the fixed
+// says (refused is one S101, every other target checks), and the checked
+// ones run as it says: a value, named or variant target returns the
+// Missing value, a failure or variantFails target fails with it. The table is enumerated whole; the fixed
 // seed only draws the keys, and a failure prints the program.
 func TestErrorValueRuleTable(t *testing.T) {
 	needsBuild(t)
@@ -91,6 +103,9 @@ func TestErrorValueRuleTable(t *testing.T) {
 		for _, position := range evPositions {
 			for _, target := range evTargets {
 				name := fmt.Sprintf("G%d", n) // exported: its rows are written, never inferred
+				if target == "variantInferred" {
+					name = fmt.Sprintf("g%d", n) // unexported, with no row: inferred
+				}
 				f, ok := evFunc(name, form, position, target)
 				if !ok {
 					continue
@@ -102,14 +117,14 @@ func TestErrorValueRuleTable(t *testing.T) {
 					codes = append(codes, d.Code)
 				}
 				wantCodes := ""
-				if target == "refused" {
+				if target == "refused" || target == "elsewhere" {
 					wantCodes = "S101"
 				}
 				if got := strings.Join(codes, " "); got != wantCodes {
 					t.Errorf("%s %s %s: want [%s], got %v\n%s", form, position, target, wantCodes, ds, f)
 					continue
 				}
-				if target == "refused" {
+				if target == "refused" || target == "elsewhere" {
 					continue
 				}
 				funcs.WriteString(f)
@@ -124,6 +139,12 @@ func TestErrorValueRuleTable(t *testing.T) {
 				case "named":
 					fmt.Fprintf(&calls, "\tmatch %s(%q) {\n\tcase Missing as m:\n\t\tConsole.Println(\"%s member \\(m.Key)\")\n\tcase Other:\n\t\tConsole.Println(\"%s other\")\n\t}\n", name, key, name, name)
 					fmt.Fprintf(&want, "%s member %s\n", name, key)
+				case "variant", "variantInferred":
+					fmt.Fprintf(&calls, "\tmatch %s(%q) {\n\tcase Missing as m:\n\t\tConsole.Println(\"%s variant \\(m.Key)\")\n\tcase Fine:\n\t\tConsole.Println(\"%s fine\")\n\t}\n", name, key, name, name)
+					fmt.Fprintf(&want, "%s variant %s\n", name, key)
+				case "variantFails":
+					fmt.Fprintf(&calls, "\tlet v%s = %s(%q) catch {\n\tcase Missing as m:\n\t\tConsole.Println(\"%s failed \\(m.Key)\")\n\t\tFine{N: 0}\n\t}\n\t_ = v%s\n", name, name, key, name, name)
+					fmt.Fprintf(&want, "%s failed %s\n", name, key)
 				}
 			}
 		}

@@ -4050,6 +4050,9 @@
       "killers": [
         "lower:TestInForceAfterWithEnds"
       ]
-    }
+    },
+    {"name":"fk3g1-variant-failure","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\tif c.variantExit(t, row) {\n","to":"\tif false && c.variantExit(t, row) {\n","rule":"A value of an error type that ends a function whose one result is a union with it as a variant, and whose written row does not declare it, is the result's value (FK3-g1; rows.md, Tail results 3).","killers":["lower:TestErrorValueRuleTable"]},
+    {"name":"fk3g1-written-row-ignored","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\tif t.declErrors != nil && (t.declErrors.unknown(c.types) || row.minus(c.types, t.declErrors).known(c.types).Empty()) {\n","to":"\tif false {\n","rule":"A written row that declares the error type chose the failure: Sig fails Missing fails with Missing (FK3-g1).","killers":["lower:TestErrorValueRuleTable"]},
+    {"name":"fk3g1-not-a-variant","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\ta, _ := c.assignability(typ, res)\n\treturn a.ok()\n","to":"\ta, _ := c.assignability(typ, res)\n\treturn a.ok() || true\n","rule":"Only a variant of the declared union is its value; an error value that is no variant stays a failure (S101 when undeclared; FK3-g1).","killers":["lower:TestErrorValueRuleTable"]}
   ]
 }
