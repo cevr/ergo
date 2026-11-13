@@ -2,6 +2,7 @@ package v1
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,12 @@ type Text struct {
 	// HTML escapes <, > and & in strings as \u003c, \u003e and \u0026, as
 	// Go's encoding/json does by default, so the text is safe inside HTML.
 	HTML bool
+	// keys is the stack of the sorted keys of the Maps being written
+	// (JSONKeys), innermost last; it is empty between values.
+	keys []string
+	// strikes counts the gives in a row whose text used less than a
+	// quarter of a large buffer (jsonRecycle).
+	strikes int
 }
 
 // NewJSONText is a Text with nothing written.
@@ -961,9 +968,35 @@ func (c *Cursor) Tag() string {
 	return v
 }
 
-// jsonPool keeps the buffers of the Texts Codec.Encode writes (JSONTake,
-// JSONGive), as encoding/json keeps its encodeState: a text's buffer
-// grows once and is used again.
+// JSONKeys pushes the keys of m, sorted, onto t's key stack and returns
+// them: the fast path's order of a Map's members, the order WireKeys
+// gives the Writer path. JSONKeysDone pops them when the Map is written.
+// A Map inside a value of m pushes its keys above them and pops them
+// before the next key of m, so the returned slice stays as it was: a push
+// that grows the stack copies it and leaves the old array to the slices
+// that view it. A pooled Text keeps its stack, so a Map written again
+// allocates nothing for its order.
+func JSONKeys[K ~string, V any](t *Text, m map[K]V) []string {
+	mark := len(t.keys)
+	for k := range m {
+		t.keys = append(t.keys, string(k))
+	}
+	ks := t.keys[mark:]
+	slices.Sort(ks)
+	return ks
+}
+
+// JSONKeysDone pops ks, the keys the last JSONKeys of t pushed, and
+// clears them, so the stack keeps no string alive.
+func JSONKeysDone(t *Text, ks []string) {
+	n := len(t.keys) - len(ks)
+	clear(t.keys[n:])
+	t.keys = t.keys[:n]
+}
+
+// jsonPool keeps the Texts std json's Encode writes (JSONTake, JSONGive),
+// as encoding/json keeps its encodeState: a text's buffer grows once and
+// is used again, so a value encoded again allocates only its result.
 var jsonPool = sync.Pool{New: func() any { return &Text{B: make([]byte, 0, 1024)} }}
 
 // JSONTake is an empty Text from the pool, for std json's Encode only:
@@ -971,13 +1004,34 @@ var jsonPool = sync.Pool{New: func() any { return &Text{B: make([]byte, 0, 1024)
 func JSONTake() *Text { return jsonPool.Get().(*Text) }
 
 // JSONGive is the text t wrote, and puts t back in the pool; nothing may
-// use t after. A buffer that grew past 64 KiB is dropped, so the pool
-// holds no large buffer.
+// use t after. jsonRecycle decides whether t keeps its buffer. A key on
+// t's stack is a Map whose write never ended: a defect of the lowering.
 func JSONGive(t *Text) string {
-	s := string(t.B)
-	if cap(t.B) <= 64<<10 {
-		t.B, t.Comma = t.B[:0], false
-		jsonPool.Put(t)
+	if len(t.keys) != 0 {
+		panic("std json: Encode ended inside a Map: its keys are still on the Text's key stack")
 	}
+	s := string(t.B)
+	jsonRecycle(t)
+	jsonPool.Put(t)
 	return s
+}
+
+// jsonRecycle empties t for its next use. t keeps a buffer of at most
+// 4 KiB, and a larger one its text used a quarter of; a larger buffer
+// that fewer than a quarter used is kept for four such gives in a row and
+// dropped at the fifth, so a stream of small texts does not hold one large
+// buffer alive: a kept buffer is at least 5% used over its last five
+// texts. This is encoding/json/v2's rule for its pooled encoders (go.dev/
+// issue/27735).
+func jsonRecycle(t *Text) {
+	switch {
+	case cap(t.B) <= 4<<10, cap(t.B)/4 <= len(t.B):
+		t.strikes = 0
+	case t.strikes < 4:
+		t.strikes++
+	default:
+		t.strikes = 0
+		t.B = nil
+	}
+	t.B, t.Comma = t.B[:0], false
 }

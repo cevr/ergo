@@ -4082,6 +4082,8 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
-    }
+    },
+    {"name":"x3-json-keys-reference","origin":"wf10 X3","file":"internal/sketch/lower/wirejson.go","from":"\tks, s := scope.alloc(\"ks\"), scope.alloc(\"s\")\n","to":"\tif true {\n\t\treturn writerEvents{}.keys(tc, key, v, i, k, w, scope)\n\t}\n\tks, s := scope.alloc(\"ks\"), scope.alloc(\"s\")\n","rule":"stdlib.md json 4: the fast path orders a Map's keys on the pooled Text's key stack, so a value encoded again allocates only its result string.","killers":["lower:TestJSONEncodeAllocatesOnlyItsText"]},
+    {"name":"x3-json-keys-no-pop","origin":"wf10 X3","file":"internal/sketch/lower/wirejson.go","from":"\treturn head, tc.l.rt() + \".JSONKeysDone(\" + w + \", \" + ks + \")\\n\"\n","to":"\treturn head, \"\"\n","rule":"stdlib.md json 4: each Map the fast path writes pops its keys from the Text's key stack when it is written (JSONGive refuses a Text that still holds keys).","killers":["lower:TestJSONEncodeAllocatesOnlyItsText","lower:TestStdJSONLawsRun"]}
   ]
 }

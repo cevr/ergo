@@ -76,6 +76,10 @@ type wireEvents interface {
 	// key writes a record's member key; first says no member or tag is
 	// before it.
 	key(name string, first bool, task, w string) string
+	// keys is the loop over the keys of the Map v, in order, with key
+	// type key: head opens it, binding the loop index i and the key k (of
+	// the Map's key type), and tail follows the loop's closing brace.
+	keys(tc *typeCtx, key check.Type, v, i, k, w string, scope *namer) (head, tail string)
 	// mapKey writes a Map's key k, the entry at loop index i.
 	mapKey(tc *typeCtx, k, i, task, w string) string
 	// item is the statement before the element at loop index i of a list.
@@ -127,6 +131,12 @@ func (writerEvents) tag(name, task, w string) string {
 
 func (writerEvents) key(name string, first bool, task, w string) string {
 	return w + ".Key(" + task + ", " + strconv.Quote(name) + ")\n"
+}
+
+// keys on the reference path ranges over v1.WireKeys, a new sorted slice
+// of the keys.
+func (writerEvents) keys(tc *typeCtx, key check.Type, v, i, k, w string, scope *namer) (string, string) {
+	return "for " + i + ", " + k + " := range " + tc.l.rt() + ".WireKeys(" + v + ") {\n", ""
 }
 
 func (writerEvents) mapKey(tc *typeCtx, k, i, task, w string) string {
@@ -202,6 +212,17 @@ func (jsonEvents) key(name string, first bool, task, w string) string {
 		return appendConst(w, quotedKey(name))
 	}
 	return appendConst(w, ","+quotedKey(name))
+}
+
+// keys on the fast path sorts the keys on the Text's key stack
+// (v1.JSONKeys), which a pooled Text keeps, so the order of a Map
+// written again allocates nothing; the loop's tail pops them.
+func (jsonEvents) keys(tc *typeCtx, key check.Type, v, i, k, w string, scope *namer) (string, string) {
+	ks, s := scope.alloc("ks"), scope.alloc("s")
+	head := ks + " := " + tc.l.rt() + ".JSONKeys(" + w + ", " + v + ")\n" +
+		"for " + i + ", " + s + " := range " + ks + " {\n" +
+		k + " := " + tc.goType(key) + "(" + s + ")\n"
+	return head, tc.l.rt() + ".JSONKeysDone(" + w + ", " + ks + ")\n"
 }
 
 func (e jsonEvents) mapKey(tc *typeCtx, k, i, task, w string) string {

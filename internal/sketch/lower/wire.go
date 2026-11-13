@@ -572,8 +572,10 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 	case *check.Map:
 		i, k := index(), scope.alloc("k")
 		b.WriteString(em.open(false, "len("+v+")", task, w))
-		b.WriteString("for " + i + ", " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
+		head, tail := em.keys(tc, u.Key, v, i, k, w, scope)
+		b.WriteString(head)
 		b.WriteString(em.mapKey(tc, k, i, task, w) + tc.wireEncodeWith(em, u.Elem, env, w, v+"["+k+"]") + "\n}\n")
+		b.WriteString(tail)
 		b.WriteString(em.close(false, task, w))
 	case *check.Tuple:
 		b.WriteString(em.open(true, strconv.Itoa(len(u.Types)), task, w))
