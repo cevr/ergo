@@ -28,18 +28,22 @@ type ordered interface {
 }
 
 // SlicesSort is slices.Sort[T](xs): a sorted copy of xs, in ascending
-// order. A float NaN sorts first, as in Go.
+// order. A float NaN sorts first, as in Go. Where xs is consumed (no
+// binding reads it after the call), the lowering calls its owned form
+// SlicesSortOwned, which sorts xs in place.
 //
 //ergo:pure
+//ergo:owned SlicesSortOwned
 func SlicesSort[T ordered](xs []T) []T {
 	out := slices.Clone(xs)
 	slices.Sort(out)
 	return out
 }
 
-// SlicesSortOwned sorts xs in place and returns it. Only slices.Sorted
-// calls it, on the slice it has just collected, which nothing else holds.
-// It writes its argument, so it is not marked pure.
+// SlicesSortOwned sorts xs in place and returns it: SlicesSort's owned
+// form, called on a consumed slice, and slices.Sorted's, on the slice it
+// has just collected, which nothing else holds. It writes its argument,
+// so it is not marked pure.
 func SlicesSortOwned[T ordered](xs []T) []T {
 	slices.Sort(xs)
 	return xs
@@ -181,3 +185,15 @@ func CmpCompare[T ordered](a T, b T) int {
 func CmpLess[T ordered](a T, b T) bool {
 	return (a != a && b == b) || a < b
 }
+
+// CmpMax is Go's builtin max(a, b): the larger value; for floats a NaN
+// gives NaN, and max(-0, +0) is +0.
+//
+//ergo:pure
+func CmpMax[T ordered](a T, b T) T { return max(a, b) }
+
+// CmpMin is Go's builtin min(a, b): the smaller value; for floats a NaN
+// gives NaN, and min(-0, +0) is -0.
+//
+//ergo:pure
+func CmpMin[T ordered](a T, b T) T { return min(a, b) }

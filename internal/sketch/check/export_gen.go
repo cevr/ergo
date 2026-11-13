@@ -48,6 +48,7 @@ func (e *encoder) encFieldsPackage(v *Package) {
 	e.encT13(v.files)
 	e.encT14(v.collFuncs)
 	e.encT15(v.testBuilds)
+	e.encPtrPackage(v.testOf)
 }
 
 func (e *encoder) encPackage(v Package) { e.encFieldsPackage(&v) }
@@ -8555,6 +8556,7 @@ func (d *decoder) decFieldsPackage(v *Package) {
 	v.files = d.decT13()
 	v.collFuncs = d.decT14()
 	v.testBuilds = d.decT15()
+	v.testOf = d.decPtrPackage()
 }
 
 func (d *decoder) decPackage() (v Package) {

@@ -408,6 +408,11 @@ test CmpCompareIsTransitive(a int, b int, c int) {
 	}
 }
 
+test CmpMaxMinSplit(a int, b int) {
+	assert cmp.Max(a, b) == cmp.Max(b, a) && cmp.Min(a, b) == cmp.Min(b, a)
+	assert cmp.Max(a, b)+cmp.Min(a, b) == a+b && cmp.Min(a, b) <= cmp.Max(a, b)
+}
+
 test CmpLessIsCompareBelowZero(a string, b string) {
 	assert cmp.Less(a, b) == (cmp.Compare(a, b) < 0)
 	assert !cmp.Less(a, a)
@@ -518,6 +523,7 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsAntisymmetric":       `CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }`,
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
+	"cmp MaxMinSplit":                  `MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a) && Max(a, b)+Min(a, b) == a+b && Min(a, b) <= Max(a, b) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
 	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,

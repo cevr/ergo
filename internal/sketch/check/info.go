@@ -129,6 +129,10 @@ type Package struct {
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.
 	testBuilds map[*TypeName][]*Builder
+	// testOf is the package this one tests, the role its loader gives it
+	// (CheckTest, builders.go rule 2); nil for a package that is no test
+	// package. Set before the package is checked.
+	testOf *Package
 }
 
 // Std reports a std package: the prelude or a package of the embedded
