@@ -1,6 +1,6 @@
 # vt
 
-A minimal terminal emulator with no terminal: it plays recorded terminal output on a screen with scrollback and prints the screen. The parser is the DEC escape-sequence state machine (vt100.net's parser, as Ghostty runs it); it turns the byte stream into events (runs of text, controls, ESC, CSI, OSC, DCS and APC sequences), and the screen acts on them. The screen comes in two forms that keep one contract: a dense one in Ghostty's shape (packed cells in pages, interned and counted styles) and a plain reference. DOD track units DT1 (parser) and DT2 (screen); the hand-Go control and its receipts come in DT3, and a view on the cell host in DT4.
+A minimal terminal emulator with no terminal: it plays recorded terminal output on a screen with scrollback and prints the screen. The parser is the DEC escape-sequence state machine (vt100.net's parser, as Ghostty runs it); it turns the byte stream into events (runs of text, controls, ESC, CSI, OSC, DCS and APC sequences), and the screen acts on them. The screen comes in two forms that keep one contract: a dense one in Ghostty's shape (packed cells in pages, interned and counted styles) and a plain reference. DOD track units DT1 (parser), DT2 (screen) and DT3 (the hand-Go control and its receipts); a view on the cell host comes in DT4.
 
 ```sh
 vt gen 7 2000000 > out.bin     # 2 MB of generated terminal output from seed 7
@@ -45,7 +45,16 @@ vt events -tally < out.bin     # the tally only
 - `gen`: 400 bytes of seed 1.
 - `usage`, `bad-count`, `bad-flag`: exit 2.
 
-The events goldens agree byte for byte with a Go transliteration of Ghostty's `Parser.zig` and `parse_table.zig`. That transliteration was used once to check them and is not kept. DT3's hand-Go control and its agreement property make that check permanent.
+The events goldens agree byte for byte with a Go transliteration of Ghostty's `Parser.zig` and `parse_table.zig`. That transliteration is the parser of the hand-Go control, `cmd/ergo/testdata/vt/control`.
+
+## Control
+
+`cmd/ergo/testdata/vt/control/main.go` is `vt replay` as a person would write it in Go, in the dense form. It has Ghostty's transition table with the decoder in front of it, and it calls the screen directly, with no event list. The screen is Ghostty's: 8-byte cells, a ring of pages, and a counted style set. `TestVTAgreesWithControl` (in `cmd/ergo`, full tier) plays 200 seeds of `vt gen` on the dense screen, the plain screen and the control, and requires the same bytes from all three. Every 25th seed is 1.5 MB, so the history drops pages; `ERGO_VT_SEED=n` replays one seed. The receipt counts per input byte at 2 and 16 MB:
+
+- Dense Ergo is 2.5× the control's instructions and 6.2× its bytes.
+- Plain Ergo is 6.9× dense Ergo's instructions and 106× its bytes.
+
+The DT3 gaps name where dense Ergo spends the difference: the event list, fill loops that are not `clear`, and calls through the operation type.
 
 ## Gaps and choices
 
