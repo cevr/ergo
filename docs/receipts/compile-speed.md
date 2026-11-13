@@ -118,7 +118,7 @@ What remains is not the module's own init, by the probes:
 A probe undercounts a package's own tables: the linker drops the init of
 a package-level map that nothing reaches, and a probe reaches nothing.
 `GODEBUG=inittrace=1 ergo version` shows the inits as `ergo` runs them.
-`TestStartBuildsNoTables` bounds the module's init bytes at 128 KiB.
+`TestStartBuildsNoTables` bounds the module's init bytes at 64 KiB.
 
 ## R
 

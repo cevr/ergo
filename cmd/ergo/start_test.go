@@ -14,8 +14,9 @@ import (
 // main runs: package-level values only, every table a command needs built
 // on its first use (docs/tooling.md, "Process start"). Their inits make
 // about 45 KiB today, against 1.1 MiB before the start receipt
-// (docs/receipts/compile-speed.md, "Process start").
-const startInitBytes = 128 << 10
+// (docs/receipts/compile-speed.md, "Process start"); the std binding
+// catalog alone, built eagerly, adds 41 KiB.
+const startInitBytes = 64 << 10
 
 // TestStartBuildsNoTables: `ergo version` starts with the module's
 // packages allocating at most startInitBytes in their inits (Go's
