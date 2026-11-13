@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..1e4014f
+index 0000000..dec1d99
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,242 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -96,6 +96,8 @@ index 0000000..1e4014f
 +	// Label is a loop's or a block's label, or the label a break,
 +	// continue or goto names (ergoir_label.go).
 +	Label string `json:"label,omitempty"`
++	// Y is a store's value (store: X = Y, X a field; IRG6).
++	Y *ergoExpr `json:"y,omitempty"`
 +}
 +
 +type ergoExpr struct {
@@ -309,10 +311,10 @@ index 0000000..73aec3e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..862851f
+index 0000000..ecbfd13
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,334 @@
+@@ -0,0 +1,366 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -397,6 +399,38 @@ index 0000000..862851f
 +		e.SetPos(pos)
 +		ergoValue(e, t, nil)
 +		return e, t
++	case "deref":
++		// *p: the value a pointer points at (IRG6: a with copies the
++		// environment, env2 := *env).
++		e0, t := c.expr(x.X)
++		if e0 == nil {
++			return nil, nil
++		}
++		pt, ok := types2.CoreType(t).(*types2.Pointer)
++		if !ok {
++			c.errorf(x.Pos, "ergoir: deref of %v", t)
++			return nil, nil
++		}
++		e := &syntax.Operation{Op: syntax.Mul, X: e0}
++		e.SetPos(pos)
++		ergoValue(e, pt.Elem(), nil)
++		return e, pt.Elem()
++	case "addr":
++		// &x of a local (IRG6: the copy a with's block runs against), or
++		// &T{…} of a literal (an operations conversion's adapter).
++		if x.X == nil || x.X.K != "local" && x.X.K != "lit" {
++			c.errorf(x.Pos, "ergoir: address of a non-local")
++			return nil, nil
++		}
++		e0, t := c.expr(x.X)
++		if e0 == nil {
++			return nil, nil
++		}
++		pt := types2.NewPointer(t)
++		e := &syntax.Operation{Op: syntax.And, X: e0}
++		e.SetPos(pos)
++		ergoValue(e, pt, nil)
++		return e, pt
 +	case "call":
 +		fn, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Func)
 +		if !ok {
@@ -1081,10 +1115,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..0639e70
+index 0000000..b86afeb
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,304 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1224,6 +1258,21 @@ index 0000000..0639e70
 +		case s.K == "def":
 +			a.Op = syntax.Def
 +		}
++		a.SetPos(pos)
++		return a
++	case "store":
++		// x.f = y: a field of a record a local points at (IRG6: a with
++		// publishes its providers into the environment's copy).
++		if s.X == nil || s.X.K != "field" {
++			c.errorf(s.Pos, "ergoir: store to a non-field")
++			return nil
++		}
++		lhs, lt := c.expr(s.X)
++		rhs, rt := c.expr(s.Y)
++		if lhs == nil || rhs == nil || !c.assignable(s.Pos, "store", rt, lt) {
++			return nil
++		}
++		a := &syntax.AssignStmt{Lhs: lhs, Rhs: rhs}
 +		a.SetPos(pos)
 +		return a
 +	case "var":
