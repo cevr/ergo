@@ -592,7 +592,7 @@ func (d *direct) compile(p *goPackage) error {
 		d.digests[p.ImportPath] = a
 		d.report.Reused++
 		d.report.Pinned++
-		stage.Add(stage.GoCompilesReused, 1)
+		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
 		return d.record(key, a.Digest, a.Export)
 	}
 	pkgPath := p.ImportPath

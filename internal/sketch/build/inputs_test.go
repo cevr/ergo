@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"ergo.local/prototype/internal/pinset"
 )
 
 // inputMutation changes one field of the base input. covers names the
@@ -278,6 +280,22 @@ func TestCacheInputs(t *testing.T) {
 				if err != nil || (report.Refused == "go build selected") != goBuild {
 					t.Fatalf("GoBuild=%t built by %v: %v", goBuild, report, err)
 				}
+			}
+		})
+		t.Run("Pins", func(t *testing.T) {
+			// Pin archive sets (pin.go) only replace compiles the direct
+			// path would run with the same bytes: they key neither the
+			// emitted module nor go build's action. TestColdBuildCompilesNoPinPackage
+			// and TestRefusedArchiveFallsBack (sketchfront) check the bytes.
+			covered["Toolchain.Pins"] = true
+			tc := hostToolchain()
+			tc.Pins = Pins{Patch: "another", Source: pinset.Source{Dir: t.TempDir()}}
+			again, err := Cache{Root: root}.Module(base, emitFor(base, &calls))
+			if err != nil || !again.Reused || calls.Load() != 1 {
+				t.Fatalf("pins re-emitted: reused=%v emissions=%d err=%v", again.Reused, calls.Load(), err)
+			}
+			if command := tc.Command(again, "/out/program"); !slices.Equal(command.Args, baseCommand.Args) || !slices.Equal(command.Env, baseCommand.Env) {
+				t.Fatal("pins change go build's action")
 			}
 		})
 		t.Run("Root", func(t *testing.T) {
