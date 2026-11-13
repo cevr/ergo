@@ -12,8 +12,8 @@
     {
       "name": "stars-app-swallows-the-refusal", "origin": "wf10 GP1b",
       "file": "examples/stars-gui/screen/app.ergo",
-      "from": "return Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
-      "to": "return Stay[catalog.State]{Next: s}",
+      "from": "case catalog.Refused as r:\n\t\t\treturn Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
+      "to": "case catalog.Refused:\n\t\t\treturn Stay[catalog.State]{Next: s}",
       "rule": "A refused edit is the app's output, which the window shows.",
       "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
@@ -29,7 +29,7 @@
       "name": "stars-scene-shows-the-overscan", "origin": "wf10 GP1b",
       "file": "examples/stars-gui/script/scene.ergo",
       "from": "for i in w.Top-x.First..w.Top-x.First+w.Height {",
-      "to": "for i in 0..w.Height {",
+      "to": "for i in w.Top-x.First..w.Top-x.First+w.Height+1 {",
       "rule": "A window shows the rows of its viewport, not the rows a list writes past its edges.",
       "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
