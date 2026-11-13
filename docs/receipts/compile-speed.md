@@ -255,3 +255,23 @@ Measured on 2026-11-13 at the CS4b head, at a 1-minute load of 32 to 39. The met
 - The corpus (measured): all 768 clean programs of the checker's corpus were split with their std packages, then built and linked as one dispatch binary, as `TestCheckCorpusBuilds` builds the reference. All of them built. 64 of them split (66 std Go packages in all), and no declaration that is not std landed in a std package. This was a scratch test at the CS4b head, not committed.
 - The examples (measured): `go run ./scripts/examples` passed under the split. The first full run failed only in calc, chat and confparse, with "no space left on device" (the host disk filled during the run). The rerun of those three passed its 17 cases. The reference lowering did not change since CS4, so its CS4 run stands.
 - Gap: the shared package still holds the environment type `Env` and what it names. `Env` names the program's capability types, so a std package's compile depends on the shared package, and the std packages are not yet cached per pin (plan §3.3).
+
+## Direct path (CS10)
+
+CS10 splits the IR path too (`lower.LowerIRSplit`): each Go package of the split compiles with the IR file of its own bodies, on the direct path, which keys an importer's compile on each import's export data (`__.PKGDEF`), not on its archive, and starts the compiles of independent packages together. An IR build after the first starts no go command: the release's GOROOT answer is kept (`toolchain.SourceOf`), and the toolchain plan and the std archives were already kept. Measured on 2026-11-13 at the CS10 head `fe83cd718` on the workbox (`go run ./scripts/buildcost -sizes 10,50 -examples ""`, then the same with `ERGO_LOWER=single`, the one-package reference), `GOMAXPROCS=1`, at a 1-minute load of 66 to 101. The counts do not depend on the load; the instructions are the process tree's user-mode instructions.
+
+| Scenario | Split: compiles run / reused | Reference: compiles run / reused | Split instr (M) | Reference instr (M) |
+| --- | --- | --- | --- | --- |
+| g10 leaf-body-edit | 4 / 13 | 1 / 3 | 3,887 | 6,118 |
+| g10 main-body-edit | 1 / 16 | 1 / 3 | 3,299 | 6,121 |
+| g50 leaf-body-edit | 3 / 41 | 1 / 3 | 6,840 | 13,096 |
+| g50 main-body-edit | 1 / 43 | 1 / 3 | 7,374 | 13,465 |
+| g50 first | 44 / 0 | 4 / 0 | 33,557 | 32,129 |
+
+- Every edit build in both modes ran 0 go commands (`go_commands`); a first build runs 4 (`go env GOROOT`, the IR compiler's build, `go env`, `go list`).
+- Measured: after a body edit of the lowest package, the split compiles that package and only the importers whose imports' export data changed: 4 of 17 packages at g10, 3 of 44 at g50. The edit (`3 * c.R * c.R` to `4 * …`) is in a function small enough for Go's inliner, so its body is in the export data, and the importers that may inline it are compiled again, as they must be: their objects hold a copy of the old body. A body Go does not inline compiles one package (`TestDirectRebuildsOnEachInput`, row "dependency body, same export data").
+- Measured: an edit build costs 36 to 48 % fewer instructions than the reference at g10 and g50, because the compiles are of the edited packages, not of the whole program.
+- Measured: the first build of g50 costs 4 % more instructions than the reference (44 compile processes against 4). Each process pays the empty-package cost (see "Empty-package compile"). With `GOMAXPROCS` above 1, independent compiles run at once (`TestDirectCompilesInParallel`); this receipt ran with 1.
+- g10 first is not comparable: the split run was the first of the receipt and built the IR compiler into a cold Go build cache (630,333 M); the reference run found it built (25,239 M).
+- Not done, by the plan's own conditions: IRT0a measured that JSON decoding costs more than Go parsing per unit of program (about 2.9 % of an IR package's compile), so a binary IR encoding is a follow-up, a change of the compiler patch. The declaration-file share of the DECL rule is not measured yet, so the stubs stay in the Go files. Std's export data comes from the pin archives since CS3.
+- The raw log is the wf10 run's `compile-speed/cs10/receipt-buildcost.log`.
