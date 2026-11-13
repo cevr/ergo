@@ -25,8 +25,12 @@ import (
 // beyond ASCII and filters with invalid UTF-8 (so a typed letter both
 // narrows and sorts again), windows of 1 to 12 rows, moves past both
 // ends, selections across sorts, edits that each column takes and
-// refuses, malformed catalogues and lines that are no command. A failing
-// seed prints its replay command and the first line that differs.
+// refuses, malformed catalogues and lines that are no command. On every
+// fifth seed (and on a replayed one) the Ergo program also plays the
+// script as a scene (GP1b): the window's view on ui.TestHost, driven by
+// keys, buttons and its text field, with the rows of a virtual list;
+// what it shows is held to the same reference. A failing seed prints its
+// replay command and the first line that differs.
 //
 // It builds Go because the programs under test are the linked binaries:
 // the Ergo program reads the host's file and its standard input, and the
@@ -62,11 +66,23 @@ func TestStarsGuiAgreesWithControl(t *testing.T) {
 		}
 		args := []string{"run", "-rows", strconv.Itoa(height), "cat.tsv"}
 		want := starsReference(catalogue, script, height)
-		for _, bin := range []string{ergoBin, control} {
-			got := runCorpus(t, bin, dir, args, script)
+		runs := []struct {
+			bin  string
+			args []string
+		}{{ergoBin, args}, {control, args}}
+		if seeds == 1 || seed%5 == 0 {
+			// A scene costs a pass of the window a key press, so a
+			// "down 3000" is 3,000 passes: every fifth seed plays one.
+			runs = append(runs, struct {
+				bin  string
+				args []string
+			}{ergoBin, append([]string{"scene"}, args[1:]...)})
+		}
+		for _, run := range runs {
+			got := runCorpus(t, run.bin, dir, run.args, script)
 			if got != want {
-				t.Fatalf("seed %d (%d rows high): %s printed other text than the reference\n%s\nreplay: STARS_SEED=%d go test -count=1 -run '^TestStarsGuiAgreesWithControl$' ./cmd/ergo",
-					seed, height, filepath.Base(bin), firstDiff(got, want), seed)
+				t.Fatalf("seed %d (%d rows high): %s %s printed other text than the reference\n%s\nreplay: STARS_SEED=%d go test -count=1 -run '^TestStarsGuiAgreesWithControl$' ./cmd/ergo",
+					seed, height, filepath.Base(run.bin), run.args[0], firstDiff(got, want), seed)
 			}
 		}
 	}

@@ -1,6 +1,54 @@
 {
-  "about": "stars-gui's application mutants (wf10 corpus wave GP1a): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
+  "about": "stars-gui's application mutants (wf10 corpus wave GP1a, GP1b): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; scripts/examples:stars-gui is the program's cases (`go run ./scripts/examples stars-gui`), killed when a case's output differs; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
+    {
+      "name": "stars-retext-types-the-whole-field", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/screen/app.ergo",
+      "from": "catalog.After(at, catalog.Type{Text: strings.Slice(text, len(Typed(at)), len(text))})",
+      "to": "catalog.After(at, catalog.Type{Text: text})",
+      "rule": "A field that grew by text is the table typing that text, not the whole field again.",
+      "killers": ["examples/stars-gui/screen:law RetextIsTyping"]
+    },
+    {
+      "name": "stars-app-swallows-the-refusal", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/screen/app.ergo",
+      "from": "return Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
+      "to": "return Stay[catalog.State]{Next: s}",
+      "rule": "A refused edit is the app's output, which the window shows.",
+      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-page-up-pages-down", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/screen/view.ergo",
+      "from": "Some{Value: Do{Signal: catalog.Page{Down: false}}}",
+      "to": "Some{Value: Do{Signal: catalog.Page{Down: true}}}",
+      "rule": "The page-up key pages up.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-scene-shows-the-overscan", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/script/scene.ergo",
+      "from": "for i in w.Top-x.First..w.Top-x.First+w.Height {",
+      "to": "for i in 0..w.Height {",
+      "rule": "A window shows the rows of its viewport, not the rows a list writes past its edges.",
+      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-host-never-scrolls", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/script/scene.ergo",
+      "from": "\tif now == was {\n\t\treturn was\n\t}",
+      "to": "\tif now != was {\n\t\treturn was\n\t}",
+      "rule": "The host scrolls the list to the table's window when it moves.",
+      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-scene-presses-one-key-short", "origin": "wf10 GP1b",
+      "file": "examples/stars-gui/script/scene.ergo",
+      "from": "for _ in 0..n {",
+      "to": "for _ in 1..n {",
+      "rule": "down N is N presses of the down arrow.",
+      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
     {
       "name": "stars-window-lets-cursor-fall-below", "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",

@@ -5,10 +5,13 @@
 //
 //	stars-gui gen [-seed S] [-n N]     write a catalogue of N stars
 //	stars-gui run [-rows H] CATALOG    play the script on standard input
+//	stars-gui scene [-rows H] CATALOG  play it on the window's view, on
+//	                                   ui.TestHost
 //
 // This binary is the only place that chooses the providers: the host's
 // files for the catalogue, a seeded generator for gen.
 
+import actor
 import flag
 import fs
 import io
@@ -18,9 +21,11 @@ import slices
 import stars/catalog
 import stars/files
 import stars/script
+import time
+import ui
 
 // Usage is the text of a usage failure.
-let Usage = "usage: stars-gui gen [-seed S] [-n N] | stars-gui run [-rows H] CATALOG"
+let Usage = "usage: stars-gui gen [-seed S] [-n N] | stars-gui run [-rows H] CATALOG | stars-gui scene [-rows H] CATALOG"
 
 let seedFlag = flag.Int("seed", 1, "the seed of the catalogue")
 let countFlag = flag.Int("n", 1000, "how many stars")
@@ -29,6 +34,7 @@ let catalogueArg = flag.Arg("catalogue", "the catalogue file")
 
 let genSet = flag.Set{Name: "stars-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
 let runSet = flag.Set{Name: "stars-gui run", Usage: "", Flags: []flag.Flag{rowsFlag}, Args: []flag.ArgSpec{catalogueArg}}
+let sceneSet = flag.Set{Name: "stars-gui scene", Usage: "", Flags: []flag.Flag{rowsFlag}, Args: []flag.ArgSpec{catalogueArg}}
 
 // run is stars-gui on args.
 func run(args []string) fails os.Exit needs catalog.Shelf | io.Stdout | io.Stdin {
@@ -55,23 +61,44 @@ func run(args []string) fails os.Exit needs catalog.Shelf | io.Stdout | io.Stdin
 			try flag.Exit(err, Usage)
 			return
 		}
-		let name = match catalogueArg.Get(v) {
-		case Some[string] as a:
-			a.Value
-		case None:
-			return os.Exit{Code: 2, Message: Usage}
-		}
-		let text = catalog.Shelf.Text(name) catch {
-		case catalog.Unreadable as u:
-			return os.Exit{Code: 1, Message: "stars-gui: \(u.Name): \(u.Reason)"}
-		}
-		let rows = catalog.Parse(text) catch {
-		case catalog.Malformed as m:
-			return os.Exit{Code: 1, Message: "stars-gui: \(name): " + catalog.Describe(m)}
-		}
+		let rows = try load(v)
 		let _ = script.Play(catalog.Open(rows, rowsFlag.Get(v)), io.Stdin.Lines())
+	case "scene":
+		let v = flag.Parse(sceneSet, slices.Slice(args, 1, len(args))) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let rows = try load(v)
+		let clock = time.NewManual(0)
+		with context { Scheduler: clock } {
+			script.Scene(rows, rowsFlag.Get(v), io.Stdin.Lines(), clock) catch {
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "stars-gui: the view's patch did not apply: " + b.Why}
+			case actor.Stopped:
+				return os.Exit{Code: 1, Message: "stars-gui: the app stopped"}
+			}
+		}
 	case _:
 		return os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// load reads the catalogue that v names.
+func load(v flag.Values) []catalog.Star fails os.Exit needs catalog.Shelf {
+	let name = match catalogueArg.Get(v) {
+	case Some[string] as a:
+		a.Value
+	case None:
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let text = catalog.Shelf.Text(name) catch {
+	case catalog.Unreadable as u:
+		return os.Exit{Code: 1, Message: "stars-gui: \(u.Name): \(u.Reason)"}
+	}
+	catalog.Parse(text) catch {
+	case catalog.Malformed as m:
+		return os.Exit{Code: 1, Message: "stars-gui: \(name): " + catalog.Describe(m)}
 	}
 }
 

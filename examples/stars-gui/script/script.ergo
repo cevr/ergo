@@ -181,7 +181,7 @@ func Play(s catalog.State, lines Seq[string]) catalog.State needs io.Stdout {
 func step(s catalog.State, sig catalog.Signal) catalog.State needs io.Stdout {
 	let d = catalog.Step(s, sig) catch {
 	case catalog.Refused as r:
-		io.Stdout.Println("refused " + catalog.ColumnName(r.Column) + " " + catalog.Quote(r.Text) + ": " + catalog.Explain(r.Reason))
+		io.Stdout.Println(Refusal(r))
 		return s
 	}
 	match d {
@@ -194,6 +194,11 @@ func step(s catalog.State, sig catalog.Signal) catalog.State needs io.Stdout {
 	case Ignore, Reject, Done[catalog.Refused]:
 		s
 	}
+}
+
+// Refusal is the line of a refused edit.
+func Refusal(r catalog.Refused) string {
+	"refused " + catalog.ColumnName(r.Column) + " " + catalog.Quote(r.Text) + ": " + catalog.Explain(r.Reason)
 }
 
 // LineParsesBack: a command's line reads back as the command, for every

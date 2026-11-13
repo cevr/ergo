@@ -1,0 +1,190 @@
+// A scene: the window on ui.TestHost, driven by the same script lines as
+// Play, the way a user drives it: the arrows, the page keys, Home, End,
+// Enter, Escape and Backspace are keys (down N is N presses of the down
+// arrow); sort, edit, filter, mark and extend press the button of that
+// label; type writes the text field. show writes the status line and the
+// rows the viewport shows, as Play's show writes the frame; refusals are
+// the app's outputs. Two lines are the scene's own: shot writes the whole
+// screen (ui.Screenshot), runs how many rows the last pass wrote.
+//
+// The host here follows the cursor: after each line it scrolls the list
+// to the table's window (Top and Height), as a desktop host keeps the
+// focused row in view. ui has no way for a view to ask for that scroll
+// (stars-gui-gaps.md), so the scene, standing in for the host, does it.
+
+import actor
+import io
+import machines
+import stars/catalog
+import stars/screen
+import strings
+import sync
+import time
+import ui
+
+// Scene opens the window on rows, height rows high, and plays lines.
+func Scene(rows []catalog.Star, height int, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs Scheduler | io.Stdout {
+	let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
+	let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
+		refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
+	})
+	let mut h = try ui.NewTestHost(a, screen.View, clock, 4)
+	let mut shown = Window{Top: -1, Height: 0}
+	shown = try follow(&h, shown)
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == "shot" {
+			io.Stdout.Print(ui.Screenshot(&h))
+			continue
+		}
+		if line == "runs" {
+			io.Stdout.Println("rows run \(ui.RowRuns(&h))")
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as b:
+			io.Stdout.Println("? " + catalog.Quote(b.Text) + ": want " + b.Want)
+			continue
+		}
+		match c {
+		case Show:
+			for t in Shown(ui.Screen(&h), shown) {
+				io.Stdout.Println(t)
+			}
+		case Send as m:
+			ui.Play(&h, Acts(m.Signal, field(ui.Screen(&h)))) catch {
+			case ui.NoNode as x:
+				io.Stdout.Println("? no node " + x.Label)
+			case actor.Stopped as s:
+				return s
+			case ui.BadPatch as b:
+				return b
+			}
+			shown = try follow(&h, shown)
+			for r in refused.Get() {
+				io.Stdout.Println(Refusal(r))
+			}
+			refused.Set([]catalog.Refused{})
+		}
+	}
+	a.Stop()
+}
+
+// Window is the rows a list's viewport shows: from Top, Height rows.
+type Window { Top int, Height int }
+
+// follow scrolls the list to the table's window when it moved: a host
+// reports a scroll only when it scrolls. It is the window shown now.
+func follow[D, F](h *ui.TestHost[catalog.State, screen.Signal, D, F], was Window) Window fails ui.BadPatch | actor.Stopped {
+	let g = catalog.GridOf(ui.StateOf(h))
+	let now = Window{Top: g.Top, Height: g.Height}
+	if now == was {
+		return was
+	}
+	ui.ScrollTo(h, try found(h, "stars"), screen.RowHeight*ui.Length(float64(now.Top)), screen.RowHeight*ui.Length(float64(now.Height))) catch {
+	case actor.Stopped as s:
+		return s
+	case ui.BadPatch as b:
+		return b
+	}
+	now
+}
+
+func found[D, F](h *ui.TestHost[catalog.State, screen.Signal, D, F], label string) ui.Id[screen.Signal] fails ui.BadPatch {
+	match ui.Find(h, label) {
+	case Some[ui.Id[screen.Signal]] as id:
+		id.Value
+	case None:
+		ui.BadPatch{Why: "stars-gui: the window has no " + label}
+	}
+}
+
+// Acts is the window's steps of a table signal, the field holding text.
+func Acts(sig catalog.Signal, text string) []ui.Act {
+	match sig {
+	case catalog.Move as m:
+		let name = if m.By < 0 { "ArrowUp" } else { "ArrowDown" }
+		let n = if m.By < 0 { -m.By } else { m.By }
+		let mut acts = []ui.Act{}
+		for _ in 0..n {
+			acts = acts.Append(key(name))
+		}
+		acts
+	case catalog.Page as p:
+		[]ui.Act{key(if p.Down { "PageDown" } else { "PageUp" })}
+	case catalog.Home:
+		[]ui.Act{key("Home")}
+	case catalog.End:
+		[]ui.Act{key("End")}
+	case catalog.SortBy as k:
+		[]ui.Act{ui.TapOn{Label: "sort " + catalog.ColumnName(k.Column)}}
+	case catalog.StartFilter:
+		[]ui.Act{ui.TapOn{Label: "filter"}}
+	case catalog.Type as t:
+		[]ui.Act{ui.TypeInto{Label: "text", Text: text + t.Text}}
+	case catalog.Backspace:
+		[]ui.Act{key("Backspace")}
+	case catalog.Commit:
+		[]ui.Act{key("Enter")}
+	case catalog.Cancel:
+		[]ui.Act{key("Escape")}
+	case catalog.Mark:
+		[]ui.Act{ui.TapOn{Label: "mark"}}
+	case catalog.Extend:
+		[]ui.Act{ui.TapOn{Label: "extend"}}
+	case catalog.Edit as e:
+		[]ui.Act{ui.TapOn{Label: "edit " + catalog.ColumnName(e.Column)}}
+	}
+}
+
+func key(name string) ui.Act {
+	ui.KeyIn{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+// field is the text of the screen's text field.
+func field(shapes []ui.Shape[screen.Signal]) string {
+	for s in shapes {
+		match s.Node {
+		case ui.InputNode as x:
+			return x.Value
+		case _:
+		}
+		let inner = field(s.Kids)
+		if inner != "" {
+			return inner
+		}
+	}
+	""
+}
+
+// Shown is what a window over the screen shows as text, in tree order:
+// the text nodes outside the buttons (the status line), then of a list
+// only the rows inside w (a list also writes rows past its viewport's
+// edges, ui.Overscan).
+func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode:
+			continue
+		case ui.RowsNode as x:
+			for i in w.Top-x.First..w.Top-x.First+w.Height {
+				if 0 <= i && i < len(s.Kids) {
+					for t in Shown([]ui.Shape[screen.Signal]{s.Kids[i]}, w) {
+						out = out.Append(t)
+					}
+				}
+			}
+			continue
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
+		}
+		for t in Shown(s.Kids, w) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
