@@ -10,8 +10,8 @@ import (
 )
 
 // splitProgram is a generated program of several Ergo packages: a base
-// package, two packages over it (the second over the first when the seed
-// says so), and the root over them.
+// package, two sibling packages over it, a package top over the two
+// siblings, and the root over them all.
 type splitProgram struct {
 	libs []pkgSource // path is the package path; text its one file
 	root string
@@ -76,16 +76,17 @@ func open() S { A{N: N} }
 func step(s S, e Sig) Decision[S, int] { Enter[S]{Next: s} }
 
 type M machine[S, Sig] { initial: open(), step: step }
-`, k(), k())
+
+type Bag { Xs []int }
+
+func scale(n int) int { n * %d + 1 }
+
+func Scale(n int) int { scale(n) }
+`, k(), k(), k())
 	p.libs = append(p.libs, pkgSource{"gen/base", base})
-	chain := r.IntN(2) == 0
-	for i, name := range []string{"left", "right"} {
+	for _, name := range []string{"left", "right"} {
 		imports := "import gen/base\nimport strings\n"
 		dep := "0"
-		if i == 1 && chain {
-			imports += "import gen/left\n"
-			dep = "left.N"
-		}
 		src := imports + fmt.Sprintf(`
 func start() int { base.N + %d + %s }
 
@@ -124,12 +125,19 @@ func Show(t T) int {
 func boxed(n int) base.Box[int] { base.Wrap(n + N) }
 
 func Boxed(n int) int { base.Unwrap(boxed(n)) }
+
+func Same(n int) bool { base.Bag{Xs: []int{n}} == base.Bag{Xs: []int{n, N}} }
+
+func Scaled(n int) int { base.Scale(n) }
 `, k(), dep, k(), name, name, r.IntN(4))
 		p.libs = append(p.libs, pkgSource{"gen/" + name, src})
 	}
+	// top sees base only through left and right.
+	p.libs = append(p.libs, pkgSource{"gen/top", fmt.Sprintf("import gen/left\nimport gen/right\n\nfunc Both(n int) bool { left.Same(n) == right.Same(n + %d) }\n\nfunc Sizes(n int) int { left.Boxed(n) + len(right.Item().Name) }\n", r.IntN(2))})
 	p.root = fmt.Sprintf(`import gen/base
 import gen/left
 import gen/right
+import gen/top
 
 let Total = left.N + right.N + base.N
 
@@ -138,7 +146,7 @@ type Oops[T] { V T }
 func oops() fails Oops[base.Q] { Oops[base.Q]{V: base.Q{N: %d}} }
 
 func line() string {
-	"\(Total) \(left.Sum(%d)) \(right.Sum(%d)) \(left.Name()) \(right.Name()) \(base.ID(left.Item())) \(base.ID(right.Item())) \(base.Make().Get()) \(left.Show(left.Pick(%d))) \(right.Show(right.Pick(%d))) \(left.Boxed(%d)) \(right.Boxed(%d))"
+	"\(Total) \(left.Sum(%d)) \(right.Sum(%d)) \(left.Name()) \(right.Name()) \(base.ID(left.Item())) \(base.ID(right.Item())) \(base.Make().Get()) \(left.Show(left.Pick(%d))) \(right.Show(right.Pick(%d))) \(left.Boxed(%d)) \(right.Boxed(%d)) \(left.Same(%d)) \(right.Same(%d)) \(left.Scaled(%d)) \(right.Scaled(%d)) \(top.Both(%d)) \(top.Sizes(%d))"
 }
 
 func main() needs Console {
@@ -151,7 +159,7 @@ test Line { assert line() == line() }
 test Fails { try oops() }
 
 law Ident(n int) { left.Boxed(n) == n + left.N }
-`, k(), k(), k(), k(), k(), k(), k())
+`, k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k())
 	return p
 }
 

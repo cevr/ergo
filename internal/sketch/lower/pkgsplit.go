@@ -17,9 +17,9 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// The package split (compile-speed CS4, docs/spec/build.md "Package
-// split"). The lowering writes one Go package, main.go, for the whole
-// program. Split places each of its top-level declarations into a Go
+// The package split (compile-speed CS4; docs/tooling.md, "Package
+// split", and docs/receipts/compile-speed.md). The lowering writes one Go
+// package, main.go, for the whole program. Split places each of its top-level declarations into a Go
 // package: one per Ergo package of the program, plus one shared package
 // below them all. Go then compiles the packages in parallel, and keeps
 // each package's compile in its action cache, so an edit of one Ergo

@@ -260,6 +260,17 @@ When to run it: a change that deletes or folds tests of check or lower runs the 
   - `TestSplitsPinNoDomain`: a split in `internal/sketch` sets no `Count`/`Digest` (`count`/`digest`) pin, in its literal or by an assignment (`split-pin-allow.txt`).
   - `TestSketchBuildsSayWhy`: a declaration in an `internal/sketch` test file that calls `buildAll` or `ergoCLI`, or runs the `go` command, has a "builds Go because" line in its own doc comment (`builds-go-allow.txt`).
 
+## Package split
+
+`ergo build`, `ergo run` and `ergo test` lower a program of several Ergo packages to one Go package per Ergo package, plus one shared package for the standard-library and generated declarations that several packages use (`internal/sketch/lower/pkgsplit.go`, `lower.Split`). The go command then compiles independent packages at the same time, and after an edit it compiles only the edited package and its importers. The split is a pass over the one-package lowering:
+
+- Each top-level declaration starts in the package of its Ergo source file. A declaration that a lower package uses moves down to a package that lower package sees; a declaration that two sibling packages use moves to the shared package. `func main` and every `func init` stay in the root, so the inits run in the reference's order.
+- Only a name used from another Go package gets an exported spelling (`X` + name). Other names keep their spelling, so the runtime's type names and `%+v` output stay the same.
+- A program of one Ergo package is not changed.
+- `ERGO_LOWER=single` selects the reference: the one-package module. The emission cache keys the two modes apart.
+
+`TestSplitLoweringAgrees` (seeded; `ERGO_SPLIT_SEED` replays one seed) checks that the split and the reference print the same output on generated multi-package programs. `TestBodyEditCompilesOnePackage` and `TestColdCompilesInParallel` count the go command's compile actions. The receipts are in [compile-speed.md](receipts/compile-speed.md#package-split).
+
 ## Performance receipt
 
 The compile benchmarks `BenchmarkCompile10KLines` and `BenchmarkLintAndGraph10KLines` measured the retired compiler and went with it ([retirement record](receipts/retire-ef.md)). Their last results are in [`docs/tooling.md` at `dbf135bf`](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/docs/tooling.md#performance-receipt). The new front end has no compile benchmark yet.

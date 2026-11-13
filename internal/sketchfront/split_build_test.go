@@ -161,6 +161,13 @@ func TestBodyEditCompilesOnePackage(t *testing.T) {
 	if c, l := goActions(second); !slices.Equal(c, want) || l != 1 {
 		t.Fatalf("after a body edit of l0: compiled %v and linked %d times, want %v and 1 link", c, l, want)
 	}
+	// The reference, selected by ERGO_LOWER=single, is a module of its own:
+	// it compiles the whole program as one package.
+	t.Setenv(LowerSingleEnv, "single")
+	single := buildDir(t, cache, app, filepath.Join(t.TempDir(), "app"), "-x")
+	if c, l := goActions(single); !slices.Equal(c, []string{"main"}) || l != 1 {
+		t.Fatalf("the one-package reference compiled %v and linked %d times, want [main] and 1 link", c, l)
+	}
 }
 
 // wrapperSource is a -toolexec program: before a compile of a package
