@@ -97,6 +97,15 @@
       "to": "\t\t\tfmt.Fprintf(&b, \"case rpc.Unrepresentable as u:\\n%srpc.Lost[%s](rpc.Transport{Reason: u.Path})\\n\", ret, res)\n",
       "rule": "The provider raises a refused int as the Unrepresentable defect (rpc.Refuse), as R1 did.",
       "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
+    },
+    {
+      "name": "rpcgen-refined-one-step",
+      "origin": "wf10 FD1a (FD1-g1)",
+      "file": "internal/rpcgen/rpcgen.go",
+      "from": "\t\t\tx = bk.String() + \"(v)\"\n",
+      "to": "\t\t\tx = \"v\"\n",
+      "rule": "The int walker of a defined or refined int converts through its base, int64(int(v)): a refined value converts in one step only to its base.",
+      "killers": ["internal/rpcgen:TestRefinedIntConvertsThroughItsBase"]
     }
   ]
 }
