@@ -12,17 +12,24 @@ import (
 // []int]}, read through a borrow (r *ro) or a let mut local. Each function
 // takes a call's result that shares the store (a pure Ergo call's result,
 // part(*r); a pure std body's, slices.Slice(r.s, 0, 2); a generic result
-// through a borrow, deref(&r.s); a Go call's result) into a read-only
-// context (len, an index read, an index read under len, a comparison),
-// then writes the store and returns the value read with a digest of the
-// store. The model: the lowering copies nothing in such a function.
-// TestReadOnlyUsesCopyNothing counts the copies in each function's Go.
+// through a borrow, deref(&r.s); a Go call's result; a struct, wrap(*r),
+// and a named slice, nums(*r)) into a read-only context (len, an index
+// read, an index read under len, a comparison, a field read, a for loop
+// whose body writes only a local, a pure call or a method call that
+// returns a basic value), then writes the store and returns the value
+// read with a digest of the store. The model: the lowering copies
+// nothing in such a function. TestReadOnlyUsesCopyNothing counts the
+// copies in each function's Go.
 //
 // The adversaries (agreement only) are uses that are not read at once: an
 // index or a comparison operand that writes the store (part(*r)[bump(r)],
-// part(*r) == grow(r)), an element kept past a write (let e =
-// outs(*r)[0]), a call whose later operand writes the store
-// (part2(*r, bumpv(r))[0]), and & of an element (setv(&part(*r)[1])).
+// part(*r) == grow(r)), an element or a field kept past a write (let e =
+// outs(*r)[0], let e = wrap(*r).xs, k = o in a loop), a call whose later
+// operand writes the store (part2(*r, bumpv(r))[0], total2(part(*r),
+// bumpv(r))) or that writes it (total3(part(*r), r)), a call that keeps
+// its operand (ident(part(*r))), a loop body that writes the store, calls
+// or returns an element (firsto), and & of an element
+// (setv(&part(*r)[1]), setv(&wrap(*r).xs[1])).
 // TestReadOnlyUsesAgree builds every program under the rules and under
 // the reference (copyLowering "whole", which copies each such result) and
 // holds their outputs equal.
@@ -62,6 +69,48 @@ func tab(r ro) Map[int, []int] { r.m }
 
 func deref[T](p *T) T { *p }
 
+type bx { xs []int }
+
+type Nums []int
+
+func wrap(r ro) bx { bx{xs: r.s} }
+
+func nums(r ro) Nums { Nums(r.s) }
+
+func total(xs []int) int {
+	let mut t = 0
+	for x in xs {
+		t = t * 3 + x
+	}
+	t
+}
+
+func Sum(n Nums) int {
+	let mut t = 1
+	for x in n {
+		t = t * 7 + x
+	}
+	t
+}
+
+func glen(xs []string) int { len(xs) * 10 + len(xs[0]) }
+
+func total2(xs []int, k int) int { total(xs) + k }
+
+func total3(xs []int, r *ro) int {
+	r.s[1] = 70
+	total(xs)
+}
+
+func ident(xs []int) []int { xs }
+
+func firsto(r *ro) []int {
+	for o in outs(*r) {
+		return o
+	}
+	[]int{0}
+}
+
 func bump(r *ro) int {
 	r.s[1] = 70
 	1
@@ -98,14 +147,21 @@ var roProducers = []roProducer{
 	{"std", "slices.Slice(r.s, 0, 2)", "s"},
 	{"generic borrow", "deref(&r.s)", "s"},
 	{"go", "strings.SplitAfterN(\"a,b\", \",\", -1)", "g"},
+	{"pure struct", "wrap(R)", "w"},
+	{"pure named", "nums(R)", "n"},
 }
+
+// roLoop sums a slice X in a for loop whose body writes only n.
+const roLoop = "let mut n = 0\n\tfor v in X {\n\t\tn = n * 3 + v\n\t}"
 
 // roContexts are the read-only contexts of a result X of each kind.
 var roContexts = map[string][][2]string{
-	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}},
-	"o": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == [][]int{[]int{4}} { 1 } else { 2 }"}},
-	"m": {{"len", "len(X)"}},
-	"g": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == []string{\"a,\", \"b\"} { 1 } else { 2 }"}},
+	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}, {"loop", roLoop}, {"call", "total(X)"}},
+	"o": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == [][]int{[]int{4}} { 1 } else { 2 }"}, {"loop len", "let mut n = 0\n\tfor o in X {\n\t\tn = n + len(o)\n\t}"}},
+	"m": {{"len", "len(X)"}, {"loop", "let mut n = 0\n\tfor k, v in X {\n\t\tn = n + k + len(v)\n\t}"}},
+	"g": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == []string{\"a,\", \"b\"} { 1 } else { 2 }"}, {"call", "glen(X)"}},
+	"w": {{"field len", "len(X.xs)"}, {"field index", "X.xs[1]"}, {"field loop", strings.ReplaceAll(roLoop, "X", "X.xs")}, {"field call", "total(X.xs)"}},
+	"n": {{"method", "X.Sum()"}, {"call", "Sum(X)"}, {"loop", roLoop}},
 }
 
 var roAdversaries = []struct{ name, value string }{
@@ -114,6 +170,15 @@ var roAdversaries = []struct{ name, value string }{
 	{"kept index", "let e = outs(*r)[0]\n\tr.out[0][0] = 7\n\tlet n = e[0]"},
 	{"in flight", "part2(*r, bumpv(r))[0]"},
 	{"address", "let z = setv(&part(*r)[1])\n\tlet n = z + r.s[1]"},
+	{"loop write", "let mut n = 0\n\tfor v in part(*r) {\n\t\tr.s[1] = 5\n\t\tn = n * 3 + v\n\t}"},
+	{"loop call", "let mut n = 0\n\tfor v in part(*r) {\n\t\tn = n * 3 + v + bump(r)\n\t}"},
+	{"loop keeps", "let mut k = []int{}\n\tfor o in outs(*r) {\n\t\tk = o\n\t}\n\tr.out[0][0] = 7\n\tlet n = k[0]"},
+	{"call operand", "total2(part(*r), bumpv(r))"},
+	{"impure call", "total3(part(*r), r)"},
+	{"call result kept", "let e = ident(part(*r))\n\tr.s[1] = 7\n\tlet n = e[1]"},
+	{"loop return", "let e = firsto(r)\n\tr.out[0][0] = 7\n\tlet n = e[0]"},
+	{"kept field", "let e = wrap(*r).xs\n\tr.s[1] = 7\n\tlet n = e[1]"},
+	{"field address", "let z = setv(&wrap(*r).xs[1])\n\tlet n = z + r.s[1]"},
 }
 
 // roProgram writes the program of seed: every producer, context and
