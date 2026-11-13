@@ -155,10 +155,10 @@ func Normalize(query string) Option[string] {
 		}
 	}
 	let l = domains.ParseLabel(t[0:end]) catch {
-	case domains.Invalid:
+	case Unsatisfied:
 		return None
 	}
-	Some[string]{Value: domains.Wire(l)}
+	Some[string]{Value: string(l)}
 }
 
 // phaseOf is the phase a query starts: Landing for none, Invalid for a

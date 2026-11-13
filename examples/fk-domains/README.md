@@ -13,7 +13,7 @@ fk-domains bench 1000             # the P11 workload (below)
 ## The shape
 
 - Package `domains` is the domain and the Api.
-  - `Label` is parsed from text (`ParseLabel`, `fails Invalid`): 1 to 63 bytes of `a` to `z`, `0` to `9` and inner hyphens, the original's `DomainLabel` pattern. With `Wire` it is a by-name pair, so a label on the wire is decoded through `ParseLabel`.
+  - `Label` is refined by the original's `DomainLabel` pattern, ``type Label string where matches(it, `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`)`` (types.md, Refinements 11): 1 to 63 bytes of `a` to `z`, `0` to `9` and inner hyphens. The compiler compiles the pattern to a Go matcher; the where derives `ParseLabel` (`fails Unsatisfied`), through which a label on the wire is decoded, and the law `LabelWhere`. The laws' labels are `Label` constants, each checked against the pattern.
   - `Offset` (0 to 555) and `Limit` (1 to 556) are refined ints, the bounds of the original's `DomainCandidateRange`. Law `BoundsAreTheCatalog` ties them to the catalog's size.
   - `Listing = Available{Name, TLD, Price, RenewalPrice, Years, IsPremium} | Unavailable{Name, TLD}`.
   - The catalog: 556 TLDs, the 24 featured first (`catalog.ergo`, generated from the original's `tld.ts` and `domain.ts`).

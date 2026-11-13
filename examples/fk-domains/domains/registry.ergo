@@ -31,12 +31,12 @@ type Registry {
 // labels are the labels the laws search for: the four the sample data
 // marks as taken under .com and .dev, and others of each shape a Label
 // has (one letter, digits, an inner hyphen, the longest).
-let labels = []string{"foldkit", "google", "github", "vercel", "acme", "f", "x9", "a-b", "domains", "0", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0"}
+let labels = []Label{"foldkit", "google", "github", "vercel", "acme", "f", "x9", "a-b", "domains", "0", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0"}
 
 // labelOf is the label a law's pick selects.
 func labelOf(pick int) Label {
 	let n = len(labels)
-	Label{text: labels[((pick%n)+n)%n]}
+	labels[((pick%n)+n)%n]
 }
 
 func page(l Label, offset Offset, limit Limit) []Listing fails Down needs Registry {
@@ -104,7 +104,7 @@ func FeaturedFirst(pick int) bool needs Registry {
 	}
 	let l = labelOf(pick)
 	for i, t in Catalog {
-		if TLDOf(all[i]) != t || NameOf(all[i]) != Wire(l)+"."+t {
+		if TLDOf(all[i]) != t || NameOf(all[i]) != string(l)+"."+t {
 			return false
 		}
 	}
