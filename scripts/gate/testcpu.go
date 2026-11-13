@@ -260,6 +260,19 @@ func writeTestCPU(root string, limit limiter, packages []string) error {
 		if err := os.MkdirAll(temporary, 0o755); err != nil {
 			return err
 		}
+		// go test puts its toolchain's bin first on a test's PATH; a test
+		// that runs go (cmd/ergo's bind tests, through the CLI) gets the
+		// module's toolchain and not a go wrapper that may not start in the
+		// test's environment (an empty HOME): the record of cmd/ergo failed
+		// on `go env GOVERSION` without it (GS16).
+		query := exec.Command("go", "env", "GOROOT")
+		query.Dir = root
+		goroot, err := query.Output()
+		if err != nil {
+			return fmt.Errorf("go env GOROOT: %w", err)
+		}
+		path, _ := environmentVariable(env, "PATH")
+		env = setEnvironmentVariable(env, "PATH", filepath.Join(strings.TrimSpace(string(goroot)), "bin")+string(os.PathListSeparator)+path)
 		command := exec.Command("sh", append([]string{"-c", `echo $$; exec "$0" "$@"`, binary}, cpuRecordFlags...)...)
 		command.Env = setEnvironmentVariable(env, "TMPDIR", temporary)
 		command.Dir = filepath.Join(root, strings.TrimPrefix(importPath, module+"/"))

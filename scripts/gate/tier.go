@@ -355,6 +355,10 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	cpu, err := readTestCPU(root)
+	if err != nil {
+		return nil, err
+	}
 	module := modulePath(root)
 	steps, err := classFastSteps(full)
 	if err != nil {
@@ -399,15 +403,24 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 		base := []string{"go", "test", fastFlag}
 		name := "go test " + pkg + " (fast)"
 		n := 1
+		// A slow package's shards are dealt by what its tests cost
+		// (shardCosts): CPU where testCPUFile has the package's rows. Wall
+		// time keeps choosing the fast tests (sizeCutoff), but it is no
+		// cost: cmd/ergo's fast tests recorded under 12 s of wall, so the
+		// package ran in one step, and after a std edit that step was the
+		// fast tier's longest, 52 CPU-s in 64 s of its 79 (gate-speed
+		// round 3, GS16), as its tests build the programs they run again.
+		costs := measured
 		if slices.Contains(slowPackages, pkg) {
+			costs = shardCosts(durations, cpu, p.importPath)
 			total := 0.0
 			for _, test := range fast {
-				total += measured[test]
+				total += costs[test]
 			}
 			n = max(1, min(int(math.Ceil(total/shardTargetSeconds)), stepCPUs(), len(fast)))
 		}
-		groups := shard(fast, measured, n)
-		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
+		groups := shard(fast, costs, n)
+		selections, weights := fastShardArgs(groups, large), shardWeights(groups, costs)
 		for i, selection := range selections {
 			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
