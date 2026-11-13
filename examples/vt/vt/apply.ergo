@@ -28,7 +28,7 @@ let TitleLimit = 256
 
 // Apply gives the screen s each event, and counts in u those it does not
 // take.
-func Apply(s Screen, events []Event, u *Unhandled) {
+func Apply[S Screen](s S, events []Event, u *Unhandled) {
 	for e in events {
 		match e {
 		case Text as t:
@@ -58,7 +58,7 @@ func Apply(s Screen, events []Event, u *Unhandled) {
 }
 
 // control gives s the C0 control c.
-func control(s Screen, c byte, u *Unhandled) {
+func control[S Screen](s S, c byte, u *Unhandled) {
 	match c {
 	case 0x07:
 	case 0x08:
@@ -75,7 +75,7 @@ func control(s Screen, c byte, u *Unhandled) {
 }
 
 // escape gives s the ESC sequence x.
-func escape(s Screen, x Esc, u *Unhandled) {
+func escape[S Screen](s S, x Esc, u *Unhandled) {
 	if x.Inter != "" {
 		u.note("esc \(x.Inter)\(ByteText(x.Final))")
 		return
@@ -107,7 +107,7 @@ func arg(ps []int, i int, def int) int {
 }
 
 // csi gives s the CSI sequence c.
-func csi(s Screen, c Csi, u *Unhandled) {
+func csi[S Screen](s S, c Csi, u *Unhandled) {
 	let ps = c.Params
 	if c.Inter == "?" && (c.Final == 'h' || c.Final == 'l') {
 		for m in ps {

@@ -1,4 +1,4 @@
-// Package workload makes terminal output to feed the parser: what a
+// Package traffic makes terminal output to feed the parser: what a
 // shell, an editor and a pager write, with the malformed bytes a terminal
 // must also survive. The same seed and size always give the same bytes.
 

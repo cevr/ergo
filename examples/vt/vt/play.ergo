@@ -4,7 +4,7 @@ type Played { Tally Tally, Unhandled Unhandled }
 
 // Play parses input in pieces of chunk bytes (at least 1) and gives the
 // screen s the events of each piece as it comes, as a terminal does.
-func Play(s Screen, input string, chunk int) Played {
+func Play[S Screen](s S, input string, chunk int) Played {
 	let size = if chunk < 1 { 1 } else { chunk }
 	let mut p = NewStream(true)
 	let mut u = NewUnhandled()
@@ -22,7 +22,7 @@ func Play(s Screen, input string, chunk int) Played {
 
 // Flush gives the screen s the events kept since the last Flush, Clear or
 // Take, and keeps the list's storage for the next piece's events.
-func Flush(p *Stream, s Screen, u *Unhandled) {
+func Flush[S Screen](p *Stream, s S, u *Unhandled) {
 	Apply(s, p.out, u)
 	p.Clear()
 }

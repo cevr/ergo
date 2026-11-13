@@ -20,7 +20,7 @@ import strconv
 import vt/plain
 import vt/screen
 import vt/vt
-import vt/workload
+import vt/traffic
 
 // Usage is the text of a usage failure.
 let Usage = "usage: vt replay [-plain] | vt events [-tally] | vt gen SEED N"
@@ -71,7 +71,7 @@ func count(text string) int fails os.Exit {
 }
 
 // PlayOn plays input on the screen s and prints it.
-func PlayOn(s vt.Screen, input string) needs Console {
+func PlayOn[S vt.Screen](s S, input string) needs Console {
 	let played = vt.Play(s, input, Chunk)
 	for line in vt.Screenshot(s) {
 		Console.Println(line)
@@ -114,7 +114,7 @@ func main() fails os.Exit needs Console | Ambient {
 		let command = try Parse(os.Process.Args())
 		match command {
 		case Gen as g:
-			io.Stdout.Print(workload.Gen(g.Seed, g.Size))
+			io.Stdout.Print(traffic.Gen(g.Seed, g.Size))
 			return
 		case Replay, Events:
 		}

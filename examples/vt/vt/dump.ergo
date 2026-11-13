@@ -7,7 +7,7 @@ import utf8
 // that ended in an autowrap ends in "\". With styled, a change of style
 // within a row shows as its StyleText in braces. Lines are not trimmed,
 // so two screens dump equal exactly when they are equal.
-func Dump(s Screen, styled bool) []string {
+func Dump[S Screen](s S, styled bool) []string {
 	let mut lines = []string{}
 	let rows = s.History() + s.Rows()
 	for line in 0..rows {
@@ -20,7 +20,7 @@ func Dump(s Screen, styled bool) []string {
 }
 
 // Status is the cursor, the pen and the title as three lines.
-func Status(s Screen) []string {
+func Status[S Screen](s S) []string {
 	let c = s.Cursor()
 	[]string{
 		"cursor \(c.Row),\(c.Col) pending \(c.Pending) visible \(c.Visible) origin \(c.Origin) autowrap \(c.Autowrap) alternate \(c.Alternate)",
@@ -30,7 +30,7 @@ func Status(s Screen) []string {
 }
 
 // Row is line as text, as Dump writes it.
-func Row(s Screen, line int, styled bool) string {
+func Row[S Screen](s S, line int, styled bool) string {
 	let mut parts = []string{}
 	let mut style = Default
 	for col in 0..s.Cols() {
@@ -54,7 +54,7 @@ func Row(s Screen, line int, styled bool) string {
 // Screenshot is the rows as Dump writes them, styled, with the blank
 // right ends of rows trimmed and the blank rows at the end of the buffer
 // dropped: what replay prints.
-func Screenshot(s Screen) []string {
+func Screenshot[S Screen](s S) []string {
 	let mut rows = []string{}
 	for line in 0..s.History()+s.Rows() {
 		let r = Row(s, line, true)
