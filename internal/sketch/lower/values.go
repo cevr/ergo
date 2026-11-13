@@ -388,7 +388,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.ergo = append(w.ergo, n)
 		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
 			w.pure = append(w.pure, n)
-		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
+		}
+		// A Go call in the reviewed pure tier (check.pureGo: sort.Ints) is
+		// pure in effects, not in memory: Go still writes or keeps a Map
+		// or slice it is given, so its operands take the boundary rule too.
+		if c := w.info.Calls[n]; c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)

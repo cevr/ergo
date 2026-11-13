@@ -948,6 +948,35 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.Host": `import ui
+type Mine {}
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+func use(h ui.Host[int]) { h.Frames(false) }
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Measure": `import ui
+type Mine {}
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { font.Size }
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "mono", Size: 12.0}) }
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Clipboard": `import ui
+type Mine {}
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+func use(c ui.Clipboard) { c.Write("x") }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -987,6 +1016,11 @@ var openStd = map[string]bool{
 	"http.Network":      true,
 	"config.Config":     true,
 	"term.Terminal":     true,
+	// Declared after the migration with no private operation: a program
+	// provides each one, and cmd/<name>/main.ergo binds it.
+	"ui.Host":      true,
+	"ui.Measure":   true,
+	"ui.Clipboard": true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
