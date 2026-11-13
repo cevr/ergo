@@ -92,8 +92,8 @@
     {
       "name": "stars-sort-clears-selection", "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor)})}}",
-      "to": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
+      "from": "Key: key, Cursor: follow(view, at, g.Cursor)})}}",
+      "to": "Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
       "rule": "A sort keeps the selected stars.",
       "killers": ["examples/stars-gui/catalog:law Table.SelectionSurvivesSort"]
     },

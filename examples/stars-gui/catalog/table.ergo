@@ -342,11 +342,21 @@ type Table machine[State, Signal] {
 
 	// WholeIsOrder: whatever the script, a kept Whole is every star in the
 	// key's order, so a widening filter that reads it shows a fresh
-	// Order. The script ends with a filter taken back to empty, so the
-	// widening path runs on every case.
-	law WholeIsOrder(rows []Star, signals []Signal, more string) {
+	// Order. The drawn script is followed by one that reaches what random
+	// signals seldom do: back to browsing, an edit of a name that moves
+	// its star, a sort under a filter, and a filter taken back.
+	law WholeIsOrder(rows []Star, signals []Signal, more string, n int) {
+		let tail = []Signal{
+			Cancel, Cancel, Edit{Column: Name}, Type{Text: "z" + more}, Commit,
+			StartFilter, Type{Text: "a"}, Commit, SortBy{Column: columnOf(n)},
+			StartFilter, Backspace, Cancel,
+		}
+		let mut script = signals
+		for sig in tail {
+			script = script.Append(sig)
+		}
 		let mut s = Open(rows, 4)
-		for sig in signals {
+		for sig in script {
 			s = After(s, sig)
 			let g = GridOf(s)
 			match g.Whole {
@@ -356,9 +366,11 @@ type Table machine[State, Signal] {
 				}
 			case None:
 			}
+			if g.View != Order(g.Rows, g.Filter, g.Key) {
+				return false
+			}
 		}
-		let g = GridOf(After(After(After(After(s, Cancel), StartFilter), Type{Text: more + "a"}), Cancel))
-		g.View == Order(g.Rows, g.Filter, g.Key)
+		true
 	},
 }
 
