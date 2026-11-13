@@ -1,18 +1,18 @@
 // fk-form is a port of Foldkit's form example (stage a: the model, with
-// no view), re-themed as a sign-up for a project's release notes. It plays
+// no view), re-themed as a subscription for a project's release notes. It plays
 // a script of form events (type in a field, submit) against the form and
-// shows the form after each one. Package signup is the machine, whose
+// shows the form after each one. Package subscribe is the machine, whose
 // states own the email check and the submit; package script reads and
 // plays the script; memory is the list of subscribers. This binary is the
 // only place that chooses them.
 
 import fkform/memory
 import fkform/script
-import fkform/signup
+import fkform/subscribe
 import io
 import os
 
-let Subscribers = context { signup.Subscribers: memory.List }
+let Subscribers = context { subscribe.Subscribers: memory.List }
 
 func main() fails os.Exit needs Console | Ambient {
 	let status = with context { io.Stdin: io.NewStdin(), Scheduler: NewLiveScheduler() } {

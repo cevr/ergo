@@ -1,4 +1,4 @@
-// Package signup is a sign-up form for a project's release notes: a name,
+// Package subscribe is a subscription form for a project's release notes: a name,
 // an email address and a note, each checked as it is typed, an email
 // address checked against the subscribers as well, and a submit. The
 // machine Form holds the fields and the stage of the submit; the email

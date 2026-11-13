@@ -32,4 +32,4 @@ name "" | email "bob@mail.invalid" checking... | note "Hello there." | Welcome t
 name "" | email "bob@mail.invalid" ok | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
 > submit
 name "" | email "bob@mail.invalid" ok | note "Hello there." | sending...
-name "" | email "bob@mail.invalid" ok | note "Hello there." | Sorry, the list could not take the sign-up. Please try again.
+name "" | email "bob@mail.invalid" ok | note "Hello there." | Sorry, the list could not take the subscription. Please try again.

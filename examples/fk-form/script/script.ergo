@@ -1,8 +1,8 @@
-// Package script runs the sign-up form as an actor over a script of form
+// Package script runs the subscription form as an actor over a script of form
 // events, and shows the form after each one.
 
 import actor
-import fkform/signup
+import fkform/subscribe
 import io
 import machines
 import strings
@@ -11,7 +11,7 @@ import strings
 type BadLine { Line int, Why string }
 
 // Event is a read line: its text and the signal it gives.
-type Event { Text string, Signal signup.Signal }
+type Event { Text string, Signal subscribe.Signal }
 
 // Read reads the lines of a script. Each line is `name TEXT`, `email
 // TEXT` or `note TEXT`, which makes TEXT (the rest of the line after one
@@ -28,16 +28,16 @@ func Read(lines []string) []Event fails BadLine {
 		let rest = strings.TrimPrefix(strings.TrimPrefix(text, word), " ")
 		let s = match word {
 		case "name":
-			signup.NameEdited{Text: rest}
+			subscribe.NameEdited{Text: rest}
 		case "email":
-			signup.EmailEdited{Text: rest}
+			subscribe.EmailEdited{Text: rest}
 		case "note":
-			signup.NoteEdited{Text: rest}
+			subscribe.NoteEdited{Text: rest}
 		case "submit":
 			if rest != "" {
 				return BadLine{Line: i + 1, Why: "submit takes no text"}
 			}
-			signup.Submitted
+			subscribe.Submitted
 		case _:
 			return BadLine{Line: i + 1, Why: "a line is name, email or note TEXT, or submit"}
 		}
@@ -51,7 +51,7 @@ func Read(lines []string) []Event fails BadLine {
 // form after it, and, when the event started a check or a submit, the
 // form once it has its answer. It returns the exit status: 0, or 1 when
 // the script is refused.
-func Run() int needs Console | io.Stdin | Scheduler | signup.Subscribers {
+func Run() int needs Console | io.Stdin | Scheduler | subscribe.Subscribers {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -61,7 +61,7 @@ func Run() int needs Console | io.Stdin | Scheduler | signup.Subscribers {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let a = actor.StartMachine(signup.Signups{}, 8, func(o signup.Never) {})
+	let a = actor.StartMachine(subscribe.Subscribing{}, 8, func(o subscribe.Never) {})
 	let mut f = a.State()
 	Console.Println(Show(f))
 	for e in events {
@@ -79,8 +79,8 @@ func Run() int needs Console | io.Stdin | Scheduler | signup.Subscribers {
 		}
 		f = next
 		Console.Println(Show(f))
-		if signup.Busy(f) {
-			f = actor.WaitFor(a, func(s signup.Form) bool { !signup.Busy(s) }) catch {
+		if subscribe.Busy(f) {
+			f = actor.WaitFor(a, func(s subscribe.Form) bool { !subscribe.Busy(s) }) catch {
 			case actor.Stopped:
 				return 1
 			}
@@ -93,7 +93,7 @@ func Run() int needs Console | io.Stdin | Scheduler | signup.Subscribers {
 
 // Show is the form in one line: each field's text and verdict, then the
 // stage.
-func Show(f signup.Form) string {
+func Show(f subscribe.Form) string {
 	let name = field(f.Name.Text, nameSaid(f.Name.Verdict))
 	let email = field(f.Email.Text, emailSaid(f.Email.Verdict))
 	"name \(name) | email \(email) | note \"\(f.Note)\" | " + stage(f.Stage)
@@ -101,41 +101,41 @@ func Show(f signup.Form) string {
 
 func field(text string, said string) string { "\"\(text)\"" + said }
 
-func nameSaid(v signup.Verdict[signup.Name, signup.TooShort]) string {
+func nameSaid(v subscribe.Verdict[subscribe.Name, subscribe.TooShort]) string {
 	match v {
-	case signup.Unchecked:
+	case subscribe.Unchecked:
 		""
-	case signup.Checking[signup.Name]:
+	case subscribe.Checking[subscribe.Name]:
 		" checking..."
-	case signup.Valid[signup.Name]:
+	case subscribe.Valid[subscribe.Name]:
 		" ok"
-	case signup.Invalid[signup.TooShort] as i:
-		" (\(signup.NameSaid(i.Why)))"
+	case subscribe.Invalid[subscribe.TooShort] as i:
+		" (\(subscribe.NameSaid(i.Why)))"
 	}
 }
 
-func emailSaid(v signup.Verdict[signup.Email, signup.EmailWhy]) string {
+func emailSaid(v subscribe.Verdict[subscribe.Email, subscribe.EmailWhy]) string {
 	match v {
-	case signup.Unchecked:
+	case subscribe.Unchecked:
 		""
-	case signup.Checking[signup.Email]:
+	case subscribe.Checking[subscribe.Email]:
 		" checking..."
-	case signup.Valid[signup.Email]:
+	case subscribe.Valid[subscribe.Email]:
 		" ok"
-	case signup.Invalid[signup.EmailWhy] as i:
-		" (\(signup.EmailSaid(i.Why)))"
+	case subscribe.Invalid[subscribe.EmailWhy] as i:
+		" (\(subscribe.EmailSaid(i.Why)))"
 	}
 }
 
-func stage(s signup.Stage) string {
+func stage(s subscribe.Stage) string {
 	match s {
-	case signup.Editing:
+	case subscribe.Editing:
 		"not sent"
-	case signup.Sending:
+	case subscribe.Sending:
 		"sending..."
-	case signup.Sent as t:
+	case subscribe.Sent as t:
 		t.Text
-	case signup.Refused:
-		"Sorry, the list could not take the sign-up. Please try again."
+	case subscribe.Refused:
+		"Sorry, the list could not take the subscription. Please try again."
 	}
 }

@@ -1,18 +1,18 @@
 import strings
 
-// Signup is what a submit sends: the name typed (possibly empty), the
+// Subscription is what a submit sends: the name typed (possibly empty), the
 // address and the note.
-type Signup { Name string, Email Email, Note string }
+type Subscription { Name string, Email Email, Note string }
 
-// JoinFailed is a sign-up the list did not take.
+// JoinFailed is a subscription the list did not take.
 type JoinFailed {}
 
 // Subscribers is the contract of the release-notes list the form asks.
 type Subscribers {
 	// Taken reports whether the address is on the list already.
 	Taken(e Email) bool,
-	// Join puts a sign-up on the list.
-	Join(s Signup) fails JoinFailed,
+	// Join puts a subscription on the list.
+	Join(s Subscription) fails JoinFailed,
 
 	// An address is on the list in any case of its letters, as upstream
 	// compares the lower-cased address.
