@@ -306,3 +306,18 @@ The same scenarios at `GOMAXPROCS=4` (CS9 head `de6ab4614`, 1-minute load 84 to 
 - Measured: the plan's budget for a request inside `ergo serve` is 1 ms at any program size, in proportion to the files that changed (§3.1), and is not met. The median request took 3.1 ms at g10 and 8.0 ms at g50, at a load above 80. Meeting it needs the daemon to keep the inputs' hashes between requests and to re-hash only the files a file event names. The plan allows file events as a hint, not as evidence, so that is a design step of its own (a follow-up).
 - `ergo check` as the daemon's client still pays its own process start (2.9 to 3.0 M), the floor of any CLI command ("Process start"). An editor that speaks the socket pays none.
 - The raw log is the wf10 run's `compile-speed/cs9/receipt-buildcost.log`.
+
+### Kept reads
+
+After the measurement above, the daemon keeps each input's hash, each folder's listing digest and the decoded manifest while their stat stays the same (`sketchfront.StatSums`; docs/tooling.md, "ergo serve"). It was measured again on 2026-11-13 at the code of `d0220a73e`, with the same command, at a 1-minute load of 47 to 49:
+
+| Program | Daemon, one request (M instr), GOMAXPROCS 1 / 4 | Before kept reads (M instr) | Inputs read per request | Request wall time, median / p90 (µs), GOMAXPROCS=1 |
+| --- | --- | --- | --- | --- |
+| g10 | 0.41 / 0.42 | 1.7 | none (22 stats) | 467 / 1,983 |
+| g50 | 0.64 / 0.64 | 5.6 | none (88 stats) | 666 / 4,060 |
+
+- Measured: a served request reads and hashes no unchanged input. Its daemon counters (`work`) are all zero.
+- Measured: it costs 76 % (g10) and 89 % (g50) fewer instructions than before, and 10 % and 8 % of the CLI's warm check.
+- Measured: the median request is under the plan's 1 ms budget at g10 and g50, from a client in another process over the socket; the 90th percentile is not, at this load. Wall times are context, not a claim; the counts are the receipt.
+- Its work still grows with the program: 0.41 M at 22 inputs and 0.64 M at 88, the stats of the inputs and folders. Work in proportion only to the files that changed needs a file watch, with the stat as the evidence the watch hints at; that is a follow-up.
+- The raw log is the wf10 run's `compile-speed/cs9/receipt-buildcost-2.log`.
