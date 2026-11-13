@@ -133,6 +133,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Crossing type** (checked): A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
+**Declared root** (checked, EXH1): A value whose type implements `Closer`, or a `*T` borrow of one, seen as the owner of the handles it holds (values of an operation type that is not a resource, such as `sync.Ref` or `actor.Actor`, or values holding one). A handle read from it is lent: it leaves only with the whole root, and a write back to its own place grows the root in place. See [resources](docs/spec/resources.md) R17.
+
 **Takes clause** (checked): `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on exported signatures, inferred on unexported functions, and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope** (designed): The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.

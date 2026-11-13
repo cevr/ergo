@@ -3951,6 +3951,10 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
-    }
+    },
+    {"name":"exh1-in-place-release-stale","origin":"wf10 EXH1","file":"internal/sketch/lower/inplace.go","from":"\tif !fc.l.writtenInPlace(v) {\n\t\treturn\n\t}","to":"\tif true {\n\t\treturn\n\t}","rule":"An owned local written in place is released with its writes (resources R5; EXH1).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"exh1-in-place-static-slot","origin":"wf10 EXH1","file":"internal/sketch/lower/static.go","from":"\t\tif v, isVar := key.(*check.Var); isVar && l.writtenInPlace(v) {","to":"\t\tif v, isVar := key.(*check.Var); isVar && false && l.writtenInPlace(v) {","rule":"A frame writing an owned local in place takes the list form; a static slot is a copy (EXH1).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"exh1-in-place-receiver-unseen","origin":"wf10 EXH1","file":"internal/sketch/lower/inplace.go","from":"\t\t\t\t\t\t\tmark(c.Recv)","to":"\t\t\t\t\t\t\t_ = c.Recv","rule":"A *T dot call on an owned local writes it in place (EXH1).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"exh1-includes-dropped","origin":"wf10 EXH1","file":"internal/sketch/lower/decls.go","from":"\t\tif it, ok := named.Underlying().(*check.Interface); ok {\n\t\t\tfor _, op := range it.Methods {","to":"\t\tif it, ok := named.Underlying().(*check.Interface); ok && false {\n\t\t\tfor _, op := range it.Methods {","rule":"An operation type's Go interface lists the operations its members include (..Closer), so a release through it compiles (EXC1).","killers":["lower:TestIncludedOperationsLower"]}
   ]
 }
