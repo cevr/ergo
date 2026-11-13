@@ -30,6 +30,9 @@ func pinTestSets(t *testing.T, target PinTarget) (string, pinset.Lock) {
 	}
 	lock := pinset.Lock{Sets: map[string]string{}}
 	for _, p := range produced {
+		if !strings.Contains(p.Name, "-"+target.GOOS+"-"+target.GOARCH+"-") {
+			t.Errorf("the set %s, made for %s/%s, is named for another target", p.Name, target.GOOS, target.GOARCH)
+		}
 		lock.Sets[p.Name] = p.Digest
 	}
 	if len(lock.Sets) != 2 {
@@ -75,8 +78,8 @@ func otherTarget() PinTarget {
 // package from the sets: the go command exports no std archive (today it
 // compiles about 206, plan §1.3), and the only compile is the program's
 // own package. The executable is the bytes of the build without sets. The
-// target is not the host's, so a set looked up by the host's platform is
-// missed (cs-pin-wrong-target). It builds Go because the question is
+// target is not the host's, and each set must be named for it, so a set
+// keyed by the host's platform fails (cs-pin-wrong-target). It builds Go because the question is
 // which compiles a real build runs and the executable it links.
 func TestColdBuildCompilesNoPinPackage(t *testing.T) {
 	if testing.Short() {
