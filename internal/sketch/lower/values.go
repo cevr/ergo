@@ -363,9 +363,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
-		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
-			w.pure = append(w.pure, n)
 		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
+			// A Go call is never a V7 hand-over, even in the reviewed
+			// pure tier (check.pureGo: sort.Ints): it is pure in effects,
+			// not in memory, since Go writes or keeps a Map or slice it is
+			// given. Its operands take the boundary rule.
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
@@ -375,6 +377,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 					w.goArgs = append(w.goArgs, a)
 				}
 			}
+		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
+			w.pure = append(w.pure, n)
 		}
 	}
 	if f := w.frameOf[n]; f != nil {
