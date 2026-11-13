@@ -24,12 +24,13 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		fr.tries--
 	}
 	if ab != nil {
-		if ab.kind == ctlFail && (covered || fr.tries > 0 && unparen(x) != fr.caught) {
+		if ab.kind == ctlFail && (covered || fr.tries > 0 && !ownFailure(fr.info, fr.caught, unparen(x))) {
 			// A right operand that a try on its left covers (q105,
 			// check.Info.TryCovers), or an expression under a try but
-			// the caught expression itself: its failure leaves the frame,
-			// as under the try itself, so a catch it is inside of takes
-			// only its caught expression's own failure (rows.md, Catch 5).
+			// the caught expression itself or a tail it yields: its
+			// failure leaves the frame, as under the try itself, so a
+			// catch it is inside of takes only its caught expression's
+			// own failure (rows.md, Catch 5).
 			out := *ab
 			out.kind = ctlEscape
 			return nil, &out
@@ -623,16 +624,6 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	if failed.kind != ctlFail {
 		return nil, failed
 	}
-	if !tailCall(fr.info, x.X, failed.call) {
-		// The failure of a call the subject does not end in (an
-		// argument, a receiver, an operand, a condition) is one an
-		// enclosing try covers: it propagates past the catch, which
-		// handles the subject's own row (rows.md, Catch 5), as the
-		// lowering's hoisted check does.
-		out := *failed
-		out.kind = ctlEscape
-		return nil, &out
-	}
 	for _, a := range x.Arms {
 		for _, te := range a.Types {
 			p := fr.info.Patterns[te]
@@ -666,56 +657,59 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	return nil, fr.defect(x, "a failure no arm of the catch takes: %s", describe(failed.val))
 }
 
-// tailCall reports whether c is a call that x yields its value through,
-// the positions that pass their failure to x (rows.md, Error rows 2): x
-// itself through parentheses, a tail of a value if's or match's branch,
-// and a tail of a catch arm. It follows yieldStmt's walk. A nil c is no
-// call.
-func tailCall(info *check.Info, x syntax.Expr, c *syntax.CallExpr) bool {
-	if c == nil {
+// ownFailure reports whether a failure of x is the failure of caught, the
+// caught expression of the catch being evaluated: x is caught itself, or a
+// tail caught yields through the branches of an if or the arms of a match,
+// through parentheses and nested ifs and matches (Info.Tails). The
+// lowering passes such a tail's failure to its catch (lower/tails.go,
+// branchExpr and tailFallible); a condition, a subject or a statement
+// before the tail is not the caught expression's own failure (rows.md,
+// Error rows 2, Catch 5).
+func ownFailure(info *check.Info, caught, x syntax.Expr) bool {
+	if caught == nil {
 		return false
 	}
-	switch x := unparen(x).(type) {
-	case *syntax.CallExpr:
-		return x == c
-	case *syntax.CatchExpr:
-		for _, a := range x.Arms {
-			if tailList(info, a.Body, c) {
-				return true
-			}
-		}
-	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		return tailStmt(info, x.(syntax.Stmt), c)
+	caught = unparen(caught)
+	if caught == x {
+		return true
 	}
-	return false
+	s, ok := caught.(syntax.Stmt)
+	return ok && tailOf(info, s, x)
 }
 
-func tailList(info *check.Info, list []syntax.Stmt, c *syntax.CallExpr) bool {
-	return len(list) > 0 && tailStmt(info, list[len(list)-1], c)
-}
-
-func tailStmt(info *check.Info, s syntax.Stmt, c *syntax.CallExpr) bool {
+// tailOf reports whether x is a tail the statement s yields (ownFailure).
+func tailOf(info *check.Info, s syntax.Stmt, x syntax.Expr) bool {
+	last := func(list []syntax.Stmt) bool {
+		return len(list) > 0 && tailOf(info, list[len(list)-1], x)
+	}
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
 		_, tail := info.Tails[s]
-		return tail && tailCall(info, s.X, c)
+		return tail && ownFailure(info, s.X, x)
 	case *syntax.IfStmt:
-		return tailList(info, s.Body.List, c) || s.Else != nil && tailStmt(info, s.Else, c)
-	case *syntax.BlockStmt:
-		return tailList(info, s.List, c)
-	case *syntax.SwitchStmt:
-		return tailClauses(info, s.Clauses, c)
-	case *syntax.TypeSwitchStmt:
-		return tailClauses(info, s.Clauses, c)
-	}
-	return false
-}
-
-func tailClauses(info *check.Info, list []*syntax.CaseClause, c *syntax.CallExpr) bool {
-	for _, cl := range list {
-		if tailList(info, cl.Body, c) {
+		if last(s.Body.List) {
 			return true
 		}
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			return last(e.List)
+		case *syntax.IfStmt:
+			return tailOf(info, e, x)
+		}
+	case *syntax.SwitchStmt:
+		for _, cl := range s.Clauses {
+			if last(cl.Body) {
+				return true
+			}
+		}
+	case *syntax.TypeSwitchStmt:
+		for _, cl := range s.Clauses {
+			if last(cl.Body) {
+				return true
+			}
+		}
+	case *syntax.BlockStmt:
+		return last(s.List)
 	}
 	return false
 }
