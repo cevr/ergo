@@ -222,6 +222,15 @@ const LanguageRevision = "ergo-v1-2026-10-28"
 // from Info (lower-v1 stage 2).
 const emitterRevision = "lower/2"
 
+// LowerSingleEnv selects the reference lowering, one Go package for the
+// whole program, when it is "single" (compile-speed CS4): the default
+// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
+// The choice is part of the emission key.
+const LowerSingleEnv = "ERGO_LOWER"
+
+// splitLowering reports whether builds split the lowered program.
+func splitLowering() bool { return os.Getenv(LowerSingleEnv) != "single" }
+
 // BuildRequest is one build of a checked analysis.
 type BuildRequest struct {
 	// Mode is the root the module runs: build.ModeBuild, main (ergo build
@@ -299,9 +308,13 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	split := splitLowering()
+	if !split {
+		input.Emitter += "+single"
+	}
 	var lowered []lower.File
 	if req.Mode == build.ModeBuild {
-		ev, files, err := lowerWithLedger(a, unit, req)
+		ev, files, err := lowerWithLedger(a, unit, req, split)
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
@@ -318,7 +331,11 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
 		files, err := lowered, error(nil)
-		if files == nil {
+		switch {
+		case files != nil:
+		case split:
+			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+		default:
 			files, err = lowering(unit)
 		}
 		var refused *lower.Refused
@@ -422,7 +439,7 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // refuses instead (*LedgerError). A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
-func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
+func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
 	text, err := ledgerText(req.Ledger)
 	if err != nil {
 		return nil, nil, err
@@ -435,7 +452,12 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev
-	files, err := lower.Lower(unit)
+	var files []lower.File
+	if split {
+		files, _, err = lower.LowerSplit(unit, false)
+	} else {
+		files, err = lower.Lower(unit)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
