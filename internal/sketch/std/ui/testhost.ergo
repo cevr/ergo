@@ -74,7 +74,7 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 
 // Settle waits until no fetch is in flight and every posted result is
 // taken: the screen then shows the actor's latest state with each live
-// load's result (ui_loop.qnt settledShowsLatest). A fetch that waits on
+// load's result (models/uiloop SettledShowsLatest). A fetch that waits on
 // the clock waits until an Advance; Settle does not move the clock, so a
 // script advances first.
 func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {

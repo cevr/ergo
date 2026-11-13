@@ -193,7 +193,7 @@ type loaded { at place, key int, epoch int }
 // fetching is a fetch a commit gave and the host has not finished.
 type fetching { epoch int, run func() int }
 
-// LoadFollowsModel (ui_loop.qnt, H2b): over drawn passes and drawn
+// LoadFollowsModel (models/uiloop, H2b): over drawn passes and drawn
 // finishes of the fetches in flight, in any order, each commit gives
 // exactly the jobs the model wants: a new load, or a load with a new key or
 // a new place, is one Fetch with an epoch no fetch had, and the load it

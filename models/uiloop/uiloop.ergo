@@ -1,0 +1,325 @@
+// The package uiloop is the design model of std ui's host loop (stdlib.md,
+// UI 6 to 8: a load's fetch runs as a task whose result is posted back to
+// the loop, and Handle takes it only while Arrive holds), checked by
+// `ergo test models/uiloop`: a breadth-first search of every state in a
+// small scope. It is the Ergo port of the Quint model ui_loop.qnt of the
+// v1 GUI plan (corpus-wave plan.md 19.5, unit H2m): the same parties,
+// actions and invariants, decided by the explorer instead of random
+// traces.
+//
+// Three parties interleave:
+//   - the main thread (the host's frames and input): enqueues signals,
+//     renders frames, applies load results; it never waits;
+//   - the app's actor task: steps signals and commits states;
+//   - load tasks: each fetches for one epoch of the view's one ui.Load.
+// A host goroutine reads the actor's changes and hands the latest state to
+// the main thread.
+//
+// State versions stand for states; key(v) = v % 2 is the load key the view
+// derives from a state, so a key can come back to an earlier value. A
+// result is tagged with the epoch it was fetched for; its key is the key
+// of that epoch (EpochKey).
+//
+// Each action is a signal; an action that is not enabled is Ignore. A
+// choice the Quint model made with nondet is the signal's field: the
+// version a publish skips to, the epoch that finishes or is applied.
+//
+// Invariants (laws of Design, each `always`):
+//   - NoStaleReady: the result the load shows is its own epoch's;
+//   - ShownCommitted: the screen shows a committed state, never one newer
+//     than the actor's;
+//   - SettledShowsLatest: settled (no signal queued, the latest state
+//     published, no frame wanted, no fetch running, no result posted), the
+//     latest state is on the screen and its load is ready. This is what
+//     ui.TestHost's Settle waits for.
+//
+// Mutant, a machine whose law Breaks must hold (a shortest run to a state
+// where the invariant is false):
+//   - ByKey: apply matches a result by its key, not its epoch
+//     (NoStaleReady), the Quint model's CHECK_EPOCH = false.
+//
+// Witnesses (laws of Design, each `sometimes`), one per action, so the
+// invariants are not vacuous: a click queued a signal; the actor
+// committed; a publish skipped a version; a frame changed the key; a fetch
+// finished; a result was applied; and a stale result was dropped.
+//
+// The scope is 5 versions (MaxV), so at most 6 epochs. It is the claim:
+// "proved" means proved in this scope.
+//
+// Workarounds of today's Ergo (as models/children and models/uiboundary):
+// a variant with no fields in a union of names is written `V1{}`, a field
+// a search lists is a union of names, not an int, and a slice element is
+// set by copying the slice (setInt, setBool).
+
+type Ver = V1{} | V2{} | V3{} | V4{} | V5{}
+
+type Epoch = E0{} | E1{} | E2{} | E3{} | E4{} | E5{}
+
+type Act = Click{} | ActorStep{} | Publish{V Ver} | Frame{} | Finish{E Epoch} | Apply{E Epoch}
+
+// The scope.
+let MaxV = 5
+let Epochs = 6
+
+// The design and the mutant, as the argument of next.
+let NoMutant = 0
+let ByKeyMutant = 1
+
+func key(v int) int { v % 2 }
+
+func ver(v Ver) int {
+	match v {
+	case V1:
+		1
+	case V2:
+		2
+	case V3:
+		3
+	case V4:
+		4
+	case V5:
+		5
+	}
+}
+
+func ep(e Epoch) int {
+	match e {
+	case E0:
+		0
+	case E1:
+		1
+	case E2:
+		2
+	case E3:
+		3
+	case E4:
+		4
+	case E5:
+		5
+	}
+}
+
+// World is the loop's state. Running, Posted and EpochKey have one element
+// per epoch. ReadyEpoch is -1 while the load is Loading. Dropped is set
+// when an apply dropped a result (the witness's fact).
+type World {
+	Committed   int,
+	Inbox       int,
+	Snap        int,
+	FrameWanted bool,
+	Shown       int,
+	LoadKey     int,
+	LoadEpoch   int,
+	NextEpoch   int,
+	ReadyEpoch  int,
+	Running     []bool,
+	Posted      []bool,
+	EpochKey    []int,
+	Dropped     bool,
+	KeyChanged  bool,
+	Skipped     bool,
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setBool(xs []bool, i int, v bool) []bool {
+	let mut out = []bool{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func world() World {
+	World{
+		Committed:   0,
+		Inbox:       0,
+		Snap:        0,
+		FrameWanted: false,
+		Shown:       0,
+		LoadKey:     key(0),
+		LoadEpoch:   0,
+		NextEpoch:   1,
+		ReadyEpoch:  -1,
+		Running:     []bool{true, false, false, false, false, false},
+		Posted:      []bool{false, false, false, false, false, false},
+		EpochKey:    []int{key(0), -1, -1, -1, -1, -1},
+		Dropped:     false,
+		KeyChanged:  false,
+		Skipped:     false,
+	}
+}
+
+// next is the world after a under the mutant m, None when a is not
+// enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Click:
+		// A click queues a signal; the queue never blocks the main thread.
+		if w.Committed+w.Inbox >= MaxV {
+			return None
+		}
+		let mut n = w
+		n.Inbox = w.Inbox + 1
+		Some{Value: n}
+	case ActorStep:
+		// One step commits one state.
+		if w.Inbox == 0 {
+			return None
+		}
+		let mut n = w
+		n.Committed = w.Committed + 1
+		n.Inbox = w.Inbox - 1
+		Some{Value: n}
+	case Publish as p:
+		// The host goroutine reads the changes (it may skip to any later
+		// committed state) and asks for a frame.
+		let v = ver(p.V)
+		if w.Snap >= w.Committed || v <= w.Snap || v > w.Committed {
+			return None
+		}
+		let mut n = w
+		n.Skipped = w.Skipped || v > w.Snap+1
+		n.Snap = v
+		n.FrameWanted = true
+		Some{Value: n}
+	case Frame:
+		// A frame renders the latest snapshot; a new load key stops the
+		// old epoch's fetch and starts one for a new epoch.
+		if !w.FrameWanted {
+			return None
+		}
+		let mut n = w
+		n.Shown = w.Snap
+		n.FrameWanted = false
+		if key(w.Snap) != w.LoadKey {
+			if w.NextEpoch >= Epochs {
+				return None
+			}
+			n.LoadKey = key(w.Snap)
+			n.LoadEpoch = w.NextEpoch
+			n.NextEpoch = w.NextEpoch + 1
+			n.ReadyEpoch = -1
+			n.Running = setBool(setBool(w.Running, w.LoadEpoch, false), w.NextEpoch, true)
+			n.EpochKey = setInt(w.EpochKey, w.NextEpoch, key(w.Snap))
+			n.KeyChanged = true
+		}
+		Some{Value: n}
+	case Finish as f:
+		// A fetch finishes and posts its result; a stop after this is a
+		// no-op.
+		let e = ep(f.E)
+		if !w.Running[e] {
+			return None
+		}
+		let mut n = w
+		n.Running = setBool(w.Running, e, false)
+		n.Posted = setBool(w.Posted, e, true)
+		Some{Value: n}
+	case Apply as x:
+		// The main thread applies a posted result if it belongs to the
+		// load's epoch (the mutant: to its key), else drops it.
+		let e = ep(x.E)
+		if !w.Posted[e] {
+			return None
+		}
+		let mut n = w
+		n.Posted = setBool(w.Posted, e, false)
+		let mut current = e == w.LoadEpoch
+		if m == ByKeyMutant {
+			current = w.EpochKey[e] == w.LoadKey
+		}
+		if current {
+			n.ReadyEpoch = e
+			n.FrameWanted = true
+		} else {
+			n.Dropped = true
+		}
+		Some{Value: n}
+	}
+}
+
+func step(m int, w World, a Act) Decision[World, string] {
+	match next(m, w, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(w World, a Act) Decision[World, string] { step(NoMutant, w, a) }
+
+func stepByKey(w World, a Act) Decision[World, string] { step(ByKeyMutant, w, a) }
+
+func noStaleReady(w World) bool { w.ReadyEpoch == -1 || w.ReadyEpoch == w.LoadEpoch }
+
+func shownCommitted(w World) bool { 0 <= w.Shown && w.Shown <= w.Snap && w.Snap <= w.Committed }
+
+func none(xs []bool) bool {
+	for x in xs {
+		if x {
+			return false
+		}
+	}
+	true
+}
+
+func settled(w World) bool {
+	w.Inbox == 0 && w.Snap == w.Committed && !w.FrameWanted && none(w.Running) && none(w.Posted)
+}
+
+func settledShowsLatest(w World) bool {
+	!settled(w) || (w.Shown == w.Committed && w.ReadyEpoch == w.LoadEpoch)
+}
+
+func stale(w World) bool { !noStaleReady(w) }
+
+// The witnesses.
+
+func queued(w World) bool    { w.Inbox > 0 }
+func committed(w World) bool { w.Committed > 0 }
+func skipped(w World) bool   { w.Skipped }
+func rekeyed(w World) bool   { w.KeyChanged }
+func posted(w World) bool    { !none(w.Posted) }
+func ready(w World) bool     { w.ReadyEpoch >= 0 }
+func dropped(w World) bool   { w.Dropped }
+
+// The design keeps every invariant in the scope.
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law NoStaleReady always noStaleReady,
+	law ShownCommitted always shownCommitted,
+	law SettledShowsLatest always settledShowsLatest,
+
+	law Queues sometimes queued,
+	law Commits sometimes committed,
+	law SkipsAVersion sometimes skipped,
+	law ChangesKey sometimes rekeyed,
+	law Finishes sometimes posted,
+	law Applies sometimes ready,
+	law DropsStale sometimes dropped,
+}
+
+type ByKey machine[World, Act] {
+	initial: world(),
+	step:    stepByKey,
+
+	law Breaks sometimes stale,
+}
