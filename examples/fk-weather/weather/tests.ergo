@@ -16,16 +16,12 @@ func next(l Lookup, s Signal) Lookup { machines.Next(l, Step(l, s)) }
 test SubmitFetchesAndShowsTheReport {
 	// submitting the weather form fetches weather and shows result
 	let loading = next(asked, Submitted)
-	let p Panel = Loading{Zip: "90210"}
-	assert loading.Panel == p && Busy(loading)
-	let q Panel = Ready{Report: beverly}
-	let shown = next(loading, Got{Report: beverly})
-	assert shown.Panel == q
+	assert loading.Panel == Loading{Zip: "90210"} && Busy(loading)
+	assert next(loading, Got{Report: beverly}).Panel == Ready{Report: beverly}
 }
 
 test FailedFetchShowsWhy {
 	// failed fetch shows failure state
 	let why = Unavailable{Reason: "Network error"}
-	let p Panel = Failed{Why: why}
-	assert next(next(asked, Submitted), why).Panel == p
+	assert next(next(asked, Submitted), why).Panel == Failed{Why: why}
 }
