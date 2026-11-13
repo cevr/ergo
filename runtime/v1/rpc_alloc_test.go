@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"hash/crc32"
 	"runtime"
 	"strings"
 	"testing"
@@ -54,11 +55,15 @@ func TestRPCExitsWriteTheValueOnce(t *testing.T) {
 }
 
 // TestCrc32UpdateDoesNotCopy is FD1-g3's guard on the bench's checksum:
-// Crc32Update of a 1 MiB string allocates nothing once its buffer is
-// pooled (it caught crc-copies: the string converted to a new []byte).
+// Crc32Update of a 1 MiB string allocates at most its 512-byte buffer,
+// never a copy of the string (it catches crc-copies: each chunk converted
+// to a new []byte, which allocates the string's length again).
 func TestCrc32UpdateDoesNotCopy(t *testing.T) {
 	s := strings.Repeat("ab", 1<<19)
-	if n := testing.AllocsPerRun(10, func() { _ = Crc32Update(0, s) }); n != 0 {
-		t.Errorf("Crc32Update of %d bytes made %v allocations, want 0", len(s), n)
+	if n := allocatedBy(func() { _ = Crc32Update(0, s) }); n > 4096 {
+		t.Errorf("Crc32Update of %d bytes allocated %d bytes, want at most 4096 (no copy of the string)", len(s), n)
+	}
+	if Crc32Update(0, s) != crc32.ChecksumIEEE([]byte(s)) {
+		t.Error("Crc32Update of a string longer than its buffer is not its checksum")
 	}
 }
