@@ -335,7 +335,14 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				defOf.add(d.Name.Name, d, i)
 			}
 		case *ast.GenDecl:
-			if d.Doc != nil && hasEmbed(d.Doc) {
+			// The IR path writes a /*line*/ comment on the declaration's
+			// own line, which makes its comments no Doc: read the text
+			// before the declaration too.
+			before := 0
+			if i > 0 {
+				before = off(f.Decls[i-1].End())
+			}
+			if d.Doc != nil && hasEmbed(d.Doc) || strings.Contains(string(src[before:off(d.Pos())]), "//go:embed") {
 				g.pin, g.embed = true, true
 			}
 			for _, s := range d.Specs {
