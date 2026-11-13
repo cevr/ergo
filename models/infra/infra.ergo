@@ -1,0 +1,443 @@
+// The package infra is the design model of one apply of a stack over a
+// state store and a cloud (the planned module infra: kinds, drivers, plan
+// and apply), checked by `ergo test models/infra`. It replaced a Quint
+// draft, infra.qnt, that never entered the repository (decisions.md
+// 2026-11-10, q78): the same actions, invariants, witnesses and mutants,
+// decided by a breadth-first search of every state in a small scope
+// instead of random traces.
+//
+// A run reads what the stack wants (a props value for each id; None for
+// "not in the stack"), then handles the ids in order. For an id the stack
+// wants:
+//
+//	stage 0  decide; write the row {creating, props} to the state store
+//	stage 1  call the driver (an upsert keyed by the id: law RetrySafe)
+//	stage 2  write the row {live, props}
+//
+// For an id the stack does not want and the state store holds (the sweep):
+//
+//	stage 0  write the row {deleting}
+//	stage 1  call the driver's delete (law DeleteIsIdempotent)
+//	stage 2  remove the row
+//
+// A crash loses the run and keeps the state store, the cloud and the lock.
+// A lock is broken only when its holder is dead (an operator's act).
+//
+// Each action is a signal; an action that is not enabled is Ignore. The
+// invariants are always laws over World, the start included:
+//
+//   - NoOrphan: every object in the cloud has a row, so nothing is paid
+//     for and forgotten;
+//   - LiveIsTrue: a row that says live agrees with the cloud;
+//   - Converged: a run that handled every id leaves the cloud and the
+//     state store as the stack wants.
+//
+// The scope: 2 ids, 2 runners, props 1 and 2, any number of crashes. The
+// whole graph is searched; "proved" means proved in this scope. A variable
+// that no later action reads is cleared (an idle run, the ghost JustWant
+// when no run just ended), so two states with the same futures are one.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run to a
+// state that breaks an invariant; the one its shortest run breaks is named):
+//   - NoWriteAhead: no row is written before the driver call (NoOrphan);
+//   - NoLock: a run starts while another holds the lock (Converged);
+//   - LiveEarly: the row says live before the driver call (LiveIsTrue);
+//   - NoResume: a row left creating with equal props is taken as done
+//     (Converged);
+//   - NoSweep: a row the stack no longer wants is kept (Converged);
+//   - BreakLive: a lock is broken while its holder runs (Converged).
+//
+// Witnesses, sometimes laws of the design, so the invariants are not
+// vacuous: a run ends with two objects; a run ends after a crash with an
+// object; a sweep ends after a crash; a run meets a row left creating;
+// a run meets a row left deleting.
+
+import machines
+
+// ID is an object's id in the stack; Runner is a process that applies.
+type ID = A{} | B{}
+type Runner = R1{} | R2{}
+
+// Props is what the stack wants for an id: None is "not in the stack".
+type Props = None0{} | P1{} | P2{}
+
+// Row is a row of the state store. Status is Creating, Live or Deleting.
+type Row { Has bool, Status int, Props int }
+
+// Job is one run: what the stack wants for each id (0 is "not in the
+// stack"), the id it handles now, and the stage of that id.
+type Job { Active bool, Want []int, At int, Stage int }
+
+// World is the model's state. Cloud holds each id's props, 0 when the
+// object is not there. Lock is 0 when free, else the holder's number.
+// JustDone, JustWant and Crashed are ghosts that only the laws read.
+type World {
+	Cloud    []int,
+	Rows     []Row,
+	Lock     int,
+	Jobs     []Job,
+	JustDone bool,
+	JustWant []int,
+	Crashed  bool,
+}
+
+// Act is the actions: a runner begins a run with what the stack wants, a
+// runner takes its next stage, a runner crashes, an operator breaks the
+// lock.
+type Act = Begin{R Runner, PA Props, PB Props} | Advance{R Runner} | Crash{R Runner} | Break{}
+
+let Creating = 1
+let Live = 2
+let Deleting = 3
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let NoWriteAheadMutant = 1
+let NoLockMutant = 2
+let LiveEarlyMutant = 3
+let NoResumeMutant = 4
+let NoSweepMutant = 5
+let BreakLiveMutant = 6
+
+func runnerIx(r Runner) int {
+	match r {
+	case R1:
+		0
+	case R2:
+		1
+	}
+}
+
+func propsOf(p Props) int {
+	match p {
+	case None0:
+		0
+	case P1:
+		1
+	case P2:
+		2
+	}
+}
+
+func noRow() Row { Row{Has: false, Status: 0, Props: 0} }
+
+func idle() Job { Job{Active: false, Want: []int{0, 0}, At: 0, Stage: 0} }
+
+func world() World {
+	World{
+		Cloud:    []int{0, 0},
+		Rows:     []Row{noRow(), noRow()},
+		Lock:     0,
+		Jobs:     []Job{idle(), idle()},
+		JustDone: false,
+		JustWant: []int{0, 0},
+		Crashed:  false,
+	}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setRow(xs []Row, i int, v Row) []Row {
+	let mut out = []Row{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setJob(xs []Job, i int, v Job) []Job {
+	let mut out = []Job{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// moved is w after the runner r's job became j with the cloud and the
+// rows given: the job's stage went on, and no run just ended.
+func moved(w World, r int, j Job, cloud []int, rows []Row) World {
+	World{..w, Cloud: cloud, Rows: rows, Jobs: setJob(w.Jobs, r, j), JustDone: false, JustWant: []int{0, 0}}
+}
+
+// popped is w after the runner r handled its job's id: the job goes to
+// its next id, or the run ends, frees its lock and tells the laws.
+func popped(w World, r int, j Job, cloud []int, rows []Row) World {
+	if j.At == 0 {
+		return moved(w, r, Job{..j, At: 1, Stage: 0}, cloud, rows)
+	}
+	let lock = if w.Lock == r+1 { 0 } else { w.Lock }
+	World{..w, Cloud: cloud, Rows: rows, Jobs: setJob(w.Jobs, r, idle()), Lock: lock, JustDone: true, JustWant: j.Want}
+}
+
+// next is the world after the action a under the mutant m, or None when a
+// is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Begin as b:
+		// A run starts when its runner is idle and the lock is free. NoLock:
+		// it starts while another holds the lock.
+		let r = runnerIx(b.R)
+		if w.Jobs[r].Active || (m != NoLockMutant && w.Lock != 0) {
+			return None
+		}
+		let lock = if w.Lock == 0 { r + 1 } else { w.Lock }
+		let j = Job{Active: true, Want: []int{propsOf(b.PA), propsOf(b.PB)}, At: 0, Stage: 0}
+		Some[World]{Value: World{..w, Lock: lock, Jobs: setJob(w.Jobs, r, j), JustDone: false, JustWant: []int{0, 0}}}
+	case Advance as s:
+		let r = runnerIx(s.R)
+		let j = w.Jobs[r]
+		if !j.Active {
+			return None
+		}
+		let id = j.At
+		let want = j.Want[id]
+		let row = w.Rows[id]
+		if want != 0 {
+			// Ensure the object.
+			if j.Stage == 0 {
+				// NoResume: a row with equal props is done, whatever its status.
+				let settled = row.Has && row.Props == want && (row.Status == Live || m == NoResumeMutant)
+				if settled {
+					return Some[World]{Value: popped(w, r, j, w.Cloud, w.Rows)}
+				}
+				// NoWriteAhead: no row before the call. LiveEarly: the row
+				// says live before the call.
+				let status = if m == LiveEarlyMutant { Live } else { Creating }
+				let rows = if m == NoWriteAheadMutant { w.Rows } else { setRow(w.Rows, id, Row{Has: true, Status: status, Props: want}) }
+				return Some[World]{Value: moved(w, r, Job{..j, Stage: 1}, w.Cloud, rows)}
+			}
+			if j.Stage == 1 {
+				return Some[World]{Value: moved(w, r, Job{..j, Stage: 2}, setInt(w.Cloud, id, want), w.Rows)}
+			}
+			return Some[World]{Value: popped(w, r, j, w.Cloud, setRow(w.Rows, id, Row{Has: true, Status: Live, Props: want}))}
+		}
+		// Sweep the object. NoSweep: the row is kept.
+		if j.Stage == 0 {
+			if !row.Has || m == NoSweepMutant {
+				return Some[World]{Value: popped(w, r, j, w.Cloud, w.Rows)}
+			}
+			return Some[World]{Value: moved(w, r, Job{..j, Stage: 1}, w.Cloud, setRow(w.Rows, id, Row{Has: true, Status: Deleting, Props: row.Props}))}
+		}
+		if j.Stage == 1 {
+			return Some[World]{Value: moved(w, r, Job{..j, Stage: 2}, setInt(w.Cloud, id, 0), w.Rows)}
+		}
+		Some[World]{Value: popped(w, r, j, w.Cloud, setRow(w.Rows, id, noRow()))}
+	case Crash as c:
+		// The process dies: its run is lost; the state store, the cloud and
+		// the lock stay.
+		let r = runnerIx(c.R)
+		if !w.Jobs[r].Active {
+			return None
+		}
+		Some[World]{Value: World{..w, Jobs: setJob(w.Jobs, r, idle()), JustDone: false, JustWant: []int{0, 0}, Crashed: true}}
+	case Break:
+		// An operator breaks the lock of a dead holder. BreakLive: of a
+		// holder that runs.
+		if w.Lock == 0 || (m != BreakLiveMutant && w.Jobs[w.Lock-1].Active) {
+			return None
+		}
+		Some[World]{Value: World{..w, Lock: 0, JustDone: false, JustWant: []int{0, 0}}}
+	}
+}
+
+// The invariants.
+
+func noOrphan(w World) bool {
+	for i, c in w.Cloud {
+		if c != 0 && !w.Rows[i].Has {
+			return false
+		}
+	}
+	true
+}
+
+func liveIsTrue(w World) bool {
+	for i, row in w.Rows {
+		if row.Has && row.Status == Live && w.Cloud[i] != row.Props {
+			return false
+		}
+	}
+	true
+}
+
+func converged(w World) bool {
+	if !w.JustDone {
+		return true
+	}
+	for i, want in w.JustWant {
+		let row = w.Rows[i]
+		if want != 0 && (w.Cloud[i] != want || !row.Has || row.Status != Live || row.Props != want) {
+			return false
+		}
+		if want == 0 && (w.Cloud[i] != 0 || row.Has) {
+			return false
+		}
+	}
+	true
+}
+
+func safe(w World) bool        { noOrphan(w) && liveIsTrue(w) && converged(w) }
+func unsafeState(w World) bool { !safe(w) }
+
+// The witnesses.
+
+func endsWithTwoObjects(w World) bool { w.JustDone && w.Cloud[0] != 0 && w.Cloud[1] != 0 }
+
+func endsAfterCrash(w World) bool { w.JustDone && w.Crashed && (w.Cloud[0] != 0 || w.Cloud[1] != 0) }
+
+func sweepEndsAfterCrash(w World) bool {
+	w.JustDone && w.Crashed && w.Cloud[0] == 0 && w.Cloud[1] == 0 && w.JustWant[0] == 0 && w.JustWant[1] == 0 && !w.Rows[0].Has && !w.Rows[1].Has
+}
+
+// takesUp reports whether a run is at stage 0 of an id whose row an
+// earlier run left with the status given.
+func takesUp(w World, status int) bool {
+	for _, j in w.Jobs {
+		if j.Active && j.Stage == 0 && w.Rows[j.At].Has && w.Rows[j.At].Status == status {
+			return true
+		}
+	}
+	false
+}
+
+func resumesCreating(w World) bool { takesUp(w, Creating) }
+func resumesDeleting(w World) bool { takesUp(w, Deleting) }
+
+// stepWith is the step of the model under the mutant m. A mutant stops at
+// its first unsafe state, so the explorer prints that World.
+func stepWith(m int, s World, a Act) Decision[World, string] {
+	if !safe(s) {
+		return Ignore
+	}
+	match next(m, s, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(s World, a Act) Decision[World, string]       { stepWith(NoMutant, s, a) }
+func stepNoWriteAhead(s World, a Act) Decision[World, string] { stepWith(NoWriteAheadMutant, s, a) }
+func stepNoLock(s World, a Act) Decision[World, string]       { stepWith(NoLockMutant, s, a) }
+func stepLiveEarly(s World, a Act) Decision[World, string]    { stepWith(LiveEarlyMutant, s, a) }
+func stepNoResume(s World, a Act) Decision[World, string]     { stepWith(NoResumeMutant, s, a) }
+func stepNoSweep(s World, a Act) Decision[World, string]      { stepWith(NoSweepMutant, s, a) }
+func stepBreakLive(s World, a Act) Decision[World, string]    { stepWith(BreakLiveMutant, s, a) }
+
+// The design keeps every invariant in the scope, and reaches each witness.
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law NoOrphan always noOrphan,
+	law LiveIsTrue always liveIsTrue,
+	law Converged always converged,
+
+	law EndsWithTwoObjects sometimes endsWithTwoObjects,
+	law EndsAfterCrash sometimes endsAfterCrash,
+	law SweepEndsAfterCrash sometimes sweepEndsAfterCrash,
+	law ResumesCreating sometimes resumesCreating,
+	law ResumesDeleting sometimes resumesDeleting,
+}
+
+type NoWriteAhead machine[World, Act] {
+	initial: world(),
+	step:    stepNoWriteAhead,
+
+	law Breaks sometimes unsafeState,
+}
+
+type NoLock machine[World, Act] {
+	initial: world(),
+	step:    stepNoLock,
+
+	law Breaks sometimes unsafeState,
+}
+
+type LiveEarly machine[World, Act] {
+	initial: world(),
+	step:    stepLiveEarly,
+
+	law Breaks sometimes unsafeState,
+}
+
+type NoResume machine[World, Act] {
+	initial: world(),
+	step:    stepNoResume,
+
+	law Breaks sometimes unsafeState,
+}
+
+type NoSweep machine[World, Act] {
+	initial: world(),
+	step:    stepNoSweep,
+
+	law Breaks sometimes unsafeState,
+}
+
+type BreakLive machine[World, Act] {
+	initial: world(),
+	step:    stepBreakLive,
+
+	law Breaks sometimes unsafeState,
+}
+
+// after is the design's state after the actions.
+func after(acts []Act) World fails machines.Rejected {
+	match try machines.Run(Design{}, acts) {
+	case machines.Running[World, string] as r:
+		r.State
+	case machines.Finished[World, string] as f:
+		f.State
+	}
+}
+
+// A crash between the driver call and the commit, then a new run, converges.
+test CrashThenResume {
+	let mid = try after([]Act{Begin{R: R1, PA: P1, PB: None0}, Advance{R: R1}, Advance{R: R1}})
+	assert mid.Rows[0].Status == Creating && mid.Cloud[0] == 1 && safe(mid)
+	let end = try after([]Act{
+		Begin{R: R1, PA: P1, PB: None0}, Advance{R: R1}, Advance{R: R1},
+		Crash{R: R1}, Break,
+		Begin{R: R2, PA: P1, PB: None0}, Advance{R: R2}, Advance{R: R2}, Advance{R: R2}, Advance{R: R2},
+	})
+	assert end.JustDone && end.Rows[0].Status == Live && end.Lock == 0 && safe(end)
+}
+
+// An id that leaves the stack is deleted, and its row with it.
+test SweepRemovesTheRow {
+	let both = []Act{Begin{R: R1, PA: P1, PB: P2}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}}
+	let first = try after(both)
+	assert first.JustDone && first.Cloud == []int{1, 2} && safe(first)
+	let mut acts = both
+	for a in []Act{Begin{R: R1, PA: P1, PB: None0}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}, Advance{R: R1}} {
+		acts = acts.Append(a)
+	}
+	let end = try after(acts)
+	assert end.JustDone && end.Cloud == []int{1, 0} && !end.Rows[1].Has && end.Rows[0].Has && safe(end)
+}
+
+// A second run cannot start while the first holds the lock.
+test LockExcludes {
+	let w = try after([]Act{Begin{R: R1, PA: P1, PB: None0}, Begin{R: R2, PA: P2, PB: None0}})
+	assert w.Jobs[0].Active && !w.Jobs[1].Active && w.Lock == 1
+}
