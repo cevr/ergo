@@ -117,6 +117,7 @@ func checkCacheLaw(t *testing.T, seed uint64) {
 		f.program(n, strings.Join(mains[n], "\n")+"\n", "default\n", map[string]map[string]string{"basic": {"expected.out": n + "\n"}}, nil)
 	}
 	cache := filepath.Join(t.TempDir(), "cache")
+	timeout := caseTimeout(t)
 	var edits []string
 	replayed := 0
 	// Each kind of edit first meets a recorded pass: the compiler, the
@@ -189,10 +190,10 @@ func checkCacheLaw(t *testing.T, seed uint64) {
 		// no verdict reads it, so it must not cost a replay (volatileEnv).
 		t.Setenv("INVOCATION_ID", fmt.Sprint("step", step))
 		// The settings are part of the key, so every run takes the same
-		// ones: no case of these fixtures waits, and the year only stops a
-		// hang (caseTimeout's own fallback).
-		code, out := f.run("-timeout", "8760h", "-budget", "8760h", "-cache", cache)
-		freshCode, freshOut := f.run("-timeout", "8760h", "-budget", "8760h")
+		// ones: the test's time left, read once (caseTimeout), stops only a
+		// hang.
+		code, out := f.run("-timeout", timeout, "-budget", "1h", "-cache", cache)
+		freshCode, freshOut := f.run("-timeout", timeout, "-budget", "1h")
 		if got, want := verdictOf(code, out), verdictOf(freshCode, freshOut); got != want {
 			t.Fatalf("seed %d step %d (replay: %s=%d go test -run TestCachedVerdictEqualsRerun ./scripts/examples)\nedits: %s\ncached run:\n%s\nrerun:\n%s\ncached output:\n%s",
 				seed, step, cacheSeedVariable, seed, strings.Join(edits, "; "), got, want, out)
