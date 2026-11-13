@@ -8,8 +8,11 @@ law EncodeDecodeRoundTrips(q Query) {
 // InvalidParamBecomesDefault: a parameter Decode cannot read, generated
 // junk or a near miss, becomes that control's default, and the other
 // controls keep their values.
-law InvalidParamBecomesDefault(q Query, junk string, which int, near bool) {
-	let bad = if near { "carnivore" } else { "~" + junk }
+law InvalidParamBecomesDefault(q Query, junk string, which int, near int) {
+	// Near misses: a wrong case, a known column with a bad direction, one
+	// part too many, a column alone; or junk no control has.
+	let misses = []string{"carnivore", "Length:Upward", "Name:Ascending:x", "Weight", "~" + junk}
+	let bad = misses[((near%len(misses))+len(misses))%len(misses)]
 	let k = ((which % 3) + 3) % 3
 	let name = match k {
 	case 0:

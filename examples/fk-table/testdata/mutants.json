@@ -30,7 +30,7 @@
       "file": "examples/fk-table/query/query.ergo",
       "from": "\tif len(parts) != 2 {\n",
       "to": "\tif len(parts) < 2 {\n",
-      "rule": "A sorting of more than column and direction is unsorted (law InvalidParamBecomesDefault, junk with a colon).",
+      "rule": "A sorting of more than column and direction is unsorted (law InvalidParamBecomesDefault, the near miss Name:Ascending:x).",
       "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
     },
     {
