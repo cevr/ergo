@@ -5,6 +5,8 @@ import (
 	"debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
+	"debug/pe"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -18,8 +20,9 @@ import (
 )
 
 // TestBuildCrossCompilesEveryPlatform: `ergo build --platform OS/ARCH`
-// links the lookup example for each platform of the one target list
-// (gobind.Platforms), from one emitted module, and each executable's file
+// links the lookup example for each binding platform (gobind.Platforms)
+// and for windows/amd64 of the build platforms, from one
+// emitted module, and each executable's file
 // format, machine and build settings name that platform with cgo off. It
 // builds Go because the claim is the go command's cross link (the
 // runtime's build-tagged files, the linker's file format and the settings
@@ -32,7 +35,11 @@ func TestBuildCrossCompilesEveryPlatform(t *testing.T) {
 	binary := buildTestCLI(t)
 	program := filepath.Join(smokeWorkspace(t, "examples/lookup"), "examples", "lookup", "cmd", "lookup")
 	module := ""
-	for _, p := range gobind.Platforms {
+	// Windows links too: the one build platform past the binding platforms
+	// whose link this test reads (a PE file); js/wasm and wasip1/wasm are
+	// held by the runtime's in-process type check
+	// (internal/sketch/lower, TestRuntimeTypechecksOnEveryBuildPlatform).
+	for _, p := range append(slices.Clip(gobind.Platforms), gobind.Platform{GOOS: "windows", GOARCH: "amd64"}) {
 		output := filepath.Join(t.TempDir(), "lookup")
 		command := exec.Command(binary, "build", "-work", "--platform", p.String(), "-o", output, program)
 		var stdout, stderr bytes.Buffer
@@ -84,7 +91,10 @@ func TestPlatformOfABuild(t *testing.T) {
 		{"build", []string{"--platform", "darwin/amd64"}, "linux", "arm64", gobind.Platform{GOOS: "darwin", GOARCH: "amd64"}, ""},
 		{"build", nil, "", foreignArch, gobind.Platform{GOOS: runtime.GOOS, GOARCH: foreignArch}, ""},
 		{"test", nil, "", "", own, ""},
-		{"build", nil, "windows", "", gobind.Platform{}, "EF110: unsupported target go on windows/"},
+		{"build", nil, "windows", "amd64", gobind.Platform{GOOS: "windows", GOARCH: "amd64"}, ""},
+		{"build", []string{"--platform", "js/wasm"}, "", "", gobind.Platform{GOOS: "js", GOARCH: "wasm"}, ""},
+		{"build", nil, "wasip1", "wasm", gobind.Platform{GOOS: "wasip1", GOARCH: "wasm"}, ""},
+		{"build", nil, "windows", "arm64", gobind.Platform{}, "EF110: unsupported target go on windows/arm64"},
 		{"run", nil, "", "riscv64", gobind.Platform{}, "EF110: unsupported target go on " + runtime.GOOS + "/riscv64"},
 	} {
 		t.Setenv("GOOS", c.goos)
@@ -113,9 +123,15 @@ func TestPlatformOfABuild(t *testing.T) {
 }
 
 // executablePlatform reads the platform an executable's header names: an
-// ELF file is linux, a Mach-O file darwin, and the machine is the arch.
+// ELF file is linux, a Mach-O file darwin, a PE file windows, and the
+// machine is the arch.
 func executablePlatform(t *testing.T, path string) gobind.Platform {
 	t.Helper()
+	if f, err := pe.Open(path); err == nil {
+		defer f.Close()
+		arch := map[uint16]string{pe.IMAGE_FILE_MACHINE_AMD64: "amd64", pe.IMAGE_FILE_MACHINE_ARM64: "arm64"}[f.Machine]
+		return gobind.Platform{GOOS: "windows", GOARCH: orMachine(arch, fmt.Sprintf("%#x", f.Machine))}
+	}
 	if f, err := elf.Open(path); err == nil {
 		defer f.Close()
 		arch := map[elf.Machine]string{elf.EM_X86_64: "amd64", elf.EM_AARCH64: "arm64"}[f.Machine]

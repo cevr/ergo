@@ -159,9 +159,10 @@ func goCommand() (toolchain.Toolchain, error) {
 // platformOf is the platform a build links for: --platform OS/ARCH when
 // given (spelled), else GOOS and GOARCH of the environment, each one unset
 // or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
-// platform outside the target list (gobind.Platforms, the platforms every
-// generated Go binding holds for) is the EF110 refusal. A module binding
-// must also state the selected platform before the build can link it.
+// platform outside the build list (gobind.BuildPlatforms: the platforms
+// every generated Go binding holds for, then windows/amd64, js/wasm and
+// wasip1/wasm) is the EF110 refusal. A Go binding must also state the
+// selected platform before the build can link it.
 func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
 	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if goos != "" {
@@ -177,11 +178,11 @@ func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platfor
 		}
 		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
 	}
-	if slices.Contains(gobind.Platforms, p) {
+	if slices.Contains(gobind.BuildPlatforms, p) {
 		return p, nil
 	}
-	names := make([]string, len(gobind.Platforms))
-	for i, listed := range gobind.Platforms {
+	names := make([]string, len(gobind.BuildPlatforms))
+	for i, listed := range gobind.BuildPlatforms {
 		names[i] = listed.String()
 	}
 	diagnostic := report.UnsupportedPlatform(p.String(), names)

@@ -176,8 +176,29 @@ func (l *loader) GoBindings() *check.GoBindings {
 	if l.gobind == nil {
 		l.gobind = check.NewGoBindings(l.goBinding)
 		l.gobind.Stale = func(path string) string { return l.stale[path] }
+		l.gobind.Unbound = func(path string) string { return stdUnbound(l.platform, path) }
 	}
 	return l.gobind
+}
+
+// stdUnbound is why Go's standard-library binding of path does not hold on
+// platform: those bindings state the binding platforms (gobind.Platforms),
+// and a build platform outside them (windows, js, wasip1) has declarations
+// they never read, so the import is refused rather than linked unchecked.
+// "" for a module binding (the stale check reads its header), on a binding
+// platform, and with no platform selected.
+func stdUnbound(platform gobind.Platform, path string) string {
+	if platform == (gobind.Platform{}) {
+		return ""
+	}
+	src, ok := gostd.Binding(path)
+	if !ok {
+		return ""
+	}
+	if why := bindingPlatform(path, src, platform); why != "" {
+		return "Go's standard-library binding " + strings.TrimPrefix(why, "it ")
+	}
+	return ""
 }
 
 // goBinding is the binding of the Go package path: Go's standard library's
