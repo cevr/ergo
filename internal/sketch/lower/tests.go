@@ -91,12 +91,17 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	l := newTestLowerer(u)
 	code, err := l.program()
 	if err != nil {
 		return nil, err
 	}
 	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+}
+
+// newTestLowerer is the lowerer of u's test binary.
+func newTestLowerer(u Unit) *lowerer {
+	return newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred

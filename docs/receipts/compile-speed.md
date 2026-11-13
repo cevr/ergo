@@ -32,5 +32,22 @@ The same input goes to both binaries in 5 alternating runs. The outputs are byte
 
 The mean user time is 1.90 s for the reference and 1.79 s for the split. The runs show no loss at this load (measured). The binaries are 6,025,020 and 6,033,435 bytes.
 
-- The corpus (measured): the checker's corpus has 4,980 candidates, and 768 of them check clean and lower. `Split` left all 768 Go texts byte-equal (0 changed), so their builds and runs at head are the base's. The check was a scratch test at the CS4 head over `corpusDomain`, not committed. The conformance programs are also one Ergo package each, and the same rule covers them (inferred from `splitMain`: with one user package, no group leaves the root). They were not run separately.
+- The corpus at CS4 (measured; superseded by CS4b below): the checker's corpus has 4,980 candidates, and 768 of them check clean and lower. `Split` left all 768 Go texts byte-equal (0 changed), so their builds and runs at head are the base's. The check was a scratch test at the CS4 head over `corpusDomain`, not committed. The conformance programs are also one Ergo package each, and the same rule covers them (inferred from `splitMain`: with one user package, no group leaves the root). They were not run separately.
 - Cross-package inlining: the Ergo inliner still sees the whole program, so the split does not change which bodies Ergo inlines. Go's inliner inlines across packages through export data. A function that Go inlined inside one package and does not inline across packages would show here as a loss; none showed.
+
+### Std packages and init order (CS4b)
+
+CS4b adds one Go package per std package that the program reaches (`std/<path>`). The lowering's naming table gives each std function and type its std package; a std body has no `//line` directive. A std package holds only std declarations. A program or generated declaration that a std package uses goes to the shared package.
+
+Law InitsKeepTheirOrder: every Go `init` stays in the root, in the reference's order. A generated declaration now starts with the program declarations it names. Without the pin, a machine's graph registration would therefore move to its machine's package, and Go would run that init before the root's. `TestSplitLoweringAgrees` checks the law, and it kills `cs-split-init-order`.
+
+Measured on 2026-11-13 at the CS4b head, at a 1-minute load of 32 to 39. The method is the same as above: `calc`, a fresh `GOCACHE` per mode warmed by a one-line program, and `GOFLAGS=-p=4`.
+
+| Step | Reference: compiled | Split: compiled | Reference wall / user / sys (s) | Split wall / user / sys (s) |
+| --- | --- | --- | --- | --- |
+| First build | `main` | shared, std/prelude, std/os, std/flag, std/io, ast, eval, syntax, opt, typing, repl, main (12) | 2.76 / 1.80 / 0.45 | 3.03 / 2.02 / 0.65 |
+| Edit an integer literal in `opt` | `main` | opt, main | 2.76 / 1.77 / 0.50 | 3.28 / 1.55 / 0.64 |
+
+- The corpus (measured): all 768 clean programs of the checker's corpus were split with their std packages, then built and linked as one dispatch binary, as `TestCheckCorpusBuilds` builds the reference. All of them built. 64 of them split (66 std Go packages in all), and no declaration that is not std landed in a std package. This was a scratch test at the CS4b head, not committed.
+- The examples (measured): `go run ./scripts/examples` passed under the split. The first full run failed only in calc, chat and confparse, with "no space left on device" (the host disk filled during the run). The rerun of those three passed its 17 cases. The reference lowering did not change since CS4, so its CS4 run stands.
+- Gap: the shared package still holds the environment type `Env` and what it names. `Env` names the program's capability types, so a std package's compile depends on the shared package, and the std packages are not yet cached per pin (plan §3.3).

@@ -223,7 +223,7 @@ const emitterRevision = "lower/2"
 
 // LowerSingleEnv selects the reference lowering, one Go package for the
 // whole program, when it is "single" (compile-speed CS4): the default
-// splits the program into one Go package per Ergo package (lower.Split).
+// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
 // The choice is part of the emission key.
 const LowerSingleEnv = "ERGO_LOWER"
 
@@ -328,16 +328,19 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		input.Emitter += "+single"
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lowering(unit)
+		var files []lower.File
+		var err error
+		if split {
+			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+		} else {
+			files, err = lowering(unit)
+		}
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return nil, &BuildError{Diagnostics: a.refusals(refused)}
 		}
 		if err != nil {
 			return nil, err
-		}
-		if split {
-			files, _ = lower.Split(unit, files)
 		}
 		out := make([]build.File, len(files))
 		for i, f := range files {
