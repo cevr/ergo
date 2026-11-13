@@ -28,9 +28,9 @@ type Timer {
 	Now() int,
 }
 
-type Plain {}
+type Plain {} implements Greeter
 type Loud {}
-type Holder { v string }
+type Holder { v string } implements Store
 type Fixed {}
 type Tag { s string }
 type Box { w int }

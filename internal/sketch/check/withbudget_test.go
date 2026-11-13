@@ -101,7 +101,7 @@ func enclosingWith(c *checker, at syntax.Node) (*syntax.CallExpr, bool) {
 func TestWithBudgetPrefixes(t *testing.T) {
 	missing := `type Store { Get() string }
 type Log { Put(s string) }
-type Mem { V string }
+type Mem { V string } implements Store
 
 func Get(m Mem) string { return m.V }
 

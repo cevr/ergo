@@ -143,7 +143,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 			ops[id.Name] = true
 		}
 	}
-	if len(spec.Methods) == 0 && len(spec.Laws) > 0 {
+	if len(spec.Methods) == 0 && len(spec.Includes) == 0 && len(spec.Laws) > 0 {
 		c.errorf(tn.Decl.Name, CodeType, "%s has laws and no operations; write it as a top-level law: law %s(…) { … }", tn.Name, spec.Laws[0].Name.Name)
 	}
 	names := map[string]bool{}

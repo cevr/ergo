@@ -2,11 +2,12 @@
 // crypto/sha256, which std sha256 binds: a Go program imports
 // crypto/sha256 and encoding/hex, and this one imports their std forms.
 
+import gointerop/checksum
 import hex
 import sha256
 
 // Hasher is the SHA-256 provider of checksum.Hasher.
-type Hasher {}
+type Hasher {} implements checksum.Hasher
 
 // Sum is the SHA-256 hash of text in lower-case hex.
 func Sum(_ Hasher, text string) string { hex.Encode(sha256.Sum(text)) }

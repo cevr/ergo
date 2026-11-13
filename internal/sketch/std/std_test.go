@@ -754,7 +754,7 @@ func Get(h Host) string fails Gone { try Read(h) }
 	// mentions Live too (batch-10 r4 M1).
 	const sealedBase = `type Host { peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -870,7 +870,7 @@ type Tok { v int }
 
 type Toks { Next() Tok }
 
-type Mint { n int }
+type Mint { n int } implements Toks
 
 func Next(_ Mint) Tok { Tok{v: 1} }
 
@@ -1099,7 +1099,7 @@ func Run(b Box[func(h Host)]) { Run(b) }
 		// passes (before, every operation type was reported).
 		{"sealed operation type whose implementer has authority", `type Host { peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -1107,7 +1107,7 @@ func NewHost() Host needs Ambient { Live{root: "/"} }
 `, nil},
 		{"sealed operation type with an open implementer", `type Host { peek() int }
 
-type Live { Root string }
+type Live { Root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -1115,7 +1115,7 @@ func NewHost() Host needs Ambient { Live{Root: "/"} }
 `, []string{sealedText}},
 		{"open operation type", `type Host { Peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func Peek(_ Live) int { 1 }
 

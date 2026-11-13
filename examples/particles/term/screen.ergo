@@ -10,7 +10,7 @@ import sync
 
 // Screen is a sim.Screen that writes to out. Its count of frames is in a
 // sync.Ref, so every copy of a Screen counts the same frames.
-type Screen { out io.Stdout, count sync.Ref[int] }
+type Screen { out io.Stdout, count sync.Ref[int] } implements sim.Screen
 
 // New is a Screen that writes to out.
 func New(out io.Stdout) Screen { Screen{out: out, count: sync.NewRef[int](0)} }

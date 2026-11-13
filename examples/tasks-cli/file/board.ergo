@@ -5,7 +5,7 @@ import taskscli/tasks
 // system it reads and writes as values, given by Open's caller: a
 // provider's operation cannot need a capability that tasks.Board's
 // operations do not write (rows.md, Context 2).
-type Board { path string, files fs.Files, writes fs.Writes }
+type Board { path string, files fs.Files, writes fs.Writes } implements tasks.Board
 
 // Open is the Board in the file at path. The file is made by the first
 // create.

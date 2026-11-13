@@ -34,7 +34,7 @@ type Scheduler {
 // sleeps on the host's clock, so it is a host provider (docs/spec/
 // stdlib.md, Host packages): its field gives the prelude the construction
 // authority, and only NewLiveScheduler makes one (std-align S2b).
-type LiveScheduler { live liveOnly }
+type LiveScheduler { live liveOnly } implements Scheduler
 
 // liveOnly is the zero-size type of LiveScheduler's field.
 type liveOnly {}

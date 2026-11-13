@@ -41,7 +41,7 @@ test ClearNeedsYes {
 
 // terminal is a Stdout provider that is a terminal, so Run shows its
 // prompts; it keeps what is written in a Recorder.
-type terminal { out io.Recorder }
+type terminal { out io.Recorder } implements io.Stdout
 
 func Print(t terminal, text string) { t.out.Print(text) }
 

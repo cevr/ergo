@@ -8,8 +8,8 @@ type Greeter {
 	Greet(name string) string,
 }
 
-type Loud {}
-type Plain {}
+type Loud {} implements Greeter
+type Plain {} implements Greeter
 
 func Greet(_ Loud, name string) string {
 	Upper(name)

@@ -4,7 +4,7 @@
 import timeout
 
 type Shape = Circle | Square | Dot
-type Circle { R int }
+type Circle { R int } implements Named
 type Square { S int }
 type Dot {}
 

@@ -5,7 +5,7 @@ import sync
 // and keeps every path it is asked for, in order: a test sees what a
 // reader of a Root asks, such as the names http.Files reads. Its copies
 // share one record. NewRecorder is its one constructor.
-type Recorder { inner fs.Root, paths sync.Ref[[]string] }
+type Recorder { inner fs.Root, paths sync.Ref[[]string] } implements fs.Root
 
 // NewRecorder is a Recorder of inner that has seen no path yet.
 func NewRecorder(inner fs.Root) Recorder {

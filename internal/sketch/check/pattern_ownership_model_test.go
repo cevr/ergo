@@ -367,11 +367,11 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
 type Tag { Mark() int }
-type TagC { Mark() int, Close() }
+type TagC { ..Closer, Mark() int }
 type Src[E] { Values() Seq[E] }
 type Tagged { R Res }
 func Mark(t Tagged) int { 1 }
-type TaggedC { R Res }
+type TaggedC { R Res } implements Closer
 func Mark(t TaggedC) int { 2 }
 func Close(t TaggedC) {}
 type Num { n int }

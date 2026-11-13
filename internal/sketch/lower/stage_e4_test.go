@@ -229,16 +229,16 @@ func main() needs Console {
 		// needs witnesses is still the checker's (closeWitnessed).
 		{"close-witnessed", "release.go generic Close with witnesses", "S109", "#197", `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} }
 func main() { with W { A.Use() } }
 `},
 		{"close-extern", "release.go extern Close", "S109", "#202", `type A { Use() }
-type P {}
+type P {} implements A, Closer
 func Use(_ P) {}
 extern go example.com/x.Close func Close(p P)
 let W = context { A: P }

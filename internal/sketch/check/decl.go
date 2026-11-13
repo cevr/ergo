@@ -40,6 +40,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	// earlier pass visited (E2 round 2 M1).
 	for _, pass := range []func(){
 		c.collect,
+		c.operationIncludeBodies,
 		c.strayAsserts,
 		c.checkImportAliases,
 		c.solveDeclKinds,

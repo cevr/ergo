@@ -42,7 +42,20 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 		return
 	}
 	for _, x := range d.Implements {
-		t := c.typExpr(x, ctx)
+		var t Type
+		if id, ok := x.(*syntax.Ident); ok && id.Name == n.Obj.Name && c.pkg.Path != std.PreludePath {
+			// A type named like a prelude type hides it in its package
+			// (types.md, Scope 2), and no type implements itself: its
+			// own name in its clause is the prelude's type it hides
+			// (`type Reader { … } implements Reader` in std json).
+			if p := preludeType(id.Name); p != nil {
+				t = p
+				c.recordUse(id, p.Obj)
+			}
+		}
+		if t == nil {
+			t = c.typExpr(x, ctx)
+		}
 		if isInvalid(t) {
 			continue
 		}
@@ -262,11 +275,103 @@ func (c *checker) checkImplementsClauses() {
 			if it == nil {
 				continue
 			}
+			if op.origin() == c.closer() || isGoCloser(op) {
+				// The release contract is the release shape (resources
+				// R1): a Close of the type that takes no other argument
+				// and returns nothing. It may need capabilities, which
+				// the scope that releases it provides; a call through a
+				// Closer value is checked at the conversion.
+				if c.closeMethod(n) == nil {
+					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1)", n.Obj.Name, op, n.Obj.Name)
+				}
+				continue
+			}
 			if why := c.implements(&Pointer{Elem: self}, it, true); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}
 	}
+}
+
+// operationIncludeBodies decides each body that has only `..X` members:
+// the parser reads it as a record, and it is an operation type when X is
+// one (`type Releaser { ..Closer }`; grammar.md, Declarations 15). It runs
+// after collect, before any type resolves, and gives such a declaration
+// its operation type's body.
+func (c *checker) operationIncludeBodies() {
+	seen := map[*TypeName]bool{}
+	for _, tn := range c.pkg.Types {
+		c.cur = tn.file
+		c.operationBody(tn, seen)
+	}
+}
+
+// operationBody reports whether tn's declaration is an operation type,
+// deciding an includes-only body as operationIncludeBodies says.
+func (c *checker) operationBody(tn *TypeName, seen map[*TypeName]bool) bool {
+	if tn.Decl == nil {
+		it := asInterface(tn.Type)
+		return it != nil && it.Set == SetAll
+	}
+	switch spec := tn.Decl.Spec.(type) {
+	case *syntax.InterfaceType:
+		return spec.Lbrace.IsValid()
+	case *syntax.StructType:
+		fields := spec.Fields.List
+		if len(fields) == 0 || seen[tn] {
+			return false
+		}
+		for _, f := range fields {
+			if !f.Include {
+				return false
+			}
+		}
+		seen[tn] = true
+		target := c.includedName(fields[0].Type)
+		if target == nil {
+			return false
+		}
+		if target.Pkg == c.pkg {
+			saved := c.cur
+			c.cur = target.file
+			op := c.operationBody(target, seen)
+			c.cur = saved
+			if !op {
+				return false
+			}
+		} else if it := asInterface(c.resolvedType(target.Type)); it == nil || it.Set != SetAll {
+			return false
+		}
+		tn.Decl.Spec = &syntax.InterfaceType{Lbrace: spec.Fields.Opening, Includes: fields, Rbrace: spec.Fields.Closing}
+		return true
+	}
+	return false
+}
+
+// includedName is the type name a member `..X` or `..X[A]` names, read
+// without resolving it; nil when it names none.
+func (c *checker) includedName(x syntax.Expr) *TypeName {
+	if ix, ok := x.(*syntax.IndexExpr); ok {
+		x = ix.X
+	}
+	switch x := x.(type) {
+	case *syntax.Ident:
+		tn, _ := c.lookupType(x.Name, nil).(*TypeName)
+		return tn
+	case *syntax.SelectorExpr:
+		id, ok := x.X.(*syntax.Ident)
+		if !ok {
+			return nil
+		}
+		pn, ok := c.lookupType(id.Name, nil).(*PkgName)
+		if !ok || pn.broken {
+			return nil
+		}
+		m, _ := pn.Pkg.member(x.Sel.Name)
+		tn, _ := m.(*TypeName)
+		return tn
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- the old rule, for ergo fix
@@ -317,6 +422,11 @@ func (c *checker) recordLegacy(v Type, op Type, site string) {
 	n, ok := v.(*Named)
 	opn, ok2 := op.(*Named)
 	if !ok || !ok2 || c.declares(v, op) || sealedStd(op) != nil || ScriptOf(v) != nil {
+		return
+	}
+	if slices.ContainsFunc(c.declaredOps(v), func(d *Named) bool { return d.origin() == opn.origin() }) {
+		// A clause names an instance of op's origin: op is that instance
+		// while a call's type arguments are still being inferred.
 		return
 	}
 	o := n.origin()

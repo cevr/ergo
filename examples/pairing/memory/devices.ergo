@@ -6,7 +6,7 @@ import pairing/pair
 // Devices is a device directory in memory. It keeps no state: the code
 // sent to a serial is its last four digits reversed, a serial that starts
 // with 000 cannot take a code, and two tags name devices.
-type Devices {}
+type Devices {} implements pair.Devices
 
 // CodeFor is the code Devices sends to serial.
 func CodeFor(serial string) string {

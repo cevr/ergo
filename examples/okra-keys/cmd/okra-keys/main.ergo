@@ -44,7 +44,7 @@ func run(args []string) fails os.Exit needs keys.Store | os.Process | io.Stdin |
 
 // proc is an os.Process with an environment of its own and the working
 // directory /work.
-type proc { env Map[string, string] }
+type proc { env Map[string, string] } implements os.Process
 
 func Args(_ proc) []string { []string{} }
 

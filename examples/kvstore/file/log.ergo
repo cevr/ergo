@@ -10,7 +10,7 @@ import maps
 // provider's operation cannot need a capability that kv.Store's
 // operations do not write (rows.md, Context 2), so Log reads the disk
 // through the values it holds, as a Go type holds an fs.FS.
-type Log { path string, files fs.Files, writes fs.Writes }
+type Log { path string, files fs.Files, writes fs.Writes } implements kv.Store
 
 // Name is the name of the log file in its directory.
 let Name = "kv.log"

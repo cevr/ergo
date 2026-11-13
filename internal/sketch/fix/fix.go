@@ -43,6 +43,10 @@ type Options struct {
 	StdRoot string
 	// Write writes the edited files; else Run only reports (a dry run).
 	Write bool
+	// Go also reads the Ergo programs that Go files under Paths hold in
+	// string literals (the compiler's tests and generators), each as a
+	// program of its own, and edits the literals in place.
+	Go bool
 }
 
 // Written is one clause or include the fix writes.
@@ -95,8 +99,10 @@ func Run(opts Options) (Report, error) {
 		if p.Op != nil {
 			op = p.Op.String()
 		}
+		// A package main is the program's own: the one file read alone,
+		// or the package folder being checked.
 		w, a := where, alone
-		if p.Pkg != "main" || !alone {
+		if p.Pkg != "main" {
 			w, a = "", false
 		}
 		k := pairKey{p.Pkg, p.Type.Name, op, p.Include, w}
@@ -132,8 +138,41 @@ func Run(opts Options) (Report, error) {
 			}
 		}
 	}
+	lits := map[string]goLit{}
+	litTexts := map[string]string{}
+	checkLit := func(name, text string) {
+		defer func() {
+			// A literal the checker cannot read (a crash row of a
+			// test) is not a program the fix edits.
+			_ = recover()
+			where, alone = "", false
+		}()
+		where, alone = name, true
+		sketchfront.Check(text)
+	}
 	for _, root := range roots {
+		if opts.Go {
+			if err := walkGo(root, func(file string) error {
+				ls, texts, err := goLits(file)
+				if err != nil {
+					return err
+				}
+				for i, l := range ls {
+					lits[l.name()] = l
+					litTexts[l.name()] = texts[i]
+					checkLit(l.name(), texts[i])
+				}
+				return nil
+			}); err != nil {
+				return rep, err
+			}
+		}
 		if err := walk(root, func(file string) {
+			if stdRoot != "" && stdFile(stdRoot, file) {
+				// A std package's file is checked with its package
+				// (check.Std above), never as a program of its own.
+				return
+			}
 			src, err := os.ReadFile(file)
 			if err != nil {
 				return
@@ -147,7 +186,9 @@ func Run(opts Options) (Report, error) {
 				return
 			}
 			for _, t := range targets {
+				where, alone = t.Dir, false
 				a, err := sketchfront.CheckDir(t.Dir)
+				where = ""
 				if err != nil {
 					continue
 				}
@@ -165,19 +206,32 @@ func Run(opts Options) (Report, error) {
 			return false
 		}
 		for _, r := range roots {
-			if file == r || strings.HasPrefix(file, r+string(filepath.Separator)) {
+			if file == r || strings.HasPrefix(file, r+string(filepath.Separator)) || strings.HasPrefix(file, r+"#") {
 				return true
 			}
 		}
 		return false
 	}
 	ed := &editor{texts: map[string]string{}, parsed: map[string]*syntax.File{}}
+	for name, text := range litTexts {
+		f, _ := syntax.Parse(text)
+		ed.texts[name], ed.parsed[name] = text, f
+	}
+	done := map[string]bool{}
 	for _, k := range order {
 		r := pairs[k]
 		p := r.pair
 		desc := p.String()
+		if r.where != "" {
+			desc += " in " + r.where
+		}
 		if p.Op == nil {
 			rep.Unwritten = append(rep.Unwritten, Unwritten{desc, "no instance of the operation type at the type's own parameters (generic), or an include whose operations differ: write it by hand"})
+			continue
+		}
+		if n, ok := p.Op.(*check.Named); ok && emptyOps(n) {
+			// An operation type with no operations (laws alone, S108)
+			// is met by every type: no clause names it.
 			continue
 		}
 		if p.Type.Pkg != nil && p.Type.Pkg.Host() {
@@ -188,6 +242,8 @@ func Run(opts Options) (Report, error) {
 		switch {
 		case r.alone:
 			files = []string{r.where}
+		case r.where != "":
+			files = ergoFiles(r.where)
 		case p.Pkg == std.PreludePath && stdRoot != "":
 			files = []string{filepath.Join(stdRoot, "prelude.ergo")}
 		case pkgDirs[p.Pkg] != "":
@@ -207,11 +263,24 @@ func Run(opts Options) (Report, error) {
 		if r.alone {
 			pkgFiles = []string{file}
 		}
-		text, imp, why := ed.spell(file, pkgFiles, p.Pkg, p.Op)
+		// A clause names the prelude type its own type's name hides
+		// (implementsClause); an include has no such reading.
+		self := p.Type.Name
+		if p.Include {
+			self = ""
+		}
+		text, imp, why := ed.spell(file, pkgFiles, p.Pkg, self, p.Op)
 		if why != "" {
 			rep.Unwritten = append(rep.Unwritten, Unwritten{desc, why})
 			continue
 		}
+		once := fmt.Sprintf("%s\x00%s\x00%t\x00%s", file, p.Type.Name, p.Include, text)
+		if done[once] {
+			// Two pairs that spell alike (an instance and its origin's
+			// spelling) write once.
+			continue
+		}
+		done[once] = true
 		if p.Include {
 			if err := ed.include(file, decl, text, p.Op); err != nil {
 				rep.Unwritten = append(rep.Unwritten, Unwritten{desc, err.Error()})
@@ -226,13 +295,27 @@ func Run(opts Options) (Report, error) {
 			ed.addImport(file, imp)
 		}
 	}
+	litOut := map[string]string{}
 	for file := range ed.edits {
 		out, err := ed.apply(file)
 		if err != nil {
 			return rep, fmt.Errorf("%s: %w", file, err)
 		}
+		if _, ok := lits[file]; ok {
+			litOut[file] = out
+			continue
+		}
 		rep.Files[file] = out
-		if opts.Write {
+	}
+	goFiles, err := spliceGo(lits, litOut)
+	if err != nil {
+		return rep, err
+	}
+	for file, out := range goFiles {
+		rep.Files[file] = out
+	}
+	if opts.Write {
+		for file, out := range rep.Files {
 			if err := os.WriteFile(file, []byte(out), 0o644); err != nil {
 				return rep, err
 			}
@@ -286,6 +369,23 @@ func walk(root string, file func(string), module func(string)) error {
 		}
 		return nil
 	})
+}
+
+// emptyOps reports an operation type with no operations.
+func emptyOps(n *check.Named) bool {
+	it, ok := n.Underlying().(*check.Interface)
+	return ok && len(it.Methods) == 0
+}
+
+// stdFile reports a file of a std package's folder under stdRoot, the
+// prelude's included.
+func stdFile(stdRoot, file string) bool {
+	rel, err := filepath.Rel(stdRoot, filepath.Dir(file))
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel == "." || slices.Contains(std.Packages(), rel)
 }
 
 func evalDir(dir string) string {

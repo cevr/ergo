@@ -14,7 +14,7 @@ type Net {
 	Send(msg string) fails Down,
 }
 
-type MemStore {}
+type MemStore {} implements Store
 
 func Get(_ MemStore, id string) string fails NotFound {
 	if id == "1" {
@@ -23,7 +23,7 @@ func Get(_ MemStore, id string) string fails NotFound {
 	return NotFound{ID: id}
 }
 
-type OkNet {}
+type OkNet {} implements Net
 
 func Send(_ OkNet, msg string) fails Down {
 	return

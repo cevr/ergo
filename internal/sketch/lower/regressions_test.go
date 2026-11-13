@@ -52,7 +52,7 @@ func main() needs Console {
 		name: "nilenv",
 		src: `type Store { Get() int }
 
-type Mem { k int }
+type Mem { k int } implements Store
 
 func Get(m Mem) int {
 	return m.k
@@ -239,7 +239,7 @@ type Store { Bump() }
 
 type Reader { Read() int }
 
-type Both { q queue.Queue[int] }
+type Both { q queue.Queue[int] } implements Store, Reader
 
 func Bump(b Both) {
 	b.q.Push(1) catch {

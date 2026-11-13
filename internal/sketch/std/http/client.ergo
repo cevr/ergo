@@ -88,7 +88,7 @@ func DoFile(root fs.HostRoot, path string, r Request) Response fails RequestFail
 
 // Client is the host's Net for one origin. Its fields are this
 // package's, so only NewClient makes one.
-type Client { origin string, limits Limits }
+type Client { origin string, limits Limits } implements Net
 
 // NewClient is a Net to origin (scheme://authority) whose responses have
 // at most limits.MaxHeaderBytes of header and limits.MaxBodyBytes of body.

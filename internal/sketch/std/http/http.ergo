@@ -24,7 +24,11 @@ type Limits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHe
 // Listener is transport-only, shared by server protocols. Close releases a
 // bound listener that the program does not hand to Serve.
 // law-exempt: only Listen creates a bound transport; socket lifetime is checked by the loopback server property.
-type Listener { Addr() string, Close(), bound() }
+type Listener {
+	..Closer,
+	Addr() string,
+	bound(),
+}
 
 extern go ergo.local/prototype/runtime/v1.HTTPListen func Listen(addr string) Listener fails ListenFailed needs Ambient
 
@@ -136,7 +140,7 @@ type Exchange {
 }
 
 // live is Serve's Streaming provider for one request.
-type live { x Exchange }
+type live { x Exchange } implements Streaming
 
 func open(l live, status int, header []Field) BodyWriter {
 	l.x.Begin(status, header)
@@ -151,7 +155,7 @@ func close(l live) string {
 // Recorder is a Streaming provider for a test: Stream under it returns
 // the parts written as a buffered Response, so a streaming handler is
 // tested as a function, as a buffered one is.
-type Recorder { text sync.Ref[string], state sync.Ref[int] }
+type Recorder { text sync.Ref[string], state sync.Ref[int] } implements Streaming
 
 // NewRecorder is a Recorder that has not started.
 func NewRecorder() Recorder { Recorder{text: sync.NewRef[string](""), state: sync.NewRef[int](0)} }

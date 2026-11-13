@@ -26,8 +26,12 @@ type editor struct {
 	parsed  map[string]*syntax.File
 	edits   map[string][]edit
 	clauses map[*syntax.TypeDecl]int
-	imports map[string][]string
-	seq     int
+	// included and claused are the texts already written per
+	// declaration: two pairs that spell alike write once.
+	included map[*syntax.TypeDecl]map[string]bool
+	claused  map[*syntax.TypeDecl]map[string]bool
+	imports  map[string][]string
+	seq      int
 }
 
 func (e *editor) read(file string) (string, *syntax.File) {
@@ -78,7 +82,21 @@ func (e *editor) add(file string, ed edit) {
 func (e *editor) clause(file string, d *syntax.TypeDecl, text string) {
 	if e.clauses == nil {
 		e.clauses = map[*syntax.TypeDecl]int{}
+		e.claused = map[*syntax.TypeDecl]map[string]bool{}
 	}
+	if e.claused[d] == nil {
+		e.claused[d] = map[string]bool{}
+	}
+	if e.claused[d][text] {
+		return
+	}
+	src := e.texts[file]
+	for _, x := range d.Implements {
+		if src[int(x.Pos()):int(x.End())] == text {
+			return
+		}
+	}
+	e.claused[d][text] = true
 	at := int(d.End())
 	sep := " implements "
 	if len(d.Implements) > 0 || e.clauses[d] > 0 {
@@ -100,6 +118,16 @@ func (e *editor) include(file string, d *syntax.TypeDecl, text string, op check.
 	if !ok {
 		return fmt.Errorf("the included type is not a named operation type")
 	}
+	if e.included == nil {
+		e.included = map[*syntax.TypeDecl]map[string]bool{}
+	}
+	if e.included[d] == nil {
+		e.included[d] = map[string]bool{}
+	}
+	if e.included[d][text] {
+		return nil
+	}
+	e.included[d][text] = true
 	it, ok := n.Underlying().(*check.Interface)
 	if !ok {
 		return fmt.Errorf("%s is not an operation type", op)
@@ -109,6 +137,27 @@ func (e *editor) include(file string, d *syntax.TypeDecl, text string, op check.
 		names[m.Name] = true
 	}
 	src, _ := e.read(file)
+	if !strings.Contains(src[spec.Lbrace:spec.Rbrace], "\n") {
+		// A body on one line stays on one line: `{ ..I, Other() }`.
+		parts := []string{".." + text}
+		for _, inc := range spec.Includes {
+			parts = append(parts, src[int(inc.Pos()):int(inc.End())])
+		}
+		for _, m := range spec.Methods {
+			if len(m.Names) > 0 && names[m.Names[0].Name] {
+				continue
+			}
+			parts = append(parts, src[int(m.Pos()):int(m.End())])
+		}
+		for _, l := range spec.Laws {
+			parts = append(parts, src[int(l.Pos()):int(l.End())])
+		}
+		if len(e.included[d]) > 1 {
+			return fmt.Errorf("%s is on one line and includes two operation types: write it by hand", d.Name.Name)
+		}
+		e.add(file, edit{from: int(spec.Lbrace) + 1, to: int(spec.Rbrace), text: " " + strings.Join(parts, ", ") + " "})
+		return nil
+	}
 	for _, m := range spec.Methods {
 		if len(m.Names) == 0 || !names[m.Names[0].Name] {
 			continue
@@ -142,7 +191,7 @@ func (e *editor) include(file string, d *syntax.TypeDecl, text string, op check.
 // pkg names it, the import the file needs for it ("" for none), or why it
 // cannot be named there. pkgFiles are the package's files: an import that
 // another file of the package has is added to this one.
-func (e *editor) spell(file string, pkgFiles []string, pkg string, op check.Type) (text, imp, why string) {
+func (e *editor) spell(file string, pkgFiles []string, pkg, typeName string, op check.Type) (text, imp, why string) {
 	_, f := e.read(file)
 	if f == nil {
 		return "", "", "its file does not parse"
@@ -163,7 +212,7 @@ func (e *editor) spell(file string, pkgFiles []string, pkg string, op check.Type
 			switch p := o.Obj.Pkg; {
 			case p.Path == pkg && !p.Host():
 			case p.Path == std.PreludePath:
-				if e.declares(pkgFiles, name) {
+				if e.declares(pkgFiles, name) && name != typeName {
 					return "", fmt.Sprintf("the package declares its own %s, which hides the prelude's", name)
 				}
 			default:
@@ -338,13 +387,13 @@ func (e *editor) apply(file string) (string, error) {
 		// A file kept in a layout of its own (a formatter fixture) keeps
 		// it: only the edit's text is new.
 		if _, err := syntax.Parse(src); err != nil {
-			return "", fmt.Errorf("the fixed text does not parse: %w", err)
+			return "", fmt.Errorf("the fixed text does not parse: %w\n%s", err, src)
 		}
 		return src, nil
 	}
 	out, err := format.Source(src)
 	if err != nil {
-		return "", fmt.Errorf("the fixed text does not parse: %w", err)
+		return "", fmt.Errorf("the fixed text does not parse: %w\n%s", err, src)
 	}
 	return out, nil
 }

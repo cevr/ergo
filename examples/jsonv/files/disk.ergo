@@ -12,7 +12,7 @@ import sync
 // Disk shares, so a second read of "-" gives the same text (the law
 // app.Documents.ReadIsRepeatable). Its fields are unexported, so only New
 // builds one.
-type Disk { files fs.Files, stdin io.Stdin, kept sync.Ref[Option[string]] }
+type Disk { files fs.Files, stdin io.Stdin, kept sync.Ref[Option[string]] } implements app.Documents
 
 // New is a Disk over files and stdin.
 func New(files fs.Files, stdin io.Stdin) Disk {

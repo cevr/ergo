@@ -360,7 +360,7 @@ func (g *dgGen) value(t *dgType, inMap bool, depth int) (string, []int) {
 	panic("dgType")
 }
 
-const dgPrelude = `type Res { id int, bad bool }
+const dgPrelude = `type Res { id int, bad bool } implements Closer
 
 func Close(r Res) needs Console {
 	Console.Println("close \(r.id)")

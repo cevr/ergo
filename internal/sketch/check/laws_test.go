@@ -109,7 +109,7 @@ type Codec {
 	law Stable(v int) { Encode(v) == Encode(v) },
 }
 
-type Plain {}
+type Plain {} implements Codec
 
 func Encode(_ Plain, v int) string {
 	"\(v)"
@@ -407,7 +407,7 @@ const lawSiteDecls = `type Fault {}
 
 type A { Use() int }
 
-type Conn { V int }
+type Conn { V int } implements A, Closer
 
 func Use(c Conn) int { c.V }
 
@@ -417,9 +417,9 @@ func get() Conn { Conn{V: 1} }
 
 let Owned = context { A: get() }
 
-type R { Close() }
+type R { ..Closer }
 
-type First {}
+type First {} implements R, Closer
 
 func Close(_ First) {}
 
@@ -507,14 +507,14 @@ func TestLawSites(t *testing.T) {
 // a Close a law uses has its identity (close.go), a CallLawOp carries none
 // and is opaque.
 func TestLawFacts(t *testing.T) {
-	src := lawSiteDecls + `type Res {}
+	src := lawSiteDecls + `type Res {} implements Closer
 
 func Close(_ Res) {}
 
 type LawFault {}
 
 type Laws {
-	Close(),
+	..Closer,
 	Start() Task[int, Fault],
 
 	law Rows() {

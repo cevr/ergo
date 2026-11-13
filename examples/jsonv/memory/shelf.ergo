@@ -7,7 +7,7 @@ type Doc { Name string, Text string }
 
 // Shelf is an app.Documents of documents held in memory. "-" is a
 // document like any other.
-type Shelf { Docs []Doc }
+type Shelf { Docs []Doc } implements app.Documents
 
 // Read is the text of the last document named name.
 func Read(s Shelf, name string) string fails app.NoDocument {

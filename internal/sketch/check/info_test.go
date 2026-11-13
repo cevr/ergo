@@ -690,7 +690,7 @@ func notFinal(t Type, own map[*TypeParam]bool) string {
 // operation type with its table, loop domains and the defs of parameters.
 func TestInfoContract(t *testing.T) {
 	const src = `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 
 func Get(m Mem) string { return m.V }
 

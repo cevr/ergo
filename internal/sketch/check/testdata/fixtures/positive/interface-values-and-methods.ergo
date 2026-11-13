@@ -1,5 +1,5 @@
 type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 
 func Get(m Mem) string { return m.V }
 

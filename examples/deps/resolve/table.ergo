@@ -8,7 +8,7 @@ import slices
 // of one version, the first counts. Package memory's Registry is the
 // program's provider; Table lets this package state laws with no import
 // of memory, which imports resolve.
-type Table { Releases []Release }
+type Table { Releases []Release } implements Index
 
 // Versions is every version of name, newest first, each once.
 func Versions(t Table, name string) []semver.Version fails UnknownPackage {

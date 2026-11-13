@@ -21,7 +21,7 @@ func Since(t Time) duration needs Clock { Clock.Now().Sub(t) }
 
 // Host is the host's Clock provider. Its field gives this package the
 // construction authority, so only NewHost makes one.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Clock
 
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}
@@ -44,7 +44,7 @@ extern go ergo.local/prototype/runtime/v1.TimeHostNow func hostNow() Reading
 // Sleep returns when Advance reaches its deadline. Every copy of a Manual
 // shares one timeline. Bind one value for both capabilities:
 // `let m = time.NewManual(t0)` then `context { time.Clock: m, Scheduler: m }`.
-type Manual { line Timeline }
+type Manual { line Timeline } implements Clock, Scheduler
 
 // Timeline is the state a Manual shares between its copies. Only NewManual
 // makes one.

@@ -441,7 +441,7 @@ let W32 = context {
 
 type C83 { M() }
 
-type P {}
+type P {} implements C45, C60, C64, C58, C10, C72, C61, C50, C0, C21, C30, C46, C38, C33, C16, C76, C36, C67, C27, C75, C51, C14, C34, C11, C69, C20, C65, C18, C77, C37, C48, C63, C62, C82, C79, C86, C5, C59, C83, C52, C85, C35, C44, C57, C78, C23, C32, C71, C43, C17, C42, C9, C87, C7, C6, C80, C70, C26, C74, C8, C25, C13, C15, C40, C84, C55, C81, C31, C24, C2, C4, C19, C54, C56, C49, C66, C39, C29, C12, C68, C47, C41, C53, C73, C1, C3, C28, C22
 
 let A23 = context {
 	C23: P,

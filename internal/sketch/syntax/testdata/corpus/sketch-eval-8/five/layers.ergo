@@ -3,7 +3,7 @@ type Store { Label() string }
 type Account { Label() string }
 type Invoice { Label() string }
 
-type Memory { Text string }
+type Memory { Text string } implements Store
 
 func Label(m Memory) string { return m.Text }
 

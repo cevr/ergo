@@ -29,7 +29,7 @@ type Stream {
 // binds it, `context { Random: rand.Seeded(7) }`. Every copy of a PCG
 // shares one stream: `let b = a` draws on from where a is, and never
 // replays it. Two PCGs of one seed replay one stream (SeedReplays).
-type PCG { src Stream }
+type PCG { src Stream } implements Random
 
 // Seeded is the PCG provider of seed.
 func Seeded(seed uint64) PCG { PCG{src: newStream(seed)} }
@@ -50,7 +50,7 @@ extern go ergo.local/prototype/runtime/v1.NewStream func newStream(seed uint64) 
 // seeded by the runtime (ChaCha8 per thread), with no stream to replay.
 // Its field gives this package the construction authority, so only
 // NewHost makes one.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Random
 
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}

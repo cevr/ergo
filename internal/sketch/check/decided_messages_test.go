@@ -37,13 +37,13 @@ func b() {
 	// functions (196m) do not compare: the lowered == has no meaning
 	// (round-1 review m7; D-E2 keeps the general rule for stage E).
 	{"an operation value is not compared with a record", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 func cmp(s Store, m Mem) bool {
 	return s == m
 }`, 5, "cannot compare Store with Mem: a Mem satisfies Store through its functions", ""},
 	{"the comparison is refused either way round", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 func cmp(s Store, m Mem) bool {
 	return m != s
@@ -51,7 +51,7 @@ func cmp(s Store, m Mem) bool {
 	// One context binds a capability once: a second own entry, replace or
 	// not, is S111 naming the first (round-3 review M2).
 	{"two replaces of one capability", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 let Base = context { Store: Mem{V: "live"} }
 let W = context {
@@ -60,7 +60,7 @@ let W = context {
 	Base,
 }`, 7, "Store has a second entry in this context, entry 2; the first is entry 1, and a context binds a capability once", CodeDuplicateCap},
 	{"a plain entry and a replace of one capability", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 let Base = context { Store: Mem{V: "live"} }
 let W = context {
@@ -69,7 +69,7 @@ let W = context {
 	Base,
 }`, 7, "Store has a second entry in this context, entry 2; the first is entry 1", CodeDuplicateCap},
 	{"two plain entries of one capability", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 let W = context {
 	Store: Mem{V: "one"},
@@ -78,7 +78,7 @@ let W = context {
 	// Round-4 review m1: a capability written twice in one entry names
 	// its two keys, not "entry 1; the first is entry 1".
 	{"one capability listed twice in one entry", `type Store { Get() string }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { return m.V }
 let W = context { Store, Store: Mem{V: "x"} }`, 4, "Store is listed twice in entry 1, as its keys 1 and 2, and a context binds a capability once", CodeDuplicateCap},
 	// A removed built-in's type argument is no second mistake (m8).

@@ -22,7 +22,7 @@ var ownerBases = []ownerBase{
 		"type Cell[T] { V T }\n\nfunc first[T](xs []T, fallback T) T {\n\tfor x in xs {\n\t\treturn x\n\t}\n\tfallback\n}\n",
 		"func main() needs Console {\n\tConsole.Println(first([]string{\"g\"}, Cell{V: \"z\"}.V))\n}\n", "g"},
 	{"context",
-		"type Watch {\n\tNow() string,\n}\n\ntype Sys {}\n\nfunc Now(_ Sys) string {\n\t\"now\"\n}\n\nlet Run = context {\n\tWatch: Sys,\n}\n",
+		"type Watch {\n\tNow() string,\n}\n\ntype Sys {} implements Watch\n\nfunc Now(_ Sys) string {\n\t\"now\"\n}\n\nlet Run = context {\n\tWatch: Sys,\n}\n",
 		"func main() needs Console {\n\tConsole.Println(with Run { Watch.Now() })\n}\n", "now"},
 	{"failure",
 		"type Oops { Code int }\n\nfunc risky(n int) int fails Oops {\n\tif n < 0 {\n\t\treturn Oops{Code: n}\n\t}\n\tn\n}\n",

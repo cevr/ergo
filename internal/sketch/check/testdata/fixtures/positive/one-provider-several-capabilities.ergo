@@ -1,6 +1,6 @@
 type Clocky { Now() int64 }
 type Sleepy { Nap(d duration) }
-type Virtual {}
+type Virtual {} implements Clocky, Sleepy
 
 func Now(_ Virtual) int64       { return 0 }
 func Nap(_ Virtual, d duration) {}

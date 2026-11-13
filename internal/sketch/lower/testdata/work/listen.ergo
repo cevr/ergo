@@ -7,7 +7,7 @@ type Signal = Found{N int} | Unavailable{} | Tick{N int}
 
 type Catalog { Count(query string) int fails Unavailable }
 
-type Fixed {}
+type Fixed {} implements Catalog
 
 func Count(f Fixed, query string) int fails Unavailable {
 	if query == "none" {

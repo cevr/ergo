@@ -109,6 +109,15 @@ func stdOpTypes(t *testing.T) []stdOpType {
 				if td.TypeParams != nil {
 					o.tparams = qualify(f.Src[td.TypeParams.Opening : td.TypeParams.Closing+1])
 				}
+				for _, inc := range it.Includes {
+					// An included operation type is a member as written:
+					// `..Closer` is the release (resources R1).
+					text := ".." + qualify(f.Src[inc.Type.Pos():inc.Type.End()])
+					o.members = append(o.members, text)
+					if text == "..Closer" {
+						o.resource = true
+					}
+				}
 				for _, m := range it.Methods {
 					if len(m.Names) != 1 || !exportedName(m.Names[0].Name) {
 						continue
@@ -210,7 +219,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 		// with a release (R22, releasable): each member goes with Close.
 		var release []string
 		for _, m := range s.members {
-			if strings.HasPrefix(m, "Close(") {
+			if strings.HasPrefix(m, "Close(") || m == "..Closer" {
 				release = []string{m}
 			}
 		}
@@ -218,7 +227,11 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			if len(s.members) == 1 || len(release) > 0 && m == release[0] {
 				continue
 			}
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + m[:strings.IndexAny(m, "([")], src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: true})
+			name := m
+			if i := strings.IndexAny(m, "(["); i >= 0 {
+				name = m[:i]
+			}
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + name, src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: true})
 		}
 		for _, o := range all {
 			if o.path == s.path && o.name == s.name {

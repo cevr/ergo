@@ -36,7 +36,7 @@ import trace
 import log
 import testing
 
-type releaseCount { Seen queue.Queue[int] }
+type releaseCount { Seen queue.Queue[int] } implements Closer
 
 func Close(r releaseCount) {
 	r.Seen.Push(1) catch {

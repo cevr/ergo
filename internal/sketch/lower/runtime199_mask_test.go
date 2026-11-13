@@ -225,7 +225,7 @@ import scope
 import task
 
 type Fault {}
-type Conn { Fail bool }
+type Conn { Fail bool } implements Closer
 // Mark is Conn without a Close: it crosses (resources R1), so the twin
 // owns nothing and enters no release.
 type Mark { Fail bool }
@@ -312,9 +312,9 @@ var maskPrograms = []maskProgram{
 	{
 		name: "operations",
 		extra: `
-type Plain { Fail bool, Live LiveScheduler }
+type Plain { Fail bool, Live LiveScheduler } implements Releaser, Closer
 type Other { Fail bool }
-type Releaser { Close() }
+type Releaser { ..Closer }
 
 func Close(p Plain) {
 	p.Live.Sleep(2h)
@@ -383,7 +383,7 @@ func viaValue(fail bool, signal queue.Queue[int]) {
 		// A generic receiver: the Close is instantiated at the call.
 		name: "generic",
 		extra: `
-type Box[T] { Fail bool, V T }
+type Box[T] { Fail bool, V T } implements Closer
 
 func Close[T](b Box[T]) needs Scheduler {
 	Scheduler.Sleep(3h)
@@ -408,7 +408,7 @@ func viaGeneric(fail bool, signal queue.Queue[int]) {
 		// A pointer receiver, called through a pointer value.
 		name: "pointer",
 		extra: `
-type Held { Fail bool }
+type Held { Fail bool } implements Closer
 
 func Close(h *Held) needs Scheduler {
 	Scheduler.Sleep(4h)
@@ -782,7 +782,7 @@ func TestExitActionTask(t *testing.T) {
 // user extern is refused at its use; only prelude externs lower), so the
 // test gives a checked Close an extern target directly and expects the ICE.
 func TestRuntime199ExternClose(t *testing.T) {
-	const src = `type Conn { Fail bool }
+	const src = `type Conn { Fail bool } implements Closer
 
 func Close(c Conn) {
 	if c.Fail {

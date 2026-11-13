@@ -41,7 +41,7 @@ func Quote(id string) string needs Orders | Payments {
 	receipt.ID
 }
 
-type MemoryOrders {}
+type MemoryOrders {} implements Orders
 
 func Get(_ MemoryOrders, id string) Order fails NotFound {
 	if id != "42" {
@@ -50,7 +50,7 @@ func Get(_ MemoryOrders, id string) Order fails NotFound {
 	Order{ID: id, Total: 1999}
 }
 
-type FakePayments {}
+type FakePayments {} implements Payments
 
 func Authorize(_ FakePayments, order Order) Receipt fails Declined {
 	Receipt{ID: "auth-\(order.ID)"}
