@@ -4,6 +4,9 @@
 // that moves the caret to its matches as it is typed, and replaces every
 // match at once. Save is the machine's output: the driver writes the text
 // to the Store and tells the machine with Saved, so the step stays pure.
+// Copy and Cut are outputs the same way: the driver puts the selection
+// on the clipboard, and a paste is the driver typing the clipboard's
+// text. Goto puts the caret where a pointer pressed.
 
 import editor/piece
 import strings
@@ -36,9 +39,14 @@ type Signal =
 	| Escape{}
 	| Save{}
 	| Saved{}
+	| Goto{At int}
+	| Copy{}
+	| Cut{}
 
-// Output is what the editor asks of its driver: the text to write.
-type Output = Write{Text string}
+// Output is what the editor asks of its driver: the text to write, or
+// the text to put on the clipboard. A paste is the driver's: it types
+// the clipboard's text.
+type Output = Write{Text string} | Copied{Text string}
 
 // Open is the editor on the text, editing, with the caret at the start.
 func Open(text string) State { Editing{D: Load(text)} }
@@ -87,7 +95,7 @@ func editing(d Doc, sig Signal) Decision[State, Output] {
 			return Reject
 		}
 		Stay[State]{Next: Editing{D: Erase(d, d.Caret, d.Caret+n)}}
-	case Left, Right, Up, Down, Home, End, Top, Bottom:
+	case Left, Right, Up, Down, Home, End, Top, Bottom, Goto:
 		Stay[State]{Next: Editing{D: Doc{..d, Caret: Move(d, sig)}}}
 	case Select:
 		Enter[State]{Next: Selecting{D: d, Anchor: d.Caret}}
@@ -107,7 +115,7 @@ func editing(d Doc, sig Signal) Decision[State, Output] {
 		Emit[State, Output]{Next: Editing{D: d}, Output: Write{Text: Text(d)}}
 	case Saved:
 		Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}
-	case Next, Replace, Escape:
+	case Next, Replace, Escape, Copy, Cut:
 		Reject
 	}
 }
@@ -129,7 +137,11 @@ func selecting(l Selecting, sig Signal) Decision[State, Output] {
 		Enter[State]{Next: Editing{D: Make(d, edits, lo+len(t.Text))}}
 	case Back, Del:
 		Enter[State]{Next: Editing{D: Erase(d, lo, hi)}}
-	case Left, Right, Up, Down, Home, End, Top, Bottom:
+	case Copy:
+		Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
+	case Cut:
+		Emit[State, Output]{Next: Editing{D: Erase(d, lo, hi)}, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
+	case Left, Right, Up, Down, Home, End, Top, Bottom, Goto:
 		Stay[State]{Next: Selecting{D: Doc{..d, Caret: Move(d, sig)}, Anchor: l.Anchor}}
 	case Escape:
 		Enter[State]{Next: Editing{D: d}}
@@ -145,20 +157,20 @@ func searching(f Searching, sig Signal) Decision[State, Output] {
 	match sig {
 	case Type as t:
 		let q = f.Query + t.Text
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), q, f.Origin)}, Query: q, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin}}
 	case Back:
 		if f.Query == "" {
 			return Reject
 		}
 		let q = strings.Slice(f.Query, 0, len(f.Query)-lastRune(f.Query))
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), q, f.Origin)}, Query: q, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin}}
 	case Next:
-		if f.Query == "" || !strings.Contains(Text(d), f.Query) {
+		if f.Query == "" || piece.Index(d.Buf, f.Query, 0) < 0 {
 			return Reject
 		}
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin}}
 	case Replace as r:
-		let at = Matches(Text(d), f.Query)
+		let at = piece.Matches(d.Buf, f.Query)
 		if len(at) == 0 {
 			return Reject
 		}
@@ -176,7 +188,7 @@ func searching(f Searching, sig Signal) Decision[State, Output] {
 		Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin}}
 	case Find:
 		Enter[State]{Next: Editing{D: d}}
-	case Del, Left, Right, Up, Down, Home, End, Top, Bottom, Select, UndoIt, RedoIt, Save:
+	case Del, Left, Right, Up, Down, Home, End, Top, Bottom, Select, UndoIt, RedoIt, Save, Goto, Copy, Cut:
 		Reject
 	}
 }
@@ -216,6 +228,8 @@ func Move(d Doc, sig Signal) int {
 		0
 	case Bottom:
 		piece.Len(d.Buf)
+	case Goto as g:
+		Boundary(d, g.At)
 	case _:
 		d.Caret
 	}
@@ -241,37 +255,17 @@ func clampTo(v int, lo int, hi int) int {
 
 // FirstFrom is the offset of the first match of query at or after from,
 // else the first match in the text, else from. The empty query matches
-// nothing.
-func FirstFrom(text string, query string, from int) int {
+// nothing. It searches the piece table in place (piece.Index).
+func FirstFrom(d Doc, query string, from int) int {
 	if query == "" {
 		return from
 	}
-	let at = if from > len(text) { len(text) } else { from }
-	let i = strings.Index(strings.Slice(text, at, len(text)), query)
+	let i = piece.Index(d.Buf, query, from)
 	if i >= 0 {
-		return at + i
+		return i
 	}
-	let j = strings.Index(text, query)
+	let j = piece.Index(d.Buf, query, 0)
 	if j >= 0 { j } else { from }
-}
-
-// Matches is the offsets of the matches of query in text, left to right,
-// none overlapping, as strings.ReplaceAll finds them.
-func Matches(text string, query string) []int {
-	let mut out = []int{}
-	if query == "" {
-		return out
-	}
-	let mut at = 0
-	for {
-		let i = strings.Index(strings.Slice(text, at, len(text)), query)
-		if i < 0 {
-			break
-		}
-		out = out.Append(at + i)
-		at = at + i + len(query)
-	}
-	out
 }
 
 // lastRune is the size of text's last rune, or 1.

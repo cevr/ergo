@@ -1,15 +1,18 @@
 // Package script is the headless driver of the editor: a script is lines
 // of commands, each a signal of the Editor machine or "show", which
 // writes the frame a window would show. The driver performs the machine's
-// output, the save, on the Store in its context.
+// outputs, the save on the Store in its context and a copy on its
+// clipboard; a paste types the clipboard's text, and a click puts the
+// caret at a row and column of the window.
 
 import editor/edit
 import io
 import strconv
 import strings
+import ui
 
 // Command is one line of a script.
-type Command = Show{} | Send{Signal edit.Signal}
+type Command = Show{} | Send{Signal edit.Signal} | Paste{} | Click{Row int, Col int}
 
 // BadLine is a line that is no command, with what was wanted.
 type BadLine { Text string, Want string }
@@ -25,9 +28,14 @@ type BadLine { Text string, Want string }
 //	select                        anchor a selection at the caret
 //	find, next, replace TEXT      search, the next match, replace every match
 //	undo, redo, escape, save
+//	copy, cut, paste              the selection to the clipboard, or its text typed
+//	click ROW COL                 the caret to column COL of the window's row ROW
 func Parse(line string) Command fails BadLine {
 	let word, rest = split(line)
 	match word {
+	case "click":
+		let row, col = split(rest)
+		Click{Row: try count(line, row), Col: try count(line, col)}
 	case "type":
 		Send{Signal: edit.Type{Text: rest}}
 	case "replace":
@@ -75,15 +83,21 @@ func Parse(line string) Command fails BadLine {
 			Send{Signal: edit.Escape}
 		case "save":
 			Send{Signal: edit.Save}
+		case "copy":
+			Send{Signal: edit.Copy}
+		case "cut":
+			Send{Signal: edit.Cut}
+		case "paste":
+			Paste
 		case _:
-			BadLine{Text: line, Want: "a command: " + strings.Join(bare(), " ") + " type replace left right up down"}
+			BadLine{Text: line, Want: "a command: " + strings.Join(bare(), " ") + " type replace left right up down click"}
 		}
 	}
 }
 
 // bare is the commands that take no argument.
 func bare() []string {
-	[]string{"show", "enter", "back", "del", "home", "end", "top", "bottom", "select", "find", "next", "undo", "redo", "escape", "save"}
+	[]string{"show", "enter", "back", "del", "home", "end", "top", "bottom", "select", "find", "next", "undo", "redo", "escape", "save", "copy", "cut", "paste"}
 }
 
 func isBare(word string) bool {
@@ -120,7 +134,7 @@ func count(line string, rest string) int fails BadLine {
 // frame for show, the end of each save, and a note for a line that is no
 // command. A blank line and a line that starts with # do nothing. It is
 // the state after the last line.
-func Play(s edit.State, name string, lines Seq[string]) edit.State needs edit.Store | io.Stdout {
+func Play(s edit.State, name string, lines Seq[string]) edit.State needs edit.Store | ui.Clipboard | io.Stdout {
 	let mut at = s
 	for line in lines {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -138,13 +152,17 @@ func Play(s edit.State, name string, lines Seq[string]) edit.State needs edit.St
 			}
 		case Send as m:
 			at = step(at, name, m.Signal)
+		case Paste:
+			at = step(at, name, edit.Type{Text: ui.Clipboard.Read()})
+		case Click as k:
+			at = step(at, name, edit.Goto{At: edit.PointAt(at, k.Row, k.Col)})
 		}
 	}
 	at
 }
 
-// step is the state after sig, with its save performed.
-func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Store | io.Stdout {
+// step is the state after sig, with its save or its copy performed.
+func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Store | ui.Clipboard | io.Stdout {
 	match edit.Step(s, sig) {
 	case Enter[edit.State] as e:
 		e.Next
@@ -160,6 +178,9 @@ func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Stor
 			}
 			io.Stdout.Println("saved " + name + " (\(len(w.Text)) bytes)")
 			edit.After(m.Next, edit.Saved)
+		case edit.Copied as c:
+			ui.Clipboard.Write(c.Text)
+			m.Next
 		}
 	case Ignore, Reject, Done[edit.Output]:
 		s
@@ -191,11 +212,15 @@ law LineParsesBack(c Command) {
 			if w.N < 0 || w.N > 1000000 {
 				return true
 			}
-		case edit.Saved:
+		case edit.Saved, edit.Goto:
 			return true
 		case _:
 		}
-	case Show:
+	case Click as k:
+		if k.Row < 0 || k.Row > 1000000 || k.Col < 0 || k.Col > 1000000 {
+			return true
+		}
+	case Show, Paste:
 	}
 	(try Parse(line)) == c
 }
@@ -247,6 +272,16 @@ func Line(c Command) string {
 			"save"
 		case edit.Saved:
 			"saved"
+		case edit.Goto as g:
+			"goto \(g.At)"
+		case edit.Copy:
+			"copy"
+		case edit.Cut:
+			"cut"
 		}
+	case Paste:
+		"paste"
+	case Click as k:
+		"click \(k.Row) \(k.Col)"
 	}
 }

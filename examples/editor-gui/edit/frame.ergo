@@ -31,6 +31,20 @@ func Status(s State) string {
 	case Selecting as l:
 		"selecting " + base + " anchor=\(l.Anchor)"
 	case Searching as f:
-		"searching " + base + " find=\"" + f.Query + "\" matches=\(len(Matches(Text(d), f.Query)))"
+		"searching " + base + " find=\"" + f.Query + "\" matches=\(piece.Count(d.Buf, f.Query))"
 	}
+}
+
+// PointAt is the offset of column col (in runes, cut at the line's end)
+// on row row of s's window: row 1 is the first line Frame shows, and a
+// row past the last is the last. It is where a click on that row and
+// column puts the caret.
+func PointAt(s State, row int, col int) int {
+	let d = DocOf(s)
+	let lines = piece.Lines(d.Buf)
+	let at = LineOf(d, d.Caret)
+	let first = if at > 2 { at - 2 } else { 1 }
+	let last = if at+2 < lines { at + 2 } else { lines }
+	let n = if row < 1 { first } else if first+row-1 > last { last } else { first + row - 1 }
+	Forward(d, piece.LineStart(d.Buf, n), col, piece.LineEnd(d.Buf, n))
 }

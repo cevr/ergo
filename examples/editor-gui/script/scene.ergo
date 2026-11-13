@@ -5,14 +5,17 @@
 // of N is N presses: up 3 is three presses of the up arrow, each keeping
 // the column of the line it leaves); select, find, next, undo, redo and
 // save press their buttons; replace TEXT writes the replacement field
-// and presses replace. After each line the host settles: a save the view
-// asked for runs, and its end comes back. show writes the window's text
-// lines (the status line and the lines around the caret, as Play's show
-// writes the frame); shot writes the whole screen with the page's paint
-// list.
+// and presses replace; copy and paste are Ctrl+C and Ctrl+V, cut its
+// button; click ROW COL presses the page where that row and column's
+// caret is drawn. After each line the host settles: a save or a clipboard
+// task the view asked for runs, and its end comes back. show writes the
+// window's text lines (the status line and the lines around the caret,
+// as Play's show writes the frame); shot writes the whole screen with the
+// page's paint list.
 
 import actor
 import editor/edit
+import editor/piece
 import editor/screen
 import io
 import machines
@@ -21,14 +24,14 @@ import sync
 import time
 import ui
 
-// Scene opens the window on text, named name, saving through store, and
-// plays lines.
-func Scene(text string, name string, store edit.Store, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs Scheduler | io.Stdout {
+// Scene opens the window on text, named name, saving through store and
+// copying and pasting through clip, and plays lines.
+func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs Scheduler | io.Stdout {
 	let notes = sync.NewRef[[]screen.Note]([]screen.Note{})
 	let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Text: text, Name: name}), 8, func(n screen.Note) {
 		notes.Update(func(old []screen.Note) []screen.Note { old.Append(n) })
 	})
-	let mut h = try ui.NewTestHost(a, screen.Viewer(store), clock, 4)
+	let mut h = try ui.NewTestHost(a, screen.Viewer(store, clip), clock, 4)
 	for line in lines {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -42,27 +45,44 @@ func Scene(text string, name string, store edit.Store, lines Seq[string], clock 
 			io.Stdout.Println("? \"" + b.Text + "\": want " + b.Want)
 			continue
 		}
-		match c {
+		let acts = match c {
 		case Show:
 			for t in Texts(ui.Screen(&h)) {
 				io.Stdout.Println(t)
 			}
+			continue
 		case Send as m:
-			ui.Play(&h, Acts(m.Signal).Append(ui.SettleAll)) catch {
-			case ui.NoNode as x:
-				io.Stdout.Println("? no node " + x.Label)
-			case actor.Stopped as s:
-				return s
-			case ui.BadPatch as b:
-				return b
-			}
-			for n in notes.Get() {
-				io.Stdout.Println(screen.NoteLine(n))
-			}
-			notes.Set([]screen.Note{})
+			Acts(m.Signal)
+		case Paste:
+			[]ui.Act{key("v", true)}
+		case Click as k:
+			[]ui.Act{click(ui.StateOf(&h).Ed, k.Row, k.Col)}
 		}
+		ui.Play(&h, acts.Append(ui.SettleAll)) catch {
+		case ui.NoNode as x:
+			io.Stdout.Println("? no node " + x.Label)
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as b:
+			return b
+		}
+		for n in notes.Get() {
+			io.Stdout.Println(screen.NoteLine(n))
+		}
+		notes.Set([]screen.Note{})
 	}
 	a.Stop()
+}
+
+// click is a press on the page where the caret of row and column of s's
+// window is drawn (edit.PointAt): the point a user aims at, which the
+// view's hit test (ui.OffsetAt) takes back to the offset.
+func click(s edit.State, row int, col int) ui.Act {
+	let d = edit.DocOf(s)
+	let (from, to) = screen.Shown(d)
+	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
+	let k = ui.CaretAt(screen.Mono, l, edit.PointAt(s, row, col)-from)
+	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0)}}
 }
 
 // Acts is the window's steps of an editor signal.
@@ -109,7 +129,11 @@ func Acts(sig edit.Signal) []ui.Act {
 		[]ui.Act{key("Escape", false)}
 	case edit.Save:
 		[]ui.Act{key("s", true)}
-	case edit.Saved:
+	case edit.Copy:
+		[]ui.Act{key("c", true)}
+	case edit.Cut:
+		[]ui.Act{ui.TapOn{Label: "cut"}}
+	case edit.Saved, edit.Goto:
 		[]ui.Act{}
 	}
 }

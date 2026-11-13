@@ -7,14 +7,21 @@
 import editor/edit
 
 // Signal is what the view sends the app: a signal of the editor (a key,
-// a button, committed text), or the end of a save the host ran.
-type Signal = Do{Signal edit.Signal} | Wrote{Bytes int} | WriteFailed{Reason string}
+// a button, committed text, a click), the end of a save the host ran, a
+// paste asked for, or the end of a clipboard task: the text read for a
+// paste, or the text written for a copy.
+type Signal = Do{Signal edit.Signal} | Wrote{Bytes int} | WriteFailed{Reason string} | AskPaste{} | Clipped{Text string} | ClipWritten{}
+
+// Clip is a clipboard task in flight: put the text a copy or a cut took,
+// or take the text a paste types.
+type Clip = Put{Text string} | Take{}
 
 // Window is the app's state: the editor, the document's name, the text a
 // save is writing (None when no save is in flight), and how many saves
 // were asked for, which keys the write so that a new save replaces the
-// old.
-type Window { Ed edit.State, Name string, Writing Option[string], Saves int }
+// old; and the same for the clipboard: the task in flight and how many
+// were asked for.
+type Window { Ed edit.State, Name string, Writing Option[string], Saves int, Clipping Option[Clip], Clips int }
 
 // Opening is what the app starts on: the document's text and name.
 type Opening { Text string, Name string }
@@ -24,12 +31,14 @@ type Note = SavedNote{Name string, Bytes int} | CannotSave{Name string, Reason s
 
 // Begin is the editor on o: the machine's input.
 func Begin(o Opening) Window {
-	Window{Ed: edit.Open(o.Text), Name: o.Name, Writing: None, Saves: 0}
+	Window{Ed: edit.Open(o.Text), Name: o.Name, Writing: None, Saves: 0, Clipping: None, Clips: 0}
 }
 
 // Step is the app's transition. The editor's Write starts a save; its end
 // tells the editor Saved and notes it, a failure notes it and keeps the
-// edits unsaved, as the headless driver does.
+// edits unsaved, as the headless driver does. The editor's Copied starts
+// a clipboard write; a paste starts a clipboard read, whose text the
+// editor gets typed, as the headless driver types it.
 func Step(w Window, e Signal) Decision[Window, Note] {
 	match e {
 	case Do as d:
@@ -42,6 +51,8 @@ func Step(w Window, e Signal) Decision[Window, Note] {
 			match x.Output {
 			case edit.Write as t:
 				Stay[Window]{Next: Window{..w, Ed: x.Next, Writing: Some{Value: t.Text}, Saves: w.Saves + 1}}
+			case edit.Copied as c:
+				Stay[Window]{Next: Window{..w, Ed: x.Next, Clipping: Some{Value: Put{Text: c.Text}}, Clips: w.Clips + 1}}
 			}
 		case Ignore:
 			Ignore
@@ -52,6 +63,12 @@ func Step(w Window, e Signal) Decision[Window, Note] {
 		Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: None}, Output: SavedNote{Name: w.Name, Bytes: x.Bytes}}
 	case WriteFailed as x:
 		Emit[Window, Note]{Next: Window{..w, Writing: None}, Output: CannotSave{Name: w.Name, Reason: x.Reason}}
+	case AskPaste:
+		Stay[Window]{Next: Window{..w, Clipping: Some{Value: Take}, Clips: w.Clips + 1}}
+	case Clipped as c:
+		Stay[Window]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: None}}
+	case ClipWritten:
+		Stay[Window]{Next: Window{..w, Clipping: None}}
 	}
 }
 
@@ -97,5 +114,22 @@ type App machine[Window, Signal] {
 	law FailedSaveKeepsEdits(o Opening, typed string, reason string) {
 		let w = After(After(After(Begin(o), Do{Signal: edit.Type{Text: typed + "x"}}), Do{Signal: edit.Save}), WriteFailed{Reason: reason})
 		edit.DocOf(w.Ed).Dirty && w.Writing == None
+	},
+
+	// CopyPutsTheSelection: a copy of a selection asks the host to put
+	// the selected text on the clipboard, and its end leaves no task.
+	law CopyPutsTheSelection(o Opening, n int) {
+		let w = After(After(After(Begin(o), Do{Signal: edit.Select}), Do{Signal: edit.Right{N: n % 64}}), Do{Signal: edit.Copy})
+		let d = edit.DocOf(w.Ed)
+		w.Clipping == Some{Value: Put{Text: edit.Text(d)[0:d.Caret]}} && After(w, ClipWritten).Clipping == None
+	},
+
+	// PasteTypesTheClipboard: a paste asks the host for the clipboard,
+	// and the text it reads is typed at the caret, as one change.
+	law PasteTypesTheClipboard(o Opening, clip string) {
+		let w = After(After(Begin(o), AskPaste), Clipped{Text: clip})
+		let d = edit.DocOf(w.Ed)
+		let undos = if clip == "" { 0 } else { 1 }
+		After(Begin(o), AskPaste).Clipping == Some{Value: Take} && w.Clipping == None && edit.Text(d) == clip+o.Text && len(d.Undo) == undos
 	},
 }

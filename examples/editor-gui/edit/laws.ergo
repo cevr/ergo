@@ -108,6 +108,85 @@ type Editor machine[State, Signal] {
 	},
 }
 
+// Pointing and the clipboard, as laws of the editor's signals.
+law GotoLandsOnARune(text string, signals []Signal, at int) {
+	let s = Run(Open(text), signals)
+	let d = DocOf(s)
+	let to = if at < 0 { 0 } else if at > piece.Len(d.Buf) { piece.Len(d.Buf) } else { at }
+	let c = DocOf(After(s, Goto{At: at})).Caret
+	match s {
+	case Searching:
+		c == d.Caret
+	case Editing, Selecting:
+		// The caret is the last rune boundary of to's line at or before to:
+		// the moves' column walk reaches it, and the next rune ends past to.
+		let next = RuneAfter(d, c)
+		let start = LineStart(d, c)
+		c <= to && (next == 0 || c+next > to) && Forward(d, start, Column(d, c), LineEnd(d, c)) == c && LineOf(d, c) == LineOf(d, to)
+	}
+}
+
+// selection is a selection from a to b made on the editor after signals,
+// or the state the signals reach when it is not editing.
+func selection(text string, signals []Signal, a int, b int) State {
+	let s = Run(Open(text), signals)
+	match s {
+	case Editing:
+		After(After(After(s, Goto{At: a}), Select), Goto{At: b})
+	case Selecting, Searching:
+		s
+	}
+}
+
+// CopyIsTheSelection: a copy puts the selected text on the clipboard and
+// changes nothing.
+law CopyIsTheSelection(text string, signals []Signal, a int, b int) {
+	let s = selection(text, signals, a, b)
+	match s {
+	case Selecting as l:
+		let d = l.D
+		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
+		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
+		match Step(s, Copy) {
+		case Emit[State, Output] as e:
+			e.Next == s && e.Output == Copied{Text: piece.Slice(d.Buf, lo, hi)}
+		case Enter[State], Stay[State], Ignore, Reject, Done[Output]:
+			false
+		}
+	case Editing, Searching:
+		Step(s, Copy) == Reject
+	}
+}
+
+// CutThenPasteRestores: a cut puts the selected text on the clipboard and
+// takes it out, as one change; typing what it put there gives the text
+// back.
+law CutThenPasteRestores(text string, signals []Signal, a int, b int) {
+	let s = selection(text, signals, a, b)
+	match s {
+	case Selecting as l:
+		let d = l.D
+		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
+		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
+		match Step(s, Cut) {
+		case Emit[State, Output] as e:
+			let cut = DocOf(e.Next)
+			let copied = match e.Output {
+			case Copied as c:
+				c.Text
+			case Write:
+				return false
+			}
+			let undos = if lo < hi { len(d.Undo) + 1 } else { len(d.Undo) }
+			copied == piece.Slice(d.Buf, lo, hi) && len(cut.Undo) == undos && Text(DocOf(After(e.Next, Type{Text: copied}))) == Text(d)
+		case Enter[State], Stay[State], Ignore, Reject, Done[Output]:
+			false
+		}
+	case Editing, Searching:
+		Step(s, Cut) == Reject
+	}
+}
+
 // Run is the state after the signals, from s.
 func Run(s State, signals []Signal) State {
 	let mut at = s

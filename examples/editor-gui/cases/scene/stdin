@@ -32,4 +32,44 @@ escape
 save
 show
 shot
+# pointing and the clipboard: a click on a row and column, a selection
+# copied and pasted, cut and pasted back, a paste over a selection
+click 1 4
+show
+click 5 99
+show
+click 3 0
+select
+click 3 6
+copy
+show
+escape
+click 1 0
+paste
+show
+select
+right 4
+cut
+show
+paste
+paste
+show
+select
+left 2
+paste
+show
+undo
+undo
+show
+find
+type stone
+next
+show
+escape
+click 2 1
+shot
+click 9 0
+show
+click 1
+copy
 fly

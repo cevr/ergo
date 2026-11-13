@@ -170,6 +170,80 @@ func Slice(b Buffer, from int, to int) string {
 	out.String()
 }
 
+// Index is the offset of the first match of query at or after from
+// (clamped to the text), or -1 when there is none. It reads the text in
+// place: each piece's bytes are searched where they lie, and a match
+// that starts in a piece and ends past it is found in the bytes around
+// the piece's end, a window under twice the query's length, so no search
+// copies the text.
+func Index(b Buffer, query string, from int) int { seek(b, query, from, 0, 0).at }
+
+// Matches is the offsets of the matches of query, left to right, none
+// overlapping, as strings.ReplaceAll finds them. The empty query matches
+// nothing.
+func Matches(b Buffer, query string) []int {
+	let mut out = []int{}
+	if query == "" {
+		return out
+	}
+	let mut h = seek(b, query, 0, 0, 0)
+	for h.at >= 0 {
+		out = out.Append(h.at)
+		h = seek(b, query, h.at+len(query), h.k, h.offset)
+	}
+	out
+}
+
+// Count is how many matches Matches finds.
+func Count(b Buffer, query string) int {
+	if query == "" {
+		return 0
+	}
+	let mut n = 0
+	let mut h = seek(b, query, 0, 0, 0)
+	for h.at >= 0 {
+		n = n + 1
+		h = seek(b, query, h.at+len(query), h.k, h.offset)
+	}
+	n
+}
+
+// hit is a match at at (-1 for none) that starts in piece k, which starts
+// at offset: where the next search may start walking the pieces.
+type hit { at int, k int, offset int }
+
+// seek is the first match of query at or after from, walking the pieces
+// from piece k, which starts at offset (at most from).
+func seek(b Buffer, query string, from int, k int, offset int) hit {
+	let lo = clampTo(from, 0, b.size)
+	if query == "" {
+		return hit{at: lo, k: k, offset: offset}
+	}
+	let mut at = offset
+	let mut i = k
+	for i < len(b.pieces) {
+		let p = b.pieces[i]
+		let end = at + p.Size
+		if end > lo {
+			let skip = if lo > at { lo - at } else { 0 }
+			let inside = strings.Index(strings.Slice(source(b, p), p.Start+skip, p.Start+p.Size), query)
+			if inside >= 0 {
+				return hit{at: at + skip + inside, k: i, offset: at}
+			}
+			// No match lies inside the piece, so one that starts in it
+			// ends past it, and starts in the query's length before end.
+			let w = if end-len(query)+1 > lo { end - len(query) + 1 } else { lo }
+			let across = strings.Index(Slice(b, w, end+len(query)-1), query)
+			if across >= 0 {
+				return hit{at: w + across, k: i, offset: at}
+			}
+		}
+		at = end
+		i = i + 1
+	}
+	hit{at: -1, k: i, offset: at}
+}
+
 // Insert is b with text put at at (clamped to the text). Typing at the end
 // of the last added run grows that piece, so a run of typed letters is
 // one piece.
@@ -327,6 +401,64 @@ law LinesEqualModel(base string, ops []Op, at int) {
 	}
 	let pos = mod(at, len(text)+1)
 	LineOf(b, pos) == strings.Count(strings.Slice(text, 0, pos), "\n")+1
+}
+
+// SearchEqualsModel: after any edits, Index finds from any offset what
+// strings.Index finds in the plain string, and Matches and Count find the
+// matches the plain string's left-to-right search finds. The text starts
+// as base and a unit three times over; the query is a run of one to six
+// bytes of the text (so it matches, often across pieces), the unit twice
+// (so its matches overlap), or any string.
+law SearchEqualsModel(base string, unit string, ops []Op, from int, start int, size int, other string, pick int) {
+	let mut b = New(base + unit + unit + unit)
+	let mut text = base + unit + unit + unit
+	for op in ops {
+		b = edit(b, op)
+		text = model(text, op)
+	}
+	let lo = mod(start, len(text)+1)
+	let hi = clampTo(lo+mod(size, 6)+1, lo, len(text))
+	let query = match mod(pick, 3) {
+	case 0:
+		strings.Slice(text, lo, hi)
+	case 1:
+		unit + unit
+	case _:
+		other
+	}
+	let at = mod(from, len(text)+1)
+	let i = strings.Index(strings.Slice(text, at, len(text)), query)
+	let want = if i >= 0 { at + i } else { -1 }
+	let found = Matches(b, query)
+	let plain = matchesIn(text, query)
+	if Index(b, query, at) != want || Count(b, query) != len(plain) || len(found) != len(plain) {
+		return false
+	}
+	for k in 0..len(plain) {
+		if found[k] != plain[k] {
+			return false
+		}
+	}
+	true
+}
+
+// matchesIn is the reference of Matches: the plain string searched left
+// to right, each search after the last match.
+func matchesIn(text string, query string) []int {
+	let mut out = []int{}
+	if query == "" {
+		return out
+	}
+	let mut at = 0
+	for {
+		let i = strings.Index(strings.Slice(text, at, len(text)), query)
+		if i < 0 {
+			break
+		}
+		out = out.Append(at + i)
+		at = at + i + len(query)
+	}
+	out
 }
 
 // InsertThenDeleteRestores: deleting what was just inserted gives the

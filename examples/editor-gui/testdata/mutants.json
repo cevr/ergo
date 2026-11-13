@@ -2,6 +2,102 @@
   "about": "editor-gui's application mutants (wf10 corpus wave GP2a, GP2b): edits of the example, each with the law or the test that kills it. A killer examples/editor-gui/PKG:law L is `ergo test examples/editor-gui/PKG --law L`; scripts/examples:editor-gui is the program's cases, killed when a case's output differs; cmd/ergo:TestEditorGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
+      "name": "editor-search-window-one-short", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "strings.Index(Slice(b, w, end+len(query)-1), query)",
+      "to": "strings.Index(Slice(b, w, end+len(query)-2), query)",
+      "rule": "A match that starts in a piece may end in the query's length after it.",
+      "killers": ["examples/editor-gui/piece:law SearchEqualsModel"]
+    },
+    {
+      "name": "editor-search-from-the-piece-start", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "strings.Slice(source(b, p), p.Start+skip, p.Start+p.Size)",
+      "to": "strings.Slice(source(b, p), p.Start, p.Start+p.Size)",
+      "rule": "The search starts at from, not at the start of from's piece.",
+      "killers": ["examples/editor-gui/piece:law SearchEqualsModel"]
+    },
+    {
+      "name": "editor-count-counts-one-more", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "\tlet mut n = 0\n",
+      "to": "\tlet mut n = 1\n",
+      "rule": "Count is how many matches Matches finds.",
+      "killers": ["examples/editor-gui/piece:law SearchEqualsModel"]
+    },
+    {
+      "name": "editor-goto-stops-a-rune-early", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/edit/doc.ergo",
+      "from": "if s == 0 || b+s > to {",
+      "to": "if s == 0 || b+s >= to {",
+      "rule": "A press on a rune boundary puts the caret on it.",
+      "killers": ["examples/editor-gui/edit:law GotoLandsOnARune"]
+    },
+    {
+      "name": "editor-copy-takes-to-the-caret", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}",
+      "to": "Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, l.Anchor, d.Caret)}}",
+      "rule": "A copy takes the selection, whichever way it was made.",
+      "killers": ["examples/editor-gui/edit:law CopyIsTheSelection"]
+    },
+    {
+      "name": "editor-cut-keeps-the-text", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Emit[State, Output]{Next: Editing{D: Erase(d, lo, hi)}, Output: Copied",
+      "to": "Emit[State, Output]{Next: Editing{D: d}, Output: Copied",
+      "rule": "A cut takes the selection out, as one change.",
+      "killers": ["examples/editor-gui/edit:law CutThenPasteRestores"]
+    },
+    {
+      "name": "editor-paste-stays-in-flight", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/screen/app.ergo",
+      "from": "Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: None}",
+      "to": "Ed: edit.After(w.Ed, edit.Type{Text: c.Text})}",
+      "rule": "The end of a paste leaves no clipboard task in flight.",
+      "killers": ["examples/editor-gui/screen:law App.PasteTypesTheClipboard"]
+    },
+    {
+      "name": "editor-copy-writes-no-clipboard", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/screen/view.ergo",
+      "from": "\t\tclip.Write(p.Text)\n\t\tClipWritten",
+      "to": "\t\tclip.Write(p.Text[0:0])\n\t\tClipWritten",
+      "rule": "The host task of a copy writes the clipboard.",
+      "killers": ["scripts/examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-press-ignores-the-shown-start", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/screen/view.ergo",
+      "from": "edit.Goto{At: from + ui.OffsetAt(",
+      "to": "edit.Goto{At: ui.OffsetAt(",
+      "rule": "The page lays out the shown lines, so a press's offset counts from their start.",
+      "killers": ["scripts/examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-click-aims-above-the-caret", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/script/scene.ergo",
+      "from": "Y: float64(k.Top + k.Height/2.0)",
+      "to": "Y: float64(k.Top - k.Height/2.0)",
+      "rule": "A click aims at the middle of the caret's line.",
+      "killers": ["scripts/examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-paste-types-nothing", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/script/script.ergo",
+      "from": "edit.Type{Text: ui.Clipboard.Read()}",
+      "to": "edit.Type{Text: \"\"}",
+      "rule": "A paste types the clipboard's text.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-click-row-one-short", "origin": "wf10 GP2c",
+      "file": "examples/editor-gui/edit/frame.ergo",
+      "from": "{ last } else { first + row - 1 }",
+      "to": "{ last } else { first + row }",
+      "rule": "Row 1 is the first line the window shows.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
       "name": "editor-undo-makes-the-edit-again", "origin": "wf10 GP2b",
       "file": "examples/editor-gui/edit/doc.ergo",
       "from": "backward(apply(b, inverse(edits[i])), edits, i-1)",
@@ -114,12 +210,12 @@
       "killers": ["examples/editor-gui/edit:law Editor.UndoRedoRoundTrips"]
     },
     {
-      "name": "editor-matches-overlap", "origin": "wf10 GP2a",
-      "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "at = at + i + len(query)",
-      "to": "at = at + i + 1",
+      "name": "editor-matches-overlap", "origin": "wf10 GP2a; GP2c moved the search into piece",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "\t\tout = out.Append(h.at)\n\t\th = seek(b, query, h.at+len(query), h.k, h.offset)",
+      "to": "\t\tout = out.Append(h.at)\n\t\th = seek(b, query, h.at+1, h.k, h.offset)",
       "rule": "Replace replaces the matches strings.ReplaceAll finds, none overlapping.",
-      "killers": ["examples/editor-gui/edit:law Editor.ReplaceIsReplaceAll"]
+      "killers": ["examples/editor-gui/piece:law SearchEqualsModel", "examples/editor-gui/edit:law Editor.ReplaceIsReplaceAll"]
     },
     {
       "name": "editor-search-escape-keeps-the-match", "origin": "wf10 GP2a",
@@ -140,7 +236,7 @@
     {
       "name": "editor-next-steps-past-no-match", "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "if f.Query == \"\" || !strings.Contains(Text(d), f.Query) {",
+      "from": "if f.Query == \"\" || piece.Index(d.Buf, f.Query, 0) < 0 {",
       "to": "if f.Query == \"\" {",
       "rule": "Next with no match anywhere leaves the caret where it is.",
       "killers": ["examples/editor-gui/edit:law Editor.NextFindsAMatch"]
@@ -220,8 +316,8 @@
     {
       "name": "editor-frame-shows-one-line-below", "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/frame.ergo",
-      "from": "let last = if at+2 < lines { at + 2 } else { lines }",
-      "to": "let last = if at+1 < lines { at + 1 } else { lines }",
+      "from": "let last = if at+2 < lines { at + 2 } else { lines }\n\tfor n in",
+      "to": "let last = if at+1 < lines { at + 1 } else { lines }\n\tfor n in",
       "rule": "A frame shows two lines below the caret's line.",
       "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
     },

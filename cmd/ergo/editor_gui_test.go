@@ -22,11 +22,13 @@ import (
 // empty lines and no final line break, invalid UTF-8 (refused with its
 // offset), moves past both ends and across lines of other lengths,
 // selections in both directions, searches with no match, replaces whose
-// text holds the query, long undo and redo chains, and lines that are no
-// command. On every fifth seed (and on a replayed one) the Ergo program
-// also plays the script as a scene (GP2b): the window's view on
-// ui.TestHost, driven by keys, buttons, its text input and its
-// replacement field, with saves the view asks the host for; it is held
+// text holds the query, long undo and redo chains, copies, cuts and
+// pastes (an empty clipboard too), clicks on rows and columns past the
+// window's lines and ends (GP2c), and lines that are no command. On
+// every fifth seed (and on a replayed one) the Ergo program also plays
+// the script as a scene (GP2b): the window's view on ui.TestHost, driven
+// by keys, buttons, its text input, its replacement field and presses on
+// its page, with saves and clipboard tasks the view asks the host for; it is held
 // to the reference of the script as a window plays it
 // (editorSceneAsPlay), and so is the file it saves. A failing seed prints
 // its replay command and the first line that differs.
@@ -143,7 +145,15 @@ func editorText(r *rand.Rand) (string, bool) {
 func editorScript(r *rand.Rand) string {
 	var b strings.Builder
 	for i := r.IntN(120); i > 0; i-- {
-		switch k := r.IntN(40); {
+		switch k := r.IntN(46); {
+		case k >= 44:
+			b.WriteString("paste\n")
+		case k >= 40:
+			if k < 42 {
+				fmt.Fprintf(&b, "click %d %d\n", r.IntN(7), []int{0, 1, 3, 7, 40, 1000}[r.IntN(6)])
+			} else {
+				b.WriteString([]string{"copy", "cut"}[k-42] + "\n")
+			}
 		case k < 6:
 			b.WriteString("show\n")
 		case k < 12:
@@ -170,7 +180,7 @@ func editorScript(r *rand.Rand) string {
 		case k < 36:
 			b.WriteString("save\n")
 		default:
-			b.WriteString([]string{"", "# a note", "fly", "left x", "left -1", "show me", "type", "up 1000001", "find now", "left +2"}[r.IntN(10)] + "\n")
+			b.WriteString([]string{"", "# a note", "fly", "left x", "left -1", "show me", "type", "up 1000001", "find now", "left +2", "click 1", "click x 2", "click 1 2 3", "paste now", "click"}[r.IntN(15)] + "\n")
 		}
 	}
 	b.WriteString("show\n")
@@ -298,7 +308,12 @@ func editorReference(text string, script string) (string, *string) {
 		}
 		return strings.Count(text, q)
 	}
-	bare := "show enter back del home end top bottom select find next undo redo escape save"
+	number := func(s string) (int, bool) {
+		v, err := strconv.Atoi(s)
+		return v, err == nil && v >= 0 && v <= 1000000
+	}
+	clip := ""
+	bare := "show enter back del home end top bottom select find next undo redo escape save copy cut paste"
 	for _, line := range strings.Split(strings.TrimSuffix(script, "\n"), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -308,15 +323,37 @@ func editorReference(text string, script string) (string, *string) {
 		switch word {
 		case "type", "replace":
 		case "left", "right", "up", "down":
-			v, err := strconv.Atoi(rest)
-			if err != nil || v < 0 || v > 1000000 {
+			v, ok := number(rest)
+			if !ok {
 				fmt.Fprintf(&out, "? \"%s\": want a count\n", line)
 				continue
 			}
 			n = v
+		case "click":
+			r, c, _ := strings.Cut(rest, " ")
+			row, ok := number(r)
+			col, ok2 := number(c)
+			if !ok || !ok2 {
+				fmt.Fprintf(&out, "? \"%s\": want a count\n", line)
+				continue
+			}
+			if mode != "searching" {
+				// The row of the window (as show writes it), the column
+				// cut at the line's end.
+				at := lineOf(caret)
+				first, last := max(at-2, 1), min(at+2, len(lines()))
+				k := min(max(first+row-1, first), last)
+				start, end := lineStart(k), lineEnd(k)
+				for i := 0; i < col && start < end; i++ {
+					_, s := utf8.DecodeRuneInString(text[start:end])
+					start += s
+				}
+				caret = start
+			}
+			continue
 		default:
 			if !strings.Contains(" "+bare+" ", " "+word+" ") {
-				fmt.Fprintf(&out, "? \"%s\": want a command: %s type replace left right up down\n", line, bare)
+				fmt.Fprintf(&out, "? \"%s\": want a command: %s type replace left right up down click\n", line, bare)
 				continue
 			}
 			if rest != "" {
@@ -324,8 +361,11 @@ func editorReference(text string, script string) (string, *string) {
 				continue
 			}
 		}
-		if word == "enter" {
+		switch word {
+		case "enter":
 			word, rest = "type", "\n"
+		case "paste":
+			word, rest = "type", clip
 		}
 		if word == "show" {
 			at := lineOf(caret)
@@ -394,6 +434,14 @@ func editorReference(text string, script string) (string, *string) {
 					mode = "editing"
 				}
 			case "back", "del":
+				if lo < hi {
+					change(text[:lo]+text[hi:], lo)
+				}
+				mode = "editing"
+			case "copy":
+				clip = text[lo:hi]
+			case "cut":
+				clip = text[lo:hi]
 				if lo < hi {
 					change(text[:lo]+text[hi:], lo)
 				}

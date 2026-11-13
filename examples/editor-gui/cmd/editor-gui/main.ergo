@@ -36,8 +36,9 @@ let genSet = flag.Set{Name: "editor-gui gen", Usage: "", Flags: []flag.Flag{seed
 let editSet = flag.Set{Name: "editor-gui edit", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
 let sceneSet = flag.Set{Name: "editor-gui scene", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
 
-// run is editor-gui on args; a window's saves go to store.
-func run(args []string, store edit.Store) fails os.Exit needs edit.Store | io.Stdout | io.Stdin {
+// run is editor-gui on args; a window's saves go to store, and its
+// copies and pastes to clip.
+func run(args []string, store edit.Store, clip ui.Clipboard) fails os.Exit needs edit.Store | ui.Clipboard | io.Stdout | io.Stdin {
 	if len(args) == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
@@ -73,7 +74,7 @@ func run(args []string, store edit.Store) fails os.Exit needs edit.Store | io.St
 		let (name, text) = try open(v)
 		let clock = time.NewManual(0)
 		with context { Scheduler: clock } {
-			script.Scene(text, name, store, io.Stdin.Lines(), clock) catch {
+			script.Scene(text, name, store, clip, io.Stdin.Lines(), clock) catch {
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "editor-gui: the view's patch did not apply: " + b.Why}
 			case actor.Stopped:
@@ -104,7 +105,8 @@ func open(v flag.Values) (string, string) fails os.Exit needs edit.Store {
 
 func main() fails os.Exit needs Ambient {
 	let store = files.New(fs.NewHost())
-	with context { edit.Store: store, io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
-		try run(os.NewHost().Args(), store)
+	let clip = ui.NewMemoryClipboard()
+	with context { edit.Store: store, ui.Clipboard: clip, io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.NewHost().Args(), store, clip)
 	}
 }

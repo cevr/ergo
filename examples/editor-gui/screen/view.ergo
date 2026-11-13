@@ -12,15 +12,16 @@ let Font = ui.Font{Family: "mono", Size: 14.0}
 // PageWidth is the page's width; a longer line wraps.
 let PageWidth = ui.Length(640.0)
 
-// Viewer is the view of a window whose saves store runs: the toolbar, the
-// status line, the text input the host commits typed text to, the find's
-// replacement field, the lines around the caret, and the page: the caret
-// and the selection where the text layout puts them.
-func Viewer(store edit.Store) func(f *ui.Frame[Signal], w Window) {
-	func(f *ui.Frame[Signal], w Window) { view(f, w, store) }
+// Viewer is the view of a window whose saves store runs and whose copies
+// and pastes go through clip: the toolbar, the status line, the text
+// input the host commits typed text to, the find's replacement field, the
+// lines around the caret, and the page: the caret and the selection where
+// the text layout puts them, and a press that puts the caret under it.
+func Viewer(store edit.Store, clip ui.Clipboard) func(f *ui.Frame[Signal], w Window) {
+	func(f *ui.Frame[Signal], w Window) { view(f, w, store, clip) }
 }
 
-func view(f *ui.Frame[Signal], w Window, store edit.Store) {
+func view(f *ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
 	match w.Writing {
 	case Some[string] as t:
@@ -29,11 +30,17 @@ func view(f *ui.Frame[Signal], w Window, store edit.Store) {
 		ui.Load(f, ui.IntKey{Value: w.Saves}, func() Signal { written(store, name, text) })
 	case None:
 	}
+	match w.Clipping {
+	case Some[Clip] as c:
+		let job = c.Value
+		ui.Load(f, ui.IntKey{Value: w.Clips}, func() Signal { clipped(clip, job) })
+	case None:
+	}
 	let replacement = ui.NewDraft(f, "")
 	ui.Column(f, ui.Plain()) {
 		ui.Row(f, ui.Plain()) {
 			for b in Buttons() {
-				ui.Pressable(f, b.Label, Do{Signal: b.Signal}) {
+				ui.Pressable(f, b.Label, b.Signal) {
 					ui.Text(f, b.Label)
 				}
 			}
@@ -49,24 +56,53 @@ func view(f *ui.Frame[Signal], w Window, store edit.Store) {
 		let d = edit.DocOf(w.Ed)
 		let (from, to) = Shown(d)
 		let l = ui.LayoutText(Mono, piece.Slice(d.Buf, from, to), Font, PageWidth)
-		ui.Canvas(f, "page", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p *ui.Paint) {
-			Page(p, l, w.Ed, from, to)
+		ui.Area(f, "page", ui.Plain(), func(p ui.PointerEvent) Option[Signal] { Pressed(p, l, from) }) {
+			ui.Canvas(f, "paint", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p *ui.Paint) {
+				Page(p, l, w.Ed, from, to)
+			}
 		}
 	}
 }
 
-// Button is a toolbar button: its label and the editor's signal.
-type Button { Label string, Signal edit.Signal }
+// Pressed is the signal of a pointer on the page, which lays out the
+// bytes from from in l: a press puts the caret at the rune boundary
+// nearest it (ui.OffsetAt); a move or a release does nothing.
+func Pressed(p ui.PointerEvent, l ui.TextLayout, from int) Option[Signal] {
+	match p.Phase {
+	case ui.Down:
+		Some{Value: Do{Signal: edit.Goto{At: from + ui.OffsetAt(Mono, l, ui.Length(p.X), ui.Length(p.Y))}}}
+	case ui.Moved, ui.Up, ui.Wheel:
+		None
+	}
+}
+
+// Button is a toolbar button: its label and its signal.
+type Button { Label string, Signal Signal }
 
 // Buttons are the toolbar's buttons.
 func Buttons() []Button {
 	[]Button{
-		Button{Label: "undo", Signal: edit.UndoIt},
-		Button{Label: "redo", Signal: edit.RedoIt},
-		Button{Label: "save", Signal: edit.Save},
-		Button{Label: "select", Signal: edit.Select},
-		Button{Label: "find", Signal: edit.Find},
-		Button{Label: "next", Signal: edit.Next},
+		Button{Label: "undo", Signal: Do{Signal: edit.UndoIt}},
+		Button{Label: "redo", Signal: Do{Signal: edit.RedoIt}},
+		Button{Label: "save", Signal: Do{Signal: edit.Save}},
+		Button{Label: "select", Signal: Do{Signal: edit.Select}},
+		Button{Label: "find", Signal: Do{Signal: edit.Find}},
+		Button{Label: "next", Signal: Do{Signal: edit.Next}},
+		Button{Label: "copy", Signal: Do{Signal: edit.Copy}},
+		Button{Label: "cut", Signal: Do{Signal: edit.Cut}},
+		Button{Label: "paste", Signal: AskPaste},
+	}
+}
+
+// clipped runs a clipboard task on clip, as a host task: a copy's text
+// put on it, or its text taken for a paste.
+func clipped(clip ui.Clipboard, job Clip) Signal {
+	match job {
+	case Put as p:
+		clip.Write(p.Text)
+		ClipWritten
+	case Take:
+		Clipped{Text: clip.Read()}
 	}
 }
 
@@ -127,8 +163,9 @@ func clamp(v int, lo int, hi int) int {
 // line, Home and End to the line's ends and with Ctrl to the text's;
 // Backspace and Delete erase, Enter breaks the line, Escape leaves a
 // selection or a search; Ctrl+Z undoes, Ctrl+Y redoes, Ctrl+S saves,
-// Ctrl+F finds and F3 finds the next match. Typed text is not a key: the
-// host commits it to the text input.
+// Ctrl+F finds, F3 finds the next match, and Ctrl+C, Ctrl+X and Ctrl+V
+// copy, cut and paste. Typed text is not a key: the host commits it to
+// the text input.
 func Keyed(k ui.KeyPress) Option[Signal] {
 	let ctrl = k.Mods.Ctrl
 	match k.Name {
@@ -167,6 +204,12 @@ func Keyed(k ui.KeyPress) Option[Signal] {
 			Some{Value: Do{Signal: edit.Save}}
 		case "f":
 			Some{Value: Do{Signal: edit.Find}}
+		case "c":
+			Some{Value: Do{Signal: edit.Copy}}
+		case "x":
+			Some{Value: Do{Signal: edit.Cut}}
+		case "v":
+			Some{Value: AskPaste}
 		case _:
 			None
 		}

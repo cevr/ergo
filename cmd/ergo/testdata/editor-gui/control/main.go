@@ -221,6 +221,7 @@ type editor struct {
 	anchor     int
 	query      string
 	origin     int
+	clip       string
 	name       string
 	out        *bufio.Writer
 	scratch    []byte
@@ -383,7 +384,21 @@ func matches(text []byte, query string) []int {
 	}
 }
 
-var bare = []string{"show", "enter", "back", "del", "home", "end", "top", "bottom", "select", "find", "next", "undo", "redo", "escape", "save"}
+var bare = []string{"show", "enter", "back", "del", "home", "end", "top", "bottom", "select", "find", "next", "undo", "redo", "escape", "save", "copy", "cut", "paste"}
+
+// pointAt is the offset of column col on row row of the window (the
+// lines frame writes, from 1; a row past the last is the last).
+func (e *editor) pointAt(row, col int) int {
+	at, lines := e.buf.lineOf(e.caret), e.buf.lines()
+	first, last := max(at-2, 1), min(at+2, lines)
+	n := min(max(first+row-1, first), last)
+	return e.forward(e.buf.lineStart(n), col, e.buf.lineEnd(n))
+}
+
+func count(s string) (int, bool) {
+	v, err := strconv.Atoi(s)
+	return v, err == nil && v >= 0 && v <= 1000000
+}
 
 func (e *editor) bad(line, want string) {
 	fmt.Fprintf(e.out, "? \"%s\": want %s\n", line, want)
@@ -398,19 +413,31 @@ func (e *editor) line(line string) {
 	switch word {
 	case "type", "replace":
 	case "left", "right", "up", "down":
-		v, err := strconv.Atoi(rest)
-		if err != nil || v < 0 || v > 1000000 {
+		v, ok := count(rest)
+		if !ok {
 			e.bad(line, "a count")
 			return
 		}
 		n = v
+	case "click":
+		r, c, _ := strings.Cut(rest, " ")
+		row, ok := count(r)
+		col, ok2 := count(c)
+		if !ok || !ok2 {
+			e.bad(line, "a count")
+			return
+		}
+		if e.mode != searching {
+			e.caret = e.pointAt(row, col)
+		}
+		return
 	default:
 		known := false
 		for _, w := range bare {
 			known = known || w == word
 		}
 		if !known {
-			e.bad(line, "a command: "+strings.Join(bare, " ")+" type replace left right up down")
+			e.bad(line, "a command: "+strings.Join(bare, " ")+" type replace left right up down click")
 			return
 		}
 		if rest != "" {
@@ -424,6 +451,8 @@ func (e *editor) line(line string) {
 		return
 	case "enter":
 		word, rest = "type", "\n"
+	case "paste":
+		word, rest = "type", e.clip
 	}
 	switch e.mode {
 	case editing:
@@ -485,6 +514,12 @@ func (e *editor) selecting(word, rest string, n int) {
 		e.make(edits, lo+len(rest))
 		e.mode = editing
 	case "back", "del":
+		e.erase(lo, hi)
+		e.mode = editing
+	case "copy":
+		e.clip = string(e.buf.slice(lo, hi))
+	case "cut":
+		e.clip = string(e.buf.slice(lo, hi))
 		e.erase(lo, hi)
 		e.mode = editing
 	case "escape":

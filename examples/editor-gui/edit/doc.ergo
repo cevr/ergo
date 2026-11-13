@@ -157,5 +157,20 @@ func Forward(d Doc, from int, col int, limit int) int {
 	from + at
 }
 
+// Boundary is the last rune boundary at or before at (clamped to the
+// text), found walking the runes of its line from the line's start.
+func Boundary(d Doc, at int) int {
+	let to = if at < 0 { 0 } else if at > piece.Len(d.Buf) { piece.Len(d.Buf) } else { at }
+	let mut b = LineStart(d, to)
+	for {
+		let s = RuneAfter(d, b)
+		if s == 0 || b+s > to {
+			break
+		}
+		b = b + s
+	}
+	b
+}
+
 // LineOf is the line number of at, from 1.
 func LineOf(d Doc, at int) int { piece.LineOf(d.Buf, at) }
