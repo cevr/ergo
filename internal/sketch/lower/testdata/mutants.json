@@ -3951,6 +3951,9 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
-    }
+    },
+    {"name":"law-ptr-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/tests.go","from":"return fc.convert(p.Conv, \"&\"+pv, law.Decl)","to":"return fc.convert(p.Conv, pv, law.Decl)","rule":"A generated case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"return fc.convert(p.Conv, \"&\"+a, law.Decl)","to":"return fc.convert(p.Conv, a, law.Decl)","rule":"A listed case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-drops-holder","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"\t\t\t\tbind += e + \".\" + l.envField","to":"\t\t\t\tbind = e + \".\" + l.envField","rule":"A listed case declares the variable that holds a borrow provider's value before it binds the provider.","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]}
   ]
 }

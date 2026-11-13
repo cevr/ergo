@@ -2513,6 +2513,7 @@
       "killers": [
         "check:TestImportGoUses"
       ]
-    }
+    },
+    {"name":"law-ptr-no-borrow-provider","origin":"wf10 fu-law-ptr","file":"internal/sketch/check/laws.go","from":"a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)","to":"a, _ = c.providerAssignability(p, slot)","rule":"types.md, Laws 10: a named type whose operations take *P provides the slot by its address, so its laws run (fu-law-ptr).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]}
   ]
 }
