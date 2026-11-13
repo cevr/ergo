@@ -1,0 +1,21 @@
+// fk-wizard is a port of Foldkit's state-machine example (stage a: the
+// model, with no view): an expedition permit filled in step by step as one
+// machine, with an inspector's log of its transitions. It plays a script
+// of the user's acts and shows the permit after each. Package permit is
+// the machine; package desk adds the log; package script plays the
+// script. This binary is the only place that chooses the clock: a
+// time.Manual that only the script's waits move, so the filing office's
+// second takes no wall time.
+
+import fkwizard/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock) }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-wizard: the script did not run"}
+	}
+}

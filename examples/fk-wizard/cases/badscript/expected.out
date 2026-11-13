@@ -1,0 +1,6 @@
+  stage: plan (overnight)
+> trip day
+  stage: plan (day trip)
+  log 0: Plan -> Plan on Chose
+> leader maybe
+? line 2: leader is on or off

@@ -1,0 +1,204 @@
+// Package script is the host of stage a: it runs the permit desk as an
+// actor on a manual clock, plays a script of the user's acts, and shows
+// after each the permit's stage when it changed and the log's new lines.
+// A line is one of:
+//
+//	trip overnight|day   choose the trip's kind
+//	continue | back      the step's buttons
+//	leader on|off        name the permit's leader, or not
+//	agree on|off         accept the rules, or not
+//	code TEXT            type TEXT in the code field (the rest of the line)
+//	apply                apply the field's code
+//	file                 file the permit
+//	cancel | startover   cancel; start over after an end
+//	wait MS              let MS milliseconds pass
+//
+// A blank line or one that starts with # is skipped. The code field is
+// the host's: apply parses it (permit.ParseCode) and gives the machine
+// the allowance, or Unknown.
+
+import actor
+import fkwizard/desk
+import fkwizard/permit
+import io
+import strconv
+import strings
+import time
+
+// Clerk is the running desk.
+type Clerk = actor.Actor[desk.Desk, permit.Signal, Decision[desk.Desk, Never]]
+
+// Bad is a script line the host cannot read.
+type Bad { Line int, Why string }
+
+// Run plays the script on standard input with the desk's timers on
+// clock, which only Run moves, and prints what the desk does. It returns
+// the exit status: 0, or 1 for a line it cannot read.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+	let mut shown = desk.Blank
+	let mut field = ""
+	let mut n = 0
+	Console.Println("  stage: \(Describe(shown.Stage))")
+	for raw in io.Stdin.Lines() {
+		n = n + 1
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		let words = strings.Fields(line)
+		let arg = if len(words) > 1 { words[1] } else { "" }
+		match words[0] {
+		case "wait":
+			let ms = strconv.Atoi(arg) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return bad(clerk, n, "wait takes a number of milliseconds")
+			}
+			time.Advance(clock, duration(int64(ms)*1000000))
+		case "code":
+			field = strings.TrimSpace(strings.TrimPrefix(line, "code"))
+			Console.Println("  field: \"\(field)\"")
+			ask(clerk, permit.Edited)
+		case "apply":
+			match permit.ParseCode(field) {
+			case Some[permit.Allowance] as a:
+				ask(clerk, permit.Applied{Allowance: a.Value})
+			case None:
+				ask(clerk, permit.Unknown)
+			}
+		case _:
+			let sig = signalOf(words[0], arg) catch {
+			case Bad as b:
+				return bad(clerk, n, b.Why)
+			}
+			ask(clerk, sig)
+		}
+		let now = clerk.State()
+		if now.Stage != shown.Stage {
+			Console.Println("  stage: \(Describe(now.Stage))")
+		}
+		for l in NewLines(shown, now) {
+			Console.Println("  log \(l.ID): \(l.Summary)")
+		}
+		shown = now
+	}
+	clerk.Stop()
+	Console.Println("> stop")
+	0
+}
+
+func bad(clerk Clerk, n int, why string) int {
+	Console.Println("? line \(n): \(why)")
+	clerk.Stop()
+	1
+}
+
+// ask gives the desk sig and waits for its step. A desk never fails or
+// ends, so a stopped one has nothing to answer.
+func ask(clerk Clerk, sig permit.Signal) {
+	let _ = clerk.Ask(sig) catch {
+	case actor.Stopped:
+		return
+	}
+}
+
+func onOff(word string, arg string) bool fails Bad {
+	match arg {
+	case "on":
+		true
+	case "off":
+		false
+	case _:
+		Bad{Line: 0, Why: "\(word) is on or off"}
+	}
+}
+
+func signalOf(word string, arg string) permit.Signal fails Bad {
+	match word {
+	case "continue":
+		permit.Continue
+	case "back":
+		permit.Back
+	case "cancel":
+		permit.Cancel
+	case "file":
+		permit.File
+	case "startover":
+		permit.StartOver
+	case "leader":
+		permit.Led{On: try onOff(word, arg)}
+	case "agree":
+		permit.Agreed{On: try onOff(word, arg)}
+	case "trip":
+		match arg {
+		case "overnight":
+			permit.Chose{Overnight: true}
+		case "day":
+			permit.Chose{Overnight: false}
+		case _:
+			Bad{Line: 0, Why: "trip is overnight or day"}
+		}
+	case _:
+		Bad{Line: 0, Why: "unknown word \(word)"}
+	}
+}
+
+// NewLines is the log's entries in now that were not in before, oldest
+// first.
+func NewLines(before desk.Desk, now desk.Desk) []desk.Entry {
+	let mut out = []desk.Entry{}
+	let mut k = len(now.Log) - 1
+	for k >= 0 {
+		if now.Log[k].ID >= before.Next {
+			out = out.Append(now.Log[k])
+		}
+		k = k - 1
+	}
+	out
+}
+
+func trip(overnight bool) string {
+	if overnight { "overnight" } else { "day trip" }
+}
+
+func yes(b bool, what string) string {
+	if b { what } else { "no " + what }
+}
+
+func allowance(a Option[permit.Allowance]) string {
+	match a {
+	case Some[permit.Allowance] as g:
+		"\(permit.Code(g.Value)), \(permit.Percent(g.Value))% off"
+	case None:
+		"no allowance"
+	}
+}
+
+// Describe is a stage as the inspector shows it.
+func Describe(s permit.Stage) string {
+	match s {
+	case permit.Plan as p:
+		"plan (\(trip(p.Overnight)))"
+	case permit.Supplies as p:
+		"supplies (\(trip(p.Overnight)))"
+	case permit.Permit as p:
+		"permit (\(trip(p.Overnight)), \(yes(p.Leader, "leader")))"
+	case permit.Review as r:
+		let code = match r.Pass {
+		case permit.NoCode:
+			"no code"
+		case permit.Granted as g:
+			"\(permit.Code(g.Allowance)) applied, \(permit.Percent(g.Allowance))% off"
+		case permit.Refused:
+			"that code isn't recognized"
+		}
+		"review (\(trip(r.Overnight)), \(yes(r.Leader, "leader")), \(if r.Agreed { "rules agreed" } else { "rules not agreed" }), \(code))"
+	case permit.Filing as f:
+		"filing (\(trip(f.Overnight)), \(allowance(f.Allowance)))"
+	case permit.Confirmed as c:
+		"confirmed: permit \(c.ID) (\(trip(c.Overnight)), \(allowance(c.Allowance)))"
+	case permit.Cancelled as c:
+		"cancelled (\(trip(c.Overnight)))"
+	}
+}

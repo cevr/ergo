@@ -1,0 +1,88 @@
+// The permit's rules as laws over every stage and signal (their
+// parameters can be listed, so ergo test proves them), and one timed law
+// on a virtual clock.
+
+import machines
+import strings
+import testing
+import time
+
+// ReviewGatesFile: File in review files the permit exactly when a leader
+// is named and the rules are agreed, and the filing keeps the trip's kind
+// and the allowance granted; otherwise it is ignored.
+law ReviewGatesFile(leader bool, overnight bool, agreed bool, pass Pass) {
+	let r = Review{Leader: leader, Overnight: overnight, Agreed: agreed, Pass: pass}
+	match Step(r, File) {
+	case Enter[Stage] as e:
+		leader && agreed && e.Next == Filing{Overnight: overnight, Allowance: granted(pass)}
+	case Ignore:
+		!(leader && agreed)
+	case Stay[Stage], Reject:
+		false
+	}
+}
+
+// CancelFromEveryOpenStep: Cancel from every open stage enters Cancelled
+// and keeps the trip's kind; a stage that is not open ignores it.
+law CancelFromEveryOpenStep(s Stage) {
+	match Step(s, Cancel) {
+	case Enter[Stage] as e:
+		Open(s) && e.Next == Cancelled{Overnight: Overnight(s)}
+	case Ignore:
+		!Open(s)
+	case Stay[Stage], Reject:
+		false
+	}
+}
+
+// EditClearsOnlyARefusal: changing the code field clears a refused code,
+// so the message goes, and keeps an allowance granted.
+law EditClearsOnlyARefusal(leader bool, agreed bool, pass Pass) {
+	let r = Review{Leader: leader, Overnight: false, Agreed: agreed, Pass: pass}
+	let next = machines.Next(r, Step(r, Edited))
+	match pass {
+	case Refused:
+		next == Review{..r, Pass: NoCode}
+	case NoCode, Granted:
+		next == r
+	}
+}
+
+// CodesIgnoreCaseAndSpace: a code parses to its allowance in any case and
+// with spaces around it; a code with a letter changed parses to none.
+law CodesIgnoreCaseAndSpace(a Allowance, pad int where 0 <= pad && pad <= 3, lower bool) {
+	let spaces = strings.Repeat(" ", pad)
+	let typed = if lower { strings.ToLower(Code(a)) } else { Code(a) }
+	ParseCode(spaces+typed+spaces) == Some[Allowance]{Value: a} && ParseCode(Code(a)+"X") == None
+}
+
+// FilingTakesASecond: a filed permit is confirmed when the office answers,
+// a second after the filing (upstream's PlaceOrder delay), and not a
+// moment before.
+law FilingTakesASecond(ms int where 0 <= ms && ms <= 2000) {
+	let c = testing.NewVirtualClock(0)
+	let at = duration(int64(ms) * 1000000)
+	let s = with context { Scheduler: c, time.Clock: c } { filedAt(at) }
+	match s {
+	case Confirmed as k:
+		at >= 1s && k == Confirmed{Overnight: false, Allowance: None, ID: "DAY-1001"}
+	case Filing:
+		at < 1s
+	case Plan, Supplies, Permit, Review, Cancelled:
+		false
+	}
+}
+
+// filedAt is the stage at the time end of a day trip filed at 0.
+func filedAt(end duration) Stage needs time.Clock | Scheduler {
+	let filing = []Signal{Chose{Overnight: false}, Continue, Led{On: true}, Continue, Agreed{On: true}, File}
+	let mut trace = []machines.Timed[Signal]{}
+	for sig in filing {
+		trace = trace.Append(machines.Timed[Signal]{At: 0s, Signal: sig})
+	}
+	let o = machines.RunTimed(Wizard{}, trace, end) catch {
+	case machines.Rejected:
+		return Start
+	}
+	machines.LastState(o)
+}
