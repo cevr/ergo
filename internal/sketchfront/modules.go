@@ -59,6 +59,10 @@ type depModule struct {
 	reason string
 	// goModule is true when the module's root holds no ergo.mod.
 	goModule bool
+	// sum is go.sum's h1 hash of the module cache's copy, which the copy
+	// matched; "" for a local folder, which has no hash and may change.
+	// It names the module's checked packages in the snapshot (stdcache.go).
+	sum string
 }
 
 // moduleGraph is the build list the root's go.mod gives.
@@ -555,7 +559,7 @@ func (l *loader) fetchDependency(m *depModule) string {
 	if got != want {
 		return fmt.Sprintf("the module cache's copy of %s %s does not match %s (%s holds %s, the copy hashes %s); go mod verify reports it", path, version, GoSumFile, GoSumFile, want, got)
 	}
-	m.dir = dir
+	m.dir, m.sum = dir, want
 	return ""
 }
 

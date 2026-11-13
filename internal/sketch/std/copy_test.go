@@ -68,12 +68,14 @@ func TestStdCopyAgrees(t *testing.T) {
 	only := os.Getenv("ERGO_STD_COPY_PKG")
 	pkgs := append([]string{copyFixturePath}, std.Packages()...)
 	seen := map[string]bool{}
+	verdicts := map[string]copyVerdictT{}
 	for _, path := range pkgs {
 		if only != "" && path != only {
 			continue
 		}
 		seen[path] = true
 		v := copyVerdict(t, path, seeds)
+		verdicts[path] = v
 		row, ok := rows[path]
 		switch {
 		case !ok:
@@ -95,6 +97,38 @@ func TestStdCopyAgrees(t *testing.T) {
 				t.Errorf("testdata/std-copy.txt lists %s, which is no std package", path)
 			}
 		}
+	}
+	copyAgreesWithSnapshot(t, pkgs, verdicts, seeds)
+}
+
+// copyAgreesWithSnapshot runs the property again with std decoded from its
+// checked snapshot (S3, CHK1b) instead of checked from source, and every
+// verdict must be the same (NP5): the snapshot saves work and changes no
+// result, so it is no privilege. The snapshot is exported from a fresh
+// check of std, as the compiler's cache writes it.
+func copyAgreesWithSnapshot(t *testing.T, pkgs []string, verdicts map[string]copyVerdictT, seeds []uint64) {
+	t.Helper()
+	check.ResetStdForTest()
+	t.Cleanup(check.ResetStdForTest)
+	data, err := check.ExportStd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check.ResetStdForTest()
+	if err := check.InstallStd(bytes.NewReader(data), int64(len(data))); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range pkgs {
+		want, ran := verdicts[path]
+		if !ran {
+			continue
+		}
+		if got := copyVerdict(t, path, seeds); got.String() != want.String() {
+			t.Errorf("std package %s: with std from its snapshot the copy %s; from source it %s", path, got, want)
+		}
+	}
+	if w := check.WorkDone(); w.StdPackagesChecked != 0 {
+		t.Errorf("the snapshot pass checked %d std packages from source", w.StdPackagesChecked)
 	}
 }
 

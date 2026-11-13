@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -161,6 +162,9 @@ type loader struct {
 	// localOnly reads the program's own module and no other: a recursive
 	// command orders the module's packages and reads no dependency.
 	localOnly bool
+	// segments are the packages of required modules the check may take
+	// from the snapshot, or write to it, by segment key (moduleSegments).
+	segments map[*loadedPackage]string
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
@@ -245,7 +249,6 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 // checkDirIn checks the package in dir with required modules read from the
 // module cache folder modCache.
 func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) (Analysis, error) {
-	prepareStd()
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
@@ -274,9 +277,12 @@ func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) 
 			return Analysis{}, err
 		}
 		if len(l.diags) == 0 {
+			l.segments = l.moduleSegments()
+			prepareStd(slices.Collect(maps.Values(l.segments)))
 			l.checkAll()
 		}
 	}
+	prepareStd(nil)
 	p := &program{texts: l.texts, bindings: l.bindings}
 	if found {
 		p.module, p.modRoot, p.trust = l.module, l.root, l.trust
@@ -644,27 +650,28 @@ func (l *loader) cycle(p *loadedPackage, imp localImport, q *loadedPackage, stac
 
 // checkAll checks each package once, in dependency order. A package that
 // imports a broken package is broken and not checked.
+//
+// The packages of required modules that a snapshot may hold (segments) go
+// first: each is decoded from the installed snapshot, or checked from
+// source, and those checked from source are written to the snapshot before
+// any package of the program's own module is checked, so the snapshot
+// holds std and module packages only (stdcache.go). They import no package
+// of the program's module, so dependency order holds; diagnostics keep
+// the order of l.order.
 func (l *loader) checkAll() {
+	ds := map[*loadedPackage][]check.Diagnostic{}
+	var written []*loadedPackage
+	for _, p := range l.order {
+		if _, ok := l.segments[p]; ok && l.checkPackage(p, false, ds) {
+			written = append(written, p)
+		}
+	}
+	l.writeSegments(written, ds)
 	for i, p := range l.order {
-		for _, imp := range p.imports {
-			if q := l.pkgs[imp.path]; q != nil && q.broken {
-				p.broken = true
-			}
+		if _, ok := l.segments[p]; !ok {
+			l.checkPackage(p, i == len(l.order)-1, ds)
 		}
-		if p.broken {
-			continue
-		}
-		files := make([]*syntax.File, len(p.files))
-		for k, f := range p.files {
-			files[k] = f.syntax
-		}
-		path := p.path
-		if i == len(l.order)-1 {
-			path = "main" // the root package is the program's main package
-		}
-		pkg, ds := check.CheckTest(path, files, l, l.testOf(p))
-		p.pkg = pkg
-		for _, d := range ds {
+		for _, d := range ds[p] {
 			l.diags = append(l.diags, report.Diagnostic{
 				Code:    d.Code,
 				File:    p.files[d.File].rel,
@@ -672,9 +679,131 @@ func (l *loader) checkAll() {
 				Span:    report.Span{Offset: d.Offset, Length: d.Length, Line: d.Line, Column: d.Column},
 			})
 		}
-		if len(ds) > 0 {
+	}
+}
+
+// checkPackage checks p, the program's main package when main is set, or
+// takes it from the installed snapshot, and records its diagnostics in ds.
+// It reports whether p was checked from source with the module importer,
+// which a snapshot may then hold.
+func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage][]check.Diagnostic) bool {
+	for _, imp := range p.imports {
+		if q := l.pkgs[imp.path]; q != nil && q.broken {
 			p.broken = true
 		}
+	}
+	if p.broken {
+		return false
+	}
+	var imp check.Importer = l
+	key, segment := l.segments[p]
+	if segment {
+		if pkg, ok := check.InstalledPackage(key); ok && adopt(p, pkg) {
+			stdCache.mu.Lock()
+			stdCache.taken++
+			stdCache.mu.Unlock()
+			return false
+		}
+		imp = check.ModuleImporter(l)
+	}
+	files := make([]*syntax.File, len(p.files))
+	for k, f := range p.files {
+		files[k] = f.syntax
+	}
+	path := p.path
+	if main {
+		path = "main" // the root package is the program's main package
+	}
+	pkg, found := check.CheckTest(path, files, imp, l.testOf(p))
+	p.pkg = pkg
+	ds[p] = found
+	if len(found) > 0 {
+		p.broken = true
+	}
+	return segment
+}
+
+// adopt makes the decoded package pkg p's checked package, and p's syntax
+// pkg's, file by file name: the checker's result names the nodes of the
+// files it checked. A package whose files do not match is checked from
+// source.
+func adopt(p *loadedPackage, pkg *check.Package) bool {
+	decoded := map[string]*syntax.File{}
+	for _, f := range pkg.Files() {
+		decoded[f.Name] = f
+	}
+	if len(decoded) != len(p.files) {
+		return false
+	}
+	for _, f := range p.files {
+		if f.syntax == nil || decoded[f.syntax.Name] == nil {
+			return false
+		}
+	}
+	for k := range p.files {
+		p.files[k].syntax = decoded[p.files[k].syntax.Name]
+	}
+	p.pkg = pkg
+	return true
+}
+
+// moduleSegments are the packages of required modules whose checked
+// package a snapshot may hold, each by its segment key (NP5): a package of
+// a module read from the module cache, whose copy matched go.sum's hash,
+// that uses no Go (a use reads the root's ergo.bind and trust lines) and
+// is no test package, and whose imports of other packages are segments
+// too. The key names the package and its module's version and hash. The
+// snapshot is named by every key of the program (moduleSnapshotKey), so a
+// package's imports are those of the program that wrote it.
+func (l *loader) moduleSegments() map[*loadedPackage]string {
+	out := map[*loadedPackage]string{}
+	for _, p := range l.order {
+		if p.mod == nil || p.mod.sum == "" || len(p.goUses) > 0 || p.broken {
+			continue
+		}
+		if _, test := check.TestedPath(p.path); test {
+			continue
+		}
+		ok := true
+		for _, imp := range p.imports {
+			_, isSegment := out[l.pkgs[imp.path]]
+			ok = ok && isSegment
+		}
+		if ok {
+			out[p] = check.ModuleSegment(p.path, p.mod.name+" "+p.mod.sum)
+		}
+	}
+	return out
+}
+
+// writeSegments writes the snapshot of std and the module packages the
+// check took from source (checked), when every one checked clean, embeds
+// no file and declares no derive, as do the segments it imports; one that
+// does not is left out with every package that imports it.
+func (l *loader) writeSegments(checked []*loadedPackage, ds map[*loadedPackage][]check.Diagnostic) {
+	if len(checked) == 0 {
+		return
+	}
+	held := map[*loadedPackage]bool{}
+	var pkgs []*check.Package
+	var keys []string
+	for _, p := range l.order {
+		key, segment := l.segments[p]
+		if !segment || p.broken || p.pkg == nil || len(ds[p]) > 0 || len(p.assets) > 0 || !p.pkg.Derive.Empty() {
+			continue
+		}
+		ok := true
+		for _, imp := range p.imports {
+			ok = ok && held[l.pkgs[imp.path]]
+		}
+		if ok {
+			held[p] = true
+			pkgs = append(pkgs, p.pkg)
+			keys = append(keys, key)
+		}
+	}
+	if slices.ContainsFunc(checked, func(p *loadedPackage) bool { return held[p] }) {
+		writeModuleSnapshot(slices.Collect(maps.Values(l.segments)), pkgs, keys)
 	}
 }
 

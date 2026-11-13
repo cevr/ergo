@@ -83,6 +83,9 @@ type genPkg struct {
 	goUse int
 	// leak declares H, which writes to the console with no row.
 	leak bool
+	// extra is more source after F (TestModuleSnapshotAgrees: declared
+	// types, whose checked form names the checker); "" in MD1's graphs.
+	extra string
 }
 
 type genVersion struct {
@@ -291,6 +294,7 @@ func (p genPkg) source() string {
 	if p.leak {
 		b.WriteString("\n" + leakSource)
 	}
+	b.WriteString(p.extra)
 	if p.goUse == 2 {
 		b.WriteString("\nextern go strings.ToUpper func Upper(s string) string\n")
 	}
