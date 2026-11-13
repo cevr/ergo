@@ -554,7 +554,9 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 			}
 		}
 		log := filepath.Join(work, "log")
-		command := exec.Command(binary, "-test.run", exactNames([]string{name}), "-test.short", "-test.count=1", "-test.testlogfile="+log, "-test.gocoverdir="+counters)
+		// sh runs the built binary, as writeTestCPU does: the gate's host
+		// programs are literals (hostPrograms).
+		command := exec.Command("sh", "-c", `exec "$0" "$@"`, binary, "-test.run", exactNames([]string{name}), "-test.short", "-test.count=1", "-test.testlogfile="+log, "-test.gocoverdir="+counters)
 		command.Env = setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOCOVERDIR", counters)
 		command.Dir = packageDir
 		var output bytes.Buffer
@@ -730,8 +732,10 @@ func writeCoverage(root, cacheDir string, limit limiter, packages []string, out 
 		writes = append(writes, step.Writes...)
 		var command *exec.Cmd
 		switch step.Argv[0] {
-		case "go", "sh":
-			command = exec.Command(step.Argv[0], step.Argv[1:]...)
+		case "go":
+			command = exec.Command("go", step.Argv[1:]...)
+		case "sh":
+			command = exec.Command("sh", step.Argv[1:]...)
 		default:
 			return fmt.Errorf("%s: not a go build or a reviewed script: %q", step.Name, step.Argv)
 		}
