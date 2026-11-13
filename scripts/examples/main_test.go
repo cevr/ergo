@@ -719,6 +719,8 @@ func TestTestLeg(t *testing.T) {
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
 	}
+	// Programs run at once (runAll), so the calls are compared as a set.
+	slices.Sort(tests)
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
 	}
