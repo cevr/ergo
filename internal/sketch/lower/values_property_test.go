@@ -152,6 +152,7 @@ type valueGen struct {
 	n       int
 	reached map[string]bool
 	pending []func() // prints of closures and tasks, run at the end
+	turn    int      // the moves written so far, which pick the next one's form (no draw)
 	refs    []*vref
 }
 
@@ -407,6 +408,31 @@ func upRef(m Map[int, int]) Map[int, int] {
 }
 
 func dupM(m Map[int, int]) (Map[int, int], Map[int, int]) { (m, m) }
+
+// takeS and dropS move through a borrow (V7): a take, then a reslice.
+func takeS(p *[]int, v int) []int {
+	let got = *p
+	*p = []int{v}
+	got
+}
+
+func dropS(p *[]int) {
+	if len(*p) > 1 {
+		*p = (*p)[1:]
+	}
+}
+
+// crossS stores a slice of one place into another place and into another
+// binding: neither is a reslice (V7), so the write after reaches neither.
+type Two { A []int, B []int }
+
+func crossS(p *Two) int {
+	p.A = p.B[1:]
+	let mut c = []int{}
+	c = p.B[1:]
+	p.B[1] = 9
+	p.A[0] * 10 + c[0]
+}
 
 func apply(f func(k int)) {
 	f(3)
@@ -851,6 +877,7 @@ func (g *valueGen) write() {
 			g.line(fmt.Sprintf("%s[%d] = %d", b.name, i, v))
 			b.val.s[i] = v
 			g.reached["write slice"] = true
+			g.moveSlice(b, v)
 		case 1:
 			g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = %s.Append(i + %d)\n\t}", b.name, b.name, v))
 			for i := range 3 {
@@ -886,6 +913,7 @@ func (g *valueGen) write() {
 				b.val.s[0] = v
 			}
 			g.reached["write field slice"] = true
+			g.moveField(b, v)
 		default:
 			g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
 			b.val.s = append(b.val.s, v)
@@ -899,6 +927,93 @@ func (g *valueGen) write() {
 		g.line(fmt.Sprintf("%s[0][%d] = %d", b.name, key, v))
 		b.val.ms[0][key] = v
 		g.reached["write element"] = true
+	}
+}
+
+// later prints t at the end of main, with the model value old: a write
+// to the place t was taken from must not reach it.
+func (g *valueGen) later(t string, old []int) {
+	g.pending = append(g.pending, func() { g.print(t, kSlice, mval{s: old}.digest(kSlice)) })
+}
+
+// moveSlice takes or reslices the slice binding b through a borrow or as
+// a root (V7), in turn (no new draw, so the seeds keep their paths); the
+// shared program only, since the alias reference shares a take.
+func (g *valueGen) moveSlice(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	g.turn++
+	switch g.turn % 3 {
+	case 0:
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = takeS(&%s, %d)", t, b.name, v))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v}
+		g.reached["move take borrow"] = true
+	case 1:
+		g.line(fmt.Sprintf("dropS(&%s)", b.name))
+		if len(b.val.s) > 1 {
+			b.val.s = slices.Clone(b.val.s[1:])
+		}
+		g.reached["move reslice borrow"] = true
+	default:
+		// The slice keeps one element at least: a later write picks one.
+		from := min(1, len(b.val.s)-1)
+		g.line(fmt.Sprintf("%s = %s[%d:]", b.name, b.name, from))
+		b.val.s = slices.Clone(b.val.s[from:])
+		g.reached["move reslice root"] = true
+	}
+}
+
+// moveField takes the slice field of the Box binding b, with a write
+// between the read and the overwrite, another place's overwrite or none,
+// or reslices it (V7), in turn.
+func (g *valueGen) moveField(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	g.turn++
+	switch g.turn % 4 {
+	case 3:
+		if len(b.val.s) == 0 {
+			return
+		}
+		// Not a take: the overwrite after the read is another place's,
+		// so the write after it reaches the place's old value.
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.M = Map[int, int]{%d: %d}", b.name, v, v))
+		g.line(fmt.Sprintf("%s.S[0] = %d", b.name, v+1))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.m = map[int]int{v: v}
+		b.val.s[0] = v + 1
+		g.reached["move other place"] = true
+	case 0:
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.S = []int{%d, %d}", b.name, v, v+1))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v, v + 1}
+		g.reached["move take"] = true
+	case 1:
+		if len(b.val.s) == 0 {
+			return
+		}
+		// Not a take: the write between the two reaches the place's old
+		// value, which t must not see.
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.S[0] = %d", b.name, v+1))
+		g.line(fmt.Sprintf("%s.S = []int{%d}", b.name, v))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v}
+		g.reached["move kept"] = true
+	default:
+		from := max(0, min(1, len(b.val.s)-1))
+		g.line(fmt.Sprintf("%s.S = %s.S[%d:]", b.name, b.name, from))
+		b.val.s = slices.Clone(b.val.s[from:])
+		g.reached["move reslice"] = true
 	}
 }
 
@@ -917,6 +1032,9 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 		f()
 	}
 	if shared {
+		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
+		g.line("Console.Println(\"\\(crossS(&two))\")")
+		fmt.Fprintf(&g.want, "%d\n", 22)
 		// The Refs (V6), then every binding and Ref as the model has it:
 		// a write through a Ref changes no binding.
 		for range 30 {
@@ -988,13 +1106,19 @@ func TestValueRuleAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
+	var moves, copyMoves int
 	for _, seed := range seeds {
 		src, want := valueProgram(seed, true, reached)
 		name := fmt.Sprintf("vr%dshared", seed)
+		savedHook := statsHook
+		statsHook = func(s knownStats) { moves += s.Moves }
 		programs = append(programs, lowerValueMode(t, name, src, true))
 		runs = append(runs, run{seed, src, want, name})
-		// The copying lowering, the reference of owned parameters.
+		// The copying lowering, the reference of owned parameters and of
+		// moves (V7): it moves nothing.
+		statsHook = func(s knownStats) { copyMoves += s.Moves }
 		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
+		statsHook = savedHook
 		runs = append(runs, run{seed, src, want, name + "copy"})
 		// Every call a Go call (inlineLowering "call"): owned bodies
 		// called, the reference of the owned parameters an inlined body
@@ -1006,6 +1130,18 @@ func TestValueRuleAgrees(t *testing.T) {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)
 			programs = append(programs, lowerValueMode(t, name, usrc, rule))
 			runs = append(runs, run{seed, usrc, uwant, name})
+		}
+	}
+	if moves == 0 || copyMoves != 0 {
+		t.Errorf("moves (V7): %d under the rule (want some), %d under the copying reference (want none)", moves, copyMoves)
+	}
+	// The promised form of a move: no copy at the take or the reslice
+	// through a borrow; the copying reference copies at both.
+	for i, p := range programs[:2] {
+		for _, fn := range []string{"takeS", "dropS"} {
+			if copied := strings.Contains(goFunc(t, p.mainGo(), fn), "Clone("); copied != (i == 1) {
+				t.Errorf("%s: %s copies %v, want %v (V7):\n%s", p.name, fn, copied, i == 1, goFunc(t, p.mainGo(), fn))
+			}
 		}
 	}
 	for _, p := range programs[:1] {
@@ -1047,4 +1183,5 @@ var valuePaths = []string{
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
+	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
 }

@@ -84,6 +84,9 @@ type knownStats struct {
 	// ArgsShared is the by-value arguments read from a root that the
 	// result-alias rule passes uncopied (values.go, resultDeps).
 	ArgsShared int
+	// Moves is the reads of a place the next write overwrites whole, taken
+	// with no copy (values.go V7, moves.go).
+	Moves int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
 	// BorrowCopies is the generic results through a borrow copied at the

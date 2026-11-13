@@ -125,6 +125,7 @@ type valueFacts struct {
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
 	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
+	moved    map[syntax.Expr]bool          // reads of a place its next write overwrites whole: a take or a reslice (V7, moves.go)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -146,6 +147,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
 			goShare:  map[syntax.Expr]bool{},
+			moved:    map[syntax.Expr]bool{},
 		}
 	}
 	return l.vals
@@ -681,6 +683,8 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// Moves (V7, moves.go): reads the escapes and the binds leave alone.
+	w.decideMoves()
 	// Escapes (V2).
 	if valueMutant != "never-copy" {
 		for _, vv := range w.order {
@@ -689,6 +693,8 @@ func (w *valueWalk) decide() {
 			}
 			for _, o := range vv.occs {
 				switch {
+				case vf.moved[o.path]:
+					// Its place is overwritten next (V7).
 				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
 					// The callee would see a write a later operand makes.
 					if w.l.holdsValue(w.typeOf(o.path)) {
@@ -1527,7 +1533,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	if e == nil {
 		return true
 	}
-	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] {
+	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] {
 		return true
 	}
 	switch x := e.(type) {
