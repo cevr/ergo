@@ -107,6 +107,11 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 type yieldTo struct {
 	local int
 	t     check.Type // the local's type: a variant joins its union (ir_union.go)
+	// fails marks a fallible with's block under try or catch (ir_with.go,
+	// failWith): a tail that is a fallible call puts its error in err, and
+	// local is -1 when the with has no value.
+	fails bool
+	err   int
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -118,11 +123,17 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
 			switch m.(type) {
 			case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+				if to != nil && to.fails {
+					irNo("with whose block fails in a match")
+				}
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
 		}
 		if w, ok := b.isWith(s.X); ok && !conv {
 			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
+		}
+		if to != nil && to.fails {
+			return b.failYield(s.X, to, p) // ir_with.go
 		}
 		if to != nil {
 			pre, x := b.value(s.X)
@@ -133,6 +144,9 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	case *syntax.ReturnStmt:
 		return b.stmt(s)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		if to != nil && to.fails {
+			irNo("with whose block fails in a match")
+		}
 		return b.matchStmt(s, true, to) // ir_match.go
 	case *syntax.IfStmt:
 		if s.Else == nil {

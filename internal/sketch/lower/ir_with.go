@@ -36,10 +36,61 @@ func (b *irBuilder) withStmt(x *syntax.CallExpr, ret bool, to *yieldTo) []*irStm
 	if b.env < 0 {
 		irNo("with in a pure function")
 	}
-	if b.fc.fallibleExpr(x) {
+	// A with whose block's tail fails passes the failure on: as the
+	// function's result (ret: the tail returns it, ir_fail.go's ret), or
+	// into the error local of a try or a catch around it (failWith).
+	if b.fc.fallibleExpr(x) && !(ret && to == nil) && (to == nil || !to.fails) {
 		irNo("with whose block fails")
 	}
 	return b.withOperand(x, 0, w, ret, to)
+}
+
+// failWith is the fallible with x under try or catch (bind, ir_fail.go):
+// the emitter's withExpr with an error destination. Its value local (-1:
+// none) and its error local are declared first; the block's tail puts
+// the value in the one and its untried failure in the other (failYield).
+// A try inside the block leaves the function, as the emitter's does: a
+// with is no closure.
+func (b *irBuilder) failWith(x *syntax.CallExpr) (pre []*irStmt, v, e int) {
+	p := b.pos(x, x.Pos())
+	e = b.temp("err", "error", p)
+	pre = []*irStmt{{K: "var", Pos: p, Local: e}}
+	v = -1
+	t := b.l.info.Types[x]
+	if t != nil && !isNoValue(t) && !b.fc.noValue(x) {
+		v = b.temp("v", b.goType(t, x), p)
+		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
+	}
+	return append(pre, b.withStmt(x, false, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e
+}
+
+// failYield is x, the tail of a fallible with's block under try or catch:
+// a fallible call's value and error go into to's locals, any other value
+// into its value local.
+func (b *irBuilder) failYield(x syntax.Expr, to *yieldTo, p irPos) []*irStmt {
+	if _, conv := b.l.info.Implicit[x]; conv {
+		irNo("with whose failing tail converts")
+	}
+	if b.isFailure(x) {
+		irNo("with whose block ends in a failure value")
+	}
+	call := b.fallibleCall(x)
+	if call == nil {
+		if to.local < 0 {
+			return b.discard(x)
+		}
+		pre, val := b.value(x)
+		return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: b.assignedTo(x, val, to.t)})
+	}
+	pre, v, e := b.bind(call)
+	if to.local >= 0 {
+		if v < 0 {
+			irNo("with value of a call without one")
+		}
+		val := b.assignedTo(x, &irExpr{K: "local", Pos: p, I: v}, to.t)
+		pre = append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: val})
+	}
+	return append(pre, &irStmt{K: "set", Pos: p, Local: to.err, X: &irExpr{K: "local", Pos: p, I: e}})
 }
 
 func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bool, to *yieldTo) []*irStmt {

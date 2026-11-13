@@ -138,9 +138,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"match on a value that is no union", "G3b"},
 	{"match on a value of type *", "G3b"},
 	{"match subject that releases owned values", "G2"},
-	{"match on Get", "G4"},         // a Map read: the comma-ok form (getmatch.go)
-	{"operation-type value", "G4"}, // a value of an operation type: an interface of functions
-	{"operations conversion", "G4"},
+	{"match on Get", "G4"}, // a Map read: the comma-ok form (getmatch.go)
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
@@ -180,8 +178,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
 	{"expression *syntax.FuncLit", "G6"},
-	{"trailing block", "G6"}, // with(…) { }: a context and its frame
+	{"trailing block", "G6"}, // a call's trailing block that is not a with's
 	{"context value", "G6"},
+	// IRG6 lowers a with of named, inline and local contexts, and the
+	// operations conversion its providers take (IRG4 left both); the
+	// withs and conversions below stay the emitter's.
+	{"with *", "G6"},
+	{"context entry *", "G6"},
+	{"operations conversion *", "G6"},
+	{"generic operations conversion", "G6"},
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed

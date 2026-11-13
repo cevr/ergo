@@ -217,6 +217,9 @@ func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // bind evaluates the fallible call into a value local (-1: none) and an
 // error local.
 func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
+	if w, ok := b.isWith(call); ok {
+		return b.failWith(w) // ir_with.go
+	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
