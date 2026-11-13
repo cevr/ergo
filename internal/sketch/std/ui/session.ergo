@@ -91,5 +91,13 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 	[]Op[E]{}
 }
 
+// SessionRoot is the Id of the root of s's tree, the parent of the first
+// patch's top nodes: a host's mirror starts from it.
+func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
+
+// SessionAnimates is whether s's last pass made an Animate: whether its
+// host should send frames (Run's Host.Frames).
+func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }
+
 // InFlight is the number of fetches started and not yet taken or stopped.
 func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }

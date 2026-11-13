@@ -1,0 +1,6 @@
+tap inc
+tap by 10
+key -
+tap dec
+tap by 1
+key +

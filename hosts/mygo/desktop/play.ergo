@@ -1,0 +1,212 @@
+// A scene script (ui.Act) played through a headless window: each step is
+// input the window's surface sends, at the place the driver shows the
+// node it names, so a script that ui.Play runs on ui.TestHost runs here
+// through the pixels, the hit test and the focus.
+
+import actor
+import ui
+import ui/layout
+import utf8
+
+// Drain feeds the window's queued input to d.
+func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for {
+		let (next, ok) = d.w.Poll()
+		if !ok {
+			return
+		}
+		try Feed(d, next)
+	}
+}
+
+// Find is the first node of the window's tree, in tree order, whose
+// label is label (labelOf).
+func Find[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+
+func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if labelOf(h.Value.node) == (Some{Value: label}) {
+				return Some{Value: k}
+			}
+		case None:
+		}
+		match findIn[S, E, D, F](d, k, label) {
+		case Some[ui.Id[E]] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+// Focusables are the nodes that take the focus (a Pressable, a Check, a
+// Toggle, an Input), in tree order: the order Tab visits them in, since
+// the window paints in tree order and Tab follows the paint.
+func Focusables[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
+
+func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
+	let mut out = into
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if focusable(h.Value.node) {
+				out = out.Append(k)
+			}
+		case None:
+		}
+		out = focusablesIn[S, E, D, F](d, k, out)
+	}
+	out
+}
+
+// BoxOf is where the node labelled label shows, as the last paint laid it
+// out (a Scroll's offset taken off).
+func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		d.boxes.Get(id.Value)
+	case None:
+		None
+	}
+}
+
+// at is the box of the node labelled label, where a step on it presses or
+// points, after the Scrolls around it are scrolled with the wheel until
+// its centre shows, as a person scrolls to a row below the fold.
+func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let id = match Find(d, label) {
+	case Some[ui.Id[E]] as i:
+		i.Value
+	case None:
+		return ui.NoNode{Label: label}
+	}
+	try reveal(d, id)
+	match d.boxes.Get(id) {
+	case Some[layout.Box] as b:
+		b.Value
+	case None:
+		ui.NoNode{Label: label}
+	}
+}
+
+// reveal wheels each Scroll that holds id, outermost first, until the
+// centre of id's box is inside the Scroll's box.
+func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for sc in d.spots {
+		match sc.node {
+		case ui.ScrollNode:
+			if sc.id != id && holds[S, E, D, F](d, sc.id, id) {
+				match d.boxes.Get(id) {
+				case Some[layout.Box] as b:
+					let mid = b.Value.Y + b.Value.H/2
+					let top = sc.box.Y
+					let bottom = sc.box.Y + sc.box.H
+					let mut dy = float32(0)
+					if mid >= bottom {
+						dy = mid - bottom + b.Value.H/2 + 1
+					} else if mid < top {
+						dy = mid - top - b.Value.H/2 - 1
+					}
+					if dy != 0 {
+						d.w.Wheel(float64(sc.box.X+sc.box.W/2), float64(sc.box.Y+sc.box.H/2), 0, float64(dy))
+						try Drain(d)
+					}
+				case None:
+				}
+			}
+		case _:
+		}
+	}
+}
+
+// holds is whether id is below top in the window's tree.
+func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
+	for k in kidsOf(d, top) {
+		if k == id || holds[S, E, D, F](d, k, id) {
+			return true
+		}
+	}
+	false
+}
+
+// Play runs a script through the window, in order, feeding the input each
+// step makes before the next. TapOn presses and releases at the centre of
+// the node's box; TypeInto taps the field, deletes its text with
+// Backspace and types the text; KeyIn presses the key; PointOn sends the
+// pointer's phase at its place in the box; SettleAll settles. AdvanceBy
+// does nothing: the window's frames come from its display, not a clock.
+func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for act in script {
+		match act {
+		case ui.TapOn as x:
+			let b = try at(d, x.Label)
+			tap(d, b)
+			try Drain(d)
+		case ui.TypeInto as x:
+			let b = try at(d, x.Label)
+			tap(d, b)
+			try Drain(d)
+			let id = match Find(d, x.Label) {
+			case Some[ui.Id[E]] as i:
+				i.Value
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
+			let old = match d.nodes.Get(id) {
+			case Some[held[E]] as h:
+				match h.Value.node {
+				case ui.InputNode as f:
+					f.Value
+				case _:
+					""
+				}
+			case None:
+				""
+			}
+			for _ in 0..utf8.RuneCount(old) {
+				d.w.PressKey("Backspace", false)
+				try Drain(d)
+			}
+			d.w.Type(x.Text)
+			try Drain(d)
+		case ui.KeyIn as x:
+			// A character is typed, as a keyboard types it: into the
+			// focused field, else to OnKey (ui.TestHost has no focus and
+			// gives it to OnKey).
+			if utf8.RuneCount(x.Press.Name) == 1 && x.Press.Name != " " {
+				d.w.Type(x.Press.Name)
+			} else {
+				d.w.PressKey(x.Press.Name, x.Press.Mods.Shift)
+			}
+			try Drain(d)
+		case ui.PointOn as x:
+			let b = try at(d, x.Label)
+			let px = float64(b.X) + x.Pointer.X
+			let py = float64(b.Y) + x.Pointer.Y
+			match x.Pointer.Phase {
+			case ui.Down:
+				d.w.Press(px, py)
+			case ui.Moved:
+				d.w.Hover(px, py)
+			case ui.Up:
+				d.w.Release(px, py)
+			case ui.Wheel as wh:
+				d.w.Wheel(px, py, wh.DX, wh.DY)
+			}
+			try Drain(d)
+		case ui.SettleAll:
+			try Settle(d)
+		case ui.AdvanceBy:
+		}
+	}
+}
+
+// tap presses and releases at b's centre.
+func tap[S, E, D, F](d *Driver[S, E, D, F], b layout.Box) needs go.Foreign {
+	let x = float64(b.X + b.W/2)
+	let y = float64(b.Y + b.H/2)
+	d.w.Press(x, y)
+	d.w.Release(x, y)
+}

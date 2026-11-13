@@ -32,7 +32,11 @@ import (
 // (batch-14 apply 1). No binary is built: go/types reads export data in process.
 // BV1 extends it with resource variables: it alone kills refusal of a
 // resource variable, admission of ordinary state or a wrong Close result,
-// and mapping a nullable package pointer as a non-null handle.
+// and mapping a nullable package pointer as a non-null handle. W1 extends
+// it with the build platforms past the binding platforms: it alone kills
+// a portable binding that does not state them (gobind-w1-extras-dropped)
+// and one that states a platform where a declaration differs
+// (gobind-w1-extras-unchecked).
 func TestBindMappingProperty(t *testing.T) {
 	// Seed 13 reaches an array whose elements hold a slice or a map.
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 13}
@@ -65,9 +69,35 @@ func TestBindMappingProperty(t *testing.T) {
 		sources["example.test/bindprop/"+name] = src
 		patterns = append(patterns, "./"+name)
 	}
+	// A package with a declaration of the Unix platforms only: its binding
+	// keeps the declaration and states the binding platforms alone.
+	write(t, filepath.Join(dir, "unixonly", "unixonly.go"), "package unixonly\n\nfunc Portable() int { return 0 }\n")
+	write(t, filepath.Join(dir, "unixonly", "unix.go"), "//go:build unix\n\npackage unixonly\n\nfunc OnlyUnix() int { return 0 }\n")
+	patterns = append(patterns, "./unixonly")
 	files, err := gobind.Bind(dir, os.Environ(), "go1.27", patterns...)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The headers: a portable package's binding states every build
+	// platform; one that differs off the binding platforms states those.
+	header := func(ps []gobind.Platform) string {
+		var names []string
+		for _, p := range ps {
+			names = append(names, p.String())
+		}
+		return " go1.27 " + strings.Join(names, " ") + "\n"
+	}
+	unix := files["example.test/bindprop/unixonly"]
+	if !strings.Contains(unix, "/unixonly"+header(gobind.Platforms)) || readBinding(t, "example.test/bindprop/unixonly", unix)["OnlyUnix"].refused {
+		t.Errorf("binding of a package with a Unix-only declaration: want it bound, for %v alone\n%s", gobind.Platforms, unix)
+	}
+	for path := range want {
+		if path == "example.test/bindprop/"+fmt.Sprintf("p%d", seeds[0]) {
+			continue // its platform files: the refusals name the platforms
+		}
+		if !strings.Contains(files[path], path+header(gobind.BuildPlatforms)) {
+			t.Errorf("binding of the portable %s does not state %v:\n%s", path, gobind.BuildPlatforms, strings.SplitN(files[path], "\n", 3)[1])
+		}
 	}
 	for path, decls := range want {
 		text, ok := files[path]

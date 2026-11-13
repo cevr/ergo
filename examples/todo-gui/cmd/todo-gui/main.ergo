@@ -1,0 +1,97 @@
+// todo-gui is a to-do list shown by the ui package. Package todo is the
+// model (a machine with its laws), package view the screen, package
+// script the scene scripts. This binary is the headless leg: it plays a
+// script from standard input on ui.TestHost and prints the list after
+// each step. The window leg is hosts/mygo/cmd/todo-gui: the same view and
+// model on a MyGo window, which prints the same lines from the same script
+// (-headless).
+//
+//	todo-gui [-screen] < script     play the script
+//	todo-gui gen -seed S -n N        write a script of about N steps
+//
+// It is the only place that chooses: the test host and its clock.
+
+import actor
+import ergo.local/prototype/examples/todogui/script
+import ergo.local/prototype/examples/todogui/todo
+import ergo.local/prototype/examples/todogui/view
+import flag
+import io
+import os
+import slices
+import time
+import ui
+
+let screenFlag = flag.Bool("screen", false, "print the screen after the last step")
+
+let seedFlag = flag.Int("seed", 1, "the script's seed")
+
+let stepsFlag = flag.Int("n", 20, "the number of steps")
+
+let playSet = flag.Set{
+	Name:  "todo-gui",
+	Usage: "todo-gui plays a scene script from standard input and prints the list after each step.",
+	Flags: []flag.Flag{screenFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+let genSet = flag.Set{
+	Name:  "todo-gui gen",
+	Usage: "todo-gui gen writes a seeded scene script.",
+	Flags: []flag.Flag{seedFlag, stepsFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
+	if len(args) > 0 && args[0] == "gen" {
+		let v = flag.Parse(genSet, slices.Slice(args, 1, len(args))) catch {
+		case err:
+			try flag.Exit(err, flag.Usage(genSet))
+			return
+		}
+		io.Stdout.Print(script.Gen(uint64(seedFlag.Get(v)), stepsFlag.Get(v)))
+		return
+	}
+	let v = flag.Parse(playSet, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(playSet))
+		return
+	}
+	let text = input.ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "todo-gui: cannot read the script"}
+	}
+	let steps = script.Parse(text) catch {
+	case script.BadLine as b:
+		return os.Exit{Code: 2, Message: "todo-gui: line \(b.Line) is no step: \(b.Text)"}
+	}
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		let mut h = ui.NewTestHost(a, view.View, clock, 64) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+		}
+		for i, act in steps {
+			ui.Play(&h, []ui.Act{act}) catch {
+			case ui.NoNode as n:
+				io.Stdout.Println("\(i + 1): no node \(n.Label)")
+				continue
+			case actor.Stopped:
+				return os.Exit{Code: 1, Message: "todo-gui: the list stopped"}
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+			}
+			io.Stdout.Println("\(i + 1): \(todo.Summary(ui.StateOf(&h)))")
+		}
+		if screenFlag.Get(v) {
+			io.Stdout.Print(ui.Screenshot(&h))
+		}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args(), io.NewStdin())
+	}
+}

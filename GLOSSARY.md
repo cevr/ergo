@@ -15,7 +15,9 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Package**: One unit of checking: a folder, every `.ergo` file directly in it, in name order. The folder names the package (the last element of its import path); a file has no `package` clause. A program's packages are lowered into one Go package (196b Q5: one lowering path for std and user packages; a Go package per Ergo package waits for an edit-rebuild receipt).
 
-**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std and its own module only.
+**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std, its own module, and the Ergo modules its `go.mod` requires (MD1; [grammar](docs/spec/grammar.md#source-files), Required modules).
+
+**Trust line**: A `trust go MODULE` line of the root module's `ergo.mod`: the program admits the Go code (`import go`, `extern go`) of that required module, which Ergo does not check. Without it such a use is S108. Only the root's trust lines count (MD3; [grammar](docs/spec/grammar.md#source-files), Trusted Go).
 
 **Module root**: The folder that holds `ergo.mod`. The loader finds the nearest one at or above a program's folder; every diagnostic names its file relative to it.
 

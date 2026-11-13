@@ -232,7 +232,7 @@ func FSMapFile(path string) (string, error) {
 	if int64(int(size)) != size {
 		return "", Failed{Path: path, Reason: "file too large"}
 	}
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := fsMap(f, int(size))
 	if err != nil {
 		return "", Failed{Path: path, Reason: err.Error()}
 	}

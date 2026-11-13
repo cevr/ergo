@@ -1,0 +1,56 @@
+// Package script reads a scene script, one step a line, into ui.Acts that
+// any host plays, and writes seeded scripts for the workload:
+//
+//	tap LABEL          press the node labelled LABEL
+//	key NAME           a key ("+", "-", "0")
+//	settle             wait for the loads
+//
+// A blank line and a line starting with # are skipped.
+
+import rand
+import strings
+import ui
+
+// BadLine is a line that is no step.
+type BadLine { Line int, Text string }
+
+// Parse is the steps of text, in order.
+func Parse(text string) []ui.Act fails BadLine {
+	let mut out = []ui.Act{}
+	for i, raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let (verb, rest) = match strings.Cut(line, " ") {
+		case Some[strings.Halves] as c:
+			(c.Value.Before, c.Value.After)
+		case None:
+			(line, "")
+		}
+		match verb {
+		case "tap":
+			out = out.Append(ui.TapOn{Label: rest})
+		case "key":
+			out = out.Append(ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}})
+		case "settle":
+			out = out.Append(ui.SettleAll)
+		case _:
+			return BadLine{Line: i + 1, Text: raw}
+		}
+	}
+	out
+}
+
+// Gen is a script of n steps from seed: taps on every button and step,
+// keys, and now and then a label that is not on the screen.
+func Gen(seed uint64, n int) string {
+	let r = rand.Seeded(seed)
+	let steps = []string{"tap inc", "tap inc", "tap dec", "tap reset", "tap by 1", "tap by 5", "tap by 10", "key +", "key -", "key 0", "key q", "tap nothing"}
+	let mut out = strings.NewBuilder()
+	for _ in 0..n {
+		strings.WriteString(&out, steps[r.IntN(len(steps))])
+		strings.WriteString(&out, "\n")
+	}
+	strings.String(out)
+}

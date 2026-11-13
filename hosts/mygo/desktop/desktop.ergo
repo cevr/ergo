@@ -1,0 +1,646 @@
+// Package desktop runs a ui view over an actor in a MyGo window. Ergo
+// owns the tree, the layout (std ui/layout), the look of every node, the
+// paint order, hit testing and the keyboard focus; the window (Go package
+// screen, over MyGo's drawing layer) gives the input and draws the paint
+// list with MyGo's text engine and renderer. No MyGo widget is used.
+//
+// A Driver steps the same ui.Session that ui.Run and ui.TestHost step, so
+// for the same events it shows the same tree as TestHost; the difference
+// is that its events come from the window, in pixels, and it finds the
+// node under the pointer itself. Run drives one in a desktop window;
+// a test drives one on a headless window (screen.Headless) with Play.
+//
+// The Driver is not a ui.Host provider: its operations call Go, so their
+// row holds go.Foreign, which an operation type's method cannot hold
+// (README Gap 17); ui.Run's loop is written here once more over the
+// window.
+
+import actor
+import arena
+import go ergo.local/prototype/hosts/mygo/screen
+import queue
+import task
+import ui
+import ui/layout
+
+// Driver is one view over one actor in one window.
+type Driver[S, E, D, F] {
+	w        go.Ref[screen.Window],
+	actor    actor.Actor[S, E, D, F],
+	session  ui.Session[S, E, D, F],
+	mirror   ui.Mirror[E],
+	nodes    Map[ui.Id[E], held[E]],
+	root     ui.Id[E],
+	posted   queue.Queue[ui.Event[E]],
+	metrics  Metrics,
+	spots    []spot[E],
+	focus    Option[ui.Id[E]],
+	pressed  Option[ui.Id[E]],
+	scrolled Map[ui.Id[E], float32],
+	names    Map[ui.Id[E], int],
+	named    int,
+	extents  Map[ui.Id[E], float32],
+	boxes    Map[ui.Id[E], layout.Box],
+	width    float32,
+	height   float32,
+	frames   bool,
+	painted  int,
+}
+
+// held is a node of the window's tree and its children, in order.
+type held[E] { node ui.Node[E], kids []ui.Id[E] }
+
+// spot is a node that takes input, where it shows: its box and the part
+// of the window its scrolled ancestors leave visible, in paint order.
+type spot[E] { id ui.Id[E], node ui.Node[E], box layout.Box, clip layout.Box }
+
+// New shows view of a's state in w. room is how many fetch results may
+// wait for the driver to take them.
+func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S), room int) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+	let posted = queue.New[ui.Event[E]](room)
+	try start(w, a, view, posted, func(ev ui.Event[E]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+}
+
+// start shows view of a's state in w; post gets each fetch's result, and
+// Pump and Settle take them from posted.
+func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S), posted queue.Queue[ui.Event[E]], post escaping func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+	let (s, first) = ui.Start(a, view, post)
+	let mut session = s
+	let root = ui.SessionRoot(&session)
+	let (width, height) = w.Size()
+	let mut d = Driver[S, E, D, F]{
+		w:        w,
+		actor:    a,
+		session:  session,
+		mirror:   ui.NewMirror[E](root),
+		nodes:    Map[ui.Id[E], held[E]]{},
+		root:     root,
+		posted:   posted,
+		metrics:  NewMetrics(),
+		spots:    []spot[E]{},
+		focus:    None,
+		pressed:  None,
+		scrolled: Map[ui.Id[E], float32]{},
+		names:    Map[ui.Id[E], int]{},
+		named:    0,
+		extents:  Map[ui.Id[E], float32]{},
+		boxes:    Map[ui.Id[E], layout.Box]{},
+		width:    float32(width),
+		height:   float32(height),
+		frames:   false,
+		painted:  0,
+	}
+	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
+	try show(&d, first)
+	d
+}
+
+// show applies one pass's ops, then lays out and paints the window.
+func show[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch needs go.Foreign {
+	try ui.Apply(&d.mirror, ops)
+	for op in ops {
+		match op {
+		case ui.Insert[E] as x:
+			d.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
+			place(d, x.Id, x.Parent, x.Before)
+		case ui.Move[E] as x:
+			unplace(d, x.Parent, x.Id)
+			place(d, x.Id, x.Parent, x.Before)
+		case ui.Remove[E] as x:
+			drop(d, x.Id)
+		case ui.Set[E] as x:
+			match d.nodes.Get(x.Id) {
+			case Some[held[E]] as h:
+				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
+			case None:
+			}
+		}
+	}
+	let animates = ui.SessionAnimates(&d.session)
+	if animates != d.frames {
+		d.frames = animates
+		d.w.Frames(animates)
+	}
+	paint(d)
+}
+
+// place puts id among parent's children, in front of before or last.
+func place[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+	match d.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		let mut done = false
+		for k in p.Value.kids {
+			if !done && before == (Some{Value: k}) {
+				kids = kids.Append(id)
+				done = true
+			}
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		if !done {
+			kids = kids.Append(id)
+		}
+		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// unplace takes id out of parent's children.
+func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+	match d.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		for k in p.Value.kids {
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// drop forgets id and its subtree, and takes it out of its parent.
+func drop[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+	for p, h in d.nodes {
+		for k in h.kids {
+			if k == id {
+				unplace(d, p, id)
+			}
+		}
+	}
+	forget(d, id)
+}
+
+func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		for k in h.Value.kids {
+			forget[S, E, D, F](d, k)
+		}
+	case None:
+	}
+	d.nodes = d.nodes.Delete(id)
+	d.scrolled = d.scrolled.Delete(id)
+	d.names = d.names.Delete(id)
+	if d.focus == (Some{Value: id}) {
+		d.focus = None
+	}
+	if d.pressed == (Some{Value: id}) {
+		d.pressed = None
+	}
+}
+
+// kidsOf is id's children in the window's tree.
+func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		h.Value.kids
+	case None:
+		[]ui.Id[E]{}
+	}
+}
+
+// Feed takes one input of the window. A press and a release on the same
+// node press it; the node a press went down on takes its release (an
+// Area's pointer is captured), and a release with no press goes to the
+// node under it; Tab moves the focus, Enter and space press the focused
+// node; typing goes to the focused Input; other keys go to the view's
+// OnKey. It fails ui.Closed when the window closed.
+func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let mods = ui.Mods{Shift: input.Shift, Ctrl: input.Ctrl, Alt: input.Alt, Meta: input.Meta}
+	let x = float32(input.X)
+	let y = float32(input.Y)
+	if input.Kind == screen.Closed {
+		return ui.Closed
+	} else if input.Kind == screen.Down {
+		let hit = hitAt(d, x, y)
+		d.pressed = None
+		match hit {
+		case Some[spot[E]] as s:
+			d.pressed = Some{Value: s.Value.id}
+			if focusable(s.Value.node) && d.focus != (Some{Value: s.Value.id}) {
+				d.focus = Some{Value: s.Value.id}
+				paint(d)
+			}
+			try pointed(d, s.Value, ui.Down, x, y)
+		case None:
+			if d.focus != None {
+				d.focus = None
+				paint(d)
+			}
+		}
+	} else if input.Kind == screen.Up {
+		match d.pressed {
+		case Some[ui.Id[E]] as p:
+			d.pressed = None
+			match spotOf(d, p.Value) {
+			case Some[spot[E]] as s:
+				try pointed(d, s.Value, ui.Up, x, y)
+				if pressable(s.Value.node) && inside(s.Value, x, y) {
+					try step(d, ui.Press[E]{Id: p.Value})
+				}
+			case None:
+			}
+		case None:
+			match hitAt(d, x, y) {
+			case Some[spot[E]] as s:
+				try pointed(d, s.Value, ui.Up, x, y)
+			case None:
+			}
+		}
+	} else if input.Kind == screen.Move {
+		match hitAt(d, x, y) {
+		case Some[spot[E]] as s:
+			try pointed(d, s.Value, ui.Moved, x, y)
+		case None:
+		}
+	} else if input.Kind == screen.Scroll {
+		try scroll(d, x, y, float32(input.DX), float32(input.DY))
+	} else if input.Kind == screen.Key {
+		try key(d, ui.KeyPress{Name: input.Key, Mods: mods})
+	} else if input.Kind == screen.Text {
+		try typed(d, input.Text, mods)
+	} else if input.Kind == screen.Resize {
+		d.width = float32(input.Width)
+		d.height = float32(input.Height)
+		paint(d)
+	} else if input.Kind == screen.Frame {
+		try step(d, ui.Tick{At: duration(input.At)})
+	}
+}
+
+// step steps the session with ev and shows its patch.
+func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	let ops = try ui.Step(&d.session, ev)
+	if len(ops) > 0 {
+		try show(d, ops)
+	}
+}
+
+// pointed sends a pointer event to an Area spot, at a place in its box.
+func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	match s.node {
+	case ui.AreaNode:
+		try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y)}})
+	case _:
+	}
+}
+
+// scroll moves the innermost Scroll under x, y by dy, within its content,
+// and sends the wheel to an Area under it.
+func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, dx float32, dy float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	let mut target Option[spot[E]] = None
+	let mut area Option[spot[E]] = None
+	for s in d.spots {
+		if inside(s, x, y) {
+			match s.node {
+			case ui.ScrollNode:
+				target = Some{Value: s}
+			case ui.AreaNode:
+				area = Some{Value: s}
+			case _:
+			}
+		}
+	}
+	match area {
+	case Some[spot[E]] as a:
+		try pointed(d, a.Value, ui.Wheel{DX: float64(dx), DY: float64(dy)}, x, y)
+	case None:
+	}
+	match target {
+	case Some[spot[E]] as s:
+		let at = scrolledBy(d, s.Value.id)
+		let most = fmax(contentHeight(d, s.Value.id)-s.Value.box.H, 0)
+		let next = fmin(fmax(at+dy, 0), most)
+		if next != at {
+			d.scrolled[s.Value.id] = next
+			paint(d)
+		}
+	case None:
+	}
+}
+
+func fmin(a float32, b float32) float32 { if a < b { a } else { b } }
+
+// key handles a key press: Tab and Shift+Tab move the focus, Enter and
+// space press the focused Pressable, Check or Toggle, Backspace deletes
+// the last rune of the focused Input, and the rest go to OnKey.
+func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	if k.Name == "Tab" {
+		d.focus = nextFocus(d, k.Mods.Shift)
+		paint(d)
+		return
+	}
+	match focused(d) {
+	case Some[spot[E]] as s:
+		match s.Value.node {
+		case ui.InputNode as x:
+			if k.Name == "Backspace" {
+				if x.Value != "" {
+					try step(d, ui.Type[E]{Id: s.Value.id, Text: withoutLast(x.Value)})
+				}
+				return
+			}
+		case _:
+			if pressable(s.Value.node) && (k.Name == "Enter" || k.Name == " ") {
+				try step(d, ui.Press[E]{Id: s.Value.id})
+				return
+			}
+		}
+	case None:
+	}
+	try step(d, ui.KeyDown{Press: k})
+}
+
+// typed types text into the focused Input, else gives each rune to OnKey
+// as a key of that name.
+func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mods) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	match focused(d) {
+	case Some[spot[E]] as s:
+		match s.Value.node {
+		case ui.InputNode as x:
+			try step(d, ui.Type[E]{Id: s.Value.id, Text: x.Value + text})
+			return
+		case _:
+		}
+	case None:
+	}
+	for r in runesOf(text) {
+		try key(d, ui.KeyPress{Name: r, Mods: mods})
+	}
+}
+
+// focused is the spot of the focused node.
+func focused[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
+	match d.focus {
+	case Some[ui.Id[E]] as f:
+		spotOf(d, f.Value)
+	case None:
+		None
+	}
+}
+
+// nextFocus is the focusable spot after the focused one in paint order,
+// or before it with back; from the first (or the last), and none when
+// none is focusable.
+func nextFocus[S, E, D, F](d *Driver[S, E, D, F], back bool) Option[ui.Id[E]] {
+	let mut order = []ui.Id[E]{}
+	for s in d.spots {
+		if focusable(s.node) {
+			order = order.Append(s.id)
+		}
+	}
+	let n = len(order)
+	if n == 0 {
+		return None
+	}
+	let mut at = -1
+	for i, id in order {
+		if d.focus == (Some{Value: id}) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return Some{Value: if back { order[n-1] } else { order[0] }}
+	}
+	let next = if back { (at + n - 1) % n } else { (at + 1) % n }
+	Some{Value: order[next]}
+}
+
+// spotOf is id's spot, when it takes input.
+func spotOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+	for s in d.spots {
+		if s.id == id {
+			return Some{Value: s}
+		}
+	}
+	None
+}
+
+// hitAt is the spot on top at x, y: the last painted whose visible box
+// holds the point, Scrolls left out.
+func hitAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
+	let mut hit Option[spot[E]] = None
+	for s in d.spots {
+		match s.node {
+		case ui.ScrollNode:
+		case _:
+			if inside(s, x, y) {
+				hit = Some{Value: s}
+			}
+		}
+	}
+	hit
+}
+
+// inside is whether x, y is in s's visible box.
+func inside[E](s spot[E], x float32, y float32) bool {
+	let b = s.box
+	let c = s.clip
+	x >= b.X && y >= b.Y && x < b.X+b.W && y < b.Y+b.H && x >= c.X && y >= c.Y && x < c.X+c.W && y < c.Y+c.H
+}
+
+// pressable is whether a press of the node sends its signal.
+func pressable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
+		true
+	case _:
+		false
+	}
+}
+
+// focusable is whether the node takes the keyboard focus.
+func focusable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
+		true
+	case _:
+		false
+	}
+}
+
+// scrolledBy is how far id's Scroll is scrolled.
+func scrolledBy[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
+	match d.scrolled.Get(id) {
+	case Some[float32] as v:
+		v.Value
+	case None:
+		0
+	}
+}
+
+// Pump takes every fetch result posted so far, without waiting.
+func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	for {
+		match d.posted.Poll() {
+		case Some[ui.Event[E]] as ev:
+			try step(d, ev.Value)
+		case None:
+			return
+		}
+	}
+}
+
+// Settle waits until no fetch is in flight and every posted result is
+// taken, as ui.Settle does.
+func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
+		let ev = d.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try step(d, ev)
+	}
+}
+
+// Screen is what the window shows, as the patches built it.
+func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&d.mirror) }
+
+// StateOf is the actor's state.
+func StateOf[S, E, D, F](d *Driver[S, E, D, F]) S { d.actor.State() }
+
+// Painted is how many paint lists the driver has given the window.
+func Painted[S, E, D, F](d *Driver[S, E, D, F]) int { d.painted }
+
+// FocusId is the focused node, None for none.
+func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
+
+// FocusNode is what the focused node shows, None for none.
+func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
+	match focused(d) {
+	case Some[spot[E]] as s:
+		Some{Value: s.Value.node}
+	case None:
+		None
+	}
+}
+
+// Probe is a place where a node's fill shows, and the fill's color
+// (0xRRGGBBAA): a Pressable's background below its top edge, a checked
+// Check's box, a Toggle's track.
+type Probe { Label string, X int, Y int, Color uint32 }
+
+// Probes are the probes of the nodes on screen whose probe point no clip
+// cuts, in paint order.
+func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
+	let mut out = []Probe{}
+	for s in d.spots {
+		let b = s.box
+		let mut x = b.X + b.W/2
+		let mut y = b.Y + 3
+		let mut color = button
+		let mut label = ""
+		match s.node {
+		case ui.PressableNode[E] as p:
+			label = p.Label
+		case ui.CheckNode[E] as c:
+			if !c.Checked {
+				continue
+			}
+			label = c.Label
+			x = b.X + mark/2
+			y = b.Y + b.H/2
+			color = accent
+		case ui.ToggleNode as t:
+			label = t.Label
+			x = if t.On { b.X + 4 } else { b.X + switchW - 6 }
+			y = b.Y + b.H/2
+			color = if t.On { accent } else { track }
+		case _:
+			continue
+		}
+		let cx = float32(int(x))
+		let cy = float32(int(y))
+		let c = s.clip
+		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
+			out = out.Append(Probe{Label: label, X: int(x), Y: int(y), Color: color})
+		}
+	}
+	out
+}
+
+// Focus is the label of the focused node, None for none.
+func Focus[S, E, D, F](d *Driver[S, E, D, F]) Option[string] {
+	match focused(d) {
+	case Some[spot[E]] as s:
+		labelOf(s.Value.node)
+	case None:
+		None
+	}
+}
+
+// Run shows view of a's state in a desktop window w until it closes, as
+// ui.Run does on a ui.Host. It runs MyGo's loop on the calling thread,
+// which must be the main thread: call it from main, whose task runs on
+// it. The view and the window's events run on a task of their own; a
+// fetch's result reaches that task through the window, which it wakes.
+func Run[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S)) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+	let fetched = queue.New[ui.Event[E]](64)
+	let posted = queue.New[ui.Event[E]](64)
+	let forward = task.Go() {
+		forwardAll(w, fetched, posted)
+		0
+	}
+	let loop = task.Go() {
+		let mut d = try start(w, a, view, posted, func(ev ui.Event[E]) {
+			fetched.Push(ev) catch {
+			case queue.Closed:
+			}
+		})
+		try serve(&d)
+		w.Quit()
+		0
+	}
+	try w.Run()
+	w.Closing()
+	let _ = try loop.Wait()
+	fetched.End()
+	let _ = forward.Wait()
+}
+
+// forwardAll moves each fetch result to posted and wakes the window's
+// Next, until fetched ends.
+func forwardAll[E](w go.Ref[screen.Window], fetched queue.Queue[ui.Event[E]], posted queue.Queue[ui.Event[E]]) needs go.Foreign {
+	for ev in fetched.Values() {
+		posted.Push(ev) catch {
+		case queue.Closed:
+			return
+		}
+		w.Wake()
+	}
+}
+
+// serve feeds the window's input to d until the window closes.
+func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	for {
+		let next = d.w.Next() catch {
+		case go.Error:
+			return
+		}
+		Feed(d, next) catch {
+		case ui.Closed:
+			return
+		case actor.Stopped as e:
+			return e
+		case ui.BadPatch as e:
+			return e
+		}
+		try Pump(d)
+	}
+}
+
+// layout's Box helpers.
+func boxOf(t *layout.Tree, id layout.Id) layout.Box {
+	layout.BoxOf(t, id) catch {
+	case arena.Stale:
+		layout.Box{X: 0, Y: 0, W: 0, H: 0}
+	}
+}

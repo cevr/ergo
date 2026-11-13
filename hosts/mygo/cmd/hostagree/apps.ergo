@@ -1,0 +1,213 @@
+// The small apps of the agreement: a counter with keys, a keyed list with
+// deletes, a form of fields and checks, a load whose key changes, and a
+// pointer pad.
+
+import ui
+
+func none[S, E](s S) Option[Timeout[E]] { None }
+
+func idle[S, E](s S) Option[func(send func(e E))] { None }
+
+// counter: a signal adds to the count; 0 resets it.
+func counterStep(s int, e int) Decision[int, int] {
+	if e == 0 {
+		return Enter[int]{Next: 0}
+	}
+	Enter[int]{Next: s + e}
+}
+
+func counterMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int]}
+}
+
+func counterView(f *ui.Frame[int], s int) {
+	let mut col = ui.Plain()
+	col.Gap = 8
+	col.Padding = ui.All(16)
+	ui.Column(f, col) {
+		ui.Text(f, "count \(s)")
+		let mut row = ui.Plain()
+		row.Gap = 8
+		ui.Row(f, row) {
+			ui.Pressable(f, "dec", -1) {
+				ui.Text(f, "−")
+			}
+			ui.Pressable(f, "inc", 1) {
+				ui.Text(f, "+")
+			}
+			ui.Pressable(f, "reset", 0) {
+				ui.Text(f, "Reset")
+			}
+		}
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			match k.Name {
+			case "+":
+				Some{Value: 1}
+			case "-":
+				Some{Value: -1}
+			case "x":
+				Some{Value: 0}
+			case _:
+				None
+			}
+		})
+	}
+}
+
+// shelf: rows by key; signal 0 adds one, k removes row k.
+type shelf { rows []int, next int }
+
+func shelfStep(s shelf, e int) Decision[shelf, int] {
+	if e == 0 {
+		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+	}
+	let mut rows = []int{}
+	for k in s.rows {
+		if k != e {
+			rows = rows.Append(k)
+		}
+	}
+	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+}
+
+func sameShelf(a shelf, b shelf) bool {
+	if a.next != b.next || len(a.rows) != len(b.rows) {
+		return false
+	}
+	for i, k in a.rows {
+		if b.rows[i] != k {
+			return false
+		}
+	}
+	true
+}
+
+func shelfMachine() Machine[shelf, int, int] {
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int]}
+}
+
+// shelfView: every row's delete button is labelled "del", so a script's
+// "del" takes the first row on the screen; the list scrolls.
+func shelfView(f *ui.Frame[int], s shelf) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "\(len(s.rows)) rows")
+		ui.Pressable(f, "add", 0) {
+			ui.Text(f, "Add")
+		}
+		let mut list = ui.Plain()
+		list.Height = ui.Fixed{Value: 300}
+		ui.Scroll(f, list) {
+			ui.Each(f, s.rows, func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				let mut row = ui.Plain()
+				row.Gap = 8
+				row.Align = ui.AlignCenter
+				ui.Row(f, row) {
+					ui.Text(f, "row \(k)")
+					ui.Pressable(f, "del", k) {
+						ui.Text(f, "×")
+					}
+				}
+			}
+		}
+	}
+}
+
+// form: a name field, a done check, a send button, and the view's own
+// note field and bold toggle (cells of the frame, not of the app).
+type form { name string, done bool, sent int }
+
+type formEvent = Named{Text string} | Flipped{} | Sent{}
+
+func formStep(s form, e formEvent) Decision[form, int] {
+	match e {
+	case Named as n:
+		Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
+	case Flipped:
+		Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
+	case Sent:
+		Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
+	}
+}
+
+func formMachine() Machine[form, formEvent, int] {
+	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent]}
+}
+
+func formView(f *ui.Frame[formEvent], s form) {
+	let mut col = ui.Plain()
+	col.Gap = 6
+	col.Padding = ui.All(12)
+	ui.Column(f, col) {
+		ui.Input(f, s.name, "name", func(t string) formEvent { Named{Text: t} })
+		ui.Check(f, "done", s.done, Flipped)
+		let bold = ui.NewFlag(f, false)
+		ui.Toggle(f, bold, "bold")
+		let note = ui.NewDraft(f, "")
+		ui.Field(f, note, "note")
+		ui.Pressable(f, "send", Sent) {
+			ui.Text(f, "Send \(s.sent)")
+		}
+		ui.Text(f, if bold.On { "HELLO \(s.name)" } else { "hello \(s.name)" })
+		ui.Text(f, "note: \(note.Value)")
+	}
+}
+
+// load: "next" moves the key; the view loads the key's value, which comes
+// back as a negative signal.
+type chosen { key int, ready int }
+
+func chosenStep(s chosen, e int) Decision[chosen, int] {
+	if e >= 0 {
+		return Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
+	}
+	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+}
+
+func loadMachine() Machine[chosen, int, int] {
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int]}
+}
+
+func loadView(f *ui.Frame[int], s chosen) {
+	ui.Column(f, ui.Plain()) {
+		ui.Pressable(f, "next", 1) {
+			ui.Text(f, "Next")
+		}
+		let key = s.key
+		ui.Load(f, ui.ByInt(key), func() int { -1 - (key*10 + 7) })
+		ui.Text(f, "key \(s.key) ready \(s.ready)")
+	}
+}
+
+// pad: an Area whose pointer events become signals, over a Pressable
+// (the window's hit test takes the one painted last).
+type pad { last int, n int }
+
+func padStep(s pad, e int) Decision[pad, int] { Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
+
+func padMachine() Machine[pad, int, int] {
+	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int]}
+}
+
+func padView(f *ui.Frame[int], s pad) {
+	ui.Text(f, "last \(s.last) of \(s.n)")
+	let mut area = ui.Plain()
+	area.Width = ui.Fixed{Value: 200}
+	area.Height = ui.Fixed{Value: 120}
+	ui.Area(f, "pad", area, func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.Down:
+			Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+		case ui.Up:
+			Some{Value: 2000 + int(p.Y)}
+		case ui.Wheel as w:
+			Some{Value: 3000 + int(w.DY)}
+		case ui.Moved:
+			None
+		}
+	}) {
+		ui.Text(f, "pad")
+		ui.Pressable(f, "clear", 5000) {
+			ui.Text(f, "Clear")
+		}
+	}
+}

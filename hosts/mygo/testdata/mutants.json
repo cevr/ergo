@@ -1,0 +1,167 @@
+{
+  "about": "H3f mutants of hosts/mygo and its drawing module. scripts/mutants measures the Ergo module only; each edit here is applied to a scratch copy of the repository without .git (the layout tests build bin/ergo from it; an H2L mutant edits std ui/layout, which only hosts/mygo's oracle holds to MyGo), then, when the edit is to drawing/internal/drawgen, drawgen runs in drawing/ (as go generate would after the edit), then the killers run. A killer is module:Test, where module is drawing or mygo.",
+  "mutants": [
+    {
+      "name": "H3f-consts-dropped",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "if len(names) == 0 {\n\t\t\t\t\tcontinue",
+      "to": "if true {\n\t\t\t\t\tcontinue",
+      "rule": "every exported constant of a drawing-layer package is mirrored",
+      "killers": ["drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H3f-args-reordered",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "args = append(args, name)",
+      "to": "args = append([]string{name}, args...)",
+      "rule": "a wrapper calls the internal function with its parameters in order",
+      "killers": ["drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H3f-layer-dropped",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "\"raster\",   // the CPU renderer",
+      "to": "",
+      "rule": "the export reaches every layer a host draws with",
+      "killers": ["mygo:TestContentOutsideMyGo"]
+    },
+    {
+      "name": "H3f-hand-edit",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/scene/scene.go",
+      "from": "type Rect = impl.Rect",
+      "to": "type Rect = impl.Color",
+      "rule": "the drawing packages are what drawgen writes from the pinned MyGo",
+      "killers": ["drawing:TestFilesCurrent", "drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H2L-gap-after-last",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "if k > first {",
+      "to": "if k >= first {",
+      "rule": "a gap goes between children, not after the last",
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-grow-by-count",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "t.items[k].base + free*t.nodes[n].style.Grow/sum",
+      "to": "t.items[k].base + free/float32(end-first)",
+      "rule": "free space is shared by grow weight, not by count",
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-cross-padding-ignored",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "t.nodes[n].y = padTop + crossOff",
+      "to": "t.nodes[n].y = crossOff",
+      "rule": "a row places its children inside its padding across the line",
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-dirty-not-propagated",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/tree.ergo",
+      "from": "k = t.nodes[k].parent",
+      "to": "k = none",
+      "rule": "a change forgets what the nodes up to the root computed",
+      "killers": ["mygo:TestLayoutMatchesMyGo", "mygo:TestLayoutRelaysOutAlongThePath"]
+    },
+    {
+      "name": "H2L-no-reuse",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "if t.nodes[i].laid && t.nodes[i].laidW == w",
+      "to": "if false && t.nodes[i].laidW == w",
+      "rule": "a box laid out at its size with nothing changed in it is kept, not computed again",
+      "killers": ["mygo:TestLayoutRelaysOutAlongThePath"]
+    },
+    {
+      "name": "H3g-hit-first",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}",
+      "to": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}\n\t\t\t\tbreak",
+      "rule": "the hit test takes the node painted last under the point: a button over an Area takes the tap",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-tab-reversed",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "let next = if back { (at + n - 1) % n } else { (at + 1) % n }",
+      "to": "let next = if back { (at + 1) % n } else { (at + n - 1) % n }",
+      "rule": "Tab moves the focus forward in paint (tree) order, Shift+Tab back",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-fill-off-its-box",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "fill(d, b, 6, button)",
+      "to": "fill(d, layout.Box{X: b.X, Y: b.Y + 6, W: b.W, H: b.H}, 6, button)",
+      "rule": "a node's fill is painted on the box the layout gave it, where the hit test finds it",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-backspace-keeps-text",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "Text: withoutLast(x.Value)",
+      "to": "Text: x.Value",
+      "rule": "Backspace in the focused field removes its last rune",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-release-dropped",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\ttry pointed(d, s.Value, ui.Up, x, y)\n\t\t\tcase None:",
+      "to": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\tlet _ = s\n\t\t\tcase None:",
+      "rule": "a release with no press goes to the Area under it",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-go-directive-dropped",
+      "origin": "H3g",
+      "file": "internal/sketch/lower/gomodule.go",
+      "from": "\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"",
+      "to": "\"\\n\\ngo \" + goVersion + \"\\n\"",
+      "rule": "a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "X-gui-row-below-the-fold-not-scrolled-to",
+      "origin": "X-gui",
+      "file": "hosts/mygo/desktop/play.ergo",
+      "from": "\ttry reveal(d, id)\n",
+      "to": "",
+      "rule": "a step on a row below its Scroll's fold scrolls to it first, as a person does, so it presses that row and not the one painted over its box",
+      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+    },
+    {
+      "name": "X-gui-window-binary-prints-the-start",
+      "origin": "X-gui",
+      "file": "hosts/mygo/cmd/counter-gui/main.ergo",
+      "from": "counter.Summary(desktop.StateOf(&d))",
+      "to": "counter.Summary(counter.Zero)",
+      "rule": "the window binary prints the state the window's driver holds after each step",
+      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+    },
+    {
+      "name": "W1-binding-off-the-browser",
+      "origin": "LY W1",
+      "file": "hosts/mygo/ergo.bind/ergo.local/prototype/hosts/mygo/screen/screen.ergo",
+      "from": " linux/arm64 windows/amd64 js/wasm wasip1/wasm\n",
+      "to": " linux/arm64\n",
+      "rule": "the window binaries build for Windows and the browser: screen's binding states windows/amd64 and js/wasm, where it holds (ergo bind go)",
+      "killers": ["mygo:TestExamplesCrossBuild"]
+    }
+  ]
+}

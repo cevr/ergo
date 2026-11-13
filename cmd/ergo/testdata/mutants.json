@@ -155,8 +155,8 @@
       "name": "dist1-platform-unchecked",
       "origin": "wf10 DIST1",
       "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "from": "if slices.Contains(gobind.BuildPlatforms, p) {",
+      "to": "if true || slices.Contains(gobind.BuildPlatforms, p) {",
       "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
       "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
     },
@@ -240,6 +240,60 @@
       "to": "g.Reason = in.Reason",
       "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
+    },
+    {
+      "name": "md2-get-unverified",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tcase r.Why != \"\":\n",
+      "to": "\t\tcase false:\n",
+      "rule": "ergo get reads each fetched module as an import does and refuses one that cannot be imported.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md2-get-kept",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tif err := kept.restore(); err != nil {",
+      "to": "\t\tif err := error(nil); err != nil {",
+      "rule": "A refused ergo get leaves go.mod and go.sum as they were.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md3-deps-go-dropped",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "Go: slices.Clone(p.Go)}",
+      "to": "Go: nil}",
+      "rule": "ergo inspect deps lists each dependency package's uses of Go, also when the program does not check.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md3-deps-trust-hidden",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "\t\tif r.Trusted {\n",
+      "to": "\t\tif false {\n",
+      "rule": "ergo inspect deps shows whether the root trusts each module's Go.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "goos-build-list-is-binding-list",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "cmd/ergo/build.go",
+      "from": "\tif slices.Contains(gobind.BuildPlatforms, p) {",
+      "to": "\tif slices.Contains(gobind.Platforms, p) {",
+      "rule": "ergo build accepts the build platforms (windows/amd64, js/wasm, wasip1/wasm), not only the binding platforms.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "goos-windows-dropped",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "internal/gobind/load.go",
+      "from": "Platform{\"windows\", \"amd64\"}, ",
+      "to": "",
+      "rule": "windows/amd64 is a build platform.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
     }
   ]
 }

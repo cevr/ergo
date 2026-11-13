@@ -1,0 +1,50 @@
+// hostagree runs one app's scene script on ui.TestHost and, through a
+// headless MyGo window, on the desktop driver, and prints after each step
+// whether they agree: the same tree and the same app state, and each
+// filled node's color where the driver says it shows. TestMyGoHostAgrees-
+// WithTestHost writes the scripts.
+//
+// Standard input: the app's name on the first line (counter, shelf, form,
+// load or pad), then one step a line:
+//
+//	tap LABEL         press and release the node labelled LABEL
+//	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
+//	key NAME          a key: the view's OnKey takes it ("+", "-", "x"), or,
+//	                  a character with a field focused, the field does
+//	point LABEL PHASE X Y  a pointer (down, up, move, wheel) on an Area
+//	focus K           Tab K times, then press the focused node with Enter
+//	                  (a field gets "z" typed); TestHost presses the same node
+//	settle            settle the loads
+//
+// Output: "ok N" or "differ N: …" per step, then "end".
+
+import io
+import slices
+import strings
+import time
+
+func main() needs Console | Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed:
+			Console.Println("differ 0: no input")
+			return
+		}
+		let lines = strings.Split(strings.TrimSpace(text), "\n")
+		let steps = slices.Slice(lines, 1, len(lines))
+		match strings.TrimSpace(lines[0]) {
+		case "counter":
+			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
+		case "shelf":
+			agree(shelfMachine(), shelfView, sameShelf, steps)
+		case "form":
+			agree(formMachine(), formView, func(a form, b form) bool { a == b }, steps)
+		case "load":
+			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
+		case "pad":
+			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
+		case _:
+			Console.Println("differ 0: no app \(lines[0])")
+		}
+	}
+}
