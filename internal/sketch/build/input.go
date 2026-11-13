@@ -27,6 +27,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/stage"
 )
 
 // SchemaVersion names the manifest schema and the key derivation. Change it
@@ -118,6 +120,7 @@ type FileDigest struct {
 
 func digestOf(path string, data []byte) FileDigest {
 	sum := sha256.Sum256(data)
+	stage.Add(stage.BytesHashed, int64(len(data)))
 	return FileDigest{Path: path, SHA256: hex.EncodeToString(sum[:]), Size: len(data)}
 }
 

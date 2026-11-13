@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/internal/stage"
 )
 
 // The direct build path runs Go's compiler and linker itself, from an
@@ -102,6 +104,8 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
+	stage.Add(stage.GoCommands, 1)
+	stage.Add(stage.Processes, 1)
 	if err := child.Run(); err != nil {
 		return report, fmt.Errorf("Go build failed: %w", err)
 	}
@@ -459,6 +463,7 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 			return "", err
 		}
 		sum := sha256.Sum256(data)
+		stage.Add(stage.BytesHashed, int64(len(data)))
 		// The object names a file by its trimmed path, the package's
 		// trimmed directory and the file's name, and resolves a relative
 		// //line name against it: where the module lies on disk is no
@@ -544,6 +549,7 @@ func (d *direct) compile(p *goPackage) error {
 	if fields, ok := d.cached(key); ok && len(fields) == 2 {
 		d.digests[p.ImportPath] = archive{Digest: fields[0], Export: fields[1]}
 		d.report.Reused++
+		stage.Add(stage.GoCompilesReused, 1)
 		return nil
 	}
 	pkgPath := p.ImportPath
@@ -592,6 +598,8 @@ func (d *direct) compile(p *goPackage) error {
 	cmd := exec.Command(d.plan.Compile.Path, args...)
 	cmd.Dir = d.module.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
+	stage.Add(stage.GoCompiles, 1)
+	stage.Add(stage.Processes, 1)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("compile %s: %v: %s", p.ImportPath, err, firstLine(output))
 	}
@@ -684,6 +692,7 @@ func (d *direct) link(tg *target) error {
 	var digest string
 	if ok && len(fields) == 1 {
 		digest = fields[0]
+		stage.Add(stage.LinksReused, 1)
 	} else {
 		var cfg strings.Builder
 		cfg.WriteString("# import config\n")
@@ -710,6 +719,8 @@ func (d *direct) link(tg *target) error {
 		cmd := exec.Command(d.plan.Link.Path, args...)
 		cmd.Dir = d.module.Dir
 		cmd.Env = d.toolEnv("")
+		stage.Add(stage.Links, 1)
+		stage.Add(stage.Processes, 1)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("link: %v: %s", err, firstLine(output))
 		}
@@ -748,7 +759,9 @@ func (d *direct) place(digest string) error {
 		return err
 	}
 	defer os.Remove(name)
-	if _, err := io.Copy(tmp, src); err != nil {
+	n, err := io.Copy(tmp, src)
+	stage.Add(stage.BytesWritten, n)
+	if err != nil {
 		tmp.Close()
 		return err
 	}

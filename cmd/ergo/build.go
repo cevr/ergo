@@ -18,6 +18,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
 )
 
@@ -71,6 +72,7 @@ func runCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	stage.Add(stage.Processes, 1)
 	child := exec.Command(output.Path(), opts.args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr

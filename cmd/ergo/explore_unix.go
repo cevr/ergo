@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/runtime/explore/sched"
 )
 
@@ -27,6 +28,7 @@ func startWorker(binary string, args []string, out *os.File, limit uint64) (sche
 		return nil, err
 	}
 	cmd := exploreWorkerCommand(binary, args, out, reqR, repW, limit)
+	stage.Add(stage.Processes, 1)
 	err = proclimit.Start(cmd, limit)
 	reqR.Close()
 	repW.Close()

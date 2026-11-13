@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 // The test result cache (g-b2), go test's cache of a passing result: the
@@ -29,7 +30,8 @@ import (
 // time, so a reinstalled Go misses), the run's arguments (source,
 // revision, seed, states, law and run names), its memory limit, the law
 // ledger a full run writes, and every GO*, CGO_* and ERGO_* variable of
-// the environment, which the go command and the Go runtime read. A test
+// the environment, which the go command and the Go runtime read, but
+// ERGO_STAGE_REPORT, which only names where the counters go. A test
 // reads no host: Ambient and go.Foreign have one provider, the program
 // entry, and a test is no entry (runtime.md, Explored schedules 6), so the
 // checker refuses a test that reaches the console, the files, the live
@@ -79,6 +81,10 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	}
 	var env []string
 	for _, kv := range os.Environ() {
+		// Where the stage report goes changes no verdict.
+		if strings.HasPrefix(kv, sketchfront.StageReportVariable+"=") {
+			continue
+		}
 		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
 			env = append(env, kv)
 		}

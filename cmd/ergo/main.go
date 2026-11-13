@@ -22,6 +22,7 @@ import (
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
+	"ergo.local/prototype/internal/stage"
 )
 
 func main() {
@@ -33,7 +34,11 @@ func main() {
 		// The checked std snapshot lives beside the emission cache (CHK1b).
 		sketchfront.UseStdCache(root)
 	}
-	if err := command(os.Args[1:]); err != nil {
+	err := command(os.Args[1:])
+	if werr := sketchfront.WriteStageReport(); werr != nil {
+		fmt.Fprintln(os.Stderr, "ergo: stage report:", werr)
+	}
+	if err != nil {
 		if exit, ok := err.(exitStatusError); ok {
 			if !exit.handled && exit.message != "" {
 				fmt.Fprintln(os.Stderr, exit.message)
@@ -400,6 +405,8 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 	if err != nil {
 		return loaded{}, err
 	}
+	stage.Add(stage.FilesRead, 1)
+	stage.Add(stage.BytesRead, int64(len(text)))
 	analysis := sketchfront.Check(string(text))
 	return loaded{
 		source:   source,

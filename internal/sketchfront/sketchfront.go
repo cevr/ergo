@@ -35,6 +35,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
 )
 
 // Analysis is the 2026 front-end's outcome for one source text (Check) or
@@ -58,12 +59,16 @@ type Analysis struct {
 // A syntax error is the only diagnostic of a source that does not parse.
 func Check(source string) Analysis {
 	file, err := syntax.Parse(source)
+	stage.Add(stage.FilesParsed, 1)
+	stage.Add(stage.BytesParsed, int64(len(source)))
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
 	prepareStd()
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
+	stage.Add(stage.PackagesChecked, 1)
+	stage.Add(stage.DeclsChecked, int64(len(file.Decls)))
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
@@ -325,6 +330,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		files, err := lowered, error(nil)
 		if files == nil {
 			files, err = lowering(unit)
+			countLowered(files)
 		}
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
@@ -341,6 +347,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	})
 	if err != nil {
 		return build.Module{}, err
+	}
+	if module.Reused {
+		stage.Add(stage.ModulesReused, 1)
 	}
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
@@ -447,6 +456,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 	if err != nil {
 		return nil, nil, err
 	}
+	countLowered(files)
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
 		return nil, nil, &LedgerError{Lines: notes}
@@ -472,6 +482,14 @@ func stdDependencies() []build.Dependency {
 	return deps
 }
 
+// countLowered counts one lowered module and its Go bytes (stage).
+func countLowered(files []lower.File) {
+	stage.Add(stage.ModulesLowered, 1)
+	for _, f := range files {
+		stage.Add(stage.GoBytesLowered, int64(len(f.Data)))
+	}
+}
+
 // sourceDependency summarises a source package by the digest of its file
 // names and bytes, each length-prefixed so no two packages encode alike.
 func sourceDependency(name string, files map[string]string) build.Dependency {
@@ -484,6 +502,7 @@ func sourceDependency(name string, files map[string]string) build.Dependency {
 	for _, file := range names {
 		fmt.Fprintf(hash, "%d:%s%d:", len(file), file, len(files[file]))
 		hash.Write([]byte(files[file]))
+		stage.Add(stage.BytesHashed, int64(len(files[file])))
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	return build.Dependency{Name: name, Interface: digest, Implementation: digest}

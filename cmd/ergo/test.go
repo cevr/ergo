@@ -12,6 +12,7 @@ import (
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
@@ -226,6 +227,7 @@ func testChildArgs(opts fileOptions, revision string) ([]string, error) {
 // the normal GC target also avoids an inherited off or high GOGC. An
 // explicitly unbounded program retains the caller's collector settings.
 func testProgramCommand(binary string, args []string, limit uint64) *exec.Cmd {
+	stage.Add(stage.Processes, 1)
 	child := exec.Command(binary, args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr

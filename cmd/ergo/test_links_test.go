@@ -1,36 +1,47 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-// goWorkLine is the line `go build -x` prints first, once per invocation,
-// also when the target is up to date.
-var goWorkLine = regexp.MustCompile(`(?m)^WORK=`)
+// readStageReport reads the counters a command wrote to ERGO_STAGE_REPORT.
+func readStageReport(t *testing.T, path string) map[string]int64 {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int64{}
+	if err := json.Unmarshal(data, &counts); err != nil {
+		t.Fatal(err)
+	}
+	return counts
+}
 
 // TestTestResultCache is the counted receipt of g-b2, and the law that a
 // cached verdict is the verdict of a rerun. `ergo test ./...` over a module
-// of passing packages and one failing package, with GOFLAGS=-x (so the go
-// command builds, and its trace counts its invocations):
+// of passing packages and one failing package, counted by its stage report
+// (ERGO_STAGE_REPORT):
 //
-//   - cold, the go command builds each package's test binary;
+//   - cold, each package's test binary is linked once;
 //   - warm, each passing package replays its cached result, so its run
-//     neither invokes the go command nor runs the binary; the failing one,
-//     never cached, builds and runs again;
-//   - --count 1 runs every package again, and its output and exit status
-//     are the cached run's.
+//     neither builds nor runs anything; the failing one, never cached,
+//     runs again from the binary the action store holds: no compile, no
+//     link, one process;
+//   - --count 1 runs every package again with no compile and no link, and
+//     its output and exit status are the cached run's.
 //
 // A run that differs in what it reads (a --run name, a GO* variable, the go
 // command) is no hit. It kills the g-b2 cache mutants (cache-*), which no
 // other test reaches: none runs a package twice.
-// It builds Go because the claim is about the go command's invocations,
-// which only the -x trace of a real build shows.
+// It builds Go because the claim is about the compiles, links and
+// processes of real test builds.
 func TestTestResultCache(t *testing.T) {
 	if testing.Short() {
 		t.Skip("the counts of real test builds run in the full tier")
@@ -44,33 +55,35 @@ func TestTestResultCache(t *testing.T) {
 	}
 	smokeWrite(t, root, "q/q.ergo", "test Fails { assert 1 == 2 }\n")
 	type outcome struct {
-		stdout              string
-		code, goRuns, notes int
+		stdout                     string
+		code, notes                int
+		links, compiles, processes int64
 	}
 	run := func(env []string, args ...string) outcome {
 		t.Helper()
+		report := filepath.Join(t.TempDir(), "stage.json")
 		command := exec.Command(bin, append([]string{"test"}, args...)...)
 		command.Dir = root
-		command.Env = append(append(os.Environ(), "GOFLAGS=-x"), env...)
+		command.Env = append(append(os.Environ(), "ERGO_STAGE_REPORT="+report), env...)
 		out, stderr, code := runSmokeCommand(t, command)
-		e := string(stderr)
+		counts := readStageReport(t, report)
 		return outcome{
 			stdout: string(out), code: code,
-			goRuns: len(goWorkLine.FindAllString(e, -1)),
-			notes:  strings.Count(e, cachedNote),
+			notes: strings.Count(string(stderr), cachedNote),
+			links: counts["links"], compiles: counts["go_compiles"], processes: counts["processes"],
 		}
 	}
 	cold := run(nil, "./...")
-	if cold.code != 1 || cold.goRuns != passing+1 || cold.notes != 0 || strings.Count(cold.stdout, "PASS (2 tests)") != passing {
+	if cold.code != 1 || cold.links != passing+1 || cold.notes != 0 || strings.Count(cold.stdout, "PASS (2 tests)") != passing {
 		t.Fatalf("cold run: %+v", cold)
 	}
 	warm := run(nil, "./...")
-	if warm.goRuns != 1 || warm.notes != passing {
-		t.Fatalf("warm run: %d go commands, %d replays; want 1 (the failing package), %d", warm.goRuns, warm.notes, passing)
+	if warm.links != 0 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing {
+		t.Fatalf("warm run: %+v; want no link, no compile, 1 process (the failing package), %d replays", warm, passing)
 	}
 	again := run(nil, "./...", "--count", "1")
-	if again.notes != 0 || again.goRuns != passing+1 {
-		t.Fatalf("--count 1 run: %d replays, %d go commands; want 0, %d", again.notes, again.goRuns, passing+1)
+	if again.notes != 0 || again.links != 0 || again.compiles != 0 || again.processes != passing+1 {
+		t.Fatalf("--count 1 run: %+v; want no replay, no link, no compile, %d processes", again, passing+1)
 	}
 	for _, o := range []outcome{warm, again} {
 		if o.stdout != cold.stdout || o.code != cold.code {

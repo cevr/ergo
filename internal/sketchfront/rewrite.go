@@ -20,6 +20,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
 )
 
 // The law ledger (runtime.md, Tests 10; lower/ledger.go): ergo test writes
@@ -370,6 +371,8 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			stderr = io.Discard
 		}
 		child.Stdout, child.Stderr = stderr, stderr
+		stage.Add(stage.GoCommands, 1)
+		stage.Add(stage.Processes, 1)
 		if err := child.Run(); err != nil {
 			return "", fmt.Errorf("the law ledger's check build failed: %w", err)
 		}
@@ -378,6 +381,7 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			run := exec.Command(exe, "--seed", lower.RewriteCheckSeed, "--law", law)
 			run.Stdout, run.Stderr = &out, io.Discard
 			// A refuted law exits non-zero; its line is its verdict.
+			stage.Add(stage.Processes, 1)
 			_ = run.Run()
 		}
 		return out.String(), nil

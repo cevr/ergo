@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/internal/stage"
 )
 
 // Cache is the emission cache rooted at Root. A published module lives at
@@ -350,6 +352,7 @@ func (c Cache) publish(dir, key string, summary Summary, runtime, emitted []File
 		if err := writeNew(filepath.Join(staging, filepath.FromSlash(f.Path)), f.Data); err != nil {
 			return Manifest{}, nil, err
 		}
+		stage.Add(stage.BytesWritten, int64(len(f.Data)))
 	}
 	if err := writeNew(filepath.Join(staging, ManifestName), append(encoded, '\n')); err != nil {
 		return Manifest{}, nil, err

@@ -76,7 +76,8 @@ invokes the go command nor runs the binary. The key holds everything the
 verdict reads: the test binary (the emitted module, the Go toolchain, target,
 flags, tags and strip setting), the binary's arguments (source, revision, `--seed`, `--states`, `--law`,
 `--skip-law`, `--run`), the memory limit, the go command (its path, size and
-modification time), every `GO*`, `CGO_*` and `ERGO_*` environment variable,
+modification time), every `GO*`, `CGO_*` and `ERGO_*` environment variable
+but `ERGO_STAGE_REPORT` (where the stage counters go),
 and the package's law ledger (`ergo.laws`), which a full run writes.
 A test reads no host, since only a program's entry provides `Ambient` and
 `go.Foreign` ([runtime](spec/runtime.md#explored-schedules), Explored

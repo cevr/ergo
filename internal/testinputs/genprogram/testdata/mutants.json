@@ -1,0 +1,6 @@
+{
+  "about": "The seeded program generator of the compile-speed measurements (CS0).",
+  "mutants": [
+    {"name":"cs-gen-not-seeded","origin":"wf10 CS0","file":"internal/testinputs/genprogram/genprogram.go","from":"r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))","to":"r := rand.New(rand.NewPCG(1, 1^0x9e3779b97f4a7c15))","rule":"A generated program is a function of its seed: two seeds give two programs, so a failing seed replays and many seeds explore.","killers":["internal/testinputs/genprogram:TestGenerateProgramIsSeeded"]}
+  ]
+}
