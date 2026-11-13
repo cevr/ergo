@@ -251,6 +251,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
 		// unchecked.go); each reads memory and returns, no wait.
 		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
+		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
+		// compare-and-swap or atomic store; no wait.
+		"Claim": true, "Done": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
