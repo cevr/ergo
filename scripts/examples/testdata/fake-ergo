@@ -34,8 +34,9 @@
 #                        cutoff_test.go); FAKE_ERGO_CHECKFAIL fails every
 #                        check, FAKE_ERGO_FMTFAIL every fmt --check and
 #                        FAKE_ERGO_BUILDFAIL every build. A passing check's
-#                        envelope names FAKE_ERGO_PRODUCER as its producer,
-#                        the digest of the compiler's bytes.
+#                        envelope and its snapshot name FAKE_ERGO_PRODUCER
+#                        as their producer, the digest of the compiler's
+#                        bytes.
 tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 printf '%s\n' "$*" >> "$tools/calls.log"
 tick() {
@@ -65,7 +66,7 @@ check)
   elif grep -q TESTSKIP "$2"; then
     printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"skipped","obligations":[{"name":"law Store.Keeps for Box","status":"skipped","reason":"fixture"}]}}'
   else
-    printf '%s\n' '{"checked":true,"producer":{"digest":"'"${FAKE_ERGO_PRODUCER:-}"'"},"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
+    printf '%s\n' '{"checked":true,"producer":{"digest":"'"${FAKE_ERGO_PRODUCER:-}"'"},"snapshot":{"producer":"'"${FAKE_ERGO_PRODUCER:-}"'","revision":"r"},"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
   fi
   ;;
 test)

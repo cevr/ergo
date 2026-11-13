@@ -30,7 +30,8 @@ import (
 // fixture has no driver, so it keys the compiler's bytes):
 // gs8-driver-unkeyed, gs8-test-emission-unkeyed,
 // gs8-build-emission-unkeyed, gs8-check-unkeyed, gs8-fmt-unkeyed,
-// gs8-bytes-keyed and gs8-producer-keyed (scripts/examples' ledger).
+// gs8-bytes-keyed, gs8-producer-keyed and gs8-snapshot-producer-keyed
+// (scripts/examples' ledger).
 //
 // It runs go list in the fixture module, the driver's listing.
 func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {

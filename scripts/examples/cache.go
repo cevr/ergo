@@ -147,16 +147,23 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 	return ""
 }
 
-// withoutProducer is a check envelope less its producer, the digest of the
-// compiler's own bytes, which every compiler edit changes and no leg reads
-// (checkTarget reads checked and evaluation). Output that is not a JSON
-// object is kept whole.
+// withoutProducer is a check envelope less its producers (its own and its
+// snapshot's), the digest of the compiler's own bytes, which every compiler
+// edit changes and no leg reads (checkTarget reads checked and
+// evaluation). Output that is not a JSON object is kept whole.
 func withoutProducer(stdout []byte) []byte {
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal(stdout, &envelope) != nil {
 		return stdout
 	}
 	delete(envelope, "producer")
+	var snapshot map[string]json.RawMessage
+	if json.Unmarshal(envelope["snapshot"], &snapshot) == nil && snapshot != nil {
+		delete(snapshot, "producer")
+		if encoded, err := json.Marshal(snapshot); err == nil {
+			envelope["snapshot"] = encoded
+		}
+	}
 	out, err := json.Marshal(envelope)
 	if err != nil {
 		return stdout
