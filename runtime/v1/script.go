@@ -22,7 +22,8 @@ import (
 //   - Hold() makes every later call wait, held, until a Release answers it.
 //   - Release(f) answers the oldest held call with f. With no call held,
 //     the next call that would be held takes f and does not wait, so a test
-//     may release before the code under test calls.
+//     may release before the code under test calls. A release no call took
+//     fails the test at its end, as a held call does.
 //   - Held() is the arguments of each held call no Release answered, oldest
 //     first. A stop of a held caller ends its wait, not the hold: the call
 //     stays held until a Release takes it, so the test accounts for it.
@@ -109,12 +110,13 @@ func (o *Op[A, F]) Hold() {
 }
 
 // Release answers the oldest held call with f, or the next call held when
-// none is.
+// none is. A release no call takes is reported at the end of the test.
 func (o *Op[A, F]) Release(f F) {
 	o.mu.Lock()
 	if len(o.held) == 0 {
 		o.early = append(o.early, f)
 		o.mu.Unlock()
+		scriptHeld.add(o)
 		return
 	}
 	h := o.held[0]
@@ -216,23 +218,33 @@ func (o *Op[A, F]) signal() {
 	o.wake = nil
 }
 
-// heldText is the end-of-test report of o: "" when no call is held.
+// heldText is the end-of-test report of o: a clause for its held calls no
+// Release answered and one for its releases no call took, joined by "; ",
+// and "" when there are neither. A release no call took is a script that
+// expected a call the code never made.
 func (o *Op[A, F]) heldText() string {
 	o.mu.Lock()
-	n := len(o.held)
+	n, r := len(o.held), len(o.early)
 	o.mu.Unlock()
-	switch n {
-	case 0:
-		return ""
-	case 1:
-		return o.script + ": " + o.name + " has a held call that no Release answered"
+	var parts []string
+	switch {
+	case n == 1:
+		parts = append(parts, o.script+": "+o.name+" has a held call that no Release answered")
+	case n > 1:
+		parts = append(parts, o.script+": "+o.name+" has "+strconv.Itoa(n)+" held calls that no Release answered")
 	}
-	return o.script + ": " + o.name + " has " + strconv.Itoa(n) + " held calls that no Release answered"
+	switch {
+	case r == 1:
+		parts = append(parts, o.script+": "+o.name+" was released with no held call")
+	case r > 1:
+		parts = append(parts, o.script+": "+o.name+" was released "+strconv.Itoa(r)+" times with no held call")
+	}
+	return strings.Join(parts, "; ")
 }
 
-// scriptHeld is the ledger of the operations a Hold made held since the
-// last end of a test case, in the order of their first Hold. Its lock is
-// never taken under an Op's, and an Op's never under it.
+// scriptHeld is the ledger of the operations a Hold or an early Release
+// touched since the last end of a test case, in the order of their first
+// touch. Its lock is never taken under an Op's, and an Op's never under it.
 var scriptHeld heldLedger
 
 type heldLedger struct {
@@ -266,15 +278,16 @@ func (l *heldLedger) report(take bool) string {
 	return strings.Join(parts, "; ")
 }
 
-// ScriptUnanswered is testing.Unanswered(): each Script operation with a
-// held call no Release answered, "<Script>: <Op> has a held call that no
-// Release answered", joined by "; ", and "" when there is none.
+// ScriptUnanswered is testing.Unanswered(): for each Script operation, its
+// held calls no Release answered, "<Script>: <Op> has a held call that no
+// Release answered", and its releases no call took, "<Script>: <Op> was
+// released with no held call", joined by "; ", and "" when there are none.
 func ScriptUnanswered() string { return scriptHeld.report(false) }
 
-// ScriptHeldTake is the end-of-test check (stdlib.md, Testing 12): the
+// ScriptHeldTake is the end-of-test check (stdlib.md, Testing 10): the
 // text ScriptUnanswered gives, and the ledger starts again empty for the
-// next case. A test case that held and never released a call fails with
-// it.
+// next case. A test case that left a call held or a release untaken fails
+// with it.
 func ScriptHeldTake() string { return scriptHeld.report(true) }
 
 // NoAnswerDefect is the defect of a call of a Script operation with no

@@ -8,6 +8,7 @@
 // call with s.Get.Hold() and answers it later with s.Get.Release(f), as a
 // scene resolves a command; a test that ends with a call held fails.
 
+import strings
 import task
 
 // Op is one operation of a Script: the answer it gives and the calls it
@@ -30,7 +31,8 @@ type Op[A, F] {
 	// whatever the answer.
 	Hold(),
 	// Release answers the oldest held call with f. With no call held, the
-	// next call that would be held takes f and does not wait.
+	// next call that would be held takes f and does not wait. A test that
+	// ends with a release no call took fails, as for a held call.
 	Release(f F),
 	// Held is the arguments of each held call no Release answered, oldest
 	// first. A stop of a held caller ends its wait, not the hold: the call
@@ -42,9 +44,10 @@ type Op[A, F] {
 }
 
 // Unanswered is the report a test that ends now would fail with: for each
-// Script operation with a held call no Release answered, "<Script>: <Op>
-// has a held call that no Release answered", joined by "; ", and "" when
-// there is none.
+// Script operation, its held calls no Release answered, "<Script>: <Op>
+// has a held call that no Release answered", and its releases no call
+// took, "<Script>: <Op> was released with no held call", joined by "; ",
+// and "" when there are none.
 extern go ergo.local/prototype/runtime/v1.ScriptUnanswered func Unanswered() string
 
 // NoArgs is the arguments of a call of an operation that takes none.
@@ -177,7 +180,9 @@ law ReleaseAnswersOldestFirst(k string, j string, a int) {
 // ScriptNamesTheHeldCall: while a call is held, Unanswered names the
 // Script and the operation, which is the report a test that ended then
 // would fail with; once a Release answers it, Unanswered is "". Calls
-// marks the calls read: Unread is the calls since.
+// marks the calls read: Unread is the calls since. The Script's package
+// qualifies its type text, so the law reads the text around it; the
+// whole text is TestScriptHeldCallFailsTheTest's (lower).
 law ScriptNamesTheHeldCall(k string) {
 	let s = Script[probe]{}
 	s.Get.Hold()
@@ -185,7 +190,8 @@ law ScriptNamesTheHeldCall(k string) {
 	with context { probe: s, Scheduler: c } {
 		let t = task.Go() { probe.Get(k) }
 		Scheduler.Sleep(1s)
-		let named = Unanswered() == "testing.Script[testing.probe]: Get has a held call that no Release answered"
+		let report = Unanswered()
+		let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered")
 		let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0
 		s.Get.Release(func(key string) int fails Absent { 0 })
 		let _ = t.Wait() catch {
