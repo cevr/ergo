@@ -432,3 +432,5 @@ internal/sketch/std/config/reader.ergo	*
 internal/sketch/std/config/redacted.ergo	*
 internal/sketch/std/toml/toml.ergo	func Encode[T wire](v T) string fails Unrepresentable {
 runtime/v1/config_names.go	*
+modules/infra/outputs.ergo	func WriteOutputs[O wire](
+modules/infra/outputs.ergo	func Deploy[O wire, R](

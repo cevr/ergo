@@ -72,6 +72,22 @@
       "to": "\tcase Planning:\n\t\treturn try e.Driver.Apply(id, p)\n\tcase Applying:\n\t}\n",
       "rule": "A plan calls no host: ApplyConverges arms the fuse at the next call before each plan and finds it armed after.",
       "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia4-outputs-before-the-end", "origin": "wf10/domain IA4",
+      "file": "modules/infra/outputs.ergo",
+      "from": "\ttry Finish(run, lock, holder, engines)\n\tmatch run.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning:\n\t}\n",
+      "to": "\tmatch run.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning:\n\t}\n\ttry Finish(run, lock, holder, engines)\n",
+      "rule": "An apply writes its outputs only once it ended (after the sweep): memory's OutputsAfterTheApply.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia4-outputs-read-as-toml", "origin": "wf10/domain IA4",
+      "file": "modules/infra/outputs.ergo",
+      "from": "Format: config.JSON}",
+      "to": "Format: config.TOML}",
+      "rule": "std config reads the outputs in the format WriteOutputs writes: memory's OutputsRoundTrip.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
     }
   ]
 }

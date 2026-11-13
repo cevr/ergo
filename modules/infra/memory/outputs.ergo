@@ -1,0 +1,147 @@
+// The laws of the outputs (IA4): what infra writes, std config reads back;
+// and an apply writes them only once it ended.
+
+import config
+import fs
+import fstest
+import github.com/cevr/ergo/modules/infra
+
+// Sample is a stack's outputs: the kinds of field a program reads.
+type Sample { URL string, Port int, Dirs []string, Ready bool }
+
+// Path is where the laws write the outputs.
+let Path = "state/outputs.json"
+
+// readBack is the outputs at Path in disk, as std config reads them.
+func readBack(disk fstest.Memory) Option[Sample] {
+	let text = disk.ReadFile(Path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	with context { config.Config: config.NewMemory(Map[string, string]{}, Map[string, string]{Path: text}) } {
+		let o = config.Load[Sample](infra.OutputsSpec(Path)) catch {
+		case _:
+			return None
+		}
+		Some[Sample]{Value: o}
+	}
+}
+
+// newDisk is a memory file system with the outputs' directory.
+func newDisk() fstest.Memory {
+	let disk = fstest.NewMemory()
+	disk.MkdirAll("state") catch {
+	case fs.Denied, fs.Failed:
+	}
+	disk
+}
+
+// OutputsRoundTrip: the outputs that WriteOutputs writes, std config
+// reads back as the same record.
+law OutputsRoundTrip(port int, dirs []int, ready bool) {
+	let mut names = []string{}
+	for d in dirs {
+		names = names.Append("/srv/d\(d)")
+	}
+	let o = Sample{URL: "http://127.0.0.1:\(port)", Port: port, Dirs: names, Ready: ready}
+	let disk = newDisk()
+	infra.WriteOutputs(disk, Path, o) catch {
+	case infra.Unwritten:
+		return false
+	}
+	readBack(disk) == (Some[Sample]{Value: o})
+}
+
+// placed is the stack of want, and its outputs: the home directory and
+// the ids of the directories it ensured.
+func placed(want Want) Sample fails infra.Failed needs infra.Kind[DirProps, Dir] | infra.Kind[FileProps, File] {
+	try stack(want)
+	let mut dirs = []string{}
+	for i in 0..3 {
+		if want.Of[i] != 0 {
+			dirs = dirs.Append("d\(i)")
+		}
+	}
+	let home = if want.Of[0] != 0 { dirProps(0, want.Of[0]).Path } else { "/srv" }
+	Sample{URL: "file://" + home, Port: len(dirs), Dirs: dirs, Ready: true}
+}
+
+// deploys applies the stack of want on w as runner r1 through
+// infra.Deploy, writing the outputs at Path in disk. It is whether the run
+// ended.
+func deploys(w World, want Want, disk fstest.Memory) bool {
+	let r = infra.NewRun(infra.Applying)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
+		let _ = infra.Deploy(r, w.lock, "r1", []infra.Sweeper{dirs, files}, disk, Path, func() Sample fails infra.Failed needs infra.Kind[DirProps, Dir] | infra.Kind[FileProps, File] { try placed(want) }) catch {
+		case infra.Held, infra.Failed, infra.Unwritten:
+			return false
+		}
+		true
+	}
+}
+
+// outputsOf is the outputs the stack of want gives.
+func outputsOf(want Want) Option[Sample] {
+	let w = newWorld()
+	let r = infra.NewRun(infra.Planning)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
+		let o = placed(want) catch {
+		case infra.Failed:
+			return None
+		}
+		Some[Sample]{Value: o}
+	}
+}
+
+// writtenOf is the text WriteOutputs writes for the outputs of the stack of
+// want, on a disk of its own.
+func writtenOf(want Want) Option[string] {
+	let o = match outputsOf(want) {
+	case Some[Sample] as x:
+		x.Value
+	case None:
+		return None
+	}
+	let disk = newDisk()
+	infra.WriteOutputs(disk, Path, o) catch {
+	case infra.Unwritten:
+		return None
+	}
+	let text = disk.ReadFile(Path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	Some[string]{Value: text}
+}
+
+// OutputsAfterTheApply: a first apply ends and writes its outputs; a
+// second apply, of the first stack less the objects drop names (so its
+// sweep has work), crashes at its k-th call to the cloud or a store, or
+// ends. The file then holds the second stack's outputs when the second
+// apply ended, and the first's when it crashed: an apply writes its
+// outputs only once it ended.
+law OutputsAfterTheApply(first int, drop int, crash int) {
+	let w = newWorld()
+	let disk = newDisk()
+	let one = wantOf(first)
+	if !deploys(w, one, disk) {
+		return false
+	}
+	let mut of = []int{}
+	for i, v in one.Of {
+		of = of.Append(if (((drop%64)+64)%64>>i)%2 == 1 { 0 } else { v })
+	}
+	let two = Want{Of: of}
+	Arm(w.fuse, ((crash%30)+30)%30, ((crash/30)%2+2)%2 == 1)
+	let ended = deploys(w, two, disk)
+	Arm(w.fuse, -1, false)
+	let text = disk.ReadFile(Path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	Some[string]{Value: text} == writtenOf(if ended { two } else { one })
+}

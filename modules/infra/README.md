@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0): infrastructure as code in d
 
 | Package | What |
 | --- | --- |
-| `infra` | `Driver[P, A]` with its four laws, `Kind[P, A]`, `State[P]` and `Lock` with their laws, `Engine` (a plan or an apply of one kind), `Step`, `Begin`, `Finish` (the sweep), `Destroy` |
+| `infra` | `Driver[P, A]` with its four laws, `Kind[P, A]`, `State[P]` and `Lock` with their laws, `Engine` (a plan or an apply of one kind), `Step`, `Begin`, `Finish` (the sweep), `Destroy`; `Deploy`, `WriteOutputs`, `OutputsSpec` (IA4) |
 | `infra/memory` | a cloud of directories and files with a driver per kind, a state store, a lock, and a `Fuse` that fails a chosen call as a crash would |
 
 ## The row's protocol
@@ -16,6 +16,10 @@ An apply of an object writes its row `Creating`, calls the driver's `Apply`, and
 - `Driver`: `AttrsIsApply`, `RetrySafe`, `ReadAfterApply`, `DeleteIsIdempotent`, run for `memory.Dirs` and `memory.Files`.
 - `State`: `PutThenGet`, `RemoveThenGet`; `Lock`: `LockExcludes`, `BreakNamesTheHolder`.
 - `memory.ApplyConverges`: the model-based test after `models/infra`, in a wider scope: six objects of two kinds, any props, two runners taking turns, a crash at any call to the cloud or a store (before or after its effect), then a destroy. After every run the rows and the cloud agree (NoOrphan, LiveIsTrue); a finished run leaves what its stack wants (Converged), and a second plan has no step; a plan calls no host; the destroy leaves the cloud empty. `memory.DestroyIsNewestFirst`: a destroy deletes in the reverse of the order of creation, across kinds.
+
+## Outputs
+
+A stack returns a record `O` of its own, one that has a codec. `Deploy` runs it: `Begin`, the stack, `Finish`, and only then, in an apply, `WriteOutputs` writes `O` as JSON at a path (the file is replaced whole). A program reads it with std `config`: `config.Load[O](infra.OutputsSpec(path))`. Laws: `memory.OutputsRoundTrip` (what infra writes, config reads back as the same record) and `memory.OutputsAfterTheApply` (after a crash at any call of a second apply, the file holds the first apply's outputs; after it ends, the second's).
 
 The mutant ledger (`testdata/mutants.json`) plants the design model's six mutants in the code, and d02's driver whose `Read` gives `None`.
 

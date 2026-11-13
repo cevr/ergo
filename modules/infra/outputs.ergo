@@ -1,0 +1,50 @@
+// Outputs (IA4): what a stack gives the program it deploys. A stack
+// returns a record O of its own; an apply that ends writes it as JSON at
+// a path, and the program reads it through std config, as any other
+// configuration file (OutputsSpec).
+
+import config
+import fs
+import json
+
+// Unwritten is an apply that ended and whose outputs could not be
+// written: the objects are what the stack wants, and the file is not.
+type Unwritten { Path string, Reason string }
+
+// WriteOutputs writes o at path through writes, as JSON: the text std
+// config reads (OutputsSpec). The file is replaced as a whole, so a reader
+// sees the old outputs or the new ones.
+func WriteOutputs[O wire](writes fs.Writes, path string, o O) fails Unwritten {
+	writes.WriteFile(path, json.Encode(json.Codec[O]{MaxBytes: 0, MaxDepth: 0}, o)+"\n") catch {
+	case fs.NotFound:
+		return Unwritten{Path: path, Reason: "its directory is not there"}
+	case fs.Denied:
+		return Unwritten{Path: path, Reason: "denied"}
+	case fs.Failed as f:
+		return Unwritten{Path: path, Reason: f.Reason}
+	}
+}
+
+// OutputsSpec is where std config reads the outputs written at path:
+// that file alone, with no flag, no variable and no default. A program
+// reads them with config.Load[O](infra.OutputsSpec(path)).
+func OutputsSpec(path string) config.Spec {
+	config.Spec{Prefix: "", Flags: config.NoFlags(), Files: []config.File{config.File{Path: path, Format: config.JSON}}, Defaults: config.NoDefaults()}
+}
+
+// Deploy runs stack in run over the engines and gives its outputs. An
+// apply takes the lock for holder (Begin), runs the stack, sweeps what it
+// no longer ensures (Finish), and only then writes the outputs at path: a
+// run that fails leaves the outputs of the last apply that ended. A plan
+// writes nothing.
+func Deploy[O wire, R](run Run, lock Lock, holder string, engines []Sweeper, writes fs.Writes, path string, stack func() O fails Failed needs R) O fails Held | Failed | Unwritten needs R {
+	try Begin(run, lock, holder, engines)
+	let o = try stack()
+	try Finish(run, lock, holder, engines)
+	match run.mode {
+	case Applying:
+		try WriteOutputs(writes, path, o)
+	case Planning:
+	}
+	o
+}
