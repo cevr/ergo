@@ -97,7 +97,7 @@ func FileIDs(c Cloud) []string {
 }
 
 // Dirs is the driver of directories in a cloud.
-type Dirs { cloud Cloud }
+type Dirs { cloud Cloud } implements infra.Driver[DirProps, Dir]
 
 // NewDirs is the driver of directories in a new, unarmed cloud.
 func NewDirs() Dirs { Dirs{cloud: NewCloud(NewFuse())} }
@@ -120,7 +120,7 @@ func Delete(d Dirs, id string) fails infra.Failed {
 }
 
 // Files is the driver of files in a cloud.
-type Files { cloud Cloud }
+type Files { cloud Cloud } implements infra.Driver[FileProps, File]
 
 // NewFiles is the driver of files in a new, unarmed cloud.
 func NewFiles() Files { Files{cloud: NewCloud(NewFuse())} }

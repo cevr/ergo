@@ -5,7 +5,7 @@ import sync
 
 // State is the memory state store of one kind with props P. Its writes go
 // through a fuse. Its values are copies of one store.
-type State[P comparable] { rows sync.Ref[Map[string, infra.Row[P]]], fuse Fuse }
+type State[P comparable] { rows sync.Ref[Map[string, infra.Row[P]]], fuse Fuse } implements infra.State[P]
 
 // NewState is an empty store whose writes go through fuse.
 func NewState[P comparable](fuse Fuse) State[P] {
@@ -32,7 +32,7 @@ func List[P comparable](s State[P]) []infra.Row[P] {
 
 // Lock is the memory lock of a stack's stage. Its values are copies of
 // one lock.
-type Lock { holder sync.Ref[Option[string]] }
+type Lock { holder sync.Ref[Option[string]] } implements infra.Lock
 
 // NewLock is a free lock.
 func NewLock() Lock { Lock{holder: sync.NewRef[Option[string]](None)} }
@@ -83,7 +83,7 @@ func Holder(l Lock) Option[string] { l.holder.Get() }
 // IntRows is the memory store of int props: the instance at which ergo
 // test runs infra.State's laws in this package, since a generic provider
 // fixes no instance (types.md, Laws 10).
-type IntRows { s State[int] }
+type IntRows { s State[int] } implements infra.State[int]
 
 // NewIntRows is an empty store of int props with an unarmed fuse.
 func NewIntRows() IntRows { IntRows{s: NewState[int](NewFuse())} }

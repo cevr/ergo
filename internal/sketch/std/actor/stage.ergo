@@ -12,7 +12,7 @@ import time
 // Stage is the actor a as a stage over clock. NewStage makes one. The
 // actor must be started in clock's domain: by the task that called
 // time.NewManual, or a task below it, with clock as its Scheduler.
-type Stage[S comparable, E, D, F] { a Actor[S, E, D, F], clock time.Manual }
+type Stage[S comparable, E, D, F] { a Actor[S, E, D, F], clock time.Manual } implements testing.Stage[E, S]
 
 // NewStage is the stage of a over clock.
 func NewStage[S comparable, E, D, F](a Actor[S, E, D, F], clock time.Manual) Stage[S, E, D, F] {

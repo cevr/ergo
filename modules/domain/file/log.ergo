@@ -32,7 +32,7 @@ type Log[E comparable] {
 	path   string,
 	events journal.Codec[E],
 	book   sync.Ref[memory.Book[E]],
-}
+} implements domain.Log[E]
 
 // Open is the log of the file at path, read with files and written with
 // writes: an empty one when there is no file there yet. events turns an

@@ -34,7 +34,7 @@ type Measure {
 
 // Monospace measures every rune as Advance wide and every line as Line
 // high: a cell grid's measure, and the test host's.
-type Monospace { Advance Length, Line Length }
+type Monospace { Advance Length, Line Length } implements Measure
 
 // Width is the runes of text times m.Advance (a negative Advance counts as
 // 0).
@@ -275,7 +275,7 @@ type Clipboard {
 }
 
 // MemoryClipboard is a Clipboard in memory; its copies share one text.
-type MemoryClipboard { text sync.Ref[string] }
+type MemoryClipboard { text sync.Ref[string] } implements Clipboard
 
 // NewMemoryClipboard is an empty MemoryClipboard.
 func NewMemoryClipboard() MemoryClipboard { MemoryClipboard{text: sync.NewRef("")} }

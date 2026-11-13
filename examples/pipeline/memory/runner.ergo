@@ -9,7 +9,7 @@ import sync
 // a negative failing[s] makes the runner Offline for the first -failing[s]
 // tries of s; a stage with no entry fails its first `rest` tries. Every
 // copy of a Flaky counts in one counter.
-type Flaky { failing Map[int, int], rest int, ran sync.Ref[int] }
+type Flaky { failing Map[int, int], rest int, ran sync.Ref[int] } implements pipeline.Runner
 
 // New is a Flaky: each stage s of failing fails its first failing[s] tries,
 // and any other stage passes at once.

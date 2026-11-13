@@ -118,7 +118,7 @@ func TestConvertedReleaseRuns(t *testing.T) {
 import sync
 import tasks
 
-type Res { id int, log sync.Ref[string] }
+type Res { id int, log sync.Ref[string] } implements Closer
 
 type Bad {}
 
@@ -128,10 +128,10 @@ func Close(r Res) {
 
 type Holder { r Res }
 
-type KeeperC { Keep(h Holder) takes h, Close() }
-type TagC { Mark() int, Close() }
+type KeeperC { ..Closer, Keep(h Holder) takes h }
+type TagC { ..Closer, Mark() int }
 
-type Held { r Res }
+type Held { r Res } implements TagC, KeeperC, Closer
 func Mark(h Held) int { 1 }
 func Keep(h Held, x Holder) takes x { let _ = x }
 func Close(h Held) {}
@@ -156,7 +156,7 @@ func run(log sync.Ref[string]) {
 	}
 }
 
-type Box { q queue.Queue[int] }
+type Box { q queue.Queue[int] } implements WaitC
 type WaitC { Wait() int fails queue.Closed }
 func Wait(b Box) int fails queue.Closed { b.q.Pop() }
 

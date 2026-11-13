@@ -462,7 +462,7 @@ type Counter {
 	Bump() int,
 }
 
-type Tally { n int }
+type Tally { n int } implements Counter
 
 func Bump(t *Tally) int { t.n }
 

@@ -52,7 +52,7 @@ type Engine[P comparable, A comparable] {
 	Driver Driver[P, A],
 	State  State[P],
 	Run    Run,
-}
+} implements Sweeper, Kind[P, A]
 
 // keyOf names an object across kinds.
 func keyOf(kind string, id string) string { kind + "/" + id }

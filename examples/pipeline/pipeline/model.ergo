@@ -11,7 +11,7 @@ import pipeline/run
 type DeskActor = actor.Actor[Desk, Signal, Decision[Desk, []Entry], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
 // Model is the context as a Pipeline. Open makes one.
-type Model { desk DeskActor }
+type Model { desk DeskActor } implements Pipeline
 
 // Open runs the context over the journal j: it starts in the state that
 // j replays, and keeps each committed signal in j (a snapshot each 16)

@@ -65,7 +65,7 @@ type Layouter {
 
 // Cells is this package's provider of Layouter: the layout of layout.ergo
 // and align.ergo.
-type Cells {}
+type Cells {} implements Layouter
 
 func Render(_ Cells, commands []Command, limit int) Rendered fails OutputLimit { Steps(commands, limit) }
 

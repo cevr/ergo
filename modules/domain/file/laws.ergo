@@ -8,7 +8,7 @@ import strconv
 import strings
 
 // Decimal is the codec of an int as its decimal text.
-type Decimal {}
+type Decimal {} implements journal.Codec[int]
 
 func Encode(_ Decimal, v int) string { strconv.Itoa(v) }
 
@@ -22,7 +22,7 @@ func Decode(_ Decimal, text string) int fails journal.Failed {
 // Ints is the file log of int events in a new file system: the instance
 // at which ergo test runs domain.Log's laws in this package (a generic
 // provider fixes no instance). NewInts builds a new one for each case.
-type Ints { log Log[int] }
+type Ints { log Log[int] } implements domain.Log[int]
 
 // NewInts is an empty file log of int events.
 func NewInts() Ints {

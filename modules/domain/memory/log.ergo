@@ -8,7 +8,7 @@ import sync
 
 // Log is the memory log of events E. Its values are copies of one log:
 // each sees what any of them kept.
-type Log[E comparable] { book sync.Ref[Book[E]] }
+type Log[E comparable] { book sync.Ref[Book[E]] } implements domain.Log[E]
 
 // Book is what a log holds: each stream's records, in order, and the
 // receipt of each command id it kept.

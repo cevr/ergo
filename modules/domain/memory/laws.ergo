@@ -11,7 +11,7 @@ import time
 // runs domain.Log's laws in this package, since a generic provider fixes
 // no instance (types.md, Laws 10). NewInts builds a new one for each
 // case.
-type Ints { log Log[int] }
+type Ints { log Log[int] } implements domain.Log[int]
 
 // NewInts is an empty log of int events.
 func NewInts() Ints { Ints{log: New[int]()} }
@@ -93,7 +93,7 @@ type Tallies machine[domain.Ledger[Tally, Event], domain.Envelope[Command]] {
 
 // Crashing is a memory log whose next Append fails when armed: mode 1
 // before it keeps the record, mode 2 after.
-type Crashing { inner Log[Event], armed sync.Ref[int] }
+type Crashing { inner Log[Event], armed sync.Ref[int] } implements domain.Log[Event]
 
 func Append(c Crashing, stream string, expected int, id domain.CommandID, events []Event) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
 	let mode = c.armed.Get()

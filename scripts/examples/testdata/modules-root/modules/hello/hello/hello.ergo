@@ -7,6 +7,6 @@ type Counter {
 }
 
 // One is the counter that reads one.
-type One {}
+type One {} implements Counter
 
 func Get(o One) int { return 1 }
