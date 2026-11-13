@@ -8,6 +8,6 @@ An XML 1.0 codec for Ergo's derived codecs, as an installable module (not std): 
 
 The form: a value is the content of an element. A record's fields are child elements named by their keys, a list's values are `<item>` elements, a union value is its variant's record with `<_tag>Name</_tag>` first (an `Option` too), a null is `<null/>`, and a `Map` key that is not an XML name is `<_ key="…">`. A character XML cannot hold is written as U+FFFD. A document type declaration is refused, so no entity can be declared and expanded.
 
-Laws (`xml/laws.ergo`, run by `ergo test ./xml`): `RoundTrips`, `OutputIsWellFormed`, `ControlCharacterIsRejectedWhereItIs` and `TruncationIsRejectedInsideTheText`, over records, unions, options, lists, maps, tuples, every integer width and floats; `Text.RawJoins` is proved.
+Laws (`laws.ergo`, run by `ergo test .`): `RoundTrips`, `OutputIsWellFormed`, `ControlCharacterIsRejectedWhereItIs` and `TruncationIsRejectedInsideTheText`, over records, unions, options, lists, maps, tuples, every integer width and floats; `Text.RawJoins` is proved.
 
-Install: Ergo has no module requirements yet (MD1), so a program carries a copy of `xml/` (see `examples/catalog`); `internal/residue`'s `TestVendoredCopiesMatch` keeps each copy the module's.
+Install: require it in the program's `go.mod` (`require ergo.dev/xml v…`, or `replace ergo.dev/xml => ../modules/xml` for this folder, as `examples/catalog` does) and `import ergo.dev/xml`. It uses no Go (its two `extern go append` lines bind Go's builtin, which needs no trust), so the program's `ergo.mod` needs no `trust go` line.

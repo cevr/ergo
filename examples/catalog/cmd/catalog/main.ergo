@@ -1,5 +1,5 @@
 // catalog publishes a shop's catalog as an XML feed and reads feeds back,
-// on the XML codec module (package xml, a copy of modules/xml/xml).
+// on the XML codec module ergo.dev/xml (modules/xml, required in go.mod).
 //
 //	catalog feed N      the feed of a sample catalog of N products
 //	catalog check       read a feed from standard input: its counts, or
@@ -12,7 +12,7 @@
 // catalog.Feed to xmlfeed's provider.
 
 import catalog/catalog
-import catalog/xml
+import ergo.dev/xml
 import catalog/xmlfeed
 import go testing
 import io

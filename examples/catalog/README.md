@@ -6,7 +6,7 @@ Tag: `default`. It is an original program, not a port.
 
 ## Installing the module
 
-`modules/xml` is a module of its own (`module ergo.dev/xml`), not std: everything it uses, any module may use. Ergo has no module requirements yet (MD1), so this program installs it by carrying a copy of its package, `xml/`, imported as `catalog/xml`. `internal/residue`'s `TestVendoredCopiesMatch` keeps the copy byte for byte the module's, so the program's tests and cases run the module as it ships. When MD1 lands, the copy becomes a require line.
+`modules/xml` is a module of its own (`module ergo.dev/xml`), not std: everything it uses, any module may use. The program requires it in `go.mod` (`require ergo.dev/xml v0.0.0`, with `replace ergo.dev/xml => ../../modules/xml`) and imports it as `ergo.dev/xml`, as any program installs an Ergo module. The module uses no Go, so `ergo.mod` trusts nothing. `ergo test` of the program does not run a dependency's tests, as `go test` does not; the examples runner runs the module's own tests and laws in this program's test leg, since it installs the repository's folder.
 
 ## Layout
 
@@ -16,7 +16,6 @@ The program is a module of packages (`ergo.mod`: `module catalog`), in the Go la
 | --- | --- |
 | `catalog/` | The domain: `Catalog`, `Product`, the listing's `Status` and `Event` unions and the machine `Listing` over them (laws `AlwaysRetirable`, `Ends`), `Count`, `Sample`, and `Feed`, the contract a feed's format keeps (law `ReadsBack`), with its typed failure `Unreadable`. It names no format. |
 | `xmlfeed/` | `Feed`'s XML provider, on the module's `Encode` and `Decode`; it turns the codec's failures into `Unreadable`. |
-| `xml/` | The copy of `modules/xml/xml`. |
 | `cmd/catalog/` | The binary. `main.ergo` parses the command (a union, matched exhaustively) and is the one place that binds `catalog.Feed` to `xmlfeed`'s provider. |
 
 ## What it shows
@@ -31,7 +30,7 @@ The program is a module of packages (`ergo.mod`: `module catalog`), in the Go la
 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/catalog/cmd/catalog -- feed 3
 ./bin/ergo run examples/catalog/cmd/catalog -- check < examples/catalog/cases/check/stdin
-./bin/ergo test examples/catalog/xml
+./bin/ergo test modules/xml
 go run ./scripts/examples catalog
 ```
 

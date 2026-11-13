@@ -299,12 +299,9 @@ internal/sketch/check/testdata/corpus/corpus-01.txtar	*
 examples/cborpack/cbor/cbor.ergo	// The form: a record is a map of its wire keys, a union value the map of
 examples/cborpack/cbor/cbor.ergo	func Encode[T wire](v T) string {
 examples/cborpack/cbor/tests.ergo	func hexOf[T wire](v T) string { hex.Encode(Encode(v)) }
-modules/xml/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string {
-modules/xml/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
-modules/xml/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
-examples/catalog/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string {
-examples/catalog/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
-examples/catalog/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
+modules/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string {
+modules/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
+modules/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
 internal/sketchfront/ledger_import_test.go	// RawJoins the build rewrites by, and Show, which encodes any wire value
 internal/sketchfront/ledger_import_test.go	func Show[T wire](v T) string {
 examples/confparse/README.md	| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level` with its by-name codec pair `ParseLevel`/`Wire`, whose round-trip law `LevelRound

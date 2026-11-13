@@ -1,4 +1,4 @@
-import go strconv
+import strconv
 import strings
 import sync
 
@@ -256,16 +256,30 @@ func Int(r reader) int64 fails WireWrongKind {
 func Uint(r reader) uint64 fails WireWrongKind {
 	let c = r.c.Get()
 	let s = try read(r, c, "uint")
-	strconv.ParseUint(strings.TrimSpace(s), 10, 64) catch {
-	case _:
+	let digits = strings.TrimSpace(s)
+	if digits == "" {
 		return wrong(r, c, "uint")
 	}
+	let mut n uint64 = 0
+	for i in 0..len(digits) {
+		let d = digits[i]
+		if d < '0' || d > '9' {
+			return wrong(r, c, "uint")
+		}
+		let v = uint64(d - '0')
+		// n * 10 + v past the largest uint64 (18446744073709551615).
+		if n > 1844674407370955161 || n == 1844674407370955161 && v > 5 {
+			return wrong(r, c, "uint")
+		}
+		n = n*10 + v
+	}
+	n
 }
 
 func Float(r reader) float64 fails WireWrongKind {
 	let c = r.c.Get()
 	let s = try read(r, c, "float")
-	strconv.ParseFloat(strings.TrimSpace(s), 64) catch {
+	strconv.ParseFloat(strings.TrimSpace(s)) catch {
 	case _:
 		return wrong(r, c, "float")
 	}

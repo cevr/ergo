@@ -3,7 +3,7 @@
 // derived codec writes.
 
 import catalog/catalog
-import catalog/xml
+import ergo.dev/xml
 
 // Feed publishes and reads a catalog as XML.
 type Feed {}

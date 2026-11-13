@@ -100,6 +100,32 @@ test DepthIsLimited {
 	assert false
 }
 
+type big { N uint64 }
+
+// bigOf is the N that Decode reads from text, or what it failed with.
+func bigOf(text string) string {
+	let b = Decode(Codec[big]{Root: "big", MaxBytes: 0, MaxDepth: 0}, "<big><n>"+text+"</n></big>") catch {
+	case WireWrongKind as w:
+		return "want " + w.Want
+	case _:
+		return "failed"
+	}
+	if b.N == 18446744073709551615 {
+		return "largest"
+	}
+	"other"
+}
+
+// Uint reads every uint64 and refuses the first decimal past the largest
+// (mutant xmd-uint-overflow-wraps): Uint is the module's own parse, with no
+// Go strconv.
+test UintStopsAtTheLargest {
+	assert bigOf(" 18446744073709551615 ") == "largest"
+	assert bigOf("18446744073709551616") == "want uint"
+	assert bigOf("18446744073709551620") == "want uint"
+	assert bigOf("+1") == "want uint"
+}
+
 // decodeFailure is the shape failure of Decode on text, shown.
 func decodeFailure(text string) string {
 	let _ = Decode(boxCodec(), text) catch {
