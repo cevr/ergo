@@ -396,6 +396,28 @@
       "killers": [
         "cmd/ergo:TestVTAgreesWithControl"
       ]
+    },
+    {
+      "name": "vk1-flush-keeps-events",
+      "origin": "wf10/dod/VK1",
+      "file": "examples/vt/vt/play.ergo",
+      "from": "\tApply(s, p.out, u)\n\tp.Clear()\n",
+      "to": "\tApply(s, p.out, u)\n",
+      "rule": "Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vk1-clear-keeps-first",
+      "origin": "wf10/dod/VK1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "func Clear(p *Stream) { p.out = p.out[0:0] }",
+      "to": "func Clear(p *Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
+      "rule": "Clear forgets every event kept, not all but the first. Killed by the replay cases.",
+      "killers": [
+        "examples:vt"
+      ]
     }
   ]
 }

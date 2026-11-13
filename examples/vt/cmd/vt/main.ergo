@@ -95,7 +95,7 @@ func PrintEvents(input string, each bool) needs Console {
 		let end = if at+Chunk < len(input) { at + Chunk } else { len(input) }
 		p.Feed(input[at:end])
 		if !each {
-			let _ = p.Take()
+			p.Clear()
 		}
 		at = end
 	}

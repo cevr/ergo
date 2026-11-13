@@ -12,10 +12,17 @@ func Play(s Screen, input string, chunk int) Played {
 	for at < len(input) {
 		let end = if at+size < len(input) { at + size } else { len(input) }
 		p.Feed(input[at:end])
-		Apply(s, p.Take(), &u)
+		p.Flush(s, &u)
 		at = end
 	}
 	p.Finish()
-	Apply(s, p.Take(), &u)
+	p.Flush(s, &u)
 	Played{Tally: p.Tally, Unhandled: u}
+}
+
+// Flush gives the screen s the events kept since the last Flush, Clear or
+// Take, and keeps the list's storage for the next piece's events.
+func Flush(p *Stream, s Screen, u *Unhandled) {
+	Apply(s, p.out, u)
+	p.Clear()
 }

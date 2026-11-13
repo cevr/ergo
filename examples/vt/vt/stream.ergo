@@ -132,12 +132,15 @@ func Finish(p *Stream) {
 	}
 }
 
-// Take is the events kept since the last Take.
+// Take is the events kept since the last Take, Flush or Clear.
 func Take(p *Stream) []Event {
 	let got = p.out
 	p.out = []Event{}
 	got
 }
+
+// Clear forgets the events kept, and keeps their storage for the next.
+func Clear(p *Stream) { p.out = p.out[0:0] }
 
 // emit keeps the event e.
 func emit(p *Stream, e Event) { p.out = p.out.Append(e) }
