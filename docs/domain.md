@@ -175,16 +175,21 @@ A command's id makes a resend harmless: the context keeps the receipt of each id
 
 ## 5. The Api, declared once
 
-**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), and later a sync replica. `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
+**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), the generated MCP tools (`ergo gen mcp`, whose descriptions are the operations' doc comments), and later a sync replica. `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
 
 <!-- quote examples/pipeline/pipeline/api.ergo Pipeline -->
 ```go
 // Pipeline is the Api of a build pipeline.
 type Pipeline {
+	// Submit starts a new run of 1 to 9 stages; a resend of the ID gets the first receipt.
 	Submit(c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Cancel stops a run that has not ended, with the reason why.
 	Cancel(c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Retry tries the failed stage of a run now, without waiting for its backoff.
 	Retry(c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable,
+	// Board is every run by column: queued, running, failing, passed, stopped.
 	Board() board.View,
+	// RunOf is the state of the run named id.
 	RunOf(id string) run.Run fails NoSuchRun,
 
 	// DuplicateIsNoop: a command sent twice is taken once: the resend
