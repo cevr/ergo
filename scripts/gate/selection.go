@@ -557,7 +557,12 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 		// sh runs the built binary, as writeTestCPU does: the gate's host
 		// programs are literals (hostPrograms).
 		command := exec.Command("sh", "-c", `exec "$0" "$@"`, binary, "-test.run", exactNames([]string{name}), "-test.short", "-test.count=1", "-test.testlogfile="+log, "-test.gocoverdir="+counters)
-		command.Env = setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOCOVERDIR", counters)
+		// GOTMPDIR is the test's own scratch too (gate-speed GS10): the go
+		// command a test starts makes and removes its work directories
+		// there, so a shared GOTMPDIR's listing, read by every test that
+		// builds Go, changed between any two runs and selected those tests
+		// after every edit, a docs edit included.
+		command.Env = setEnvironmentVariable(setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOTMPDIR", temporary), "GOCOVERDIR", counters)
 		command.Dir = packageDir
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output

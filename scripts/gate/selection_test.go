@@ -92,11 +92,26 @@ func TestEnv(t *testing.T) {
 		t.Fatal("env")
 	}
 }
+
+// TestScratch does what the go command does in GOTMPDIR: it makes a work
+// directory there and lists it.
+func TestScratch(t *testing.T) {
+	dir := os.Getenv("GOTMPDIR")
+	if dir == "" {
+		t.Fatal("no GOTMPDIR")
+	}
+	if _, err := os.MkdirTemp(dir, "go-build"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+}
 `,
 	"p/testdata/x.txt": "x\n",
 }
 
-var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv"}
+var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch"}
 
 // selectionEdit is one edit of the fixture: a replacement in a file (a new
 // file when from is empty) or a variable; reaches is the selection it
@@ -140,7 +155,9 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 	for name, content := range selectionBase {
 		write(t, root, name, content)
 	}
-	env := append(stepEnvironment(), "GOWORK=off")
+	// A shared GOTMPDIR, as scripts/gate.sh sets one: TestScratch and every
+	// go test of the verdicts change its listing (gate-speed GS10).
+	env := append(stepEnvironment(), "GOWORK=off", "GOTMPDIR="+t.TempDir())
 	listed, _, err := testPackages(root)
 	if err != nil {
 		t.Fatal(err)
