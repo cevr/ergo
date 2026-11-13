@@ -400,6 +400,8 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		out.Signal = pointed(f, p.Id, p.Pointer)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
+	case URLChanged as u:
+		out.Signal = routed(f, u.URL)
 	case Tick:
 	case Scrolled[E] as x:
 		let n = f.nodes.Get(x.Id.ref) catch {

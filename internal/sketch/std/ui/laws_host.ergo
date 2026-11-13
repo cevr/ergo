@@ -780,3 +780,112 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	true
 }
+
+// places are the addresses the router app knows, by index; "/nowhere"
+// is one it does not know.
+let places = []string{"/", "/a", "/b?x=1", "/c#top", "/a/b?q=2#f"}
+
+// placeOf is the index of u in places, None for an address the app does
+// not know.
+func placeOf(u URL) Option[int] {
+	for i, p in places {
+		if Href(u) == p {
+			return Some{Value: i}
+		}
+	}
+	None
+}
+
+// routeStep: the signal is the index of the place the app shows.
+func routeStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func routeTimer(s int) Option[Timeout[int]] { None }
+
+func routeWork(s int) Option[func(send func(e int))] { None }
+
+func routeMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork}
+}
+
+// home is the router app's fallback: an address it does not know shows
+// "/". It is written after placeOf, so it takes only what placeOf leaves.
+func home(u URL) Option[int] { Some{Value: 0} }
+
+// routeView shows the place at s.
+func routeView(f *Frame[int], s int) {
+	OnURL(f, placeOf)
+	OnURL(f, home)
+	Text(f, "at \(places[s])")
+}
+
+// HrefParses: ParseURL reads back what Href prints, for drawn paths,
+// queries and fragments that hold no '?' or '#' (a path never does).
+law HrefParses(seed int) {
+	let mut r = seeded(seed)
+	let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"}
+	let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]}
+	ParseURL(Href(u)) == u
+}
+
+// NavigationFollowsModel (H7): over drawn navigations of the user (to a
+// place the app knows, or to one it does not) and presses of back, on the
+// test host of a router app, the history is a model stack: its current
+// place and depth are the model's after each step, back at the first
+// entry does nothing, and the app shows the place of the last change it
+// knows ("/" for one it does not: its second OnURL takes what the first
+// leaves), which reached it as URLChanged.
+law NavigationFollowsModel(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		navigationFollows(seed, steps, m)
+	}
+}
+
+func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(routeMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, routeView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut stack = []string{"/"}
+	let mut shown = 0
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut act Act = GoBack
+		if draw(&r, 3) != 0 {
+			let mut href = "/nowhere"
+			if draw(&r, 4) != 0 {
+				href = places[draw(&r, len(places))]
+			}
+			act = NavigateTo{Href: href}
+			stack = stack.Append(href)
+		} else if len(stack) > 1 {
+			let mut kept = []string{}
+			for i in 0..len(stack)-1 {
+				kept = kept.Append(stack[i])
+			}
+			stack = kept
+		} else {
+			act = GoBack
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let top = stack[len(stack)-1]
+		match placeOf(ParseURL(top)) {
+		case Some[int] as p:
+			shown = p.Value
+		case None:
+			shown = 0
+		}
+		if Href(Current(History(&h))) != top || Depth(History(&h)) != len(stack)-1 || StateOf(&h) != shown {
+			return false
+		}
+		Play(&h, []Act{ExpectOn{At: WithText{Text: "at \(places[shown])"}, Is: ToExist}}) catch {
+		case _:
+			return false
+		}
+	}
+	true
+}

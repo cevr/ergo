@@ -21,6 +21,7 @@ type TestHost[S, E, D, F] {
 	posted  queue.Queue[Event[E]],
 	mirror  Mirror[E],
 	session Session[S, E, D, F],
+	history MemoryHistory,
 }
 
 // NoNode is the failure of a script step whose label names no node on the
@@ -41,7 +42,7 @@ func NewTestHost[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""})}
 }
 
 // apply steps one event and shows its patch.
@@ -215,6 +216,30 @@ func labelOf[E](n Node[E]) Option[string] {
 	}
 }
 
+// History is the test host's history, at "/" when the host starts: the
+// Location a test binds for the program (H7), and the one the user's
+// navigations (Navigate, GoBackOn) move.
+func History[S, E, D, F](h *TestHost[S, E, D, F]) MemoryHistory { h.history }
+
+// Navigate is the user going to href, as a typed address or a link the
+// host follows: a Push of the history, then URLChanged.
+func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+	let u = ParseURL(href)
+	Push(h.history, u)
+	try apply(h, URLChanged{URL: u})
+}
+
+// GoBackOn is the user pressing back: when the history moves, URLChanged
+// with the place it moved to, and true; false at the first entry, with
+// no event.
+func GoBackOn[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool fails actor.Stopped | BadPatch {
+	if !Back(h.history) {
+		return false
+	}
+	try apply(h, URLChanged{URL: Current(h.history)})
+	true
+}
+
 // Locate is the nodes on the screen that loc finds, in tree order (H4r).
 func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
 
@@ -228,11 +253,15 @@ func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails 
 
 // Act is one step of a scene script: by label (TapOn, TypeInto, PointOn,
 // ScrollOn), or by locator (ClickOn and FillIn act on the first node it
-// finds; ExpectOn checks a matcher), or on the host.
-type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length} | ClickOn{At Locator} | FillIn{At Locator, Text string} | ExpectOn{At Locator, Is Matcher}
+// finds; ExpectOn checks a matcher), or on the host (NavigateTo and
+// GoBack are the user's navigations).
+type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length} | ClickOn{At Locator} | FillIn{At Locator, Text string} | ExpectOn{At Locator, Is Matcher} | NavigateTo{Href string} | GoBack
 
 // SettleAll settles the loads.
 type SettleAll {}
+
+// GoBack is the user pressing back (GoBackOn).
+type GoBack {}
 
 // Play runs a script in order. A step whose label or locator names no
 // node fails NoNode with that label or locator, and an ExpectOn that does
@@ -260,6 +289,10 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 			try TypeText(h, try first(h, x.At), x.Text)
 		case ExpectOn as x:
 			try Expect(h, x.At, x.Is)
+		case NavigateTo as x:
+			try Navigate(h, x.Href)
+		case GoBack:
+			let _ = try GoBackOn(h)
 		}
 	}
 }

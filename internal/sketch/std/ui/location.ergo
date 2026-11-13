@@ -1,0 +1,167 @@
+import strings
+import sync
+
+// URL is a place in a program (H7): a path, a query and a fragment, as a
+// browser's location gives them without its origin. Href prints it and
+// ParseURL reads it back.
+type URL { Path string, Query string, Fragment string }
+
+// ParseURL reads "/path?query#fragment": the fragment is what follows the
+// first '#', the query what follows the first '?' before it, and the path
+// the rest, "/" when it is empty.
+func ParseURL(s string) URL {
+	let mut rest = s
+	let mut fragment = ""
+	let hash = strings.Index(rest, "#")
+	if hash >= 0 {
+		fragment = rest[hash+1:]
+		rest = rest[:hash]
+	}
+	let mut query = ""
+	let q = strings.Index(rest, "?")
+	if q >= 0 {
+		query = rest[q+1:]
+		rest = rest[:q]
+	}
+	if rest == "" {
+		rest = "/"
+	}
+	URL{Path: rest, Query: query, Fragment: fragment}
+}
+
+// Href prints u as ParseURL reads it: the query after a '?' and the
+// fragment after a '#', each only when it is not empty.
+func Href(u URL) string {
+	let mut out = u.Path
+	if u.Query != "" {
+		out = out + "?" + u.Query
+	}
+	if u.Fragment != "" {
+		out = out + "#" + u.Fragment
+	}
+	out
+}
+
+// Location is the program's history of places: a capability a program's
+// work uses to go somewhere (Push), to change where it is without a new
+// entry (Replace) and to go back, which cmd/<name>/main.ergo binds (the
+// desktop host's history, the page's, or a MemoryHistory in a test). The
+// program learns of a change it did not make itself (the user's back
+// button, a typed address) as an event: the host sends URLChanged, and
+// the view's OnURL gives its signal. A Push or Replace sends none, as
+// the web's pushState fires no popstate: the program made it.
+type Location {
+	// Current is the place of the entry the history is at.
+	Current() URL,
+	// Push adds an entry for u after the current one, dropping the
+	// entries after it, and goes there.
+	Push(u URL),
+	// Replace makes u the place of the current entry.
+	Replace(u URL),
+	// Back goes to the entry before the current one and is true, or is
+	// false at the first entry and changes nothing.
+	Back() bool,
+
+	// PushThenBackRestores: going somewhere and back is where one was.
+	law PushThenBackRestores(u URL) {
+		let before = Current()
+		Push(u)
+		let there = Current()
+		Back() && there == u && Current() == before
+	},
+	// ReplaceKeepsDepth: a Replace adds no entry, so one Back after a Push
+	// and a Replace is where one was before the Push.
+	law ReplaceKeepsDepth(u URL, v URL) {
+		let before = Current()
+		Push(u)
+		Replace(v)
+		let there = Current()
+		Back() && there == v && Current() == before
+	},
+	// BackStopsAtTheStart: Back at the first entry is false and stays.
+	law BackStopsAtTheStart(u URL) {
+		Replace(u)
+		for Back() {
+		}
+		let first = Current()
+		!Back() && Current() == first
+	},
+}
+
+// history is a MemoryHistory's entries and the index of the current one.
+type history { entries []URL, at int }
+
+// MemoryHistory is a Location in memory, the desktop host's and a test's:
+// its copies share one history.
+type MemoryHistory { state sync.Ref[history] }
+
+// NewMemoryHistory is a history of one entry, at start.
+func NewMemoryHistory(start URL) MemoryHistory { MemoryHistory{state: sync.NewRef(history{entries: []URL{start}, at: 0})} }
+
+// Current is the place of the current entry.
+func Current(h MemoryHistory) URL {
+	let s = h.state.Get()
+	s.entries[s.at]
+}
+
+// Push adds an entry for u after the current one and goes there.
+func Push(h MemoryHistory, u URL) {
+	h.state.Update(func(s history) history {
+		let mut kept = []URL{}
+		for i in 0..s.at+1 {
+			kept = kept.Append(s.entries[i])
+		}
+		history{entries: kept.Append(u), at: s.at + 1}
+	})
+}
+
+// Replace makes u the place of the current entry.
+func Replace(h MemoryHistory, u URL) {
+	h.state.Update(func(s history) history {
+		let mut e = s.entries
+		e[s.at] = u
+		history{entries: e, at: s.at}
+	})
+}
+
+// Back goes to the entry before the current one, false at the first.
+func Back(h MemoryHistory) bool {
+	let mut moved = false
+	h.state.Update(func(s history) history {
+		if s.at == 0 {
+			return s
+		}
+		moved = true
+		history{entries: s.entries, at: s.at - 1}
+	})
+	moved
+}
+
+// Depth is the number of entries before the current one: how many Backs
+// move.
+func Depth(h MemoryHistory) int { h.state.Get().at }
+
+// OnURL takes the changes of place the host reports (URLChanged): a
+// change goes to the OnURL calls in the order the pass made them, and the
+// first that gives a signal takes it, as OnKey does.
+func OnURL[E](f *Frame[E], on escaping func(u URL) Option[E]) {
+	if f.nurls < len(f.urls) {
+		f.urls[f.nurls] = on
+	} else {
+		f.urls = f.urls.Append(on)
+	}
+	f.nurls = f.nurls + 1
+}
+
+// routed is the signal of a change of place: the first OnURL of the last
+// pass that gives one.
+func routed[E](f *Frame[E], u URL) Option[E] {
+	for i in 0..f.nurls {
+		match f.urls[i](u) {
+		case Some[E] as e:
+			return Some{Value: e.Value}
+		case None:
+		}
+	}
+	None
+}

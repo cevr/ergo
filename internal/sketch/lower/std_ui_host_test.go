@@ -1250,6 +1250,98 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+let places = []string{"/", "/a", "/b?x=1", "/c#top", "/a/b?q=2#f"}
+
+func placeOf(u ui.URL) Option[int] {
+	for i, p in places {
+		if ui.Href(u) == p {
+			return Some{Value: i}
+		}
+	}
+	None
+}
+
+func routeStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func routeTimer(s int) Option[Timeout[int]] { None }
+
+func routeWork(s int) Option[func(send func(e int))] { None }
+
+func routeMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork}
+}
+
+func home(u ui.URL) Option[int] { Some{Value: 0} }
+
+func routeView(f *ui.Frame[int], s int) {
+	ui.OnURL(f, placeOf)
+	ui.OnURL(f, home)
+	ui.Text(f, "at \(places[s])")
+}
+
+func lawHrefParses(seed int) bool {
+	let mut r = seeded(seed)
+	let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"}
+	let u = ui.URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]}
+	ui.ParseURL(ui.Href(u)) == u
+}
+
+func lawNavigationFollowsModel(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		navigationFollows(seed, steps, m)
+	}
+}
+
+func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(routeMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, routeView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut stack = []string{"/"}
+	let mut shown = 0
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut act ui.Act = ui.GoBack
+		if draw(&r, 3) != 0 {
+			let mut href = "/nowhere"
+			if draw(&r, 4) != 0 {
+				href = places[draw(&r, len(places))]
+			}
+			act = ui.NavigateTo{Href: href}
+			stack = stack.Append(href)
+		} else if len(stack) > 1 {
+			let mut kept = []string{}
+			for i in 0..len(stack)-1 {
+				kept = kept.Append(stack[i])
+			}
+			stack = kept
+		} else {
+			act = ui.GoBack
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let top = stack[len(stack)-1]
+		match placeOf(ui.ParseURL(top)) {
+		case Some[int] as p:
+			shown = p.Value
+		case None:
+			shown = 0
+		}
+		if ui.Href(ui.Current(ui.History(&h))) != top || ui.Depth(ui.History(&h)) != len(stack)-1 || ui.StateOf(&h) != shown {
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.ExpectOn{At: ui.WithText{Text: "at \(places[shown])"}, Is: ui.ToExist}}) catch {
+		case _:
+			return false
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -1273,17 +1365,63 @@ test UiPaintMatchesList(seed int, steps int) {
 test UiRowsAreTheCutEach(seed int, steps int) {
 	assert lawRowsAreTheCutEach(seed, steps)
 }
+
+test UiHrefParses(seed int) {
+	assert lawHrefParses(seed)
+}
+
+test UiNavigationFollowsModel(seed int, steps int) {
+	assert lawNavigationFollowsModel(seed, steps)
+}
+
+
+test UiLocationPushThenBackRestores(path string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	let u = ui.URL{Path: "/" + path, Query: "", Fragment: ""}
+	let before = h.Current()
+	h.Push(u)
+	let there = h.Current()
+	assert h.Back() && there == u && h.Current() == before
+}
+
+test UiLocationReplaceKeepsDepth(a string, b string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	let u = ui.URL{Path: "/" + a, Query: "", Fragment: ""}
+	let v = ui.URL{Path: "/" + b, Query: "q", Fragment: ""}
+	let before = h.Current()
+	h.Push(u)
+	h.Replace(v)
+	let there = h.Current()
+	assert h.Back() && there == v && h.Current() == before
+}
+
+test UiLocationBackStopsAtTheStart(n int, path string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	for i in 0..(n%4+4)%4 {
+		h.Push(ui.URL{Path: "/\(i)", Query: "", Fragment: ""})
+	}
+	h.Replace(ui.URL{Path: "/" + path, Query: "", Fragment: ""})
+	for h.Back() {
+	}
+	let first = h.Current()
+	assert !h.Back() && h.Current() == first
+}
 `
 
 // stdUIHostStatements is the statement of each ui law, as the ledger writes it,
 // by ledger key.
 var stdUIHostStatements = map[string]string{
-	"ui ScriptShowsTheView":  `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
-	"ui CancelledFetchStops": `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
-	"ui NoTickWhenSettled":   `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
-	"ui InputGivesSignal":    `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
-	"ui PaintMatchesList":    `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
-	"ui RowsAreTheCutEach":   `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
+	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
+	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
+	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
+	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
+	"ui PaintMatchesList":              `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
+	"ui RowsAreTheCutEach":             `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
+	"ui HrefParses":                    `HrefParses(seed int) { let mut r = seeded(seed) let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"} let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]} ParseURL(Href(u)) == u }`,
+	"ui NavigationFollowsModel":        `NavigationFollowsModel(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { navigationFollows(seed, steps, m) } }`,
+	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
+	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
+	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
 }
 
 // TestUIHostModel runs the probe's tests with --seed 1; lawledger.Run holds that
