@@ -18,14 +18,14 @@ import (
 // with every cache empty; a package's segment is decoded on its first
 // import (check/export.go). The snapshot is made from the checker's source
 // by TestStdSnapshotIsCurrent -update-std-snapshot, which also writes
-// stdsnap_gen.go: the digest of the std sources it checked, and the digest
-// of every source file of the checker's import closure. The test fails at
-// a head whose std or checker no longer matches those digests, so the gate
-// refuses a stale snapshot before a binary is built from it. At run time
-// the compiler refuses the snapshot when its std sources differ from the
-// ones the binary embeds (a defence in depth: the checker's own source is
-// not in the binary), and then falls back to the disk cache (stdcache.go)
-// and to source.
+// stdsnap_gen.go: the digest of the std sources it checked. An export is
+// deterministic (check Law ExportIsDeterministic), so the test compares the
+// embedded bytes with this head's export and fails at a head whose std or
+// checker changes the checked std, so the gate refuses a stale snapshot
+// before a binary is built from it. At run time the compiler refuses the
+// snapshot when its std sources differ from the ones the binary embeds (a
+// defence in depth: the checker's own source is not in the binary), and
+// then falls back to the disk cache (stdcache.go) and to source.
 //
 // ERGO_STD_SNAPSHOT=off selects the reference, std checked from source (or
 // the disk cache), for the agreement test and for diagnosis.

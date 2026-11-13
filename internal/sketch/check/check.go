@@ -282,6 +282,8 @@ type checker struct {
 	grew           map[*Func][2]bool
 	// asNames holds each as pattern's binding name until finishInfo.
 	asNames map[*Pattern]*syntax.Ident
+	// nodeOrder is the source order of the package's nodes (sourceorder.go).
+	nodeOrder map[syntax.Node]int
 	// literals keeps isLiteral's answer for each operation it has seen.
 	literals map[syntax.Expr]bool
 	// callee is the selector a call is about to check as its callee: only

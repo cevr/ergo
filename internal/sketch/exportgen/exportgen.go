@@ -51,11 +51,24 @@ const (
 var skipFields = map[string]string{
 	// A func field rebuilt after decoding (check/export.go, afterDecode).
 	"check.typeTable.substRow": "rebuilt: the owning checker's substRow",
+	// Memos keyed by type and row objects (intern.go), empty when decoded
+	// (check/export.go, afterDecode): a lookup recomputes an entry from the
+	// table's nodes, to the same id. Their keys tie in any order a
+	// snapshot could write them in (export_order.go), so carrying them
+	// would make the bytes depend on Go's map order.
+	"check.typeTable.of":            "a memo, rebuilt on use",
+	"check.typeTable.foreign":       "a memo, rebuilt on use",
+	"check.typeTable.resolved":      "a memo, rebuilt on use",
+	"check.typeTable.varRows":       "a memo, rebuilt on use",
+	"check.typeTable.scoped":        "the inference context's memo, rebuilt on use",
+	"check.typeTable.scopedRows":    "the inference context's memo, rebuilt on use",
+	"check.typeTable.scopedVarRows": "the inference context's memo, rebuilt on use",
 	// Test hooks, nil outside tests (the encoder checks the others).
 	"check.checker.contextLimit": "test hook",
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
+	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.ExportStd refuses a std package whose record is not empty.
@@ -386,7 +399,7 @@ func (e *emitter) emit(t types.Type) {
 		fmt.Fprintf(&e.dec, "func (d *decoder) dec%s() (v %s) {\n\tfor i := range v {\n\t\tv[i] = d.dec%s()\n\t}\n\treturn v\n}\n\n", name, ts, el)
 	case *types.Map:
 		k, v := e.fn(u.Key()), e.fn(u.Elem())
-		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif v == nil {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.uint(uint64(len(v)) + 1)\n\tfor k, x := range v {\n\t\te.enc%s(k)\n\t\te.enc%s(x)\n\t}\n}\n\n", name, ts, k, v)
+		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif v == nil {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.uint(uint64(len(v)) + 1)\n\tkeys := make([]%s, 0, len(v))\n\tfor k := range v {\n\t\tkeys = append(keys, k)\n\t}\n\tfor _, i := range e.entryOrder(len(keys), func(i int) (any, any) {\n\t\tx := v[keys[i]]\n\t\treturn &keys[i], &x\n\t}) {\n\t\te.enc%s(keys[i])\n\t\te.enc%s(v[keys[i]])\n\t}\n}\n\n", name, ts, e.typeString(u.Key()), k, v)
 		fmt.Fprintf(&e.dec, "func (d *decoder) dec%s() %s {\n\tn := d.uint()\n\tif n == 0 {\n\t\treturn nil\n\t}\n\tv := make(%s, n-1)\n\tfor range n - 1 {\n\t\tk := d.dec%s()\n\t\tv[k] = d.dec%s()\n\t}\n\treturn v\n}\n\n", name, ts, ts, k, v)
 	case *types.Basic:
 		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) { %s }\n\n", name, ts, e.basicEnc(u, "v"))

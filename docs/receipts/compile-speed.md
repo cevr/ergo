@@ -15,7 +15,7 @@ Compile-speed unit CS1 embeds the checked std snapshot of CHK1b in `ergo` (`inte
 
   The base's cold check checks std from source, then writes the disk cache. The head's check needs neither. Wall times were 0.04 to 0.11 s on and 0.74 to 1.85 s off. The load was high, so the wall times are not a verdict.
 - Measured: the binary is 33,736,716 bytes at the head and 30,469,767 bytes at the base (+3.27 MB). The snapshot is 3,172,893 bytes, about 1.46 MB gzipped (plan §4 guessed 1 to 3 MB).
-- Gap: the snapshot's bytes differ from one export to the next, because the encoder ranges over Go maps. So each regeneration commits a new 3 MB file that git cannot delta well. A deterministic encoder (map entries in a stable order) is a follow-up.
+- Follow-up done in CS1b: the export is deterministic, so a regeneration that changes nothing checked rewrites the same bytes, and git stores no new blob. The snapshot is now 3,010,260 bytes: it no longer carries the type tables' memos (about 160 KB). Two `-update-std-snapshot` runs in separate processes wrote byte-identical files (cmp).
 
 ## Package split
 

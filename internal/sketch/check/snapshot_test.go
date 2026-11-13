@@ -60,6 +60,43 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 	}
 }
 
+// TestExportIsDeterministic checks Law ExportIsDeterministic
+// (export_order.go): std checked from source twice in one process exports
+// the same bytes, and so does an export that writes each run of tied map
+// keys in the reverse order. The second check starts from nothing, so the
+// law covers the checker's own state as well as the encoder's map order. It
+// kills cs-snap-map-order, cs-snap-memo-exported, cs-snap-tree-unreached,
+// cs-snap-ties-shallow and cs-check-map-order.
+func TestExportIsDeterministic(t *testing.T) {
+	ResetStdForTest()
+	defer ResetStdForTest()
+	export := func(what string) []byte {
+		t.Helper()
+		data, err := ExportStd()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		return data
+	}
+	same := func(what string, a, b []byte) {
+		t.Helper()
+		if !bytes.Equal(a, b) {
+			at := 0
+			for at < min(len(a), len(b)) && a[at] == b[at] {
+				at++
+			}
+			t.Errorf("%s: %d and %d bytes, first difference at byte %d", what, len(a), len(b), at)
+		}
+	}
+	first := export("the first export")
+	ResetStdForTest()
+	second := export("the export of a second check")
+	same("two checks of std export different bytes", first, second)
+	reverseTiesForTest = true
+	defer func() { reverseTiesForTest = false }()
+	same("an export with its tied map keys reversed differs", second, export("the export with ties reversed"))
+}
+
 // TestStdSnapshotInstall guards the checked snapshot seam: after an
 // export, a fresh checker installs the snapshot, imports every std package
 // and checks a caller without checking any std package, and refuses a

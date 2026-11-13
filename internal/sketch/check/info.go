@@ -3,6 +3,8 @@ package check
 import (
 	"fmt"
 	"go/constant"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -1313,7 +1315,8 @@ func (w *Context) EachProvider(f func(cap Type, e *ContextEntry) bool) {
 // check's mark of an unknown row and no failure a client can name
 // (Row.unknown).
 func (c *checker) finishInfo() {
-	for x, call := range c.pkg.Info.Calls {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Calls))) {
+		call := c.pkg.Info.Calls[x]
 		switch call.Kind {
 		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
@@ -1330,7 +1333,8 @@ func (c *checker) finishInfo() {
 			call.Needs = c.types.resolve(call.Needs).known(c.types)
 		}
 	}
-	for x, sig := range c.pkg.Info.Literals {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Literals))) {
+		sig := c.pkg.Info.Literals[x]
 		if sig.Errors.unknown(c.types) || sig.Uses.unknown(c.types) {
 			s := *sig
 			s.Errors, s.Uses = sig.Errors.known(c.types), sig.Uses.known(c.types)
@@ -1343,7 +1347,8 @@ func (c *checker) finishInfo() {
 	// A function's type keeps its row variables (inference writes the
 	// solution beside them); Info holds the solved rows (invariant 2).
 	memo := map[Type]Type{}
-	for x, t := range c.pkg.Info.Types {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Types))) {
+		t := c.pkg.Info.Types[x]
 		if r := c.finalType(t, memo); r != t {
 			c.pkg.Info.Types[x] = r
 		}

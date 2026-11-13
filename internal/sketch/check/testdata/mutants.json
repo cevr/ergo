@@ -2789,6 +2789,13 @@
       "killers": [
         "lower:TestSealedStdConvertsToItsOperationTypes"
       ]
-    }
+    },
+    {"name":"cs-snap-map-order","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\tslices.SortFunc(order, func(a, b int) int { return bytes.Compare(ranks[a], ranks[b]) })\n","to":"","rule":"A snapshot writes a map's entries in rank order, never in Go's map order (Law ExportIsDeterministic).","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-tree-unreached","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export.go","from":"write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })","to":"write(s.paths[i], func() { e.encPtrPackage(pkg) })","rule":"Each std package's files are reached before the package is written, so every node of a file has a tree-order id before a map keyed by nodes is ranked.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-check-map-order","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/info.go","from":"range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Calls)))","to":"range slices.Collect(maps.Keys(c.pkg.Info.Calls))","rule":"finishInfo visits the calls in source order, so the type table's ids depend on the source alone (D16), and two checks of std export the same bytes.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-shallow","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"const rankDepth = 2","to":"const rankDepth = 0","rule":"A key with no id yet is ranked by its fields as well as its type.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-key-only","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"ranks[i] = e.rank(e.rank(nil, reflect.ValueOf(k).Elem(), rankDepth), reflect.ValueOf(v).Elem(), rankDepth)","to":"ranks[i] = e.rank(nil, reflect.ValueOf(k).Elem(), rankDepth); _ = v","rule":"An entry's rank includes its value, which tells apart keys alike to rankDepth.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-slice-len","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\t\tfor i := range v.Len() {\n\t\t\tb = e.rank(b, v.Index(i), depth)\n\t\t}\n\t\treturn b\n\tcase reflect.Array:","to":"\t\treturn b\n\tcase reflect.Array:","rule":"A rank reads a slice's elements, not its length alone.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-no-node-id","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\t\tif id, ok := e.nodes.Has(x); ok {","to":"\t\tif id, ok := e.nodes.Has(x); ok && false {","rule":"A syntax node is ranked by its tree-order id.","killers":["check:TestExportIsDeterministic"]}
   ]
 }

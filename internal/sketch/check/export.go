@@ -141,9 +141,19 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 		seg.sum = sha256.Sum256(seg.data)
 		segs = append(segs, seg)
 	}
-	write("", func() { e.encPtrstdBase(s.base) })
+	// Each segment first reaches its files, so its syntax ids follow the
+	// trees, and a map keyed by nodes is written in tree order
+	// (export_order.go).
+	reach := func(pkg *Package) {
+		if pkg != nil {
+			for _, f := range pkg.files {
+				e.nodes.Reach(f.syntax)
+			}
+		}
+	}
+	write("", func() { reach(s.base.prelude.pkg); e.encPtrstdBase(s.base) })
 	for i, pkg := range s.packages {
-		write(s.paths[i], func() { e.encPtrPackage(pkg) })
+		write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })
 	}
 	// The header: every segment's path, starts, deps, size and checksum,
 	// and the ends of the last segment. Its own checksum is verified before
@@ -680,11 +690,19 @@ func (d *decoder) add(v any) {
 }
 
 // afterDecode rebuilds what the codec does not carry: each checker's type
-// table substitutes rows through its checker (newChecker).
+// table substitutes rows through its checker (newChecker), and starts its
+// memos empty (exportgen skipFields).
 func (d *decoder) afterDecode() {
 	for _, c := range d.checkers {
 		if c.types != nil {
 			c.types.substRow = c.substRow
+			c.types.of = map[Type]int32{}
+			c.types.foreign = map[*Row]*Row{}
+			c.types.resolved = map[*Row]*Row{}
+			c.types.varRows = map[*RowVar]*Row{}
+			c.types.scoped = map[Type]int32{}
+			c.types.scopedRows = map[*Row]*Row{}
+			c.types.scopedVarRows = map[*RowVar]*Row{}
 		}
 	}
 }
