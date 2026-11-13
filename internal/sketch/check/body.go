@@ -60,6 +60,9 @@ type Body struct {
 	// the result, any other index a parameter.
 	Keeps  bool
 	Keeper int
+	// FrameRelease: the body registers its callback as an exit action of
+	// the caller's frame (v1.Body.Release "frame"; scope.OnExit).
+	FrameRelease bool
 }
 
 // BodyOf returns the body contract of the extern f, the zero Body for
@@ -82,6 +85,7 @@ func BodyOf(f *Func) Body {
 	if body, err := v1.BodyOf(name); err == nil {
 		b.Known = true
 		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
+		b.FrameRelease = body.Release == "frame"
 		b.Value = valueBody(body)
 	}
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)

@@ -5065,6 +5065,7 @@ func (e *encoder) encFieldsBody(v *Body) {
 	e.encT11(v.Repeated)
 	e.encT11(v.Keeps)
 	e.encT1(v.Keeper)
+	e.encT11(v.FrameRelease)
 }
 
 func (e *encoder) encBody(v Body) { e.encFieldsBody(&v) }
@@ -14488,6 +14489,7 @@ func (d *decoder) decFieldsBody(v *Body) {
 	v.Repeated = d.decT11()
 	v.Keeps = d.decT11()
 	v.Keeper = d.decT1()
+	v.FrameRelease = d.decT11()
 }
 
 func (d *decoder) decBody() (v Body) {

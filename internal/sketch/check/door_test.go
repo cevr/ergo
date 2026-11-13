@@ -80,3 +80,36 @@ func TestRuntimeTypeDeclarations(t *testing.T) {
 		}
 	}
 }
+
+// TestExitActionFollowsTheBody (STD-NOPRIV NP3d): the frame rule of
+// scope.OnExit follows the body fact `//ergo:release frame`, not the name.
+// A trusted package that binds v1.OnExit gets it, so the call at a package
+// let is S108; a package at path scope whose own Ergo OnExit registers
+// nothing does not (before, a match on the path and the name refused it).
+// Mutants: onexit-by-name, onexit-std-only.
+func TestExitActionFollowsTheBody(t *testing.T) {
+	const use = "func one() int { 1 }\n\nlet n = if one() > 0 {\n\tOnExit() { }\n\t1\n} else {\n\t2\n}\n"
+	for _, c := range []struct {
+		path, decl string
+		imp        Importer
+		want       string
+	}{
+		{"app/x", "extern go ergo.local/prototype/runtime/v1.OnExit func OnExit[R](body func() needs R) needs R\n\n", trustingImporter{}, "x.OnExit needs the frame scope of a function body"},
+		{"scope", "func OnExit(body func()) { body() }\n\n", Std, ""},
+	} {
+		f, err := syntax.Parse(c.decl + use)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, diags := CheckTest(c.path, []*syntax.File{f}, c.imp, nil)
+		if c.want == "" {
+			if len(diags) != 0 {
+				t.Errorf("%s: %v", c.path, diags)
+			}
+			continue
+		}
+		if len(diags) != 1 || !strings.Contains(diags[0].Message, c.want) {
+			t.Errorf("%s: got %v, want one %q", c.path, diags, c.want)
+		}
+	}
+}
