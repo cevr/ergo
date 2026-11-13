@@ -36,6 +36,33 @@
       "to": "(&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)",
       "rule": "A variable can be nil; map a resource pointer to Option[go.Ref[T]].",
       "killers": ["gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
+    },
+    {
+      "name": "gobind-w1-extras-dropped",
+      "origin": "wf10 LY W1",
+      "file": "internal/gobind/load.go",
+      "from": "\t\t\t\tagree[path] = append(agree[path], p)",
+      "to": "\t\t\t\t_ = p",
+      "rule": "A portable package's binding states the build platforms past the binding platforms (windows/amd64, js/wasm, wasip1/wasm), so a program importing it builds there.",
+      "killers": ["gobind:TestBindMappingProperty"]
+    },
+    {
+      "name": "gobind-w1-extras-unchecked",
+      "origin": "wf10 LY W1",
+      "file": "internal/gobind/load.go",
+      "from": "ok && withoutHeader(w) == withoutHeader(text) {",
+      "to": "ok && w != \"\" && text != \"\" {",
+      "rule": "A binding does not state a build platform where its declarations differ from the binding platforms'.",
+      "killers": ["gobind:TestBindMappingProperty"]
+    },
+    {
+      "name": "gobind-w1-std-widened",
+      "origin": "wf10 LY W1",
+      "file": "internal/gobind/std.go",
+      "from": "return bindOn(dir, env, v, Platforms, paths)",
+      "to": "return Bind(dir, env, v, paths...)",
+      "rule": "Go's standard-library bindings state the binding platforms only, as generated (an import of one off them is S104).",
+      "killers": ["gobind:TestGoStdBindingsMatchToolchain"]
     }
   ]
 }
