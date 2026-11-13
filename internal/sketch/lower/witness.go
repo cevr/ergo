@@ -123,6 +123,12 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 	}
 	var m *check.Method
 	if tp, ptr := paramSource(w.Arg); tp != nil {
+		if st := fc.static[tp]; st != nil && !ptr {
+			// The known witness of a copy (witspec.go): its function.
+			if own := staticOp(st, op.Name); own != nil {
+				return fc.witnessOp(st, *own, site)
+			}
+		}
 		src, ok := fc.witness[tp]
 		if !ok {
 			ice(site, "the type parameter %s supplies %s with no witness of its own", tp.Name, op.Name)
@@ -214,7 +220,9 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 		v := locals.alloc("v")
 		body = "\t" + v + ", _ := " + call + "\n\treturn " + v + "\n"
 	default:
-		body = "\t_ = " + call + "\n"
+		// The field has the uniform shape: a struct{} and an error, nil
+		// here, both dropped.
+		body = "\t_, _ = " + call + "\n"
 	}
 	return "func (" + self + " *" + recv + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, opFallible) + " {\n" + body + "}\n\n"
 }
@@ -225,6 +233,13 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 // the uniform shape
 // (typeCtx.funcType), so the call has the operation's value and an error.
 func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
+	if st := fc.static[tp]; st != nil {
+		if own := staticOp(st, op.Name); own != nil {
+			// The known witness of a copy (witspec.go): the function the
+			// witness would hold, called where it is written.
+			return "(" + fc.witnessOp(st, *own, site) + ")(" + strings.Join(append([]string{env}, vals...), ", ") + ")", true, true
+		}
+	}
 	w, ok := fc.witness[tp]
 	if !ok {
 		ice(site, "the operation %s of the type parameter %s, which has no witness here", op.Name, tp.Name)

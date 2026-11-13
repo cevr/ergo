@@ -144,6 +144,9 @@ type funcCtx struct {
 	// witness names the Go parameter that holds the operations of each of
 	// the function's type parameters a method set constrains (witness.go).
 	witness map[*check.TypeParam]string
+	// static is the known witness of a copy for one (witspec.go): its
+	// operations are called directly.
+	static map[*check.TypeParam]*check.Witness
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
@@ -218,7 +221,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, hot: fc.onLoopPath()}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.

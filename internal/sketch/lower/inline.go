@@ -854,7 +854,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {

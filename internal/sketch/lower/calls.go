@@ -297,6 +297,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
 		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
+		if sp != nil && sp.wit != nil && !known {
+			lead = nil // the copy for a known witness takes none (witspec.go)
+		}
 		if !fd.pure {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}

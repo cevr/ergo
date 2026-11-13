@@ -1114,6 +1114,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
 		}
 		fc.witness[tp] = scope.alloc("w" + tp.Name)
+		if sp != nil && sp.wit != nil && sp.wit.Param == tp {
+			// A copy for a known witness (witspec.go): no parameter; a
+			// use of the witness itself takes one built in the copy.
+			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
 		args = append(args, fc.witness[tp])
 	}
@@ -1136,7 +1142,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	wrapParams = strings.Join(parts, ", ") + ")"
 	if sp != nil && sp.prov != nil && params[sp.param] != nil {
 		fc.provs = map[*check.Var]*knownProv{params[sp.param]: sp.prov}
-	} else if sp != nil && params[sp.param] != nil {
+	} else if sp != nil && sp.rec != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}
@@ -1235,7 +1241,14 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	if !known && sp == nil && !drop {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
-	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
+	body := fc.out.String()
+	if sp != nil && sp.wit != nil {
+		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
+			fc.depth = 1
+			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 	if owned {
 		// The wrapper stands in the generated part, before the first
 		// //line directive: a defect names no Ergo frame for it.
