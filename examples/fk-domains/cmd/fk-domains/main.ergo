@@ -10,6 +10,7 @@
 // refusals. This binary is the only place that chooses them: it binds
 // domains.Registry to the sample registry.
 
+import crc32
 import http
 import json
 import os
@@ -18,7 +19,7 @@ import fk-domains/domains
 import fk-domains/sample
 import fk-domains/server
 
-func usage() os.Exit { os.Exit{Code: 2, Message: "usage: fk-domains serve [ADDR] | search LABEL [OFFSET [LIMIT]]"} }
+func usage() os.Exit { os.Exit{Code: 2, Message: "usage: fk-domains serve [ADDR] | search LABEL [OFFSET [LIMIT]] | bench N"} }
 
 // line is a listing as search prints it.
 func line(l domains.Listing) string {
@@ -72,6 +73,31 @@ func search(args []string) fails os.Exit needs Console | domains.Registry {
 	}
 }
 
+// bench answers the first N requests of server's script through
+// server.Answer, in process, and prints how many bytes they answered and
+// the CRC-32 of each answer's status, headers and body. It is target
+// P11's workload: the hand Go control prints the same line.
+func bench(args []string) fails os.Exit needs Console | domains.Registry {
+	if len(args) != 1 {
+		return usage()
+	}
+	let n = try integer(args[0])
+	let mut bytes = 0
+	let mut crc uint32 = 0
+	with context { http.Streaming: http.NewRecorder() } {
+		for i in 0..n {
+			let a = server.Answer(server.ScriptRequest(i))
+			crc = crc32.Update(crc, "\(a.Status)\n")
+			for h in a.Header {
+				crc = crc32.Update(crc, h.Name+": "+h.Value+"\n")
+			}
+			crc = crc32.Update(crc, a.Body)
+			bytes += len(a.Body)
+		}
+	}
+	Console.Println("\(n) requests, \(bytes) answer bytes, crc32 \(crc)")
+}
+
 func serve(args []string) fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console | Ambient | domains.Registry {
 	if len(args) > 1 {
 		return usage()
@@ -95,6 +121,8 @@ func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console
 			try serve(args[1:])
 		case "search":
 			try search(args[1:])
+		case "bench":
+			try bench(args[1:])
 		case _:
 			return usage()
 		}

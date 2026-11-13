@@ -1,0 +1,28 @@
+import http
+
+// The request script of target P11 (plan §20.5): the requests that
+// `fk-domains bench N` answers through Answer, and that the hand Go
+// control (examples/fk-domains/control) answers by hand. Both print the
+// same summary of the same answer bytes, so a receipt that compares them
+// compares the same work.
+
+// scriptLabels are the labels the script searches for, in turn.
+let scriptLabels = []string{"foldkit", "acme", "google", "f", "domains", "x9"}
+
+// scriptLimits are the limits the script asks for, in turn: the top four,
+// the rest of the first page, a page, and the whole catalog.
+let scriptLimits = []int{4, 56, 60, 556}
+
+// ScriptBody is the body of request i: an Effect RPC Request envelope of
+// SearchDomains, as the original's client sends it.
+func ScriptBody(i int) string {
+	let label = scriptLabels[i%len(scriptLabels)]
+	let offset = (i * 61) % 556
+	let limit = scriptLimits[i%len(scriptLimits)]
+	"{\"_tag\":\"Request\",\"id\":\(i),\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"\(label)\",\"offset\":\(offset),\"limit\":\(limit)},\"traceId\":\"00000000000000000000000000000001\",\"spanId\":\"0000000000000001\",\"sampled\":true,\"headers\":[]}"
+}
+
+// ScriptRequest is request i as http.Serve hands it to Answer.
+func ScriptRequest(i int) http.Request {
+	http.Request{Method: "POST", Path: Mount(), Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: ScriptBody(i)}}
+}
