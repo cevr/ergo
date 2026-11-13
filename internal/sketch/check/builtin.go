@@ -24,6 +24,10 @@ import "fmt"
 // function value, so a binding is call-only here too (externValue).
 var goBuiltins = map[string]bool{"append": true, "len": true, "cap": true, "copy": true, "clear": true, "min": true, "max": true}
 
+// IsGoBuiltin reports whether name is a Go builtin an extern may bind
+// with no package path.
+func IsGoBuiltin(name string) bool { return goBuiltins[name] }
+
 // GoBuiltin is the Go builtin an extern function f binds, or "" when its
 // target names a function of a Go package.
 func GoBuiltin(f *Func) string {

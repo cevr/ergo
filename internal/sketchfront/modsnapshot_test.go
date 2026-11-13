@@ -151,7 +151,8 @@ func (m *genModel) clean() {
 
 // snapshotReference counts the packages of a, a checked program, that a
 // snapshot holds, read from the files: in the module cache, checked with
-// no diagnostic, using no Go, importing only such packages.
+// no diagnostic, using no Go (a Go builtin's binding is none),
+// importing only such packages.
 func snapshotReference(a Analysis, cache string) int {
 	held := map[string]bool{}
 	for _, p := range a.Packages() {
@@ -163,7 +164,8 @@ func snapshotReference(a Analysis, cache string) int {
 			text := a.Files()[f.Rel]
 			for _, line := range strings.Split(text, "\n") {
 				switch {
-				case strings.HasPrefix(line, "import go "), strings.HasPrefix(line, "extern go "):
+				case strings.HasPrefix(line, "import go "), strings.HasPrefix(line, "extern go ") && strings.Contains(strings.Fields(line)[2], "."):
+					// A binding of a Go builtin (extern go len) uses no Go.
 					ok = false
 				case strings.HasPrefix(line, "import "):
 					ok = ok && held[strings.TrimPrefix(line, "import ")]

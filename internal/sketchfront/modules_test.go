@@ -44,7 +44,8 @@ import (
 // check of the function alone, so the Ambient rule is the same on both
 // sides of the module line. Mutants it alone catches (md3-*): trust lines
 // ignored or not read, an extern go not seen as Go, a dependency's
-// diagnostics dropped.
+// diagnostics dropped. A dependency's binding of a Go builtin (extern go
+// len) needs no trust (xmd-builtin-extern-trusted).
 func TestModuleResolutionAgrees(t *testing.T) {
 	if len(Check(leakSource).Diagnostics) == 0 {
 		t.Fatalf("a function that reaches the console with no row checks:\n%s", leakSource)
@@ -79,7 +80,8 @@ type genPkg struct {
 	imports []string // import paths, in source order
 	secret  string   // an import path whose unexported function F calls
 	// goUse is how the package uses Go (MD3): 0 not, 1 `import go
-	// strings` called from F, 2 `extern go strings.ToUpper`.
+	// strings` called from F, 2 `extern go strings.ToUpper`, 3 `extern go
+	// len`, a Go builtin, which runs no Go code and needs no trust.
 	goUse int
 	// leak declares H, which writes to the console with no row.
 	leak bool
@@ -234,7 +236,7 @@ func genModules(seed uint64) *genModel {
 		for _, folder := range slices.Sorted(maps.Keys(pkgs)) {
 			p := pkgs[folder]
 			if dependency && r3.IntN(3) == 0 {
-				p.goUse = 1 + r3.IntN(2)
+				p.goUse = 1 + r3.IntN(3)
 			}
 			p.leak = r3.IntN(6) == 0
 			pkgs[folder] = p
@@ -297,6 +299,9 @@ func (p genPkg) source() string {
 	b.WriteString(p.extra)
 	if p.goUse == 2 {
 		b.WriteString("\nextern go strings.ToUpper func Upper(s string) string\n")
+	}
+	if p.goUse == 3 {
+		b.WriteString("\nextern go len func Len[T](xs []T) int\n")
 	}
 	return b.String()
 }
@@ -598,7 +603,7 @@ func (m *genModel) reference(dir string) string {
 					continue
 				}
 				pkgs[path] = q
-				if q.mod != "" && q.pkg.goUse > 0 && !slices.Contains(m.trust, q.mod) {
+				if q.mod != "" && (q.pkg.goUse == 1 || q.pkg.goUse == 2) && !slices.Contains(m.trust, q.mod) {
 					src := q.pkg.source()
 					use, line, col := "import go strings", lineOf(src, "import go"), len("import ")+1
 					if q.pkg.goUse == 2 {
