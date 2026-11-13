@@ -193,6 +193,11 @@ func (g *mainGen) doc() docModel {
 	for range g.r.IntN(3) {
 		d.tags[[]string{"a", "b", "c"}[g.r.IntN(3)]] = g.r.IntN(256)
 	}
+	// A fixed key, and the literal below written in descending order: a
+	// walk that does not sort a Map's keys writes them out of order every
+	// time a document has three (oracle-o18-codec-keys-unsorted), not by the
+	// luck of Go's map iteration.
+	d.tags["z"] = 7
 	if g.r.IntN(2) == 0 {
 		s := g.text()
 		d.note = &s
@@ -267,8 +272,9 @@ func (d docModel) literal() string {
 		shape = "Circle{R: " + d.r[0] + "}"
 	}
 	var tags []string
-	for _, k := range d.tagKeys() {
-		tags = append(tags, fmt.Sprintf("%q: %d", k, d.tags[k]))
+	keys := d.tagKeys()
+	for i := len(keys) - 1; i >= 0; i-- {
+		tags = append(tags, fmt.Sprintf("%q: %d", keys[i], d.tags[keys[i]]))
 	}
 	note := "json.Absent"
 	if d.note != nil {
