@@ -14,7 +14,7 @@ What Ergo adds to the source library's model: `Decide` has no `needs` row, so it
 | Decide | A pure function `Decide(s S, c C) []E fails R`. It has no `needs` row; the checker proves that | exists |
 | Evolve | A total function `Evolve(s S, e E) S` with no rows and an exhaustive `match (s, e)` | exists |
 | The aggregate | A machine whose step is `Decide`, then the fold of `Evolve`, then `Emit{Next, Output: events}` | exists |
-| Durability | `journal.Start(m, j, every, capacity, sink)` keeps the committed signals and snapshots, and replays them. An event log of commands, with positions and receipts, is module `domain` (`modules/domain`, DK2): `Log[E]`, and `Sourced`, whose save appends the step's events and whose recover folds the stream | exists |
+| Durability | `journal.Start(m, j, every, capacity, sink)` keeps the committed signals and snapshots, and replays them. An event log of commands, with positions and receipts, is module `domain` (`modules/domain`, DK2): `Log[E]`, and `Sourced`, whose save appends the step's events and whose recover folds the stream. A stream may hold many entities (a desk of many runs), and the actor's signal may be a union of commands and its own work's and timers' signals: `Keep` commits without leaving the entry, so the state's work and timer go on, and `StepID` names a record no command caused (DK5) | exists |
 | Laws | Inside the machine (`law ClosedIsFinal`), at top level, and on the Api's operation type. Each is seeded, shrunk and replayable | exists |
 | View (read model) | A fold over events, with a law that the view equals the fold of the log | exists |
 | Policy (an event causes a command or a notice) | A pure function `React(e E) []C`, run by a follower of the log: `domain.Follow(log, cursor, follower, stream, handle)` delivers each record after the follower's saved cursor, in order, at least once, and a command the handle sends takes the id `domain.SentID(delivery, index)` (follower, stream, position, index), so a second delivery is a resend the log keeps once (law `RedeliveryAddsNothing`) | exists ([modules/domain](../modules/domain/README.md)); `examples/pipeline` runs `React` and its board as followers of its desk's log (`cmd/pipeline` `told`, `pipeline/projection.ergo`) |
@@ -294,12 +294,12 @@ func React(id string, e run.Event) []Notice {
 }
 ```
 
-**The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`Rebuild`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
+**The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`domain.Sourced` with `Evolve`). A command taken while the desk runs a try or waits out a backoff is committed with `domain.Keep`, which keeps the entry: the try and the wait go on (`CommandKeepsTheWait`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
 
 <!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn restarted -->
 ```go
 // RestartGoesOn: a context stopped after the acts before cut and opened
-// again over the same log (a restart: it recovers by Rebuild, then
+// again over the same log (a restart: it recovers by Evolve, then
 // appends after the last record) plays the rest of the acts to the desk
 // that the story of all of them gives.
 law RestartGoesOn(acts []Act, flaky []int, cut int) { restarted(acts, flaky, cut) }

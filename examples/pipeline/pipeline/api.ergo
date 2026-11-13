@@ -23,8 +23,7 @@ type CancelRun { ID string, Run string, Why string }
 type RetryRun { ID string, Run string, Stage int }
 
 // Receipt is the answer to a command that was taken: the command's ID,
-// and the number of events in the context's log once its events were
-// written.
+// and the position of the record of the context's log that keeps it.
 type Receipt { Command string, Position int }
 
 // NoSuchRun: no run has the name.

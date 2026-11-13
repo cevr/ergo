@@ -1,16 +1,16 @@
 // Model, the in-process provider of Pipeline: a durable actor of
-// Dispatch, event-sourced on a domain.Log (log.ergo). Its operations send
-// the command to the actor and read the receipt from the state that the
-// command committed; Board reads the board, a follower of the log.
+// Dispatch, event-sourced on a domain.Log by domain.Sourced (log.ergo).
+// Its operations send the command to the actor and read the receipt from
+// the ledger that the command committed; Board reads the board, a
+// follower of the log.
 
 import actor
 import github.com/cevr/ergo/modules/domain
-import sync
 import pipeline/board
 import pipeline/run
 
 // DeskActor is the running context.
-type DeskActor = actor.Actor[Desk, Signal, Decision[Desk, []Entry], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
+type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
 // Model is the context as a Pipeline. Open makes one.
 type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
@@ -20,8 +20,8 @@ type Model { desk DeskActor, log domain.Log[Entry], board Projection } implement
 // before anyone sees the state. The runner and the clock are the
 // caller's.
 func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
-	let at = sync.NewRef(0)
-	let desk = try actor.StartDurable(Dispatch{}, 8, func(es []Entry) {}, recoverFrom(log, at), saveTo(log, at))
+	let s = Recovered(log)
+	let desk = try actor.StartDurable(Dispatch{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
 	Model{desk: desk, log: log, board: NewProjection()}
 }
 
@@ -41,9 +41,9 @@ func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage |
 	case NoSuchRun as e:
 		return e
 	}
-	match BookOf(m.desk.State()).Seen.Get(env.ID) {
-	case Some[Receipt] as r:
-		r.Value
+	match domain.ReceiptOf(m.desk.State(), domain.CommandID(env.ID)) {
+	case Some[domain.Receipt] as r:
+		Receipt{Command: env.ID, Position: r.Value.Position}
 	case None:
 		Unavailable
 	}
@@ -66,7 +66,7 @@ func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | 
 func Board(m Model) board.View { m.board.Follow(m.log) }
 
 func RunOf(m Model, id string) run.Run fails NoSuchRun {
-	match BookOf(m.desk.State()).Runs.Get(id) {
+	match BookOf(m.desk.State().State).Runs.Get(id) {
 	case Some[run.Run] as r:
 		r.Value
 	case None:
@@ -77,10 +77,11 @@ func RunOf(m Model, id string) run.Run fails NoSuchRun {
 // Settle waits until the runner runs no try: the context is idle, or a
 // failed try waits for its backoff. It is the desk's state then.
 func Settle(m Model) Desk fails Unavailable {
-	actor.WaitFor(m.desk, func(d Desk) bool { !IsBusy(d) }) catch {
+	let l = actor.WaitFor(m.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
 	case actor.Stopped:
 		return Unavailable
 	}
+	l.State
 }
 
 // Stop stops the context. (Model has no Close: it is a handle that a

@@ -5,7 +5,7 @@
   build: stage 1 passed
   build: stage 2 failed
 > submit docs 1
-  taken as c3 at log position 5
+  taken as c3 at log position 4
   docs: submitted (stages: 1)
 > board
   queued: docs

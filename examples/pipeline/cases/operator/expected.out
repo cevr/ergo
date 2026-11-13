@@ -4,7 +4,7 @@
   build: started
   build: stage 1 failed
 > submit docs 1
-  taken as c4 at log position 4
+  taken as c4 at log position 3
   docs: submitted (stages: 1)
 > board
   queued: docs
@@ -13,13 +13,13 @@
   passed: -
   stopped: -
 > cancel docs no longer needed
-  taken as c6 at log position 5
+  taken as c6 at log position 4
   docs: cancelled: no longer needed
   ! docs was cancelled: no longer needed
 > retry build 2
   refused: the run is at stage 1, not 2
 > retry build 1
-  taken as c8 at log position 6
+  taken as c8 at log position 5
   build: stage 1 is tried again
   build: stage 1 passed
   build: stage 2 passed

@@ -4,7 +4,7 @@
   test: started
   test: stage 1 failed
 > submit docs 1
-  taken as c5 at log position 4
+  taken as c5 at log position 3
   docs: submitted (stages: 1)
 > wait
   test: stage 1 is tried again

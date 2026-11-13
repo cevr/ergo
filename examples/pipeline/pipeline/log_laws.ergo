@@ -1,10 +1,13 @@
-// The laws of the event log and its followers (PX-log): a scene's log
-// folds back into the desk the scene ended in, and the board that
+// The laws of the event log and its followers (PX-log, DK5): a scene's
+// log folds back into the desk the scene ended in, a command that the
+// desk keeps its entry for does not restart its wait, and the board that
 // follows the log is the fold of its entries.
 
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
 import pipeline/board
+import pipeline/retry
+import pipeline/run
 import testing
 import time
 
@@ -32,22 +35,31 @@ func played(acts []Act, from int, flaky []int, log domain.Log[Entry]) Option[Pla
 	Some[Played]{Value: Played{Desk: d, Board: v}}
 }
 
-// RecoverAgrees: the stream a scene wrote folds back (Rebuild, which a
-// restart runs) into the desk the scene ended in: its runs, its log, the
-// receipt of each command, the runs still queued, and the job with its
-// try.
+// RecoverAgrees: the stream a scene wrote folds back (domain.Sourced's
+// recover with Evolve, which a restart runs) into the desk the scene
+// ended in: its runs, its log, the runs still queued, and the job with
+// its try.
 law RecoverAgrees(acts []Act, flaky []int) {
 	let log = memory.New[Entry]()
 	match played(acts, 0, flaky, log) {
 	case Some[Played] as p:
-		Rebuild(log.Read(Stream, 0)) == Normal(p.Value.Desk)
+		let l = Recovered(log).Recover() catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+		match l {
+		case Some[Ledger] as r:
+			Normal(r.Value.State) == Normal(p.Value.Desk)
+		case None:
+			false
+		}
 	case None:
 		false
 	}
 }
 
 // RestartGoesOn: a context stopped after the acts before cut and opened
-// again over the same log (a restart: it recovers by Rebuild, then
+// again over the same log (a restart: it recovers by Evolve, then
 // appends after the last record) plays the rest of the acts to the desk
 // that the story of all of them gives.
 law RestartGoesOn(acts []Act, flaky []int, cut int) { restarted(acts, flaky, cut) }
@@ -94,6 +106,49 @@ law BoardFollowsTheLog(acts []Act, flaky []int) {
 		}
 		p.Value.Board == v
 	case None:
+		false
+	}
+}
+
+// CommandKeepsTheWait: a command for another run, taken while the desk
+// waits out a failed try's backoff, keeps the desk's entry (domain.Keep),
+// so the next try comes when the backoff from the failure ends, not a
+// backoff after the command (runtime.md, Machines and actors 9.2).
+law CommandKeepsTheWait(at int) {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { attempt > 1 })
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, Runner: s } { keepsTheWait(at, clock) } catch {
+	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
+		false
+	}
+}
+
+// keepsTheWait submits a run whose first try fails, submits another
+// part of the backoff later, lets the rest of the backoff pass, and is
+// whether the first run then passed.
+func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+	let m = try Open(memory.New[Entry]())
+	let wait = retry.Delay(retry.Standard, 1)
+	let part = duration(int64(1+((at%999)+999)%999) * int64(wait) / 1000)
+	for i, id in []string{"build", "docs"} {
+		let _ = send(m, Envelope{ID: "c\(i)", Run: id, Command: run.Submit{Stages: 1}}) catch {
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+			Stop(m)
+			return false
+		}
+		let _ = try Settle(m)
+		if i == 0 {
+			clock.Advance(part)
+		}
+	}
+	clock.Advance(wait - part)
+	let d = try Settle(m)
+	Stop(m)
+	match RunIn(BookOf(d), "build") {
+	case run.Done:
+		true
+	case run.Unsubmitted, run.Queued, run.Running, run.Failing:
 		false
 	}
 }

@@ -76,8 +76,8 @@
     {
       "name": "px1-desk-no-dedupe", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "\tcase Some[Receipt]:\n\t\treturn Ignore\n",
-      "to": "\tcase Some[Receipt]:\n",
+      "from": "\tif domain.Taken(l, id) {\n\t\treturn Ignore\n",
+      "to": "\tif false {\n\t\treturn Ignore\n",
       "rule": "A resend gets the first receipt: ModelTakesEachCommandOnce.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
@@ -170,38 +170,6 @@
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
-      "name": "pxlog-receipt-counts-start", "origin": "wf10/domain PX-log",
-      "file": "examples/pipeline/pipeline/log.ergo",
-      "from": "\t\t\t\town = own - 1\n",
-      "to": "\t\t\t\town = own\n",
-      "rule": "A command's receipt is the log's length after its own events, before the start its step gave: RecoverAgrees.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
-    },
-    {
-      "name": "pxlog-queue-keeps-started", "origin": "wf10/domain PX-log",
-      "file": "examples/pipeline/pipeline/log.ergo",
-      "from": "\tb = Book{..b, Queue: queue}\n",
-      "to": "\tb = Book{..b, Queue: order}\n",
-      "rule": "The rebuilt queue holds only the runs still queued: RecoverAgrees.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
-    },
-    {
-      "name": "pxlog-failures-count-every-stage", "origin": "wf10/domain PX-log",
-      "file": "examples/pipeline/pipeline/log.ergo",
-      "from": "\t\t\tif f.Stage == stage {\n",
-      "to": "\t\t\tif f.Stage >= 0 {\n",
-      "rule": "A rebuilt job counts the failed tries of its own stage only: RecoverAgrees, RestartGoesOn.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
-    },
-    {
-      "name": "pxlog-save-keeps-stale-position", "origin": "wf10/domain PX-log",
-      "file": "examples/pipeline/pipeline/log.ergo",
-      "from": "\t\tat.Set(r.Position)\n\t}\n}\n",
-      "to": "\t\tat.Set(r.Position - 1)\n\t}\n}\n",
-      "rule": "Each step appends at the position after the last record, so the log refuses none: SceneAgreesWithStory, RecoverAgrees.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
-    },
-    {
       "name": "pxlog-board-skips-record", "origin": "wf10/domain PX-log",
       "file": "examples/pipeline/pipeline/projection.ergo",
       "from": "\t\tif d.Record.Position <= s.At {\n",
@@ -215,6 +183,46 @@
       "from": "\t\tfor l in told(log, cursor) {\n",
       "to": "\t\tfor l in told(log, memory.NewCursor()) {\n",
       "rule": "The notices' follower tells each record once, from its saved cursor: the cases' recorded output.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "dk5-keep-loses-receipt", "origin": "wf10/domain DK5",
+      "file": "modules/domain/sourced.ergo",
+      "from": "Receipts: l.Receipts.Put(id, Receipt{ID: id, Stream: l.Stream, Position: p}), Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
+      "to": "Receipts: l.Receipts, Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
+      "rule": "A Keep's ledger keeps the command's receipt, which the sender reads: CommandKeepsTheWait (its second submit is kept while the desk waits).",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "dk5-hosted-stay-commits", "origin": "wf10/domain DK5",
+      "file": "examples/pipeline/pipeline/desk.ergo",
+      "from": "\t\tdomain.Keep(l, id, k.Next,",
+      "to": "\t\tdomain.Commit(l, id, k.Next,",
+      "rule": "A step that stays commits with Keep, so a command does not restart the wait: CommandKeepsTheWait.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "dk5-evolve-retry-same-try", "origin": "wf10/domain DK5",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "Try: retry.TryOf(j.Attempt) + 1}}}",
+      "to": "Try: retry.TryOf(j.Attempt)}}}",
+      "rule": "A retry is the next try, so a recovered desk counts the stage's tries: RecoverAgrees, RestartMidStage.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "dk5-evolve-failure-keeps-busy", "origin": "wf10/domain DK5",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\t\tcase Enter[retry.Attempt] as n:\n\t\t\tWaiting{Book: b, Job: Job{..j, Attempt: n.Next}}\n",
+      "to": "\t\tcase Enter[retry.Attempt]:\n\t\t\twithin(d, b)\n",
+      "rule": "A failed try the saga retries waits: RecoverAgrees.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "dk5-evolve-stop-keeps-job", "origin": "wf10/domain DK5",
+      "file": "examples/pipeline/pipeline/log.ergo",
+      "from": "\t\tcase Waiting as w:\n\t\t\tif w.Job.Run == e.Run { Idle{Book: left} } else { within(d, left) }\n",
+      "to": "\t\tcase Waiting:\n\t\t\twithin(d, left)\n",
+      "rule": "A cancel of the waiting run leaves the desk idle: RecoverAgrees.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]

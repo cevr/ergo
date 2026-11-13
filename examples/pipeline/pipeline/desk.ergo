@@ -3,8 +3,13 @@
 // their parent). It takes the operators' commands at any time, and runs
 // one stage at a time, in the order the runs were submitted: the stage's
 // try is the work of the Busy state; a failed try waits in Waiting for
-// the retry saga's timer.
+// the retry saga's timer. The actor's state is the desk in a
+// domain.Ledger (DK5): Hosted takes each command once and commits the
+// entries of each step as one record of the stream, with Keep while the
+// desk keeps its entry, so a command in Busy or Waiting does not restart
+// the try or the wait.
 
+import github.com/cevr/ergo/modules/domain
 import machines
 import pipeline/retry
 import pipeline/run
@@ -18,14 +23,14 @@ type Envelope { ID string, Run string, Command run.Command }
 type Entry { Run string, Event run.Event }
 
 // Book is what every state of the desk holds: each run by name, the runs
-// that wait for the runner (in submission order), the log, and the receipt
-// of each command taken (by its ID). The board is a follower of the
-// log (board.Projection), not part of the desk.
+// that wait for the runner (in submission order), and the log. The
+// receipt of each command taken is in the ledger (domain.Ledger), and the
+// board is a follower of the log (board.Projection), not part of the
+// desk.
 type Book {
 	Runs  Map[string, run.Run],
 	Queue []string,
 	Log   []Entry,
-	Seen  Map[string, Receipt],
 }
 
 // Job is the stage the desk runs: the run, the stage, and the retry
@@ -44,7 +49,7 @@ type Desk = Idle{Book Book} | Busy{Book Book, Job Job} | Waiting{Book Book, Job 
 type Signal = Ask{Env Envelope} | Ran{OK bool} | Due{}
 
 // Fresh is the desk with no run.
-let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}, Seen: Map[string, Receipt]{}}}
+let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}}}
 
 // BookOf is d's book.
 func BookOf(d Desk) Book {
@@ -108,17 +113,12 @@ func settle(b Book) Decision[Desk, []Entry] fails run.WrongState | run.WrongStag
 	Enter[Desk]{Next: Idle{Book: Book{..b, Queue: []string{}}}}
 }
 
-// ask is the desk after the command env. A command whose ID was taken
-// changes nothing. A command for a run that does not exist (other than a
-// submit) is NoSuchRun; a command the run refuses fails with its
-// rejection, and the desk does not change.
+// ask is the desk after the command env. A command for a run that does
+// not exist (other than a submit) is NoSuchRun; a command the run refuses
+// fails with its rejection, and the desk does not change. (Hosted answers
+// a command whose ID was taken before it asks.)
 func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
 	let b = BookOf(d)
-	match b.Seen.Get(env.ID) {
-	case Some[Receipt]:
-		return Ignore
-	case None:
-	}
 	match (RunIn(b, env.Run), env.Command) {
 	case (run.Unsubmitted, run.Submit):
 	case (run.Unsubmitted, _):
@@ -126,7 +126,6 @@ func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | ru
 	case (_, _):
 	}
 	let mut next = try apply(b, env.Run, env.Command)
-	next = Book{..next, Seen: next.Seen.Put(env.ID, Receipt{Command: env.ID, Position: len(next.Log)})}
 	match env.Command {
 	case run.Submit:
 		next = Book{..next, Queue: next.Queue.Append(env.Run)}
@@ -206,8 +205,8 @@ func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.W
 
 // Work is the work of a state: Busy asks the runner for its try. An
 // Offline runner is a failed try.
-func Work(d Desk) Option[machines.Work[Signal, Runner]] {
-	match d {
+func Work(l Ledger) Option[machines.Work[Signal, Runner]] {
+	match l.State {
 	case Busy as b:
 		let j = b.Job
 		Some{machines.Work{Run: func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, OnSuccess: func(ok bool) Signal { Ran{OK: ok} }, OnFailure: func(u Offline) Signal { Ran{OK: false} }}}
@@ -217,8 +216,8 @@ func Work(d Desk) Option[machines.Work[Signal, Runner]] {
 }
 
 // Timer is the timer of a state: Waiting's is the saga's.
-func Timer(d Desk) Option[Timeout[Signal]] {
-	match d {
+func Timer(l Ledger) Option[Timeout[Signal]] {
+	match l.State {
 	case Waiting as w:
 		match retry.Timer(w.Job.Attempt) {
 		case Some[Timeout[retry.Signal]] as t:
@@ -231,10 +230,45 @@ func Timer(d Desk) Option[Timeout[Signal]] {
 	}
 }
 
+// Ledger is the actor's state: the desk, the position of the stream
+// Stream, and the receipt of each command the stream kept.
+type Ledger = domain.Ledger[Desk, Entry]
+
+// Hosted is the actor's step: Step on the ledger's desk, whose entries
+// go to the stream as one record. A command whose ID the stream kept is
+// Ignore, and its sender reads the first receipt. A record of a command
+// takes its ID; the record of a try's end or a wait's end takes
+// domain.StepID. A step that enters commits with domain.Commit (a new
+// entry: a new try, a new wait); a step that stays commits with
+// domain.Keep, so the try or the wait goes on.
+func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	let id = match s {
+	case Ask as a:
+		domain.CommandID(a.Env.ID)
+	case Ran, Due:
+		domain.StepID(l, "desk")
+	}
+	if domain.Taken(l, id) {
+		return Ignore
+	}
+	let before = len(BookOf(l.State).Log)
+	let d = try Step(l.State, s)
+	match d {
+	case Enter[Desk] as e:
+		domain.Commit(l, id, e.Next, slices.Slice(BookOf(e.Next).Log, before, len(BookOf(e.Next).Log)))
+	case Stay[Desk] as k:
+		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, len(BookOf(k.Next).Log)))
+	case Ignore:
+		Ignore
+	case Emit[Desk, []Entry], Reject, Done[[]Entry]:
+		Unreachable("the desk enters, stays or ignores")
+	}
+}
+
 // Dispatch is the context as a machine.
-type Dispatch machine[Desk, Signal] {
-	initial: Fresh,
-	step:    Step,
+type Dispatch machine[Ledger, Signal] {
+	initial: domain.Begin[Desk, Entry](Stream, Fresh),
+	step:    Hosted,
 	after:   Timer,
 	work:    Work,
 }

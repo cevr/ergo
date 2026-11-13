@@ -1,7 +1,8 @@
 // The scene and its story. A story is the pure reference: the desk's
 // rules written again over run.Decide and run.Fold, with the runner's
 // answers read from a table. A scene plays the same acts on the real
-// program: a durable actor of Dispatch over a memory event log (module domain), its runner
+// program: a durable actor of Dispatch over a memory event log (module
+// domain's Sourced), its runner
 // a testing.Script, its clock a time.Manual that only the scene moves.
 // The law SceneAgreesWithStory says both end in the same desk.
 
@@ -103,14 +104,10 @@ func next(b Book) Desk {
 	Busy{Book: started, Job: Job{Run: found, Stage: 0, Attempt: retry.First(retry.Standard)}}
 }
 
-// told is the story's desk after the command env.
+// told is the story's desk after the command env. (A scene names each
+// command by its place, so the story sees no resend.)
 func told(d Desk, env Envelope) Desk {
 	let b = BookOf(d)
-	match b.Seen.Get(env.ID) {
-	case Some[Receipt]:
-		return d
-	case None:
-	}
 	let known = match RunIn(b, env.Run) {
 	case run.Unsubmitted:
 		false
@@ -132,7 +129,7 @@ func told(d Desk, env Envelope) Desk {
 	case None:
 		return d
 	}
-	let mut nb = Book{..taken, Seen: taken.Seen.Put(env.ID, Receipt{Command: env.ID, Position: len(taken.Log)})}
+	let mut nb = taken
 	if submit {
 		nb = Book{..nb, Queue: nb.Queue.Append(env.Run)}
 	}
@@ -251,7 +248,7 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 		}
 		let _ = try Settle(m)
 	}
-	let d = m.desk.State()
+	let d = m.desk.State().State
 	let v = Board(m)
 	Stop(m)
 	(d, v)

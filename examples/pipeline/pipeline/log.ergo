@@ -1,108 +1,113 @@
-// The context's event log (PX-log). The desk is event-sourced on a
-// domain.Log: each step that gives entries appends them as one record of
-// the stream Stream, before the actor commits the step (save), and a
-// start folds the stream back into the desk (Rebuild). The record of an
-// operator's command carries the command's ID, so the log keeps a resend
-// once; a step of the runner's or the saga's carries "#desk-" and its
-// position. The board and the notices are followers of the stream.
+// The context's event log (PX-log, DK5). The desk is event-sourced on a
+// domain.Log by domain.Sourced: each step that gives entries commits them
+// as one record of the stream Stream, which the actor's save appends
+// before it commits the step, and a start folds the stream back into the
+// desk with Evolve. The record of an operator's command carries the
+// command's ID, so the log keeps a resend once; a step of the runner's or
+// the saga's carries a domain.StepID. The board and the notices are
+// followers of the stream.
 
 import github.com/cevr/ergo/modules/domain
 import pipeline/retry
 import pipeline/run
-import slices
-import strings
-import sync
 
 // Stream is the stream of the context's entries.
 let Stream = "pipeline"
 
-// isDesk is whether id names a step of the runner or the saga, not an
-// operator's command.
-func isDesk(id domain.CommandID) bool { strings.HasPrefix(string(id), "#desk-") }
-
-// Rebuild is the desk that the records of the stream give: each run is
-// the fold of its events, the queue is the runs still queued in the
-// order they were submitted, each command's receipt is the log's length
-// after its own events (a run that its step started comes after), and
-// the run that is running or failing is the desk's job, its try counted
-// from the failures of its stage.
-func Rebuild(records []domain.Recorded[Entry]) Desk {
-	let mut b = Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}, Seen: Map[string, Receipt]{}}
-	let mut order = []string{}
-	for r in records {
-		for e in r.Events {
-			b = Book{..b, Runs: b.Runs.Put(e.Run, run.Evolve(RunIn(b, e.Run), e.Event)), Log: b.Log.Append(e)}
-			match e.Event {
-			case run.Submitted:
-				order = order.Append(e.Run)
-			case run.Started, run.StagePassed, run.StageFailed, run.Retried, run.Finished, run.Abandoned, run.Stopped:
-			}
-		}
-		if !isDesk(r.ID) {
-			let mut own = len(b.Log)
-			if len(r.Events) > 0 && startsARun(r.Events[len(r.Events)-1]) {
-				own = own - 1
-			}
-			let id = string(r.ID)
-			b = Book{..b, Seen: b.Seen.Put(id, Receipt{Command: id, Position: own})}
-		}
-	}
-	let mut queue = []string{}
-	for id in order {
-		match RunIn(b, id) {
-		case run.Queued:
-			queue = queue.Append(id)
-		case run.Unsubmitted, run.Running, run.Failing, run.Done:
-		}
-	}
-	b = Book{..b, Queue: queue}
-	for id in order {
-		match RunIn(b, id) {
-		case run.Running as r:
-			return Busy{Book: b, Job: Job{Run: id, Stage: r.Next, Attempt: retry.Trying{P: retry.Standard, Try: failures(b.Log, id, r.Next) + 1}}}
-		case run.Failing as f:
-			return Waiting{Book: b, Job: Job{Run: id, Stage: f.Stage, Attempt: retry.Backoff{P: retry.Standard, Try: failures(b.Log, id, f.Stage)}}}
-		case run.Unsubmitted, run.Queued, run.Done:
-		}
-	}
-	Idle{Book: b}
+// Recovered is the store of the desk over log: domain.Sourced of the
+// stream Stream, which folds its entries from Fresh with Evolve.
+func Recovered(log domain.Log[Entry]) domain.Store[Desk, Signal, Entry] {
+	domain.Sourced[Desk, Signal, Entry](log, Stream, Fresh, Evolve)
 }
 
-// startsARun is whether e is a run's start, which the desk's settle
-// gives after a command's own events.
-func startsARun(e Entry) bool {
+// Evolve is the desk after the entry e: the run's state after the event,
+// the log with the entry, the queue, and the job as the desk's step
+// leaves it. A run is queued when submitted and leaves the queue when it
+// starts or stops; its start makes it the job, at its first stage; a
+// passed stage moves the job on; a failed one waits as the saga orders
+// (a failure the saga gives up on stays the job until its run is
+// abandoned); a retry tries again; the run's end leaves the desk idle.
+func Evolve(d Desk, e Entry) Desk {
+	let was = BookOf(d)
+	let b = Book{..was, Runs: was.Runs.Put(e.Run, run.Evolve(RunIn(was, e.Run), e.Event)), Log: was.Log.Append(e)}
 	match e.Event {
+	case run.Submitted:
+		within(d, Book{..b, Queue: b.Queue.Append(e.Run)})
 	case run.Started:
-		true
-	case run.Submitted, run.StagePassed, run.StageFailed, run.Retried, run.Finished, run.Abandoned, run.Stopped:
-		false
+		Busy{Book: Book{..b, Queue: without(b.Queue, e.Run)}, Job: Job{Run: e.Run, Stage: 0, Attempt: retry.First(retry.Standard)}}
+	case run.StagePassed:
+		match RunIn(b, e.Run) {
+		case run.Running as r:
+			Busy{Book: b, Job: Job{Run: e.Run, Stage: r.Next, Attempt: retry.First(retry.Standard)}}
+		case run.Unsubmitted, run.Queued, run.Failing, run.Done:
+			within(d, b)
+		}
+	case run.StageFailed as f:
+		let j = jobOf(d, e.Run, f.Stage)
+		match retry.Step(j.Attempt, retry.Failed) {
+		case Enter[retry.Attempt] as n:
+			Waiting{Book: b, Job: Job{..j, Attempt: n.Next}}
+		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
+			within(d, b)
+		}
+	case run.Retried as r:
+		let j = jobOf(d, e.Run, r.Stage)
+		Busy{Book: b, Job: Job{..j, Attempt: retry.Trying{P: retry.Standard, Try: retry.TryOf(j.Attempt) + 1}}}
+	case run.Finished, run.Abandoned:
+		Idle{Book: b}
+	case run.Stopped:
+		let left = Book{..b, Queue: without(b.Queue, e.Run)}
+		match d {
+		case Busy as w:
+			if w.Job.Run == e.Run { Idle{Book: left} } else { within(d, left) }
+		case Waiting as w:
+			if w.Job.Run == e.Run { Idle{Book: left} } else { within(d, left) }
+		case Idle:
+			Idle{Book: left}
+		}
 	}
 }
 
-// failures is the number of failed tries of stage of the run id (a run
-// starts once and its stages pass in order, so they are all since the
-// stage began).
-func failures(log []Entry, id string, stage int) int {
-	let mut n = 0
-	for e in log {
-		if e.Run != id {
-			continue
-		}
-		match e.Event {
-		case run.StageFailed as f:
-			if f.Stage == stage {
-				n = n + 1
-			}
-		case run.Submitted, run.Started, run.StagePassed, run.Retried, run.Finished, run.Abandoned, run.Stopped:
-		}
+// within is d with the book b, in the same state.
+func within(d Desk, b Book) Desk {
+	match d {
+	case Idle:
+		Idle{Book: b}
+	case Busy as w:
+		Busy{Book: b, Job: w.Job}
+	case Waiting as w:
+		Waiting{Book: b, Job: w.Job}
 	}
-	n
 }
 
-// Normal is d with its queue as Rebuild gives it: the runs still
-// queued. The desk keeps a run it no longer runs (one cancelled while
-// queued) in its queue until it passes it; the desk does the same with
-// either queue.
+// jobOf is d's job, or the first try of stage of the run id when d has
+// none.
+func jobOf(d Desk, id string, stage int) Job {
+	match d {
+	case Busy as w:
+		w.Job
+	case Waiting as w:
+		w.Job
+	case Idle:
+		Job{Run: id, Stage: stage, Attempt: retry.First(retry.Standard)}
+	}
+}
+
+// without is q with no id.
+func without(q []string, id string) []string {
+	let mut out = []string{}
+	for x in q {
+		if x != id {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// Normal is d with its queue as Evolve gives it: the runs still queued.
+// The desk keeps a run it no longer runs (one cancelled while queued) in
+// its queue until it passes it; the desk does the same with either
+// queue.
 func Normal(d Desk) Desk {
 	let b = BookOf(d)
 	let mut queue = []string{}
@@ -113,54 +118,5 @@ func Normal(d Desk) Desk {
 		case run.Unsubmitted, run.Running, run.Failing, run.Done:
 		}
 	}
-	let n = Book{..b, Queue: queue}
-	match d {
-	case Idle:
-		Idle{Book: n}
-	case Busy as w:
-		Busy{Book: n, Job: w.Job}
-	case Waiting as w:
-		Waiting{Book: n, Job: w.Job}
-	}
-}
-
-// lastOf is the position of the last of records, 0 for none.
-func lastOf(records []domain.Recorded[Entry]) int {
-	if len(records) == 0 {
-		return 0
-	}
-	records[len(records)-1].Position
-}
-
-// recoverFrom is the desk's recover over log: the fold of the stream,
-// with at set to its last position.
-func recoverFrom(log domain.Log[Entry], at sync.Ref[int]) escaping func() Option[Desk] fails domain.Conflict | domain.Reused | domain.Unkept {
-	func() Option[Desk] fails domain.Conflict | domain.Reused | domain.Unkept {
-		let records = log.Read(Stream, 0)
-		at.Set(lastOf(records))
-		Some[Desk]{Value: Rebuild(records)}
-	}
-}
-
-// saveTo is the desk's save over log: the entries a step gave go to the
-// stream as one record at the next position, named by the command's ID
-// (an Ask) or by "#desk-" and the position (the end of a try, the end of
-// a wait). A step that gave none appends nothing.
-func saveTo(log domain.Log[Entry], at sync.Ref[int]) escaping func(prev Desk, next Desk, sig Signal) fails domain.Conflict | domain.Reused | domain.Unkept {
-	func(prev Desk, next Desk, sig Signal) fails domain.Conflict | domain.Reused | domain.Unkept {
-		let before = len(BookOf(prev).Log)
-		let after = BookOf(next).Log
-		if len(after) <= before {
-			return
-		}
-		let position = at.Get()
-		let id = match sig {
-		case Ask as a:
-			domain.CommandID(a.Env.ID)
-		case Ran, Due:
-			domain.CommandID("#desk-\(position + 1)")
-		}
-		let r = try log.Append(Stream, position, id, slices.Slice(after, before, len(after)))
-		at.Set(r.Position)
-	}
+	within(d, Book{..b, Queue: queue})
 }
