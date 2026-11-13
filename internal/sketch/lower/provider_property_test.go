@@ -17,10 +17,11 @@ var provSeed = flag.Uint64("providers.seed", 0, "run TestKnownProvidersAgree on 
 var adapterParam = regexp.MustCompile(`, [sa] \*ops[A-Za-z]+AsSink[,)]`)
 
 // provPrelude is every TestKnownProvidersAgree program's operation type
-// Sink, its providers (Counter and Log through a pointer, Fixed by value)
-// and the helpers the generated functions use: Holder stores a Sink, id
-// is generic, and both takes two Sinks. Take(77) on a Counter raises a
-// defect.
+// Sink, its providers (Counter, Log and Fixed, each by value: Borrows 6
+// refuses a borrow converted to Sink at an argument, since the parameter
+// may keep it) and the helpers the generated functions use: Holder stores
+// a Sink, id is generic, and both takes two Sinks. Take(77) on a Counter
+// raises a defect.
 const provPrelude = `type Empty { at int }
 
 type Sink {
@@ -31,37 +32,36 @@ type Sink {
 
 type Counter { sum int, puts int }
 
-func Put(c *Counter, n int) {
-	c.sum = c.sum + n
-	c.puts = c.puts + 1
+func Put(c Counter, n int) {
+	let _ = c.sum + n
 }
 
-func Total(c *Counter) int { c.sum }
+func Total(c Counter) int { c.sum + c.puts }
 
-func Take(c *Counter, n int) int fails Empty {
+func Take(c Counter, n int) int fails Empty {
 	if n == 77 {
 		let z = []int{1}
-		c.sum = z[n]
+		return z[n]
 	}
 	if n > c.sum {
 		return Empty{at: c.puts}
 	}
-	c.sum = c.sum - n
 	n
 }
 
 type Log { text string }
 
-func Put(l *Log, n int) { l.text = l.text + "+\(n)" }
+func Put(l Log, n int) {
+	let _ = len(l.text) + n
+}
 
-func Total(l *Log) int { len(l.text) }
+func Total(l Log) int { len(l.text) }
 
-func Take(l *Log, n int) int fails Empty {
+func Take(l Log, n int) int fails Empty {
 	if n > len(l.text) {
 		return Empty{at: 0 - len(l.text)}
 	}
-	l.text = l.text + "-"
-	n
+	n + 1
 }
 
 type Fixed { k int }
@@ -164,7 +164,7 @@ func (g *provGen) function(j int) {
 }
 
 // providers are the providers main passes, as written at a call.
-var providers = map[string]string{"Counter": "&c", "Log": "&l", "Fixed": "x"}
+var providers = map[string]string{"Counter": "c", "Log": "l", "Fixed": "x"}
 
 // provProgram is the program of seed, the copies its lowering should
 // make, and whether it ends in a defect.
@@ -201,13 +201,13 @@ func provProgram(seed uint64, reached map[string]bool) (src string, copies int, 
 		g.copyOf(j, "Counter")
 		g.funcs.WriteString("func boom(s Sink, k int) int fails Empty {\n\ts.Put(k)\n\ttry s.Take(77)\n}\n\n")
 		g.copies["boom Counter"] = true
-		fmt.Fprintf(&calls, "\tlet rd = f%d(&c, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tlet re = boom(&c, rd) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"boom \\(re)\")\n", j)
+		fmt.Fprintf(&calls, "\tlet rd = f%d(c, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tlet re = boom(c, rd) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"boom \\(re)\")\n", j)
 		reached["defect"] = true
 	}
 	var s strings.Builder
 	s.WriteString(provPrelude)
 	s.WriteString(g.funcs.String())
-	s.WriteString("func main() needs Console {\n\tlet mut c = Counter{sum: 0, puts: 0}\n\tlet mut l = Log{text: \"\"}\n\tlet x = Fixed{k: 4}\n")
+	s.WriteString("func main() needs Console {\n\tlet c = Counter{sum: 6, puts: 2}\n\tlet l = Log{text: \"abc\"}\n\tlet x = Fixed{k: 4}\n")
 	s.WriteString(calls.String())
 	s.WriteString("}\n")
 	return s.String(), len(g.copies), defect
@@ -217,8 +217,7 @@ func provProgram(seed uint64, reached map[string]bool) (src string, copies int, 
 // providers (provider.go): each seed writes a program of functions on an
 // operation type Sink that call its operations, loop, fail, pass the
 // Sink on, and in some keep it an interface (a store in a record, a let,
-// a generic argument); main calls them on three providers (two through a
-// pointer, one by value), calls a function of two Sinks, and on even
+// a generic argument); main calls them on three providers (by value), calls a function of two Sinks, and on even
 // seeds ends in a defect raised inside a provider's operation. The
 // lowering makes exactly the copies the generator's model names
 // (knownStats.Providers), the reference (providerLowering "dynamic")
