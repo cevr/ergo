@@ -119,7 +119,8 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // DIR or DIR[TAG] (a module directory, built with -tags=TAG) holding a
 // top-level TEST in a _test.go file built under that tag; or
 // examples:PROGRAM. A note after the test, past a space, is the reader's.
-// An id the runner cannot resolve makes it refuse the whole run
+// A DIR inside a nested Go module (selfhost's hostsyntax) is built in that
+// module (scripts/mutants nestedModule; batch-18 r4 M2). An id the runner cannot resolve makes it refuse the whole run
 // (fu-mutants-xpkg: 45 rows named v1:, main:, sched:, tsproj: … and were
 // never run).
 func killerMissing(root, id string, cache map[string][]testFile) string {

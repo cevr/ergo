@@ -35,6 +35,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -262,6 +263,11 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	var tools []Tool
 	var suites []Suite
 	add := func(pkg string) {
+		// A package of a nested module is no package of the checkout's
+		// module: -coverpkg cannot name it.
+		if nestedModule(absRoot, strings.TrimPrefix(pkg, "./")) != "" {
+			return
+		}
 		if !slices.Contains(cover, pkg) {
 			cover = append(cover, pkg)
 		}
@@ -384,7 +390,23 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
 		return Suite{}, nil, false
 	}
+	if mod := nestedModule(root, dir); mod != "" {
+		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
+	}
 	return Suite{Name: name, Package: "./" + dir, Tags: tags}, nil, true
+}
+
+// nestedModule is the directory of the innermost Go module below root that
+// holds dir (dir itself or a parent with a go.mod), or "" when dir is in
+// the checkout's own module. go test from the checkout's root refuses such
+// a package ("main module does not contain package").
+func nestedModule(root, dir string) string {
+	for d := dir; d != "." && d != "/" && d != ""; d = path.Dir(d) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(d), "go.mod")); err == nil {
+			return d
+		}
+	}
+	return ""
 }
 
 // defaultExamples lists the example programs tagged default.

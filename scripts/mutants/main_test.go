@@ -128,6 +128,22 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Name != "examples" || !slices.Equal(suites[0].Named, []string{"demo"}) {
 		t.Errorf("an example's ledger: cover %q, suites %+v, err %v; want only examples running demo", cover, suites, err)
 	}
+	// A killer in a nested module (internal/selfhostcheck/testdata/selfhost,
+	// batch-18 r4 M2) is built in that module, and its package is covered
+	// by no -coverpkg: go test from the root refuses both.
+	for f, text := range map[string]string{"nested/m/go.mod": "module nested.test/m\n", "nested/m/p/p.go": "package p\n", "nested/m/p/p_test.go": "package p\n"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nested := &Ledger{Mutants: []*Mutant{{Name: "n", File: "nested/m/p/p.go", Killers: []string{"nested/m/p:TestN"}}}}
+	cover, _, suites, err = suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "examples", "demo")), Ledger: nested}})
+	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Module != "nested/m" || suites[0].Package != "./p" {
+		t.Errorf("a nested module's killer: cover %q, suites %+v, err %v; want the suite ./p of module nested/m and no cover package", cover, suites, err)
+	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
 		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},

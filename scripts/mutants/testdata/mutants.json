@@ -126,6 +126,33 @@
       "to": "\t\t\tfor _, n := range []string{} {\n\t\t\t\tif !slices.Contains(names, n) {",
       "rule": "A command suite (the examples) runs a named example that is not a default one.",
       "gap": "The fake module of TestRunnerMatchesModel has Go suites only; the affected run of scripts/examples' ledger (examples:router) exercises it."
+    },
+    {
+      "name": "b18-nested-killer-from-root",
+      "origin": "wf10 batch-18 r4 M2",
+      "file": "scripts/mutants/main.go",
+      "from": "\tif mod := nestedModule(root, dir); mod != \"\" {",
+      "to": "\tif mod := nestedModule(root, dir); false && mod != \"\" {",
+      "rule": "A killer in a nested Go module (selfhost's hostsyntax) is built in that module; from the checkout's root go test refuses it and the run fails.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "b18-nested-package-covered",
+      "origin": "wf10 batch-18 r4 M2",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\tif nestedModule(absRoot, strings.TrimPrefix(pkg, \"./\")) != \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A package of a nested module is no -coverpkg package of the checkout: naming it fails every suite's coverage build.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "b18-nested-coverdir",
+      "origin": "wf10 batch-18 r4 M2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif s.Package != \"\" && s.Module == \"\" {",
+      "to": "\tif s.Package != \"\" {",
+      "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
+      "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
     }
   ]
 }

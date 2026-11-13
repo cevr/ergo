@@ -79,6 +79,13 @@ type Suite struct {
 	Tags  string
 	Only  []string
 	Named []string
+	// Module is the directory, relative to the checkout, of the nested Go
+	// module that holds Package (internal/selfhostcheck/testdata/selfhost);
+	// empty for the checkout's own module. Package is then relative to it,
+	// and the suite is built there without coverage: -coverpkg names the
+	// checkout's packages, which another module cannot cover, so only its
+	// named tests judge a mutant (killerIDs).
+	Module string
 }
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
@@ -266,7 +273,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named)
+		fmt.Fprintf(h, " suite %s %s %s %q %q %q %q %q", s.Name, s.Module, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -547,14 +554,14 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
-	if cover && len(e.cfg.Cover) > 0 {
+	if cover && len(e.cfg.Cover) > 0 && s.Module == "" {
 		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
 	if s.Tags != "" {
 		argv = append(argv, "-tags="+s.Tags)
 	}
 	argv = append(argv, "-o", filepath.Join(bin, s.Name+".test"), s.Package)
-	return e.exec(ctx, root, argv, e.env(), deadline)
+	return e.exec(ctx, filepath.Join(root, filepath.FromSlash(s.Module)), argv, e.env(), deadline)
 }
 
 // argv returns how to run one test of a suite, and where.
@@ -565,7 +572,7 @@ func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []str
 	}
 	if s.Package != "" {
 		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1"},
-			filepath.Join(root, filepath.FromSlash(s.Package)), env
+			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
 	for _, w := range s.Command {
@@ -743,7 +750,8 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
 	argv, cwd, env := e.argv(s, root, bin, name)
-	if s.Package != "" {
+	if s.Package != "" && s.Module == "" {
+		// A nested module's suite is built without coverage (Suite.Module).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
 	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
