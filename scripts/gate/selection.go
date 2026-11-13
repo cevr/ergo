@@ -106,11 +106,27 @@ var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT
 // log names (gate-speed GS9). Only the record sets it; it changes no verdict.
 const embedObserveVariable = "ERGO_EMBED_OBSERVE"
 
-// observedEmbeds are the directories whose embedded files are observed
-// (embedObserveVariable): an edit of one is a read the record placed, which
-// reruns its readers, not every test. An embedded file added or removed
-// still runs every test.
-var observedEmbeds = []string{"internal/sketch/std/"}
+// observedEmbeds are the packages that observe the files they embed
+// (embedObserveVariable): an edit of one of those files is a read the record
+// placed, which reruns its readers, not every test. A file another package
+// embeds, even one in a folder below an observing package (std's gostd/src),
+// is not observed, and an embedded file added or removed still runs every
+// test.
+var observedEmbeds = []string{"internal/sketch/std"}
+
+// embeddingPackage is the package directory that compiles in rel: the
+// nearest directory above it that is a package of the closure (an embedded
+// file may lie in a folder below its package), or "".
+func embeddingPackage(rel string, deps map[string]bool) string {
+	for dir := path.Dir(rel); ; dir = path.Dir(dir) {
+		if deps[dir] {
+			return dir
+		}
+		if dir == "." || dir == "/" {
+			return ""
+		}
+	}
+}
 
 // testenvToolDigest is the variable through which the gate passes the
 // tools' digest; the tools themselves are reads (a program run is an open).
@@ -314,7 +330,7 @@ func selectTests(root, cacheDir string, p testPackage, env []string, names []str
 		dir, base := path.Dir(rel), path.Base(rel)
 		built := strings.HasSuffix(base, ".go") || slices.Contains(buildExtensions, path.Ext(base))
 		switch {
-		case deps[dir] && slices.Contains(p.closure.Embeds, rel) && before != "" && after != "" && slices.ContainsFunc(observedEmbeds, func(d string) bool { return strings.HasPrefix(rel, d) }):
+		case slices.Contains(p.closure.Embeds, rel) && before != "" && after != "" && slices.Contains(observedEmbeds, embeddingPackage(rel, deps)):
 			// An observed embedded file: its readers (below).
 		case !deps[dir] || slices.Contains(p.closure.Embeds, rel) || slices.Contains(moduleFiles, rel):
 			// An embedded file, a module file, or a file of a directory

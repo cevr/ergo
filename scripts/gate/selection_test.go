@@ -110,7 +110,8 @@ func TestScratch(t *testing.T) {
 `,
 	"p/testdata/x.txt": "x\n",
 	// An embedded file the package observes as internal/sketch/std does
-	// (embedObserveVariable; gate-speed GS9).
+	// (embedObserveVariable; gate-speed GS9), in a folder below the package
+	// as std's are.
 	"p/e.go": `package p
 
 import (
@@ -119,33 +120,53 @@ import (
 	"path/filepath"
 )
 
-//go:embed e.txt
+//go:embed e/e.txt
 var e string
 
 // E returns the embedded text, opened at its checkout path under a record.
 func E() string {
 	if root := os.Getenv("ERGO_EMBED_OBSERVE"); root != "" {
-		if f, err := os.Open(filepath.Join(root, "p", "e.txt")); err == nil {
+		if f, err := os.Open(filepath.Join(root, "p", "e", "e.txt")); err == nil {
 			f.Close()
 		}
 	}
 	return e
 }
 `,
-	"p/e.txt": "e\n",
+	"p/e/e.txt": "e\n",
+	// A package below p that embeds a file and does not observe it, as
+	// std's gostd does: its edit runs every test.
+	"p/q/q.go": `package q
+
+import _ "embed"
+
+//go:embed d/d.txt
+var D string
+`,
+	"p/q/d/d.txt": "d\n",
 	"p/e_test.go": `package p
 
-import "testing"
+import (
+	"testing"
+
+	"example.test/sel/p/q"
+)
 
 func TestE(t *testing.T) {
 	if E() != "e\n" {
 		t.Fatal("E")
 	}
 }
+
+func TestQ(t *testing.T) {
+	if q.D != "d\n" {
+		t.Fatal("Q")
+	}
+}
 `,
 }
 
-var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch", "TestE"}
+var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch", "TestE", "TestQ"}
 
 // selectionEdit is one edit of the fixture: a replacement in a file (a new
 // file when from is empty) or a variable; reaches is the selection it
@@ -165,7 +186,8 @@ var selectionEdits = []selectionEdit{
 	{name: "a file added to the listed directory", file: "p/testdata/y.txt", to: "y\n", reaches: []string{"TestList"}},
 	{name: "a variable", env: "SEL_X=1", reaches: []string{"TestEnv"}},
 	{name: "a test's body", file: "p/p_test.go", from: "B() != 2", to: "B() != 3"},
-	{name: "an observed embedded file", file: "p/e.txt", from: "e\n", to: "f\n", reaches: []string{"TestE"}},
+	{name: "an observed embedded file", file: "p/e/e.txt", from: "e\n", to: "f\n", reaches: []string{"TestE"}},
+	{name: "a file another package embeds unobserved", file: "p/q/d/d.txt", from: "d\n", to: "x\n"},
 }
 
 // TestSelectionRunsEveryTestAnEditReaches is the law of the fast tier's
@@ -191,7 +213,7 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 	}
 	// The fixture's p/ observes its embedded file as std does.
 	observed := observedEmbeds
-	observedEmbeds = append(slices.Clone(observedEmbeds), "p/")
+	observedEmbeds = append(slices.Clone(observedEmbeds), "p")
 	defer func() { observedEmbeds = observed }()
 	root := t.TempDir()
 	for name, content := range selectionBase {
