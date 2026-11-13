@@ -959,6 +959,24 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.Measure": `import ui
+type Mine {}
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { font.Size }
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "mono", Size: 12.0}) }
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Clipboard": `import ui
+type Mine {}
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+func use(c ui.Clipboard) { c.Write("x") }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1000,7 +1018,9 @@ var openStd = map[string]bool{
 	"term.Terminal":     true,
 	// Declared after the migration with no private operation: a program
 	// provides each one, and cmd/<name>/main.ergo binds it.
-	"ui.Host": true,
+	"ui.Host":      true,
+	"ui.Measure":   true,
+	"ui.Clipboard": true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
