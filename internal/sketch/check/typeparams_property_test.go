@@ -28,12 +28,14 @@ var typeParamsSeed = flag.Uint64("typeparams.seed", 0, "run TestTypeParamGroups 
 // runs the seed N alone; a failure prints the replay command and the
 // source.
 //
-// A declared function f is then called, with no type arguments, from a
-// generic g that declares the same names in a shuffled order, each in a
-// group of its own with f's constraint or none (the GP report: a call of
-// show[S, E comparable, …] from [E comparable, S, …]). The type
-// parameters bind by name through inference, never by position, so the
-// call checks exactly when g gives each name f's constraint. Otherwise it
+// A declared function f is then called from a generic g that declares
+// the same names in a shuffled order, each in a group of its own with f's
+// constraint or none (the GP report: a call of show[S, E comparable, …]
+// from [E comparable, S, …]). The call is inferred, or goes through the
+// uncalled written instance f[T0, T1, …], whose arguments bind f's
+// parameters by position, each to g's parameter of the same name. Either
+// way each name meets its own constraint, so the call checks exactly
+// when g gives each name f's constraint. Otherwise it
 // is one S108 at f's first name in declaration order that g leaves
 // unconstrained, naming f's parameter; for a name a later name's
 // constraint covers in a group of several, the message says so and
@@ -48,7 +50,7 @@ func TestTypeParamGroups(t *testing.T) {
 	}
 	words := []string{"", "any", "comparable", "ordered", "number"}
 	admitted, refused := 0, 0
-	checked, refusedCalls, hinted := 0, 0, 0
+	checked, refusedCalls, hinted, hintedInstance := 0, 0, 0, 0
 	for _, seed := range seeds {
 		r := rand.New(rand.NewPCG(seed, 0x7b))
 		// The list as written: each entry a name, or a constraint word
@@ -177,11 +179,17 @@ func TestTypeParamGroups(t *testing.T) {
 				refusedCalls++
 				if strings.Contains(wantMsg, "constrains") {
 					hinted++
+					if strings.Contains(g, "= f[") {
+						hintedInstance++
+					}
 				}
 			}
 		}
 	}
-	t.Logf("seeds %d..%d: %d any admitted, %d refused; calls from a shuffled list: %d checked, %d refused, %d with the group hint", seeds[0], seeds[len(seeds)-1], admitted, refused, checked, refusedCalls, hinted)
+	t.Logf("seeds %d..%d: %d any admitted, %d refused; calls from a shuffled list: %d checked, %d refused, %d with the group hint (%d through a written instance)", seeds[0], seeds[len(seeds)-1], admitted, refused, checked, refusedCalls, hinted, hintedInstance)
+	if *typeParamsSeed == 0 && (hintedInstance == 0 || hintedInstance == hinted) {
+		t.Errorf("%d of %d hinted calls go through a written instance: both forms must occur", hintedInstance, hinted)
+	}
 	if *typeParamsSeed == 0 && (admitted == 0 || refused == 0) {
 		t.Errorf("the generator wrote %d admitted and %d refused any: it must write both", admitted, refused)
 	}
@@ -192,7 +200,8 @@ func TestTypeParamGroups(t *testing.T) {
 
 // callerOf writes g, which declares names shuffled, each in a group of
 // its own with f's constraint (want) or, at random, none, and calls f
-// with its parameters in f's order. kept holds the names g constrains.
+// with its parameters in f's order: directly, or through the written
+// instance f[T0, T1, …] as a value. kept holds the names g constrains.
 func callerOf(r *rand.Rand, names []string, want map[string]string) (string, map[string]bool) {
 	order := append([]string(nil), names...)
 	r.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
@@ -215,7 +224,13 @@ func callerOf(r *rand.Rand, names []string, want map[string]string) (string, map
 	for _, n := range names {
 		args = append(args, fmt.Sprintf("q%d", slices.Index(order, n)))
 	}
-	return fmt.Sprintf("\nfunc g[%s](%s) {\n\tf(%s)\n}\n", strings.Join(list, ", "), strings.Join(params, ", "), strings.Join(args, ", ")), kept
+	body := fmt.Sprintf("f(%s)", strings.Join(args, ", "))
+	if r.IntN(2) == 0 {
+		// The uncalled written instantiation: f's type arguments by
+		// position, each g's parameter of f's name.
+		body = fmt.Sprintf("let h = f[%s]\n\th(%s)", strings.Join(names, ", "), strings.Join(args, ", "))
+	}
+	return fmt.Sprintf("\nfunc g[%s](%s) {\n\t%s\n}\n", strings.Join(list, ", "), strings.Join(params, ", "), body), kept
 }
 
 // callerModel is the model's verdict on g's call of f: "" when it checks,

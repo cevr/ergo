@@ -217,7 +217,7 @@ func (c *checker) instantiateValue(op *operand, sig *Signature, targs []Type) bo
 		}
 		cons := c.subst(tp.Constraint, m)
 		if why := c.satisfies(targs[i], cons); why != "" {
-			c.errorf(op.expr, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", targs[i], cons, tp.Name, why)
+			c.unsatisfied(op.expr, targs[i], cons, op.fn, tp, why)
 			return false
 		}
 	}

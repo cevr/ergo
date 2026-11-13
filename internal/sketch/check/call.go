@@ -774,12 +774,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		if tp.Kind == KindType && tp.Constraint != nil {
 			cons := c.subst(tp.Constraint, in.m)
 			if why := c.satisfies(b, cons); why != "" {
-				owner, group := "", ""
-				if fun.fn != nil {
-					owner = fun.fn.Name + "'s "
-					group = groupedConstraint(fun.fn, tp)
-				}
-				c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s%s: %s%s (types.md, Generics 2)", b, cons, owner, tp.Name, why, group)
+				c.unsatisfied(x, b, cons, fun.fn, tp, why)
 				return bad(x)
 			}
 		}
@@ -1204,6 +1199,20 @@ func isUnreachable(f *Func) bool {
 // IsUnreachable reports a call of the prelude's Unreachable, which the
 // lowering writes as a panic at its site, never as a call of its Go body.
 func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
+
+// unsatisfied reports, at x, that the type argument b of f's parameter tp
+// does not satisfy its constraint cons, for the reason why: in a call and
+// in a written instantiation alike, it names f's parameter and, when a
+// later name's constraint covers tp, the group (groupedConstraint). f is
+// nil for a function value that names no declaration.
+func (c *checker) unsatisfied(x syntax.Node, b, cons Type, f *Func, tp *TypeParam, why string) {
+	owner, group := "", ""
+	if f != nil {
+		owner = f.Name + "'s "
+		group = groupedConstraint(f, tp)
+	}
+	c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s%s: %s%s (types.md, Generics 2)", b, cons, owner, tp.Name, why, group)
+}
 
 // groupedConstraint is the repair hint of a constraint failure at a
 // parameter that f's declaration constrains through a group: in
