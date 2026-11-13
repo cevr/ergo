@@ -101,7 +101,7 @@
       "name": "draw-frame-paints-off-screen", "origin": "wf10 GP3a",
       "file": "examples/draw-gui/canvas/frame.ergo",
       "from": "if Overlaps(on, screen) {",
-      "to": "if true {",
+      "to": "if Overlaps(on, screen) || on.Lo.X < 0 {",
       "rule": "A frame's paint list holds only what the screen shows.",
       "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
     },
