@@ -307,6 +307,15 @@ When to run it: a change that deletes or folds tests of check or lower runs the 
 
 `TestSplitLoweringAgrees` (seeded; `ERGO_SPLIT_SEED` replays one seed) checks that the split and the reference print the same output on generated multi-package programs. `TestBodyEditCompilesOnePackage` and `TestColdCompilesInParallel` count the go command's compile actions. The receipts are in [compile-speed.md](receipts/compile-speed.md#package-split).
 
+## Embedded std snapshot
+
+The `ergo` binary carries the checked prelude and std as a snapshot (`internal/sketchfront/stdsnap/std.snap`, `check.ExportStd`). Its first check of a process installs the snapshot, so it parses no std file and checks no std declaration, even with every cache empty. It decodes a std package's segment on the package's first import.
+
+- `stdsnap_gen.go` names two digests: the digest of the std sources the snapshot was checked from, and the digest of every source file in the checker's import closure. `TestStdSnapshotIsCurrent` fails when either digest no longer matches the head, so the gate refuses a stale snapshot before a release is built from it. Rewrite both files with `go test ./internal/sketchfront -run TestStdSnapshotIsCurrent -update-std-snapshot`.
+- At run time the compiler compares the snapshot's std-sources digest with the std sources the binary embeds. When they differ, it refuses the snapshot and falls back to the disk cache (CHK1b) or to source.
+- `ERGO_STD_SNAPSHOT=off` selects the reference: std is checked from source, or read from the disk cache. `TestStdSnapshotAgrees` compares the reference with both the embedded snapshot and a snapshot this process exports, over the examples, seeded programs and the checker's corpus.
+- The snapshot's bytes differ from run to run: the encoder walks Go maps in their random order. Only the digests are compared, never the bytes.
+
 ## Performance receipt
 
 The compile benchmarks `BenchmarkCompile10KLines` and `BenchmarkLintAndGraph10KLines` measured the retired compiler and went with it ([retirement record](receipts/retire-ef.md)). Their last results are in [`docs/tooling.md` at `dbf135bf`](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/docs/tooling.md#performance-receipt). The new front end has no compile benchmark yet.

@@ -1,5 +1,22 @@
 # Compile speed receipts
 
+## Std snapshot in the binary
+
+Compile-speed unit CS1 embeds the checked std snapshot of CHK1b in `ergo` (`internal/sketchfront/stdsnap.go`; docs/tooling.md, "Embedded std snapshot"). Measured on 2026-11-13 at the CS1 head, at a 1-minute load of 28 to 55. The base is wf10/batch-18 a85c26dee.
+
+- Counted (`TestColdCheckReadsNoStdSource`, in process, with every cache empty): a check of a program that imports `strings` and `time` parses 0 std files and checks 0 std packages. It decodes as many std packages as the check from source checks, and no more.
+- Measured (`ergo check` on that program, a fresh `XDG_CACHE_HOME` for each run, 5 alternating runs). The numbers are seconds of user CPU, and the maximum resident set:
+
+| Binary | User CPU per run (s) | Max RSS |
+| --- | --- | --- |
+| head, snapshot on | 0.02, 0.01, 0.02, 0.02, 0.02 | 24 MB |
+| head, `ERGO_STD_SNAPSHOT=off` | 0.40, 0.44, 0.41, 0.43, 0.58 | 97 to 107 MB |
+| base | 0.43, 0.42, 0.35, 0.37, 0.44 | 103 to 109 MB |
+
+  The base's cold check checks std from source, then writes the disk cache. The head's check needs neither. Wall times were 0.04 to 0.11 s on and 0.74 to 1.85 s off. The load was high, so the wall times are not a verdict.
+- Measured: the binary is 33,736,716 bytes at the head and 30,469,767 bytes at the base (+3.27 MB). The snapshot is 3,172,893 bytes, about 1.46 MB gzipped (plan §4 guessed 1 to 3 MB).
+- Gap: the snapshot's bytes differ from one export to the next, because the encoder ranges over Go maps. So each regeneration commits a new 3 MB file that git cannot delta well. A deterministic encoder (map entries in a stable order) is a follow-up.
+
 ## Package split
 
 Compile-speed unit CS4: a program of several Ergo packages lowers to one Go package per Ergo package, plus one shared package below them (`internal/sketch/lower/pkgsplit.go`). `ERGO_LOWER=single` selects the reference, the one-package module. Measured on 2026-11-13 at the CS4 head, on the 16-core workbox, with a 1-minute load of 38 to 60. The reference is the base's lowering: `lower.Lower` is unchanged at the CS4 head, so the reference columns are base against head. The load is high, so the wall times are not a speed verdict. The counts of compile actions do not depend on the load.

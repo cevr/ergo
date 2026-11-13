@@ -26,6 +26,8 @@ import (
 
 func main() {
 	tuneGC()
+	// The checked std is in the binary (compile-speed CS1).
+	sketchfront.UseEmbeddedStd(true)
 	// The compiler's identity recalls its image digest from the cache root
 	// it keys, so a command does not hash the whole binary each run.
 	if root, err := build.DefaultRoot(); err == nil {
