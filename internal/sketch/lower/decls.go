@@ -727,6 +727,12 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if _, isRecord := n.Obj.Decl.Spec.(*syntax.StructType); !isRecord {
 		return nil, false
 	}
+	if l.runtimeType(n, f.Decl) != "" {
+		// A std record bound to a runtime struct (v1.StdRecord, such as
+		// rpc.Malformed): the runtime declares the Go type, and Go takes
+		// a method only in the package of its receiver's declaration.
+		return nil, false
+	}
 	var own []*check.TypeParam
 	for _, tp := range f.Sig.TParams {
 		if tp.Kind == check.KindType {
