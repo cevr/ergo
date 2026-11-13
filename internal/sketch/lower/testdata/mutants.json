@@ -3951,6 +3951,28 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "fkg2-empty-match-ice",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\tif len(clauses) == 0 {\n\t\t// A match of no arm",
+      "to": "\tif false && len(clauses) == 0 {\n\t\t// A match of no arm",
+      "rule": "types.md, Never (FKG2): a match of no arm lowers to Unreachable's panic in every lowering.",
+      "killers": [
+        "lower:TestNeverLowers"
+      ]
+    },
+    {
+      "name": "fkg2-never-record-body",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\t\tif check.IsNever(named) {\n\t\t\t// The prelude's Never",
+      "to": "\t\tif false && check.IsNever(named) {\n\t\t\t// The prelude's Never",
+      "rule": "types.md, Never (FKG2): Never lowers to Go's struct{}.",
+      "killers": [
+        "lower:TestNeverLowers"
+      ]
     }
   ]
 }

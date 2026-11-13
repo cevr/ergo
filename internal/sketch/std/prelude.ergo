@@ -259,6 +259,27 @@ type Done[O] { Output O }
 // state; Done ends the machine with Output.
 type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O]
 
+// Never is the type with no value: a closed union of no variants
+// (docs/spec/types.md, Never; owner, 2026-11-13). No literal, conversion
+// or zero value makes one, so a value of a type that holds a Never (an
+// Emit[S, Never], a Done[Never]) is never made either. A machine that
+// gives no output is a Decision[S, Never]: its step writes no Emit and no
+// Done, and a match over its decisions or outcomes writes no arm for them.
+// A match on a Never value needs no arm. Never is no bottom type: it
+// converts to no other type, except through Absurd. No source form
+// declares an empty union, so this declaration's braces are the prelude's
+// one exception (check, emptyUnion); it lowers to Go's struct{}, never
+// built.
+type Never {}
+
+// Absurd is the value of any type T that a Never gives: since no Never is
+// made, Absurd is never called (Elm's never, Haskell's absurd, Rust's
+// match on Infallible). It is how a branch that holds a Never fits where a
+// T is wanted.
+func Absurd[T](n Never) T {
+	match n {}
+}
+
 // Timeout is a state's timer: when an entry of the state lasts In, the
 // runner gives the machine Signal. The runner owns the timer: it starts
 // when the entry opens, a Stay keeps it, and it never fires after its

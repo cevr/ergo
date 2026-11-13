@@ -856,6 +856,10 @@ func (c *checker) resolveNamed(n *Named) {
 	defer restore()
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
+		if c.emptyUnion(n, spec) {
+			n.under = &Union{}
+			break
+		}
 		ctx.field = true
 		s := c.structType(spec, ctx)
 		s.obj = n.Obj
@@ -1764,6 +1768,12 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 	case KindErrors:
 		if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 			c.errorf(x, CodeType, "generic type %s needs type arguments", n)
+			return nil
+		}
+		if IsNever(t) {
+			// One way to say "fails with nothing": no fails row (owner,
+			// 2026-11-13; types.md, Never).
+			c.errorf(x, CodeType, "Never is no error row: a function that never fails writes no fails (types.md, Never)")
 			return nil
 		}
 		if vs, isRow := c.namedRow(x, t); isRow {

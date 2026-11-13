@@ -29,7 +29,7 @@ test ForgetDropsOne {
 
 test FailureIsPassedOn {
 	let mut m = try New[int, int](3)
-	let got = m.Get(7, Never) catch {
+	let got = m.Get(7, Unloadable) catch {
 	case Gone as g:
 		-g.Key
 	}

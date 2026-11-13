@@ -2513,6 +2513,94 @@
       "killers": [
         "check:TestImportGoUses"
       ]
+    },
+    {
+      "name": "fkg2-empty-not-marked",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/match.go",
+      "from": "\t\t\tif r.c.uninhabited(u.at(i)) {\n\t\t\t\tif col.empty == nil {",
+      "to": "\t\t\tif false && r.c.uninhabited(u.at(i)) {\n\t\t\t\tif col.empty == nil {",
+      "rule": "types.md, Never (FKG2): a match leaves out the variants that hold a Never.",
+      "killers": [
+        "check:TestNeverTotality"
+      ]
+    },
+    {
+      "name": "fkg2-record-field-inhabited",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/never.go",
+      "from": "\t\t\tif uninhabitedIn(f.Type, seen) {",
+      "to": "\t\t\tif false && uninhabitedIn(f.Type, seen) {",
+      "rule": "types.md, Never (FKG2): a record with a field of Never has no value.",
+      "killers": [
+        "check:TestNeverTotality"
+      ]
+    },
+    {
+      "name": "fkg2-all-empty-subject",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/total.go",
+      "from": "if s.cols[j].size == 0 || s.cols[j].size > 0 && len(s.cols[j].empty) == s.cols[j].size {",
+      "to": "if s.cols[j].size == 0 {",
+      "rule": "types.md, Never (FKG2): a union whose every variant holds a Never has no value, so a match of no arm on it is total.",
+      "killers": [
+        "check:TestNeverTotality"
+      ]
+    },
+    {
+      "name": "fkg2-empty-not-covered",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/total.go",
+      "from": "\tcovered := len(present)\n\tfor k := range empty {\n\t\tif !present[k] {\n\t\t\tcovered++\n\t\t}\n\t}",
+      "to": "\tcovered := len(present)",
+      "rule": "types.md, Never (FKG2): a constructor with no value completes its column without a row, so the arms of the others are still split.",
+      "killers": [
+        "check:TestNeverRefusals"
+      ]
+    },
+    {
+      "name": "fkg2-emit-arm-admitted",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/match.go",
+      "from": "\t\tif vt := ci.u.at(idx); c.uninhabited(vt) {",
+      "to": "\t\tif vt := ci.u.at(idx); false && c.uninhabited(vt) {",
+      "rule": "types.md, Never (FKG2): an arm that names a variant with no value is refused (it never runs).",
+      "killers": [
+        "check:TestNeverRefusals"
+      ]
+    },
+    {
+      "name": "fkg2-empty-picked",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/total.go",
+      "from": "\t\tif !present[ctor] && !empty[ctor] {",
+      "to": "\t\tif !present[ctor] {",
+      "rule": "types.md, Never (FKG2): a missing arm names a variant with a value, never one with none.",
+      "killers": [
+        "check:TestNeverRefusals"
+      ]
+    },
+    {
+      "name": "fkg2-never-a-record",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/never.go",
+      "from": "\treturn c.pkg.Path == std.PreludePath && n.Obj.Name == \"Never\"",
+      "to": "\treturn false && c.pkg.Path == std.PreludePath && n.Obj.Name == \"Never\"",
+      "rule": "types.md, Never (FKG2): Never is a union of no variants, not an empty record: no literal makes one.",
+      "killers": [
+        "check:TestNeverRefusals"
+      ]
+    },
+    {
+      "name": "fkg2-fails-never-admitted",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\tif IsNever(t) {\n\t\t\t// One way",
+      "to": "\t\tif false && IsNever(t) {\n\t\t\t// One way",
+      "rule": "types.md, Never (FKG2): fails Never is refused: no fails says it once.",
+      "killers": [
+        "check:TestNeverRefusals"
+      ]
     }
   ]
 }

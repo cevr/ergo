@@ -79,8 +79,12 @@ type patNode struct {
 // constructor at a parent column (a field of a variant or record, an
 // element of a tuple). size is its number of constructors, or -1 when
 // they never complete it (constants) or it has none (only wildcards).
+// empty holds the constructors that have no value (a variant or record
+// that holds a Never; types.md, Never): no value is missing for want of
+// one, so they complete a column without a row.
 type column struct {
 	size                int
+	empty               map[int]bool
 	parent, ctor, field int
 	consts              map[string]int // a constant column's constructors, by exact value
 	label               func(w witness, col int, out *strings.Builder)
@@ -801,7 +805,7 @@ func (s *matrixSolver) total(rows []solverRow) (w witness, missing, ok bool) {
 	// A subject of no variant (its variants were all reported unknown) has
 	// no value, so no value vector exists and none is missing (D3).
 	for _, j := range cols {
-		if s.cols[j].size == 0 {
+		if s.cols[j].size == 0 || s.cols[j].size > 0 && len(s.cols[j].empty) == s.cols[j].size {
 			return nil, false, true
 		}
 	}
@@ -909,7 +913,14 @@ func (s *matrixSolver) split(rows []solverRow) missingResult {
 		}
 	}
 	size := s.cols[col].size
-	if size >= 0 && len(present) == size {
+	empty := s.cols[col].empty
+	covered := len(present)
+	for k := range empty {
+		if !present[k] {
+			covered++
+		}
+	}
+	if size >= 0 && covered == size {
 		// Every constructor appears: one pass puts each row in the
 		// residual of its constructor, a wildcard row in every one.
 		if !s.charge(cost(rows...)+wild*size) || !s.allocate(3*size+12*(len(rows)+wild*size)) {
@@ -931,6 +942,9 @@ func (s *matrixSolver) split(rows []solverRow) missingResult {
 			}
 		}
 		for ctor := 0; ctor < size; ctor++ {
+			if empty[ctor] {
+				continue // no value has it
+			}
 			res := s.missing(buckets[ctor])
 			if res.found {
 				return s.withCell(res, col, ctor)
@@ -951,7 +965,7 @@ func (s *matrixSolver) split(rows []solverRow) missingResult {
 		return s.withCell(res, col, ctorOther)
 	}
 	for ctor := 0; ctor < size; ctor++ {
-		if !present[ctor] {
+		if !present[ctor] && !empty[ctor] {
 			return s.withCell(res, col, ctor)
 		}
 	}
