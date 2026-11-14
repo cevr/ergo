@@ -26,7 +26,7 @@ import (
 // part(*r) == grow(r)), an element or a field kept past a write (let e =
 // outs(*r)[0], let e = wrap(*r).xs, k = o in a loop), a call whose later
 // operand writes the store (part2(*r, bumpv(r))[0], total2(part(*r),
-// bumpv(r))) or that writes it (total3(part(*r), r)), a call that keeps
+// bumpv(r))) or that writes it (total3(part(*r), r), nums(*r).Sum3(r)), a call that keeps
 // its operand (ident(part(*r))), a loop body that writes the store, calls
 // or returns an element (firsto), and & of an element
 // (setv(&part(*r)[1]), setv(&wrap(*r).xs[1])).
@@ -102,6 +102,11 @@ func total3(xs []int, r *ro) int {
 	total(xs)
 }
 
+func Sum3(n Nums, r *ro) int {
+	r.s[1] = 70
+	Sum(n)
+}
+
 func ident(xs []int) []int { xs }
 
 func firsto(r *ro) []int {
@@ -175,6 +180,7 @@ var roAdversaries = []struct{ name, value string }{
 	{"loop keeps", "let mut k = []int{}\n\tfor o in outs(*r) {\n\t\tk = o\n\t}\n\tr.out[0][0] = 7\n\tlet n = k[0]"},
 	{"call operand", "total2(part(*r), bumpv(r))"},
 	{"impure call", "total3(part(*r), r)"},
+	{"impure method", "nums(*r).Sum3(r)"},
 	{"call result kept", "let e = ident(part(*r))\n\tr.s[1] = 7\n\tlet n = e[1]"},
 	{"loop return", "let e = firsto(r)\n\tr.out[0][0] = 7\n\tlet n = e[0]"},
 	{"kept field", "let e = wrap(*r).xs\n\tr.s[1] = 7\n\tlet n = e[1]"},
