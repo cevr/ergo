@@ -270,7 +270,7 @@ func (c *checker) checkOwnership() {
 					continue
 				}
 				w.fn = f
-				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:

@@ -122,7 +122,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 			if c.hostClose(t) != nil {
 				return true, noLow
 			}
-			if it := asInterface(t); it != nil && hostCloseOp(t, it) != nil {
+			if it := asInterface(t); it != nil && c.hostCloseOp(t, it) != nil {
 				return true, noLow
 			}
 			return false, noLow
@@ -277,7 +277,7 @@ func (c *checker) closeMethod(n *Named) *Func {
 // closeFunc is n's function Close of the release shape, declared or not:
 // the release a Closer clause names (checkImplementsClauses).
 func (c *checker) closeFunc(n *Named) *Func {
-	f := n.method("Close")
+	f := n.method(c.closeName())
 	if f == nil || f.owner == nil {
 		return nil
 	}

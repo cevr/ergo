@@ -80,6 +80,8 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	// closeOp is the release contract's operation name (closeName).
+	closeOp string
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	pkg      *Package

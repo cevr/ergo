@@ -174,7 +174,7 @@ func (w *dropWalk) visit(t Type) *Drop {
 			return d
 		}
 		if it := asInterface(n); it != nil {
-			if m := hostCloseOp(n, it); m != nil {
+			if m := w.c.hostCloseOp(n, it); m != nil {
 				// A Go interface (io.ReadCloser): its Close operation.
 				d.Close = &Close{Receiver: t, Op: m}
 				return d
@@ -209,7 +209,7 @@ func (w *dropWalk) visit(t Type) *Drop {
 		}
 	case *Interface:
 		if d.Close == nil {
-			d.Close = w.c.closeOperation(t, nil, "Close")
+			d.Close = w.c.closeOperation(t, nil, w.c.closeName())
 		}
 		// A std body's Drain gives what the value still holds after its
 		// Close (a Task's unread result, Q5) or in place of one (a queue's
