@@ -218,18 +218,26 @@ type lowerer struct {
 	formats  int        // go/format runs
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
-	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// Go function took in under the reference growth rule (growth.go),
+	// inlineSites the inlined calls (inline.go), and
 	// lastDir the last //line directive a body wrote. inlineCb holds the
 	// functions whose body calls unknown code only through its callback
 	// parameters (inlineRule).
 	inlineOK    map[inlineKey]knownState
 	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
+	// hot are the functions called inside a loop (hot.go).
+	hot map[*check.Func]bool
 	// copyScopes are the Go functions that are copies for a known record
 	// (record.go): they take copyGrowth.
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constFold).
+	letUses map[*check.Var][2]int
 
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
@@ -237,9 +245,14 @@ type lowerer struct {
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats  knownStats                 // what known.go and alias.go did (tests only)
-	vars   map[*check.Var]string      // package-level lets
-	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
+	kept   map[*check.Func][]bool     // kept-argument summaries (keeps.go)
+	// carrying are the carried-parameter summaries and carried the
+	// unions some call carries (carry.go, R3b).
+	carrying map[*check.Func][]bool
+	carried  map[*check.TypeName]bool
+	stats    knownStats            // what known.go and alias.go did (tests only)
+	vars     map[*check.Var]string // package-level lets
+	consts   map[*check.Var]bool   // the lets lowered as Go constants (constLet)
 	// constVals are those lets' values, which the bounds facts read
 	// (bounds.go).
 	constVals map[*check.Var]constant.Value
@@ -316,6 +329,13 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	// provParams memoizes each function's operation-type parameter a copy
+	// for a known provider is made for (provider.go).
+	provParams map[*check.Func]int
+	// tabs memoizes each function's table domain (tabulate.go), and
+	// tabEmitted the functions whose table is written.
+	tabs       map[*check.Func]*tabInfo
+	tabEmitted map[*check.Func]bool
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
@@ -604,6 +624,11 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	for _, path := range slices.Sorted(maps.Keys(l.hostImports)) {
 		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
+	}
+	// A Go package the entry carries for its initialization (time/tzdata;
+	// interop.md, Checking 6): Go's blank import.
+	for _, path := range l.info.Carries {
+		imports = append(imports, "_ "+strconv.Quote(path))
 	}
 	imports = append(imports, l.testImports()...)
 	imports = append(imports, l.libImports...)

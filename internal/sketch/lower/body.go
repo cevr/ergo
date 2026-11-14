@@ -124,6 +124,7 @@ type funcCtx struct {
 	held       map[*syntax.Ident]bool
 	frame      *frame
 	acquiring  *acquireFlow         // a native acquisition callback, in this same source frame
+	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (drop.go, builtin delete)
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
@@ -143,6 +144,9 @@ type funcCtx struct {
 	// witness names the Go parameter that holds the operations of each of
 	// the function's type parameters a method set constrains (witness.go).
 	witness map[*check.TypeParam]string
+	// static is the known witness of a copy for one (witspec.go): its
+	// operations are called directly.
+	static map[*check.TypeParam]*check.Witness
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
@@ -174,11 +178,20 @@ type funcCtx struct {
 	// just inlined.
 	inl      int
 	inlDepth int
-	lits     map[*check.Var]*litSub
-	inlined  *operand
+	// pendingKnown is the fold of the match whose subject is being
+	// lowered, until its inlined call takes it (knownmatch.go).
+	pendingKnown *knownMatch
+	lits         map[*check.Var]*litSub
+	inlined      *operand
+	// hot marks an inlined body whose site is on a loop path (inline.go,
+	// onLoopPath): its own sites run once per iteration too.
+	hot bool
 	// recs are the record parameters of a copy for a known record and
 	// the record each stands for (record.go).
 	recs map[*check.Var]*knownRec
+	// provs are the operation-type parameters of a copy for a known
+	// provider and the provider each stands for (provider.go).
+	provs map[*check.Var]*knownProv
 	// scalarSet are the locals of the body being written that take the
 	// scalar form, and scalars those declared so far (scalar.go).
 	scalarSet map[*check.Var]bool
@@ -199,6 +212,9 @@ type funcCtx struct {
 	// armDone holds the forms an arm registered in (armValueVar).
 	armOf   map[string]syntax.Expr
 	armDone map[syntax.Expr]bool
+	// path is the statement lists around the code being written, each
+	// with the inline growth its path has taken (growth.go).
+	path []*growthAcct
 	// bounds are the facts in force at the code being written (bounds.go).
 	bounds []*boundFact
 }
@@ -211,7 +227,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.
@@ -277,6 +293,7 @@ func (fc *funcCtx) errReturn(err string) string {
 // stmts writes a statement list and reports whether its Go form ends in a
 // terminating statement (Go spec, Terminating statements).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
+	defer fc.enterList(list)()
 	terminates := false
 	for i := 0; i < len(list); i++ {
 		if n := fc.rewriteWindow(list[i:]); n > 0 {
@@ -387,11 +404,12 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			name := fc.declare(v)
 			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
 				// The cell's adapter, by its own Go type (cellLocal).
+				name := fc.declare(v)
 				fc.line(name + " := " + val)
-			} else {
+			} else if !fc.aliasLet(v, val) {
+				name := fc.declare(v)
 				fc.line("var " + name + " " + goType + " = " + val)
 			}
 			fc.assumeLet(v, spec.Values[0]) // bounds.go
@@ -430,6 +448,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	}
 	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
 		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		return
+	}
+	if fc.mapStore(s) {
+		fc.discard(s.Rhs[0]) // forms.go
 		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
@@ -631,6 +653,14 @@ func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
 	return fc.l.info.ReturnedValues[x]
 }
 
+// failureValue reports a returned x that is a failure, not a value: an
+// error type's value (types.md, Error types 2) that is not the frame's
+// declared result and not an untried fallible value.
+func (fc *funcCtx) failureValue(x syntax.Expr) bool {
+	p := fc.l.bodyPkg()
+	return !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x)
+}
+
 // retExpr is shared by explicit return and a checked function-body tail.
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
@@ -646,8 +676,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	p := fc.l.bodyPkg()
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x) {
+	if fc.failureValue(x) {
 		fc.fail(fc.value(x))
 		return
 	}
@@ -674,6 +703,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		} else {
 			fc.sourceReturn()
 		}
+		return
+	}
+	if f.inline != nil && f.inline.known != nil && fc.acquiring == nil && !f.law {
+		fc.knownReturn(f.inline.known, x) // knownmatch.go
 		return
 	}
 	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
@@ -891,6 +924,17 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		x = fc.spill(x)
 	}
 	fc.killWritten(s.Body) // bounds.go, as forStmt
+	// A fill, a move or a collect is a call when its guard holds, and the
+	// loop below otherwise (loops.go).
+	if idiom := fc.loopIdiomOf(s, l); idiom != nil {
+		n, _ := fc.typeOf(s.X).(*check.Named)
+		td := fc.l.typeDecl(n.Obj, s.X)
+		fc.loopIdiomHead(s, idiom, x+"."+td.fieldName["Start"], x+"."+td.fieldName["End"])
+		defer func() {
+			fc.depth--
+			fc.line("}")
+		}()
+	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
@@ -1133,18 +1177,6 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
-	var subject string
-	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
-		// A scalar local: the switch reads its tag, each case its slot
-		// (scalar.go); a case binds its slot before its body writes.
-		subject = sl.name
-	} else {
-		subject = fc.headerValue(s.Subjects[0].X)
-	}
-	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
-		subject = fc.spill(subject)
-		fc.releaseAt(s.Subjects[0])
-	}
 	type arm struct {
 		key   syntax.Node
 		types []string
@@ -1192,9 +1224,75 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 	for _, a := range arms {
 		all = append(all, a.types...)
 	}
+	subjectType := fc.typeOf(s.Subjects[0].X)
+	var subject string
+	var km *knownMatch
+	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
+		// A scalar local: the switch reads its tag, each case its slot
+		// (scalar.go); a case binds its slot before its body writes.
+		subject = sl.name
+	} else {
+		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 {
+			var types [][]string
+			var defs, binds []bool
+			for _, a := range arms {
+				types, defs, binds = append(types, a.types), append(defs, a.def), append(binds, a.as != nil && len(a.types) == 1)
+			}
+			km = fc.knownMatchFor(s.Subjects[0].X, subjectType, types, defs, binds)
+		}
+		saved := fc.pendingKnown
+		fc.pendingKnown = km
+		subject = fc.headerValue(s.Subjects[0].X)
+		fc.pendingKnown = saved
+	}
+	if km != nil && km.taken {
+		// Case of the known constructor (knownmatch.go): the returns
+		// jumped to the arms; the arms follow as blocks.
+		fc.l.stats.Folded++
+		if km.general {
+			fc.knownGeneral(km, subject, subjectType, all, s)
+		} else {
+			fc.line("_ = " + subject)
+			fc.noCase(s)
+		}
+		terminates := true
+		end := fc.temp("kn")
+		ended := false
+		for i, a := range arms {
+			if !km.used[i] {
+				continue
+			}
+			fc.line(km.labels[i] + ":")
+			fc.line("{")
+			fc.depth++
+			if a.as != nil {
+				name := fc.declare(a.as)
+				fc.line(name + " := " + km.payload[slices.Index(km.variantGo, a.types[0])])
+				if !fc.l.reads[a.as] {
+					fc.line("_ = " + name)
+				}
+			}
+			t := fc.scoped(a.key, func() bool { return fc.yieldList(a.body, d) })
+			fc.depth--
+			fc.line("}")
+			if !t {
+				fc.line("goto " + end)
+				ended = true
+			}
+			terminates = terminates && t
+		}
+		if ended {
+			// The empty statement: the label may end a case clause.
+			fc.line(end + ": ;")
+		}
+		return terminates
+	}
+	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
+		subject = fc.spill(subject)
+		fc.releaseAt(s.Subjects[0])
+	}
 	// A match on a flat union switches on its tag too (flatunion.go): the
 	// subject is read once, into a local the cases read again.
-	subjectType := fc.typeOf(s.Subjects[0].X)
 	if fc.l.flatUnionOf(subjectType) != nil {
 		t := fc.temp("s")
 		fc.line(t + " := " + subject)

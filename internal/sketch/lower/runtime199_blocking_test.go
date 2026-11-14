@@ -254,6 +254,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
 		// appends under at most one uncontended lock, no wait.
 		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
+		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
+		// compare-and-swap or atomic store; no wait.
+		"Claim": true, "Done": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

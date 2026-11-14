@@ -9,7 +9,7 @@ The sections are:
 - **Earlier `.ef` language**: terms of the retired language that [#205](https://github.com/cevr/ergo/issues/205) removed with its compiler. They stay as design reference.
 - **Tooling and testing**.
 
-A status in parentheses applies to the term's support: *checked* (the 2026 checker `internal/sketch/check`, [#196](https://github.com/cevr/ergo/issues/196), checks it; building may still need [#50](https://github.com/cevr/ergo/issues/50)), *implemented in prototype* (`prototypes/sketch9`), *designed* (decided, not implemented), or, in the earlier-language section, the earlier labels.
+An entry defines a term and carries no status; a construct's status is in [docs/spec/status.json](docs/spec/status.json).
 
 ## Language
 
@@ -187,11 +187,15 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Duration literal**: An integer with a unit suffix (`ns`, `us`, `ms`, `s`, `m`, `h`), of type `duration`.
 
-**Codec**: The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language (implemented for structural JSON), a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
+**Codec**: The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language, a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
 
 **Go import**: `import go path`, which imports a Go package through its binding (an Ergo file of `extern go` declarations that `ergo bind go` generates; Go's standard library is embedded). The name it binds is the Go package name (`import go math/rand/v2` binds `rand`). A call into a package of the reviewed pure list charges nothing; any other Go call charges the predeclared `go.Foreign` capability, which only the entry provides. A Go pointer that is stored or returned is a `go.Ref[T]`; Ergo's `*T` stays a borrow.
 
 ## Constructs, contracts and laws
+
+**Dense id**: A std `dense.ID[K]`, the id of a row of a store of `K`: one `uint32`, four bytes and no pointer, made only by the store's `Put` or `Next`, so it is never forged and never of another row type. `dense.Opt[K]` is a dense id or none in the same four bytes. See [stdlib](docs/spec/stdlib.md#dense-stores).
+
+**Dense store**: A std `dense` store of rows addressed by dense ids. Rows are never removed from a `Table[T]` of whole rows, a `Count` with `Col`s (one column per field), a `Side` of data few rows have, a `Pool` of short lists; and the interning stores `Interner` and `Strings` (one id per distinct value), the `Counted` set (ids freed when no holder holds them) and the `Sparse` set of ids. A store of rows with no pointer field is pointer-free, so the collector does not scan it. Distinct from an arena, whose refs carry a generation because its values are removed. See [stdlib](docs/spec/stdlib.md#dense-stores).
 
 **Arena**: A std `arena.Of[T]`, a growable store of values of one type in one slice, addressed by `arena.Ref[T]` handles that only the store makes. A Ref carries its slot's generation, so a Ref kept after `Free` is stale and every operation on it fails with `arena.Stale`, also after the slot is reused. See [stdlib](docs/spec/stdlib.md#arenas).
 
@@ -231,7 +235,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The method value the compiler passes for a satisfied constraint in the lowered code. It is the same function value a caller could pass by hand, and Go generics carry it in their dictionaries.
 
-**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine (designed), the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
+**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine, the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
 
 **Invariant law**: A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
 
@@ -273,7 +277,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Record invariant**: A fact on every value of a record type with construction authority, `type T { … } where P(it)`. It is a fact at the entry of each boundary of the type's package, and each boundary that writes a `T` leaves it true at every exit. See [facts](docs/spec/facts.md#record-invariants).
 
-**Evidence label**: The ground on which a fact at one use rests: checked (a dominating compare, or the decidable fragment), proved, tested (laws that passed, with a current receipt) or none. Only checked, proved, or tested under the evidence rule lets a fact remove a bounds check through an unchecked load. See [facts](docs/spec/facts.md#evidence).
+**Evidence label**: The ground on which a fact at one use rests: checked (a dominating compare, or the decidable fragment), proved (a law that listed every value or state, with a current entry in the law ledger `ergo.laws`), tested (laws that passed their generated cases) or none. Only checked or proved lets a fact change emitted code (a direct form, or an unchecked load that removes a bounds check); a tested fact is reported and never acted on. See [facts](docs/spec/facts.md#evidence).
 
 **Zero-cost abstraction obligation**: A candidate abstraction must make the illegal states and invalid operations covered by its checked contract unrepresentable in checked source, while foreign and trusted behavior remains explicitly qualified, and then erase or directly lower without an abstraction-induced executable size or runtime penalty against a semantic equivalence baseline. Retained allocation, dispatch, module, byte and residual-check costs must be visible in matched receipts. Native output targets parity with or better performance than the optimized idiomatic Go member, and Go lowering pursues every material measured lowering or specialization opportunity while preserving the userland runtime contract. This obligation never removes a required guardrail and does not promise universally zero overhead or a fixed speedup multiplier.
 

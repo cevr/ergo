@@ -114,7 +114,7 @@ type Text {
 type text { comma bool, html bool, out []byte }
 
 // appendString appends the bytes of s to out (Go's append at its string
-// shape, interop.md, Lowering 9).
+// shape, interop.md, Lowering 13).
 extern go append func appendString(out []byte, s string) []byte
 
 // The value appenders: out with a value's JSON text added.

@@ -17,8 +17,8 @@ import (
 
 // The batch-8 shape (g2, #206): a package variable computed once by a
 // function literal that parses. The literal is a closure of init, which
-// the manifest cannot list, so the parse is flagged; the checker's own
-// stdExternResultSet is a named function the manifest lists instead.
+// the manifest cannot list, so the parse is flagged; a parse in a named
+// function, such as (*hostPkg).load, is one the manifest lists instead.
 var onceParsed = sync.OnceValue(func() *syntax.File { // want `init\$[0-9]+ makes a node outside the manifest and becomes a function value in init`
 	f, _ := syntax.Parse("type T int\n") // want `syntax callee Parse is called in init\$[0-9]+, which the manifest does not list for it`
 	return f

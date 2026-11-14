@@ -1,0 +1,104 @@
+// MaxParams is the most parameters a sequence keeps; a CSI with more is
+// dropped, as Ghostty drops it.
+let MaxParams = 24
+
+// MaxIntermediates is the most intermediate bytes a sequence keeps; more
+// are not kept, and the sequence still dispatches.
+let MaxIntermediates = 4
+
+// Counts is the collector's shape: how many parameters are complete, how
+// many intermediates are kept, and whether a parameter is being read. The
+// values themselves stay in the Stream; the counts are in the machine's
+// state, so that their bounds are laws of the machine.
+type Counts { Params int, Inter int, Digits bool }
+
+// Parse is the machine's state: the parser's state and the collector's
+// counts.
+type Parse { At State, Counts Counts }
+
+// Start is the state of a fresh parser.
+let Start = Parse{At: Ground, Counts: Counts{Params: 0, Inter: 0, Digits: false}}
+
+// Advance is the step of the parse p over a byte of class c: the
+// transition, and the counts after its action and its entry. A separator
+// completes a parameter while there is room; a CSI dispatch or a DCS hook
+// completes the one being read. Entering ESC, CSI or DCS clears the
+// collector.
+func Advance(p Parse, c Class) (Transition, Counts) {
+	let t = Next(p.At, c)
+	let k = p.Counts
+	let acted = match t.Do {
+	case ParamByte:
+		match c {
+		case Colon, Semi:
+			Counts{Params: if k.Params < MaxParams { k.Params + 1 } else { k.Params }, Inter: k.Inter, Digits: false}
+		case C0, Bel, CanSub, EscByte, Inter, Digit, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc, High:
+			Counts{Params: k.Params, Inter: k.Inter, Digits: true}
+		}
+	case CollectByte:
+		Counts{Params: k.Params, Inter: if k.Inter < MaxIntermediates { k.Inter + 1 } else { k.Inter }, Digits: k.Digits}
+	case CsiDispatch:
+		completed(k)
+	case NoAct, IgnoreByte, PrintByte, ExecuteByte, EscDispatch, DcsPut, OscPut, ApcPut:
+		k
+	}
+	if t.To == p.At {
+		return (t, acted)
+	}
+	match t.To {
+	case Escape, CsiEntry, DcsEntry:
+		(t, Counts{Params: 0, Inter: 0, Digits: false})
+	case DcsPassthrough:
+		(t, completed(acted))
+	case Ground, EscapeIntermediate, CsiIntermediate, CsiParam, CsiIgnore, DcsParam, DcsIntermediate, DcsIgnore, OscString, SosPmApcString:
+		(t, acted)
+	}
+}
+
+// completed is k with the parameter being read completed, when there is
+// one and room for it.
+func completed(k Counts) Counts {
+	if k.Digits && k.Params < MaxParams {
+		Counts{Params: k.Params + 1, Inter: k.Inter, Digits: false}
+	} else {
+		k
+	}
+}
+
+// Step is the machine's step: every byte moves the parse and emits the
+// transition's action.
+func Step(p Parse, c Class) Decision[Parse, Act] {
+	let t, k = Advance(p, c)
+	Emit[Parse, Act]{Next: Parse{At: t.To, Counts: k}, Output: t.Do}
+}
+
+// Parser is the VT parser as a machine. Its states and its byte classes
+// can be listed, so ergo test decides its laws on the whole graph.
+type Parser machine[Parse, Class] {
+	initial: Start,
+	step:    Step,
+
+	// ParamsStayBounded: no run keeps more than MaxParams parameters or
+	// MaxIntermediates intermediates, so the collector's arrays are never
+	// overrun.
+	law ParamsStayBounded always bounded,
+
+	// ParamsReachTheLimit: some run completes 24 parameters, Ghostty's
+	// MAX_PARAMS, so the bound is not tighter than Ghostty's.
+	law ParamsReachTheLimit sometimes fullParams,
+
+	// IntermediatesReachTheLimit: some run keeps 4 intermediates, Ghostty's
+	// MAX_INTERMEDIATE.
+	law IntermediatesReachTheLimit sometimes fullIntermediates,
+}
+
+// bounded reports whether p's counts are within the collector's room.
+func bounded(p Parse) bool {
+	0 <= p.Counts.Params && p.Counts.Params <= MaxParams && 0 <= p.Counts.Inter && p.Counts.Inter <= MaxIntermediates
+}
+
+// fullParams reports whether p holds Ghostty's 24 parameters.
+func fullParams(p Parse) bool { p.Counts.Params == 24 }
+
+// fullIntermediates reports whether p holds Ghostty's 4 intermediates.
+func fullIntermediates(p Parse) bool { p.Counts.Inter == 4 }

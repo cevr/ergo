@@ -443,7 +443,9 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			// The signal union is flat exactly where flatunion.go's rule
 			// admits it: the struct fits 32 bytes (a tag and the int slot
 			// the int variants share; an int and two strings fit in no
-			// form). The other two lowerings never make it flat.
+			// form; R3b does not lift the bound, since the machine's step
+			// is a function value that takes the signal: carry.go). The
+			// other two lowerings never make it flat.
 			strs := 0
 			for _, line := range lines(src) {
 				if strings.HasPrefix(line, "type Sig = ") {

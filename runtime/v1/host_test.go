@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -515,9 +516,9 @@ func TestIOStdinConcurrent(t *testing.T) {
 // break after k lines) and IOReadAll calls, over a pipe on os.Stdin, gives
 // back exactly the input, in order. The inputs have and lack a final line
 // feed and hold carriage returns, invalid UTF-8 and lines longer than the
-// reader's 4096-byte buffer.
+// reader's read chunk (readChunk).
 func TestIOStdinShared(t *testing.T) {
-	alphabet := []string{"a", "\n", "\n", "\r", "é", "\xff", "b c", strings.Repeat("w", 5000)}
+	alphabet := []string{"a", "\n", "\n", "\r", "é", "\xff", "b c", strings.Repeat("w", readChunk+1000)}
 	seed := uint64(7)
 	next := func(n int) int {
 		seed = seed*6364136223846793005 + 1442695040888963407
@@ -585,6 +586,60 @@ func TestIOStdinShared(t *testing.T) {
 		if got.String() != s {
 			t.Fatalf("input %q, plan %q: the reads gave %q", s, plan, got.String())
 		}
+	}
+}
+
+// TestIOReadAllBytes counts the bytes ReadAll allocates for 1 MiB of
+// standard input (runtime.MemStats, a counter of the runtime; IO1): from a
+// regular file, at most its size and a half, since the text is built in
+// one buffer of the file's size and handed over without a copy; from a
+// pipe, which has no size, at most four times it, since the buffer
+// doubles. Mutants: no size hint (2.5 MiB from the file), a copy of the
+// result (2 MiB from the file) and append's 1.25 growth (about 5 MiB from
+// the pipe). The read chunk is the reader's, allocated when the reader is.
+func TestIOReadAllBytes(t *testing.T) {
+	text := strings.Repeat("0123456789abcdef", 1<<16) // 1 MiB
+	oldIn := os.Stdin
+	defer func() { os.Stdin = oldIn }()
+	measure := func(open func() *os.File) uint64 {
+		f := open()
+		defer f.Close()
+		os.Stdin = f
+		r := stdinReader() // the reader and its chunk, outside the count
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		all, err := r.readAll(rt.Root("io"))
+		runtime.ReadMemStats(&after)
+		if err != nil || all != text {
+			t.Fatalf("ReadAll gave %d bytes, err %v", len(all), err)
+		}
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	path := filepath.Join(t.TempDir(), "in")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file := measure(func() *os.File {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	})
+	pipe := measure(func() *os.File {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			_, _ = w.WriteString(text)
+			w.Close()
+		}()
+		return r
+	})
+	n := uint64(len(text))
+	if file > n+n/2 || pipe > 4*n {
+		t.Fatalf("ReadAll of %d bytes allocated %d from a file (at most %d) and %d from a pipe (at most %d)", n, file, n+n/2, pipe, 4*n)
 	}
 }
 
