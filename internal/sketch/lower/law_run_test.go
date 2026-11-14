@@ -186,7 +186,7 @@ law PutKeepsOthers(s Store, k int, v int) {
 const lawRunProviders = `import kv
 import sync
 
-type Last { v sync.Ref[int] }
+type Last { v sync.Ref[int] } implements kv.Store
 
 func NewLast() Last { Last{v: sync.NewRef(0)} }
 
@@ -194,13 +194,13 @@ func Put(l Last, k int, v int) { l.v.Set(v) }
 
 func Get(l Last, k int) int { l.v.Get() }
 
-type Zero { n int }
+type Zero { n int } implements kv.Store
 
 func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
 
-type Plain { v sync.Ref[int], hook func(int) int }
+type Plain { v sync.Ref[int], hook func(int) int } implements kv.Store
 
 func Put(p Plain, k int, v int) { p.v.Set(v) }
 
@@ -279,12 +279,12 @@ func TestLawRunOtherPackage(t *testing.T) {
 	}
 }
 
-// lawRunMem provides kv.Store without importing kv: its types implement
-// Store by their operations alone, so only a package that imports both
-// sees the law and its providers.
-const lawRunMem = `import sync
+// lawRunMem provides kv.Store in a package of its own, which imports kv to
+// declare it.
+const lawRunMem = `import kv
+import sync
 
-type Last { v sync.Ref[int] }
+type Last { v sync.Ref[int] } implements kv.Store
 
 func NewLast() Last { Last{v: sync.NewRef(0)} }
 
@@ -292,7 +292,7 @@ func Put(l Last, k int, v int) { l.v.Set(v) }
 
 func Get(l Last, k int) int { l.v.Get() }
 
-type Zero { n int }
+type Zero { n int } implements kv.Store
 
 func Put(z Zero, k int, v int) {}
 
@@ -308,13 +308,24 @@ func main() needs Console {
 }
 `
 
-// TestLawRunLeastPackage: a law whose operation type and provider are in
-// two packages that do not import each other runs in the package that
-// imports both, the least that sees them, against providers it does not
-// declare; the provider's own package does not see the law and runs none.
+// TestLawRunLeastPackage: a law runs in the least package that sees its
+// operation type and a provider. A provider declares the operation type it
+// implements (EXC1), so its package imports the operation type's and is
+// that least package: mem runs kv's laws against its own providers, and
+// a binder that imports both runs none again.
 func TestLawRunLeastPackage(t *testing.T) {
 	needsBuild(t)
-	kv, mem := cxPackage(t, "kv", lawRunStore), cxPackage(t, "mem", lawRunMem)
+	kv := cxPackage(t, "kv", lawRunStore)
+	mf, err := syntax.Parse(lawRunMem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memImports := cxImporter{"kv": kv}
+	memPkg, ds := check.Check("mem", []*syntax.File{mf}, memImports)
+	if len(ds) != 0 {
+		t.Fatalf("mem: %v", ds)
+	}
+	mem := Unit{Package: memPkg, Files: []*syntax.File{mf}, Sources: []Source{{Path: "/ergo-test/mem/lib.ergo", Text: lawRunMem}}}
 	imports := cxImporter{"kv": kv, "mem": mem}
 	f, err := syntax.Parse(lawRunBinder)
 	if err != nil {
@@ -328,7 +339,9 @@ func TestLawRunLeastPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	memFiles, err := LowerTests(mem)
+	memRoot := mem
+	memRoot.Imports = memImports.units()
+	memFiles, err := LowerTests(memRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,13 +349,13 @@ func TestLawRunLeastPackage(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	stdout, stderr, code := runExeArgs(t, exes["lawrun_least"], "--seed", "7")
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_mem"], "--seed", "7")
 	got := verdicts(stdout)
 	want := []string{
-		"ok law kv.Store.GetAfterPut for mem.Last (100 cases)",
-		"FAIL law kv.Store.GetAfterPut for mem.Zero (case ",
-		"FAIL law kv.PutKeepsOthers with s = mem.Last (case ",
-		"FAIL law kv.PutKeepsOthers with s = mem.Zero (case ",
+		"ok law kv.Store.GetAfterPut for Last (100 cases)",
+		"FAIL law kv.Store.GetAfterPut for Zero (case ",
+		"FAIL law kv.PutKeepsOthers with s = Last (case ",
+		"FAIL law kv.PutKeepsOthers with s = Zero (case ",
 		"FAIL (3 of 4 tests)",
 	}
 	if code != 1 || len(got) != len(want) {
@@ -353,9 +366,9 @@ func TestLawRunLeastPackage(t *testing.T) {
 			t.Errorf("line %d is %q, want %q …", i+1, got[i], w)
 		}
 	}
-	stdout, _, code = runExe(t, exes["lawrun_mem"])
+	stdout, _, code = runExe(t, exes["lawrun_least"])
 	if code != 0 || !slices.Equal(verdicts(stdout), []string{"PASS (0 tests)"}) {
-		t.Errorf("mem: exit %d, stdout:\n%s", code, stdout)
+		t.Errorf("binder: exit %d, stdout:\n%s", code, stdout)
 	}
 }
 
@@ -396,7 +409,7 @@ func Area(_ Fn) int { 1 }
 
 type Fns {} implements Box[func(int) int]
 
-func Put(_ Fns, v func(int) int) {}
+func Put(_ Fns, v escaping func(int) int) {}
 
 law Calls(f func(int) int) { f(1) == f(1) }
 
@@ -688,7 +701,11 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		if generic && r.Intn(2) == 0 {
 			elem = "int64"
 		}
-		fmt.Fprintf(&b, "type %s { tag int }\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, name, elem, elem, body)
+		impl := "Op"
+		if generic {
+			impl = "Op[" + elem + "]"
+		}
+		fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, impl, name, elem, elem, body)
 		line := "ok law Op.Linear for " + name + " (100 cases)"
 		if p == broken {
 			line = "FAIL law Op.Linear for " + name + " (case "

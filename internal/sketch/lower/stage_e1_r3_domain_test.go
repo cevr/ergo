@@ -22,11 +22,11 @@ func Later[T number](a T, b T) func() T { func() T { let f = Add[T]; f(a, b) } }
 		{"comparable-record", `func Equal[T comparable](a T, b T) bool { a == b }
 func Later[T comparable](a T, b T) func() bool { func() bool { Equal(a, b) } }`, `let f = Later(Box[int]{V: 2}, Box[int]{V: 2}); let g = Later("a", "b"); Console.Println("\(f()) \(g())")`, "true false\n"},
 		{"two-witnesses", `type Scored { Score() int, }
-type Mark { N int }
+type Mark { N int } implements Scored
 func Score(m Mark) int { m.N }
 func Later[A Valid, B Scored](a A, b B) func() int { func() int { if All(a) { b.Score() } else { 0 } } }`, `let f = Later(Card{N: 1}, Mark{N: 9}); Console.Println("\(f())")`, "9\n"},
 		{"instantiated-operation-constraint", `type Getter[T] { Get() T, }
-type Cell[T] { V T }
+type Cell[T] { V T } implements Getter[T]
 func Get[T](c Cell[T]) T { c.V }
 func Later[T Getter[int]](c T) func() int { func() int { c.Get() } }`, `let f = Later(Cell[int]{V: 8}); Console.Println("\(f())")`, "8\n"},
 		{"map-conversion-closure", `func Later[T Valid](x T) func() Map[string, Valid] { func() Map[string, Valid] { Map[string, Valid]{"x": Box[T]{V: x}} } }`, `let f = Later(Card{N: 1}); let m = f(); for v in m { Console.Println("\(v.Check())") }`, "true\n"},
