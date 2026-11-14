@@ -648,6 +648,10 @@ type runner struct {
 	install *tsInstall
 	// cache is the run's verdict cache, or nil (cache.go).
 	cache *verdictCache
+	// keyed holds the compiler calls the program's key made (legKey), by
+	// their arguments: a leg that makes the same call takes its result
+	// instead of running it again (gate-speed GS20).
+	keyed map[string]outcome
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
@@ -719,6 +723,9 @@ func (r *runner) finish() int {
 // tool runs a compiler command from the root with the runner's environment
 // and empty input, in its own process group.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
+	if o, ok := r.keyed[keyedCall(args)]; ok {
+		return o, nil
+	}
 	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, 0)
 }
 
