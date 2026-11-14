@@ -104,6 +104,13 @@ import (
 // tag; Gleam on Erlang keeps a variant a tagged tuple or a bare atom.
 var unionLowering string
 
+// stateLowering "interface" is the reference of MSB1's step 1: a union
+// that a machine takes as its state, and an Option that a machine takes as
+// its state or its signal, keep the interface form, as before MSB1. Set by
+// a test or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.stateLowering=interface.
+var stateLowering string
+
 // unionMutant breaks one helper of the flat union, for the mutant tests
 // only: "sig-tag" (of writes the tag of the next variant: a wrong tag
 // order), "sig-payload" (narrowing reads the zero value, not the slot: the
@@ -180,6 +187,8 @@ func slotKey(t check.Type) any {
 	switch u := t.(type) {
 	case *check.Basic:
 		return u.Kind
+	case *check.TypeParam:
+		return u // a generic union's fields of one type parameter (MSB1)
 	case *check.Named:
 		if u.Orig == nil && len(u.TArgs) == 0 && len(u.TParams) == 0 {
 			return u
@@ -325,9 +334,15 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	if unionLowering == "interface" {
 		return l.flatSet
 	}
+	// Under the reference stateLowering "interface" (MSB1), a machine's
+	// state and an Option that is a machine's signal keep the interface
+	// form, as before MSB1: the old rule step 1.
 	states := map[*check.TypeName]bool{}
 	signals := map[*check.TypeName]bool{}
 	for _, p := range l.sourcedPkgs() {
+		if stateLowering != "interface" {
+			break
+		}
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -373,6 +388,8 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			}
 		}
 	}
+	// Generic unions (genericunion.go, MSB1).
+	l.genericUnions(func(tn *check.TypeName) bool { return states[tn] || signals[tn] || extern[tn] || l.flatOff[tn] })
 	// Steps 1 and 2: the candidates.
 	var cands []*check.TypeName
 	for _, p := range l.sourcedPkgs() {
@@ -552,6 +569,9 @@ func mentioned(t check.Type, out map[*check.TypeName]bool, seen map[check.Type]b
 		if u.Orig == nil && len(u.TParams) == 0 {
 			out[u.Obj] = true
 		}
+		if u.Orig != nil {
+			out[u.Orig.Obj] = true // a generic union's instance (MSB1)
+		}
 		for _, a := range u.TArgs {
 			mentioned(a, out, seen)
 		}
@@ -722,7 +742,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			return fields(types)
 		case *check.Union:
 			fu := l.flatSet[obj]
-			if fu == nil || fu.generic {
+			if fu == nil || fu.generic && u.Orig == nil {
 				return goLayout{size: 16, align: 8, ssa: true}, nil, true // an interface
 			}
 			if path[obj] {
@@ -731,8 +751,14 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			path[obj] = true
 			defer delete(path, obj)
 			lays := []goLayout{{size: 1, align: 1, ssa: true}}
+			slots, variants := fu.slots, fu.variants
+			if fu.generic {
+				// MSB1: the instance's slots and variants.
+				slots = fu.instanceSlotTypes(u)
+				variants = fu.instance(u).variants
+			}
 			if fu.shared {
-				for _, st := range fu.slots {
+				for _, st := range slots {
 					s, c, ok := l.layoutOf(st, path, depth+1)
 					if c != nil || !ok {
 						return goLayout{}, c, ok
@@ -741,7 +767,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 				}
 				return structLayout(lays), nil, true
 			}
-			for k, v := range fu.variants {
+			for k, v := range variants {
 				if !fu.slot[k] {
 					continue
 				}
@@ -1154,6 +1180,24 @@ func (fu *flatUnion) flatValue(tc *typeCtx, goType string, k int, val string) st
 		v = goType + "(" + v + ")"
 	}
 	return v
+}
+
+// variantAny is val, a value of t, as the Go value its variant is: for a
+// flat union (MSB1: a machine's state) the variant record its tag names,
+// so the runtime names and prints it as it does an interface's dynamic
+// value; val itself for any other t.
+func (fc *funcCtx) variantAny(t check.Type, val string) string {
+	fu := fc.l.flatUnionOf(t)
+	if fu == nil {
+		return val
+	}
+	tc := &fc.typeCtx
+	u := fc.scope.alloc("u")
+	out := "func(" + u + " " + tc.goType(t) + ") any {\n" + "switch " + fu.tagExpr(tc, u) + " {\n"
+	for k := range fu.variants {
+		out += "case " + strconv.Itoa(k) + ":\nreturn " + fu.flatNarrow(tc, u, k) + "\n"
+	}
+	return out + "}\nreturn nil\n}(" + val + ")"
 }
 
 // flatNarrow is the variant k of val, a flat value that holds it.

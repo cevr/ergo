@@ -194,5 +194,10 @@ func (b *irBuilder) narrow(fu *flatUnion, s int, k int, p irPos, site syntax.Nod
 	if !fu.slot[k] {
 		return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
 	}
+	if fu.shared {
+		// The shared slots (U1): the variant's as method rebuilds it, as
+		// the emitter's flatNarrow reads it.
+		return &irExpr{K: "mcall", Pos: p, Name: asName(k), X: &irExpr{K: "local", Pos: p, I: s}}
+	}
 	return &irExpr{K: "field", Pos: p, Name: slotName(k), X: &irExpr{K: "local", Pos: p, I: s}}
 }
