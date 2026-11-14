@@ -138,6 +138,10 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if over := o.overCap(); over != "" || o.timedOut {
 			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
 		}
+		if r.keyed == nil {
+			r.keyed = map[string]outcome{}
+		}
+		r.keyed[keyedCall(args)] = o
 		stdout := o.stdout
 		if args[0] == "check" {
 			stdout = withoutProducer(stdout)
@@ -146,6 +150,13 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 	}
 	return ""
 }
+
+// keyedCall names a compiler call by its arguments, for runner.keyed. A
+// call's result depends only on them and on what the key holds, so the leg
+// that makes the same call next, in the same program's run, takes the
+// key's result: on a miss the fmt leg and each check leg run once, not
+// twice (gate-speed GS20).
+func keyedCall(args []string) string { return strings.Join(args, "\x00") }
 
 // withoutProducer is a check envelope less its producers (its own and its
 // snapshot's), the digest of the compiler's own bytes, which every compiler

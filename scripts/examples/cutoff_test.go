@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,31 @@ func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
 		}
 		if n, _ := strconv.Atoi(m[1]); s.replayed >= 0 && n != s.replayed {
 			t.Fatalf("step %d (compiler %s, %s): %d programs replayed, want %d\n%s", i, s.compiler, s.driver, n, s.replayed, out)
+		}
+		if i == 0 {
+			checkKeyCallsRunOnce(t, readCalls(t, f))
+		}
+	}
+}
+
+// checkKeyCallsRunOnce counts the fmt and check calls of the first step: a
+// missed program's key runs them and its legs take the key's results
+// (runner.keyed, GS20), so the cached run makes each call once, as the
+// fresh run does: twice in all. It catches gs20-key-results-dropped.
+func checkKeyCallsRunOnce(t *testing.T, calls []string) {
+	t.Helper()
+	counts := map[string]int{}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "fmt ") || strings.HasPrefix(c, "check ") {
+			counts[c]++
+		}
+	}
+	if len(counts) == 0 {
+		t.Fatalf("no fmt or check call in %q", calls)
+	}
+	for c, n := range counts {
+		if n != 2 {
+			t.Errorf("ergo %s ran %d times in a cached and a fresh run of a miss; want 2 (the legs take the key's result)", c, n)
 		}
 	}
 }
