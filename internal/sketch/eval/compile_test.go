@@ -16,7 +16,7 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-// TestCompiledAgreesWithWalk holds the compiled forms (compile.go, ORACLE
+// TestPreparedEvalAgrees holds the compiled forms (compile.go, ORACLE
 // O34) to the tree walk, which stays selectable as the reference
 // (eval.SetWalkOnly). Each seed's evalgen program (its test over values,
 // control, generic calls, literals and package lets) and each seed's
@@ -27,8 +27,10 @@ import (
 // compile.go has. A failing seed prints the source, both outcomes and the
 // replay command.
 //
-// Mutants only it kills (testdata/mutants.json): the oracle-o34-* rows.
-func TestCompiledAgreesWithWalk(t *testing.T) {
+// It is TESTSPEED FT4's agreement property. Mutants only it kills
+// (testdata/mutants.json): ft-step-not-counted-in-fast-path and the
+// oracle-o34-* rows that name it.
+func TestPreparedEvalAgrees(t *testing.T) {
 	n := 160
 	if testing.Short() {
 		n = 60
@@ -45,7 +47,7 @@ func TestCompiledAgreesWithWalk(t *testing.T) {
 	before := eval.FormsMade()
 	defer eval.SetWalkOnly(false)
 	replay := func(seed uint64) string {
-		return fmt.Sprintf("replay: ERGO_COMPILED_SEED=%d go test -run TestCompiledAgreesWithWalk ./internal/sketch/eval", seed)
+		return fmt.Sprintf("replay: ERGO_COMPILED_SEED=%d go test -run TestPreparedEvalAgrees ./internal/sketch/eval", seed)
 	}
 	for seed := first; seed < first+uint64(n); seed++ {
 		p := evalgen.Generate(seed)

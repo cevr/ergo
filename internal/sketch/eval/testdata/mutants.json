@@ -1464,13 +1464,13 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
-      "name": "oracle-o34-constant-free",
+      "name": "ft-step-not-counted-in-fast-path",
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/compile.go",
       "from": "\t\tv := f.cval\n\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n\t\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
       "to": "\t\tv := f.cval\n\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n",
       "rule": "A compiled form charges the steps the walk charges for its node: a constant costs a step.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-local-lends-not",
@@ -1479,7 +1479,7 @@
       "from": "\t\t\t\ts.lend()\n\t\t\t\treturn s.v, nil",
       "to": "\t\t\t\treturn s.v, nil",
       "rule": "Reading a local lends its slot in a compiled form as in the walk: a store read out may be shared, so a later write copies it.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-field-lends-not",
@@ -1488,7 +1488,7 @@
       "from": "\t\t\t\troot.lend() // a part that holds a store leaves the slot",
       "to": "\t\t\t\t_ = root",
       "rule": "A field that holds a store, read out of a local record, lends the local's slot.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-range-lends-not",
@@ -1497,7 +1497,7 @@
       "from": "\t\t\troot.lend() // the iteration binding holds its own element value",
       "to": "\t\t\t_ = root",
       "rule": "A for-in binding that holds an element with a store lends the ranged local's slot.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-for-no-back-edge",
@@ -1506,7 +1506,7 @@
       "from": "\t\t\tif ab := in.backEdge(fr, at); ab != nil {\n\t\t\t\treturn ab\n\t\t\t}\n\t\t}\n\t}\n}",
       "to": "\t\t}\n\t}\n}",
       "rule": "Each iteration of a compiled for ends at its interruption point and the schedule's turn, as the walk's does.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-body-tail-unreleased",
@@ -1515,7 +1515,7 @@
       "from": "\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n\t\treturn v, ab",
       "to": "\t\treturn v, ab",
       "rule": "A compiled body releases its final statement's temporaries (R43).",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-record-default-missing",
@@ -1524,7 +1524,7 @@
       "from": "\t\tfor _, i := range unset {",
       "to": "\t\tfor _, i := range unset[:0] {",
       "rule": "A field a compiled record literal leaves out takes its default value.",
-      "killers": ["internal/sketch/eval:TestCompiledAgreesWithWalk"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
       "name": "oracle-o34-taken-parameter-unowned",

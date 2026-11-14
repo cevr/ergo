@@ -23,7 +23,7 @@ import (
 //
 // A form does exactly what the walk does for its node: the same steps
 // charged at the same nodes in the same order, the same lends, the same
-// releases. TestCompiledAgreesWithWalk runs the example packages both
+// releases. TestPreparedEvalAgrees runs the example packages both
 // ways and compares every obligation's outcome and its steps; walkOnly
 // turns the forms off.
 
