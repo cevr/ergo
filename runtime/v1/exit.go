@@ -215,6 +215,40 @@ func RegisterCompactCalls(declTable []struct {
 	File      string
 	Line, End int
 }, names []string, table []SourceCall) {
+	registerCompact(declTable, names, table)
+}
+
+// sourceDir is what a frame's location holds before a //line name: the
+// folder of the Go file that registered the source map, as Go names it.
+// Go reads a relative //line name from the folder of the file holding it,
+// and the lowering writes each name relative to the module root (binsize
+// BS6): in a program's main.go that folder is ProgramModule under
+// -trimpath, and in a module's one test binary (TEST-one) each package's
+// main.go is in a folder of its own, ergotestK.
+var sourceDir string
+
+// sourceFile is the file of a frame's location file:line, without an
+// inlined call's tag (inlineTag).
+func sourceFile(loc string) string {
+	if i := strings.LastIndex(loc, ":"); i >= 0 {
+		loc = loc[:i]
+	}
+	if j := strings.LastIndex(loc, inlineTag); j >= 0 {
+		loc = loc[:j]
+	}
+	return loc
+}
+
+// registerCompact installs the source map for RegisterCompactCalls and
+// RegisterCalls, whose caller, two frames up, is the generated code.
+func registerCompact(declTable []struct {
+	Name      string
+	File      string
+	Line, End int
+}, names []string, table []SourceCall) {
+	if _, file, _, ok := runtime.Caller(2); ok {
+		sourceDir = file[:strings.LastIndexByte(file, '/')+1]
+	}
 	registered, decls, calls, callNames = true, declTable, table, names
 }
 
@@ -247,7 +281,7 @@ func RegisterCalls(declTable []struct {
 	for i, c := range table {
 		compact[i] = SourceCall{Func: intern(c.Func), Callee: intern(c.Callee), File: intern(c.File), Line: uint32(c.Line), Column: uint32(c.Column)}
 	}
-	RegisterCompactCalls(declTable, names, compact)
+	registerCompact(declTable, names, compact)
 }
 
 // inlines are the program's inlined calls (RegisterInlines).
@@ -358,7 +392,13 @@ func ergoStack(stack []byte) []string {
 		if i := strings.LastIndex(loc, " +0x"); i >= 0 {
 			loc = loc[:i]
 		}
-		loc = strings.TrimPrefix(loc, ProgramModule+"/")
+		// A name under the registering file's folder is read from there
+		// when the source map names it; else under the module path.
+		if rel, ok := strings.CutPrefix(loc, sourceDir); ok && sourceDir != "" && files[sourceFile(rel)] {
+			loc = rel
+		} else {
+			loc = strings.TrimPrefix(loc, ProgramModule+"/")
+		}
 		i := strings.LastIndex(loc, ":")
 		if i < 0 {
 			continue

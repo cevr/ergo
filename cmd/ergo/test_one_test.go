@@ -192,11 +192,13 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 				wantCode = max(wantCode, code)
 			}
 			// The shared run's go command logs each call: one link, and no
-			// package built alone after it.
+			// package built alone after it. It links with go build (the
+			// reference path), since a direct build (BUILD-direct) calls
+			// the go command only to plan, so its calls count no link.
 			calls := filepath.Join(t.TempDir(), "go.log")
 			command := exec.Command(bin, append([]string{"test", "./...", "--receipt", filepath.Join(m.root, "got")}, flags...)...)
 			command.Dir = m.root
-			command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "TMPDIR="+tmp, "PATH="+goLogger(t, calls)+string(os.PathListSeparator)+os.Getenv("PATH"))
+			command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "TMPDIR="+tmp, build.GoBuildVariable+"=go", "PATH="+goLogger(t, calls)+string(os.PathListSeparator)+os.Getenv("PATH"))
 			stdout, stderr, code := runSmokeCommand(t, command)
 			out, errText := string(stdout), string(stderr)
 			if out != wantOut.String() || code != wantCode {
