@@ -24,7 +24,9 @@ import (
 // runs each statement path once in the seed's order and more at random,
 // with random arguments, ending normally, in an uncaught failure whose text
 // holds an Option or a generated union, in a defect, or in a machine's zero
-// timer.
+// timer. The type-argument axis (MSB1, flat_generic_property_test.go)
+// adds a generic union of the program at many instances and an enum
+// machine with a drawn table, run and scanned.
 //
 // The program's run build and test build are lowered with the flat unions
 // and their shared slots (U1), with the flat unions and a slot per variant
@@ -677,6 +679,7 @@ func (g *optionGen) stmt(path string) {
 func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGen) {
 	g := &optionGen{r: rand.New(rand.NewPCG(seed, 0x4f505432)), reached: reached}
 	g.u = newUnionGen(g.r, reached)
+	g.u.gen = &genericGen{r: g.r, cycle: seed%3 == 0}
 	g.line("let mut xs = []int{4, 3, 1}")
 	g.line("let mut ys = [][]int{[]int{1}, []int{2, 3}}")
 	g.line(`let mut m = Map[string, int]{"a": 1, "c": 3}`)
@@ -694,6 +697,7 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 	for range 16 {
 		g.stmt(paths[g.r.IntN(len(paths))])
 	}
+	g.u.gen.stmts(g)
 	// Each let mut is written at least once (S110).
 	g.line(fmt.Sprintf("xs[2] = %d", g.small()))
 	g.line("ys[1][1] = 7")
@@ -755,7 +759,7 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 		g.line("\tConsole.Println(\"another variant\")")
 		g.line("}")
 	}
-	return optionPrelude + g.u.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign {\n" + g.b.String() + "}\n", g.u
+	return optionPrelude + g.u.decls() + g.u.gen.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign {\n" + g.b.String() + "}\n", g.u
 }
 
 // lowerOptionMode lowers src's run build, or its test build (test), with
@@ -824,6 +828,11 @@ func TestFlatUnionsAgree(t *testing.T) {
 				}
 				prog, s := lowerOptionMode(t, name, src, test, mode, noTree)
 				programs = append(programs, prog)
+				// MSB1: the forms of the generic union G, the prelude's
+				// Decision and the enum state MS.
+				for _, bad := range u.gen.genericForms(prog.mainGo(), mode) {
+					t.Errorf("%s: %s\n%s", name, bad, replay)
+				}
 				switch mode {
 				case "interface":
 					p.ref = name
@@ -884,7 +893,7 @@ func TestFlatUnionsAgree(t *testing.T) {
 	if *flatSeed != 0 {
 		return
 	}
-	for _, path := range append(optionPaths, unionPaths...) {
+	for _, path := range append(append(append([]string{}, optionPaths...), unionPaths...), append(genericPaths, "g-cycle")...) {
 		if !reached[path] {
 			t.Errorf("the fixed seeds never reach %q", path)
 		}
@@ -963,6 +972,7 @@ type gField struct {
 // unionGen writes the generated unions U0, U1, … of one program, their
 // helpers, and the statements of the "u-" paths over them.
 type unionGen struct {
+	gen      *genericGen // the type-argument axis (flat_generic_property_test.go)
 	r        *rand.Rand
 	reached  map[string]bool
 	unions   [][][]gField // by union, by variant
