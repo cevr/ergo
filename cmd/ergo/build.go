@@ -20,7 +20,7 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
+const runHelp = "usage: ergo run [--json] [--debug] [--target go] FILE|DIR [--] [ARGS...]\n" +
 	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
 	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
 	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
@@ -119,10 +119,14 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 // PATH with the user's GOFLAGS, linking for opts.platform, always stated,
 // so the go env file's GOOS and GOARCH never choose it. The emitted module
 // is the same for every platform; Go's action cache keys the link on the
-// platform.
+// platform. A run or test build is a binary nobody keeps, so it links
+// stripped (build.Toolchain.Strip), unless --debug asks for the symbols or
+// the user's GOFLAGS sets -ldflags, which a stripping -ldflags would
+// replace; `ergo build` links as it always has.
 func toolchain(opts fileOptions) build.Toolchain {
 	tc := build.HostToolchain()
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Strip = (opts.command == "run" || opts.command == "test") && !opts.debug && !strings.Contains(tc.GOFLAGS, "-ldflags")
 	return tc
 }
 

@@ -108,6 +108,52 @@ func TestPlatformOfABuild(t *testing.T) {
 	}
 }
 
+// TestRunAndTestLinkStripped: the Go action of run and test links with
+// no symbol table and no DWARF, which nearly halves a link (TL1); --debug
+// and a user's GOFLAGS -ldflags keep the full link; build's action is the
+// one it always was, so a release executable is unchanged. In process:
+// options and the action's arguments. Mutants (cmd/ergo/testdata/
+// mutants.json): tl1-test-not-stripped, tl1-run-not-stripped,
+// tl1-build-stripped, tl1-debug-ignored, tl1-goflags-replaced.
+func TestRunAndTestLinkStripped(t *testing.T) {
+	release := build.HostToolchain()
+	release.GOOS, release.GOARCH = runtime.GOOS, runtime.GOARCH
+	for _, c := range []struct {
+		command  string
+		args     []string
+		goflags  string
+		stripped bool
+	}{
+		{"test", nil, "", true},
+		{"run", nil, "", true},
+		{"build", nil, "", false},
+		{"test", []string{"--debug"}, "", false},
+		{"test", nil, "-ldflags=-X=main.v=1", false},
+	} {
+		t.Setenv("GOOS", "")
+		t.Setenv("GOARCH", "")
+		t.Setenv("GOFLAGS", c.goflags)
+		opts, err := parseFileOptions(c.command, append(c.args, "main.ergo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		module := build.Module{Dir: t.TempDir()}
+		args := toolchain(opts).Command(module, "/nonexistent/loop-probe-x/app").Args
+		if got := slices.Contains(args, build.StripFlag); got != c.stripped {
+			t.Errorf("%s %v with GOFLAGS=%q: stripped %v, want %v (%q)", c.command, c.args, c.goflags, got, c.stripped, args)
+		}
+		if c.command == "build" {
+			release.GOFLAGS = c.goflags
+			if want := release.Command(module, "/nonexistent/loop-probe-x/app").Args; !slices.Equal(args, want) {
+				t.Errorf("build's action is %q, want the release action %q", args, want)
+			}
+		}
+	}
+	if _, err := parseFileOptions("build", []string{"--debug", "main.ergo"}); err == nil || !strings.Contains(err.Error(), "--debug is only supported by run and test") {
+		t.Errorf("build --debug: %v", err)
+	}
+}
+
 // executablePlatform reads the platform an executable's header names: an
 // ELF file is linux, a Mach-O file darwin, and the machine is the arch.
 func executablePlatform(t *testing.T, path string) gobind.Platform {

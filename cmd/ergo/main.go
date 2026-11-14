@@ -104,6 +104,9 @@ type fileOptions struct {
 	command            string
 	target, output     string
 	strict, json, work bool
+	// debug is run's and test's --debug: link with the full symbol table
+	// and DWARF, which these builds otherwise strip (toolchain).
+	debug bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -138,6 +141,7 @@ type fileOptions struct {
 
 // parseFileOptions reads the options of command. --strict and --json belong
 // to diagnostics, -o and --platform to build, -work to build and test,
+// --debug to run and test,
 // --seed N (or --seed=N) to check and test, --eval-steps N and
 // --eval-bytes N to check, and --states N, --law NAME, --skip-law NAME,
 // --run NAME (or --run=NAME), --receipt FILE and --explore to test; any
@@ -235,6 +239,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.json = true
 		case "-work":
 			opts.work = true
+		case "--debug":
+			opts.debug = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -264,6 +270,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
+	case opts.debug && command != "run" && command != "test":
+		return opts, fmt.Errorf("--debug is only supported by run and test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":

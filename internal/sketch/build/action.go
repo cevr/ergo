@@ -27,7 +27,17 @@ type Toolchain struct {
 	// choose runtime files at link time and are no input of the lowering:
 	// the emitted module is the same with and without them.
 	Tags []string
+	// Strip links with no symbol table and no DWARF (-ldflags=-s -w),
+	// which nearly halves the link (compile-speed plan §1.3: 1,363 M instr
+	// against 742 M for a 6 MB program). A panic or defect trace keeps its
+	// function names and lines, which come from the pclntab -s keeps; a
+	// debugger or `go tool nm` needs the full symbols. `ergo test` and
+	// `ergo run` strip unless --debug; `ergo build` never does.
+	Strip bool
 }
+
+// StripFlag is the link flag of a stripped build.
+const StripFlag = "-ldflags=-s -w"
 
 // HostToolchain is the go command on PATH with the target and flags of the
 // process environment, the action an unconfigured go build would run.
@@ -45,6 +55,9 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
+	}
+	if t.Strip {
+		args = append(args, StripFlag)
 	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
