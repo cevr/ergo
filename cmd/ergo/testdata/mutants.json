@@ -200,7 +200,7 @@
     {
       "name": "dist1-runtime-kqueue-arm64-only",
       "origin": "wf10 DIST1",
-      "file": "runtime/v1/exec_exit_kqueue.go",
+      "file": "runtime/v1/exec/exec_exit_kqueue.go",
       "from": "//go:build darwin || dragonfly",
       "to": "//go:build (darwin && arm64) || dragonfly",
       "rule": "The runtime links on every platform of the target list (a build-tagged runtime file must cover each).",

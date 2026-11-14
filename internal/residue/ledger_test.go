@@ -143,6 +143,8 @@ var ergoSuites = map[string]string{
 type testFile struct {
 	tag  string
 	text string
+	// constrained: the file has a build constraint of any form.
+	constrained bool
 }
 
 // hostWords are build constraint words the default build satisfies or
@@ -152,7 +154,7 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // killerMissing says why a ledger's killer id names no test the mutant
 // runner can run, or "" when it does: SUITE:TEST with SUITE an ergo suite,
 // DIR or DIR[TAG] (a module directory, built with -tags=TAG) holding a
-// top-level TEST in a _test.go file built under that tag; or
+// top-level TEST in a _test.go file built under that tag (a file with no constraint is built under every tag: EXPLORE-rt runs all of runtime/v1 under ergoexplore); or
 // examples:PROGRAM. A note after the test, past a space, is the reader's.
 // A DIR inside a nested Go module (selfhost's hostsyntax) is built in that
 // module (scripts/mutants nestedModule; batch-18 r4 M2). An id the runner cannot resolve makes it refuse the whole run
@@ -192,7 +194,9 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 			}
 			tf := testFile{text: string(text)}
 			for _, line := range strings.SplitN(tf.text, "\n", 4) {
-				if word, ok := strings.CutPrefix(line, "//go:build "); ok && !strings.ContainsAny(word, " !|&()") && !slices.Contains(hostWords, word) {
+				word, ok := strings.CutPrefix(line, "//go:build ")
+				tf.constrained = tf.constrained || ok
+				if ok && !strings.ContainsAny(word, " !|&()") && !slices.Contains(hostWords, word) {
 					tf.tag = word
 				}
 			}
@@ -205,7 +209,7 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 	}
 	for _, f := range files {
 		if strings.Contains(f.text, "\nfunc "+test+"(") {
-			if f.tag != tag {
+			if f.tag != tag && f.constrained {
 				return "its file is built with tag " + strconv.Quote(f.tag) + ", the id names " + strconv.Quote(tag)
 			}
 			return ""
