@@ -10,6 +10,10 @@ type CrossRef struct {
 	From, To string
 	// Obj is the object referred to; nil for a syntax node.
 	Obj any
+	// Path is Obj's object path in To (ResolvePath), taken right after
+	// To's check; HasPath is false when no path reaches it.
+	Path    string
+	HasPath bool
 }
 
 // UserExport writes std as this process holds it, then each user package
@@ -21,7 +25,10 @@ type UserExport struct {
 	e     *encoder
 	first int // the index of the first user segment
 	paths []string
-	Refs  []CrossRef
+	// tables are the object paths of each user segment's package, by
+	// segment index, taken when its segment is written.
+	tables map[int]map[any]objPath
+	Refs   []CrossRef
 }
 
 // NewUserExport writes std's segments. importers are the values the user
@@ -45,7 +52,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	for i, imp := range importers {
 		e.ext[imp] = uint64(len(externals()) + i)
 	}
-	u = &UserExport{e: e, first: len(s.packages) + 1}
+	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}}
 	e.segment("", func() { e.encPtrstdBase(s.base) })
 	u.paths = append(u.paths, "")
 	for i, pkg := range s.packages {
@@ -64,7 +71,13 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 func (u *UserExport) cross(seg int, v any) {
 	cur := len(u.e.objStarts) - 1
 	if seg >= u.first && cur >= u.first && seg != cur {
-		u.Refs = append(u.Refs, CrossRef{From: u.paths[cur], To: u.paths[seg], Obj: v})
+		r := CrossRef{From: u.paths[cur], To: u.paths[seg], Obj: v}
+		if v != nil {
+			var p objPath
+			p, r.HasPath = u.tables[seg][v]
+			r.Path = string(p)
+		}
+		u.Refs = append(u.Refs, r)
 	}
 }
 
@@ -76,6 +89,7 @@ func (u *UserExport) Add(pkg *Package) (err error) {
 	// A derive record is not carried (exportgen skipFields); the measure
 	// does not need it.
 	u.e.segment(pkg.Path, func() { u.e.encPtrPackage(pkg) })
+	u.tables[len(u.e.objStarts)-1] = objectPaths(pkg)
 	return nil
 }
 
