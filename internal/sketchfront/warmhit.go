@@ -51,7 +51,7 @@ func hostListing(dir string) (string, bool) {
 }
 
 // WarmHit is WarmLookup for a process that answers many requests (ergo
-// serve): it answers the request key from its manifest when every input
+// dev): it answers the request key from its manifest when every input
 // still has the content the manifest holds. sums keeps, between requests,
 // each input file's hash, each folder's listing digest and the decoded
 // manifest, each for as long as its file's stat says it has not changed. It

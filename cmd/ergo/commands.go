@@ -56,7 +56,7 @@ var commands = []cliCommand{
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
-	{name: "serve", usage: "serve [DIR] [--idle DURATION]", help: serveHelp, run: serveCommand},
+	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},

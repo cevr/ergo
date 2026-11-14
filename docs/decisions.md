@@ -2,6 +2,10 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-14
+
+- **The warm compiler server is `ergo dev` (2026-11-14, compile-speed CS9, #203).** The compile-speed plan (§4.6) called the daemon that holds a workspace's warm state `ergo serve`; the owner named it `ergo dev`. Decided: the command is `ergo dev [DIR] [--idle DURATION]`, its client switch is `ERGO_DEV=off`, its socket and lock live under `dev/` in the cache root, and its lifecycle model is `models/dev`. There is no `serve` alias: pre-release, a renamed command has one spelling (no compatibility while pre-release). Rules: [tooling.md](tooling.md#ergo-dev). Prior art: `gleam dev`, `mix phx.server`, and `next dev` each name the long-running development process by what the developer is doing, not by its transport.
+
 ## Owner direction, 2026-11-12
 
 Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) section, and the entries marked "synced" in the [2026-11-10](#owner-direction-2026-11-10) section, were copied on 2026-11-12 from the run's decision logs (the `decisions.md` files of the orchestration run, and the owner lines of its plan ledger), so that every owner decision q84 to q138 is in this file. A quotation in double quotes is the owner's words; "as assumed" means the owner accepted the recommendation the question stated.

@@ -73,7 +73,7 @@ The start of a process that does no work, user-mode instructions:
 The `ergo` start is 3.1 M instr, about the whole 3.3 M budget of a 1 ms
 warm answer (plan §3.2), before any input is read: a quiet-host
 millisecond for a warm `ergo build` typed in a shell needs a thinner start
-(the binary's init work), or the request inside `ergo serve` (CS9). The
+(the binary's init work), or the request inside `ergo dev` (CS9). The
 host was at load 20; the quiet-host wall time is not measured here.
 
 ## Process start
@@ -292,9 +292,11 @@ The same scenarios at `GOMAXPROCS=4` (CS9 head `de6ab4614`, 1-minute load 84 to 
 - Measured: an edit build costs 31 to 44 % fewer instructions than the reference.
 - The first build costs 5 % more instructions. At this load, its wall time is not shorter than the reference's, although independent compiles are started together. The host was saturated (load above 80 on 16 cores), so these wall times show no parallel speedup either way. A wall-time claim for the parallel compile needs a quiet host.
 
-## ergo serve (CS9)
+## ergo dev (CS9)
 
-`ergo serve` answers a warm `ergo check` on its socket with no process start (docs/tooling.md, "ergo serve"). It was measured on 2026-11-13 at the CS9 head `de6ab4614` (`go run ./scripts/buildcost serve -sizes 10,50 -examples ""`, at a 1-minute load of 82 to 84) as follows. A daemon was started with `--idle 2s`, sent 200 warm-check requests by the measuring process, and measured from its start to its idle exit. A daemon that was sent no request was measured the same way. The difference, divided by 200, is the daemon's work for one request.
+The measurements below were taken while the command was named `ergo serve` (renamed `ergo dev` by the owner on 2026-11-14, docs/decisions.md); the raw logs keep the old scenario labels (`serve-request`).
+
+`ergo dev` answers a warm `ergo check` on its socket with no process start (docs/tooling.md, "ergo dev"). It was measured on 2026-11-13 at the CS9 head `de6ab4614` (`go run ./scripts/buildcost dev -sizes 10,50 -examples ""`, at a 1-minute load of 82 to 84) as follows. A daemon was started with `--idle 2s`, sent 200 warm-check requests by the measuring process, and measured from its start to its idle exit. A daemon that was sent no request was measured the same way. The difference, divided by 200, is the daemon's work for one request.
 
 | Program | CLI warm check (M instr, one process) | Daemon, one request (M instr), GOMAXPROCS 1 / 4 | Inputs read and hashed per request | `ergo check` as the daemon's client (M instr) |
 | --- | --- | --- | --- | --- |
@@ -303,13 +305,13 @@ The same scenarios at `GOMAXPROCS=4` (CS9 head `de6ab4614`, 1-minute load 84 to 
 
 - Measured: a served request starts no process and costs 42 % (g10) and 74 % (g50) of the instructions of the CLI's warm check, at GOMAXPROCS=1.
 - Measured: the daemon reads and hashes every input the warm manifest names, as the CLI's warm path does: its work grows with the program, not with the files that changed.
-- Measured: the plan's budget for a request inside `ergo serve` is 1 ms at any program size, in proportion to the files that changed (§3.1), and is not met. The median request took 3.1 ms at g10 and 8.0 ms at g50, at a load above 80. Meeting it needs the daemon to keep the inputs' hashes between requests and to re-hash only the files a file event names. The plan allows file events as a hint, not as evidence, so that is a design step of its own (a follow-up).
+- Measured: the plan's budget for a request inside `ergo dev` is 1 ms at any program size, in proportion to the files that changed (§3.1), and is not met. The median request took 3.1 ms at g10 and 8.0 ms at g50, at a load above 80. Meeting it needs the daemon to keep the inputs' hashes between requests and to re-hash only the files a file event names. The plan allows file events as a hint, not as evidence, so that is a design step of its own (a follow-up).
 - `ergo check` as the daemon's client still pays its own process start (2.9 to 3.0 M), the floor of any CLI command ("Process start"). An editor that speaks the socket pays none.
 - The raw log is the wf10 run's `compile-speed/cs9/receipt-buildcost.log`.
 
 ### Kept reads
 
-After the measurement above, the daemon keeps each input's hash, each folder's listing digest and the decoded manifest while their stat stays the same (`sketchfront.StatSums`; docs/tooling.md, "ergo serve"). It was measured again on 2026-11-13 at the code of `d0220a73e`, with the same command, at a 1-minute load of 47 to 49:
+After the measurement above, the daemon keeps each input's hash, each folder's listing digest and the decoded manifest while their stat stays the same (`sketchfront.StatSums`; docs/tooling.md, "ergo dev"). It was measured again on 2026-11-13 at the code of `d0220a73e`, with the same command, at a 1-minute load of 47 to 49:
 
 | Program | Daemon, one request (M instr), GOMAXPROCS 1 / 4 | Before kept reads (M instr) | Inputs read per request | Request wall time, median / p90 (µs), GOMAXPROCS=1 |
 | --- | --- | --- | --- | --- |

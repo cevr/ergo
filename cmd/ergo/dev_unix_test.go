@@ -16,20 +16,20 @@ import (
 	"ergo.local/prototype/internal/testwait"
 )
 
-// serveDaemon is one `ergo serve` the test started, in a process group
+// devDaemon is one `ergo dev` the test started, in a process group
 // of its own.
-type serveDaemon struct {
+type devDaemon struct {
 	cmd             *exec.Cmd
 	socket, release string
 	exited          chan struct{}
 	stdout          []string
 }
 
-// startServe starts `ergo serve` with args and waits for its first line:
-// the ready line, or "already serving".
-func startServe(t *testing.T, bin string, env []string, args ...string) *serveDaemon {
+// startDev starts `ergo dev` with args and waits for its first line:
+// the ready line, or "already running".
+func startDev(t *testing.T, bin string, env []string, args ...string) *devDaemon {
 	t.Helper()
-	cmd := exec.Command(bin, append([]string{"serve"}, args...)...)
+	cmd := exec.Command(bin, append([]string{"dev"}, args...)...)
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.StdoutPipe()
@@ -40,7 +40,7 @@ func startServe(t *testing.T, bin string, env []string, args ...string) *serveDa
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	d := &serveDaemon{cmd: cmd, exited: make(chan struct{})}
+	d := &devDaemon{cmd: cmd, exited: make(chan struct{})}
 	// The group is killed only while its leader has not been reaped, so
 	// the pid is still this test's.
 	t.Cleanup(func() {
@@ -74,22 +74,22 @@ func startServe(t *testing.T, bin string, env []string, args ...string) *serveDa
 		}
 	case <-d.exited:
 	case <-testwait.After(t):
-		t.Fatalf("ergo serve %v: no first line", args)
+		t.Fatalf("ergo dev %v: no first line", args)
 	}
 	return d
 }
 
 // wait waits for the daemon's exit.
-func (d *serveDaemon) wait(t *testing.T, why string) {
+func (d *devDaemon) wait(t *testing.T, why string) {
 	t.Helper()
 	select {
 	case <-d.exited:
 	case <-testwait.After(t):
-		t.Fatalf("ergo serve did not exit: %s", why)
+		t.Fatalf("ergo dev did not exit: %s", why)
 	}
 }
 
-// TestServeAnswersAWarmCheck runs `ergo serve` on a module (models/serve):
+// TestDevAnswersAWarmCheck runs `ergo dev` on a module (models/dev):
 // the daemon answers a warm check on its socket with the CLI's stdout and
 // starts no process; `ergo check` as its client does no work of its own; a
 // request of another environment or release is not served; a second
@@ -97,7 +97,7 @@ func (d *serveDaemon) wait(t *testing.T, why string) {
 // builds Go because the daemon, its clients and its lock are processes:
 // one daemon per workspace and release is a property of processes, which
 // no in-process check shows.
-func TestServeAnswersAWarmCheck(t *testing.T) {
+func TestDevAnswersAWarmCheck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: builds Go")
 	}
@@ -105,7 +105,7 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 	root := physicalTempDir(t)
 	xdg := physicalTempDir(t)
 	warmModule(t, root, 1, 'a')
-	// The daemon and its clients share one environment (serveEnvironment);
+	// The daemon and its clients share one environment (devEnvironment);
 	// GOMEMLIMIT bounds each process's heap.
 	bound := []string{"GOMEMLIMIT=2GiB"}
 	cold := runWarm(t, bin, root, xdg, bound, "check", "./cmd/app")
@@ -115,7 +115,7 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 	runWarm(t, bin, root, xdg, bound, "check", "./cmd/app")
 
 	env := append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, bound[0])
-	d := startServe(t, bin, env, root)
+	d := startDev(t, bin, env, root)
 	if d.socket == "" {
 		t.Fatalf("no ready line: %q", d.stdout)
 	}
@@ -126,17 +126,17 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 		t.Fatalf("check through the daemon: exit %d, stdout %q (want %q), counts %v", via.code, via.stdout, cold.stdout, via.counts)
 	}
 
-	request := serveRequest{Release: d.release, Dir: root, Env: env, Args: []string{"check", "./cmd/app"}}
+	request := devRequest{Release: d.release, Dir: root, Env: env, Args: []string{"check", "./cmd/app"}}
 	answer, ok := ask(d.socket, request)
 	if !ok || !answer.Served || string(answer.Stdout) != cold.stdout || answer.Work["processes"] != 0 {
 		t.Fatalf("a request on the socket: ok %v, %+v", ok, answer)
 	}
 	for _, row := range []struct {
 		name string
-		edit func(*serveRequest)
+		edit func(*devRequest)
 	}{
-		{"another environment", func(r *serveRequest) { r.Env = append(append([]string(nil), env...), "ERGO_BUILD=full") }},
-		{"another release", func(r *serveRequest) { r.Release = "other" }},
+		{"another environment", func(r *devRequest) { r.Env = append(append([]string(nil), env...), "ERGO_BUILD=full") }},
+		{"another release", func(r *devRequest) { r.Release = "other" }},
 	} {
 		other := request
 		row.edit(&other)
@@ -156,9 +156,9 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 		t.Fatalf("a request after the edit was checked: ok %v, %+v", ok, answer)
 	}
 
-	second := startServe(t, bin, env, root, "--idle", "1ms")
+	second := startDev(t, bin, env, root, "--idle", "1ms")
 	second.wait(t, "a second daemon of the release")
-	if len(second.stdout) != 1 || !strings.Contains(second.stdout[0], "already serving") || second.cmd.ProcessState.ExitCode() != 0 {
+	if len(second.stdout) != 1 || !strings.Contains(second.stdout[0], "already running") || second.cmd.ProcessState.ExitCode() != 0 {
 		t.Fatalf("a second daemon: exit %d, %q", second.cmd.ProcessState.ExitCode(), second.stdout)
 	}
 	if err := syscall.Kill(d.cmd.Process.Pid, syscall.SIGTERM); err != nil {
@@ -166,7 +166,7 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 	}
 	d.wait(t, "SIGTERM")
 
-	idle := startServe(t, bin, env, root, "--idle", "1ms")
+	idle := startDev(t, bin, env, root, "--idle", "1ms")
 	if idle.socket == "" {
 		t.Fatalf("a daemon after the first exited: %q", idle.stdout)
 	}
@@ -180,11 +180,11 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 	}
 }
 
-// TestServeClientAnswersInProcessWhenTheConnectionEnds: a daemon that
+// TestDevClientAnswersInProcessWhenTheConnectionEnds: a daemon that
 // exits or crashes after it accepted a request leaves the client no
-// answer, and the client answers in process (models/serve,
+// answer, and the client answers in process (models/dev,
 // NoRequestLost).
-func TestServeClientAnswersInProcessWhenTheConnectionEnds(t *testing.T) {
+func TestDevClientAnswersInProcessWhenTheConnectionEnds(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "s.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
@@ -199,7 +199,7 @@ func TestServeClientAnswersInProcessWhenTheConnectionEnds(t *testing.T) {
 		bufio.NewReader(conn).ReadString('\n')
 		conn.Close()
 	}()
-	if answer, ok := ask(socket, serveRequest{Release: "r", Args: []string{"check", "."}}); ok {
+	if answer, ok := ask(socket, devRequest{Release: "r", Args: []string{"check", "."}}); ok {
 		t.Fatalf("a connection with no answer was taken as one: %+v", answer)
 	}
 }

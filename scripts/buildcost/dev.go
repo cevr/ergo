@@ -15,53 +15,53 @@ import (
 	"time"
 )
 
-// serveRequests is the number of requests a counted daemon answers.
-const serveRequests = 200
+// devRequests is the number of requests a counted daemon answers.
+const devRequests = 200
 
-// serveCost counts `ergo serve` (compile-speed plan §3.1, CS9) on the
+// devCost counts `ergo dev` (compile-speed plan §3.1, CS9) on the
 // program at dir: the CLI's cold and warm check, then two daemons, each
 // started with --idle 2s and measured from start to idle exit: one sent
-// no request, one sent serveRequests warm checks on its socket by this
+// no request, one sent devRequests warm checks on its socket by this
 // process (no ergo process per request). The difference of their
-// instructions, over serveRequests, is the daemon's work for one request;
+// instructions, over devRequests, is the daemon's work for one request;
 // the daemon's own counters for the last request and the requests' wall
 // times are printed beside it. Last, `ergo check` as the daemon's client.
-func (r runner) serveCost(label, dir, main string) {
-	xdg := filepath.Join(r.work, "xdg-serve-"+label)
+func (r runner) devCost(label, dir, main string) {
+	xdg := filepath.Join(r.work, "xdg-dev-"+label)
 	pkg := filepath.Join(dir, main)
 	r.counted(label+" check-1", xdg, "check", pkg)
 	r.counted(label+" check-2", xdg, "check", pkg)
 	env := append(os.Environ(), "XDG_CACHE_HOME="+xdg)
-	idle := r.daemon(label+" serve-0-requests", dir, env, 0, pkg)
-	busy := r.daemon(fmt.Sprintf("%s serve-%d-requests", label, serveRequests), dir, env, serveRequests, pkg)
+	idle := r.daemon(label+" dev-0-requests", dir, env, 0, pkg)
+	busy := r.daemon(fmt.Sprintf("%s dev-%d-requests", label, devRequests), dir, env, devRequests, pkg)
 	if idle.instructions > 0 && busy.instructions > idle.instructions {
-		fmt.Printf("%-28s instr_M_per_request=%.3f\n", label+" serve-request", float64(busy.instructions-idle.instructions)/1e6/serveRequests)
+		fmt.Printf("%-28s instr_M_per_request=%.3f\n", label+" dev-request", float64(busy.instructions-idle.instructions)/1e6/devRequests)
 	}
 	// The CLI as the daemon's client: a daemon that idles out after it.
 	ready := make(chan string, 1)
-	cmd := exec.Command(r.ergo, "serve", dir, "--idle", "2s")
+	cmd := exec.Command(r.ergo, "dev", dir, "--idle", "2s")
 	cmd.Env = env
 	cmd.Stdout = &readyLine{ch: ready}
 	if err := cmd.Start(); err != nil {
-		fmt.Println("    serve:", err)
+		fmt.Println("    dev:", err)
 		return
 	}
 	exited := make(chan struct{})
 	go func() { cmd.Wait(); close(exited) }()
 	select {
 	case <-ready:
-		r.counted(label+" check-via-serve", xdg, "check", pkg)
+		r.counted(label+" check-via-dev", xdg, "check", pkg)
 	case <-exited:
-		fmt.Println("    serve: exited before its ready line")
+		fmt.Println("    dev: exited before its ready line")
 	}
 	<-exited
 }
 
-// daemon measures one `ergo serve` from start to idle exit, sending n
+// daemon measures one `ergo dev` from start to idle exit, sending n
 // requests once it is ready.
 func (r runner) daemon(label, dir string, env []string, n int, pkg string) result {
 	ready := make(chan string, 1)
-	cmd := exec.Command(r.ergo, "serve", dir, "--idle", "2s")
+	cmd := exec.Command(r.ergo, "dev", dir, "--idle", "2s")
 	cmd.Env = env
 	cmd.Stdout = &readyLine{ch: ready}
 	var walls []time.Duration
@@ -121,7 +121,7 @@ func (r runner) daemon(label, dir string, env []string, n int, pkg string) resul
 }
 
 // parseReady reads the socket and the release from the ready line
-// ("ergo serve: serving DIR at SOCKET release RELEASE").
+// ("ergo dev: serving DIR at SOCKET release RELEASE").
 func parseReady(line string) (socket, release string, ok bool) {
 	_, rest, ok := strings.Cut(line, " at ")
 	if !ok {

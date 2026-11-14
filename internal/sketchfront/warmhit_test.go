@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestStatSumsReadOnlyWhatChanged holds ergo serve's input hashes to their
+// TestStatSumsReadOnlyWhatChanged holds ergo dev's input hashes to their
 // rule (StatSums): a file whose stat is the one it was hashed with, and
 // whose last change was settle before that hash, is not read again; a
 // changed stat, or a change within settle of the hash, reads the file. The

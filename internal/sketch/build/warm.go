@@ -25,7 +25,7 @@ func (c Cache) WarmManifest(key string) ([]byte, bool) {
 }
 
 // WarmManifestFile is the file of the request key's manifest, for a
-// process that keeps manifests between requests (ergo serve): a new
+// process that keeps manifests between requests (ergo dev): a new
 // manifest is a new file, renamed in.
 func (c Cache) WarmManifestFile(key string) string { return filepath.Join(c.Root, "warm", key) }
 

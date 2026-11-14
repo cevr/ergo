@@ -25,47 +25,47 @@ import (
 	"ergo.local/prototype/internal/stage"
 )
 
-const serveHelp = `usage: ergo serve [DIR] [--idle DURATION]
+const devHelp = `usage: ergo dev [DIR] [--idle DURATION]
 
 Serves the workspace DIR (default: the working directory) until it has
 had no request for DURATION (default 10m), or until SIGINT or SIGTERM.
-One daemon serves a workspace for each Ergo release: a second ergo serve
-of the same workspace and release prints "already serving" and exits 0.
+One daemon serves a workspace for each Ergo release: a second ergo dev
+of the same workspace and release prints "already running" and exits 0.
 
 A client (ergo check, an editor, MCP) sends a request on the daemon's
 Unix socket and gets the same answer as the command, without starting a
 process when the daemon can answer from memory: today, a check whose
-warm answer holds (docs/tooling.md, ergo serve). Any other request is
+warm answer holds (docs/tooling.md, ergo dev). Any other request is
 answered "not served", and the client answers it in process, as it does
 when no daemon of its release serves the package's folder or an
-ancestor of it, or when its connection ends with no answer. ERGO_SERVE=off
+ancestor of it, or when its connection ends with no answer. ERGO_DEV=off
 makes ergo check answer in process.
 
-The model of this lifecycle is models/serve. Exit status: 0, 1 when the
+The model of this lifecycle is models/dev. Exit status: 0, 1 when the
 socket cannot be served, or 2 on an invalid invocation.
 `
 
-// serveVariable turns the CLI's client off (ERGO_SERVE=off).
-const serveVariable = "ERGO_SERVE"
+// devVariable turns the CLI's client off (ERGO_DEV=off).
+const devVariable = "ERGO_DEV"
 
-// serveRequest is one request on the daemon's socket: one JSON object,
-// answered by one serveAnswer.
-type serveRequest struct {
+// devRequest is one request on the daemon's socket: one JSON object,
+// answered by one devAnswer.
+type devRequest struct {
 	// Release is the client's release (producer.Identity.Qualifier).
 	Release string `json:"release"`
 	// Dir is the client's working directory; a relative path in Args is
 	// read from it.
 	Dir string `json:"dir"`
 	// Env is the client's environment: a request is answered from memory
-	// only in the daemon's own environment (serveEnvironment).
+	// only in the daemon's own environment (devEnvironment).
 	Env []string `json:"env"`
 	// Args are the command's words: ["check", DIR, options...].
 	Args []string `json:"args"`
 }
 
-// serveAnswer answers a serveRequest. Served false is "not served": the
+// devAnswer answers a devRequest. Served false is "not served": the
 // client answers in process; Reason says why.
-type serveAnswer struct {
+type devAnswer struct {
 	Served bool   `json:"served"`
 	Stdout []byte `json:"stdout,omitempty"`
 	Reason string `json:"reason,omitempty"`
@@ -73,34 +73,34 @@ type serveAnswer struct {
 	Work map[string]int64 `json:"work,omitempty"`
 }
 
-// errServing is a second daemon's refusal: the lock is held.
-var errServing = errors.New("already serving")
+// errRunning is a second daemon's refusal: the lock is held.
+var errRunning = errors.New("already running")
 
-// serveRelease is the release a daemon serves and a client asks for;
+// devRelease is the release a daemon serves and a client asks for;
 // "" when this compiler has no shared identity (sketchfront.WarmKey), so
 // no warm answer, and no daemon, applies.
-func serveRelease() string {
-	if sketchfront.WarmKey("serve") == "" {
+func devRelease() string {
+	if sketchfront.WarmKey("dev") == "" {
 		return ""
 	}
 	return producer.Current().Qualifier
 }
 
-// servePaths are the socket and the lock file of a workspace and a
+// devPaths are the socket and the lock file of a workspace and a
 // release, under the cache root: two releases serve one workspace with
 // two daemons.
-func servePaths(root, release, workspace string) (socket, lock string) {
+func devPaths(root, release, workspace string) (socket, lock string) {
 	sum := sha256.Sum256([]byte(release + "\x00" + workspace))
-	base := filepath.Join(root, "serve", hex.EncodeToString(sum[:8]))
+	base := filepath.Join(root, "dev", hex.EncodeToString(sum[:8]))
 	return base + ".sock", base + ".lock"
 }
 
-// serveEnvironment is env without the variables a shell sets for itself
+// devEnvironment is env without the variables a shell sets for itself
 // and ERGO_STAGE_REPORT (it names where a process writes its own
 // counters), sorted: the environment a request's answer depends on. A
 // name given twice keeps its last value, as a process started with env
 // sees it (os/exec).
-func serveEnvironment(env []string) []string {
+func devEnvironment(env []string) []string {
 	last := map[string]string{}
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
@@ -118,8 +118,8 @@ func serveEnvironment(env []string) []string {
 	return out
 }
 
-func serveCommand(args []string) error {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+func devCommand(args []string) error {
+	flags := flag.NewFlagSet("dev", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	idle := flags.Duration("idle", 10*time.Minute, "")
 	var positional []string
@@ -134,7 +134,7 @@ func serveCommand(args []string) error {
 		}
 	}
 	if len(positional) > 1 || *idle <= 0 {
-		return usageError{message: "usage: ergo serve [DIR] [--idle DURATION]"}
+		return usageError{message: "usage: ergo dev [DIR] [--idle DURATION]"}
 	}
 	dir := "."
 	if len(positional) == 1 {
@@ -145,32 +145,32 @@ func serveCommand(args []string) error {
 		return err
 	}
 	if info, err := os.Stat(workspace); err != nil || !info.IsDir() {
-		return fmt.Errorf("ergo serve: %s is not a folder", dir)
+		return fmt.Errorf("ergo dev: %s is not a folder", dir)
 	}
-	release := serveRelease()
+	release := devRelease()
 	if release == "" {
-		return fmt.Errorf("ergo serve: this ergo has no shared identity, so nothing can be served")
+		return fmt.Errorf("ergo dev: this ergo has no shared identity, so nothing can be served")
 	}
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err
 	}
-	d := &daemon{release: release, env: serveEnvironment(os.Environ())}
-	d.socket, d.lock = servePaths(root, release, workspace)
+	d := &daemon{release: release, env: devEnvironment(os.Environ())}
+	d.socket, d.lock = devPaths(root, release, workspace)
 	// The ready line names the release a client's request carries.
-	ready := func() { fmt.Printf("ergo serve: serving %s at %s release %s\n", workspace, d.socket, release) }
+	ready := func() { fmt.Printf("ergo dev: serving %s at %s release %s\n", workspace, d.socket, release) }
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
 	err = d.serve(*idle, ready, stop)
-	if errors.Is(err, errServing) {
-		fmt.Printf("ergo serve: already serving %s at %s\n", workspace, d.socket)
+	if errors.Is(err, errRunning) {
+		fmt.Printf("ergo dev: already running %s at %s\n", workspace, d.socket)
 		return nil
 	}
 	return err
 }
 
-// daemon is one `ergo serve`.
+// daemon is one `ergo dev`.
 type daemon struct {
 	release      string
 	env          []string
@@ -183,7 +183,7 @@ type daemon struct {
 }
 
 // serve takes the lock, listens, and answers until idle passes with no
-// request or stop: the order of models/serve. The socket file is removed
+// request or stop: the order of models/dev. The socket file is removed
 // and the listener closed before the requests in flight are answered and
 // the lock is given back, so a client that connects late finds no
 // listener and answers in process.
@@ -191,7 +191,7 @@ func (d *daemon) serve(idle time.Duration, ready func(), stop <-chan os.Signal) 
 	if err := os.MkdirAll(filepath.Dir(d.socket), 0o755); err != nil {
 		return err
 	}
-	unlock, err := lockServe(d.lock)
+	unlock, err := lockDev(d.lock)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (d *daemon) serve(idle time.Duration, ready func(), stop <-chan os.Signal) 
 	}
 	listener, err := net.Listen("unix", d.socket)
 	if err != nil {
-		return fmt.Errorf("ergo serve: %w", err)
+		return fmt.Errorf("ergo dev: %w", err)
 	}
 	ready()
 	var flight sync.WaitGroup
@@ -251,7 +251,7 @@ loop:
 // handle answers one connection's request.
 func (d *daemon) handle(conn net.Conn) {
 	defer conn.Close()
-	var req serveRequest
+	var req devRequest
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&req); err != nil {
 		return
 	}
@@ -259,35 +259,35 @@ func (d *daemon) handle(conn net.Conn) {
 }
 
 // answer is the request's answer from memory, or "not served".
-func (d *daemon) answer(req serveRequest) serveAnswer {
+func (d *daemon) answer(req devRequest) devAnswer {
 	if req.Release != d.release {
-		return serveAnswer{Reason: "another release"}
+		return devAnswer{Reason: "another release"}
 	}
-	if !slices.Equal(serveEnvironment(req.Env), d.env) {
-		return serveAnswer{Reason: "another environment"}
+	if !slices.Equal(devEnvironment(req.Env), d.env) {
+		return devAnswer{Reason: "another environment"}
 	}
 	if len(req.Args) == 0 || req.Args[0] != "check" || !filepath.IsAbs(req.Dir) {
-		return serveAnswer{Reason: "not served"}
+		return devAnswer{Reason: "not served"}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	// The request is read from the client's working directory, as the
 	// command reads it; d.mu holds it for the request.
 	if err := os.Chdir(req.Dir); err != nil {
-		return serveAnswer{Reason: "no working directory"}
+		return devAnswer{Reason: "no working directory"}
 	}
 	before := stage.Snapshot()
 	opts, err := parseFileOptions("check", req.Args[1:])
 	if err != nil || recursivePattern(opts.file) {
-		return serveAnswer{Reason: "not served"}
+		return devAnswer{Reason: "not served"}
 	}
 	w, valid := prepareWarm(opts, nil)
 	if w == nil {
-		return serveAnswer{Reason: "no warm answer"}
+		return devAnswer{Reason: "no warm answer"}
 	}
 	answer, hit := sketchfront.WarmHit(w.cache, w.key, valid, &d.sums)
 	if !hit {
-		return serveAnswer{Reason: "no warm answer"}
+		return devAnswer{Reason: "no warm answer"}
 	}
 	work := map[string]int64{}
 	for name, n := range stage.Snapshot() {
@@ -295,19 +295,19 @@ func (d *daemon) answer(req serveRequest) serveAnswer {
 			work[name] = n - before[name]
 		}
 	}
-	return serveAnswer{Served: true, Stdout: answer.Stdout, Work: work}
+	return devAnswer{Served: true, Stdout: answer.Stdout, Work: work}
 }
 
-// askServe is the CLI's client: it sends args, read from the working
+// askDev is the CLI's client: it sends args, read from the working
 // directory dir, to the daemon of this release serving the package folder
 // pkg or its nearest ancestor that has one, and returns the answer's
 // stdout when the daemon served it. Otherwise the caller answers in
 // process.
-func askServe(dir, pkg string, args []string) ([]byte, bool) {
-	if os.Getenv(serveVariable) == "off" {
+func askDev(dir, pkg string, args []string) ([]byte, bool) {
+	if os.Getenv(devVariable) == "off" {
 		return nil, false
 	}
-	release := serveRelease()
+	release := devRelease()
 	root, err := build.DefaultRoot()
 	if release == "" || err != nil || !filepath.IsAbs(dir) {
 		return nil, false
@@ -316,9 +316,9 @@ func askServe(dir, pkg string, args []string) ([]byte, bool) {
 		pkg = filepath.Join(dir, pkg)
 	}
 	for at := filepath.Clean(pkg); ; {
-		socket, _ := servePaths(root, release, at)
+		socket, _ := devPaths(root, release, at)
 		if _, err := os.Stat(socket); err == nil {
-			answer, ok := ask(socket, serveRequest{Release: release, Dir: dir, Env: os.Environ(), Args: args})
+			answer, ok := ask(socket, devRequest{Release: release, Dir: dir, Env: os.Environ(), Args: args})
 			return answer.Stdout, ok && answer.Served
 		}
 		parent := filepath.Dir(at)
@@ -332,17 +332,17 @@ func askServe(dir, pkg string, args []string) ([]byte, bool) {
 // ask sends one request on socket. ok is false when the connection fails
 // or ends with no answer: the daemon exited or crashed, and the request,
 // a pure function of its inputs, is answered in process.
-func ask(socket string, req serveRequest) (answer serveAnswer, ok bool) {
+func ask(socket string, req devRequest) (answer devAnswer, ok bool) {
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
-		return serveAnswer{}, false
+		return devAnswer{}, false
 	}
 	defer conn.Close()
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return serveAnswer{}, false
+		return devAnswer{}, false
 	}
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&answer); err != nil {
-		return serveAnswer{}, false
+		return devAnswer{}, false
 	}
 	return answer, true
 }

@@ -1,4 +1,4 @@
-// The package serve is the design model of `ergo serve`'s lifecycle
+// The package dev is the design model of `ergo dev`'s lifecycle
 // (compile-speed plan §4.6, unit CS9, issue #203): one daemon per
 // workspace and Ergo release, the CLI and an editor its clients. Checked
 // by `ergo test <this folder>`: a breadth-first search of every state in
@@ -10,7 +10,7 @@
 // release A. Each step is one atomic act:
 //
 //	daemon Run:   start; then take the release's lock (flock, not
-//	              blocking): held, it exits ("already serving"); free, it
+//	              blocking): held, it exits ("already running"); free, it
 //	              removes a stale socket file and listens on the socket of
 //	              its workspace and release. Draining, Run exits.
 //	daemon Idle:  no request for the idle period: it removes its socket
