@@ -800,6 +800,13 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	if l.Domain == check.LoopRange || l.Domain == check.LoopSeq {
 		x = fc.spill(x)
 	}
+	if target := fc.reserveTarget(s, l.Domain); target != "" {
+		count := "len(" + x + ")"
+		if l.Domain == check.LoopRange {
+			count = fc.rangeCount(s.X, x)
+		}
+		fc.reserve(target, count) // reserve.go
+	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
