@@ -6,8 +6,9 @@
 //	go run ./scripts/examples [flags] [PROGRAM...]
 //
 // It imports the standard library, internal/proclimit for the memory limit
-// of the programs it runs, and, for the law check (laws.go), the checker's
-// front end: the gate needs only Go and Git.
+// of the programs it runs, internal/opcount to read a program's workload
+// file, and, for the law check (laws.go), the checker's front end: the gate
+// needs only Go and Git.
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -402,6 +404,17 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if strings.HasSuffix(file, ".ergo") {
 				p.sources = append(p.sources, filepath.Join(p.dir, file))
 			}
+		case file == opcount.WorkloadFile:
+			// scripts/opcount's sizes and arguments (examples/README.md,
+			// "Workload"); the runner checks it and does not run it.
+			if !entry.Type().IsRegular() {
+				problem("%s is not a regular file", file)
+				continue
+			}
+			_, found, _ := opcount.Check(filepath.Dir(filepath.Dir(p.dir)), p.dir)
+			for _, w := range found {
+				problem("%s: %s", file, w)
+			}
 		case file == "ts" && entry.IsDir():
 			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():
@@ -410,7 +423,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, workload, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
 		}
 	}
 	if !present["cmd"] {

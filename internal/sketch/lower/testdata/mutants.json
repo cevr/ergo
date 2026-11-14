@@ -1779,8 +1779,8 @@
       "name": "t5-24-false-true-values.go:1105",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
-      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "from": "\tif use == nil || use.frame != frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != frame {\n\t\treturn true\n\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -1790,11 +1790,12 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestValueRuleProbes"
+      ]
     },
     {
       "name": "t5-26-negate-if-naming.go:109",
@@ -3493,6 +3494,50 @@
       "rule": "runtime.md Payload size: a union over 32 bytes keeps its interface.",
       "killers": [
         "lower:TestMachineFlatRunAgrees"
+      ]
+    },
+    {
+      "name": "share-as-wrong-slot",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+s)",
+      "to": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+sharedName(fu.fieldSlot[k][0]))",
+      "rule": "runtime.md Flat unions: narrowing a shared-slot union rebuilds each field of the variant from the slot its constructor wrote.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-of-field-order",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[f.Name])",
+      "to": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[fields[len(fields)-1-i].Name])",
+      "rule": "runtime.md Flat unions: a shared-slot constructor writes each field into its own slot, in the field-to-slot map's order.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-slot-reused-in-variant",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\t\t\tif kj == key && !used[j] {",
+      "to": "\t\t\t\t\tif kj == key {",
+      "rule": "runtime.md Flat unions: two fields of one variant never share a slot; only fields of different variants do.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-past-register-limits",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif cycle == nil && known && !lay.ssa && fu.shared {",
+      "to": "\t\t\tif false && cycle == nil && known && !lay.ssa && fu.shared {",
+      "rule": "runtime.md Flat unions: where the shared slots miss Go's register limits and a slot per variant fits, the union keeps a slot per variant, not a box.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
