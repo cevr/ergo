@@ -75,6 +75,60 @@
     },
     {"name":"ert-explore-leg-case-timeout","origin":"wf10 EXPLORE-rt","file":"scripts/examples/explored.go","from":"\t\to, err := r.tool(r.cfg.testTimeout, append(","to":"\t\to, err := r.tool(r.cfg.timeout, append(","rule":"An explore search ends by itself; only -test-timeout, the safety net for a hung one, stops it, never a case's -timeout (batch 18: a healthy search failed 30 s at load 50).","killers":["scripts/examples:TestExploreLegOutlastsTheCaseTimeout"]},
     {"name":"ert-case-timeout-fixed","origin":"wf10 EXPLORE-rt r2","file":"scripts/examples/main.go","from":"flags.DurationVar(&cfg.timeout, \"timeout\", hangNet,","to":"flags.DurationVar(&cfg.timeout, \"timeout\", 30*time.Second,","rule":"A case is stopped only when it hangs: -timeout's default is the test legs' safety net, never a time limit that fails a slow case under load (AGENTS.md, Tests).","killers":["scripts/examples:TestCaseStopsOnlyAHang"]},
-    {"name":"ert-budget-wall-time","origin":"wf10 EXPLORE-rt r3 (owner q1)","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.cpu > r.cfg.budget","to":"r.cfg.budget > 0 && o.elapsed > r.cfg.budget","rule":"The default budget charges a case's CPU time, never its wall time: the host's load does not fail a healthy case (owner, 2026-11-12).","killers":["scripts/examples:TestBudgetAndSelection"]}
+    {"name":"ert-budget-wall-time","origin":"wf10 EXPLORE-rt r3 (owner q1)","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.cpu > r.cfg.budget","to":"r.cfg.budget > 0 && o.elapsed > r.cfg.budget","rule":"The default budget charges a case's CPU time, never its wall time: the host's load does not fail a healthy case (owner, 2026-11-12).","killers":["scripts/examples:TestBudgetAndSelection"]},
+    {
+      "name": "one-module-per-package",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if !(p.module && len(p.tests) > 1 && r.testModule(p)) {",
+      "to": "if !(false && p.module && len(p.tests) > 1 && r.testModule(p)) {",
+      "rule": "The test leg of a program of packages is one ergo test DIR/..., one check of the module and one test binary, not one per package.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-ignores-evaluation",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "r.compareEvaluation(p, strings.Replace(leg, \"test\", \"check\", 1), evaluation, section)",
+      "to": "_ = section",
+      "rule": "One ergo test of a program of packages still compares each package's check-time verdicts with its part of the native report.",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-ignores-skips",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
+      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
+      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-any-packages",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
+      "to": "if got := slices.Sorted(slices.Values(order)); false {",
+      "rule": "A run that tested other packages than the program's fails the program.",
+      "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
+    },
+    {
+      "name": "one-module-check-per-package",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/main.go",
+      "from": "evaluations := r.checkModule(p, order)",
+      "to": "evaluations := r.checkModule(p, nil)",
+      "rule": "The check legs of a program of packages are one ergo check DIR/..., one load of the module, not one per package.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-check-misfiled",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/evaluation.go",
+      "from": "out[pkg] = e",
+      "to": "out[order[0]], _ = e, pkg",
+      "rule": "Each envelope of one ergo check DIR/... is judged against its own package's part of the native report, in the order the packages ran.",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    }
   ]
 }

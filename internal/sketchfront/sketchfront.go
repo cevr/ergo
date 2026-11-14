@@ -343,21 +343,28 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	return module, link(module, req)
+}
+
+// link links the published module to the request's output with the go
+// command; work counts each link (TEST-one's guard).
+func link(module build.Module, req BuildRequest) error {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
-		return module, err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
-		return module, err
+		return err
 	}
+	work.links.Add(1)
 	report, err := req.Toolchain.Build(req.Cache, module, absolute, req.Stderr)
 	if req.Report != nil {
 		*req.Report = report
 	}
-	return module, err
+	return err
 }
 
 // buildInput is the unit of a checked analysis and its emission key's

@@ -95,10 +95,17 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
+	return runTestBinary(opts, l, binary, nil)
+}
+
+// runTestBinary runs the tests of the package l in the test binary, its
+// arguments after prefix: none for a package's own binary, the package's
+// index for a module's one binary (sharedTestCommand).
+func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) error {
 	// The binary names the source, as it was given here (a file or a
 	// package's folder), in a refuted case's or law's replay line (X1b),
 	// and a receipt names the source and its revision (L10).
-	childArgs := []string{"--source", opts.file, "--revision", l.result.Revision}
+	childArgs := append(prefix[:len(prefix):len(prefix)], "--source", opts.file, "--revision", l.result.Revision)
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
@@ -149,7 +156,17 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		return nil
 	}
 	// The passing run writes the law ledger (runtime.md, Tests 10): the
-	// laws and site instances the run build uses, checked alone.
+	// laws and site instances the run build uses, checked alone. In a
+	// module's one test binary (sharedTestCommand) this runs once per
+	// package, as each package's own `ergo test` does.
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return err
+	}
+	tc, err := buildAction(opts)
+	if err != nil {
+		return err
+	}
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),

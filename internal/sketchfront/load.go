@@ -145,6 +145,9 @@ type loader struct {
 	stale    map[string]string
 	// opts are the checker modes of every local package (clauses.go).
 	opts check.Options
+	// roots are the test roots of a shared load (CheckPackages): each a
+	// package of order read again and checked as its own program's main.
+	roots []*loadedPackage
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -226,6 +229,7 @@ func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Opti
 	}
 	dir = filepath.Clean(dir)
 	l := &loader{fsys: fsys, platform: platform, opts: opts, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	work.loads.Add(1)
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -583,6 +587,7 @@ func (l *loader) checkAll() {
 			path = "main" // the root package is the program's main package
 		}
 		pkg, ds := check.CheckOptions(path, files, l, l.opts)
+		work.checks.Add(1)
 		p.pkg = pkg
 		for _, d := range ds {
 			l.diags = append(l.diags, report.Diagnostic{

@@ -34,7 +34,7 @@ func (a Analysis) EmbeddedPaths() []string {
 // service. Links are refused, never followed out of the package or module.
 func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]check.EmbedFile, error) {
 	var pkg *loadedPackage
-	for _, p := range l.order {
+	for _, p := range append(l.order[:len(l.order):len(l.order)], l.roots...) {
 		for _, f := range p.files {
 			if f.syntax == file {
 				pkg = p

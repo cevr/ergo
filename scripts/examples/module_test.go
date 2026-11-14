@@ -9,7 +9,8 @@ import (
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
 // formats every .ergo file of its packages, builds cmd/NAME (a folder), runs
-// ergo test on each package folder that declares a test, and runs its cases.
+// one ergo test and one ergo check over every package folder (TEST-one),
+// reports each package's leg, and runs its cases.
 func TestModuleProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -38,17 +39,65 @@ func TestModuleProgram(t *testing.T) {
 		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
-	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "walk"), "test " + filepath.Join(root, "walk/deep")} {
+	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "..."), "check " + filepath.Join(root, "...")} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 	}
 	build := false
 	for _, call := range calls {
+		if strings.HasPrefix(call, "check ") && call != "check "+filepath.Join(root, "...") {
+			t.Errorf("a package checked alone after one check of the module: %q", call)
+		}
 		build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", "walker")+" -o ")
 	}
 	if !build {
 		t.Errorf("no build of cmd/walker in\n%q", calls)
+	}
+}
+
+// One ergo test of a program of packages still judges each package's part
+// of the report: its check-time verdicts against its native ones, and its
+// skip lines against expected-skips (TEST-one). It kills one-module-
+// ignores-evaluation and one-module-ignores-skips.
+func TestModuleProgramJudgesEachPackage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/walk/walk.ergo", "// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n// NATIVE ok Different\nfunc w() {}\n")
+	f.write(dir+"/keep/keep.ergo", "// TESTSKIP\nfunc k() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	code, out := f.run()
+	for _, want := range []string{"FAIL walker: check walk: Fixture: ", "FAIL walker: test keep: 1 unexpected skips"} {
+		if code == 0 || !strings.Contains(out, want) {
+			t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
+		}
+	}
+}
+
+// One ergo test of a program of packages that did not test every package
+// of the program fails it: a package with no evaluated obligation has an
+// empty part of the report either way, so only the package list shows
+// that it never ran. It kills one-module-any-packages.
+func TestModuleProgramRunsEveryPackage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/walk/walk.ergo", "func w() {}\n")
+	f.write(dir+"/hidden/hidden.ergo", "// MODULEHIDDEN\n// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"none\",\"obligations\":[]}}\nfunc h() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	code, out := f.run()
+	want := "FAIL walker: test: ergo test ran the packages walker/cmd/walker walker/walk; the program's packages are walker/cmd/walker walker/hidden walker/walk"
+	if code == 0 || !strings.Contains(out, want) {
+		t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
 	}
 }
 
