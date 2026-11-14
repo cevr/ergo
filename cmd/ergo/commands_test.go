@@ -34,7 +34,7 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 			if c.run != nil || c.help != "" || c.usage != "" || !ticket.MatchString(c.ticket) || (c.fate == dark) != (c.reason == "") {
 				t.Fatalf("stub %q: %+v", c.name, c)
 			}
-			if regexp.MustCompile(`\b` + regexp.QuoteMeta(strings.Fields(c.name)[0]) + `\b`).MatchString(help) {
+			if regexp.MustCompile(`\b` + regexp.QuoteMeta(c.name) + `\b`).MatchString(help) {
 				t.Fatalf("help names the %s command %q", map[fate]string{removed: "removed", dark: "dark"}[c.fate], c.name)
 			}
 		default:
@@ -79,7 +79,7 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	// Each stub is "ergo NAME: " and the text the spec gives the command.
 	want := map[string]string{
 		"edition":      "removed in v1; there is one language and no editions (#205)",
-		"lint receipt": "removed in v1; linting returns on the new checker (#203)",
+		"lint receipt": "removed in v1; cost receipts return with rule packs (#203)",
 		"graph":        "removed in v1; semantic tooling returns on the new front end (#203)",
 		"lsp":          "unavailable until ported to the new front end (#203)",
 		"mcp":          "unavailable until ported to the new front end (#203)",
@@ -101,7 +101,7 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
-	for _, word := range []string{"edition", "lint", "query", "graph", "explain", "lsp", "mcp", "ergo type"} {
+	for _, word := range []string{"edition", "query", "graph", "explain", "lsp", "mcp", "ergo type"} {
 		if regexp.MustCompile(`\b` + word + `\b`).MatchString(generalHelp()) {
 			t.Fatalf("help names %q", word)
 		}
