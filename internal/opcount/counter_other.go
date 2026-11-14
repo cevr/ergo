@@ -10,6 +10,12 @@ import (
 	"ergo.local/prototype/internal/proclimit"
 )
 
+// CountSelf runs f; off Linux it counts nothing (-1).
+func CountSelf(f func()) int64 {
+	f()
+	return -1
+}
+
 // Available reports that only Linux counts instructions here.
 func Available() error {
 	return errors.New("user-space instruction counts need Linux's perf_event_open")

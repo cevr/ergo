@@ -48,11 +48,17 @@ const (
 // processes the thread starts, and enabled in each at its exec (as `perf
 // stat` counts a command), so the caller's own threads are never counted.
 func openCounter() (int, error) {
+	return openThreadCounter(perfFormatEnabled|perfFormatRunning, perfFlagDisabled|perfFlagInherit|perfFlagExclKernel|perfFlagExclHV|perfFlagEnableExec)
+}
+
+// openThreadCounter opens a disabled counter of user-space instructions on
+// the calling thread with the read format and flags given.
+func openThreadCounter(format, flags uint64) (int, error) {
 	attr := perfEventAttr{
 		Type:       perfTypeHardware,
 		Config:     perfCountHWInstr,
-		ReadFormat: perfFormatEnabled | perfFormatRunning,
-		Flags:      perfFlagDisabled | perfFlagInherit | perfFlagExclKernel | perfFlagExclHV | perfFlagEnableExec,
+		ReadFormat: format,
+		Flags:      flags,
 	}
 	attr.Size = uint32(unsafe.Sizeof(attr))
 	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), perfFlagFDCloexec, 0)
@@ -61,6 +67,35 @@ func openCounter() (int, error) {
 	}
 	return int(fd), nil
 }
+
+// CountSelf counts the user instructions f retires on the calling thread
+// (-1 when the host exposes no counter). f must not start goroutines that
+// do the work: only the calling thread is counted.
+func CountSelf(f func()) int64 {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	fd, err := openThreadCounter(0, perfFlagDisabled|perfFlagExclKernel|perfFlagExclHV)
+	if err != nil {
+		f()
+		return -1
+	}
+	defer syscall.Close(fd)
+	syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), perfIOCEnable, 0)
+	f()
+	syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), perfIOCDisable, 0)
+	var buf [8]byte
+	if n, _ := syscall.Read(fd, buf[:]); n != 8 {
+		return -1
+	}
+	return int64(binary.LittleEndian.Uint64(buf[:]))
+}
+
+// The ioctls that start and stop a counter (PERF_EVENT_IOC_ENABLE and
+// PERF_EVENT_IOC_DISABLE).
+const (
+	perfIOCEnable  = 0x2400
+	perfIOCDisable = 0x2401
+)
 
 // Available reports whether this host counts user-space instructions, and
 // why not.
