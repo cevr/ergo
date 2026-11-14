@@ -194,9 +194,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call of a value of a named function type", "G6"},
 	{"call of a known callback", "G4"},          // known.go's plain variant
 	{"string constant that is not UTF-8", "G6"}, // the IR file is JSON (IRG6 r3)
-	{"call kind 10", "G6"},                      // CallEncode
-	{"call kind 11", "G6"},                      // CallDecode
-	{"call kind 12", "G6"},                      // CallEmbed
-	{"call kind 8", "G6"},                       // CallLawOp
-	{"call kind 9", "G6"},                       // CallGoError
+	// IRG6 r4 lowers law bodies; these stay the emitter's.
+	{"law of a generic operation type", "G6"},
+	{"law result of an untried fallible call", "G6"},
+	{"call kind 10", "G6"}, // CallEncode
+	{"call kind 11", "G6"}, // CallDecode
+	{"call kind 12", "G6"}, // CallEmbed
+	{"call kind 8", "G6"},  // CallLawOp
+	{"call kind 9", "G6"},  // CallGoError
 }
