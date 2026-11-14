@@ -29,6 +29,9 @@ type Diagnostic struct {
 	Length  int
 	Line    int
 	Column  int
+	// Fix is the clause edit of an S101 or S102 under Options.Explicit
+	// (clausefix.go), or nil.
+	Fix *ClauseFix
 }
 
 func (d Diagnostic) String() string {
@@ -45,6 +48,10 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return check(path, files, imp, Options{})
+}
+
+func check(path string, files []*syntax.File, imp Importer, opts Options) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -58,6 +65,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
+	c.opts = opts
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -66,6 +74,12 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	if pkg != nil {
 		pkg.Derive = derived
 	}
+	if opts.Clauses {
+		pkg.Clauses = c.inferredClauses()
+		for i := range pkg.Clauses {
+			pkg.Clauses[i].File = order[pkg.Clauses[i].File]
+		}
+	}
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
 	// order of the list is a function of the sources (canon.go), and only
@@ -73,6 +87,9 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	ds := c.sorted()
 	for i := range ds {
 		ds[i].File = order[ds[i].File]
+		if ds[i].Fix != nil {
+			ds[i].Fix.File = ds[i].File
+		}
 	}
 	return pkg, ds
 }
@@ -93,6 +110,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 
 type checker struct {
 	derive *derive.Package // the package's derive record (derive.go)
+	opts Options
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)

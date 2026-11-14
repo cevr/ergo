@@ -41,6 +41,12 @@ type target struct {
 	// the whole expression to its right); tried records that one did.
 	tries int
 	tried bool
+	// decl is the function declaration whose body this is, under
+	// Options.Explicit; pending, missErrors and missUses collect the sites
+	// that exceed its clauses (clausefix.go).
+	decl                 *Func
+	pending              []pendingClause
+	missErrors, missUses *Row
 }
 
 func (t *target) row(declared, inferred *Row) *Row {
@@ -98,6 +104,9 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 		// An unknown written row (a refused entry, rowExpr) may hold cap.
 		return
 	}
+	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap)) {
+		return
+	}
 	switch {
 	case t.context:
 		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
@@ -141,6 +150,9 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	}
 	extra := row.minus(c.types, t.declErrors).known(c.types)
 	if extra.Empty() {
+		return
+	}
+	if !t.context && c.pend(t, n, KindErrors, extra) {
 		return
 	}
 	switch {
@@ -1021,6 +1033,9 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	c.closeParts(f)
 	name := "function " + f.Name
 	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main"}
+	if c.opts.Explicit {
+		t.decl = f
+	}
 	if f.inferErrors {
 		t.errors = newRow()
 	} else {
@@ -1049,6 +1064,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	}
 	c.bindRequirements(frame, d.Type)
 	c.functionBody(d.Body, name)
+	c.clauseReport(t)
 	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)

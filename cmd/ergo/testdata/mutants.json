@@ -251,6 +251,7 @@
       "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
-    }
+    },
+    {"name":"ex1-check-writes","origin":"wf10 EX1 r1","file":"cmd/ergo/fix.go","from":"\tif !check {\n\t\tif err := writeFixed(texts, res.Texts); err != nil {","to":"\tif true {\n\t\tif err := writeFixed(texts, res.Texts); err != nil {","rule":"ergo fix --check writes nothing (EXPLICIT §4).","killers":["cmd/ergo:TestFixCheckWritesNothing"]}
   ]
 }
