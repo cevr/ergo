@@ -61,9 +61,9 @@ type facts struct {
 	// fast and sfast are the node's compiled forms as an expression and
 	// as a statement of a list, and form and sform their states
 	// (compile.go).
-	fast         fastExpr
-	sfast        fastStmt
-	form, sform  uint8
+	fast        fastExpr
+	sfast       fastStmt
+	form, sform uint8
 }
 
 // fieldOf is the index of the field name in t, a record type, cached for

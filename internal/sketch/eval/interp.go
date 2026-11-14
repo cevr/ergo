@@ -32,8 +32,8 @@ type interp struct {
 	owners map[unsafe.Pointer]check.FactOwner
 	plans  map[*check.Func]*funcPlan // plan.go
 	// walk turns compiled forms off for this request (compile.go).
-	walk bool
-	files  map[syntax.Decl]*syntax.File
+	walk  bool
+	files map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
 	// it when another task runs.
