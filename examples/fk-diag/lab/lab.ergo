@@ -5,6 +5,7 @@
 // times the phase; here every phase's work is counted (ui.Stats), so a
 // warning is the same on every run and every host.
 
+import slices
 import ui
 
 // Phase is the part of a pass a workload loads: the step (the signals of
@@ -71,12 +72,9 @@ func Step(s Lab, e Signal) Decision[Lab, Never] {
 
 // Newest is the log with w first, cut to MaxWarnings.
 func Newest(w Warning, log []Warning) []Warning {
-	let mut out = []Warning{w}
-	for x in log {
-		if len(out) == MaxWarnings {
-			break
-		}
-		out = out.Append(x)
+	let out = slices.Concat([]Warning{w}, log)
+	if len(out) > MaxWarnings {
+		return out[0:MaxWarnings]
 	}
 	out
 }

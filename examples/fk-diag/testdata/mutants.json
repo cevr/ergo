@@ -44,8 +44,8 @@
     {
       "name": "fk13-log-uncut", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/lab.ergo",
-      "from": "if len(out) == MaxWarnings {",
-      "to": "if len(out) == MaxWarnings+1 {",
+      "from": "if len(out) > MaxWarnings {",
+      "to": "if len(out) > MaxWarnings+1 {",
       "rule": "The log keeps the newest MaxWarnings (law StepFollowsTheModel; the host law's runs are too few to fill it).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
