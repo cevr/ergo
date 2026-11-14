@@ -1,6 +1,7 @@
 package residue_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -11,8 +12,32 @@ import (
 	"testing"
 )
 
+// ledgerFile is the schema of a package's testdata/mutants.json, as
+// scripts/mutants (ledger.go, Ledger and Mutant) reads it. A field the
+// runner does not know is an error there, so it is one here.
+type ledgerFile struct {
+	About   string `json:"about"`
+	Mutants []struct {
+		Name    string   `json:"name"`
+		Origin  string   `json:"origin"`
+		File    string   `json:"file"`
+		From    string   `json:"from"`
+		To      string   `json:"to"`
+		Rule    string   `json:"rule"`
+		Killers []string `json:"killers"`
+		Gap     string   `json:"gap"`
+		Anchor  *struct {
+			File  string   `json:"file"`
+			Text  string   `json:"text"`
+			Tests []string `json:"tests"`
+		} `json:"anchor"`
+	} `json:"mutants"`
+}
+
 // TestLedgerEditsApplyOnce checks the public ledger contract against the
-// checkout: each edit of every package ledger applies once, so the mutant
+// checkout: every package ledger has the runner's schema (readLedger: no
+// unknown field, a unique name, a file and a from, a to that differs from
+// the from, each test SUITE:NAME), each edit applies once, so the mutant
 // runner can judge it, and each killer and anchor test names a test the
 // runner can run (killerMissing). It catches embed-duplicate-ledger-anchor
 // and ledger-killer-alias; the
@@ -48,30 +73,40 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		var ledger struct {
-			Mutants []struct {
-				Name    string   `json:"name"`
-				File    string   `json:"file"`
-				From    string   `json:"from"`
-				Killers []string `json:"killers"`
-				Anchor  *struct {
-					Tests []string `json:"tests"`
-				} `json:"anchor"`
-			} `json:"mutants"`
-		}
-		if err := json.Unmarshal(data, &ledger); err != nil {
+		var ledger ledgerFile
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&ledger); err != nil {
 			t.Errorf("%s: %v", path, err)
 			return nil
 		}
-		for _, m := range ledger.Mutants {
-			ids := m.Killers
+		seen := map[string]bool{}
+		for i, m := range ledger.Mutants {
+			var tests []string
+			tests = append(tests, m.Killers...)
 			if m.Anchor != nil {
-				ids = append(slices.Clone(ids), m.Anchor.Tests...)
+				tests = append(tests, m.Anchor.Tests...)
 			}
-			for _, id := range ids {
-				if why := killerMissing(root, id, testFiles); why != "" {
-					t.Errorf("%s: %s: killer %q: %s", path, m.Name, id, why)
+			switch {
+			case m.Name == "":
+				t.Errorf("%s: mutant %d has no name", path, i)
+			case seen[m.Name]:
+				t.Errorf("%s: two mutants are named %q", path, m.Name)
+			case m.File == "" || m.From == "":
+				t.Errorf("%s: mutant %q needs a file and a from", path, m.Name)
+			case m.From == m.To:
+				t.Errorf("%s: mutant %q changes nothing", path, m.Name)
+			}
+			for _, k := range tests {
+				if !strings.Contains(k, ":") {
+					t.Errorf("%s: mutant %q: test %q is not SUITE:NAME", path, m.Name, k)
+				} else if why := killerMissing(root, k, testFiles); why != "" {
+					t.Errorf("%s: %s: killer %q: %s", path, m.Name, k, why)
 				}
+			}
+			seen[m.Name] = true
+			if m.File == "" || m.From == "" {
+				continue
 			}
 			src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(m.File)))
 			if err != nil {
