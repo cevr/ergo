@@ -21,10 +21,10 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
+		if !fn.Pkg.Host() && nativeOf(fn) != nil {
+			return ""
+		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
-	}
-	if fn.Ptr {
-		return "a call that borrows its receiver"
 	}
 	return p.body(p.in.newFrame(fn.Pkg, fn.Decl), fn.Decl, fn.Decl.Body, nil, nil)
 }
@@ -34,12 +34,11 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		return ""
 	}
 	p.seen[key] = true
-	fp, ok := fr.info.Footprints[key]
-	if !ok {
+	// A capability runs through the provider a with binds (effects.go);
+	// a capability no with of the run binds is skipped at its call. A
+	// task runs on the case's scheduler (sched.go).
+	if _, ok := fr.info.Footprints[key]; !ok {
 		ice("no footprint for the frame at %d", key.Pos())
-	}
-	if len(fp.Caps) > 0 || fp.Tasks {
-		return p.in.impure(fr.pkg, key)
 	}
 	why := ""
 	syntax.Inspect(body, func(n syntax.Node) bool {
@@ -47,18 +46,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			return false
 		}
 		mustCharge(p.in, fr, 1)
-		if x, ok := n.(syntax.Expr); ok {
-			if c := fr.info.Implicit[x]; c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
-				why = "an unsupported implicit operation or machine conversion"
-				return false
-			}
-			for _, c := range fr.info.ImplicitElems[x] {
-				if c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
-					why = "an unsupported tuple-element conversion"
-					return false
-				}
-			}
-		}
+		// A machine's conversion, alone or a tuple's element, is a value
+		// the run makes (machinevalue.go).
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false // only a known immediately-called literal is reached
@@ -81,8 +70,18 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					why = "a generic call with unresolved operation witnesses"
 					break
 				}
-				if c.Site != nil || x.Trailing != nil {
+				if c.Site != nil {
 					why = "a call with a CallSite or trailing block"
+					break
+				}
+				if x.Trailing != nil {
+					// The block of a native the evaluator runs (task.Go,
+					// scope.OnExit, tasks.Go) is a function of its own.
+					if c.Func.Pkg.Host() || nativeOf(c.Func) == nil {
+						why = "a call with a CallSite or trailing block"
+						break
+					}
+					why = p.body(fr, x.Trailing, x.Trailing, own, ops)
 					break
 				}
 				if !preludeCollection(c.Func) {
@@ -91,9 +90,9 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			case check.CallFuncValue:
 				if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 					why = p.body(fr, lit, lit.Body, own, ops)
-				} else {
-					why = "an unresolved function value"
 				}
+				// Any other callee is a value, known only when the run
+				// reaches the call (effects.go, callValue).
 			case check.CallOp, check.CallLawOp:
 				conv := own
 				if c.Kind == check.CallOp {
@@ -107,7 +106,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					}
 				}
 				if conv == nil {
-					why = "an unresolved operation"
+					// An operation value's provider is known only when
+					// the run reaches the call (effects.go dispatch).
 					break
 				}
 				fn := conv.Table[c.Op.Name]
@@ -115,6 +115,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					ice("no checked method for operation %s", c.Op.Name)
 				}
 				why = p.function(fr, fn)
+			case check.CallProviderOp, check.CallWith:
+				// The provider is the nearest with's, known at the run.
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}

@@ -10,6 +10,9 @@ func (in *interp) stmts(fr *frame, list []syntax.Stmt) *abrupt {
 		if ab := in.stmt(fr, s); ab != nil {
 			return ab
 		}
+		if ab := in.releaseAt(fr, s); ab != nil { // the statement's temporaries (R43)
+			return ab
+		}
 	}
 	return nil
 }
@@ -47,6 +50,10 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 		}
 		return fr.abrupt(ctlReturn, s, v, "")
 	case *syntax.BranchStmt:
+		// What the iterations' scopes still own ends here (R6).
+		if ab := in.releaseAt(fr, s); ab != nil {
+			return ab
+		}
 		if s.Tok == syntax.CONTINUE {
 			return fr.abrupt(ctlContinue, s, nil, "")
 		}
@@ -79,6 +86,9 @@ func (in *interp) forStmt(fr *frame, s *syntax.ForStmt) *abrupt {
 		}
 		if s.Cond != nil {
 			c, ab := in.expr(fr, s.Cond)
+			if ab == nil {
+				ab = in.releaseAt(fr, s.Cond)
+			}
 			if ab != nil {
 				return ab
 			}
@@ -86,10 +96,23 @@ func (in *interp) forStmt(fr *frame, s *syntax.ForStmt) *abrupt {
 				return nil
 			}
 		}
-		if done, ab := loopBody(in.stmts(fr, s.Body.List)); done {
+		if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+			return ab
+		}
+		if ab := in.backEdge(fr, s); ab != nil {
 			return ab
 		}
 	}
+}
+
+// iteration runs one iteration of a loop's body, a scope of its own: what
+// it owns at its normal end is released then (R6).
+func (in *interp) iteration(fr *frame, body *syntax.BlockStmt) *abrupt {
+	ab := in.stmts(fr, body.List)
+	if ab == nil {
+		ab = in.releaseAt(fr, body)
+	}
+	return ab
 }
 
 // loopBody reads one iteration's completion: done when the loop ends
@@ -121,27 +144,51 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	if l.Domain == check.LoopMap {
 		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
 	}
-	if l.Domain == check.LoopSeq {
-		return fr.unsupported(s, "a for over a Seq, which calls a function value")
-	}
 	var root *slot
+	var path []step
 	var dom Value
 	var ab *abrupt
 	if l.Domain == check.LoopSlice {
-		dom, root, ab = in.peek(fr, s.X)
+		dom, root, ab = in.peekPath(fr, s.X, &path)
 		if root != nil {
 			root.lend()
 		}
 	} else {
 		dom, ab = in.expr(fr, s.X)
 	}
+	if ab == nil {
+		ab = in.releaseAt(fr, s.X) // the header's temporaries
+	}
 	if ab != nil {
 		return ab
 	}
-	if l.Domain == check.LoopSlice && root != nil {
-		if xs, ok := dom.(sliceV); ok && !xs.array {
-			if _, direct := unparen(s.X).(*syntax.Ident); !direct {
-				return fr.unsupported(s, "a slice range rooted through a field or subscript yet")
+	if l.Domain == check.LoopSeq {
+		// A Seq a native made: a queue's Values, each step a Pop, ending
+		// when the queue is closed and empty (runtime.md, Queues 6); the
+		// lines of a process's standard input (process.go).
+		q, ok := dom.(seqSource)
+		if !ok {
+			return in.seqLoop(fr, s, dom) // seq.go
+		}
+		for {
+			v, more, ab := q.next(in, fr, s)
+			if ab != nil {
+				return ab
+			}
+			if !more {
+				return nil
+			}
+			if ab := in.charge(fr, s, 1); ab != nil {
+				return ab
+			}
+			if ab := in.loopBind(fr, s.Value, v); ab != nil {
+				return ab
+			}
+			if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+				return ab
+			}
+			if ab := in.backEdge(fr, s); ab != nil {
+				return ab
 			}
 		}
 	}
@@ -158,15 +205,19 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		if ab := in.loopBind(fr, s.Value, elem); ab != nil {
 			return true, ab
 		}
-		return loopBody(in.stmts(fr, s.Body.List))
+		if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+			return true, ab
+		}
+		ab := in.backEdge(fr, s)
+		return ab != nil, ab
 	}
 	switch l.Domain {
 	case check.LoopSlice:
 		xs := dom.(sliceV)
 		if !xs.array {
 			// A loop is not a value binding (Bindings 3). Follow writes
-			// through the ranged root even when COW relocates its store.
-			in.ranges = append(in.ranges, &sliceRange{root: root, view: &xs})
+			// through the ranged place even when COW relocates its store.
+			in.ranges = append(in.ranges, &sliceRange{root: root, path: path, view: &xs})
 			defer func() { in.ranges = in.ranges[:len(in.ranges)-1] }()
 		}
 		for i := 0; i < xs.n; i++ {
@@ -216,6 +267,7 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 		}
 		if w, ok := fr.info.Defs[id].(*check.Var); ok {
 			fr.bind(w, v)
+			in.ownVar(fr, w, p)
 			return nil
 		}
 	}
@@ -230,6 +282,7 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 	if !ok {
 		return fr.defect(p, "the for pattern does not match")
 	}
+	in.ownPattern(fr, pat, p)
 	return nil
 }
 
@@ -243,7 +296,17 @@ func (in *interp) let(fr *frame, d *syntax.VarDecl) *abrupt {
 	return nil
 }
 
+// letSpec binds one spec of a let, registers each owned name in the step
+// that receives it (R8), and releases the spec's temporaries (R43).
 func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
+	ab := in.letBind(fr, spec)
+	if ab == nil {
+		ab = in.releaseAt(fr, spec)
+	}
+	return ab
+}
+
+func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 	switch {
 	case spec.Pattern != nil:
 		if len(spec.Values) != 1 {
@@ -264,6 +327,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		if !ok {
 			return fr.defect(spec.Pattern, "the let pattern does not match")
 		}
+		in.ownPattern(fr, p, spec)
 		return nil
 	case len(spec.Names) > 1 && len(spec.Values) == 1:
 		v, ab := in.expr(fr, spec.Values[0])
@@ -277,6 +341,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
 				fr.bind(w, tup.elems[i])
+				in.ownVar(fr, w, id)
 			}
 		}
 		return nil
@@ -295,6 +360,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
 				fr.bind(w, vals[i])
+				in.ownVar(fr, w, id)
 			}
 		}
 		return nil
@@ -307,7 +373,9 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return ab
 	}
 	if c, ok := fr.info.Defs[id].(*check.Context); ok && c.Local {
-		return fr.unsupported(spec, "a local context, which binds capabilities")
+		// A local context is a recipe with no value: each with that names
+		// it builds its providers in place (rows.md, Context 9; effects.go).
+		return nil
 	}
 	if id.Name == "_" {
 		if len(spec.Values) == 1 {
@@ -326,6 +394,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 			return ab
 		}
 		fr.bind(v, z)
+		in.ownVar(fr, v, id)
 		return nil
 	}
 	val, ab := in.expr(fr, spec.Values[0])
@@ -333,6 +402,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return ab
 	}
 	fr.bind(v, val)
+	in.ownVar(fr, v, id)
 	return nil
 }
 
@@ -372,8 +442,10 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		return fr.unsupported(lhs, "an assignment to %s yet", why)
 	}
 	for _, r := range in.ranges {
-		if r.root == root && len(steps) == 0 {
-			return fr.unsupported(lhs, "replacement of an active slice range's root yet")
+		// A write of the ranged place or of a place on its path replaces
+		// the ranged slice.
+		if r.root == root && len(steps) <= len(r.path) && samePath(steps, r.path[:len(steps)]) {
+			return fr.unsupported(lhs, "replacement of an active slice range's place yet")
 		}
 	}
 	var old Value
@@ -402,8 +474,12 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		if ab != nil {
 			return ab
 		}
+	} else if id, ok := lhs.(*syntax.Ident); ok && len(steps) == 0 {
+		if _, ab := in.reassignOwned(fr, id, val); ab != nil {
+			return ab
+		}
 	}
-	nv, ab := in.storePath(fr, root, root.v, steps, val)
+	nv, ab := in.storePath(fr, root, root.v, steps, 0, val)
 	if ab != nil {
 		return ab
 	}
@@ -456,9 +532,11 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return s, nil, "", nil
 	case *syntax.SelectorExpr:
-		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
+		if isPointer(fr.typeOf(x.X)) {
 			if in.sym == nil {
-				return nil, nil, "a field through a pointer", nil
+				// A field through a borrow: the lent place.
+				root, steps, ab := in.placeThrough(fr, x.X)
+				return root, append(steps, step{at: x, field: x.Sel.Name}), "", ab
 			}
 			// A field of a provider's cell (symbolic.go).
 			v, ab := in.expr(fr, x.X)
@@ -477,10 +555,15 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return root, append(steps, step{at: x, field: x.Sel.Name}), "", nil
 	case *syntax.IndexExpr:
-		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
-			return nil, nil, "an element through a pointer", nil
+		var root *slot
+		var steps []step
+		var why string
+		var ab *abrupt
+		if isPointer(fr.typeOf(x.X)) {
+			root, steps, ab = in.placeThrough(fr, x.X)
+		} else {
+			root, steps, why, ab = in.place(fr, x.X)
 		}
-		root, steps, why, ab := in.place(fr, x.X)
 		if ab != nil || why != "" {
 			return nil, nil, why, ab
 		}
@@ -493,7 +576,8 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return root, append(steps, step{at: x, index: iv}), "", nil
 	case *syntax.StarExpr:
-		return nil, nil, "a pointer's target", nil
+		root, steps, ab := in.placeThrough(fr, x.X)
+		return root, steps, "", ab
 	}
 	return nil, nil, "this place", nil
 }
@@ -524,8 +608,10 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 
 // storePath is cur with val written at the path: a new record at each
 // field, and each slice, array or Map on the path owned by tok, copied
-// once when another value may share it.
-func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val Value) (Value, *abrupt) {
+// once when another value may share it. cur is the value at full[:k], and
+// the steps left are full[k:].
+func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int, val Value) (Value, *abrupt) {
+	steps := full[k:]
 	tok := root.own()
 	if len(steps) == 0 {
 		return val, nil
@@ -537,7 +623,7 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val 
 		if ab := in.charge(fr, st.at, int64(len(c.fields))); ab != nil {
 			return nil, ab
 		}
-		inner, ab := in.storePath(fr, root, c.fields[i], steps[1:], val)
+		inner, ab := in.storePath(fr, root, c.fields[i], full, k+1, val)
 		if ab != nil {
 			return nil, ab
 		}
@@ -556,11 +642,11 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val 
 			return nil, ab
 		}
 		for _, r := range in.ranges {
-			if r.root == root && r.view.b == old {
+			if r.root == root && r.view.b == old && samePath(full[:k], r.path) {
 				r.view.b, r.view.off = c.b, r.view.off-oldOff
 			}
 		}
-		inner, ab := in.storePath(fr, root, c.b.data[c.off+i], steps[1:], val)
+		inner, ab := in.storePath(fr, root, c.b.data[c.off+i], full, k+1, val)
 		if ab != nil {
 			return nil, ab
 		}
@@ -599,6 +685,9 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 		ice("a value match with no Matches entry")
 	}
 	tag, ab := in.expr(fr, s.Tag)
+	if ab == nil {
+		ab = in.releaseAt(fr, s.Tag)
+	}
 	if ab != nil {
 		return nil, ab
 	}
@@ -628,7 +717,7 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 					return nil, ab
 				}
 				if eq {
-					return in.yield(fr, cl.Body, ret)
+					return in.arm(fr, cl, ret)
 				}
 			default:
 				ice("a value case of pattern kind %d", p.Kind)
@@ -638,7 +727,14 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 	if def == nil {
 		return nil, fr.defect(s, "no case of the match took the value")
 	}
-	return in.yield(fr, def.Body, ret)
+	return in.arm(fr, def, ret)
+}
+
+// arm runs the selected clause of a match: its ownership step, then its
+// body as a scope.
+func (in *interp) arm(fr *frame, cl *syntax.CaseClause, ret bool) (Value, *abrupt) {
+	in.patternOwners(fr, cl)
+	return in.scope(fr, cl, cl.Body, ret)
 }
 
 // typeMatch runs any other match: the first clause one of whose patterns
@@ -650,11 +746,25 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 	subjects := make([]Value, len(s.Subjects))
 	for i, g := range s.Subjects {
 		v, ab := in.expr(fr, g.X)
+		if ab == nil {
+			ab = in.releaseAt(fr, g.X)
+		}
+		if ab == nil {
+			ab = in.releaseAt(fr, g)
+		}
 		if ab != nil {
 			return nil, ab
 		}
 		subjects[i] = v
 	}
+	v, ab := in.typeArms(fr, s, subjects, ret)
+	if ab == nil {
+		ab = in.releaseAt(fr, s)
+	}
+	return v, ab
+}
+
+func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value, ret bool) (Value, *abrupt) {
 	var subject Value = tuple{elems: subjects}
 	if len(subjects) == 1 {
 		subject = subjects[0]
@@ -678,14 +788,14 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 				return nil, ab
 			}
 			if ok {
-				return in.yield(fr, cl.Body, ret)
+				return in.arm(fr, cl, ret)
 			}
 		}
 	}
 	if def == nil {
 		return nil, fr.defect(s, "no case of the match took the value")
 	}
-	return in.yield(fr, def.Body, ret)
+	return in.arm(fr, def, ret)
 }
 
 // match tests v against the checked pattern p, read in the frame's

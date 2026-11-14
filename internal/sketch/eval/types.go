@@ -112,6 +112,25 @@ func writeKey(b *strings.Builder, r rtype) {
 			writeKey(b, rtype{v, r.env})
 		}
 		b.WriteByte('>')
+	case *check.Signature:
+		// A function type is its Go type: its parameters and results read
+		// in the frame; its rows are no part of it (a Go func type has
+		// none), and a row parameter is not always bound at run time.
+		b.WriteString("func(")
+		for i, p := range t.Params {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeKey(b, rtype{p.Type, r.env})
+		}
+		b.WriteString(")(")
+		for i, x := range t.Results {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeKey(b, rtype{x, r.env})
+		}
+		b.WriteByte(')')
 	case *check.TypeParam:
 		// Unbound: a parameter of no running call (a checker gap).
 		b.WriteString("?" + t.Name)

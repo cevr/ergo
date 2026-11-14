@@ -148,8 +148,8 @@
       "name": "absent-fact-pure",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/preflight.go",
-      "from": "\tif !ok {\n\t\tice(\"no footprint",
-      "to": "\tif !ok && false {\n\t\tice(\"no footprint",
+      "from": "\tif _, ok := fr.info.Footprints[key]; !ok {\n\t\tice(\"no footprint",
+      "to": "\tif _, ok := fr.info.Footprints[key]; !ok && false {\n\t\tice(\"no footprint",
       "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
       "killers": [
         "internal/sketch/eval:TestRunRefusesAnAbsentFootprint"
@@ -220,9 +220,9 @@
     {
       "name": "imported-provider-wrong",
       "origin": "wf10/l7-eval/EV3",
-      "file": "internal/sketch/eval/cases.go",
-      "from": "\tfn := op.conv.Table[c.Op.Name]",
-      "to": "\tfn := op.conv.Table[c.Op.Name]\n\tif ps := imports(in.root); len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\tfn := r.conv.Table[name]\n\t\tif fn == nil {",
+      "to": "\t\tfn := r.conv.Table[name]\n\t\tif ps := imports(in.root); fn != nil && len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }\n\t\tif fn == nil {",
       "rule": "The binding's checked conversion selects its method; short names from another package cannot replace it.",
       "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
     },
@@ -284,8 +284,8 @@
       "name": "range-snapshot-domain",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/stmt.go",
-      "from": "\t\t\tif r.root == root && r.view.b == old {",
-      "to": "\t\t\tif false && r.root == root && r.view.b == old {",
+      "from": "\t\t\tif r.root == root && r.view.b == old && samePath(full[:k], r.path) {",
+      "to": "\t\t\tif false && r.root == root && r.view.b == old && samePath(full[:k], r.path) {",
       "rule": "Slice range sees indexed writes through its root (Bindings 3; Loops and len 7); seed-83 bug.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
@@ -302,8 +302,8 @@
       "name": "literal-frame-copies",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
-      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
+      "from": "\tcallee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars,",
+      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range c.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: vars,",
       "rule": "An immediately called literal writes its enclosing mutable locals (Function values 2).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
@@ -347,7 +347,7 @@
       "name": "generic-substitution-unbound",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\t\t\tcallee.env.m[tp] = fr.rt(targs[i])",
+      "from": "\t\t\tcallee.env.m[tp] = targs[i]",
       "to": "\t\t\t_ = i; callee.env.m[tp] = rtype{t: tp}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
@@ -448,14 +448,15 @@
       "file": "internal/sketch/eval/machine.go",
       "from": "\tif law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
       "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect.",
-      "killers": ["internal/sketch/lower:TestMachineLawTables"]
+      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is in the lowering's suite, which the runner judges it with: TestMachineLawRuns runs the law through ergo check, a built CLI the coverage pass does not instrument, so the anchor names it as covering.",
+      "killers": ["internal/sketch/lower:TestMachineLawRuns"],
+      "anchor": {"tests": ["internal/sketch/lower:TestMachineLawRuns"]}
     },
     {
       "name": "b16d-eval-float-int-wraps",
       "origin": "wf10 batch 16d (EV x S-conv)",
       "file": "internal/sketch/eval/value.go",
-      "from": "\t\treturn v1.FloatToInt8(f), true\n",
+      "from": "\t\treturn int8(sat(math.MinInt8, math.MaxInt8)), true\n",
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
@@ -532,6 +533,478 @@
       "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif unparen(s.Tag) == x || last(cl.Body) {",
       "rule": "rows.md Catch 5: a caught match's failing subject is not the caught expression's own failure; under a try it leaves the frame, as the lowering propagates it.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "oracle-o1-skips-effect",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\top, ok := fr.caps.lookup(key)\n\tif !ok {",
+      "to": "\top, ok := fr.caps.lookup(key)\n\tif ok || !ok {",
+      "rule": "A capability's operation runs on the provider the nearest with binds; check time never skips an effect it can run (plan-tier eval-skips-effect).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-outer-binding-wins",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tfor ; c != nil; c = c.next {\n\t\tif c.key == key {\n\t\t\treturn c.op, true\n\t\t}\n\t}\n\treturn nil, false",
+      "to": "\tvar last Value\n\tfound := false\n\tfor ; c != nil; c = c.next {\n\t\tif c.key == key {\n\t\t\tlast, found = c.op, true\n\t\t}\n\t}\n\treturn last, found",
+      "rule": "The provider of a capability is the one the nearest with binds (types.md, Capabilities 2), whatever the outer withs bind (plan-tier eval-provider-nondeterministic).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-with-binding-leaks",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tdefer func() { fr.caps = saved }()",
+      "to": "\tdefer func() { _ = saved }()",
+      "rule": "A with's bindings end with its block: after it, the outer provider is bound again (rows.md, With).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-callee-loses-caps",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tcallee.caps = fr.caps\n",
+      "to": "\tcallee.caps = nil\n",
+      "rule": "A function that needs a capability runs with the provider its caller's nearest with binds.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-member-law-unbound",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tcf.caps = &capEnv{key: typeKey(cf.rt(to)), op: v, next: cf.caps}",
+      "to": "\t\t\t\t_ = to",
+      "rule": "A member law's body runs with its provider bound to its own operation type, so a function it calls that needs the type sees that provider.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-context-law-unbound",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/lawcontext.go",
+      "from": "\t\tcf.lawOwn, cf.caps = own, caps",
+      "to": "\t\tcf.lawOwn, cf.caps = own, nil",
+      "rule": "A law under a named context runs with the providers the context builds bound for its body (types.md, Laws 10).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-native-pad-bytes",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tn := utf8.RuneCountInString(s)\n\tif n >= width {",
+      "to": "\tn := len(s)\n\tif n >= width {",
+      "rule": "strings.PadLeft and PadRight count the runes of s as fmt's %*s does, an invalid byte as one rune.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-parse-range",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\t\tcase ok && ne.Err == strconv.ErrRange:",
+      "to": "\t\t\tcase ok && ne.Err == strconv.ErrRange && false:",
+      "rule": "A number out of its type's range fails strconv.OutOfRange, not Malformed.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-times-wraps",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tif hi != 0 || lo > limit {",
+      "to": "\tif false && (hi != 0 || lo > limit) {",
+      "rule": "time.Times saturates at the bounds of duration; it never wraps.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-intn-modulo",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\treturn int64(s.r.IntN(int(n))), nil",
+      "to": "\t\treturn int64(s.r.Uint64() % uint64(n)), nil",
+      "rule": "rand.Seeded's stream is Go's rand.New(rand.NewPCG(seed, \"ErgoRand\")), draw for draw: IntN is Go's IntN.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-splitn-count",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\treturn list(strings.SplitN(str(a[0]), str(a[1]), i64(a[2])))",
+      "to": "\t\treturn list(strings.Split(str(a[0]), str(a[1])))",
+      "rule": "strings.SplitN gives at most n parts, none for n == 0 (an empty slice: Ergo has no nil slice).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-ops-table-dropped",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\treturn &operation{value: v, conv: conv, env: fr.env}, nil",
+      "to": "\t\treturn v, nil",
+      "rule": "A value converted to an operation type calls its provider's functions through the conversion's checked table (ConvOperations), never by the source value alone.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-named-entry-sees-caller",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tcf.caps = building\n",
+      "to": "\t\t\tcf.caps = fr.caps\n",
+      "rule": "A named context's entry sees the providers the context built before it, not the caller's bindings (rows.md, Context 9).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-native-split-empty-sep",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-ref-update-lost",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\tr.v = v\n\t\treturn unit{}, nil",
+      "to": "\t\t_ = v\n\t\treturn unit{}, nil",
+      "rule": "A Ref is one cell every copy shares: Update through one copy is seen through every other.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-forward",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tfor i := len(built) - 1; i >= 0; i-- {\n\t\tb := built[i]",
+      "to": "\tfor i := 0; i < len(built); i++ {\n\t\tb := built[i]",
+      "rule": "A with releases its providers in reverse acquisition order, dependents first (resources.md R5, Context ownership 4).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-skipped-on-exit",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tif stops(ab) {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
+      "to": "\tif ab != nil {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
+      "rule": "A with releases what it built on every exit of its block: a return and a typed failure too (Context ownership 3).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-in-inner-env",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tsaved := fr.caps\n\tfr.caps = outer\n",
+      "to": "\tsaved := fr.caps\n\t_ = outer\n",
+      "rule": "A release runs in the environment outside the with: a Close that needs a capability takes the outer with's provider, not one its own with binds (Context ownership 6).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-twice",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tif ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {",
+      "to": "\tin.releaseAll(fr, arg, built, outer, nil)\n\tif ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {",
+      "rule": "A with releases each provider once (Context ownership 3).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-acquire-fail-leaks",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tab = in.releaseAll(fr, at, built, outer, ab)\n",
+      "to": "\t\t\t_ = outer\n",
+      "rule": "A failure while a with builds a provider releases the providers built before it, last first, before it leaves (R7).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-law-case-unreleased",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/lawcontext.go",
+      "from": "in.releaseAll(cf, law.Decl, built, outer, nil)",
+      "to": "in.releaseAll(cf, law.Decl, built[:0], outer, nil)",
+      "rule": "A law case under a context releases the providers its build acquired when the case ends (types.md, Laws 10).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-context-value-leaks",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/contextvalues.go",
+      "from": "\tdefer func() { in.ctxv = saved }()",
+      "to": "\tdefer func() { _ = saved }()",
+      "rule": "A context value's binding ends with its with's block, on every exit (runtime.md G1).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-install-binds-nothing",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tfr.caps = &capEnv{key: b.key, op: b.op, next: fr.caps}",
+      "to": "\t\t\t_ = b",
+      "rule": "A with of a Context value binds the providers the value holds for its block (rows.md, Context values).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-owned-release-forward",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/own.go",
+      "from": "\tfor i := len(o.list) - 1; i >= 0; i-- {",
+      "to": "\tfor i := 0; i < len(o.list); i++ {",
+      "rule": "A frame releases the values it owns last first when it ends (resources.md R5, L8 B1).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-owned-handoff-ignored",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/own.go",
+      "from": "\tif e := fr.lookupOwned(key); e != nil {\n\t\te.live = false\n\t}",
+      "to": "\tif e := fr.lookupOwned(key); e != nil && false {\n\t\te.live = false\n\t}",
+      "rule": "An owned value passed to a parameter that takes it is the callee's to release; the caller releases it no more (resources.md R9).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-native-submono-wraps",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/tasks.go",
+      "from": "\t\tcase d < 0 && a > b:\n\t\t\td = math.MaxInt64",
+      "to": "\t\tcase false:\n\t\t\td = math.MaxInt64",
+      "rule": "The duration between two monotonic readings saturates at the largest duration where a - b overflows (runtime/v1 TimeSubMono; time.go, Sub).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o3-scheduler-host-order",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "\t\t\treturn can[s.rng.IntN(len(can))]",
+      "to": "\t\t\treturn can[0]",
+      "rule": "The scheduler picks the next task by the obligation's schedule seed, not in the order the tasks started (ORACLE O3; runtime.md, Tasks 7).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-virtual-time-skips-wake",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/tasks.go",
+      "from": "\t\tif best == nil || g < gap {",
+      "to": "\t\tif best == nil || g > gap {",
+      "rule": "A virtual clock moves to its nearest sleeper's deadline when every task waits, waking the sleepers due then and no later one (stdlib.md, testing.VirtualClock).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-deadlock-passes",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "\t\ts.fatal = fr.defect(at, \"%s\", s.deadlock())",
+      "to": "\t\ts.fatal = &abrupt{kind: ctlAbort, msg: s.deadlock()}",
+      "rule": "When every task waits and no clock can move, the obligation is a defect that names what each task waits for (ORACLE O3).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-stop-ignored",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "func stopTree(t *etask) {\n\tt.stopped = true",
+      "to": "func stopTree(t *etask) {\n\tt.stopped = false",
+      "rule": "Stop ends a sleeping task at its wait: its exit actions run and nothing after the wait does (runtime.md, Tasks 10, I1).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o4-harness-compares-self",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Stdout != g.stdout {\n",
+      "to": "\tif got.Stdout != got.Stdout {\n",
+      "rule": "The agreement harness compares the evaluator's run with the recorded (or built) run, never a run with itself.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o5-range-follows-other-place",
+      "origin": "wf10 ORACLE O5",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "r.view.b == old && samePath(full[:k], r.path) {",
+      "to": "r.view.b == old {",
+      "rule": "A for over a slice reached through a field or subscript sees the writes through that place only, not through another place that shared the slice when the loop began (types.md, Bindings 3; Loops and len 7).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o6-member-unresolved",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\treturn m[name]\n",
+      "to": "\treturn nil\n",
+      "rule": "A qualified name pkg.X reads the imported package's own let or function (its initializer's value), though the checker records no Uses entry for it.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering", "internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o6-func-value-refused",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *check.Func:\n\t\treturn in.funcValue(fr, id, o)\n",
+      "to": "\tcase *check.Func:\n\t\treturn nil, fr.unsupported(id, \"a function value\")\n",
+      "rule": "A declared function named as a value is a value the evaluator calls where it is called.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o6-instance-unbound",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\tfor _, t := range inst.TypeArgs {\n\t\t\tref.targs",
+      "to": "\t\tfor _, t := range inst.TypeArgs[:0] {\n\t\t\tref.targs",
+      "rule": "A generic function's instance as a value carries its type arguments, read in the frame that names it.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o7-after-dropped",
+      "origin": "wf10 ORACLE O7",
+      "file": "internal/sketch/eval/machinevalue.go",
+      "from": "\t\tif fn == nil {\n\t\t\treturn optionOf(result, nil, false), nil\n",
+      "to": "\t\tif true {\n\t\t\treturn optionOf(result, nil, false), nil\n",
+      "rule": "A machine value's After is its declaration's after function (runtime.md, Machines and actors 10); only a machine with none has no timer in every state.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o8-borrow-copies",
+      "origin": "wf10 ORACLE O8",
+      "file": "internal/sketch/eval/pointer.go",
+      "from": "\treturn &ptrV{root: root, path: steps}, nil\n",
+      "to": "\treturn &ptrV{root: &slot{v: root.v}, path: steps}, nil\n",
+      "rule": "A write through a borrow writes the place it lends, as the Go target's pointer does (types.md, Borrows).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o9-yield-goes-on-after-break",
+      "origin": "wf10 ORACLE O9",
+      "file": "internal/sketch/eval/seq.go",
+      "from": "\t\tcase ctlBreak, ctlReturn, ctlFail, ctlEscape:\n\t\t\treturn false, nil\n",
+      "to": "\t\tcase ctlBreak, ctlReturn, ctlFail, ctlEscape:\n\t\t\treturn true, nil\n",
+      "rule": "A for over a Seq that a function makes: yield returns false once the body ended the loop (a break or a return), as Go's range over a function does (prelude Seq).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o10-done-goes-on",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\treturn s, k == decDone, nil\n",
+      "to": "\treturn s, false, nil\n",
+      "rule": "An actor's Done gives its output and ends the actor: a later Ask fails Stopped (std actor, Stopped and StartMachine; runtime.md, Machines and actors 11).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o10-work-success-unmapped",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t\t\te = r\n\t\t\tif onSuccess != nil {\n",
+      "to": "\t\t\te = r\n\t\t\tif false {\n",
+      "rule": "A Work literal's Run result becomes a signal through OnSuccess (std machines Work; runtime.md, Machines and actors 12).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o10-func-key-keeps-rows",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/types.go",
+      "from": "\tcase *check.Signature:\n",
+      "to": "\tcase *check.Signature:\n\t\tb.WriteString(t.String())\n\t\treturn\n",
+      "rule": "A match on Some[func(…) needs W] tests the Go type: a function type's key is its parameters and results read in the frame, with no row (std actor's work; types.md, Matching).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o11-child-signal-stale",
+      "origin": "wf10 ORACLE O11",
+      "file": "internal/sketch/eval/runnerkids.go",
+      "from": "&envelope{kind: envChild, sig: dargs[0], epoch: ref.epoch}",
+      "to": "&envelope{kind: envChild, sig: dargs[0], epoch: ref.epoch + 1}",
+      "rule": "A child's Emit and Done outputs reach its parent as signals of the entry that started it, stepped while that entry is open (std actor Child; runtime.md, Machines and actors 14).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o11-host-never-bound",
+      "origin": "wf10 ORACLE O11",
+      "file": "internal/sketch/eval/runnerkids.go",
+      "from": "\t\tif a.entry != nil && a.entry.open && a.entry.epoch == a.epoch && h.state == hostMade {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A host a step makes belongs to the entry the step enters or keeps, whose work fills it; Get gives that child (std actor NewHost, Host; runtime.md, Machines and actors 16).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o12-ones-count-is-len",
+      "origin": "wf10 ORACLE O12",
+      "file": "internal/sketch/eval/nativesbits.go",
+      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o12-repeat-once",
+      "origin": "wf10 ORACLE O12",
+      "file": "internal/sketch/eval/nativesbits.go",
+      "from": "newSlice(slices.Repeat(xs.elems(), int(n)))",
+      "to": "newSlice(slices.Repeat(xs.elems(), min(int(n), 1)))",
+      "rule": "std slices.Repeat is Go's slices.Repeat: n copies of xs (std slices).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o10-sink-skipped",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\tif k == decEmit || k == decDone {\n\t\tif _, ab := a.call(in, fr, a.out, d); ab != nil {\n",
+      "to": "\tif false {\n\t\tif _, ab := a.call(in, fr, a.out, d); ab != nil {\n",
+      "rule": "An actor's sink gets each Emit's and Done's output, before the decision's answer (std actor StartMachine; runtime.md, Machines and actors 11.15).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-harness-drops-stderr",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Stderr != g.errs {\n",
+      "to": "\tif false && got.Stderr != g.errs {\n",
+      "rule": "The agreement harness compares standard error.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o4-harness-ignores-exit",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Status != g.status {\n",
+      "to": "\tif false && got.Status != g.status {\n",
+      "rule": "The agreement harness compares the exit status.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o4-exit-code-ignored",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\t\t\tout.Status = int(code)\n",
+      "to": "\t\t\tout.Status = 1\n",
+      "rule": "An os.Exit that leaves main exits with its Code when it is in 1..125 (runtime.md, Exit causes).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-stdin-line-feed-kept",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\treturn line, true, nil\n",
+      "to": "\treturn line + \"\\n\", true, nil\n",
+      "rule": "io.Stdin.Lines gives each line without its line feed.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-console-to-stderr",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\t\tc.h.stdout.WriteString(args[0].(string) + \"\\n\")\n",
+      "to": "\t\tc.h.stderr.WriteString(args[0].(string) + \"\\n\")\n",
+      "rule": "The host's Console prints a line on standard output.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-imports-lowering",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\t\"math\"\n\t\"strconv\"\n",
+      "to": "\t\"math\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
+      "rule": "The evaluator is the reference every build agrees with: it shares no code with the lowering (ORACLE, import guard).",
+      "killers": ["internal/sketch/eval:TestEvalSharesNoLowering"],
+      "anchor": {"tests": ["internal/sketch/eval:TestEvalSharesNoLowering"]}
     }
   ]
 }

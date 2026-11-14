@@ -15,6 +15,7 @@ import (
 type lawTarget struct {
 	name, why string
 	binding   []check.LawProvider
+	ctx       *check.LawContext // a run under a named context (lawcontext.go)
 }
 
 func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
@@ -22,8 +23,9 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	for _, b := range run.Bindings {
 		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), binding: b})
 	}
-	for _, c := range run.Contexts {
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: "a context-backed law, which check-time evaluation does not build"})
+	for i := range run.Contexts {
+		c := &run.Contexts[i]
+		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: c.Unrun, ctx: c})
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
@@ -59,40 +61,63 @@ func bindingName(pkg *check.Package, law *check.Law, b []check.LawProvider) stri
 }
 
 // operation is a checked provider conversion, never a live Go function value.
+// env is the substitution of the frame that made the conversion, which
+// its instances' type arguments are read in.
 type operation struct {
 	value Value
 	conv  check.Conversion
+	env   *tenv
 }
 
+// operationCall runs an operation of an operation-type value (CallOp) or
+// of the law's own provider (CallLawOp).
 func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *abrupt) {
-	op := fr.lawOwn
+	var recv Value
+	if fr.lawOwn != nil {
+		recv = fr.lawOwn
+	}
 	if c.Kind == check.CallOp {
 		v, ab := in.expr(fr, c.Recv)
 		if ab != nil {
 			return nil, ab
 		}
-		op, _ = v.(*operation)
+		recv = v
 	}
-	if op == nil {
+	if recv == nil {
 		return nil, fr.unsupported(x, "an unresolved operation")
 	}
-	fn := op.conv.Table[c.Op.Name]
-	if fn == nil {
-		ice("no checked method for operation %s", c.Op.Name)
+	if c.Kind == check.CallLawOp && fr.info.Closes[x] == nil {
+		// The provider under test is the law's capability: its call is
+		// an interruption point (runtime.md, I1 2).
+		if ab := in.poll(fr, x); ab != nil {
+			return nil, ab
+		}
 	}
-	args := []Value{op.value}
+	// A std operation that takes an owned local (queue Push) holds its
+	// entry until it returns (own.go, holdTaken).
+	var held []*syntax.Ident
+	if c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Takes) > 0 {
+		if _, native := recv.(opObject); native {
+			held = in.holdTaken(fr, x.Args, c.Op.Sig.Takes)
+		}
+	}
+	args := make([]Value, 0, len(x.Args))
 	for _, a := range x.Args {
 		v, ab := in.expr(fr, a)
 		if ab != nil {
+			for _, id := range held {
+				delete(fr.held, id) // the call never ran: the frame keeps them
+			}
 			return nil, ab
 		}
 		args = append(args, v)
 	}
-	var targs []check.Type
-	if inst := op.conv.Instances[c.Op.Name]; inst != nil {
-		targs = inst.TypeArgs
+	in.handParts(fr, x.Args...)
+	v, ab := in.dispatch(fr, x, recv, c.Op.Name, args)
+	if len(held) > 0 {
+		ab = in.settleHeld(fr, held, ab)
 	}
-	return in.call(fr, x, fn, targs, args)
+	return v, ab
 }
 
 func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Result {
@@ -120,6 +145,9 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	}
 	if law.Machine != nil && law.Decl.Reach != nil {
 		return in.machineLaw(law, res)
+	}
+	if tg.ctx != nil {
+		return in.contextLaw(law, tg.ctx, res)
 	}
 	fr := in.newFrame(law.Pkg, law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
@@ -221,10 +249,17 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			}
 			args = append(args, Argument{Name: input.Name, Value: text})
 			if input.Provider != nil {
-				v = &operation{value: v, conv: input.Provider.Conv}
+				v = &operation{value: v, conv: input.Provider.Conv, env: cf.env}
 			}
 			if input.Param < 0 {
-				cf.lawOwn = v.(*operation)
+				// A member law's body calls functions that need its own
+				// operation type: the provider under test is bound to it.
+				cf.lawOwn = v
+				to := input.Provider.Conv.To
+				if to == nil {
+					to = input.Type
+				}
+				cf.caps = &capEnv{key: typeKey(cf.rt(to)), op: v, next: cf.caps}
 			} else {
 				cf.bind(params[input.Param], v)
 			}
@@ -232,6 +267,9 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		result := in.runBodyFrame(cf, body, law, res)
 		out.Cases = k + 1
 		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Schedule != 0 {
+			out.Schedule = result.Schedule
+		}
 		if result.Status != Passed {
 			out.Case, out.Arguments = k+1, args
 			return
@@ -247,7 +285,7 @@ func statusOf(ab *abrupt) Status {
 		return Incomplete
 	case ctlUnsupported:
 		return Skipped
-	case ctlDefect:
+	case ctlDefect, ctlInterrupt:
 		return Defect
 	case ctlAssert, ctlFail, ctlEscape:
 		return Refuted

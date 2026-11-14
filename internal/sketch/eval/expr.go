@@ -10,10 +10,27 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// expr evaluates x. Each evaluated node costs a step before its work.
+// expr evaluates x in a value position: an operand, an argument, a
+// condition, an initializer. Whether a typed failure there leaves the
+// frame is the one rule of tailExpr (rows.md, Catch 5: under a try, only
+// the caught expression's own failure stays, ownFailure), so a value
+// position and a tail position differ only in name.
 func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
+	return in.tailExpr(fr, x)
+}
+
+// tailExpr evaluates x where its own failure is the enclosing
+// expression's: the subject of a try or a catch, a parenthesized
+// expression, a block's tail. Each evaluated node costs a step before its
+// work.
+func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
+	}
+	if len(fr.info.ContextValues) > 0 {
+		if w := fr.info.ContextValues[x]; w != nil {
+			return in.makeContextValue(fr, x, w)
+		}
 	}
 	covered := fr.info.TryCovers[x] != nil
 	if covered {
@@ -40,15 +57,34 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if in.sym != nil && !in.sym.ok[x] && symbolic(v) {
 		return nil, in.symStop(fr, x, v)
 	}
+	in.ownTemp(fr, x, v) // a temporary its statement owns (R43)
+	// A variant or a row value goes into its union unchanged: the value
+	// keeps its record type. A provider goes into an operation type as an
+	// operation value (effects.go); a machine table waits for a later unit.
 	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
-		// A variant or a row value goes into its union unchanged: the
-		// value keeps its record type. An operations or machine table is
-		// a function value.
-		return nil, fr.unsupported(x, "a conversion to the operation type %s yet", conv.To)
+		return in.toOperation(fr, x, v, conv)
 	}
-	for _, conv := range fr.info.ImplicitElems[x] {
-		if conv.Kind != 0 && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
-			return nil, fr.unsupported(x, "a conversion to the operation type %s yet", conv.To)
+	if convs := fr.info.ImplicitElems[x]; len(convs) > 0 {
+		t, ok := v.(tuple)
+		if !ok || len(t.elems) != len(convs) {
+			ice("element conversions of %T", v)
+		}
+		var out tuple
+		for i, conv := range convs {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow {
+				continue
+			}
+			if out.elems == nil {
+				out.elems = append([]Value(nil), t.elems...)
+			}
+			e, ab := in.toOperation(fr, x, t.elems[i], conv)
+			if ab != nil {
+				return nil, ab
+			}
+			out.elems[i] = e
+		}
+		if out.elems != nil {
+			return out, nil
 		}
 	}
 	return v, nil
@@ -71,12 +107,15 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	}
 	switch x := x.(type) {
 	case *syntax.ParenExpr:
-		return in.expr(fr, x.X)
+		return in.tailExpr(fr, x.X)
 	case *syntax.Ident:
 		return in.ident(fr, x)
 	case *syntax.BasicLit:
 		ice("a literal with no Values entry")
 	case *syntax.SelectorExpr, *syntax.IndexExpr:
+		if sel, ok := x.(*syntax.SelectorExpr); ok {
+			in.takeField(fr, sel)
+		}
 		v, root, ab := in.peek(fr, x)
 		if ab != nil {
 			return nil, ab
@@ -120,25 +159,36 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 			}
 			out.elems[i] = v
 		}
+		in.handParts(fr, x.Elts...)
 		return out, nil
 	case *syntax.FuncLit:
-		// Making a function literal runs nothing: the value is the literal
-		// and the slots it reads. Only a call where it is written runs it
-		// at check time; any other call of a function value is opaque
-		// (rows.md, Footprints) and never reaches the evaluator.
-		return &closure{lit: x, vars: fr.vars, env: fr.env}, nil
+		// Making a function literal runs nothing: the value is the literal,
+		// the slots it reads and the capabilities bound where it is made.
+		// It runs where it is written, or where a native the evaluator
+		// runs calls it (sync.Ref's Update, natives.go).
+		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
-		return nil, fr.unsupported(x, "a pointer")
+		return in.deref(fr, x.X)
 	}
 	return nil, fr.unsupported(x, "the expression form %T", x)
 }
 
-// closure is a function literal's value: the literal and the slots of the
-// frame that made it.
+// closure is a function literal's value, or a trailing block a native
+// runs (task.Go's body): its parameters (none for a block), its body, and
+// the slots of the frame that made it. lit is the literal, nil for a
+// block; key is its Footprints key, the literal or the block.
 type closure struct {
-	lit  *syntax.FuncLit
-	vars map[*check.Var]*slot
-	env  *tenv
+	lit    *syntax.FuncLit
+	key    syntax.Node
+	params *syntax.FieldList
+	body   *syntax.BlockStmt
+	vars   map[*check.Var]*slot
+	env    *tenv
+	home   *frame // the frame that made it: its package, declaration and owner
+	caps   *capEnv
+	// outer is the frame whose entries the body's frame reads (own.go),
+	// when it is not home: a task's root (tasks.go).
+	outer *frame
 }
 
 // bareRecord is the value of a record with no fields named bare,
@@ -177,13 +227,14 @@ func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
 	case *check.Var:
 		if s := in.slotOf(fr, o); s != nil {
 			s.lend()
+			in.handoff(fr, id)
 			return s.v, nil
 		}
 		return nil, fr.unsupported(id, "the package let %s, which no initializer bound", id.Name)
 	case *check.Const:
 		return o.Val, nil
 	case *check.Func:
-		return nil, fr.unsupported(id, "a function value (%s) yet", id.Name)
+		return in.funcValue(fr, id, o)
 	case nil:
 		ice("the identifier %s has no Uses entry", id.Name)
 	}
@@ -204,6 +255,12 @@ func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 // does not start at one; the caller lends it when the value it reads
 // holds a store.
 func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
+	return in.peekPath(fr, x, nil)
+}
+
+// peekPath is peek that also appends to *path, when path is not nil, the
+// steps from root to x: each field, and each index with its value.
+func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		if v, ok := fr.info.Uses[x].(*check.Var); ok {
@@ -218,10 +275,20 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
 			if _, isPkg := fr.info.Uses[id].(*check.PkgName); isPkg {
 				// A package's let: its slot, which nothing writes.
-				if v, isVar := fr.info.Uses[x.Sel].(*check.Var); isVar {
-					if s := in.globals[v]; s != nil {
+				// The checker records no Uses entry for a qualified
+				// name: the member is the imported package's own.
+				var member check.Object
+				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
+					member = in.memberOf(pn.Pkg, x.Sel.Name)
+				}
+				switch o := member.(type) {
+				case *check.Var:
+					if s := in.globals[o]; s != nil {
 						return s.v, nil, nil
 					}
+				case *check.Func:
+					v, ab := in.funcValue(fr, x, o)
+					return v, nil, ab
 				}
 				return nil, nil, fr.unsupported(x, "a package member (%s.%s) as a value yet", id.Name, x.Sel.Name)
 			}
@@ -243,11 +310,14 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 			}
 			return r.fields[fieldIndex(r.t, x.Sel.Name)], c.s, nil
 		}
+		if p, ok := t.t.(*check.Pointer); ok {
+			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
+		}
 		n, ok := t.t.(*check.Named)
 		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
-		base, root, ab := in.peek(fr, x.X)
+		base, root, ab := in.peekBase(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
@@ -258,21 +328,30 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 			}
 			ice("a field of %T", base)
 		}
+		if path != nil {
+			*path = append(*path, step{at: x, field: x.Sel.Name})
+		}
 		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
+	case *syntax.StarExpr:
+		return in.peekBase(fr, x.X, path)
 	case *syntax.IndexExpr:
-		if fr.info.Instances[x] != nil {
-			return nil, nil, fr.unsupported(x, "a generic function's instance as a value yet")
+		if inst := fr.info.Instances[x]; inst != nil {
+			v, ab := in.funcValue(fr, x, inst.Func)
+			return v, nil, ab
 		}
 		if len(x.Indices) != 1 {
 			ice("an index with %d indices", len(x.Indices))
 		}
-		base, root, ab := in.peek(fr, x.X)
+		base, root, ab := in.peekBase(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
 		iv, ab := in.expr(fr, x.Indices[0])
 		if ab != nil {
 			return nil, nil, ab
+		}
+		if path != nil {
+			*path = append(*path, step{at: x, index: iv})
 		}
 		switch b := base.(type) {
 		case string:
@@ -411,6 +490,7 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
 		if !ok || structOf(n) == nil {
 			ice("a range of %s", t.t)
 		}
+		in.handParts(fr, x.X, x.Y)
 		r := &record{t: n, key: argsKey(n, t.env), fields: make([]Value, 2)}
 		r.fields[fieldIndex(n, "Start")] = a
 		r.fields[fieldIndex(n, "End")] = b
@@ -421,7 +501,7 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
 
 func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
 	if x.Op == syntax.AND {
-		return nil, fr.unsupported(x, "a pointer")
+		return in.borrow(fr, x.X) // pointer.go
 	}
 	a, ab := in.expr(fr, x.X)
 	if ab != nil {
@@ -438,8 +518,8 @@ func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
 // from a record of another type, or a slice, array or Map literal. A field
 // the literal leaves out takes its default value.
 func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) {
-	if fr.info.Works[x] != nil {
-		return nil, fr.unsupported(x, "a Work literal")
+	if lit := fr.info.Works[x]; lit != nil {
+		return in.workLit(fr, x, lit) // runner.go
 	}
 	t := fr.rtypeOf(x)
 	if check.RefinementOf(t.t) != nil {
@@ -476,9 +556,13 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 			}
 			m.b.m[k] = v
 		}
+		in.handParts(fr, x.Elts...)
 		return m, nil
 	}
 	n, ok := t.t.(*check.Named)
+	if _, machine := t.under().t.(*check.MachineType); ok && machine && len(x.Elts) == 0 {
+		return &machinePlan{tn: n.Obj}, nil // machinevalue.go
+	}
 	if !ok || structOf(n) == nil || check.ScriptOf(n) != nil || check.IsGoError(n) {
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
 	}
@@ -517,7 +601,10 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		}
 		out.fields[idx], set[idx] = v, true
 	}
+	in.handParts(fr, x.Elts...)
 	if base != nil {
+		in.handParts(fr, x.Base)
+		in.ownReplaced(fr, x, base)
 		if copies, spread := fr.info.Spreads[x]; spread {
 			for _, c := range copies {
 				i := fieldIndex(n, c.Field.Name)
@@ -561,6 +648,7 @@ func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) 
 		}
 		elems = append(elems, v)
 	}
+	in.handParts(fr, x.Elts...)
 	if array && len(elems) != n {
 		ice("an array literal of %d elements for %d", len(elems), n)
 	}
@@ -594,7 +682,7 @@ func (in *interp) try(fr *frame, x *syntax.TryExpr) (Value, *abrupt) {
 	if c, ok := unparen(x.X).(*syntax.CatchExpr); ok {
 		return in.catch(fr, c, true)
 	}
-	v, ab := in.expr(fr, x.X)
+	v, ab := in.tailExpr(fr, x.X)
 	if ab != nil && ab.kind == ctlFail {
 		out := *ab
 		out.kind = ctlEscape
@@ -638,7 +726,7 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 				return nil, ab
 			}
 			if ok {
-				val, ab := in.yield(fr, a.Body, false)
+				val, ab := in.scope(fr, a, a.Body, false)
 				if ab != nil {
 					return nil, ab
 				}
@@ -754,35 +842,66 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
-		if c.Func.Ptr && in.sym == nil {
-			return nil, fr.unsupported(x, "a call that borrows its receiver yet")
-		}
-		if x.Trailing != nil {
+		if x.Trailing != nil && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if preludeCollection(c.Func) {
 			return in.collectionCall(fr, x, c, nil)
 		}
+		// A bodiless std function that takes an owned local holds its
+		// entry until it returns (own.go, holdTaken).
+		var held []*syntax.Ident
+		if c.Func.Decl != nil && c.Func.Decl.Extern != nil && c.Func.Pkg.Std() && len(c.Func.Sig.Takes) > 0 {
+			ops := x.Args
+			if c.Recv != nil {
+				ops = append([]syntax.Expr{c.Recv}, x.Args...)
+			}
+			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
+		}
 		args, ab := in.args(fr, x, c)
 		if ab != nil {
+			for _, id := range held {
+				delete(fr.held, id)
+			}
 			return nil, ab
 		}
-		return in.call(fr, x, c.Func, c.TypeArgs, args)
-	case check.CallFuncValue:
-		lit, ok := unparen(x.Fun).(*syntax.FuncLit)
-		if !ok {
-			return nil, fr.unsupported(x, "a call of a function value yet")
+		if x.Trailing != nil {
+			// The block is the native's last argument: a function of its
+			// own, run where the native runs it (task.Go, scope.OnExit).
+			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
+		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+		if len(held) > 0 {
+			ab = in.settleHeld(fr, held, ab)
+		}
+		return v, ab
+	case check.CallFuncValue:
 		if x.Trailing != nil {
 			return nil, fr.unsupported(x, "a trailing block yet")
+		}
+		lit, ok := unparen(x.Fun).(*syntax.FuncLit)
+		if !ok {
+			// The callee is a value: evaluated before the arguments, as
+			// Go evaluates a call's function value first.
+			f, ab := in.expr(fr, x.Fun)
+			if ab != nil {
+				return nil, ab
+			}
+			args, ab := in.args(fr, x, c)
+			if ab != nil {
+				return nil, ab
+			}
+			return in.callValue(fr, x, f, args)
 		}
 		args, ab := in.args(fr, x, c)
 		if ab != nil {
 			return nil, ab
 		}
 		return in.callLiteral(fr, x, lit, args)
-	case check.CallWith, check.CallProviderOp:
-		return nil, fr.unsupported(x, "a with or a capability, which check-time evaluation never runs")
+	case check.CallWith:
+		return in.withExpr(fr, x)
+	case check.CallProviderOp:
+		return in.providerCall(fr, x, c)
 	case check.CallOp, check.CallLawOp:
 		return in.operationCall(fr, x, c)
 	}
@@ -793,7 +912,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *abrupt) {
 	var args []Value
 	if c.Recv != nil {
-		v, ab := in.expr(fr, c.Recv)
+		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
 			return nil, ab
 		}
@@ -806,21 +925,36 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 		}
 		args = append(args, v)
 	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
 	return args, nil
 }
 
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
-	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}
+	c := &closure{lit: lit, key: lit, params: lit.Type.Params, body: lit.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}
+	return in.callClosure(fr, at, c, args)
+}
+
+// callClosure runs c's body as a frame of its own that reads and writes
+// the slots of the frame that made it, with c's parameters bound to args.
+func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args []Value) (Value, *abrupt) {
+	outer := c.home
+	if c.outer != nil {
+		outer = c.outer
+	}
+	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}
 	var params []*check.Var
-	for _, field := range lit.Type.Params.List {
-		if len(field.Names) == 0 {
-			params = append(params, nil)
-		}
-		for _, id := range field.Names {
-			v, _ := fr.info.Defs[id].(*check.Var)
-			params = append(params, v)
+	if c.params != nil {
+		for _, field := range c.params.List {
+			if len(field.Names) == 0 {
+				params = append(params, nil)
+			}
+			for _, id := range field.Names {
+				v, _ := callee.info.Defs[id].(*check.Var)
+				params = append(params, v)
+			}
 		}
 	}
 	if len(params) != len(args) {
@@ -829,7 +963,10 @@ func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLi
 	for i, p := range params {
 		callee.bind(p, args[i])
 	}
-	return in.runFrame(fr, at, callee, "literal", lit.Body.List)
+	for _, p := range params {
+		in.ownVar(callee, p, c.key) // a taken parameter (R8)
+	}
+	return in.runFrame(fr, at, callee, "literal", c.body.List)
 }
 
 // preludeCollection reports the prelude's Append, Get, Delete or Put,
@@ -866,6 +1003,8 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 			return nil, ab
 		}
 	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
 	var tok *token
 	if own != nil {
 		tok = own.own()
@@ -910,28 +1049,7 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 
 // option is Some{v} or None of the call's Option type.
 func (in *interp) option(fr *frame, x *syntax.CallExpr, v Value, found bool) (Value, *abrupt) {
-	t := fr.rtypeOf(x)
-	u, ok := t.under().t.(*check.Union)
-	if !ok {
-		ice("Get's result is %s, no Option", t.t)
-	}
-	want := "None"
-	if found {
-		want = "Some"
-	}
-	for _, vt := range u.Variants {
-		n, ok := vt.(*check.Named)
-		if !ok || n.Obj.Name != want {
-			continue
-		}
-		r := &record{t: n, key: argsKey(n, t.under().env)}
-		if found {
-			r.fields = []Value{v}
-		}
-		return r, nil
-	}
-	ice("the Option %s has no %s", t.t, want)
-	return nil, nil
+	return optionOf(fr.rtypeOf(x), v, found), nil
 }
 
 // convert is T(v) from the type from: a basic conversion as Go's, between
@@ -961,6 +1079,12 @@ func (in *interp) convert(fr *frame, x *syntax.CallExpr, v Value, from, to rtype
 		}
 	case mapV, tuple:
 		return v, nil
+	case *closure, *funcRef, *nativeFunc, seqSource:
+		// A function value converts to a function type over the same
+		// signature, as Seq[T](f) does (seq.go).
+		if _, isFunc := to.under().t.(*check.Signature); isFunc {
+			return v, nil
+		}
 	}
 	return nil, fr.unsupported(x, "a conversion to %s yet", to.t)
 }
