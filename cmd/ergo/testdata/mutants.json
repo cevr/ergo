@@ -231,6 +231,14 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
-    }
+    },
+    {"name":"tl1-test-not-stripped","origin":"wf10 TL1","file":"cmd/ergo/build.go","from":"tc.Strip = (opts.command == \"run\" || opts.command == \"test\")","to":"tc.Strip = (opts.command == \"run\")","rule":"An ergo test build links with -ldflags=-s -w: its link costs about half.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-run-not-stripped","origin":"wf10 TL1","file":"cmd/ergo/build.go","from":"tc.Strip = (opts.command == \"run\" || opts.command == \"test\")","to":"tc.Strip = (opts.command == \"test\")","rule":"An ergo run build links with -ldflags=-s -w.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-build-stripped","origin":"wf10 TL1","file":"cmd/ergo/build.go","from":"tc.Strip = (opts.command == \"run\" || opts.command == \"test\")","to":"tc.Strip = (opts.command != \"lib\")","rule":"ergo build links as it always has: the release executable is unchanged.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-debug-ignored","origin":"wf10 TL1","file":"cmd/ergo/build.go","from":"&& !opts.debug &&","to":"&& true &&","rule":"--debug links the full symbol table and DWARF.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-goflags-replaced","origin":"wf10 TL1","file":"cmd/ergo/build.go","from":"&& !strings.Contains(tc.GOFLAGS, \"-ldflags\")","to":"&& true","rule":"A user's GOFLAGS -ldflags is kept: a stripping -ldflags on the command line would replace it.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-debug-anywhere","origin":"wf10 TL1","file":"cmd/ergo/main.go","from":"case opts.debug && command != \"run\" && command != \"test\":","to":"case false && opts.debug && command != \"run\" && command != \"test\":","rule":"--debug belongs to run and test; build refuses it.","killers":["cmd/ergo:TestRunAndTestLinkStripped"]},
+    {"name":"tl1-strip-flag-dropped","origin":"wf10 TL1","file":"internal/sketch/build/action.go","from":"\t\targs = append(args, StripFlag)\n","to":"\t\targs = append(args)\n","rule":"A Strip toolchain passes the strip flag to go build.","killers":["cmd/ergo:TestRunAndTestLinkStripped","internal/sketch/build:TestCacheInputs"]},
+    {"name":"tl1-strip-keeps-symtab","origin":"wf10 TL1","file":"internal/sketch/build/action.go","from":"const StripFlag = \"-ldflags=-s -w\"","to":"const StripFlag = \"-ldflags=-w\"","rule":"A stripped link has no symbol table (-s) and no DWARF (-w), and keeps the pclntab.","killers":["internal/sketch/build:TestCacheInputs"],"anchor":{"file":"internal/sketch/build/action.go","text":"\t\targs = append(args, StripFlag)\n","tests":["internal/sketch/build:TestCacheInputs"]}}
   ]
 }
