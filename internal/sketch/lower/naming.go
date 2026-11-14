@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The naming pass. Before any body is lowered, it gives every package-scope
@@ -21,11 +22,13 @@ import (
 //
 //  1. the user package's declarations, in source order, file by file: types,
 //     functions, lets and context builders, so a source name keeps its
-//     spelling unless Go reserves it;
+//     spelling unless Go reserves it; then each machine type's initial
+//     state and static graph (machine.go, machineGraph);
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
 //     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     machine graph accessor and its pair type (machine.go, graphAccessor), the
 //     type-set interfaces of ordered and number (decls.go, constraint) and
 //     the imports of the Go packages that user externs target, in path
 //     order (calls.go, hostImportNames);
@@ -56,11 +59,16 @@ func (l *lowerer) nameAll() {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
 				}
 			}
 		}
 	}
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
+	for _, leaf := range v1.Leaves {
+		pkg := runtimeImport + "/" + leaf
+		l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // rtRef
+	}
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", "embed"}, "embed")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
@@ -75,10 +83,13 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"niche tag", nil}, "ergoNilTag") // flatunion.go
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
+	l.pkgName(pkgKey{"callnames", nil}, "ergoCallNames")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	l.pkgName(pkgKey{"inlines", nil}, "ergoInlines") // inline.go, inlineTable
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
+	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
+	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()

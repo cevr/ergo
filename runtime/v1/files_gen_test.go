@@ -25,7 +25,7 @@ const bodyTablePath = "files_gen.go"
 // bodies-table-stale of the ledger. Rewrite the table with:
 // go test ./runtime/v1 -run TestBodyTableIsCurrent -update-bodies
 func TestBodyTableIsCurrent(t *testing.T) {
-	decls, err := parseDecls(Source)
+	decls, err := parseSources()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +135,13 @@ func bodyLiteral(b Body) string {
 	}
 	if b.Host {
 		fields = append(fields, "Host: true")
+	}
+	if leaf, ok := strings.CutPrefix(b.Package, Path+"/"); ok {
+		fields = append(fields, fmt.Sprintf("Package: Path + %q", "/"+leaf))
+	} else if b.Package == Path {
+		fields = append(fields, "Package: Path")
+	} else if b.Package != "" {
+		fields = append(fields, fmt.Sprintf("Package: %q", b.Package))
 	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }

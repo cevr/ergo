@@ -376,7 +376,7 @@ func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
 // analysisUnit is the validated unit of a checked analysis; source
 // anchors a program of one source text.
 func analysisUnit(a Analysis, source string) (lower.Unit, error) {
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}}
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}, Root: filepath.Dir(source)}
 	if a.program != nil {
 		unit = a.program.unit()
 	}

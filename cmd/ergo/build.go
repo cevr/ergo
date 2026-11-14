@@ -131,8 +131,10 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 // buildAction is the Go build action of opts' command: the go command
 // ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
 // opts.platform, always stated, so the go env file's GOOS and GOARCH never
-// choose it. The emitted module is the same for every platform; Go's
-// action cache keys the link on the platform.
+// choose it. `ergo build` strips the symbol table and DWARF unless --debug
+// is given; `ergo run` keeps them, as its binary is not shipped. The
+// emitted module is the same for every platform and either way; Go's
+// action cache keys the link on the platform and the flags.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()
 	selected, err := goCommand()
@@ -141,6 +143,7 @@ func buildAction(opts fileOptions) (build.Toolchain, error) {
 	}
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Strip = opts.command == "build" && !opts.debug
 	return tc, nil
 }
 

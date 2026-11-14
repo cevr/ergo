@@ -45,7 +45,7 @@ func IntN(p PCG, n int) int { p.src.IntN(n) }
 // Float64 is the next draw of p's stream in [0, 1), as Go's r.Float64().
 func Float64(p PCG) float64 { p.src.Float64() }
 
-extern go ergo.local/prototype/runtime/v1.NewStream func newStream(seed uint64) Stream
+extern go ergo.local/prototype/runtime/v1/rand.NewStream func newStream(seed uint64) Stream
 
 // Host is the host's Random provider: Go's global math/rand/v2 functions,
 // seeded by the runtime (ChaCha8 per thread), with no stream to replay.
@@ -72,6 +72,6 @@ func IntN(_ Host, n int) int { hostIntN(n) }
 // rand.Float64).
 func Float64(_ Host) float64 { hostFloat64() }
 
-extern go ergo.local/prototype/runtime/v1.RandHostUint64 func hostUint64() uint64
-extern go ergo.local/prototype/runtime/v1.RandHostIntN func hostIntN(n int) int
-extern go ergo.local/prototype/runtime/v1.RandHostFloat64 func hostFloat64() float64
+extern go ergo.local/prototype/runtime/v1/rand.RandHostUint64 func hostUint64() uint64
+extern go ergo.local/prototype/runtime/v1/rand.RandHostIntN func hostIntN(n int) int
+extern go ergo.local/prototype/runtime/v1/rand.RandHostFloat64 func hostFloat64() float64

@@ -106,7 +106,7 @@ func TestTraceTimeoutRecordsDeadline(t *testing.T) {
 		done <- err
 	}()
 	v.AwaitTimers(2) // the deadline and the child's sleep
-	v.Advance(time.Second)
+	v.Advance(rt.Span(time.Second))
 	err := <-done
 	if _, ok := rt.Failure(err); !ok || !errors.As(err, new(rt.Expired)) {
 		t.Fatalf("exit %v; want timeout.Expired", err)
@@ -270,7 +270,7 @@ func TestTraceHandlersLinkTheirOwnDeadlines(t *testing.T) {
 	}()
 	for range children {
 		v.AwaitTimers(2)
-		v.Advance(time.Second)
+		v.Advance(rt.Span(time.Second))
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)

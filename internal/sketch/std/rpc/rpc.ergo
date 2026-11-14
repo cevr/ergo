@@ -108,17 +108,17 @@ func refusal(status int, reason string) http.Response {
 
 // parse reads a body's envelopes: one JSON value per line (framed, ndjson),
 // or one envelope or an array of them (json).
-extern go ergo.local/prototype/runtime/v1.RPCParse func parse(text string, framed bool) []Envelope fails Malformed
+extern go ergo.local/prototype/runtime/v1/rpc.RPCParse func parse(text string, framed bool) []Envelope fails Malformed
 
 // exits runs each Request of envelopes on a task of its own below the
 // caller's and is the json answer: the array of their Exits, each with
 // its request's id, in the order the calls end.
-extern go ergo.local/prototype/runtime/v1.RPCExits func exits[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R) string needs R
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExits func exits[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R) string needs R
 
 // exitLines runs each Request of envelopes as exits does, and emits each
 // Exit's ndjson line as its call ends. A failed emit stops the calls
 // left and is exitLines' failure.
-extern go ergo.local/prototype/runtime/v1.RPCExitLines func exitLines[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R, emit func(line string) fails http.WriteFailed) fails http.WriteFailed needs R
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExitLines func exitLines[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R, emit func(line string) fails http.WriteFailed) fails http.WriteFailed needs R
 
 // Conn is an Effect RPC server, for Call: one at a URL (Dial) or one
 // served in this process (Loopback). Its field is unexported: only this
@@ -157,14 +157,14 @@ func Loopback(handle escaping func(tag string, payload string) string fails Fail
 
 // nextID is the id of this process's next Request, from 0, as Effect's
 // default id generator counts; Dial's calls count on the same counter.
-extern go ergo.local/prototype/runtime/v1.RPCNextID func nextID() string
+extern go ergo.local/prototype/runtime/v1/rpc.RPCNextID func nextID() string
 
 // request is the body of one Request for tag with payload.
-extern go ergo.local/prototype/runtime/v1.RPCRequest func request(id string, tag string, payload string) string
+extern go ergo.local/prototype/runtime/v1/rpc.RPCRequest func request(id string, tag string, payload string) string
 
 // readExit finds the Exit of request id in an answer and is its outcome,
 // as Call says; a status other than 200 is Transport.
-extern go ergo.local/prototype/runtime/v1.RPCReadExit func readExit(id string, status int, contentType string, body string) string fails Failed | Unrepresentable | Transport
+extern go ergo.local/prototype/runtime/v1/rpc.RPCReadExit func readExit(id string, status int, contentType string, body string) string fails Failed | Unrepresentable | Transport
 
 // Call posts one Request for the operation tag with payload, a JSON
 // object's text, and is the Success value's text. A Fail cause fails
@@ -179,24 +179,24 @@ func Call(c Conn, tag string, payload string) string fails Failed | Unrepresenta
 	try c.post(tag, payload)
 }
 
-extern go ergo.local/prototype/runtime/v1.RPCCall func call(url string, tag string, payload string) string fails Failed | Unrepresentable | Transport
+extern go ergo.local/prototype/runtime/v1/rpc.RPCCall func call(url string, tag string, payload string) string fails Failed | Unrepresentable | Transport
 
 // Tagged is object, a JSON object's text, with "_tag": tag as its first
 // member: the wire form of a typed failure and of a request.
-extern go ergo.local/prototype/runtime/v1.RPCTagged func Tagged(tag string, object string) string
+extern go ergo.local/prototype/runtime/v1/rpc.RPCTagged func Tagged(tag string, object string) string
 
 // TagOf is the "_tag" member of a JSON object's text, "" when it has none.
-extern go ergo.local/prototype/runtime/v1.RPCTagOf func TagOf(text string) string
+extern go ergo.local/prototype/runtime/v1/rpc.RPCTagOf func TagOf(text string) string
 
 // Die raises the defect {name, message}: a server answers a call that
 // raised it with a Die cause of that name and message.
-extern go ergo.local/prototype/runtime/v1.RPCDie func Die[T](name string, message string) T
+extern go ergo.local/prototype/runtime/v1/rpc.RPCDie func Die[T](name string, message string) T
 
 // Exact fails Unrepresentable when n is outside +-(2^53-1).
-extern go ergo.local/prototype/runtime/v1.RPCExact func Exact(path string, n int64) fails Unrepresentable
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExact func Exact(path string, n int64) fails Unrepresentable
 
 // ExactUint fails Unrepresentable when n is above 2^53-1.
-extern go ergo.local/prototype/runtime/v1.RPCExactUint func ExactUint(path string, n uint64) fails Unrepresentable
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExactUint func ExactUint(path string, n uint64) fails Unrepresentable
 
 // Under is u found at path inside the value at prefix.
 func Under(prefix string, u Unrepresentable) Unrepresentable {
@@ -211,7 +211,7 @@ func Under(prefix string, u Unrepresentable) Unrepresentable {
 // as Unrepresentable. The generated code calls it where the operation's
 // row cannot name Unrepresentable: the server before it answers, the
 // providing client.
-extern go ergo.local/prototype/runtime/v1.RPCRefuse func Refuse[T](u Unrepresentable) T
+extern go ergo.local/prototype/runtime/v1/rpc.RPCRefuse func Refuse[T](u Unrepresentable) T
 
 // Lost raises the defect of a call the wire did not carry, the Die
 // RpcClientError with t's reason: the providing client calls it, since

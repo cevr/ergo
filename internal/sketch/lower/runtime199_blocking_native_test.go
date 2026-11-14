@@ -134,7 +134,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
-// (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their
+// (std-align S3c): runtime/v1/exec/exec_test.go TestExecStopModel states their
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.
@@ -310,7 +310,7 @@ func blockingNative(t *testing.T, name, route string) {
 			data = replace(data, from, from+"\n\tdefer BlockingEnter(\"Timeline.Wait\", t)()")
 			data = replace(data, "return &Timeline{v: rt.NewManual(t, start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
 		case "ergo/runtime/rt/clock.go":
-			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
 		case "ergo/runtime/rt/handle.go":
 			data = replace(data, "close(h.done)", "ready := BlockingFinished\n\tclose(h.done)\n\tif ready != nil { ready <- &h.task }")
 		}
@@ -502,7 +502,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  if actual := receive(t, entered); actual != waiter { t.Fatal("binding received another task") }
  ready := func() {
   switch primitive {
-  case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(time.Hour)
+  case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(rt.Span(time.Hour))
   case "Queue.Push": if v, err := q.Pop(control); err != nil || v != 99 { panic("lost original queue value") }
   default: if err := q.Push(control, 7); err != nil { panic(err) }
   }

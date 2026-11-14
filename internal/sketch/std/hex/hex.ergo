@@ -13,11 +13,11 @@ type Malformed { Offset int }
 
 // Encode is the lower-case hexadecimal text of the bytes of s, two digits
 // a byte, as Go's hex.EncodeToString.
-extern go ergo.local/prototype/runtime/v1.HexEncode func Encode(s string) string
+extern go ergo.local/prototype/runtime/v1/digest.HexEncode func Encode(s string) string
 
 // Decode is the bytes that the hexadecimal text s writes; upper- and
 // lower-case digits both read. A text that is not one fails Malformed.
-extern go ergo.local/prototype/runtime/v1.HexDecode func Decode(s string) string fails Malformed
+extern go ergo.local/prototype/runtime/v1/digest.HexDecode func Decode(s string) string fails Malformed
 
 // DecodeInvertsEncode: decoding an encoding gives the bytes back, for any
 // bytes, valid UTF-8 or not.

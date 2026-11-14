@@ -87,7 +87,7 @@ func (l *lowerer) ownedFormOf(c *check.Call, recv check.Type, site syntax.Node) 
 		body, owned = name, name+"Owned"
 	case check.CallOp:
 		n, ok := recv.(*check.Named)
-		if !ok || c.Op == nil || l.runtimeType(n, site) == "" {
+		if !ok || c.Op == nil || !l.runtimeNamed(n, site) {
 			return ownedForm{}, false
 		}
 		body, owned, shift = n.Obj.Name+"."+c.Op.Name, n.Obj.Name+c.Op.Name+"Owned", 1

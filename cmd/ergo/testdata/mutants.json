@@ -256,6 +256,28 @@
     {"name":"lint0-config-ignored","origin":"wf10 LINT0","file":"cmd/ergo/lint.go","from":"return lint.ParseConfig(data)","to":"_ = data\n\treturn lint.DefaultConfig(), nil","rule":"ergo lint reads the ergo.lint.json beside the module's ergo.mod.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
     {"name":"lint0-diagnostics-without-lint","origin":"wf10 LINT0","file":"cmd/ergo/main.go","from":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())","to":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, nil); _ = run","rule":"ergo diagnostics merges lint advice after the compiler's findings.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
     {"name":"lint0-strict-ignores-warnings","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"(!strict || report.TotalCounts.Warnings == 0)","to":"true","rule":"--strict fails policy on a lint warning.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}},
-    {"name":"lint0-policy-ignores-lint-errors","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"advice.Complete && report.TotalCounts.Errors == 0","to":"advice.Complete","rule":"A lint finding of severity error fails policy.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}}
+    {"name":"lint0-policy-ignores-lint-errors","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"advice.Complete && report.TotalCounts.Errors == 0","to":"advice.Complete","rule":"A lint finding of severity error fails policy.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}},
+    {
+      "name": "bs4-default-unstripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = false && opts.command == \"build\" && !opts.debug",
+      "rule": "binsize plan 3 (e): ergo build links without the symbol table and DWARF by default.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
+    },
+    {
+      "name": "bs4-debug-stripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = opts.command == \"build\"",
+      "rule": "binsize plan 3 (e): ergo build --debug keeps the symbol table and DWARF.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
+    }
   ]
 }

@@ -3,6 +3,7 @@ package lower
 import (
 	"go/ast"
 	"go/types"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,7 +23,7 @@ import (
 //     capture(t, recover()), or p := recover() and capture(…, p);
 //   - v1 never uses rt's other defect paths: (*Cause).AddDefect outside
 //     capture, (*Cause).Error (rt's own formatter, not the report), or
-//     runtime/debug.Stack outside defectOf, in a call or a method value.
+//     runtime.Stack outside defectOf, in a call or a method value.
 func TestRuntime199DefectRecovery(t *testing.T) {
 	rtSrc := typedPackage(t, filepath.Join("..", "..", "..", "runtime", "rt"))
 	v1 := typedPackage(t, filepath.Join("..", "..", "..", "runtime", "v1"))
@@ -34,6 +35,13 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 			return
 		}
 		calls[owner] = map[string]bool{}
+		if owner == "methodText" {
+			// rt.Text writes a panic of a value's Error or String method
+			// into the value's text, as fmt's %v did before binsize BS2;
+			// it ends no task and makes no defect, so it is no recovery
+			// API.
+			return
+		}
 		// A recover whose value is kept (assigned or passed on) records a
 		// panic; one only compared with nil, as the trace's sink guard
 		// does, drops it and makes no defect.
@@ -117,19 +125,56 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")
 	}
+	// v1 and its leaves (binsize BS1, BS8): a leaf hands rt the body
+	// through v1.Guarded, which runs it by guarded.
+	pkgs := []*typedSource{v1}
+	v1Dir := filepath.Join("..", "..", "..", "runtime", "v1")
+	entries, err := os.ReadDir(v1Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "testdata" {
+			pkgs = append(pkgs, typedPackage(t, filepath.Join(v1Dir, e.Name())))
+		}
+	}
+	if len(pkgs) < 3 {
+		t.Fatalf("the scan found %d packages of runtime/v1; want the core and its leaves", len(pkgs))
+	}
+	seen := map[string]bool{}
+	for _, src := range pkgs {
+		scanDefectOwners(t, src, allowed, seen, isRT, recovering)
+	}
+	for edge := range allowed {
+		if !seen[edge] {
+			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
+		}
+	}
+}
+
+// scanDefectOwners checks one package of runtime/v1 (the core or a leaf)
+// against the defect owner's edges, recording each edge it takes in seen.
+func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, seen map[string]bool, isRT func(*types.Func) bool, recovering map[string]bool) {
+	t.Helper()
 	v1Func := func(e ast.Expr) string {
 		var name string
 		ast.Inspect(e, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
-				if f, ok := v1.info.Uses[id].(*types.Func); ok && f.Pkg() == v1.pkg && (f.Name() == "guarded" || f.Name() == "classify") {
+				f, ok := v1.info.Uses[id].(*types.Func)
+				if !ok || f.Pkg() == nil || !strings.HasSuffix(f.Pkg().Path(), "/runtime/v1") && f.Pkg() != v1.pkg {
+					return true
+				}
+				switch f.Name() {
+				case "guarded", "classify":
 					name = f.Name()
+				case "Guarded": // the leaves' name of guarded (runtime/v1 leaves.go)
+					name = "guarded"
 				}
 			}
 			return true
 		})
 		return name
 	}
-	seen := map[string]bool{}
 	v1.owners(func(owner string, decl ast.Decl) {
 		ast.Inspect(decl, func(n ast.Node) bool {
 			switch n := n.(type) {
@@ -166,8 +211,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 					t.Errorf("v1 %s uses rt's (*Cause).Error, a defect formatter outside report", owner)
 				case isRT(f) && key == "Cause.AddDefect" && owner != "capture":
 					t.Errorf("v1 %s uses rt's (*Cause).AddDefect outside capture", owner)
-				case f.Pkg() != nil && f.Pkg().Path() == "runtime/debug" && f.Name() == "Stack" && owner != "defectOf":
-					t.Errorf("v1 %s takes debug.Stack outside defectOf", owner)
+				case f.Pkg() != nil && f.Pkg().Path() == "runtime" && f.Name() == "Stack" && owner != "defectOf":
+					t.Errorf("v1 %s takes runtime.Stack outside defectOf", owner)
 				case isRT(f) && recovering[key] && !isCallee(decl, n):
 					t.Errorf("v1 %s takes rt's recovery API %s as a value", owner, key)
 				}
@@ -176,11 +221,6 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		})
 		recoverFlows(t, v1, owner, decl)
 	})
-	for edge := range allowed {
-		if !seen[edge] {
-			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
-		}
-	}
 }
 
 // recoverFlows checks that each recover in decl hands its value to capture

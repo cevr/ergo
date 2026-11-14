@@ -98,7 +98,7 @@ func NewClient(origin string, limits Limits) Client fails InvalidClient | Invali
 	Client{origin: origin, limits: limits}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
+extern go ergo.local/prototype/runtime/v1/http.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
 
 // Send joins r.Path and r.Query to the origin and sends r. Redirects are
 // responses; there is no retry and no timeout of its own.
@@ -130,7 +130,7 @@ func SendInto(c Client, r Request, accept Accept, put func(part string) fails Si
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
 
 // SendFailed is the host's form of a RequestFailed: one record for the four
 // causes (a Go type cannot be a union variant), which Send turns into the
@@ -149,7 +149,7 @@ func causeOf(kind int, reason string, limit int) Cause {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
 
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is

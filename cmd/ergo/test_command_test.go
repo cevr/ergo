@@ -229,7 +229,7 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	root := physicalTempDir(t)
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	tmp := t.TempDir()
-	source := smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
+	smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
 	stdout, stderr, code := testRunCLI(t, binary, root, xdg, tmp, "build", "main.ergo", "-o", "app", "-work")
 	if code != 0 || stdout != "app\n" {
 		t.Fatalf("build -work: exit %d stdout %q stderr %q", code, stdout, stderr)
@@ -244,7 +244,7 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	if built == tested || filepath.Dir(built) != modules || filepath.Dir(tested) != modules {
 		t.Fatalf("build module %s and test module %s, want two modules of %s", built, tested, modules)
 	}
-	body := regexp.MustCompile(`(?m)^\s*//line ` + regexp.QuoteMeta(source) + `:4\b`)
+	body := regexp.MustCompile(`(?m)^\s*//line main\.ergo:4\b`)
 	read := func(dir string) string {
 		data, err := os.ReadFile(filepath.Join(dir, "main.go"))
 		if err != nil {

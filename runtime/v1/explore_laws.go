@@ -3,8 +3,8 @@
 package v1
 
 import (
-	"fmt"
 	"slices"
+	"strconv"
 	"sync"
 
 	"ergo.local/prototype/runtime/rt"
@@ -71,11 +71,14 @@ func (l *childLaws) verdict() string {
 	return l.broken
 }
 
-func (l *childLaws) breaks(law, format string, args ...any) {
+func (l *childLaws) breaks(law, text string) {
 	if l.broken == "" {
-		l.broken = "explore: law " + law + " broken: " + fmt.Sprintf(format, args...)
+		l.broken = "explore: law " + law + " broken: " + text
 	}
 }
+
+// uintText is n in decimal.
+func uintText(n uint64) string { return strconv.FormatUint(n, 10) }
 
 // Event is rt.Tracer's.
 func (l *childLaws) Event(e rt.Event) {
@@ -99,7 +102,7 @@ func (l *childLaws) Event(e rt.Event) {
 	case rt.MachineWorkInterrupted, rt.MachineWorkFailed:
 		if en, ok := l.works[e.Task]; ok {
 			if k := l.liveKid(en); k != nil {
-				l.breaks("ChildInsideEntry", "the work of %s's entry %d ended (%s) while its child %s lives", l.actors[en.actor].name, en.epoch, m.What, k.name)
+				l.breaks("ChildInsideEntry", "the work of "+l.actors[en.actor].name+"'s entry "+uintText(en.epoch)+" ended ("+m.What.String()+") while its child "+k.name+" lives")
 			}
 		}
 		return
@@ -120,7 +123,7 @@ func (l *childLaws) Event(e rt.Event) {
 			en := lawEntry{a.task, a.open}
 			l.taken[en]++
 			if l.taken[en] > l.out[en] {
-				l.breaks("NoLateChildOutput", "%s stepped child output %d in entry %d, whose children gave %d", a.name, l.taken[en], a.open, l.out[en])
+				l.breaks("NoLateChildOutput", a.name+" stepped child output "+strconv.Itoa(l.taken[en])+" in entry "+uintText(a.open)+", whose children gave "+strconv.Itoa(l.out[en]))
 			}
 		}
 	case rt.MachineDecide:
@@ -144,7 +147,7 @@ func (l *childLaws) Event(e rt.Event) {
 // start records an actor's start; a child also starts inside an open
 // entry of its parent.
 func (l *childLaws) start(e rt.Event) {
-	a := &lawActor{task: e.Task, name: fmt.Sprintf("actor %d", len(l.actors)), live: true, kids: map[uint64][]uint64{}}
+	a := &lawActor{task: e.Task, name: "actor " + strconv.Itoa(len(l.actors)), live: true, kids: map[uint64][]uint64{}}
 	l.actors[e.Task] = a
 	for x := l.parent[e.Task]; x != 0; x = l.parent[x] {
 		en, ok := l.works[x]
@@ -154,9 +157,9 @@ func (l *childLaws) start(e rt.Event) {
 		p := l.actors[en.actor]
 		a.owner = &en
 		p.kids[en.epoch] = append(p.kids[en.epoch], a.task)
-		a.name = fmt.Sprintf("%s (child %d of %s's entry %d)", a.name, len(p.kids[en.epoch]), p.name, en.epoch)
+		a.name += " (child " + strconv.Itoa(len(p.kids[en.epoch])) + " of " + p.name + "'s entry " + uintText(en.epoch) + ")"
 		if !p.live || p.open != en.epoch {
-			l.breaks("ChildInsideEntry", "%s started outside its entry (%s is in entry %d, live %v)", a.name, p.name, p.open, p.live)
+			l.breaks("ChildInsideEntry", a.name+" started outside its entry ("+p.name+" is in entry "+uintText(p.open)+", live "+strconv.FormatBool(p.live)+")")
 		}
 		return
 	}
@@ -172,7 +175,7 @@ func (l *childLaws) opens(a *lawActor, epoch uint64) {
 			continue
 		}
 		if k := l.liveKid(lawEntry{a.task, e}); k != nil {
-			l.breaks("ChildInsideEntry", "%s opened entry %d while %s lives", a.name, epoch, k.name)
+			l.breaks("ChildInsideEntry", a.name+" opened entry "+uintText(epoch)+" while "+k.name+" lives")
 		}
 	}
 	a.open, a.ending = epoch, false
@@ -188,14 +191,14 @@ func (l *childLaws) exit(a *lawActor) {
 			sibs := p.kids[a.owner.epoch]
 			for _, s := range sibs[slices.Index(sibs, a.task)+1:] {
 				if k := l.actors[s]; k.live {
-					l.breaks("ChildrenStopFirst", "%s ended before %s, started after it", a.name, k.name)
+					l.breaks("ChildrenStopFirst", a.name+" ended before "+k.name+", started after it")
 				}
 			}
 		}
 	}
 	for e := range a.kids {
 		if k := l.liveKid(lawEntry{a.task, e}); k != nil {
-			l.breaks("ChildrenStopFirst", "%s ended while %s lives", a.name, k.name)
+			l.breaks("ChildrenStopFirst", a.name+" ended while "+k.name+" lives")
 		}
 	}
 }

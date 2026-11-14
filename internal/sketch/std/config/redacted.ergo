@@ -32,7 +32,7 @@ type Redacted[T] {
 }
 
 // NewRedacted is a secret that holds v.
-extern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]
+extern go ergo.local/prototype/runtime/v1/redacted.NewRedacted func NewRedacted[T](v T) Redacted[T]
 
 // RevealIsTheValue: a secret gives back the value it was made with.
 law RevealIsTheValue(v string, n int) {

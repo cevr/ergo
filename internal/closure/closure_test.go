@@ -125,9 +125,22 @@ var declared = map[string][]allowance{
 		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable finds each benchmark a Lowering cell names in the test files of its package; the rpc row names internal/rpcgen.BenchmarkRpcUnary"),
 		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
 		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),
+		glob("runtime/v1/csv/*_test.go", "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"),
+		glob("runtime/v1/digest/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"),
+		glob("runtime/v1/exec/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"),
+		glob("runtime/v1/rand/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+	},
+	"runtime/v1/digest": {
+		{"docs/spec/stdlib.md", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/exec": {
+		{"docs/spec/stdlib.md", file, "the exec law runners pass their laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/rand": {
+		{"docs/spec/stdlib.md", file, "TestRandLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
 	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),

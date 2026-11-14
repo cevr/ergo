@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"os"
 
 	"ergo.local/prototype/runtime/rt"
@@ -29,7 +28,7 @@ func rootFor() (*rt.Task, func()) {
 	rec := rttrace.New(traceCapacity)
 	return rt.TracedRoot("main", rec), func() {
 		if err := rttrace.WriteFile(path, rec, "", "ergo", nil); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			os.Stderr.WriteString(err.Error() + "\n")
 		}
 	}
 }
