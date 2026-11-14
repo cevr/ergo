@@ -19,6 +19,6 @@ func main() fails os.Exit needs Console | Ambient {
 		with Subscribers { script.Run() }
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-form: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-form: the script did not run"}
 	}
 }

@@ -13,6 +13,6 @@ import os
 func main() fails os.Exit needs Console | Ambient {
 	let status = with context { io.Stdin: io.NewStdin() } { script.Run() }
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-flow: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-flow: the script did not run"}
 	}
 }
