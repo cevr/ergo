@@ -159,15 +159,17 @@ func pointers(ns []int) needs Console {
 }
 
 // growth renders n cards, then the same n with one changed, then one:
-// the runs of each pass and the groups kept after the last.
+// the runs of each pass, the nodes Commit compared after the change, and
+// the groups kept after the last.
 func growth(n int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let _ = ui.Render(&f, list, listed(n, -1))
 	let first = ui.GroupRuns(&f)
 	let _ = ui.Render(&f, list, listed(n, n/2))
 	let changed = ui.GroupRuns(&f)
+	let compared = ui.Compared(&f)
 	let _ = ui.Render(&f, list, listed(1, -1))
-	Console.Println("growth \(n) \(first) \(changed) \(ui.GroupsKept(&f))")
+	Console.Println("growth \(n) \(first) \(changed) \(compared) \(ui.GroupsKept(&f))")
 }
 `
 
@@ -333,15 +335,18 @@ func (g *uiSkipGen) states(n int) []string {
 //
 // It also holds that skipping happens, as counted work: a pass that
 // returns the same arguments runs fewer components than the first pass,
-// and one changed card of n runs one component, at n 8 and 64; the
-// groups kept follow the cards when they drop to one (growth).
+// and one changed card of n runs one component and Commit compares its
+// three nodes alone, at n 8 and 64; the groups kept follow the cards when
+// they drop to one (growth).
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
 //
 // Mutants (testdata/mutants.json): ui-group-args-ignored,
 // ui-group-impure-kept, ui-group-count-unchecked, ui-group-parent-unmapped,
-// ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg.
+// ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg,
+// ui-commit-same-move-dropped, ui-commit-same-ref-unset,
+// ui-commit-same-never.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
@@ -434,7 +439,7 @@ func TestUISkipAgrees(t *testing.T) {
 	if first == 0 || later >= first*9 {
 		t.Errorf("the groups build ran %d components in first passes and %d in the 9 later ones of each seed: no component was skipped", first, later)
 	}
-	if want := []string{"growth 8 8 1 1", "growth 64 64 1 1"}; strings.Join(growth, "|") != strings.Join(want, "|") {
-		t.Errorf("growth: %q, want %q (n, first runs, runs after one change, groups kept at one card)", growth, want)
+	if want := []string{"growth 8 8 1 3 1", "growth 64 64 1 3 1"}; strings.Join(growth, "|") != strings.Join(want, "|") {
+		t.Errorf("growth: %q, want %q (n, first runs, runs after one change, nodes compared then, groups kept at one card)", growth, want)
 	}
 }

@@ -32,6 +32,7 @@ type Frame[E] {
 	group  int,
 	groupSeen Map[slotOf, int],
 	groupRuns int,
+	compared int,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -75,7 +76,9 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // spec is one node a pass wrote: what it shows, its identity, the index
 // of its parent spec (-1 for a child of the root), the node of the last
 // pass with its identity (prev, Null for none) and the node of this pass
-// (ref, set by Commit).
+// (ref, set by Commit). same marks a node a kept group wrote again
+// (group.ergo) at the top of its nodes: it and every node below it are
+// prev's, unchanged, so Commit keeps them without comparing them.
 type spec[E] {
 	node   Node[E],
 	id     ident,
@@ -85,6 +88,7 @@ type spec[E] {
 	onText Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
 	binds  Option[cellAt],
+	same   bool,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -97,7 +101,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[indexAt, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[indexAt, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0, compared: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -190,7 +194,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	if arena.Has(f.nodes, prev) && kindOf(nodeAt(f, prev).node) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
+	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, same: false})
 	len(f.specs) - 1
 }
 
@@ -265,6 +269,7 @@ func Each[E, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T), at CallSi
 func Commit[E comparable](f *Frame[E]) []Op[E] {
 	f.ops = []Op[E]{}
 	f.jobs = []Job[E]{}
+	f.compared = 0
 	let kids = childLists(f)
 	reconcile(f, kids, -1, f.root, kids[0])
 	settle(f)
@@ -354,6 +359,15 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		}
 		let sp = f.specs[want[j]]
 		let id = Id[E]{ref: refs[j]}
+		if sp.same && src[j] >= 0 {
+			// A kept group's node, matched to the node it was: it and its
+			// subtree are unchanged (writeAgain set their refs).
+			if !keep[j] {
+				emit(f, Move{Id: id, Parent: parent, Before: before})
+			}
+			continue
+		}
+		f.compared = f.compared + 1
 		if src[j] < 0 {
 			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
 		} else {

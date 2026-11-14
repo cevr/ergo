@@ -119,7 +119,7 @@ func writeAgain[E](f *Frame[E], i int) bool {
 		if s.parent >= 0 {
 			parent = first + s.parent
 		}
-		f.specs = f.specs.Append(spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, binds: s.binds})
+		f.specs = f.specs.Append(spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: s.ref, onText: s.onText, onPoint: s.onPoint, binds: s.binds, same: s.parent < 0})
 	}
 	true
 }
@@ -164,7 +164,12 @@ func keepGroups[E](f *Frame[E]) {
 		}
 	}
 	for i, g in f.groups {
-		if g.pure {
+		if g.again >= 0 {
+			// Written again: its nodes, refs and inner groups are the kept
+			// group's, so it is kept as it was.
+			next[keys[i]] = len(list)
+			list = list.Append(f.keptList[g.again])
+		} else if g.pure {
 			let mut specs = []spec[E]{}
 			for j in g.start..g.end {
 				let mut c = f.specs[j]
@@ -216,6 +221,11 @@ func isLive(live Map[int, bool], slot int) bool {
 // written again from the last pass does not count. A growth guard counts
 // it (one changed row of many runs one row's component), never times.
 func GroupRuns[E](f *Frame[E]) int { f.groupRuns }
+
+// Compared is how many nodes the last Commit of f compared with the node
+// they were, or made: a kept group's nodes written again are kept whole
+// and not counted. A growth guard counts it.
+func Compared[E](f *Frame[E]) int { f.compared }
 
 // GroupsKept is how many groups f keeps for its next pass, and so how many
 // argument slots it holds: the memo's size.
