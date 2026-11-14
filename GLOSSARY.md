@@ -51,7 +51,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
-**Inferred row**: A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard. The checker still infers it until the explicit-signature units land.
+**Inferred row** (retired by decision, 2026-11-12; still checked until the explicit-signature units land): A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard. The checker still infers it until the explicit-signature units land.
 
 **Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
 
@@ -465,7 +465,7 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 ## Tooling and testing
 
-**`ergo fix`** (implemented, 2026-11-12; the diagnostic behind the checker's off-by-default `Explicit` option): The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
+**`ergo fix`**: The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
 
 **Lint advice**: Optional guidance about an admitted program, distinct from diagnostics that determine whether its contracts are valid.
 
