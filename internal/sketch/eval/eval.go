@@ -200,10 +200,14 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	return rep, nil
 }
 
+// obligationEnded, when set, sees each obligation's result as Run adds it:
+// a receipt reads each one's instructions and wall time between calls.
+var obligationEnded func(Result)
+
 // runOrdered is Run with every Map visited in order; it says whether a
 // for over a Map ran.
 func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, ranged bool, err error) {
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, walk: walkOnly.Load()}
 	rep.Limit, rep.BytesLimit = b.Steps, b.Bytes
 	defer func() {
 		if r := recover(); r != nil {
@@ -231,6 +235,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
 		rep.Results = append(rep.Results, res)
+		if h := obligationEnded; h != nil {
+			h(res) // a receipt's per-obligation work (export_test.go)
+		}
 		// An incomplete obligation used its own budget (begin): the next
 		// one has the whole budget again. An exhausted initializer stops
 		// every one (initFail).

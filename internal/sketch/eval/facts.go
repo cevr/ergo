@@ -50,6 +50,20 @@ type facts struct {
 		t, rt *check.Named
 		at    int
 	}
+	// plan is a call's callee plan (plan.go), and unreachable says the
+	// call is the prelude's Unreachable (ORACLE O34).
+	plan        *funcPlan
+	unreachable bool
+	// errSeen and errIs hold, by fact owner, whether a returned value of
+	// the expression's type is an error value (retValue), read outside a
+	// generic body (ORACLE O34).
+	errSeen, errIs uint8
+	// fast and sfast are the node's compiled forms as an expression and
+	// as a statement of a list, and form and sform their states
+	// (compile.go).
+	fast         fastExpr
+	sfast        fastStmt
+	form, sform  uint8
 }
 
 // fieldOf is the index of the field name in t, a record type, cached for
@@ -173,6 +187,7 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 		}
 	case *syntax.CallExpr:
 		f.call = info.Calls[h]
+		f.unreachable = check.IsUnreachable(f.call)
 	}
 	f.releases, f.match = info.Releases[x], info.Matches[x]
 	f.op = opOf(x, f)

@@ -41,6 +41,14 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // tailK is tailExpr with x's facts, f.
 func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
+	if f.plain && fr.env == nil {
+		if f.fast != nil {
+			return f.fast(in, fr) // compile.go
+		}
+		if f.form != formDone && in.visitExpr(fr, x, f) {
+			return f.fast(in, fr)
+		}
+	}
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
 	}
@@ -757,7 +765,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 	if c == nil {
 		ice("a call with no Calls entry")
 	}
-	if check.IsUnreachable(c) {
+	if xf.unreachable {
 		return nil, fr.defect(x, "unreachable")
 	}
 	switch c.Kind {
@@ -788,31 +796,36 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
-		ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
-		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
+		p := in.planAt(xf, c.Func)
+		if x.Trailing != nil && !(c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil) && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
-		if preludeCollection(c.Func) {
+		if p.collection {
 			return in.collectionCall(fr, x, c, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
 		// entry until it returns (own.go, holdTaken).
 		var held []*syntax.Ident
-		if c.Func.Decl != nil && c.Func.Decl.Extern != nil && c.Func.Pkg.Std() && len(c.Func.Sig.Takes) > 0 {
+		if p.takes {
 			ops := x.Args
 			if c.Recv != nil {
 				ops = append([]syntax.Expr{c.Recv}, x.Args...)
 			}
 			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
 		}
-		if ergoBody && x.Trailing == nil && len(held) == 0 && !c.Func.Pkg.Host() {
+		if p.ergo && x.Trailing == nil && len(held) == 0 {
 			// An Ergo body binds its arguments to its parameters and
 			// keeps no slice of them.
 			args, mark, ab := in.stackArgs(fr, x, c, xf)
 			if ab != nil {
 				return nil, ab
 			}
-			v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+			var v Value
+			if len(c.Func.Sig.TParams) == 0 {
+				v, ab = in.callPlanned(fr, x, p, nil, args)
+			} else {
+				v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+			}
 			in.argStack = in.argStack[:mark]
 			return v, ab
 		}
@@ -829,7 +842,12 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			fr.escaped = true
 			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
-		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+		var v Value
+		if len(c.Func.Sig.TParams) == 0 {
+			v, ab = in.callPlanned(fr, x, p, nil, args)
+		} else {
+			v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+		}
 		if len(held) > 0 {
 			ab = in.settleHeld(fr, held, ab)
 		}

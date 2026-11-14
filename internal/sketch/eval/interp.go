@@ -30,6 +30,9 @@ type interp struct {
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var
 	owners map[unsafe.Pointer]check.FactOwner
+	plans  map[*check.Func]*funcPlan // plan.go
+	// walk turns compiled forms off for this request (compile.go).
+	walk bool
 	files  map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
@@ -117,6 +120,22 @@ func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
 		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, in.ownerOf(pkg, decl), in.table(pkg.Info)
 	} else {
 		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	}
+	fr.vars = &fr.ownVars
+	return fr
+}
+
+// framePlanned is newFrame for a call of p's function, with the owner
+// and the table its plan read once.
+func (in *interp) framePlanned(p *funcPlan) *frame {
+	var fr *frame
+	pkg, decl := p.fn.Pkg, p.fn.Decl
+	if n := len(in.framePool); n > 0 {
+		fr = in.framePool[n-1]
+		in.framePool = in.framePool[:n-1]
+		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, p.owner, p.tab
+	} else {
+		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: p.owner, tab: p.tab}
 	}
 	fr.vars = &fr.ownVars
 	return fr
@@ -294,27 +313,23 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 // one (natives.go); any other Go function is skipped. The callee sees
 // the caller's capabilities.
 func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
-	switch {
-	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
-		if nat := nativeOf(fn); nat != nil && !fn.Pkg.Host() {
+	return in.callPlanned(fr, at, in.planOf(fn), targs, args)
+}
+
+// callPlanned is callResolved with the callee's plan (plan.go).
+func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs []rtype, args []Value) (Value, *abrupt) {
+	fn := p.fn
+	if !p.ergo {
+		if p.nat != nil {
 			var site syntax.Node = fr.decl
 			if at != nil {
 				site = at
 			}
-			return nat(in, fr, site, fn, args)
-		}
-		if nat := goNativeOf(fn); nat != nil {
-			var site syntax.Node = fr.decl
-			if at != nil {
-				site = at
-			}
-			return nat(in, fr, site, fn, args)
+			return p.nat(in, fr, site, fn, args)
 		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-	case fn.Pkg.Info == nil:
-		ice("the package of %s has no Info", fn.Name)
 	}
-	callee := in.newFrame(fn.Pkg, fn.Decl)
+	callee := in.framePlanned(p)
 	callee.caps = fr.caps
 	if len(fn.Sig.TParams) > 0 {
 		if len(targs) != len(fn.Sig.TParams) {
@@ -323,17 +338,28 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		n := len(targs)
 		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
 	}
-	params := in.paramsOf(fn)
+	params := p.params
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}
-	for i, p := range params {
-		callee.bind(p, args[i])
+	for i, v := range params {
+		callee.bind(v, args[i])
 	}
-	for _, p := range params {
-		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
+	for _, i := range p.owned {
+		in.ownVar(callee, params[i], fn.Decl) // a taken parameter (R8)
 	}
-	v, ab := in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	var body fastBody
+	if callee.env == nil && !in.walk {
+		switch p.bodyForm {
+		case formUnseen:
+			p.bodyForm = formSeen
+		case formSeen:
+			p.bodyForm = formDone
+			p.body = in.compileBody(callee, fn.Decl.Body.List)
+		}
+		body = p.body
+	}
+	v, ab := in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
 	in.freeFrame(callee)
 	return v, ab
 }
@@ -341,6 +367,11 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 // runFrame runs the body of a called frame one call deeper, and turns its
 // completion into the call's: a return's value, or the callee's failure.
 func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt) (Value, *abrupt) {
+	return in.runFrameBody(fr, at, callee, name, body, nil)
+}
+
+// runFrameBody is runFrame with the body's compiled form, when it has one.
+func (in *interp) runFrameBody(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt, fast fastBody) (Value, *abrupt) {
 	if in.depth >= in.budget.Depth {
 		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
 	}
@@ -349,7 +380,11 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 	var val Value
 	ab := in.entryPoll(callee)
 	if ab == nil {
-		val, ab = in.bodyValue(callee, body)
+		if fast != nil {
+			val, ab = fast(in, callee)
+		} else {
+			val, ab = in.bodyValue(callee, body)
+		}
 	}
 	// The frame ends: it releases what it still owns, on every exit.
 	ab = in.endFrame(callee, ab)
@@ -478,12 +513,31 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return nil, ab
 	}
-	if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
+	if in.returnsError(fr, x) {
 		if _, isRecord := v.(*record); isRecord {
 			return nil, fr.abrupt(ctlEscape, x, v, "")
 		}
 	}
 	return v, nil
+}
+
+// returnsError reports that x, a returned expression, gives a value of an
+// error type the declared result does not make the success value. Outside
+// a generic body the answer is the same at every return of x by a frame of
+// one owner, so x's facts keep it (ORACLE O34): the checker's IsErrorType
+// ranges over a map of sets.
+func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
+	if fr.env != nil || fr.owner >= 8 || fr.tab == nil {
+		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+	}
+	f, bit := in.fx(fr, x), uint8(1)<<fr.owner
+	if f.errSeen&bit == 0 {
+		if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
+			f.errIs |= bit
+		}
+		f.errSeen |= bit
+	}
+	return f.errIs&bit != 0
 }
 
 // resultExpr retains the chosen tail of a result-position control
