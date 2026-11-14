@@ -59,6 +59,30 @@ type Cost struct {
 // bounded overhead that is the same for every command measured.
 func Measure(cmd *exec.Cmd) (Cost, error) { return MeasureBounded(cmd, 0) }
 
+// CountSelf counts the user instructions f retires on this thread (-1 when
+// the host exposes no counter). f must not start goroutines that do the
+// work: only the calling thread is counted.
+func CountSelf(f func()) int64 {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attr := perfEventAttr{Type: perfTypeHardware, Config: perfCountHWInstr, Flags: perfFlagDisabled | perfFlagExcludeKernel | perfFlagExcludeHV}
+	attr.Size = uint32(unsafe.Sizeof(attr))
+	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), 0, 0)
+	if errno != 0 {
+		f()
+		return -1
+	}
+	defer syscall.Close(int(fd))
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCEnable, 0)
+	f()
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCDisable, 0)
+	var buf [8]byte
+	if n, _ := syscall.Read(int(fd), buf[:]); n != 8 {
+		return -1
+	}
+	return int64(binary.LittleEndian.Uint64(buf[:]))
+}
+
 // MeasureBounded is Measure with the program under proclimit's memory
 // limit (0: none), which the kernel enforces.
 func MeasureBounded(cmd *exec.Cmd, limit uint64) (Cost, error) {

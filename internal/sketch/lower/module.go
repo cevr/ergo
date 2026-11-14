@@ -187,7 +187,7 @@ type lowerer struct {
 	// nil applies none.
 	rewrite *rewriter
 	// ir collects the experimental IR bodies of LowerIR
-	// (irspike_experimental.go); nil in every other lowering.
+	// (ir.go); nil in every other lowering.
 	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
@@ -548,6 +548,9 @@ func (l *lowerer) program() ([]byte, error) {
 			l.decl(d)
 		}
 	})
+	if l.ir != nil {
+		l.ir.reachAll(l) // CensusStd only (ir.go)
+	}
 	// Every initializer of every reached declaration of a sourced package
 	// is lowered here: a library's lets, and its machines' initial values
 	// (F13). A library's other declarations are lowered where they are
