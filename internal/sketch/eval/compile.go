@@ -166,14 +166,12 @@ func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
 	case opComposite:
 		return in.compileRecord(fr, x.(*syntax.CompositeLit))
 	case opPlace:
-		sel, ok := x.(*syntax.SelectorExpr)
-		if !ok {
-			return nil
+		if sel, ok := x.(*syntax.SelectorExpr); ok {
+			if _, taken := fr.info.FieldTakes[sel]; taken {
+				return nil
+			}
 		}
-		if _, taken := fr.info.FieldTakes[sel]; taken {
-			return nil
-		}
-		peek := in.compilePeek(fr, sel)
+		peek := in.compilePeek(fr, x)
 		if peek == nil {
 			return nil
 		}
@@ -307,10 +305,7 @@ func (in *interp) compilePeek(fr *frame, x syntax.Expr) fastPeek {
 		if xf.field.t == nil || isPointer(fr.typeOf(x.X)) {
 			return nil
 		}
-		base := in.compilePeek(fr, x.X)
-		if base == nil {
-			return nil
-		}
+		base := in.basePeek(fr, x.X)
 		name := x.Sel.Name
 		return func(in *interp, fr *frame) (Value, *slot, *abrupt) {
 			b, root, ab := base(in, fr)
@@ -323,8 +318,54 @@ func (in *interp) compilePeek(fr *frame, x syntax.Expr) fastPeek {
 			}
 			return r.fields[xf.fieldOf(r.t, name)], root, nil
 		}
+	case *syntax.IndexExpr:
+		if in.fx(fr, x).instance != nil || len(x.Indices) != 1 || isPointer(fr.typeOf(x.X)) {
+			return nil
+		}
+		base := in.basePeek(fr, x.X)
+		idx := in.operand(fr, x.Indices[0], in.fx(fr, x.Indices[0]))
+		var at syntax.Node = x
+		return func(in *interp, fr *frame) (Value, *slot, *abrupt) {
+			b, root, ab := base(in, fr)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			iv, ab := idx(in, fr)
+			if ab != nil {
+				return nil, nil, escape(ab)
+			}
+			switch b := b.(type) {
+			case string:
+				i, ok := in.index(fr, at, iv, len(b))
+				if !ok {
+					return nil, nil, fr.defect(at, "index out of range [%s] with length %d", describe(iv), len(b))
+				}
+				return b[i], root, nil
+			case sliceV:
+				i, ok := in.index(fr, at, iv, b.n)
+				if !ok {
+					return nil, nil, fr.defect(at, "index out of range [%s] with length %d", describe(iv), b.n)
+				}
+				return b.b.data[b.off+i], root, nil
+			case mapV:
+				ice("a Map read by index")
+			}
+			ice("an index of %T", b)
+			return nil, nil, nil
+		}
 	}
 	return nil
+}
+
+// basePeek is the form of peekPath of x, a place's operand through no
+// borrow: its compiled peek, or the walk's.
+func (in *interp) basePeek(fr *frame, x syntax.Expr) fastPeek {
+	if p := in.compilePeek(fr, x); p != nil {
+		return p
+	}
+	return func(in *interp, fr *frame) (Value, *slot, *abrupt) {
+		return in.peekPath(fr, x, nil)
+	}
 }
 
 // visitStmt counts an evaluation of s, whose facts are sf, in a list and
