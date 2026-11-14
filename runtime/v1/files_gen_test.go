@@ -136,6 +136,9 @@ func bodyLiteral(b Body) string {
 	if b.Host {
 		fields = append(fields, "Host: true")
 	}
+	if b.Owned != "" {
+		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
+	}
 	if leaf, ok := strings.CutPrefix(b.Package, Path+"/"); ok {
 		fields = append(fields, fmt.Sprintf("Package: Path + %q", "/"+leaf))
 	} else if b.Package == Path {

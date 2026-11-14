@@ -17,7 +17,9 @@ import (
 
 const valueElideSource = `import maps
 import slices
+import strings
 import sync
+import utf8
 
 type Box { M Map[int, int], S []int }
 
@@ -93,6 +95,88 @@ func boxed(n int) Box {
 	b
 }
 
+type Text { B []byte }
+
+func addRune(r rune, t *Text) { t.B = utf8.AppendRune(t.B, r) }
+
+func runes(n int) Text {
+	let mut p = []byte{}
+	for i in 0..n {
+		p = utf8.AppendRune(p, rune(i))
+	}
+	let mut t = Text{B: []byte{}}
+	for _ in 0..len(p) {
+		addRune('x', &t)
+	}
+	t
+}
+
+// addByte is a pure user function whose result shares only b: a
+// rebinding p = addByte(p, c) hands p over (V7).
+func addByte(b []byte, c int) []byte { utf8.AppendRune(b, rune(c)) }
+
+func bytesOf(n int) []byte {
+	let mut p = []byte{}
+	for i in 0..n {
+		p = addByte(p, i + 65)
+	}
+	p
+}
+
+// tag's result shares only its receiver b: the dot rebinding
+// x = x.tag(i) hands x over (V7), and the field's Append writes in place.
+func tag(b Box, k int) Box {
+	if k > 90 {
+		return Box{M: Map[int, int]{}, S: []int{}}
+	}
+	b
+}
+
+func tagged(n int) Box {
+	let mut x = Box{M: Map[int, int]{}, S: []int{}}
+	for i in 0..n {
+		x = x.tag(i)
+		x.S = x.S.Append(i)
+	}
+	x
+}
+
+// joined's builder is dead at String: String's receiver is consumed, so
+// the text shares the buffer (Bindings 2, consumed arguments). kept's is
+// read after String, so its call copies the builder first.
+func joined(n int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		b.WriteByte(byte(i + 65))
+	}
+	b.String()
+}
+
+// sortedDown's slice is dead at slices.Sort, which sorts it in place
+// (Sort's owned form).
+func sortedDown(n int) []int {
+	let mut xs = []int{}
+	for i in 0..n {
+		xs = xs.Append(n - i)
+	}
+	slices.Sort(xs)
+}
+
+func keptText(n int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte(byte(n + 65))
+	let s = b.String()
+	b.WriteByte(byte(n + 66))
+	s + b.String()
+}
+
+// bytesOf's result is fresh: p's handed reads leave it unshared.
+func bytesTwice(n int) []byte {
+	let mut x = bytesOf(n)
+	x[0] = 1
+	x
+}
+
 func moved(n int) []int {
 	let xs = collect(n)
 	let mut ys = xs
@@ -127,7 +211,7 @@ func tally(n int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S))")
 }
 `
 
@@ -142,7 +226,11 @@ func main() needs Console {
 // F2), and the parameter's copy moves to the wrapper, which only an
 // indirect call reaches. With a named pure callback the rebinding is inlined
 // (inline.go) with the callback called through its site adapter; with inlineLowering
-// "call" it calls the owned body, uncopied.
+// "call" it calls the owned body, uncopied. A rebinding p = f(p, …) of a
+// pure body hands p over with no copy (V7), through a let mut local and
+// through a borrow, so a loop of utf8.AppendRune appends in place, and so
+// does a loop of the user function addByte, whose result shares only its
+// parameter (freshFrom), and so does the dot rebinding x = x.tag(i).
 // It reads the emitted Go only: the copies' meaning
 // is TestValueRuleAgrees', which passes with every copy in place, so only
 // the Go text tells this rule from the one that copies everywhere and from
@@ -151,10 +239,30 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned", "runes", "addRune", "bytesOf", "bytesTwice", "tagged"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
+	}
+	// A consumed receiver (Bindings 2): String's owned body shares the
+	// buffer through the runtime/v1 owned form; joined calls it with no
+	// copy, and keptText copies the builder it reads again.
+	if body := goFunc(t, code, "joined"); !strings.Contains(body, ".StringOwned(") || strings.Contains(body, "Clone") {
+		t.Errorf("joined does not hand its dead builder to String:\n%s", body)
+	}
+	if body := goFunc(t, code, "sortedDown"); !strings.Contains(body, "SlicesSortOwned[") {
+		t.Errorf("sortedDown does not sort its dead slice in place:\n%s", body)
+	}
+	if body := goFunc(t, code, "keptText"); strings.Count(body, "ergoCloneBuilder(") != 1 {
+		t.Errorf("keptText should copy the builder it writes after String, once:\n%s", body)
+	}
+	if !strings.Contains(code, "ergo.StringsBuilderTextOwned(") {
+		t.Errorf("String's owned body does not call the owned form StringsBuilderTextOwned")
+	}
+	// The method String itself, which a method value or a host protocol
+	// reaches, copies its receiver before the owned body takes it.
+	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(ergoCloneBuilder\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
+		t.Errorf("the method String does not copy its receiver for the owned body")
 	}
 	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
 		t.Errorf("kept should copy the kept read once:\n%s", body)
@@ -262,7 +370,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind", "hand-shared", "consume-any"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m

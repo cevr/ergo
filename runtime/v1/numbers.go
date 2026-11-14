@@ -56,6 +56,16 @@ func MathPow(x float64, y float64) float64 { return math.Pow(x, y) }
 //ergo:pure
 func MathMod(x float64, y float64) float64 { return math.Mod(x, y) }
 
+// MathLog is math.Log(f), the natural logarithm.
+//
+//ergo:pure
+func MathLog(f float64) float64 { return math.Log(f) }
+
+// MathExp is math.Exp(f), e to the power f.
+//
+//ergo:pure
+func MathExp(f float64) float64 { return math.Exp(f) }
+
 // MathInf is math.Inf(sign).
 //
 //ergo:pure

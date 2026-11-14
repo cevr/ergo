@@ -25,6 +25,15 @@ extern go ergo.local/prototype/runtime/v1.StringsTrimPrefix func TrimPrefix(s st
 // TrimSuffix is s without suffix, or s when it does not end with suffix.
 extern go ergo.local/prototype/runtime/v1.StringsTrimSuffix func TrimSuffix(s string, suffix string) string
 
+// TrimLeft is s without its leading runes that cutset holds, as Go's
+// strings.TrimLeft: cutset is a set of runes, not a prefix (TrimPrefix
+// removes a prefix).
+extern go ergo.local/prototype/runtime/v1.StringsTrimLeft func TrimLeft(s string, cutset string) string
+
+// TrimRight is s without its trailing runes that cutset holds, as Go's
+// strings.TrimRight.
+extern go ergo.local/prototype/runtime/v1.StringsTrimRight func TrimRight(s string, cutset string) string
+
 // Fields is the runs of s between white space; none when s is all space.
 extern go ergo.local/prototype/runtime/v1.StringsFields func Fields(s string) []string
 
@@ -146,6 +155,14 @@ law CutRebuilds(s string, sep string) {
 
 // TrimSpaceIsIdempotent: trimming twice is trimming once.
 law TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }
+
+// TrimLeftRightKeepEnds: TrimLeft keeps a suffix of s and TrimRight a
+// prefix, and trimming twice is trimming once.
+law TrimLeftRightKeepEnds(s string, cutset string) {
+	let l = TrimLeft(s, cutset)
+	let r = TrimRight(s, cutset)
+	HasSuffix(s, l) && HasPrefix(s, r) && TrimLeft(l, cutset) == l && TrimRight(r, cutset) == r
+}
 
 // ToLowerIsIdempotent: lower case twice is lower case once.
 law ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }

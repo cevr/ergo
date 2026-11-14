@@ -1023,11 +1023,16 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !known && sp == nil && !drop && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && sp == nil && !drop && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
 	methodName := fd.name
+	if owned && fd.method != nil {
+		// A method's owned body is a method of its own (calls.go).
+		methodName = bodyName
+	}
+	recvName := ""
 	if known {
 		if fd.extern != "" {
 			ice(site, "the known variant of %s is not a plain body", f.Name)
@@ -1064,6 +1069,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		paramNames[0] = name(0)
 		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
+		wrapHead = "func (" + paramNames[0] + " " + recv + ") " + fd.name + "("
+		recvName = paramNames[0]
+		typeArgs = nil // the receiver binds them
 	} else if sp != nil {
 		// A copy for a known record (record.go): one instance, its type
 		// parameters the call's Go types.
@@ -1198,11 +1206,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			return
 		}
 	}
-	recvName := ""
+	closeRecv := ""
 	if len(paramNames) > 0 {
-		recvName = paramNames[0]
+		closeRecv = paramNames[0]
 	}
-	fc.closeBody(f, recvName, site, func() {
+	fc.closeBody(f, closeRecv, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)
@@ -1234,7 +1242,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	if owned {
 		// The wrapper stands in the generated part, before the first
 		// //line directive: a defect names no Ergo frame for it.
-		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, site))
+		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 	}
 }
 

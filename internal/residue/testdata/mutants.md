@@ -35,3 +35,12 @@ Each is an edit of a lint rule that matches by spelling, judged by hand: the edi
 | --- | --- | --- |
 | `rule_foreign_error_public.go`: `check.IsGoError(n)` replaced by `n.String() == "go.Error"` | TestLintRulesReadNoSpelling | `rule_foreign_error_public.go:31: compares a spelling with a string`. |
 | `rule_silent_catch.go`: a callee spelled `tally` counted as a trace (`fun.Name == "tally" \|\| check.CallAddsFootprint(info, n)`) | TestLintRulesReadNoSpelling | `rule_silent_catch.go:90: compares a spelling with a string`; TestSilentCatchAgreesWithReference stays green. |
+# Unsafe inventory mutants (wf10 STD-sh r2)
+
+Each applied by hand (an edit, `go test -run TestUnsafeBodiesListed ./internal/residue`, the file restored), 2026-11-12: all killed.
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| The `StringsBuilderTextOwned` line names another function (the body is unlisted) | TestUnsafeBodiesListed | `runtime/v1/owned.go StringsBuilderTextOwned uses package unsafe and is not in …` |
+| `StringsBuilderTextOwned` returns `string(buf)` (the line goes stale) | TestUnsafeBodiesListed | `names no use of unsafe (a stale line)` |
+| The review part of a line removed | TestUnsafeBodiesListed | the line format error |
