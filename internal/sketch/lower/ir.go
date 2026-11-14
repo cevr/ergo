@@ -261,13 +261,18 @@ func (b *irBuilder) part(f func()) {
 // body tries an IR body for fd. params are the Ergo parameters in order;
 // gates are the emitter's reasons this body cannot take an IR body (a
 // frame, a variant, owned or generic parameters). It reports whether fd
-// got one. The caller has written fd's Go head.
-func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string) (ok bool) {
+// got one. The caller has written fd's Go head. drop is set for fd's
+// variant with no result (drop.go), which the census names by its own Go
+// name (a gate keeps it a Go body).
+func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
 	name := fd.name
+	if drop {
+		name = fd.dropped
+	}
 	if fd.method != nil {
-		name = fd.method.name + "." + fd.name
+		name = fd.method.name + "." + name
 	}
 	defer func() {
 		if r := recover(); r != nil {

@@ -1187,12 +1187,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
 		}
-		if l.ir.body(fc, fd, params, gates) {
+		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
 			return
