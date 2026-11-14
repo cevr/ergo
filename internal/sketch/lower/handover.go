@@ -406,6 +406,76 @@ func (w *valueWalk) lineageSites() {
 		}
 		w.vf.lineage[call] = true
 	}
+	w.settleNamedTails()
+}
+
+// settleNamedTails turns back to the plain clipped Append each
+// one-extender site that the root frame returns (a tail or a return's
+// value) when the function is passed by name in its own package
+// (maps.Update(m, k, start)): its new array is fresh when its elements
+// hold no Map or slice, so the function's every result may be fresh
+// (freshResult) and a callback by name is analysed as a literal is
+// (argsUnshared, litFresh). The decision is the callee's own, whatever
+// the order its callers are lowered in; a caller in another package sees
+// the site kept, a result that is not fresh, and copies.
+func (w *valueWalk) settleNamedTails() {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok || f.Pkg == nil || f.Pkg.Info == nil || !w.l.passedByName(f) {
+		return
+	}
+	settle := func(x syntax.Expr) {
+		if call, ok := unparen(x).(*syntax.CallExpr); ok && w.vf.lineage[call] && !w.l.holdsValue(elemOf(w.typeOf(call))) {
+			delete(w.vf.lineage, call)
+		}
+	}
+	for x := range w.root.tails {
+		settle(x)
+	}
+	syntax.Inspect(w.root.node, func(n syntax.Node) bool {
+		if w.frameOf[n] != nil && w.frameOf[n] != w.root {
+			return false
+		}
+		if r, isRet := n.(*syntax.ReturnStmt); isRet {
+			for _, x := range r.Results {
+				settle(x)
+			}
+		}
+		return true
+	})
+}
+
+// passedByName reports a function its own package names other than as a
+// call's callee: a value, such as a callback by name.
+func (l *lowerer) passedByName(f *check.Func) bool {
+	vf := l.valueFacts()
+	if vf.byName == nil {
+		vf.byName = map[*check.Package]map[*check.Func]bool{}
+	}
+	set, ok := vf.byName[f.Pkg]
+	if !ok {
+		info := f.Pkg.Info
+		callee := map[*syntax.Ident]bool{}
+		for call := range info.Calls {
+			switch fun := unparen(call.Fun).(type) {
+			case *syntax.Ident:
+				callee[fun] = true
+			case *syntax.SelectorExpr:
+				callee[fun.Sel] = true
+			}
+		}
+		set = map[*check.Func]bool{}
+		for id, obj := range info.Uses {
+			if g, isFunc := obj.(*check.Func); isFunc && !callee[id] {
+				set[g] = true
+			}
+		}
+		vf.byName[f.Pkg] = set
+	}
+	return set[f]
 }
 
 // deadField reports an Append on a field path of a local that is dead

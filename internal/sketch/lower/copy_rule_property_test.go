@@ -349,8 +349,14 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 	case 11:
 		// The same with a top-level callback passed by name, whose
 		// result is fresh (namedFunc, freshResult).
+		// The old entry appended to, as above: the function's
+		// one-extender tail is settled (settleNamedTails).
 		shape = "update named"
-		g.fns.WriteString(fmt.Sprintf("func cb%s(_ Option[%s]) %s { %s }\n\n", name, e.typ, e.typ, e.zero))
+		lit := e.zero
+		if e.k == "S" {
+			lit = "match o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}"
+		}
+		g.fns.WriteString(fmt.Sprintf("func cb%s(o Option[%s]) %s { %s }\n\n", name, e.typ, e.typ, lit))
 		g.mapOnly[name] = true
 		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, cb%s)\n\tlen(r.m)%s\n", name, tail)
 	case 10:

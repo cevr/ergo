@@ -188,12 +188,13 @@ type valueFacts struct {
 	fromAll  map[*check.Func]int8       // freshAll (handover.go): 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
-	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
-	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
-	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
-	lineage  map[*syntax.CallExpr]bool     // one-extender Append sites (handover.go, own-lineage)
-	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
-	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
+	ownCall  map[*syntax.CallExpr]bool               // calls that pass owned arguments unshared (V5)
+	refSites map[*syntax.CallExpr]*refSite           // Update and Modify calls whose literal owns the held value (V6)
+	goShare  map[syntax.Expr]bool                    // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
+	lineage  map[*syntax.CallExpr]bool               // one-extender Append sites (handover.go, own-lineage)
+	byName   map[*check.Package]map[*check.Func]bool // functions a package names as a value (handover.go, passedByName)
+	field    map[*syntax.CallExpr]bool               // Appends in place on a dead field path (handover.go, own-field)
+	deep     map[syntax.Expr]bool                    // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings), the binds that take
 	// an entry with no copy and the Gets they read.
