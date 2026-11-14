@@ -16,7 +16,10 @@ import (
 // scripts/mutants (ledger.go, Ledger and Mutant) reads it. A field the
 // runner does not know is an error there, so it is one here.
 type ledgerFile struct {
-	About   string `json:"about"`
+	About string `json:"about"`
+	// Env is the NAME=VALUE switches the runner gives the ledger's own
+	// suite (scripts/mutants Ledger.Env).
+	Env     []string `json:"env"`
 	Mutants []struct {
 		Name    string   `json:"name"`
 		Origin  string   `json:"origin"`

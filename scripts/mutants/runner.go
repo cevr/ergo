@@ -160,6 +160,15 @@ type engine struct {
 	key    string
 	cov    *coverage
 	logMu  sync.Mutex
+	// plain are the coverage pass's test binaries built without coverage,
+	// by suite name, built the first time one is needed (plainBinary).
+	plainMu sync.Mutex
+	plain   map[string]*plainBuild
+}
+
+type plainBuild struct {
+	once sync.Once
+	err  error
 }
 
 type treeFile struct {
@@ -564,14 +573,19 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 	return e.exec(ctx, filepath.Join(root, filepath.FromSlash(s.Module)), argv, e.env(), deadline)
 }
 
-// argv returns how to run one test of a suite, and where.
-func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []string) {
+// argv returns how to run one test of a suite, and where. A Go test binary
+// gets a -test.timeout inside the run's deadline, as go test always gives
+// one: a test that bounds its children by t.Deadline (internal/closure's
+// TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
+// it, so it judged nothing (MUT-names r2). Its own timeout also names the
+// stuck test before the runner stops the run.
+func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
 	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1"},
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
@@ -749,13 +763,33 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	defer os.RemoveAll(dir)
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
-	argv, cwd, env := e.argv(s, root, bin, name)
+	argv, cwd, env := e.argv(s, root, bin, name, e.cfg.CoverDeadline)
 	if s.Package != "" && s.Module == "" {
 		// A nested module's suite is built without coverage (Suite.Module).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
 	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
 	t.Seconds = o.seconds
+	if o.reason != "" && s.Package != "" && s.Module == "" {
+		// A test may fail only because its binary is built with coverage:
+		// internal/closure's tests run their own binary in a sandbox where
+		// all but fresh scratch is read-only, and a coverage-built binary
+		// writes its coverage at exit under TMPDIR, so the run fails though
+		// its tests pass. The mutant pass runs binaries built without
+		// coverage, so such a test still judges mutants: run it once so,
+		// and if it passes there, keep it, with the blocks its coverage run
+		// recorded (MUT-names r2: 8 closure tests, rm-cgo-link-input's
+		// killer among them, judged nothing).
+		plain, err := e.plainRun(ctx, root, s, name)
+		if err != nil {
+			return err
+		}
+		if plain.reason == "" {
+			e.logf("coverage: %s fails only when built with coverage (%s); it passes without, so it stays a killer", t.ID, o.reason)
+			t.Seconds = max(t.Seconds, plain.seconds)
+			o = plain
+		}
+	}
 	if o.reason != "" {
 		t.Failed = true
 		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
@@ -779,6 +813,36 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	mu.Lock()
 	defer mu.Unlock()
 	return k.add(i, f)
+}
+
+// plainRun runs one test of the Go suite s in the coverage pass's copy at
+// root with the suite's binary built without coverage, built once per suite.
+func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test string) (outcome, error) {
+	bin := filepath.Join(e.cfg.Work, "cover", "plain")
+	e.plainMu.Lock()
+	if e.plain == nil {
+		e.plain = map[string]*plainBuild{}
+	}
+	b := e.plain[s.Name]
+	if b == nil {
+		b = &plainBuild{}
+		e.plain[s.Name] = b
+	}
+	e.plainMu.Unlock()
+	b.once.Do(func() {
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			b.err = err
+			return
+		}
+		if o := e.buildSuite(ctx, root, bin, s, false, e.cfg.CoverDeadline); o.reason != "" {
+			b.err = fmt.Errorf("build suite %s without coverage: %s\n%s", s.Name, o.reason, o.tail)
+		}
+	})
+	if b.err != nil {
+		return outcome{}, b.err
+	}
+	argv, cwd, env := e.argv(s, root, bin, test, e.cfg.CoverDeadline)
+	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
 }
 
 // headerLine reports whether the line of text at byte offset at is a case
@@ -940,8 +1004,8 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
 			return r
 		}
-		argv, cwd, env := w.e.argv(s, w.root, w.bin, name)
 		deadline := max(testFloor, time.Duration(deadlineFactor*w.e.cov.test(id).Seconds*float64(time.Second)))
+		argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
 		o := w.e.exec(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline)
 		r.Ran = append(r.Ran, id)
 		if o.reason == "interrupted" {

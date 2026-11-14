@@ -65,15 +65,6 @@
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     },
     {
-      "name": "xpkg-unresolved-skipped",
-      "origin": "wf10 fu-mutants-xpkg",
-      "file": "scripts/mutants/main.go",
-      "from": "unresolved = append(unresolved, fmt.Sprintf(\"%s: %s: %s\", j.Path, m.Name, id))",
-      "to": "_ = id",
-      "rule": "A killer whose suite resolves to nothing is refused, not skipped (45 rows named v1:, main:, sched:, tsproj: … and were never run).",
-      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
-    },
-    {
       "name": "xpkg-select-ignored",
       "origin": "wf10 fu-mutants-xpkg",
       "file": "scripts/mutants/main.go",
@@ -153,6 +144,60 @@
       "to": "\tif s.Package != \"\" {",
       "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
       "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
+    },
+    {
+      "name": "mutnames-unresolved-suite-skipped",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\t\t\tunresolved = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "to": "\t\t\t\t\t\t_ = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "rule": "A killer or anchor id whose suite resolves to nothing is an error of the ledger, never a killer the runner leaves out.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-missing-test-accepted",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\tif !hasTest(absRoot, &suites[i], test) {",
+      "to": "\t\t\t\tif false && !hasTest(absRoot, &suites[i], test) {",
+      "rule": "A killer or anchor id names a test its suite has (a Test func of the package, an example program); a renamed or deleted test is an error of the ledger.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-ledger-env-dropped",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/main.go",
+      "from": "Package: \"./\" + rel, Env: slices.Clone(j.Ledger.Env)}",
+      "to": "Package: \"./\" + rel}",
+      "rule": "A package ledger's env is the environment of every run of its own suite, so a plain runner invocation judges killers that need a switch (tsproj's ERGO_TS_TEST=1).",
+      "killers": ["scripts/mutants:TestLedgerEnvReachesItsOwnSuite"]
+    },
+    {
+      "name": "mutnames-ergo-ledger-env-accepted",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\tif len(j.Ledger.Env) > 0 {",
+      "to": "\t\t\tif false {",
+      "rule": "check's and lower's ledgers share the ergo suites; an env there is refused, not dropped or spread to every suite.",
+      "killers": ["scripts/mutants:TestLedgerEnvReachesItsOwnSuite"]
+    },
+    {
+      "name": "mutnames-plain-rerun-dropped",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\tif plain.reason == \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A test that fails only when its binary is built with coverage (a sandboxed self-run) and passes without stays a killer; it is not dropped as failing on the unmutated tree.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "mutnames-no-test-timeout",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\"-test.count=1\", \"-test.timeout=\" + (deadline * 9 / 10).String()},",
+      "to": "\"-test.count=1\"},",
+      "rule": "A Go test binary runs with a -test.timeout, as under go test, so a test that bounds its children by t.Deadline judges mutants.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     }
   ]
 }
