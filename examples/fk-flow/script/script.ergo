@@ -1,0 +1,207 @@
+// Package script is the host of stage a: it steps the scene over a script
+// of frames and the user's acts and shows, after each, what the canvas
+// and the controls would. The scene has no timer and no work, so the
+// host steps it directly (machines.Next); a frame is a line, not a
+// clock. A line is one of:
+//
+//	seed N             the stream's start (the first line only; 1 if none)
+//	frame MS [xK]      K frames (1 if none) of MS milliseconds each
+//	press X Y          press the canvas at (X, Y)
+//	move X Y           move the pointer to (X, Y)
+//	toggle             the play and pause button
+//	clear              the clear (balls) or reset (flow) button
+//	strength V         the flow strength slider
+//	scale V            the noise scale slider
+//	show balls|flow    switch scenes
+//
+// A blank line or one that starts with # is skipped.
+
+import fkflow/flow
+import fkflow/scene
+import io
+import machines
+import math
+import strconv
+import strings
+
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Run plays the script on standard input and prints what the scene
+// shows. It returns the exit status: 0, or 1 for a line it cannot read.
+func Run() int needs Console | io.Stdin {
+	let mut lines = []string{}
+	for raw in io.Stdin.Lines() {
+		lines = lines.Append(raw)
+	}
+	let mut n = 1
+	let mut first = 0
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let words = strings.Fields(line)
+		if words[0] == "seed" && len(words) == 2 {
+			n = strconv.Atoi(words[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				Console.Println("? line \(i + 1): a seed is a whole number")
+				return 1
+			}
+			first = i + 1
+		}
+		break
+	}
+	let mut s = scene.Open(uint64(n))
+	let mut shown = []string{}
+	Console.Println("> seed \(n)")
+	shown = show(shown, view(s))
+	for i in first..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		let sig, times = signalOf(line) catch {
+		case Bad as b:
+			Console.Println("? line \(i + 1): \(b.Why)")
+			return 1
+		}
+		for _ in 0..times {
+			s = machines.Next(s, scene.Step(s, sig))
+		}
+		shown = show(shown, view(s))
+	}
+	Console.Println("> stop")
+	0
+}
+
+func amount(word string, what string) float64 fails Bad {
+	strconv.ParseFloat(word) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Bad{Why: "\(what) is a number, not \(word)"}
+	}
+}
+
+func count(word string) int fails Bad {
+	if !strings.HasPrefix(word, "x") {
+		return Bad{Why: "a repeat is xK"}
+	}
+	let k = strconv.Atoi(strings.TrimPrefix(word, "x")) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Bad{Why: "a repeat is xK"}
+	}
+	if k < 1 || k > 10000 {
+		return Bad{Why: "a repeat is 1 to 10000"}
+	}
+	k
+}
+
+// signalOf is the act a line stands for and how many times it happens.
+func signalOf(line string) (scene.Signal, int) fails Bad {
+	let words = strings.Fields(line)
+	let want = func(k int) bool { len(words) == k }
+	match words[0] {
+	case "frame":
+		if want(2) {
+			return (scene.Ticked{Ms: try amount(words[1], "a frame")}, 1)
+		}
+		if want(3) {
+			return (scene.Ticked{Ms: try amount(words[1], "a frame")}, try count(words[2]))
+		}
+		Bad{Why: "frame MS [xK]"}
+	case "press", "move":
+		if !want(3) {
+			return Bad{Why: "\(words[0]) X Y"}
+		}
+		let x = try amount(words[1], "X")
+		let y = try amount(words[2], "Y")
+		if words[0] == "press" {
+			return (scene.Pressed{X: x, Y: y}, 1)
+		}
+		(scene.Moved{X: x, Y: y}, 1)
+	case "toggle":
+		(scene.Toggled, 1)
+	case "clear":
+		(scene.Cleared, 1)
+	case "strength":
+		if !want(2) {
+			return Bad{Why: "strength V"}
+		}
+		(scene.SetStrength{Value: try amount(words[1], "a strength")}, 1)
+	case "scale":
+		if !want(2) {
+			return Bad{Why: "scale V"}
+		}
+		(scene.SetScale{Value: try amount(words[1], "a scale")}, 1)
+	case "show":
+		if want(2) && words[1] == "balls" {
+			return (scene.ShowBalls, 1)
+		}
+		if want(2) && words[1] == "flow" {
+			return (scene.ShowFlow, 1)
+		}
+		Bad{Why: "show balls or show flow"}
+	case "seed":
+		Bad{Why: "seed is the first line only"}
+	case _:
+		Bad{Why: "unknown word \(words[0])"}
+	}
+}
+
+// show prints the lines of now that differ from shown, and is now.
+func show(shown []string, now []string) []string {
+	for k, l in now {
+		if k >= len(shown) || shown[k] != l {
+			Console.Println("  " + l)
+		}
+	}
+	now
+}
+
+// whole is v to the nearest whole number. Positions are shown whole, so
+// that the last bits of a float, which a fused multiply-add may change on
+// another host, rarely show.
+func whole(v float64) string { strconv.Itoa(int(math.Round(v))) }
+
+func fixed(v float64) string { strconv.FormatFloat(v, 'f', 2) }
+
+func state(running bool) string { if running { "running" } else { "paused" } }
+
+// view is what the page shows, a line per part.
+func view(s scene.Scene) []string {
+	match s {
+	case scene.Balls as b:
+		let mut out = []string{"scene: balls, \(state(b.Running)); balls: \(len(b.Field.Balls))"}
+		for x in b.Field.Balls {
+			out = out.Append("ball \(x.ID): at (\(whole(x.X)), \(whole(x.Y))), heading (\(whole(x.VX)), \(whole(x.VY))) px/s, radius \(whole(x.Radius)), \(x.Color)")
+		}
+		out
+	case scene.Flow as f:
+		let g = f.Field
+		let pointer = match g.Pointer {
+		case Some[flow.Point] as p:
+			"(\(whole(p.Value.X)), \(whole(p.Value.Y)))"
+		case None:
+			"none"
+		}
+		let mut bursting = 0
+		let mut sx = 0.0
+		let mut sy = 0.0
+		let mut trail = 0
+		for p in g.Particles {
+			let head = p.Trail[len(p.Trail)-1]
+			sx = sx + head.X
+			sy = sy + head.Y
+			trail = trail + len(p.Trail)
+			match p.InitialAngle {
+			case Some[float64]:
+				bursting = bursting + 1
+			case None:
+			}
+		}
+		let k = len(g.Particles)
+		let middle = if k == 0 { "none" } else { "(\(whole(sx / float64(k))), \(whole(sy / float64(k))))" }
+		[]string{"scene: flow, \(state(g.Running)), \(fixed(g.Elapsed)) s", "controls: strength \(fixed(g.Strength)), scale \(fixed(g.Scale)), pointer \(pointer)", "particles: \(k) (\(bursting) from bursts), numbered to \(g.NextID), \(trail) trail points, heads centred at \(middle)"}
+	}
+}

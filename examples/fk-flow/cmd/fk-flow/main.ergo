@@ -1,0 +1,18 @@
+// fk-flow is a port of Foldkit's canvas-art and generative-art examples
+// (stage a: the model, with no view): one program with two scenes, balls
+// that bounce where the canvas is pressed, and particles that drift on a
+// moving noise field and burst from a press. It plays a script of frames
+// and acts and shows the scene after each. Package scene is the two
+// scenes as a machine; balls and flow are the scenes; seed is the
+// seeded stream they draw from; script plays the script.
+
+import fkflow/script
+import io
+import os
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with context { io.Stdin: io.NewStdin() } { script.Run() }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-flow: the script did not run"}
+	}
+}

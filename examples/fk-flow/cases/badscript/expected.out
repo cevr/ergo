@@ -1,0 +1,7 @@
+> seed 1
+  scene: balls, running; balls: 0
+> press 10 10
+  scene: balls, running; balls: 1
+  ball 0: at (10, 10), heading (-182, -81) px/s, radius 24, #ff9500
+> frame 16 x0
+? line 2: a repeat is 1 to 10000

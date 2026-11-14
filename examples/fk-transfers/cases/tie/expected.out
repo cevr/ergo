@@ -1,0 +1,6 @@
+@0 start
+  0 trail-map.png sending
+@4800 cancel 0
+  0 trail-map.png sent
+@5000 end
+  0 trail-map.png sent

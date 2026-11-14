@@ -3,7 +3,7 @@ import machines
 // Step is the machine's transition: a finished game ignores every move, a
 // blocked move is rejected and passes no turn, and any other move enters the
 // state that Evolve reaches from the events Decide records.
-func Step(g Game, m Move) Decision[Game, string] {
+func Step(g Game, m Move) Decision[Game, Never] {
 	match g {
 	case Playing as p:
 		if Blocked(target(p.W.At, m)) {
@@ -28,28 +28,24 @@ type Tidewalk machine[Game, Move] {
 }
 
 // Word names a decision.
-func Word(d Decision[Game, string]) string {
+func Word(d Decision[Game, Never]) string {
 	match d {
 	case Enter[Game]:
 		return "enter"
 	case Stay[Game]:
 		return "stay"
-	case Emit[Game, string]:
-		return "emit"
 	case Ignore:
 		return "ignore"
 	case Reject:
 		return "reject"
-	case Done[string]:
-		return "done"
 	}
 }
 
-func ignored(d Decision[Game, string]) bool {
+func ignored(d Decision[Game, Never]) bool {
 	return Word(d) == "ignore"
 }
 
-func rejected(d Decision[Game, string]) bool {
+func rejected(d Decision[Game, Never]) bool {
 	return Word(d) == "reject"
 }
 

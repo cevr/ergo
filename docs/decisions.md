@@ -104,6 +104,9 @@ Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) sec
   - q133: "not sure what the differences are"; asked again with the options explained, as q135.
   - q134: "mainly speed... compiling and checking ... as fast as possible": declarations go through IR if and only if that makes builds and checks faster, by measurement.
   - q135: "Extend the evaluator": the check-time evaluator grows to effects and is the reference oracle once source emission retires.
+## Owner direction, 2026-11-13
+
+- **Never (FKG2).** Owner: "Alright, yeah, let's add it." Ergo gets a prelude `Never`: uninhabited (a closed union with no alternatives), not a bottom type (no subtyping, no implicit conversion); std `never[T](n Never) T` converts where needed. A match on a `Never` value needs no arms; `Decision[S, Never]`'s emit arm is unreachable. Failures keep rows: an absent `fails` already means none, so `fails Never` is refused as a second spelling. Lowers to a never-constructed Go `struct{}`. Prior art: Elm `Never`/`never`, Rust `Infallible`/`!`, TypeScript `never`. Built as unit FKG2. Std's `never` is the prelude function `Absurd`, reached as `n.Absurd[T]()`: a prelude export is capitalised and `Never` names the type (decided by [Exports follow Go's capitalisation](#exports-follow-gos-capitalisation-2026-10-27)). Rules: [types.md, Never](spec/types.md#never).
 
 ## Decided by principle, 2026-11-11
 
