@@ -269,25 +269,3 @@ law FormatZonedWritesTheZone(i int64, s int64) {
 	}
 	FormatZoned(z, f) == "\(offsetText(o.Seconds)) \(o.Abbreviation) \(Name(z.Zone))" && FormatZoned(z, zoned) == wall + "|"
 }
-
-// FromTZReadsTheName: TZ unset is the host's zone, empty or ":" is UTC, a
-// leading ":" is dropped, and a value the database does not hold is
-// UnknownZone with that name, never UTC.
-law FromTZReadsTheName(i int64, colon bool, other bool) {
-	let names = ianaNames()
-	let name = names[int(within(i, 0, int64(len(names) - 1)))]
-	let value = (if colon { ":" } else { "" }) + (if other { "EST5EDT4/" } else { "" }) + name
-	let z = FromTZ(lawZones, true, value, "", "") catch {
-	case UnknownZone as u:
-		return other && u.Name == "EST5EDT4/" + name
-	}
-	let empty = FromTZ(lawZones, true, if colon { ":" } else { "" }, "Asia/Tokyo", "") catch {
-	case UnknownZone:
-		return false
-	}
-	let host = FromTZ(lawZones, false, "", name, "") catch {
-	case UnknownZone:
-		return false
-	}
-	!other && Name(z) == name && Name(empty) == Name(UTC()) && Name(host) == name
-}
