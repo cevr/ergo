@@ -669,6 +669,10 @@ func (l *loader) cycle(p *loadedPackage, imp localImport, q *loadedPackage, stac
 	p.broken = true
 }
 
+// checkedHook, when set (tests only: import_mutation_test.go), sees each
+// package right after its check, before the next package is checked.
+var checkedHook func(path string, pkg *check.Package)
+
 // checkAll checks each package once, in dependency order. A package that
 // imports a broken package is broken and not checked.
 //
@@ -741,6 +745,9 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 		stage.Add(stage.DeclsChecked, int64(len(f.Decls)))
 	}
 	p.pkg = pkg
+	if checkedHook != nil {
+		checkedHook(path, pkg)
+	}
 	ds[p] = found
 	if len(found) > 0 {
 		p.broken = true
