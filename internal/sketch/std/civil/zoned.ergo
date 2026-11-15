@@ -47,7 +47,15 @@ type ZoneParts { Offset int, Abbreviation string, Zone string }
 func noZone() ZoneParts { ZoneParts{Offset: 0, Abbreviation: "", Zone: ""} }
 
 // FormatWithZone is the text of dt in f, with z for its zone fields.
-func FormatWithZone(dt DateTime, z ZoneParts, f ZonedFormat) string { render(dt.Date, dt.Time, z, f.fields, f.names) }
+func FormatWithZone(dt DateTime, z ZoneParts, f ZonedFormat) string { bytesText(render(buffer(32), dt.Date, dt.Time, z, f.fields, f.names)) }
+
+// AppendWithZone appends the text of dt in f, with z for its zone fields,
+// to into.
+func AppendWithZone(dt DateTime, z ZoneParts, f ZonedFormat, into []byte) []byte {
+	let mut out = into
+	out = render(out, dt.Date, dt.Time, z, f.fields, f.names)
+	out
+}
 
 // ZonedText is what a zoned text says: its wall time, and the offset,
 // abbreviation and zone name it holds, each None when f has no such
@@ -64,28 +72,36 @@ func ParseWithZone(f ZonedFormat, s string) ZonedText fails ParseError {
 	let d = try dateOf(r, s)
 	let t = try timeOf(r, s)
 	ZonedText{
-		Wall: DateTime{Date: d, Time: t},
-		Offset: if r.hasOffset { Some[int]{Value: r.offset} } else { None },
+		Wall:         DateTime{Date: d, Time: t},
+		Offset:       if r.hasOffset { Some[int]{Value: r.offset} } else { None },
 		Abbreviation: if r.abbreviation != "" { Some[string]{Value: r.abbreviation} } else { None },
-		Zone: if r.zone != "" { Some[string]{Value: r.zone} } else { None },
+		Zone:         if r.zone != "" { Some[string]{Value: r.zone} } else { None },
 	}
 }
 
-// offsetText is s seconds as an offset: sign, hours and minutes, with a
-// colon between them when colon, then seconds when s is not whole minutes;
-// Z for zero when z. s is taken less than a day either way.
-func offsetText(s int, colon bool, z bool) string {
+// appendOffset appends s seconds as an offset: sign, hours and minutes,
+// with a colon between them when colon, then seconds when s is not whole
+// minutes; Z for zero when z. s is taken less than a day either way.
+func appendOffset(into []byte, s int, colon bool, z bool) []byte {
+	let mut out = into
 	if z && s == 0 {
-		return "Z"
+		out = appendString(out, "Z")
+		return out
 	}
-	let sign = if s < 0 { "-" } else { "+" }
 	let a = (if s < 0 { -s } else { s }) % 86400
 	let sep = if colon { ":" } else { "" }
-	let hm = sign + pair(int64(a / 3600)) + sep + pair(int64(a % 3600 / 60))
-	if a % 60 == 0 { hm } else { hm + sep + pair(int64(a % 60)) }
+	out = appendString(out, if s < 0 { "-" } else { "+" })
+	out = appendString(out, pair(int64(a/3600)))
+	out = appendString(out, sep)
+	out = appendString(out, pair(int64(a%3600/60)))
+	if a%60 != 0 {
+		out = appendString(out, sep)
+		out = appendString(out, pair(int64(a%60)))
+	}
+	out
 }
 
-// readOffset reads an offset at s[i] as offsetText writes it, and is its
+// readOffset reads an offset at s[i] as appendOffset writes it, and is its
 // seconds and the index after it.
 func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError {
 	if z && i < len(s) && s[i] == 'Z' {
@@ -94,7 +110,7 @@ func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError
 	if i >= len(s) || s[i] != '+' && s[i] != '-' {
 		return wantField(s, i, "offset")
 	}
-	let (h, j) = try readNumber(s, i + 1, 2, ZeroPad, "offset")
+	let (h, j) = try readNumber(s, i+1, 2, ZeroPad, "offset")
 	let mut k = j
 	if colon {
 		if !startsAt(s, k, ":") {
@@ -105,8 +121,8 @@ func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError
 	let (m, e) = try readNumber(s, k, 2, ZeroPad, "offset")
 	let mut sec = 0
 	let mut end = e
-	if colon && startsAt(s, end, ":") && isDigit(s, end + 1) {
-		let (x, after) = try readNumber(s, end + 1, 2, ZeroPad, "offset")
+	if colon && startsAt(s, end, ":") && isDigit(s, end+1) {
+		let (x, after) = try readNumber(s, end+1, 2, ZeroPad, "offset")
 		sec = x
 		end = after
 		if sec == 0 {
@@ -123,7 +139,7 @@ func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError
 	if h > 23 || m > 59 || sec > 59 {
 		return ParseError{Text: s, At: i, Reason: "the offset is out of range"}
 	}
-	let v = h * 3600 + m * 60 + sec
+	let v = h*3600 + m*60 + sec
 	if v == 0 && (z || s[i] == '-') {
 		return ParseError{Text: s, At: i, Reason: if z { "a zero offset is Z" } else { "a zero offset is +00:00" }}
 	}

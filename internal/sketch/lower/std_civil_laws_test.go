@@ -435,6 +435,24 @@ test CivilCompareIsTotalOrder(x int64, y int64) {
 	assert civil.Compare(a, b) == -civil.Compare(b, a) && (civil.Compare(a, b) < 0) == civil.Before(a, b) && (civil.Compare(a, b) == 0) == (a == b) && civil.Clamp(b, a, a) == a
 }
 
+test CivilAppendIsFormat(seed int64, n int64, ns int64, m int64) {
+	let f = anyFormat(seed)
+	let dt = anyHeld(f, n, ns)
+	let b = civil.AppendDateTime(dt, f, civil.AppendDate(anyDay(m), civil.ISODate(), []byte{}))
+	let s = civil.Text(anyDay(m)) + civil.FormatDateTime(dt, f)
+	if len(b) != len(s) {
+		assert false
+		return
+	}
+	for i in 0..len(s) {
+		if b[i] != s[i] {
+			assert false
+			return
+		}
+	}
+	assert true
+}
+
 test CivilFormatParseRoundTrips(seed int64, n int64, ns int64) {
 	let f = anyFormat(seed)
 	let dt = anyHeld(f, n, ns)
@@ -449,7 +467,7 @@ test CivilFormatParseRoundTrips(seed int64, n int64, ns int64) {
 test CivilParseIsStrict(seed int64, n int64, ns int64) {
 	let f = anyFormat(seed)
 	let s = civil.FormatDateTime(anyHeld(f, n, ns), f)
-	assert refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1)))
+	assert refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s)-1)))
 }
 
 test CivilTextIsISO(n int64) {
@@ -616,8 +634,9 @@ var stdCivilLawStatements = map[string]string{
 	"civil WeekdayStepsByDay":           `WeekdayStepsByDay(n int64) { let d = anyDay(n) d == MaxDate() || time.WeekdayNumber(Weekday(AddDays(d, 1))) == (time.WeekdayNumber(Weekday(d))+1)%7 }`,
 	"civil ISOWeekIsThursdays":          `ISOWeekIsThursdays(n int64) { let d = anyDay(n) let w = ISOWeek(d) let thursday = AddDays(StartOf(d, Weeks{First: time.Monday}), 3) w.Year == Year(thursday) && w.Week == (YearDay(thursday)+6)/7 && w.Week >= 1 && w.Week <= 53 && Weekday(thursday) == time.Thursday }`,
 	"civil CompareIsTotalOrder":         `CompareIsTotalOrder(x int64, y int64) { let a = anyDay(x) let b = FromUnixDays(UnixDays(a) + within(y, -2, 2)) Compare(a, b) == -Compare(b, a) && (Compare(a, b) < 0) == Before(a, b) && (Compare(a, b) == 0) == (a == b) && Clamp(b, a, a) == a }`,
+	"civil AppendIsFormat":              `AppendIsFormat(seed int64, n int64, ns int64, m int64) { let f = anyFormat(seed) let dt = anyHeld(f, n, ns) let b = AppendDateTime(dt, f, AppendDate(anyDay(m), ISODate(), []byte{})) let s = Text(anyDay(m)) + FormatDateTime(dt, f) if len(b) != len(s) { return false } for i in 0..len(s) { if b[i] != s[i] { return false } } true }`,
 	"civil FormatParseRoundTrips":       `FormatParseRoundTrips(seed int64, n int64, ns int64) { let f = anyFormat(seed) let dt = anyHeld(f, n, ns) let back = ParseDateTime(f, FormatDateTime(dt, f)) catch { case ParseError: return false } back == held(dt, f) }`,
-	"civil ParseIsStrict":               `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1))) }`,
+	"civil ParseIsStrict":               `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s)-1))) }`,
 	"civil TextIsISO":                   `TextIsISO(n int64) { let d = anyDay(n) let back = ParseDate(ISODate(), Text(d)) catch { case ParseError: return false } FormatDate(d, ISODate()) == Text(d) && back == d }`,
 	"civil PatternAgreesWithLayout":     `PatternAgreesWithLayout(seed int64, n int64, ns int64) { let k = pick(draw(seed), len(ldmlPairs())) let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch { case BadPattern: return false } let l = FromLayout("2006-01-02 " + goPairs()[k]) catch { case BadPattern: return false } let dt = anyHeld(p, n, ns) FormatDateTime(dt, p) == FormatDateTime(dt, l) }`,
 	"civil DistanceIsMonotone":          `DistanceIsMonotone(sec int64, a int64, b int64) { let from = time.NewTime(within(sec, -62135596800, 253402300799), 0) let x = within(a, 0, 4000000000000000000) let y = within(b, 0, 4000000000000000000) let near = Distance(from, time.Add(from, duration(if x < y { x } else { y }))) let far = Distance(from, time.Add(from, duration(if x < y { y } else { x }))) rank(near.Unit) < rank(far.Unit) || rank(near.Unit) == rank(far.Unit) && near.Count <= far.Count }`,

@@ -7,7 +7,8 @@ import "testing"
 // 2100, Ergo's FormatDateTime with a format built once by
 // Pattern("yyyy-MM-dd HH:mm:ss") against Go's t.Format("2006-01-02
 // 15:04:05"), which reads its layout on every call; and ParseDateTime
-// against time.Parse of the same text. Expected (F7): Format faster than
+// against time.Parse of the same text; AppendDateTime into one reused
+// buffer against Go's AppendFormat (std-spike T4c). Expected (F7): Format faster than
 // Go's, the format being read once; Parse at least as fast. Reported
 // either way.
 func BenchmarkStdCivilFormat(b *testing.B) {
@@ -26,6 +27,17 @@ func Formats(secs []int64) int {
 	let mut s = 0
 	for n in secs {
 		s = s + len(civil.FormatDateTime(civil.DateTimeOf(time.Unix(n, 0)), f))
+	}
+	s
+}
+
+func Appends(secs []int64) int {
+	let f = layout()
+	let mut buf = []byte{}
+	let mut s = 0
+	for n in secs {
+		buf = civil.AppendDateTime(civil.DateTimeOf(time.Unix(n, 0)), f, buf[:0])
+		s = s + len(buf)
 	}
 	s
 }
@@ -53,7 +65,7 @@ func Parses(texts []string) int64 {
 }
 
 func main() needs Console {
-	Console.Println("\(Formats([]int64{0})) \(Parses(Texts([]int64{0})))")
+	Console.Println("\(Formats([]int64{0})) \(Appends([]int64{0})) \(Parses(Texts([]int64{0})))")
 }
 `
 	gen := func(mainGo string) string {
@@ -92,6 +104,24 @@ func BenchmarkFormatGo(b *testing.B) {
 	}
 }
 
+func BenchmarkAppendErgo(b *testing.B) {
+	for range b.N {
+		sink = int64(` + emittedCall(mainGo, "Appends", "secs") + `)
+	}
+}
+
+func BenchmarkAppendGo(b *testing.B) {
+	var buf []byte
+	for range b.N {
+		s := 0
+		for _, n := range secs {
+			buf = time.Unix(n, 0).UTC().AppendFormat(buf[:0], "2006-01-02 15:04:05")
+			s += len(buf)
+		}
+		sink = int64(s)
+	}
+}
+
 func BenchmarkParseErgo(b *testing.B) {
 	for range b.N {
 		sink = ` + emittedCall(mainGo, "Parses", "texts") + `
@@ -112,5 +142,5 @@ func BenchmarkParseGo(b *testing.B) {
 }
 `
 	}
-	emittedBench(b, "std_civil_format", src, gen, "FormatErgo", "FormatGo", "ParseErgo", "ParseGo")
+	emittedBench(b, "std_civil_format", src, gen, "FormatErgo", "FormatGo", "AppendErgo", "AppendGo", "ParseErgo", "ParseGo")
 }

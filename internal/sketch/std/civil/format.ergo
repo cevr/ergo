@@ -73,12 +73,12 @@ type Names { Months []string, MonthsShort []string, Weekdays []string, WeekdaysS
 // English is the English names: January, Jan, Monday, Mon, AM, PM.
 func English() Names {
 	Names{
-		Months: []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"},
-		MonthsShort: []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"},
-		Weekdays: []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"},
+		Months:        []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"},
+		MonthsShort:   []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"},
+		Weekdays:      []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"},
 		WeekdaysShort: []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
-		AM: "AM",
-		PM: "PM",
+		AM:            "AM",
+		PM:            "PM",
 	}
 }
 
@@ -285,13 +285,13 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, zoneOK bool
 		if !zoneOK && isZone(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "an offset or a zone name needs a zone; build a ZonedFormat (ZonedPattern, ZonedLayout or ZonedFields) for tz.FormatZoned"}
 		}
-		if i > 0 && greedy(fields[i - 1]) && !ends(f) {
+		if i > 0 && greedy(fields[i-1]) && !ends(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a zone name or abbreviation reads letters, digits and /_+-:, so the text after it starts with another byte"}
 		}
-		if i > 0 && varies(fields[i - 1]) && digitFirst(f) {
+		if i > 0 && varies(fields[i-1]) && digitFirst(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a number of varying width is followed by one that may start with a digit; put a literal between them or pad the first"}
 		}
-		if i > 0 && trimmed(fields[i - 1]) && dotFirst(f) {
+		if i > 0 && trimmed(fields[i-1]) && dotFirst(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a literal that starts with a dot after a trimmed fraction reads as the fraction; put other text between them"}
 		}
 		match f {
@@ -339,11 +339,11 @@ func checkNames(names Names, text string) bool fails BadPattern {
 // Ergo, not strings.HasPrefix, so a format built in a package initializer
 // runs at check time.
 func startsAt(s string, i int, p string) bool {
-	if i + len(p) > len(s) {
+	if i+len(p) > len(s) {
 		return false
 	}
 	for k in 0..len(p) {
-		if s[i + k] != p[k] {
+		if s[i+k] != p[k] {
 			return false
 		}
 	}
@@ -369,94 +369,130 @@ func oneWay(xs []string) bool {
 }
 
 // FormatDate is the text of d in f.
-func FormatDate(d Date, f DateFormat) string { render(d, TimeOfDay{ns: 0}, noZone(), f.fields, f.names) }
+func FormatDate(d Date, f DateFormat) string { bytesText(render(buffer(32), d, TimeOfDay{ns: 0}, noZone(), f.fields, f.names)) }
 
 // FormatDateTime is the text of dt in f.
-func FormatDateTime(dt DateTime, f DateTimeFormat) string { render(dt.Date, dt.Time, noZone(), f.fields, f.names) }
+func FormatDateTime(dt DateTime, f DateTimeFormat) string { bytesText(render(buffer(32), dt.Date, dt.Time, noZone(), f.fields, f.names)) }
 
-// render writes each field of d and t into one buffer. Each field is at
-// most three parts, slices of constants or of a name, so the appends to
-// out are in place and a text costs its buffer and its string. z is the
-// zone fields' text, which a ZonedFormat alone holds.
-func render(d Date, t TimeOfDay, z ZoneParts, fields []Field, names Names) string {
+// AppendDate appends the text of d in f to into, as Go's
+// Time.AppendFormat does: a caller that keeps one buffer writes each text
+// with no string of it (the append form of codecs, types.md Codecs 1).
+func AppendDate(d Date, f DateFormat, into []byte) []byte {
+	let mut out = into
+	out = render(out, d, TimeOfDay{ns: 0}, noZone(), f.fields, f.names)
+	out
+}
+
+// AppendDateTime appends the text of dt in f to into.
+func AppendDateTime(dt DateTime, f DateTimeFormat, into []byte) []byte {
+	let mut out = into
+	out = render(out, dt.Date, dt.Time, noZone(), f.fields, f.names)
+	out
+}
+
+// AppendIsFormat: AppendDate and AppendDateTime keep what into holds and
+// append the bytes of the text FormatDate and FormatDateTime make.
+law AppendIsFormat(seed int64, n int64, ns int64, m int64) {
+	let f = anyFormat(seed)
+	let dt = anyHeld(f, n, ns)
+	let b = AppendDateTime(dt, f, AppendDate(anyDay(m), ISODate(), []byte{}))
+	let s = Text(anyDay(m)) + FormatDateTime(dt, f)
+	if len(b) != len(s) {
+		return false
+	}
+	for i in 0..len(s) {
+		if b[i] != s[i] {
+			return false
+		}
+	}
+	true
+}
+
+// render appends each field of d and t to into, straight from constants
+// and names, so a text costs no string per field. z is the zone fields'
+// text, which a ZonedFormat alone holds.
+func render(into []byte, d Date, t TimeOfDay, z ZoneParts, fields []Field, names Names) []byte {
+	let mut out = into
 	let c = civilFromDays(int64(d.day))
-	let mut out = buffer(32)
 	for f in fields {
-		let (a, b, e) = match f {
+		match f {
 		case Literal as l:
-			(l.Text, "", "")
+			out = appendString(out, l.Text)
 		case YearNumber as y:
 			match y.Digits {
 			case AllDigits:
-				numberParts(c.year, 1, NoPad)
+				out = appendNumber(out, c.year, 1, NoPad)
 			case FourDigits:
-				numberParts(c.year, 4, ZeroPad)
+				out = appendNumber(out, c.year, 4, ZeroPad)
 			case TwoDigits:
-				(pair(c.year % 100), "", "")
+				out = appendString(out, pair(c.year%100))
 			}
 		case MonthNumber as x:
-			numberParts(c.month, 2, x.Pad)
+			out = appendNumber(out, c.month, 2, x.Pad)
 		case MonthName as x:
-			(nameOf(x.Width, names.Months, names.MonthsShort, int(c.month) - 1), "", "")
+			out = appendString(out, nameOf(x.Width, names.Months, names.MonthsShort, int(c.month)-1))
 		case DayOfMonth as x:
-			numberParts(c.day, 2, x.Pad)
+			out = appendNumber(out, c.day, 2, x.Pad)
 		case DayOfYear as x:
-			numberParts(int64(YearDay(d)), 3, x.Pad)
+			out = appendNumber(out, int64(YearDay(d)), 3, x.Pad)
 		case WeekdayName as x:
-			(nameOf(x.Width, names.Weekdays, names.WeekdaysShort, int(isoDay(d))), "", "")
+			out = appendString(out, nameOf(x.Width, names.Weekdays, names.WeekdaysShort, int(isoDay(d))))
 		case ISOWeekYear:
-			numberParts(int64(ISOWeek(d).Year), 4, ZeroPad)
+			out = appendNumber(out, int64(ISOWeek(d).Year), 4, ZeroPad)
 		case ISOWeekNumber as x:
-			numberParts(int64(ISOWeek(d).Week), 2, x.Pad)
+			out = appendNumber(out, int64(ISOWeek(d).Week), 2, x.Pad)
 		case Hour24 as x:
-			numberParts(int64(Hour(t)), 2, x.Pad)
+			out = appendNumber(out, int64(Hour(t)), 2, x.Pad)
 		case Hour12 as x:
-			numberParts(int64((Hour(t) + 11) % 12 + 1), 2, x.Pad)
+			out = appendNumber(out, int64((Hour(t)+11)%12+1), 2, x.Pad)
 		case MinuteNumber as x:
-			numberParts(int64(Minute(t)), 2, x.Pad)
+			out = appendNumber(out, int64(Minute(t)), 2, x.Pad)
 		case SecondNumber as x:
-			numberParts(int64(Second(t)), 2, x.Pad)
+			out = appendNumber(out, int64(Second(t)), 2, x.Pad)
 		case Fraction as x:
-			(fractionText(int64(Nanosecond(t)), x.Digits, x.Trim), "", "")
+			out = appendFraction(out, int64(Nanosecond(t)), x.Digits, x.Trim)
 		case Meridiem:
-			(if Hour(t) < 12 { names.AM } else { names.PM }, "", "")
+			out = appendString(out, if Hour(t) < 12 { names.AM } else { names.PM })
 		case OffsetField as x:
-			(offsetText(z.Offset, x.Colon, x.Z), "", "")
+			out = appendOffset(out, z.Offset, x.Colon, x.Z)
 		case ZoneID:
-			(z.Zone, "", "")
+			out = appendString(out, z.Zone)
 		case ZoneAbbreviation:
-			(z.Abbreviation, "", "")
+			out = appendString(out, z.Abbreviation)
 		}
-		out = appendString(appendString(appendString(out, a), b), e)
 	}
-	bytesText(out)
+	out
 }
 
 // digit is the one-digit text of n, 0 to 9.
-func digit(n int64) string { digitPairs[int(n) * 2 + 1:int(n) * 2 + 2] }
+func digit(n int64) string { digitPairs[int(n)*2+1 : int(n)*2+2] }
 
-// numberParts is n, 0 to 9999, in width places by pad, as up to three
-// slices of constants: the padding, then the digits in pairs.
-func numberParts(n int64, width int, pad Pad) (string, string, string) {
+// appendNumber appends n, 0 to 9999, in width places by pad: the padding,
+// then the digits in pairs, each a slice of a constant.
+func appendNumber(into []byte, n int64, width int, pad Pad) []byte {
+	let mut out = into
 	let k = digits(n)
-	let fill = match pad {
-	case ZeroPad:
-		"0000"[:if width > k { width - k } else { 0 }]
-	case SpacePad:
-		"    "[:if width > k { width - k } else { 0 }]
-	case NoPad:
-		""
+	if width > k {
+		match pad {
+		case ZeroPad:
+			out = appendString(out, "0000"[:width-k])
+		case SpacePad:
+			out = appendString(out, "    "[:width-k])
+		case NoPad:
+		}
 	}
 	if k == 1 {
-		return (fill, digit(n), "")
+		out = appendString(out, digit(n))
+	} else if k == 2 {
+		out = appendString(out, pair(n))
+	} else if k == 3 {
+		out = appendString(out, digit(n/100))
+		out = appendString(out, pair(n%100))
+	} else {
+		out = appendString(out, pair(n/100))
+		out = appendString(out, pair(n%100))
 	}
-	if k == 2 {
-		return (fill, pair(n), "")
-	}
-	if k == 3 {
-		return (fill + digit(n / 100), pair(n % 100), "")
-	}
-	(fill, pair(n / 100), pair(n % 100))
+	out
 }
 
 // digits is the count of decimal digits of n, which is not negative.
@@ -470,30 +506,38 @@ func digits(n int64) int {
 	k
 }
 
-// fractionText is ns's first k digits; with trim, a dot and those digits
-// without trailing zeros, or "" when they are all zero.
-func fractionText(ns int64, k int, trim bool) string {
+// appendFraction appends ns's first k digits; with trim, a dot and those
+// digits without trailing zeros, or nothing when they are all zero.
+func appendFraction(into []byte, ns int64, k int, trim bool) []byte {
+	let mut out = into
 	let mut v = ns
 	for _ in k..9 {
 		v = v / 10
 	}
 	let mut n = k
 	if trim {
-		for n > 0 && v % 10 == 0 {
+		for n > 0 && v%10 == 0 {
 			v = v / 10
 			n = n - 1
 		}
-		if n == 0 {
-			return ""
-		}
 	}
-	let mut s = ""
-	for _ in 0..n {
-		s = digit(v % 10) + s
-		v = v / 10
+	if n == 0 {
+		return out
 	}
-	if trim { "." + s } else { s }
+	if trim {
+		out = appendString(out, ".")
+	}
+	let mut p = int64(1)
+	for _ in 1..n {
+		p = p * 10
+	}
+	for p > 0 {
+		out = appendString(out, digit(v/p%10))
+		p = p / 10
+	}
+	out
 }
+
 // nameOf is the i-th name of the list of width w.
 func nameOf(w Width, full []string, short []string, i int) string {
 	match w {
@@ -545,7 +589,7 @@ func read(fields []Field, names Names, s string) reading fails ParseError {
 				try readNumber(s, i, 4, ZeroPad, "year")
 			case TwoDigits as p:
 				let (two, k) = try readNumber(s, i, 2, ZeroPad, "year")
-				(p.Pivot + (two - p.Pivot % 100 + 100) % 100, k)
+				(p.Pivot + (two-p.Pivot%100+100)%100, k)
 			}
 			r = reading{..r, year: try agree(r.year, v, s, i, "year")}
 			i = j
@@ -555,7 +599,7 @@ func read(fields []Field, names Names, s string) reading fails ParseError {
 			i = j
 		case MonthName as x:
 			let (v, j) = try readName(s, i, x.Width, names.Months, names.MonthsShort, "month name")
-			r = reading{..r, month: try agree(r.month, v + 1, s, i, "month")}
+			r = reading{..r, month: try agree(r.month, v+1, s, i, "month")}
 			i = j
 		case DayOfMonth as x:
 			let (v, j) = try readNumber(s, i, 2, x.Pad, "day")
@@ -653,40 +697,40 @@ func readNumber(s string, i int, width int, pad Pad, what string) (int, int) fai
 	case ZeroPad:
 		let mut v = 0
 		for k in 0..width {
-			if !isDigit(s, i + k) {
+			if !isDigit(s, i+k) {
 				return wantField(s, i, what)
 			}
-			v = v * 10 + int(s[i + k] - '0')
+			v = v*10 + int(s[i+k]-'0')
 		}
 		(v, i + width)
 	case SpacePad:
-		if i + width > len(s) {
+		if i+width > len(s) {
 			return wantField(s, i, what)
 		}
 		let mut k = 0
-		for k < width - 1 && s[i + k] == ' ' {
+		for k < width-1 && s[i+k] == ' ' {
 			k = k + 1
 		}
-		if s[i + k] == '0' && k < width - 1 {
+		if s[i+k] == '0' && k < width-1 {
 			return wantField(s, i, what)
 		}
 		let mut v = 0
 		for k < width {
-			if !isDigit(s, i + k) {
+			if !isDigit(s, i+k) {
 				return wantField(s, i, what)
 			}
-			v = v * 10 + int(s[i + k] - '0')
+			v = v*10 + int(s[i+k]-'0')
 			k = k + 1
 		}
 		(v, i + width)
 	case NoPad:
-		if !isDigit(s, i) || s[i] == '0' && isDigit(s, i + 1) {
+		if !isDigit(s, i) || s[i] == '0' && isDigit(s, i+1) {
 			return wantField(s, i, what)
 		}
 		let mut v = 0
 		let mut k = 0
-		for k < width && isDigit(s, i + k) {
-			v = v * 10 + int(s[i + k] - '0')
+		for k < width && isDigit(s, i+k) {
+			v = v*10 + int(s[i+k]-'0')
 			k = k + 1
 		}
 		(v, i + k)
@@ -715,18 +759,18 @@ func readName(s string, i int, w Width, full []string, short []string, what stri
 func fraction(s string, i int, k int, trim bool) (int, int) fails ParseError {
 	let mut j = i
 	if trim {
-		if !(i < len(s) && s[i] == '.' && isDigit(s, i + 1)) {
+		if !(i < len(s) && s[i] == '.' && isDigit(s, i+1)) {
 			return (0, i)
 		}
 		j = i + 1
 	}
 	let mut v = 0
 	let mut n = 0
-	for n < k && isDigit(s, j + n) {
-		v = v * 10 + int(s[j + n] - '0')
+	for n < k && isDigit(s, j+n) {
+		v = v*10 + int(s[j+n]-'0')
 		n = n + 1
 	}
-	if !trim && n < k || trim && s[j + n - 1] == '0' {
+	if !trim && n < k || trim && s[j+n-1] == '0' {
 		return ParseError{Text: s, At: j, Reason: "want \(k) fraction digits"}
 	}
 	for _ in n..9 {
@@ -758,7 +802,7 @@ func dateOf(r reading, s string) Date fails ParseError {
 			return ParseError{Text: s, At: end, Reason: "no such ISO week"}
 		}
 		let jan4 = daysFromCivil(int64(r.isoYear), 1, 4)
-		let n = jan4 - floorMod(jan4 + 3, 7) + int64(r.isoWeek - 1) * 7 + int64(r.wday)
+		let n = jan4 - floorMod(jan4+3, 7) + int64(r.isoWeek-1)*7 + int64(r.wday)
 		if n < minDay() || n > maxDay() {
 			return ParseError{Text: s, At: end, Reason: "no such ISO week"}
 		}
@@ -783,11 +827,11 @@ func timeOf(r reading, s string) TimeOfDay fails ParseError {
 	let h = if r.hour >= 0 {
 		r.hour
 	} else if r.hour12 >= 0 {
-		r.hour12 % 12 + 12 * r.pm
+		r.hour12%12 + 12*r.pm
 	} else {
 		0
 	}
-	if r.hour >= 0 && (r.hour12 >= 0 && r.hour12 % 12 + 12 * r.pm != r.hour || r.pm >= 0 && (r.hour >= 12) != (r.pm == 1)) {
+	if r.hour >= 0 && (r.hour12 >= 0 && r.hour12%12+12*r.pm != r.hour || r.pm >= 0 && (r.hour >= 12) != (r.pm == 1)) {
 		return ParseError{Text: s, At: end, Reason: "the hour disagrees with the 12-hour clock"}
 	}
 	NewTimeOfDay(h, if r.minute >= 0 { r.minute } else { 0 }, if r.second >= 0 { r.second } else { 0 }, if r.ns >= 0 { r.ns } else { 0 }) catch {
@@ -798,7 +842,7 @@ func timeOf(r reading, s string) TimeOfDay fails ParseError {
 
 // draw is the next number of a law's stream from x: a step of the
 // minimal standard generator, never 0.
-func draw(x int64) int64 { ((x % 2147483646 + 2147483646) % 2147483646 + 1) * 48271 % 2147483647 }
+func draw(x int64) int64 { ((x%2147483646+2147483646)%2147483646 + 1) * 48271 % 2147483647 }
 
 // pick is x's choice among n.
 func pick(x int64, n int) int { int(x / 7 % int64(n)) }
@@ -879,7 +923,7 @@ func yearDays(f DateTimeFormat) (int64, int64) {
 		case YearNumber as y:
 			match y.Digits {
 			case TwoDigits as t:
-				let last = if t.Pivot + 99 > 9999 { 9999 } else { t.Pivot + 99 }
+				let last = if t.Pivot+99 > 9999 { 9999 } else { t.Pivot + 99 }
 				let lo = NewDate(t.Pivot, time.January, 1) catch {
 				case NoSuchDate:
 					MinDate()
@@ -937,7 +981,7 @@ func anyHeld(f DateTimeFormat, n int64, ns int64) DateTime {
 // lastFixed reports whether the last field of f has a fixed width.
 func lastFixed(f DateTimeFormat) bool {
 	let fields = FormatFields(f)
-	match fields[len(fields) - 1] {
+	match fields[len(fields)-1] {
 	case YearNumber as y:
 		match y.Digits {
 		case AllDigits:
@@ -1006,7 +1050,7 @@ law FormatParseRoundTrips(seed int64, n int64, ns int64) {
 law ParseIsStrict(seed int64, n int64, ns int64) {
 	let f = anyFormat(seed)
 	let s = FormatDateTime(anyHeld(f, n, ns), f)
-	refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1)))
+	refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s)-1)))
 }
 
 // TextIsISO: Text is FormatDate in ISODate, which reads it back.
