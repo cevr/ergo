@@ -263,9 +263,6 @@ func execCommand(name string, args []string, env map[string]string, dir string, 
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
 	}
-	if execUnsupported != "" {
-		return nil, ExecFailed{Name: name, Reason: execUnsupported}
-	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			reason := "not a directory"

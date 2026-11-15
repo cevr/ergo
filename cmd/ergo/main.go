@@ -448,7 +448,7 @@ func loadThrough(fsys sketchfront.FS, path, target string, platform gobind.Platf
 	}
 	stage.Add(stage.FilesRead, 1)
 	stage.Add(stage.BytesRead, int64(len(text)))
-	analysis := sketchfront.CheckForPlatform(string(text), platform)
+	analysis := sketchfront.Check(string(text))
 	return loaded{
 		source:   source,
 		name:     strings.TrimSuffix(filepath.Base(source.String()), filepath.Ext(source.String())),

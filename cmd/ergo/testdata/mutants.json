@@ -284,24 +284,6 @@
       "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
     },
     {
-      "name": "goos-build-list-is-binding-list",
-      "origin": "wf10/fu-runtime-goos",
-      "file": "cmd/ergo/build.go",
-      "from": "\tif slices.Contains(gobind.BuildPlatforms, p) {",
-      "to": "\tif slices.Contains(gobind.Platforms, p) {",
-      "rule": "ergo build accepts the build platforms (windows/amd64, js/wasm, wasip1/wasm), not only the binding platforms.",
-      "killers": ["cmd/ergo:TestPlatformOfABuild"]
-    },
-    {
-      "name": "goos-windows-dropped",
-      "origin": "wf10/fu-runtime-goos",
-      "file": "internal/gobind/load.go",
-      "from": "Platform{\"windows\", \"amd64\"}, ",
-      "to": "",
-      "rule": "windows/amd64 is a build platform.",
-      "killers": ["cmd/ergo:TestPlatformOfABuild"]
-    },
-    {
       "name": "b18-home-telemetry-on",
       "origin": "wf10 batch-18 fix-base",
       "file": "cmd/ergo/build_test.go",

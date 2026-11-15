@@ -1650,7 +1650,6 @@ func (e *encoder) encFieldsGoBindings(v *GoBindings) {
 	e.encT136(v.lookup)
 	e.encT137(v.pkgs)
 	e.encT138(v.Stale)
-	e.encT138(v.Unbound)
 }
 
 func (e *encoder) encGoBindings(v GoBindings) { e.encFieldsGoBindings(&v) }
@@ -11739,7 +11738,6 @@ func (d *decoder) decFieldsGoBindings(v *GoBindings) {
 	v.lookup = d.decT136()
 	v.pkgs = d.decT137()
 	v.Stale = d.decT138()
-	v.Unbound = d.decT138()
 }
 
 func (d *decoder) decGoBindings() (v GoBindings) {
