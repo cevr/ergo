@@ -33,8 +33,8 @@ import (
 // package then unsets it again, so the program sees the environment it
 // was given. covdir also writes the counters when SIGINT or SIGTERM ends
 // the program (a server a test interrupts, GT7b) and then dies of that
-// signal; a program with a Go handler of its own for those signals loses
-// it under coverage. Without the variable nothing here runs, and the emitted
+// signal. A module whose own Go registers a handler for signals
+// (registersHandler) gets no flush and keeps its handler. Without the variable nothing here runs, and the emitted
 // module, the cache and the direct path are as before.
 const CoverVariable = "ERGO_COVER_GO"
 
@@ -132,6 +132,7 @@ func fillCoverCopy(dst, src, importPath string) error {
 	if old == "" {
 		return errors.New("go.mod names no module")
 	}
+	handles := false
 	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -169,6 +170,7 @@ func fillCoverCopy(dst, src, importPath string) error {
 				return err
 			}
 		case strings.HasSuffix(rel, ".go"):
+			handles = handles || registersHandler(string(data))
 			// An import of the module's own packages names the copy's
 			// path; the line count does not change.
 			text := strings.ReplaceAll(string(data), `"`+old+`/`, `"`+importPath+`/`)
@@ -182,10 +184,30 @@ func fillCoverCopy(dst, src, importPath string) error {
 	if err := os.MkdirAll(filepath.Join(dst, "covdir"), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dst, "covdir", "covdir.go"), []byte(covdirSource), 0o644); err != nil {
+	covdir := covdirSource
+	if handles {
+		// The program handles SIGINT or SIGTERM itself: covdir leaves
+		// them alone, so the program keeps its handler (its counters are
+		// written when that handler lets it exit).
+		covdir = strings.Replace(covdir, flushCall, "\t// The program handles SIGINT or SIGTERM itself (internal/sketch/build, cover.go).\n", 1)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "covdir", "covdir.go"), []byte(covdir), 0o644); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dst, "ergo_cover.go"), []byte(strings.ReplaceAll(coverMainSource, "IMPORT", importPath)), 0o644)
+}
+
+// flushCall is covdir's call that flushes the counters on a signal.
+const flushCall = "\tflushOnSignal(dir)\n"
+
+// registersHandler reports Go source that registers a handler of its own
+// for signals (os/signal's Notify or NotifyContext). A copy of such a
+// module gets no signal flush: the flush resets the signal after it
+// writes the counters, which would drop the program's handler. It reads
+// the module's own files only; a handler a required module registers is
+// not seen.
+func registersHandler(src string) bool {
+	return strings.Contains(src, "signal.Notify")
 }
 
 // manifestName is the emitted module's manifest, which the coverage copy
