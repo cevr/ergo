@@ -153,6 +153,60 @@
       "to": "\tif s.Package != \"\" {",
       "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
       "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
+    },
+    {
+      "name": "gt2-edit-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "put(\"row\", m.Name, m.File, m.From, m.To)",
+      "to": "put(\"row\", m.Name, m.File, m.From)",
+      "rule": "A row's key holds its edit: an edited row is judged again.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-closure-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "if whole || covered(p) {",
+      "to": "if whole || p == m.File {",
+      "rule": "A row's key holds every file its Go killers read.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-whole-dropped",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "\t\t\twhole = true",
+      "to": "\t\t\twhole = false",
+      "rule": "A killer that is no Go package of the module keys the row on every source.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-ignored-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "put(\"ignored\", p, digest)",
+      "to": "_ = digest",
+      "rule": "A row's key holds the ignored files its Go killers read.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-no-reuse",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "if r, ok := lookup(key); ok && storable(m, r) {",
+      "to": "if r, ok := lookup(key); false && ok && storable(m, r) {",
+      "rule": "A row whose key is unchanged reuses its stored killed verdict.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-ledger-order",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "return at[a.Ledger+\"\\x00\"+a.Name] - at[b.Ledger+\"\\x00\"+b.Name]",
+      "to": "return 0",
+      "rule": "Reused and judged verdicts are reported in ledger order.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
     }
   ]
 }

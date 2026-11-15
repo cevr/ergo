@@ -68,8 +68,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write bool
+	var write, fresh bool
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
+	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key (the reference)")
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
@@ -129,14 +130,36 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer cancel()
 	start := time.Now()
-	results, cov, runErr := Run(ctx, cfg, jobs)
-	if results == nil {
-		fmt.Fprintf(stderr, "mutants: %v\n", runErr)
-		return 2
+	// The rows whose killed verdict the store holds at their key are not
+	// judged again (reuse.go); -fresh and -all judge every row.
+	judge, reused := jobs, []Result(nil)
+	pass := &reusePass{root: cfg.Root, log: stderr}
+	if !fresh && !cfg.All {
+		if pass.store, err = openReuseStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no verdict reused: %v\n", err)
+		} else {
+			reused, judge = pass.begin(jobs)
+		}
 	}
+	results, cov, runErr := []Result(nil), &coverage{}, error(nil)
+	if len(judge) > 0 {
+		if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, judge); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		results, cov, runErr = Run(ctx, cfg, judge)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", runErr)
+			return 2
+		}
+		if runErr == nil {
+			pass.end(judge, results)
+		}
+	}
+	results = inLedgerOrder(jobs, append(reused, results...))
 	code := report(stdout, jobs, results, cov)
 	fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
 	if jsonOut != "" {
