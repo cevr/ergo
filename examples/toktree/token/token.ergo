@@ -48,8 +48,10 @@ func isDigit(c byte) bool { c >= 48 && c <= 57 }
 
 // Scan is the tokens of src.
 func Scan(src string) Toks {
-	let mut t = Toks{ids: dense.New[Tok](), kind: dense.NewCol[Tok, uint8](), start: dense.NewCol[Tok, uint32]()}
 	let n = len(src)
+	// Room for a token per four bytes, the control's guess for source text.
+	let room = n / 4
+	let mut t = Toks{ids: dense.WithCap[Tok](room), kind: dense.ColWithCap[Tok, uint8](room), start: dense.ColWithCap[Tok, uint32](room)}
 	let mut i = 0
 	for i < n {
 		let c = src[i]
