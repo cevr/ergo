@@ -103,8 +103,10 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 	}
 }
 
-// Settle waits until no fetch is in flight and every posted result is
-// taken, then runs a pass: the screen then shows the actor's latest state,
+// Settle waits until nothing is left to run at this instant: no fetch in
+// flight, every posted result taken, and every task of the clock's domain
+// waiting again, so each work a signal started has run to its end or its
+// next wait on the clock (SettleRunsTheWork); then it runs a pass: the screen then shows the actor's latest state,
 // also one its work or timer committed, with each live
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
 // the clock waits until an Advance; Settle does not move the clock, so a
@@ -118,6 +120,11 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 			}
 			try apply(h, ev)
 		}
+		// A machine's work runs on a task of its own: advancing the clock by
+		// nothing returns once every task of its domain waits again, so each
+		// work a signal started has run to its end or its next wait, and the
+		// signals it sent are taken (FK1-g6).
+		h.clock.Advance(duration(int64(0)))
 		try Pump(h)
 		// A state the actor committed by its own work or timer reaches the
 		// loop as Committed, on the watcher's task, at no time a test can
@@ -490,5 +497,81 @@ func nodeText[E](n Node[E]) string {
 		"live \"\(x.Text)\""
 	case TransitionNode as x:
 		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
+	}
+}
+
+// chain is the state of SettleRunsTheWork's machine: the step it is at
+// and the step its work stops at. (a law's helper)
+type chain { at int, last int }
+
+// chainStep enters step e. (a law's helper)
+func chainStep(s chain, e int) Decision[chain, int] {
+	Enter[chain]{Next: chain{at: e, last: s.last}}
+}
+
+// chainTimer is the machine's timer: none. (a law's helper)
+func chainTimer(s chain) Option[Timeout[int]] {
+	None
+}
+
+// chainWork is the work of a step between 1 and the last: it sends the
+// next step, with no wait on the clock. (a law's helper)
+func chainWork(s chain) Option[func(send func(e int))] {
+	if s.at < 1 || s.at >= s.last {
+		return None
+	}
+	let next = s.at + 1
+	// The work runs a while first, so a Settle that does not wait for
+	// it ends before it sends.
+	Some{Value: func(send func(e int)) {
+		let mut x = next
+		for i in 0..2000000 {
+			x = (x*31 + i) % 1000003
+		}
+		if x >= 0 {
+			send(next)
+		}
+	}}
+}
+
+// chainView shows the step, and "go" starts the chain. (a law's helper)
+func chainView(f *Frame[int], s chain) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "go" {
+			return Some{Value: 1}
+		}
+		None
+	})
+	Text(f, "at \(s.at)")
+}
+
+// SettleRunsTheWork (FK1-g6): settled is nothing left to run at this
+// instant, a machine's work included. A press starts a chain of n works,
+// each sending the next step at once; after one Settle, with no Advance,
+// the state and the screen show the last step, and the clock has not
+// moved.
+law SettleRunsTheWork(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let last = (n%8+8)%8 + 1
+		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: last}, Step: chainStep, After: chainTimer, Work: chainWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, chainView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let before = m.Now()
+		PressKey(&h, KeyPress{Name: "go", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		let mut shown = false
+		for s in Screen(&h) {
+			shown = shown || s.Node == (TextNode{Value: "at \(last)", Style: Plain()})
+		}
+		StateOf(&h).at == last && shown && m.Now() == before
 	}
 }
