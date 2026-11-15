@@ -19,7 +19,7 @@ import (
 //     used read-only (len(x.xs)) (round 5);
 //   - a for loop over x whose body makes no call, takes no address and
 //     assigns only locals that hold no Map or slice (readingLoop);
-//   - an operand of a pure call or method call whose result is basic
+//   - an operand of a call or method call whose result is basic
 //     (total(x), x.Sum(); readingCall).
 //
 // Nothing runs between the call and the read: the index, the other
@@ -110,15 +110,19 @@ func (w *valueWalk) callFree(x syntax.Node) bool {
 	return free
 }
 
-// readingCall reports a call that only reads its operand child: a pure
-// function (an Ergo body or a pure std body) whose result holds no Map or
-// slice, so it keeps nothing of its operands, and whose other operands
+// readingCall reports a call that only reads its operand child
+// (sum(part(*r)), nums(*r).Sum()): a function whose result holds no Map
+// or slice, so it keeps nothing of its operands, and whose other operands
 // make no call and are basic values, so nothing writes the root between
-// the result's call and this one, nor in it: a pure function still writes
-// through a pointer it is given (total3(part(*r), r)) or calls a callback
-// (sum(part(*r)), nums(*r).Sum()).
+// the result's call and this one, nor in it. Only a pointer or a callback
+// operand reaches the root (total3(part(*r), r) writes r.s first, then
+// reads the slice); a value parameter is never written through, as an
+// Ergo body copies where it writes and a Go call copies its operands
+// (gocall.go). So the callee need not be pure (round 5: a purity check
+// here was an equivalent mutant, sort.Ints(part(*r)) and an Ergo wrapper
+// of it agree without it).
 func (w *valueWalk) readingCall(p *syntax.CallExpr, c *check.Call, child syntax.Node) bool {
-	if c.Kind != check.CallFunc || c.Func == nil || !(w.l.isPure(c.Func) || pureStdBody(c.Func)) || !basicResult(w.typeOf(p)) {
+	if c.Kind != check.CallFunc || c.Func == nil || !basicResult(w.typeOf(p)) {
 		return false
 	}
 	found := false

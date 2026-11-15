@@ -15,7 +15,7 @@ import (
 // through a borrow, deref(&r.s); a Go call's result; a struct, wrap(*r),
 // and a named slice, nums(*r)) into a read-only context (len, an index
 // read, an index read under len, a comparison, a field read, a for loop
-// whose body writes only a local, a pure call or a method call that
+// whose body writes only a local, a call or a method call that
 // returns a basic value), then writes the store and returns the value
 // read with a digest of the store. The model: the lowering copies
 // nothing in such a function. TestReadOnlyUsesCopyNothing counts the
