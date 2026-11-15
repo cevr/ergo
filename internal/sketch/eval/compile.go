@@ -462,7 +462,7 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
 		if _, tail := fr.info.Tails[s]; tail {
-			return nil
+			return dropValue(in.compileYield(fr, s, false))
 		}
 		x := in.operand(fr, s.X, in.fx(fr, s.X))
 		return func(in *interp, fr *frame) *abrupt {
@@ -480,6 +480,8 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 		return in.compileLet(fr, s)
 	case *syntax.IfStmt:
 		return in.compileIf(fr, s)
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.BlockStmt:
+		return dropValue(in.compileYield(fr, s, false))
 	case *syntax.ForStmt:
 		return in.compileFor(fr, s)
 	case *syntax.RangeStmt:
@@ -501,6 +503,18 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 		}
 	}
 	return nil
+}
+
+// dropValue is stmt's reading of a yield form: yieldStmt with its value
+// dropped; nil for nil.
+func dropValue(y fastYield) fastStmt {
+	if y == nil {
+		return nil
+	}
+	return func(in *interp, fr *frame) *abrupt {
+		_, ab := y(in, fr)
+		return ab
+	}
 }
 
 // compileAssign is the form of `x = e` or `x op= e` for a local x: assign
@@ -877,22 +891,10 @@ type fastBody func(in *interp, fr *frame) (Value, *abrupt)
 
 // compileBody is the form of yield over a function body: its statements
 // but the last as compiled forms, then the last, which yields the result,
-// walked, and its releases.
+// and its releases (compile_yield.go).
 func (in *interp) compileBody(fr *frame, list []syntax.Stmt) fastBody {
 	if len(list) == 0 || fr.env != nil {
 		return nil
 	}
-	prefix := in.compileBlock(fr, list[:len(list)-1])
-	last := list[len(list)-1]
-	rel := in.releasesOf(fr, last)
-	return func(in *interp, fr *frame) (Value, *abrupt) {
-		if ab := prefix(in, fr); ab != nil {
-			return nil, ab
-		}
-		v, ab := in.yieldStmt(fr, last, true)
-		if ab == nil && rel != nil {
-			ab = rel(in, fr)
-		}
-		return v, ab
-	}
+	return fastBody(in.compileList(fr, list, true))
 }

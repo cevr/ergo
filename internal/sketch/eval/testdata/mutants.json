@@ -82,8 +82,8 @@
       "name": "returned-error-is-value",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
-      "to": "\tif false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "from": "\t\tf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\tf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
       "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
       "killers": [
         "internal/sketch/eval:TestEvalAgreesWithReference"
@@ -1520,7 +1520,7 @@
     {
       "name": "oracle-o34-body-prefix-skipped",
       "origin": "wf10 ORACLE O34",
-      "file": "internal/sketch/eval/compile.go",
+      "file": "internal/sketch/eval/compile_yield.go",
       "from": "\t\tif ab := prefix(in, fr); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n",
       "to": "\t\t_ = prefix\n",
       "rule": "A compiled body runs every statement before the one that yields its result.",
@@ -1543,6 +1543,60 @@
       "to": "\tfor _, i := range p.owned[:0] {",
       "rule": "A parameter the callee's package owns is registered at the call, read from the callee's plan (R8).",
       "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-arm-pattern-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, a.items[i], 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "\t\t\t_ = a.items[i]\n",
+      "rule": "A compiled match charges a step for each pattern it tries, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-value-case-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, c.at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "",
+      "rule": "A compiled value match charges a step for each constant it compares, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-if-yield-else-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\treturn els(in, fr)\n",
+      "to": "\t\t\treturn nil, nil\n",
+      "rule": "An if that yields a value yields its else branch's when its condition is false.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-arm-owners-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\tin.patternOwners(fr, a.cl)\n",
+      "to": "",
+      "rule": "A compiled arm moves its pattern's sources into its bindings before its body (Info.PatternOwners).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-last-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := last(in, fr)\n\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := last(in, fr)\n\t\t_ = rel\n",
+      "rule": "A compiled list releases its yielding statement's temporaries after it (R43).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-scope-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := y(in, fr)\n\t\tif ab == nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := y(in, fr)\n",
+      "rule": "A compiled scope releases what it owns at its normal end (R6).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     }
   ]
 }
