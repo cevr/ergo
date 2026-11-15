@@ -248,6 +248,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose result its statement discards goes to the variant
 		// with no result (forms.go, droppedSite).
 		dropped := !known && fc.droppedSite(x, c, fd)
+		// A call whose result its caller only matches writes the caller's
+		// slots (slot.go).
+		var slot *slotSite
+		if !known && !dropped && sp == nil {
+			slot = fc.slotAdmit(x, c, fd)
+		}
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -293,12 +299,16 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if dropped {
 				name = fc.l.droppedName(c.Func, fd)
 			}
+			if slot != nil {
+				name = fc.l.slotName(c.Func, fd)
+				vals = append(vals, slotArgs(slot.sl)...)
+			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 			if sp != nil && !known {
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
-			} else if !known && !dropped && fd.pure {
+			} else if !known && !dropped && slot == nil && fd.pure {
 				if v, ok := fc.tabAt(c, vals); ok {
 					return v, true, false // the function's table (tabulate.go)
 				}

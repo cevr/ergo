@@ -101,6 +101,7 @@ func (l *lowerer) nameAll() {
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage

@@ -51,6 +51,9 @@ type frame struct {
 	// inline marks the frame of an inlined body (inline.go): a return
 	// assigns its site's variables and jumps past its block.
 	inline *inlineRet
+	// slot marks the body of a slot variant (slot.go): a return writes
+	// its variant through the slot pointers and returns the tag.
+	slot *scalarLocal
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -198,6 +201,11 @@ type funcCtx struct {
 	scalars   map[*check.Var]*scalarLocal
 	// joinAt is the join local each inlined call writes (scalar.go).
 	joinAt map[*syntax.CallExpr]*scalarLocal
+	// slotAt is the caller-frame slot each call may write instead of
+	// returning a box, and slotTemps the match subjects so written
+	// (slot.go).
+	slotAt    map[*syntax.CallExpr]*slotSite
+	slotTemps []*scalarLocal
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
@@ -447,7 +455,15 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 		op = strings.TrimSuffix(text, "=")
 	}
 	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
-		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		// A call may write the local's slots itself (slot.go).
+		v, _ := fc.l.info.Uses[unparen(s.Lhs[0]).(*syntax.Ident)].(*check.Var)
+		call := joinCall(s.Rhs[0])
+		site := fc.slotOffer(call, sl, fc.slotGathered(v))
+		before := fc.l.stats.Inlined
+		val := fc.assigned(s.Rhs[0])
+		if !fc.slotTaken(call, site, val) {
+			fc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go
+		}
 		return
 	}
 	if fc.mapStore(s) {
@@ -680,6 +696,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		fc.fail(fc.value(x))
 		return
 	}
+	if f.slot != nil && fc.acquiring == nil {
+		fc.slotReturn(f.slot, x) // slot.go
+		return
+	}
 	if fc.fallibleExpr(x) {
 		o := fc.expr(x)
 		switch {
@@ -805,6 +825,10 @@ func (fc *funcCtx) fail(err string) {
 	if in := f.inline; in != nil {
 		fc.line(in.err + " = " + err)
 		fc.line("goto " + in.label)
+		return
+	}
+	if f.slot != nil {
+		fc.line("return 0, " + err) // no slot written (slot.go)
 		return
 	}
 	if f.result != nil {
@@ -1242,7 +1266,7 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		saved := fc.pendingKnown
 		fc.pendingKnown = km
-		subject = fc.headerValue(s.Subjects[0].X)
+		subject = fc.matchSubject(s.Subjects[0], km) // slot.go
 		fc.pendingKnown = saved
 	}
 	if km != nil && km.taken {

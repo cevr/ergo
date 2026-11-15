@@ -91,6 +91,10 @@ type funcDecl struct {
 	// dropped is the Go name of the variant with no result once it is
 	// queued (forms.go, droppedName).
 	dropped string
+	// slot is the Go name of the slot variant once it is queued, and
+	// slotOK the callee's slot decision: 1 yes, 2 no (slot.go).
+	slot   string
+	slotOK int8
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -945,6 +949,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 // drop, fd's variant with no result (drop.go): each return evaluates its
 // value for its effects and returns nothing.
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
+	l.emitBodyAs(fd, known, sp, drop, false)
+}
+
+// emitBodyAs is emitBody, or with slot fd's slot variant (slot.go): its
+// result written through the slot pointers, its tag returned.
+func (l *lowerer) emitBodyAs(fd *funcDecl, known bool, sp *specCopy, drop, slot bool) {
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -1055,6 +1065,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
+	if slot {
+		if known || sp != nil || drop || owned || fd.extern != "" || fd.method != nil || fd.slot == "" {
+			ice(site, "the slot variant of %s is not a plain function", f.Name)
+		}
+		bodyName = fd.slot
+	}
 
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
@@ -1138,6 +1154,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		args = append(args, paramNames[i])
 	}
+	if slot {
+		// The slot pointers, last (slot.go).
+		fc.frame.slot = fc.slotParams(f, &parts)
+	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
 	if sp != nil && sp.prov != nil && params[sp.param] != nil {
@@ -1183,6 +1203,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case slot:
+		results = " uint8"
+		if fd.fallible {
+			results = " (uint8, error)"
+		}
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1200,7 +1225,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
-	if l.ir != nil && !known && sp == nil && !owned && !needsFrame && len(own) == 0 {
+	if l.ir != nil && !known && sp == nil && !owned && !slot && !needsFrame && len(own) == 0 {
 		// LowerIR only (irspike_experimental.go): a body in the spike's
 		// subset leaves its Go declaration without a body.
 		if l.ir.body(fc, fd, params) {
@@ -1238,7 +1263,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil && !drop {
+	if !known && sp == nil && !drop && !slot {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	body := fc.out.String()
