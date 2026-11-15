@@ -2,6 +2,7 @@
 
 import github.com/cevr/ergo/modules/infra
 import fs
+import json
 import fstest
 
 // DirProps asks for a directory at Path, a relative path below the
@@ -77,4 +78,17 @@ func onePath(id string, fields []string) string fails infra.Failed {
 		return infra.Failed{ID: id, Reason: "the ledger's entry for \(id) is not a path"}
 	}
 	fields[0]
+}
+
+// DirRowsOn is the state store of DirPropss in the folder root over files and
+// writes, the props kept as JSON.
+func DirRowsOn(files fs.Files, writes fs.Writes, root string) Rows[DirProps] {
+	let codec = json.Codec[DirProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[DirProps](files, writes, root, func(p DirProps) string { json.Encode(codec, p) }, func(text string) Option[DirProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[DirProps]{Value: p}
+	})
 }

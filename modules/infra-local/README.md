@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0). It holds [`infra`](../infra
 
 | Package | What |
 | --- | --- |
-| `infra-local/local` | `Dirs`, `Files` and `Programs`, each an `infra.Driver` over std `fs` and `exec`; `Ledger`; the health checks `HTTP` (the host's), `Up` and `Down` (in memory) |
+| `infra-local/local` | `Dirs`, `Files` and `Programs`, each an `infra.Driver` over std `fs` and `exec`; `Ledger`; the health checks `HTTP` (the host's), `Up` and `Down` (in memory); `Rows` (an `infra.State` in a ledger, with `DirRowsOn`, `FileRowsOn`, `ProcessRowsOn`) and `FileLock` (an `infra.Lock` in a file), so a stack's rows and lock outlive the run (PX6) |
 
 ## Kinds
 
@@ -36,6 +36,7 @@ A law or a test binds memory ones: `fstest.Memory`, `exec.Processes`, and `Up` o
 - `SecondApplyKeepsTheProgram`: a resumed run starts nothing twice.
 - `ChangedProgramRestarts`: changed props end the old program and start the new one.
 - `UnansweredLeavesNothing`: a program that fails its health check is ended and forgotten.
+- `infra.State`'s laws (`PutThenGet`, `RemoveThenGet`) run for `NewIntRows`, and `infra.Lock`'s (`LockExcludes`, `BreakNamesTheHolder`) for `NewFileLock`. A row is kept as hex lines (id, status, place, the props as the text its kind's `show` gives, JSON for the three kinds); a row it cannot read reads as none. std `fs` has no exclusive create, so two runs that take `FileLock` at the same instant can both get it.
 
 On the host, `cmd/ergo`'s `TestInfraLocalStartsARealProgram` (full tier) runs the same driver with `fs.NewHost` and `exec.NewHost`. It starts `sleep`, finds it again, keeps it on a second Apply, and its Delete ends it.
 

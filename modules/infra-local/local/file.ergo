@@ -2,6 +2,7 @@
 
 import github.com/cevr/ergo/modules/infra
 import fs
+import json
 import fstest
 import strings
 
@@ -97,4 +98,17 @@ law ChangedFileHoldsTheNewText(first string, second string) {
 	let file = try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: second, Mode: fs.Shared()})
 	let text = try m.ReadFile(file.Path)
 	text == second
+}
+
+// FileRowsOn is the state store of FilePropss in the folder root over files and
+// writes, the props kept as JSON.
+func FileRowsOn(files fs.Files, writes fs.Writes, root string) Rows[FileProps] {
+	let codec = json.Codec[FileProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[FileProps](files, writes, root, func(p FileProps) string { json.Encode(codec, p) }, func(text string) Option[FileProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[FileProps]{Value: p}
+	})
 }

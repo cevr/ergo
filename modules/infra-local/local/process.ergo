@@ -3,6 +3,7 @@
 import github.com/cevr/ergo/modules/infra
 import exec
 import fs
+import json
 import fstest
 import hex
 import strconv
@@ -228,4 +229,17 @@ law UnansweredLeavesNothing(args string, port int) {
 		return left == None && !spawner.Alive(exec.Detached{Pid: 1, Start: 1, Name: "server"})
 	}
 	false
+}
+
+// ProcessRowsOn is the state store of ProcessPropss in the folder root over files and
+// writes, the props kept as JSON.
+func ProcessRowsOn(files fs.Files, writes fs.Writes, root string) Rows[ProcessProps] {
+	let codec = json.Codec[ProcessProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[ProcessProps](files, writes, root, func(p ProcessProps) string { json.Encode(codec, p) }, func(text string) Option[ProcessProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[ProcessProps]{Value: p}
+	})
 }

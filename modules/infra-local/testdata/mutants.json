@@ -48,6 +48,22 @@
       "to": "",
       "rule": "An Apply records the directory in the ledger, so Read finds it by its id: Driver.ReadAfterApply for Dirs.",
       "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+    },
+    {
+      "name": "px6-rows-status-lost", "origin": "wf10/domain PX6",
+      "file": "modules/infra-local/local/state.ergo",
+      "from": "[]string{row.ID, statusWord(row.Status), strconv.Itoa(row.Seq)",
+      "to": "[]string{row.ID, \"live\", strconv.Itoa(row.Seq)",
+      "rule": "A row keeps its status, so a run finds the work a crash left: State.PutThenGet for IntRows.",
+      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+    },
+    {
+      "name": "px6-lock-shared", "origin": "wf10/domain PX6",
+      "file": "modules/infra-local/local/state.ergo",
+      "from": "\t\tif other.Value != holder {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase None:\n\t}\n\tl.writes.MkdirAll",
+      "to": "\t\tif false {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase None:\n\t}\n\tl.writes.MkdirAll",
+      "rule": "One run at a time holds the file lock: Lock.LockExcludes for FileLock.",
+      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
     }
   ]
 }
