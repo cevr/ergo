@@ -3,6 +3,7 @@ package lower
 import (
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -62,7 +63,7 @@ func (w *valueWalk) copyAt(x syntax.Expr, why string) {
 func (fc *funcCtx) reportCopy(site syntax.Node, text, why string) string {
 	if kind := copyKind(text); kind != "" && site != nil {
 		file, line, col := fc.l.locate(site, site.Pos())
-		fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: "copy", Kind: kind, Why: why})
+		fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: "copy", Kind: kind, Why: why, Func: fc.owner})
 	}
 	return text
 }
@@ -88,6 +89,56 @@ func copyKind(text string) string {
 		return "deep"
 	}
 	return ""
+}
+
+// OwnedFunc is a function with owned parameters (V5; ergo inspect
+// copies): its callers hand those arguments over when they are unshared.
+type OwnedFunc struct {
+	Func   string   `json:"func"`
+	File   string   `json:"file"`
+	Line   int      `json:"line"`
+	Column int      `json:"column"`
+	Params []string `json:"params"`
+}
+
+// ownedFuncs is each function of the root package with an owned
+// parameter, in source order.
+func (l *lowerer) ownedFuncs() []OwnedFunc {
+	if l.pkg == nil {
+		return nil
+	}
+	var out []OwnedFunc
+	for _, f := range l.pkg.Funcs {
+		owned := l.ownedParams(f)
+		if len(owned) == 0 || f.Decl == nil {
+			continue
+		}
+		o := OwnedFunc{Func: f.Name}
+		if fd := l.funcDecl(f); fd != nil && fd.method != nil {
+			o.Func = fd.method.tn.Name + "." + f.Name // as fc.owner names it
+		}
+		o.File, o.Line, o.Column = l.locate(f.Decl, f.Decl.Name.Pos())
+		for _, p := range owned {
+			o.Params = append(o.Params, p.v.Name)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// ownedCallSite records the call x of an owned body (V5): which owned
+// arguments it hands over, and which it copies first and why.
+func (fc *funcCtx) ownedCallSite(x *syntax.CallExpr, c *check.Call) {
+	var parts []string
+	for _, p := range fc.l.ownedParams(c.Func) {
+		if arg := argOf(x, c, p.index); arg != nil && fc.l.vals.clone[arg] {
+			parts = append(parts, p.v.Name+" copied: "+fc.valueWhy(arg))
+		} else {
+			parts = append(parts, p.v.Name+" handed over")
+		}
+	}
+	file, line, col := fc.l.locate(x, x.Pos())
+	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: "owned call", Why: "calls " + c.Func.Name + "'s owned body: " + strings.Join(parts, "; "), Func: fc.owner})
 }
 
 // valueWhy is the reason the value walk recorded for the copy of x.

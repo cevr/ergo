@@ -21,7 +21,7 @@ graphs as JSON, each with its reachable pairs.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
-` + "\n" + inspectAPIHelp
+` + "\n" + inspectAPIHelp + "\n" + inspectCopiesHelp
 
 const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
@@ -42,6 +42,9 @@ func inspectCommand(args []string) error {
 			return err
 		}
 		return inspectAPICommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "copies" {
+		return inspectCopiesCommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)

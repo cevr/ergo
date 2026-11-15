@@ -15,9 +15,10 @@ import (
 )
 
 // copiesOf lowers src as a program and returns its main.go, its parsed
-// file and every copy site the lowering recorded, one per copy it wrote
-// (knownStats.Copies, before the report merges a site written twice).
-func copiesOf(t *testing.T, src string) (string, *syntax.File, []CopySite) {
+// file, every copy site the lowering recorded, one per copy it wrote
+// (knownStats.Copies, before the report merges a site written twice), and
+// the functions with owned parameters (CopyReport.Owned).
+func copiesOf(t *testing.T, src string) (string, *syntax.File, []CopySite, []OwnedFunc) {
 	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -32,7 +33,7 @@ func copiesOf(t *testing.T, src string) (string, *syntax.File, []CopySite) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, src)
 	}
-	return string(code), file, l.stats.Copies
+	return string(code), file, l.stats.Copies, l.ownedFuncs()
 }
 
 // goCopies counts the copy calls of the lowered Go mainGo by kind
@@ -102,7 +103,7 @@ func exprStarts(file *syntax.File) map[[2]int]bool {
 func TestCopyReportIsWhole(t *testing.T) {
 	for _, seed := range copySeeds() {
 		src, _ := copyProgram(seed, map[string]bool{})
-		mainGo, file, sites := copiesOf(t, src)
+		mainGo, file, sites, _ := copiesOf(t, src)
 		want := goCopies(t, mainGo)
 		got := map[string]int{}
 		starts := exprStarts(file)
@@ -121,10 +122,39 @@ func TestCopyReportIsWhole(t *testing.T) {
 	}
 }
 
+// TestOwnedCallsSayHandedOver: the report says which owned argument a call
+// hands over and which it copies, and the functions that own a parameter
+// (ergo inspect copies). A concrete row: the copy-count programs
+// have no owned call whose argument is copied beside one handed over.
+// Mutants: reuse-report-owned-call-handed (every owned argument reported
+// handed over), reuse-report-owned-none (no function reported owning).
+func TestOwnedCallsSayHandedOver(t *testing.T) {
+	src := "type Set { xs []int }\n\n" +
+		"func Insert(s Set, x int) Set {\n\tlet mut t = s\n\tt.xs = t.xs.Append(x)\n\tt\n}\n\n" +
+		"func kept(s Set) int {\n\tlet u = Insert(s, 1)\n\tlen(u.xs) + len(s.xs)\n}\n\n" +
+		"func main() needs Console {\n\tlet mut a = Set{xs: []int{}}\n\tfor i in 0..3 { a = Insert(a, i) }\n\tConsole.Println(\"\\(len(a.xs)) \\(kept(a))\")\n}\n"
+	_, _, sites, owned := copiesOf(t, src)
+	if len(owned) != 1 || owned[0].Func != "Insert" || !slices.Equal(owned[0].Params, []string{"s"}) || owned[0].Line != 3 {
+		t.Errorf("the owned functions are %+v, want Insert at line 3 owning s", owned)
+	}
+	saw := map[string]string{}
+	for _, s := range sites {
+		if s.Form == "owned call" {
+			saw[s.Func] = s.Why
+		}
+	}
+	if !strings.HasSuffix(saw["main"], "s handed over") {
+		t.Errorf("main's Insert(a, i) is not reported handing s over: %q", saw["main"])
+	}
+	if !strings.Contains(saw["Set.kept"], "s copied: ") {
+		t.Errorf("kept's Insert(s, 1) is not reported copying s: %q\n%s", saw["Set.kept"], reportText(sites))
+	}
+}
+
 func reportText(sites []CopySite) string {
 	var b strings.Builder
 	for _, s := range slices.Clone(sites) {
-		fmt.Fprintf(&b, "%s:%d:%d %s %s: %s\n", s.File, s.Line, s.Column, s.Form, s.Kind, s.Why)
+		fmt.Fprintf(&b, "%s:%d:%d %s: %s %s: %s\n", s.File, s.Line, s.Column, s.Func, s.Form, s.Kind, s.Why)
 	}
 	return b.String()
 }

@@ -140,9 +140,9 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
-	// report is build's -report KIND: "copies" prints the form of each
-	// Append and Concat site (in place, one extender or copy, and why) on
-	// stderr (OWN1); empty prints none.
+	// report is build's -report KIND: "copies" prints the copy report on
+	// stderr (OWN1, REUSE RU0; the sites of ergo inspect copies); empty
+	// prints none.
 	report string
 }
 

@@ -126,14 +126,18 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	if opts.report == "copies" {
-		// The copy report (OWN1): the run build's form of each Append and
-		// Concat site, lowered in process, one line each on stderr.
-		sites, err := sketchfront.CopyReport(l.analysis, l.source.Admitted())
+		// The copy report (OWN1, REUSE RU0): every copy and hand-over site
+		// of the run build, lowered in process, one line each on stderr.
+		report, err := sketchfront.CopyReport(l.analysis, l.source.Admitted())
 		if err != nil {
 			return receipt.Location{}, err
 		}
-		for _, s := range sites {
-			fmt.Fprintf(os.Stderr, "COPY %s:%d:%d %s: %s\n", s.File, s.Line, s.Column, s.Form, s.Why)
+		for _, s := range report.Sites {
+			form := s.Form
+			if s.Kind != "" {
+				form += " " + s.Kind
+			}
+			fmt.Fprintf(os.Stderr, "COPY %s:%d:%d %s: %s\n", s.File, s.Line, s.Column, form, s.Why)
 		}
 	}
 	return output, nil

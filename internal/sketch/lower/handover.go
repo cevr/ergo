@@ -78,6 +78,9 @@ type CopySite struct {
 	// or "deep"; "" for a site that copies nothing.
 	Kind string `json:"kind,omitempty"`
 	Why  string `json:"why"`
+	// Func is the Ergo function whose body holds the site (ergo inspect
+	// copies); "" at a package let.
+	Func string `json:"func,omitempty"`
 }
 
 // CopyReport receives the CopySites of a lowering (Unit.Copies), sorted by
@@ -85,6 +88,9 @@ type CopySite struct {
 // form) reports each form it takes.
 type CopyReport struct {
 	Sites []CopySite
+	// Owned is each function of the root package with an owned parameter
+	// (V5), in source order.
+	Owned []OwnedFunc
 }
 
 // appenderConsumes marks, once V3 has decided, each in-place call of an
@@ -634,7 +640,7 @@ func (fc *funcCtx) copySite(x *syntax.CallExpr, form, why string) {
 // copySiteKind records the site x with a copy's kind.
 func (fc *funcCtx) copySiteKind(x *syntax.CallExpr, form, kind, why string) {
 	file, line, col := fc.l.locate(x, x.Pos())
-	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Kind: kind, Why: why})
+	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Kind: kind, Why: why, Func: fc.owner})
 }
 
 // copyReport is the copy report of stats: one site per position, sorted.

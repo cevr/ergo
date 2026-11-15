@@ -122,6 +122,7 @@ func Lower(u Unit) ([]File, error) {
 	code, err := l.program()
 	if u.Copies != nil {
 		u.Copies.Sites = copyReport(l.stats.Copies)
+		u.Copies.Owned = l.ownedFuncs()
 	}
 	if err != nil {
 		return nil, err

@@ -260,6 +260,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			name := fd.name
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The owned body, a method too (V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
@@ -274,6 +275,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The body that takes its owned arguments as they are
 				// passed: this call passes them unshared (values.go, V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
