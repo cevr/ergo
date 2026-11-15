@@ -102,16 +102,11 @@ func isGoInit(name string) bool { return name == "init" }
 // Split splits the module files of the lowering of u into one Go package
 // per Ergo package and the shared package. Files other than main.go stay
 // as they are. A program Split cannot split keeps its files, with the
-// reason in the report. A lowering with an IR file keeps its one
-// package: the IR names its bodies in main.go's package, and a body Split
-// moved would have no body where Go compiles it.
+// reason in the report.
 func Split(u Unit, files []File) ([]File, SplitReport) {
 	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
-	}
-	if slices.ContainsFunc(files, func(f File) bool { return f.Path == IRFileName }) {
-		return files, SplitReport{Packages: 1, Reason: "IR bodies"}
 	}
 	out, rep := splitMain(u, files[i].Data, programModule)
 	if out == nil {

@@ -384,7 +384,10 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			lowered = files
 		}
 	}
-	split := splitLowering()
+	// A lowering with IR bodies stays one package: the IR names its
+	// bodies in main.go's package, and a body Split moved would have no
+	// body where Go compiles it (the split of IR bodies is CS10 x G6's).
+	split := splitLowering() && !req.IR
 	if !split {
 		input.Emitter += "+single"
 	}
