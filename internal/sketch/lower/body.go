@@ -333,6 +333,10 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return true
 	case *syntax.ExprStmt:
 		fc.exprStmt(s.X)
+		// Unreachable(reason) is a Go panic statement, which Go counts as
+		// terminating (defect.go): nothing after it is written (go vet:
+		// unreachable code).
+		return fc.unreachableCall(s.X) != nil
 	case *syntax.BlockStmt:
 		fc.line("{")
 		t := fc.scoped(s, func() bool { return fc.block(s.List) })
