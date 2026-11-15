@@ -1,0 +1,12 @@
+# fk-transfers: the upstream tests of interrupting-commands at d21db423 and what restates each.
+src/scene.test.ts: initial view shows the start button and an empty state -> not restated: stage a has no view (FK4b, after H4 and H4r)
+src/scene.test.ts: starting an upload shows an Uploading row with a cancel button -> not restated: stage a has no view (FK4b)
+src/scene.test.ts: cancelling an upload marks it Cancelled and offers a restart -> not restated: stage a has no view (FK4b)
+src/scene.test.ts: the cancel all button appears only while an upload is running -> not restated: stage a has no view (FK4b)
+src/story.test.ts: starting an upload appends an Uploading entry and fires UploadFile -> `board` test `StartAppendsASendingTransfer`
+src/story.test.ts: cancelling an upload interrupts it and marks it Cancelled -> `board` test `CancelEndsTheTransfer`
+src/story.test.ts: a cancel that lands after completion resolves NotFound and changes nothing -> `board` test `CancelAfterArrivalChangesNothing`
+src/story.test.ts: cancelling one upload leaves the other running -> `board` test `CancelOneLeavesTheOther`
+src/story.test.ts: a new upload can start while a cancellation is still pending -> `board` test `StartWhileACancelIsPending`
+src/story.test.ts: restarting a cancelled upload reuses its id and file -> `board` test `RestartKeepsItsIdAndFile`
+src/story.test.ts: cancel all interrupts every running upload and only those -> `board` test `CancelAllStopsOnlyTheSending`

@@ -1,0 +1,21 @@
+import fkwizard/permit
+import machines
+
+// LogKeepsTheNewest: after n signals the log holds the newest LogLimit
+// entries (all n when fewer), newest first, numbered n-1 down.
+law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
+	let mut d = Blank
+	for i in 0..n {
+		d = machines.Next(d, Track(d, permit.Chose{Overnight: i%2 == 0}))
+	}
+	let kept = if n < LogLimit { n } else { LogLimit }
+	if len(d.Log) != kept || d.Next != n {
+		return false
+	}
+	for k, e in d.Log {
+		if e.ID != n-1-k {
+			return false
+		}
+	}
+	true
+}

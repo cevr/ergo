@@ -1,0 +1,51 @@
+// fk-weather is a port of Foldkit's weather example (stage a: the model,
+// with no view). It plays a script of form events (type a zip, submit)
+// against the lookup and shows what the lookup shows after each one.
+// Package weather is the machine, whose Loading state owns the fetch;
+// package script reads and plays the script; memory and web are the two
+// forecasts. This binary is the only place that chooses them: the fixed
+// stations of memory, or with -live the open-meteo services over the
+// host network.
+
+import flag
+import http
+import fkweather/memory
+import fkweather/script
+import fkweather/web
+import fkweather/weather
+import io
+import os
+
+let liveFlag = flag.Bool("live", false, "ask the open-meteo services over the network instead of the fixed stations")
+
+let set = flag.Set{Name: "fk-weather", Usage: "", Flags: []flag.Flag{liveFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: fk-weather [-live] < script"
+
+let Stations = context { weather.Forecast: memory.Stations }
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: NewLiveScheduler() } {
+		if liveFlag.Get(v) {
+			let live = web.Live() catch {
+			case http.InvalidClient, http.InvalidLimits:
+				return os.Exit{Code: 1, Message: "fk-weather: no client for open-meteo"}
+			}
+			with context { weather.Forecast: live } { script.Run() }
+		} else {
+			with Stations { script.Run() }
+		}
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-weather: the script did not run"}
+	}
+}

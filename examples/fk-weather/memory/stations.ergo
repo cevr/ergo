@@ -1,0 +1,29 @@
+// Package memory holds the in-memory provider of the weather contract.
+
+import fkweather/weather
+
+// Stations is a weather.Forecast of four fixed reports. The zip 99999
+// belongs to a station that is down, so a script can show a forecast that
+// cannot answer; any other zip has no place.
+type Stations {}
+
+func Fetch(_ Stations, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
+	if zip == "99999" {
+		return weather.Unavailable{Reason: "the station at 99999 is down"}
+	}
+	for r in reports() {
+		if r.Zip == zip {
+			return r
+		}
+	}
+	weather.NotFound{Zip: zip}
+}
+
+func reports() []weather.Report {
+	[]weather.Report{
+		weather.Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Humidity: 45, WindSpeed: 10, Location: "Beverly Hills", Region: "California"},
+		weather.Report{Zip: "10001", Temperature: 41, Description: "Rain", Humidity: 88, WindSpeed: 14, Location: "New York", Region: "New York"},
+		weather.Report{Zip: "60601", Temperature: -3, Description: "Snow", Humidity: 76, WindSpeed: 22, Location: "Chicago", Region: "Illinois"},
+		weather.Report{Zip: "98101", Temperature: 55, Description: "Partly cloudy", Humidity: 70, WindSpeed: 6, Location: "Seattle", Region: "Washington"},
+	}
+}

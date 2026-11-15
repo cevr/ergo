@@ -105,6 +105,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Union**: A closed set of record types, written `type T = A | B`. It has no zero value.
 
+**Never** (checked and lowered, FKG2): The prelude type with no value, a union of no variants (owner, 2026-11-13). A machine with no output is a `Decision[S, Never]`; a match leaves out the variants that hold a `Never` and needs no arm on one. It is no bottom type: `n.Absurd[T]()` converts it where a `T` is wanted. Not `Unreachable`, which is a defect raised on a path that should not run. *Prior art:* Elm's `Never`, Rust's `Infallible`. See [types](docs/spec/types.md#never).
+
 **Variant**: One struct type listed in a union. A variant value is assignable to every union that lists it.
 
 **Included record**: A record named by the member `..R` of another record declaration or variant, `type Visit { ..Owned, S Session }`. Its fields become the including record's own fields at that position, and each keeps its declaration, so a spread copies it between two records that include `R`. One name has one declaration: a duplicate, also through a diamond, is S108. See [types](docs/spec/types.md#structs) Structs 7.
