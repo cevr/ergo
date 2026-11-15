@@ -17,7 +17,7 @@ import (
 // (a wider row admitted), rule 2's entry refusal, rule 3's with site, its
 // embedding and its Context value.
 func TestTestAmbientDiagnostics(t *testing.T) {
-	const head = "import fs\nimport testing\n\nlet onDisk = context needs TestAmbient { fs.Files: fs.NewTestHost() }\n\n"
+	const head = "import fs\n\nlet onDisk = context needs TestAmbient { fs.Files: fs.NewTestHost() }\n\n"
 	const withOutside = "context onDisk needs TestAmbient; only the test runner provides it: with it in a test, or let a law run under it (rows.md, Test's ambient)"
 	cases := []struct {
 		name string
@@ -40,21 +40,21 @@ func TestTestAmbientDiagnostics(t *testing.T) {
 		{"a with outside a test", `func outside() {
 	with onDisk {}
 }
-`, []string{"7:7 S102 " + withOutside}},
+`, []string{"6:7 S102 " + withOutside}},
 		{"no header", `let bare = context { fs.Files: fs.NewTestHost() }
-`, []string{"6:32 S102 context bare requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)"}},
+`, []string{"5:32 S102 context bare requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)"}},
 		{"a wider header", `let wider = context needs TestAmbient | fs.Writes { fs.Files: fs.NewTestHost() }
 `, []string{
-			"6:21 S109 a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)",
-			"6:67 S102 context wider requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
+			"5:21 S109 a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)",
+			"5:63 S102 context wider requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
 		}},
 		{"an embedding", `let embeds = context { onDisk }
-`, []string{"6:24 S108 context onDisk needs TestAmbient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)"}},
+`, []string{"5:24 S108 context onDisk needs TestAmbient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)"}},
 		{"a Context value in a test", `test Value {
 	let v Context[fs.Files] = onDisk
 	with v {}
 }
-`, []string{"7:28 S108 a Context value cannot hold context onDisk, which needs TestAmbient: its folder lives for one with of it; bind it with with in a test (rows.md, Test's ambient)"}},
+`, []string{"6:28 S108 a Context value cannot hold context onDisk, which needs TestAmbient: its folder lives for one with of it; bind it with with in a test (rows.md, Test's ambient)"}},
 		{"an entry of TestAmbient", `type Fake {}
 
 func folder(_ Fake) string { "/" }
@@ -62,7 +62,7 @@ func folder(_ Fake) string { "/" }
 test Forged {
 	with context { TestAmbient: Fake } {}
 }
-`, []string{"11:34 S106 no context binds TestAmbient: its one provider is the test runner, for a named context whose header says needs TestAmbient (rows.md, Test's ambient)"}},
+`, []string{"10:30 S106 no context binds TestAmbient: its one provider is the test runner, for a named context whose header says needs TestAmbient (rows.md, Test's ambient)"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
