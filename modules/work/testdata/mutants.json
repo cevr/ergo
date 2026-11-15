@@ -1156,7 +1156,7 @@
     {
       "name": "wg4-units-no-resplit", "origin": "wf10/semws WG4",
       "file": "modules/work/work/units.ergo",
-      "from": "\tlet _ = s.Units(file, m.Text) catch {",
+      "from": "\tlet _ = s.Units(file, d.Merged.Text) catch {",
       "to": "\tlet _ = s.Units(file, ours) catch {",
       "rule": "A units merge whose text does not parse is the line merge, conflict Unparsed (memory's AMergeThatDoesNotParseIsTheLineMerge).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1247,6 +1247,38 @@
       "from": "\t\t\tfor e < len(side) && owner[e] >= 0 && side[e] == side[s] {\n",
       "to": "\t\t\tfor e < len(side) && owner[e] >= 0 && side[e] == side[s] && false {\n",
       "rule": "A run ends as far down as it goes, off a change of the other side right above it (classes' InsertionAfterAChangeStaysApart; mergereplay case 197).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-known-unused", "origin": "wf10/semws WG4b",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\tmatch p.known.Get(json.Encode(wireCodec, r)) {\n",
+      "to": "\tmatch p.known.Get(json.Encode(wireCodec, r) + \"x\") {\n",
+      "rule": "A request the plugin answered ahead is not asked again (memory's TreeMergeStartsThePluginTwice).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-tree-file-at-a-time", "origin": "wf10/semws WG4b",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tlet plugin = Knowing(PluginOf(t.runner, l.Command, t.base), sides)\n",
+      "to": "\t\tlet plugin = Knowing(PluginOf(t.runner, l.Command, t.base), sides[0:0])\n",
+      "rule": "The tree merge asks the plugin for every file's sides in one run (memory's TreeMergeStartsThePluginTwice).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-tree-resplit-alone", "origin": "wf10/semws WG4b",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tlet cut = Knowing(plugin, again)\n",
+      "to": "\t\tlet cut = Knowing(plugin, again[0:0])\n",
+      "rule": "The tree merge cuts every merged text again in one run (memory's TreeMergeStartsThePluginTwice).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-file-sides-alone", "origin": "wf10/semws WG4b",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tlet p = Knowing(PluginOf(t.runner, l.Command, t.base), []Request{UnitsOf{File: path, Text: b}, UnitsOf{File: path, Text: a}, UnitsOf{File: path, Text: other}})\n",
+      "to": "\tlet p = Knowing(PluginOf(t.runner, l.Command, t.base), []Request{UnitsOf{File: path, Text: b}, UnitsOf{File: path, Text: a}, UnitsOf{File: path, Text: other}}[0:0])\n",
+      "rule": "merge-file asks the plugin for the three sides in one run (memory's TreeMergeStartsThePluginTwice).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

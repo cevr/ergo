@@ -225,7 +225,9 @@ func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ou
 	let b = try t.files.ReadFile(base)
 	let a = try t.files.ReadFile(ours)
 	let other = try t.files.ReadFile(theirs)
-	let merged = MergeUnits(PluginOf(t.runner, l.Command, t.base), path, b, a, other) catch {
+	// One run for the three sides, one for the merge cut again.
+	let p = Knowing(PluginOf(t.runner, l.Command, t.base), []Request{UnitsOf{File: path, Text: b}, UnitsOf{File: path, Text: a}, UnitsOf{File: path, Text: other}})
+	let merged = MergeUnits(p, path, b, a, other) catch {
 	case Unreadable, Unanswered:
 		return try mergeLines(t, path, base, ours, theirs)
 	}
@@ -345,6 +347,7 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 			paths = paths.Append(p)
 		}
 	}
+	let byUnits = unitMerges(t, c, paths, base, ours, theirs)
 	let mut conflicts = []string{}
 	for p in slices.Sort(paths) {
 		let (b, o, th) = (base.Get(p), ours.Get(p), theirs.Get(p))
@@ -374,10 +377,12 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 					conflicts = conflicts.Append(p)
 				}
 				m.Text
-			case (None, Some[LanguageLine] as l):
-				let h = classes.MergeText(textOf(b), x.Value, y.Value)
-				let m = MergeUnits(PluginOf(t.runner, l.Value.Command, t.base), p, textOf(b), x.Value, y.Value) catch {
-				case Unreadable, Unanswered:
+			case (None, Some[LanguageLine]):
+				let m = match byUnits.Get(p) {
+				case Some[classes.Merged] as u:
+					u.Value
+				case None:
+					let h = classes.MergeText(textOf(b), x.Value, y.Value)
 					classes.Merged{Text: classes.Text(h), Conflicts: if h.Clashes > 0 { []string{"lines"} } else { []string{} }, Regenerate: false}
 				}
 				if len(m.Conflicts) > 0 {
@@ -430,6 +435,66 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 		return TreeMerged{Conflicts: conflicts, Ran: []string{}}
 	}
 	TreeMerged{Conflicts: []string{}, Ran: (try deriveIn(t, c, folder)).Ran}
+}
+
+// unitMerges is the merge by units of each path both trees hold that no
+// class line takes and a trusted [language.NAME] does: one plugin run for
+// every such path's three sides and one for every merge cut again, for
+// each language, where a file at a time starts the plugin twice a file.
+// A path whose sides the plugin cannot read, or that it gives no answer
+// for, is absent: the caller merges it by lines.
+func unitMerges(t Tool, c Config, paths []string, base Map[string, string], ours Map[string, string], theirs Map[string, string]) Map[string, classes.Merged] {
+	let mut out = Map[string, classes.Merged]{}
+	if !trusted(t, c) {
+		return out
+	}
+	for l in c.Languages {
+		let mut mine = []string{}
+		let mut sides = []Request{}
+		for p in paths {
+			let k = match ClassOf(c.Classes, p) {
+			case Some[ClassLine] as line:
+				lineClass(line.Value)
+			case None:
+				None
+			}
+			match (k, LanguageOf(c, p), ours.Get(p), theirs.Get(p)) {
+			case (None, Some[LanguageLine] as of, Some[string] as x, Some[string] as y):
+				if of.Value.Name != l.Name {
+					continue
+				}
+				mine = mine.Append(p)
+				for text in []string{textOf(base.Get(p)), x.Value, y.Value} {
+					sides = sides.Append(UnitsOf{File: p, Text: text})
+				}
+			case _:
+			}
+		}
+		if len(mine) == 0 {
+			continue
+		}
+		let plugin = Knowing(PluginOf(t.runner, l.Command, t.base), sides)
+		let mut drafts = Map[string, draft]{}
+		let mut again = []Request{}
+		for p in mine {
+			let d = drafted(plugin, p, textOf(base.Get(p)), textOf(ours.Get(p)), textOf(theirs.Get(p))) catch {
+			case Unreadable, Unanswered:
+				continue
+			}
+			drafts[p] = d
+			if d.Check {
+				again = again.Append(UnitsOf{File: p, Text: d.Merged.Text})
+			}
+		}
+		let cut = Knowing(plugin, again)
+		for p, d in drafts {
+			out[p] = checked(cut, p, textOf(base.Get(p)), textOf(ours.Get(p)), textOf(theirs.Get(p)), d) catch {
+			case Unreadable, Unanswered:
+				continue
+			}
+		}
+	}
+	out
 }
 
 func keysOf(m Map[string, string]) []string {

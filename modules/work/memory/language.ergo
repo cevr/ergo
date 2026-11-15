@@ -18,6 +18,7 @@ import maps
 import slices
 import strconv
 import strings
+import sync
 import time
 import utf8
 import github.com/cevr/ergo/modules/work/work
@@ -272,14 +273,19 @@ func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic
 // work.Serve of its standard input over the three providers, or nothing
 // with status when status is not 0 (a plugin that died) or when silent (a
 // plugin that ends well and answers nothing).
-type Serving { s work.Splitter, i work.Indexer, c work.Checker, status int, silent bool } implements exec.Runner
+// It counts its runs (Started): each is a start of the plugin.
+type Serving { s work.Splitter, i work.Indexer, c work.Checker, status int, silent bool, runs sync.Ref[int] } implements exec.Runner
 
 // NewServing serves the reference language.
 func NewServing() Serving { serving(NewLines()) }
 
-func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: false} }
+func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: false, runs: sync.NewRef(0)} }
+
+// Started is how many times the plugin ran.
+func Started(sv Serving) int { sv.runs.Get() }
 
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	sv.runs.Set(sv.runs.Get() + 1)
 	if sv.status != 0 {
 		return exec.Result{Status: sv.status, Stdout: "", Stderr: "the plugin died\n"}
 	}
@@ -347,7 +353,7 @@ law PluginIsTransparent(names []string, bodies []string, extra []work.FileEdit, 
 	let mut i work.Indexer = l
 	let mut c work.Checker = l
 	if level1 {
-		runner = Serving{s: l, i: work.Absent, c: work.Absent, status: 0, silent: false}
+		runner = Serving{s: l, i: work.Absent, c: work.Absent, status: 0, silent: false, runs: sync.NewRef(0)}
 		i = work.Absent
 		c = work.Absent
 	}
@@ -405,6 +411,11 @@ func configuredWorld(lines Lines, files Map[string, string], config string, trus
 
 // configuredDisk is configuredWorld and its disk.
 func configuredDisk(lines Lines, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	configuredWith(serving(lines), files, config, trusted)
+}
+
+// configuredWith is configuredDisk with the plugin runner sv.
+func configuredWith(sv Serving, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	Repo(vcs, theBase, "main", files, "c0")
@@ -444,7 +455,7 @@ func configuredDisk(lines Lines, files Map[string, string], config string, trust
 			}
 		}
 	}
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: serving(lines), Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: sv, Clock: time.NewManual(1000)}
 	(work.NewTool(theBase, home, "/data", p, "/"), disk)
 }
 
@@ -537,7 +548,10 @@ func scripted(units Map[int, int], script []classes.Edit) Map[int, int] {
 	out
 }
 
-func fold(k int) int { if k < 0 { (0 - k) % 6 } else { k % 6 } }
+// fold is k's unit, 0 to 5. (0 - k for the least int is itself, so a
+// negation would give a negative unit there, which unitFile drops and a
+// second fold moves: two scripts on one base would disagree.)
+func fold(k int) int { ((k % 6) + 6) % 6 }
 
 // picked is the reference merge: the merged values and the keys that
 // clash.
@@ -925,4 +939,63 @@ law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
 	}
 	let (want, _) = picked(base, ours, base)
 	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want}
+}
+
+// TreeMergeStartsThePluginTwice: the merge of three trees with n files of
+// a [language.NAME] that both sides changed (each its own edits) is each
+// file's merge by MergeUnits, and the plugin starts at most twice, however
+// many files: once for every file's three sides, once for every merge cut
+// again. merge-file starts it at most twice for one file.
+law TreeMergeStartsThePluginTwice(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, n int) {
+	let files = ((n%4)+4)%4 + 1
+	let base = scripted(units, []classes.Edit{})
+	let mut b = Map[string, string]{}
+	let mut o = Map[string, string]{}
+	let mut th = Map[string, string]{}
+	for i in 0..files {
+		let p = "f\(i).lines"
+		let mut shifted = []classes.Edit{}
+		for e in theirEdits {
+			match e {
+			case classes.Set as s:
+				shifted = shifted.Append(classes.Set{Key: s.Key, Value: s.Value + i})
+			case classes.Drop as d:
+				shifted = shifted.Append(d)
+			}
+		}
+		b[p] = unitFile(base)
+		o[p] = unitFile(scripted(base, ourEdits))
+		th[p] = unitFile(scripted(base, shifted))
+	}
+	let one = unitFile(base)
+	let ours = unitFile(scripted(base, ourEdits))
+	let theirs = unitFile(scripted(base, theirEdits))
+	let sv = serving(NewLines())
+	let (tool, disk) = configuredWith(sv, Map[string, string]{"m/b.lines": one, "m/o.lines": ours, "m/t.lines": theirs}, languageConfig, true)
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let _ = work.MergeTree(tool, c, theBase+"/out", b, o, th) catch {
+	case _:
+		return false
+	}
+	let tree = sv.Started()
+	for p, text in th {
+		let want = work.MergeUnits(NewLines(), p, one, ours, text) catch {
+		case work.Unreadable, work.Unanswered:
+			return false
+		}
+		let got = disk.ReadFile(theBase + "/out/" + p) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if got != want.Text {
+			return false
+		}
+	}
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	case _:
+	}
+	tree <= 2 && sv.Started()-tree <= 2
 }
