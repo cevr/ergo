@@ -697,14 +697,14 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 	}
 	// Shared instances (pkginst.go): on the IR path, the instance package
-	// names each instance the packages name, so every name in one crosses.
+	// names each instance two packages name, so every name in one crosses.
 	var insts []splitInst
 	var finder *splitInsts
 	instPkg := -1
 	if irs != nil && instShared {
 		finder = newSplitInsts(f, groups, groupOf)
 		var names map[string]bool
-		insts, names = finder.collect(f, declGroup)
+		insts, names = finder.shared(finder.collect(f, declGroup), plan, base)
 		if len(insts) > 0 {
 			instPkg = len(plan.pkgs)
 			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})

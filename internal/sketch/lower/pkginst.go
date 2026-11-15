@@ -26,11 +26,13 @@ import (
 // body (design.md: no frontend monomorphization, no copied bodies); the
 // split only chooses which package compiles each instance.
 //
-// An instance is shared when inst can name it: a generic type or function
-// of main.go with every type argument written out, each a predeclared
-// type or a type of main.go (no alias, no type parameter) or a pointer,
-// slice or map of such, and none of them placed in the root, which no
-// package imports. An instance in a generic declaration's body is not
+// An instance is shared when two or more packages name it (one that only
+// one package names gains nothing from moving) and inst can name it: a
+// generic type or function of main.go with every type argument written
+// out, each a predeclared type or a type of main.go (no alias, no type
+// parameter) or a pointer, slice or map of such. Only the root names
+// what is placed in the root, which no package imports, so no shared
+// instance needs it. An instance in a generic declaration's body is not
 // listed: Go compiles that body only where it is instantiated, which the
 // list of the body's own instance covers. A listed instance its package
 // never names is a compile error, so the list cannot drift from the code.
@@ -133,7 +135,7 @@ func (s *splitInsts) instance(x ast.Expr) bool {
 		return false
 	}
 	g := s.global(gen)
-	if g < 0 || s.groups[g].pkg == 1 || s.params[gen.Name] != len(args) {
+	if g < 0 || s.params[gen.Name] != len(args) {
 		return false
 	}
 	for _, a := range args {
@@ -149,7 +151,7 @@ func (s *splitInsts) closed(t ast.Expr) bool {
 	switch t := t.(type) {
 	case *ast.Ident:
 		if g := s.global(t); g >= 0 {
-			return !s.alias[t.Name] && s.params[t.Name] == 0 && s.groups[g].pkg != 1
+			return !s.alias[t.Name] && s.params[t.Name] == 0
 		}
 		return t.Obj == nil && s.scope.Lookup(t.Name) == nil && predeclaredLink[t.Name] != ""
 	case *ast.IndexExpr, *ast.IndexListExpr:
@@ -177,11 +179,9 @@ var predeclaredLink = map[string]string{
 }
 
 // collect is every instance inst can name in the declarations of
-// non-generic groups, nested ones included, and the package-scope names
-// they use.
-func (s *splitInsts) collect(f *ast.File, declGroup []int) ([]splitInst, map[string]bool) {
+// non-generic groups, nested ones included.
+func (s *splitInsts) collect(f *ast.File, declGroup []int) []splitInst {
 	var out []splitInst
-	names := map[string]bool{}
 	for i, d := range f.Decls {
 		g := declGroup[i]
 		if g < 0 || s.groups[g].generic {
@@ -193,16 +193,10 @@ func (s *splitInsts) collect(f *ast.File, declGroup []int) ([]splitInst, map[str
 				return true
 			}
 			out = append(out, splitInst{x: x, pkg: s.groups[g].pkg})
-			ast.Inspect(x, func(n ast.Node) bool {
-				if id, ok := n.(*ast.Ident); ok && s.global(id) >= 0 {
-					names[id.Name] = true
-				}
-				return true
-			})
 			return true
 		})
 	}
-	return out, names
+	return out
 }
 
 // instWriter spells the instances once the split has named its packages.
@@ -312,6 +306,38 @@ func (w *instWriter) lists(insts []splitInst, uses map[int]bool) (map[int][]stri
 	}
 	b.WriteString(")\n")
 	return lists, b.String(), len(decl)
+}
+
+// shared keeps the instances that two or more packages name, and returns
+// them with the package-scope names they use. An instance one package
+// names stays in that package: the instance package would compile it as
+// often, and every package still checks what it names, so moving it only
+// adds the instance package's reading of it to a cold build.
+func (s *splitInsts) shared(insts []splitInst, plan *splitPlan, base string) ([]splitInst, map[string]bool) {
+	w := &instWriter{s: s, plan: plan, base: base}
+	pkgs := map[string]map[int]bool{}
+	for _, in := range insts {
+		k := w.key(in.x)
+		if pkgs[k] == nil {
+			pkgs[k] = map[int]bool{}
+		}
+		pkgs[k][in.pkg] = true
+	}
+	var out []splitInst
+	names := map[string]bool{}
+	for _, in := range insts {
+		if len(pkgs[w.key(in.x)]) < 2 {
+			continue
+		}
+		out = append(out, in)
+		ast.Inspect(in.x, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && s.global(id) >= 0 {
+				names[id.Name] = true
+			}
+			return true
+		})
+	}
+	return out, names
 }
 
 // isType reports whether gen names a type.
