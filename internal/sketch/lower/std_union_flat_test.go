@@ -22,7 +22,8 @@ func main() needs Console {
 // interfaces of a box each; the reference msb3Lowering "off" keeps them
 // interfaces. Each lowering type-checks (go/types). The run is the
 // examples' (cron's calendar, jsonv's wire kinds) under both.
-// Mutants: msb3-std-sourced-only, msb3-std-layout-unknown.
+// Mutants: msb3-std-sourced-only, msb3-std-layout-unknown,
+// msb3-fieldless-of-call.
 func TestStdUnionsAreFlat(t *testing.T) {
 	flat := mustLower(t, "stdflat", stdUnionSource)
 	saved := msb3Lowering
@@ -36,6 +37,12 @@ func TestStdUnionsAreFlat(t *testing.T) {
 		if !strings.Contains(ref.mainGo(), "type "+name+" interface{") {
 			t.Errorf("under msb3Lowering off, std time's %s is not an interface", name)
 		}
+	}
+	// A field-less variant's literal is the tag literal, a constant, so
+	// std time's months() stays within Go's inlining budget and its slice
+	// does not escape (cron's test allocated 9M times with of calls).
+	if !strings.Contains(flat.mainGo(), "(Month{tag: 0})") {
+		t.Errorf("std time's January is not the tag literal (Month{tag: 0})")
 	}
 	typecheckGo(t, []*lowered{flat, ref})
 }
