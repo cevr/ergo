@@ -1143,6 +1143,8 @@
       "to": "",
       "rule": "The dev profile lowers without go/format.",
       "killers": ["internal/sketchfront:TestRawLoweringKeepsLines"]
-    }
+    },
+    {"name":"ft-harness-key-has-bodies","origin":"wf10 test-speed FT6 (the harness is its own Go package)","file":"internal/sketch/build/action.go","from":"\t\treturn []string{\"-l\", \"-dwarf=false\"}\n","to":"\t\treturn []string{\"-dwarf=false\"}\n","rule":"Under the dev profile the root package's export data holds no function body, so a body edit of the root compiles the root and reuses the harness.","killers":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"],"anchor":{"tests":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"]}},
+    {"name":"ft-harness-key-omits-signature","origin":"wf10 test-speed FT6 (the harness is its own Go package)","file":"internal/sketch/build/direct.go","from":"\t\tk.add(\"export\", a.Export)\n","to":"\t\tif !strings.HasSuffix(imp, \"/ergoroot\") {\n\t\t\tk.add(\"export\", a.Export)\n\t\t}\n","rule":"The harness's compile is keyed by the root package's export data: a declaration added to the root compiles the harness again.","killers":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"],"anchor":{"tests":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"]}}
   ]
 }

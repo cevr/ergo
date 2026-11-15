@@ -153,7 +153,7 @@ func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitRepor
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out)
 	}
 	res := files
 	if out == nil {
