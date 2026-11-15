@@ -17,6 +17,13 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
-    }
+    },
+    {"name":"t0-milliseconds-toward-zero","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"func Milliseconds(t Time) int64 { t.sec*1000 + t.nsec/1000000 }","to":"func Milliseconds(t Time) int64 { (t.sec*1000000000 + t.nsec) / 1000000 }","rule":"stdlib.md time 11: Milliseconds rounds down, as Go's t.UnixMilli(), on both sides of 1970.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-truncate-rounds","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"let r = truncate(t.sec, t.nsec, d)","to":"let r = round(t.sec, t.nsec, d)","rule":"stdlib.md time 11: Truncate is the last multiple of d at or before t.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-round-truncates","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"let r = round(t.sec, t.nsec, d)","to":"let r = truncate(t.sec, t.nsec, d)","rule":"stdlib.md time 11: Round is the nearest multiple of d, halfway up.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-interval-holds-end","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"!Before(t, i.start) && Before(t, i.end)","to":"!Before(t, i.start) && !After(t, i.end)","rule":"stdlib.md time 11: an Interval is half open; it never holds its end.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-touching-intervals-overlap","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"{ Before(Max(a.start, b.start), Min(a.end, b.end)) }","to":"{ !After(Max(a.start, b.start), Min(a.end, b.end)) }","rule":"stdlib.md time 11: intervals that only touch, or an empty one, do not overlap.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-interval-unchecked","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"if Before(end, start) {\n\t\treturn Reversed","to":"if false {\n\t\treturn Reversed","rule":"stdlib.md time 11: only NewInterval builds an Interval, and it fails Reversed when end is before start.","killers":["lower:TestStdTimeLawsRun"]},
+    {"name":"t0-compare-swapped","origin":"wf10 std-spike T0","file":"internal/sketch/std/time/time.ergo","from":"\t\t-1\n\t} else if Before(u, t) {\n\t\t1\n","to":"\t\t1\n\t} else if Before(u, t) {\n\t\t-1\n","rule":"stdlib.md time: Compare is Go's t.Compare(u), negative when t is before u.","killers":["lower:TestStdTimeLawsRun"]}
   ]
 }

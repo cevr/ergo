@@ -254,11 +254,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	// host clock and the others compute, so none waits; Timeline.Wait
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
 	// Advance wakes sleepers without waiting.
-	"TimeHostNow": {},
-	"TimeFormat":  {},
-	"TimeParse":   {},
-	"TimeSub":     {},
-	"TimeSubMono": {},
+	"TimeHostNow":  {},
+	"TimeFormat":   {},
+	"TimeParse":    {},
+	"TimeTruncate": {},
+	"TimeRound":    {},
+	"TimeSub":      {},
+	"TimeSubMono":  {},
 	// std-csv: pure bodies over encoding/csv on a string.
 	"CSVReadAll":     {},
 	"CSVScan":        {},
