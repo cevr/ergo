@@ -198,6 +198,15 @@
       "to": "return gateSteps(root)",
       "rule": "The full tier's sweeps are keyed.",
       "killers": ["scripts/gate:TestGateTierReachesReplay"]
+    },
+    {
+      "name": "gt4-store-per-step",
+      "origin": "wf10 GATE2 GT4",
+      "file": "scripts/gate/steps.go",
+      "from": "Env:     []string{sweepVariable + \"=\" + selection, sweepStoreVariable + \"=\" + sweepStdStore()},",
+      "to": "Env:     []string{sweepVariable + \"=\" + selection},",
+      "rule": "Every sweep step names the one std store, outside its emptied TMPDIR.",
+      "killers": ["scripts/gate:TestGateTierReachesReplay"]
     }
   ]
 }

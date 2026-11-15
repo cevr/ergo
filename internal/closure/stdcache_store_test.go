@@ -51,10 +51,11 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	}
 
 	fakeGo(t.TempDir())
-	store, err := fillStdStore(root)
+	store, release, err := fillStdStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	release()
 	logged := calls()
 	if len(logged) != len(stdBuilds()) {
 		t.Fatalf("%d go builds, want one per std build (%d): %q", len(logged), len(stdBuilds()), logged)
@@ -94,7 +95,11 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 		}
 		return nil
 	})
-	if again, err := fillStdStore(root); err != nil || again != store || len(calls()) != len(logged) {
+	again, release, err := fillStdStore(root)
+	if err == nil {
+		release()
+	}
+	if err != nil || again != store || len(calls()) != len(logged) {
 		t.Errorf("a second fill: store %s (%v) after %d builds; want %s and no build", again, err, len(calls())-len(logged), store)
 	}
 
@@ -115,7 +120,7 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	}
 
 	fakeGo(filepath.Join(root, "goroot"))
-	if _, err := fillStdStore(root); err == nil || len(calls()) != len(logged) {
+	if _, _, err := fillStdStore(root); err == nil || len(calls()) != len(logged) {
 		t.Errorf("a GOROOT inside the checkout: error %v after %d builds; want a refusal and no build", err, len(calls())-len(logged))
 	}
 }

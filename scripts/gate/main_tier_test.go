@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/scripts/gate/replay"
@@ -34,10 +35,32 @@ func TestGateTierReachesReplay(t *testing.T) {
 		}
 		// The full tier's sweeps replay while their keys hold (keySweeps;
 		// mutant gt1-full-tier-unkeyed).
+		// They share one std store outside every step's TMPDIR, which the
+		// gate empties (sweepStdStore; mutant gt4-store-per-step).
+		stores := map[string]bool{}
 		for _, step := range g.steps {
-			if step.Sweep != "" && step.Package == nil {
+			if step.Sweep == "" {
+				continue
+			}
+			if step.Package == nil {
 				t.Errorf("a %s run's %s has no package key", tier, step.Name)
 			}
+			store := ""
+			for _, v := range step.Env {
+				if value, ok := strings.CutPrefix(v, sweepStoreVariable+"="); ok {
+					store = value
+				}
+			}
+			for _, other := range g.steps {
+				if dir := stepTempDir(g.root, other.Name); store == "" || store == dir || strings.HasPrefix(store, dir+"/") {
+					t.Errorf("a %s run's %s names the std store %q, not one outside every step's TMPDIR", tier, step.Name, store)
+					break
+				}
+			}
+			stores[store] = true
+		}
+		if len(stores) > 1 {
+			t.Errorf("a %s run's sweeps name %d std stores, want one", tier, len(stores))
 		}
 		g.whole = &wholeGate{mechanism: "test"}
 		facts, err := g.collect()

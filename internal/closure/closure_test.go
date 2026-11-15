@@ -695,10 +695,12 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
-	std, err := fillStdStore(root)
+	// The store stays locked for this sweep's runs, which seed from it.
+	std, release, err := fillStdStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer release()
 	closures, all := modulePackages(t, root)
 	targets, skipped, errs := sweepTargets(selection, closures, all, unsweepable)
 	for _, err := range errs {

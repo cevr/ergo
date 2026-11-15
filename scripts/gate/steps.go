@@ -156,6 +156,20 @@ const (
 	sweepTable = "internal/closure/closure_test.go"
 )
 
+// sweepStoreVariable names the directory of the sweep's std store
+// (internal/closure, stdStoreVariable): a Go build cache of the compiled
+// standard library from which each package's runs start. Each step's TMPDIR
+// is its own and emptied before it runs (stepTempDir), so a store under it
+// was built again by every sweep step, about 370 CPU-s, also for a package
+// the sweep skips (GATE2 GT4, measured). sweepStdStore is one directory for
+// every sweep step, outside every step's TMPDIR: the first step fills it,
+// the others and later gates take it. In the merge tier's sandbox the
+// temporary directory is the run's own scratch, so its uncached run fills
+// one store of its own.
+const sweepStoreVariable = "ERGO_CLOSURE_STD_STORE"
+
+func sweepStdStore() string { return filepath.Join(os.TempDir(), "ergo-gate", "closure-std") }
+
 // sweepOS is the GOOS whose steps the gate declares: runtime.GOOS, which a
 // test sets to another to read that OS's steps (TestClosureSweepTier).
 var sweepOS = runtime.GOOS
@@ -182,7 +196,7 @@ func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
 		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection},
+		Env:     []string{sweepVariable + "=" + selection, sweepStoreVariable + "=" + sweepStdStore()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,

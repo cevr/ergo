@@ -37,6 +37,24 @@ import (
 // the store of the current toolchain and the lock that guards its filling.
 const stdStoreDir = "ergo-closure-std"
 
+// stdStoreVariable, when set, names the directory that holds the stores
+// instead (stdStoreParent). The gate sets it to one directory for every
+// sweep step of a run (scripts/gate, sweepStdStore): each step has a TMPDIR
+// of its own that the gate empties before it runs, so a store under it was
+// filled again by every step, 4 std builds and about 370 CPU-s each, also
+// for a package the sweep skips (GATE2 GT4, measured: a skipped sweep of
+// scripts/gate took 377 CPU-s with an empty TMPDIR, 1.6 with the store).
+const stdStoreVariable = "ERGO_CLOSURE_STD_STORE"
+
+// stdStoreParent is the directory of the stores: stdStoreVariable's value,
+// else stdStoreDir under the temporary directory.
+func stdStoreParent() string {
+	if dir := os.Getenv(stdStoreVariable); dir != "" {
+		return dir
+	}
+	return filepath.Join(os.TempDir(), stdStoreDir)
+}
+
 // stdStoreComplete marks a store whose builds all ended.
 const stdStoreComplete = "complete"
 
@@ -84,62 +102,111 @@ var goSettings = []string{"GOVERSION", "GOROOT", "GOFLAGS", "GOAMD64", "GOARM64"
 // read-only so that no run can change an entry through its link. It
 // removes the stores of other toolchains. A GOROOT inside root is refused:
 // its entries would hide inputs of the checkout.
-func fillStdStore(root string) (string, error) {
+//
+// The stores' directory is shared (stdStoreParent): the sweep steps of a
+// gate, and gates one after another, take the store one fill made. The
+// caller holds a shared lock on it until it calls release, after its last
+// seedCache: a fill takes the lock alone, so it never removes a store that
+// another sweep still links from, and a sweep that finds its store complete
+// waits for no other.
+func fillStdStore(root string) (string, func(), error) {
+	store, lock, err := fillStdStoreLocked(root)
+	if err != nil {
+		return "", nil, err
+	}
+	return store, func() { lock.Close() }, nil
+}
+
+func fillStdStoreLocked(root string) (string, *os.File, error) {
+	key, settings, env, err := stdStoreKey(root)
+	if err != nil {
+		return "", nil, err
+	}
+	parent := stdStoreParent()
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", nil, err
+	}
+	lock, err := os.OpenFile(filepath.Join(parent, "lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return "", nil, err
+	}
+	store := filepath.Join(parent, key)
+	complete := func() bool {
+		_, err := os.Stat(filepath.Join(store, stdStoreComplete))
+		return err == nil
+	}
+	// Shared first: a complete store needs no fill.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_SH); err != nil {
+		lock.Close()
+		return "", nil, err
+	}
+	if complete() {
+		return store, lock, nil
+	}
+	// Alone to fill: the shared lock is given up while waiting, so two
+	// sweeps that both found no store do not wait for each other.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		lock.Close()
+		return "", nil, err
+	}
+	if !complete() {
+		if err := fillStore(parent, store, key, settings, env); err != nil {
+			lock.Close()
+			return "", nil, err
+		}
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_SH); err != nil {
+		lock.Close()
+		return "", nil, err
+	}
+	return store, lock, nil
+}
+
+// stdStoreKey is the store's key for the toolchain the checkout at root
+// selects, with that toolchain's settings and the sweep's environment.
+func stdStoreKey(root string) (string, map[string]string, []string, error) {
 	env := sweepEnvironment()
 	query := exec.Command("go", append([]string{"env", "-json"}, goSettings...)...)
 	query.Dir, query.Env = root, env
 	out, err := query.Output()
 	if err != nil {
-		return "", fmt.Errorf("go env in %s: %w", root, err)
+		return "", nil, nil, fmt.Errorf("go env in %s: %w", root, err)
 	}
 	var settings map[string]string
 	if err := json.Unmarshal(out, &settings); err != nil {
-		return "", fmt.Errorf("go env: %w", err)
+		return "", nil, nil, fmt.Errorf("go env: %w", err)
 	}
 	if rel, err := filepath.Rel(root, settings["GOROOT"]); err != nil || rel == "." || !strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("GOROOT %s lies in the checkout %s: the std store would hide its inputs", settings["GOROOT"], root)
+		return "", nil, nil, fmt.Errorf("GOROOT %s lies in the checkout %s: the std store would hide its inputs", settings["GOROOT"], root)
 	}
 	sum := sha256.New()
 	fmt.Fprintf(sum, "%s\n%v\n", out, stdBuilds())
-	key := hex.EncodeToString(sum.Sum(nil))[:16]
+	return hex.EncodeToString(sum.Sum(nil))[:16], settings, env, nil
+}
 
-	parent := filepath.Join(os.TempDir(), stdStoreDir)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return "", err
-	}
-	lock, err := os.OpenFile(filepath.Join(parent, "lock"), os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return "", err
-	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return "", err
-	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	store := filepath.Join(parent, key)
-	if _, err := os.Stat(filepath.Join(store, stdStoreComplete)); err == nil {
-		return store, nil
-	}
-	// Under the lock no other sweep fills, so every other entry is a store
-	// of another toolchain or an ended fill.
+// fillStore fills store, under the lock held alone: it removes every other
+// entry of parent (a store of another toolchain or an ended fill), runs
+// stdBuilds into a fresh fill directory, makes its files read-only, marks it
+// complete and renames it into place.
+func fillStore(parent, store, key string, settings map[string]string, env []string) error {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
-		return "", err
+		return err
 	}
 	for _, e := range entries {
 		if e.Name() != "lock" {
 			if err := removeTree(filepath.Join(parent, e.Name())); err != nil {
-				return "", err
+				return err
 			}
 		}
 	}
 	fill, err := os.MkdirTemp(parent, key+".fill-")
 	if err != nil {
-		return "", err
+		return err
 	}
 	work, err := os.MkdirTemp("", "ergo-closure-std-work-")
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer os.RemoveAll(work)
 	for _, b := range stdBuilds() {
@@ -147,7 +214,7 @@ func fillStdStore(root string) (string, error) {
 		build.Dir = work
 		build.Env = withEnv(env, append([]string{"GOCACHE=" + fill, "GOTOOLCHAIN=" + settings["GOVERSION"]}, b.env...)...)
 		if out, err := build.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("filling the std store: %s go %s: %v\n%s", strings.Join(b.env, " "), strings.Join(b.args, " "), err, out)
+			return fmt.Errorf("filling the std store: %s go %s: %v\n%s", strings.Join(b.env, " "), strings.Join(b.args, " "), err, out)
 		}
 	}
 	err = filepath.WalkDir(fill, func(p string, d fs.DirEntry, err error) error {
@@ -157,15 +224,12 @@ func fillStdStore(root string) (string, error) {
 		return os.Chmod(p, 0o444)
 	})
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := os.WriteFile(filepath.Join(fill, stdStoreComplete), nil, 0o444); err != nil {
-		return "", err
+		return err
 	}
-	if err := os.Rename(fill, store); err != nil {
-		return "", err
-	}
-	return store, nil
+	return os.Rename(fill, store)
 }
 
 // seedCache links every entry of the store (the files of its two-digit
