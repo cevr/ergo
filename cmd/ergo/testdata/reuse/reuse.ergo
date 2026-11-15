@@ -214,6 +214,41 @@ func x1(n int) int {
 	len(m)
 }
 
+// KC (OWN1 arms round 1, keepCard's Bump): an entry of a Map behind a
+// borrow, replaced by a function that takes its inner Map into a let mut
+// and returns an update of the entry. The base ..s is a parameter the
+// body does not own, so the result is not proved fresh: the inner Map is
+// copied at the bind and the result again at the store.
+type Card { items Map[int, int], name string }
+
+func keepCard(s Card, k int) Card {
+	let mut items = s.items
+	items[k] = k
+	Card{..s, items: items}
+}
+
+type Pins { cards Map[int, Card] }
+
+func bump(p *Pins, key int, k int) {
+	match p.cards.Get(key) {
+	case Some[Card] as v:
+		p.cards[key] = keepCard(v.Value, k)
+	case None:
+		p.cards[key] = Card{items: Map[int, int]{k: k}, name: "c"}
+	}
+}
+
+func kc(n int) int {
+	let mut p = Pins{cards: Map[int, Card]{}}
+	for i in 0..n { bump(&p, 0, i) }
+	match p.cards.Get(0) {
+	case Some[Card] as v:
+		len(v.Value.items)
+	case None:
+		0
+	}
+}
+
 func main() fails os.Exit needs Console | Ambient {
 	let args = os.NewHost().Args()
 	if len(args) != 2 {
@@ -240,6 +275,9 @@ func main() fails os.Exit needs Console | Ambient {
 	}
 	if shape == "x1" {
 		out = x1(n)
+	}
+	if shape == "kc" {
+		out = kc(n)
 	}
 	if out < 0 {
 		return os.Exit{Code: 2, Message: "unknown shape " + shape}
