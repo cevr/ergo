@@ -440,6 +440,20 @@ func (p *hostProc) reap() int {
 //
 //ergo:host
 func ExecStart(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStart(t, "", name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// ExecStartIn is ExecStart for a command of exec.NewTestHost's folder root,
+// in the folder's sandbox on Linux, as ExecRunIn is ExecRun's.
+//
+//ergo:host
+func ExecStartIn(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStart(t, root, name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// execStart is ExecStart's body, in the sandbox of the folder root when
+// root is not "".
+func execStart(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
@@ -527,6 +541,13 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	if err != nil {
 		return fail(execErr(name, err))
 	}
+	var sandbox execSandboxed
+	if root != "" {
+		if sandbox, err = execSandbox(cmd, root); err != nil {
+			exit.close()
+			return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
+		}
+	}
 	cmd.WaitDelay = execWaitDelay
 	err = cmd.Start()
 	for _, w := range writes {
@@ -534,8 +555,19 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	}
 	writes = nil
 	if err != nil {
+		sandbox.abandon()
 		exit.close()
+		if sandbox.on() {
+			// No user namespace for the sandbox (exec.go's execRun).
+			return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
+		}
 		return fail(execErr(name, err))
+	}
+	if err := sandbox.started(); err != nil {
+		_ = cmd.Wait()
+		execAwaitGroupEnd(cmd.Process.Pid)
+		exit.close()
+		return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
 	}
 	p := &hostProc{cmd: cmd, group: cmd.Process.Pid, exit: exit, done: make(chan struct{})}
 	go func() { exit.await(p.group); close(p.done) }()

@@ -93,6 +93,22 @@ type ExecResult struct {
 //
 //ergo:host
 func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
+	return execRun(t, "", name, args, env, dir, stdin, grace)
+}
+
+// ExecRunIn is ExecRun for a command of exec.NewTestHost's folder root
+// (exec confined.ergo checked its paths): on Linux the program runs in the
+// folder's sandbox, where the folder is the only path it can write
+// (exec_sandbox_linux.go); elsewhere it runs as ExecRun's does.
+//
+//ergo:host
+func ExecRunIn(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
+	return execRun(t, root, name, args, env, dir, stdin, grace)
+}
+
+// execRun is ExecRun's body, in the sandbox of the folder root when root is
+// not "".
+func execRun(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
 	t.Check()
 	if name == "" {
 		return ExecResult{}, ExecNotFound{Name: name} // no program has the empty name
@@ -125,21 +141,31 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 		// once: os/exec then needs no pipe and no copying goroutine.
 		cmd.Stdin = strings.NewReader(stdin)
 	}
+	var sandbox execSandboxed
+	if root != "" {
+		var err error
+		if sandbox, err = execSandbox(cmd, root); err != nil {
+			return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
+		}
+	}
 	// Run owns the output pipes, and not os/exec, so that it can read the
 	// output to its end while the program is still unreaped (below).
 	outR, outW, err := os.Pipe()
 	if err != nil {
+		sandbox.abandon()
 		return ExecResult{}, execErr(name, err)
 	}
 	defer outR.Close()
 	errR, errW, err := os.Pipe()
 	if err != nil {
+		sandbox.abandon()
 		outW.Close()
 		return ExecResult{}, execErr(name, err)
 	}
 	defer errR.Close()
 	exit, err := execWatchExit()
 	if err != nil {
+		sandbox.abandon()
 		outW.Close()
 		errW.Close()
 		return ExecResult{}, execErr(name, err)
@@ -151,7 +177,20 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	outW.Close() // the program holds its own copies
 	errW.Close()
 	if err != nil {
+		sandbox.abandon()
+		if sandbox.on() {
+			// The clone into new namespaces failed: the host gives no
+			// user namespace (or a sandbox around this process forbids
+			// one). The command runs nowhere rather than unconfined.
+			return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
+		}
 		return ExecResult{}, execErr(name, err)
+	}
+	if err := sandbox.started(); err != nil {
+		// The helper could not build the sandbox and exited: reap it.
+		_ = cmd.Wait()
+		execAwaitGroupEnd(cmd.Process.Pid)
+		return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
 	}
 	group := cmd.Process.Pid // the group's id: Setpgid made the program its leader
 	var stdout, stderr bytes.Buffer

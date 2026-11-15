@@ -38,7 +38,7 @@ func TestModuleProgram(t *testing.T) {
 		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
-	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "walk"), "test " + filepath.Join(root, "walk/deep")} {
+	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "walk") + " -work", "test " + filepath.Join(root, "walk/deep") + " -work"} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}

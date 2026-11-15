@@ -4,8 +4,60 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"ergo.local/prototype/runtime/rt"
 )
+
+// TestExecInWritesOnlyTheFolder: a command of the test's folder, run by
+// ExecRunIn and started by ExecStartIn, can write in the folder but not at
+// a path it computes for itself outside it (the folder's parent, which the
+// test itself can write), and holds no capability (TH1b; rows.md, Test's
+// ambient 5). The path check cannot see that path: it is the program's
+// own. Linux only: elsewhere the path check is all that holds. Mutants
+// th1b-run-unsandboxed, th1b-start-unsandboxed, th1b-writable,
+// th1b-caps-kept (runtime/v1 ledger).
+func TestExecInWritesOnlyTheFolder(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the folder's sandbox is Linux's; elsewhere only the path check holds")
+	}
+	const script = `out="$(dirname "$PWD")/escape-$1"
+echo x > "$out" 2>/dev/null && echo escaped
+echo y > kept-$1 || echo refused-inside
+grep -q '^CapEff:[[:space:]]*0*$' /proc/self/status || echo capable`
+	root := TestFolderOpen()
+	defer TestFolderRemove(root)
+	task := rt.Root("exec sandbox test")
+	check := func(how, out string) {
+		t.Helper()
+		escape := filepath.Join(filepath.Dir(root), "escape-"+how)
+		if _, err := os.Stat(escape); err == nil {
+			_ = os.Remove(escape)
+			t.Errorf("%s: the program wrote %s, outside the folder", how, escape)
+		}
+		if out != "" {
+			t.Errorf("%s: the program printed %q", how, out)
+		}
+		if _, err := os.Stat(filepath.Join(root, "kept-"+how)); err != nil {
+			t.Errorf("%s: the program could not write in the folder: %v", how, err)
+		}
+	}
+	res, err := ExecRunIn(task, root, "sh", []string{"-c", script, "sh", "run"}, nil, root, "", 0)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	check("run", res.Stdout)
+	running, err := ExecStartIn(task, root, "sh", []string{"-c", script, "sh", "start"}, nil, root, "", 0, execDiscard, "", false, execDiscard, "", false)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer running.Close(task)
+	if status := running.Wait(task); status != 0 {
+		t.Errorf("start: status %d", status)
+	}
+	check("start", "")
+}
 
 // TestExecConfineAgreesWithConfine: exec.NewTestHost's check refuses a
 // command exactly when its directory, or one of its arguments read

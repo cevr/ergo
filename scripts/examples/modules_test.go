@@ -30,7 +30,7 @@ func TestModulesLeg(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, out)
 		}
 		calls := readCalls(t, f)
-		if want := "test " + filepath.Join(f.root, "modules/hello/hello"); !slices.Contains(calls, want) {
+		if want := "test " + filepath.Join(f.root, "modules/hello/hello") + " -work"; !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 		for _, call := range calls {

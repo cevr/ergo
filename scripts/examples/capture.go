@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +22,26 @@ type capture struct {
 	data []byte
 	over bool
 	done chan struct{}
+	// mark, when set, is a text whose first appearance in the stream (or
+	// the stream's end, or the cap) closes seen: executeArmed's event.
+	mark   []byte
+	seen   chan struct{}
+	closed bool // seen is closed; fill's own
+	// progress, when set, gets a token (dropped when one waits) for each
+	// read that brought bytes: executeArmed restarts its deadline on it.
+	progress chan struct{}
+}
+
+// see closes seen once the stream holds mark, or when final is true (the
+// stream ended or went over the cap: no mark will come).
+func (c *capture) see(final bool) {
+	if c.seen == nil || c.closed {
+		return
+	}
+	if final || bytes.Contains(c.data, c.mark) {
+		close(c.seen)
+		c.closed = true
+	}
 }
 
 func newCapture() *capture { return &capture{done: make(chan struct{})} }
@@ -43,6 +64,13 @@ func (c *capture) fill(pipe *os.File, overCap func()) {
 				c.over = true
 				c.data = nil
 				overCap()
+			}
+		}
+		c.see(c.over || err != nil)
+		if n > 0 && c.progress != nil {
+			select {
+			case c.progress <- struct{}{}:
+			default:
 			}
 		}
 		if err != nil {

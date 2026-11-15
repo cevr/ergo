@@ -872,8 +872,13 @@ func (r *runner) testTarget(p *program, target, leg string) {
 		return
 	}
 	defer os.RemoveAll(tmp)
-	o, err := r.live.execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(os.Environ(), "TMPDIR="+tmp), "", r.cfg.timeout, 0)
-	if left, _ := os.ReadDir(tmp); err == nil && len(left) > 0 {
+	// The deadline starts when the build ends: ergo test -work prints
+	// "WORK=" then (executeArmed), so a cold build under load is no timeout.
+	o, err := r.live.executeArmed([]string{r.cfg.ergo, "test", target, "-work"}, r.cfg.root, append(os.Environ(), "TMPDIR="+tmp), "", r.cfg.timeout, 0, "WORK=")
+	// Only a run that ended by itself is held to it: a timeout or the
+	// output cap stops the group, and the stopped ergo removes nothing, so
+	// that run fails for its own reason below.
+	if left, _ := os.ReadDir(tmp); err == nil && o.passed() && len(left) > 0 {
 		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
 		r.fail(p.name + ": " + leg)
 		return
@@ -1183,7 +1188,7 @@ func (o outcome) statusText() string {
 func (o outcome) why(timeout time.Duration) string {
 	switch {
 	case o.timedOut:
-		return fmt.Sprintf(" timed out after %s", timeout)
+		return fmt.Sprintf(" timed out after %s (hung? the deadline stops only a program that does not end)", timeout)
 	case o.status < 0:
 		return " ended by signal " + o.signal
 	}
@@ -1216,6 +1221,19 @@ const streamDelay = time.Second
 // A memory limit that is not 0 bounds the command and makes it the first
 // process the kernel's out-of-memory killer stops (proclimit.Start).
 func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64) (outcome, error) {
+	return l.executeArmed(argv, dir, env, stdin, timeout, memory, "")
+}
+
+// executeArmed is execute whose timeout starts at an event, not at the
+// start: when arm is not "", the deadline starts once the command's stderr
+// holds arm (ergo test -work prints "WORK=" when its build ends), and it
+// starts again at each output the command writes after that (a test or
+// law's line): so it measures silence, and stops only a run that stopped
+// making progress, whatever load does to a run that makes it. The
+// build before it has no deadline, as the runner's own builds have none
+// (r.tool(0, "build", ...)): a deadline only stops a hung program, and a
+// build that load makes slow is not one.
+func (l *live) executeArmed(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64, arm string) (outcome, error) {
 	input, err := os.Open(os.DevNull)
 	if stdin != "" {
 		input, err = os.Open(stdin)
@@ -1252,6 +1270,11 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 	// From here a panic on this goroutine stops the group as it unwinds.
 	defer l.release(command.Process)
 	stdout, stderr := newCapture(), newCapture()
+	if arm != "" {
+		stderr.mark, stderr.seen = []byte(arm), make(chan struct{})
+		progress := make(chan struct{}, 1)
+		stdout.progress, stderr.progress = progress, progress
+	}
 	overCap := func() { l.stop(command.Process) }
 	go stdout.fill(outRead, overCap)
 	go stderr.fill(errRead, overCap)
@@ -1262,17 +1285,43 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 	}
 	var o outcome
 	var expired <-chan time.Time
-	if timeout > 0 {
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+	startDeadline := func() {
+		timer = time.NewTimer(timeout)
 		expired = timer.C
 	}
-	select {
-	case <-done:
-	case <-expired:
-		o.timedOut = true
-		l.stop(command.Process)
-		<-done
+	var armed <-chan struct{}
+	if timeout > 0 {
+		if arm == "" {
+			startDeadline()
+		} else {
+			armed = stderr.seen
+		}
+	}
+run:
+	for {
+		select {
+		case <-done:
+			break run
+		case <-armed:
+			armed = nil
+			startDeadline()
+		case <-stdout.progress:
+			// Output after the build restarts the deadline (silence only).
+			if timer != nil {
+				timer.Reset(timeout)
+			}
+		case <-expired:
+			o.timedOut = true
+			l.stop(command.Process)
+			<-done
+			break run
+		}
 	}
 	o.elapsed = time.Since(started)
 	// The last stop: whatever the leader left running in its group goes with
