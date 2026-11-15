@@ -283,9 +283,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Exchange.Begin": {},
 	"Exchange.Write": {wait: callerWait},
 	"Exchange.End":   {},
-	// SendText (GX9): Send checks the caller's stop, then waits on the
-	// network write of the whole response.
-	"Exchange.Send": {wait: callerWait},
+	// SendText (GX9): Send takes the exchange's lock for one write of the
+	// whole response, as Begin does for the header.
+	"Exchange.Send": {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.

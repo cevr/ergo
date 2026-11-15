@@ -25,7 +25,7 @@ func TestHTTPSendWritesTheText(t *testing.T) {
 	texts := make(chan string, 1)
 	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		text := <-texts
-		x.Send(ct, 200, []HTTPField{{"Content-Type", "application/json"}}, &Text{B: []byte(text)})
+		x.Send(200, []HTTPField{{"Content-Type", "application/json"}}, &Text{B: []byte(text)})
 		if err := x.Write(ct, "more"); err != (HTTPWriteFailed{Reason: "the stream has ended"}) {
 			t.Errorf("write after Send: %v", err)
 		}

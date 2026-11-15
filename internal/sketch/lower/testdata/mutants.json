@@ -4252,7 +4252,7 @@
       "name": "gx9-json-204-body",
       "origin": "wf10 GX9",
       "file": "internal/sketch/std/http/router.ergo",
-      "from": "\tif route.Status == 204 || route.Status == 205 { return Success(route, \"\") }\n\tjson.With(",
+      "from": "\tif route.Status == 205 || route.Status == 204 { return Success(route, \"\") }\n\tjson.With(",
       "to": "\tjson.With(",
       "rule": "stdlib.md, std http 10 (GX9): SuccessJSON of a 204 or a 205 has no body, as Success has none.",
       "killers": [

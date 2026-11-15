@@ -136,8 +136,7 @@ func (x *Exchange) Write(t *rt.Task, text string) error {
 // response that has started is a defect, as Begin's is. A write the
 // connection refuses is dropped, as the buffered form's is: the client
 // went away, and the request ends with it.
-func (x *Exchange) Send(t *rt.Task, status int, header []HTTPField, body *Text) {
-	t.Check()
+func (x *Exchange) Send(status int, header []HTTPField, body *Text) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	if x.started || x.ended {
