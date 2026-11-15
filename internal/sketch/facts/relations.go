@@ -85,7 +85,7 @@ func (b *builder) ops() {
 			if f == nil {
 				continue
 			}
-			okey, osym, ok := b.method(m, n)
+			okey, osym, ok := b.opOf(m, n)
 			if !ok || osym.Handle == "" {
 				continue
 			}

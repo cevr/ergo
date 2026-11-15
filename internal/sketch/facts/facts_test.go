@@ -620,6 +620,13 @@ func selected(info *check.Info, parent map[syntax.Node]syntax.Node, sel *syntax.
 				if n := namedOf(info.Types[sel.X]); n != nil {
 					return methodKey{n.Obj, c.Op.Name}, true
 				}
+				// A receiver of a type parameter: the operation is its
+				// constraint's (vt's Apply[S Screen] calls s.Print).
+				if tp, ok := info.Types[sel.X].(*check.TypeParam); ok {
+					if n := namedOf(tp.Constraint); n != nil {
+						return methodKey{n.Obj, c.Op.Name}, true
+					}
+				}
 				return c.Op, true
 			case c.Func != nil && c.Recv != nil:
 				return c.Func, true
@@ -859,9 +866,9 @@ let Limit = 10
 	var b strings.Builder
 	b.WriteString(imp)
 	fmt.Fprintf(&b, `
-type Friends {}
+type Friends {} implements %[1]s.Greeter
 
-type Strangers {}
+type Strangers {} implements %[1]s.Greeter
 
 type Point = %[1]s.Rec
 

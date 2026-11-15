@@ -8,23 +8,11 @@ import (
 // cellPen is a sealed writer of the program: Pen provides the prelude's
 // Writer, and its one provider pen is a cell.
 const cellPen = `type Pen {
-	Null(),
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	..Writer,
 	seal(),
 }
 
-type pen { n int }
+type pen { n int } implements Pen
 
 func Null(p *pen) { p.n = p.n + 1 }
 func Number(p *pen, text string) { p.n = p.n + 1 }
