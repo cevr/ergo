@@ -873,7 +873,10 @@ func (r *runner) testTarget(p *program, target, leg string) {
 	}
 	defer os.RemoveAll(tmp)
 	o, err := r.live.execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(os.Environ(), "TMPDIR="+tmp), "", r.cfg.timeout, 0)
-	if left, _ := os.ReadDir(tmp); err == nil && len(left) > 0 {
+	// Only a run that ended by itself is held to it: a timeout or the
+	// output cap stops the group, and the stopped ergo removes nothing, so
+	// that run fails for its own reason below.
+	if left, _ := os.ReadDir(tmp); err == nil && o.passed() && len(left) > 0 {
 		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
 		r.fail(p.name + ": " + leg)
 		return
