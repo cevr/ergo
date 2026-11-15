@@ -1,3 +1,6 @@
+import maps
+import slices
+
 // VcsFailed is a version-control call that could not run or answer.
 type VcsFailed { Reason string }
 
@@ -43,6 +46,9 @@ type Vcs {
 	Snapshot(root string) string fails VcsFailed,
 	// Read is each file of a snapshot tree and its text.
 	Read(root string, tree string) Map[string, string] fails VcsFailed,
+	// Listed is the paths of the working files a snapshot would hold
+	// (tracked and untracked, not ignored), with no file read or hashed.
+	Listed(root string) []string fails VcsFailed,
 	// Keep is a commit of tree on top of HEAD that no branch holds.
 	Keep(root string, tree string) string fails VcsFailed,
 	// Ref is what ref holds, or "" when the checkout has no such ref.
@@ -95,6 +101,20 @@ type Vcs {
 		case VcsFailed:
 			false
 		}
+	},
+
+	// ListedIsTheSnapshot: the paths Listed names are the files of a
+	// snapshot taken now.
+	law ListedIsTheSnapshot() {
+		let listed = Listed(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let tree = Snapshot(".") catch {
+		case VcsFailed:
+			return true
+		}
+		slices.Sort(listed) == slices.Sorted(maps.Keys(try Read(".", tree)))
 	},
 
 	// SnapshotChangesNoBranch: a snapshot (and a commit of it) leaves the

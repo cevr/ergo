@@ -7,7 +7,9 @@
 // module's full-tier file): every case starts git to make its checkout.
 
 import exec
+import maps
 import os
+import slices
 import github.com/cevr/ergo/modules/work/work
 
 let onShell = context needs TestAmbient {
@@ -55,6 +57,19 @@ func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed need
 // and the working files, untracked ones each named.
 func status(root string) string fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
 	try exec.Runner.Run(exec.New("git", []string{"-C", root, "status", "--porcelain=v1", "--untracked-files=all"})).Stdout
+}
+
+// ListedIsTheSnapshotInARepository: Listed names a snapshot's files with
+// none read: the tracked and the untracked files, not an ignored one nor
+// a tracked file deleted from the folder.
+test ListedIsTheSnapshotInARepository {
+	with onShell {
+		let script = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'ignored\\n' > .gitignore && printf 'a\\n' > a.txt && printf 'd\\n' > d.txt && git add -A && git commit -q -m one && rm d.txt && printf 'new\\n' > new.txt && printf 'x\\n' > ignored"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", script})).Status == 0
+		let listed = try work.Vcs.Listed(".")
+		assert listed == []string{".gitignore", "a.txt", "new.txt"}
+		assert listed == slices.Sorted(maps.Keys(try work.Vcs.Read(".", try work.Vcs.Snapshot("."))))
+	}
 }
 
 test OwnBranchHoldsItsHeadInARepository {

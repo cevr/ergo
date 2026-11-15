@@ -6,7 +6,9 @@
 
 import exec
 import filepath
+import slices
 import github.com/cevr/ergo/modules/work/work
+import strconv
 import strings
 
 // Vcs runs git through a Runner.
@@ -118,21 +120,98 @@ func Snapshot(v Vcs, root string) string fails work.VcsFailed {
 	try ok(try git(v, root, tree, env), root, tree)
 }
 
+// Listed is two listings, with no file hashed: the tracked and the
+// untracked files that are not ignored, less the tracked ones deleted
+// from the working folder (a snapshot holds neither a deleted file nor a
+// submodule's folder, which is no file).
+func Listed(v Vcs, root string) []string fails work.VcsFailed {
+	let all = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name"}), root)
+	let gone = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--deleted", "--full-name"}), root)
+	let links = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--stage", "--full-name"}), root)
+	let mut skip = Map[string, bool]{}
+	for path in strings.Split(gone, "\x00") {
+		skip[path] = true
+	}
+	for entry in strings.Split(links, "\x00") {
+		if strings.HasPrefix(entry, "160000 ") {
+			match strings.Cut(entry, "\t") {
+			case Some[strings.Halves] as h:
+				skip[h.Value.After] = true
+			case None:
+			}
+		}
+	}
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for path in strings.Split(all, "\x00") {
+		if path == "" || skip.Get(path) != None || seen.Get(path) != None {
+			continue
+		}
+		seen[path] = true
+		out = out.Append(path)
+	}
+	slices.Sort(out)
+}
+
+// Read is the files of tree: two git calls whatever the tree's size, a
+// listing (-z, so no path is quoted) and one cat-file --batch that
+// writes every blob, so reading a large repository costs no process per
+// file.
 func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {
-	let mut files = Map[string, string]{}
-	for line in exec.Split(try answer(v, root, []string{"ls-tree", "-r", "--full-tree", tree})) {
-		let (meta, path) = match strings.Cut(line, "\t") {
+	let listing = try rawOk(try reads(v, root, []string{"ls-tree", "-r", "-z", "--full-tree", tree}), root)
+	let mut paths = []string{}
+	let mut ids = []string{}
+	for entry in strings.Split(listing, "\x00") {
+		if entry == "" {
+			continue
+		}
+		let (meta, path) = match strings.Cut(entry, "\t") {
 		case Some[strings.Halves] as h:
 			(h.Value.Before, h.Value.After)
 		case None:
-			return work.VcsFailed{Reason: "git ls-tree: \(line)"}
+			return work.VcsFailed{Reason: "git ls-tree: \(entry)"}
 		}
 		let words = strings.Fields(meta)
 		if len(words) != 3 || words[1] != "blob" {
 			continue
 		}
-		let blob = try reads(v, root, []string{"cat-file", "blob", words[2]})
-		files[path] = try rawOk(blob, root)
+		paths = paths.Append(path)
+		ids = ids.Append(words[2])
+	}
+	let mut files = Map[string, string]{}
+	if len(ids) == 0 {
+		return files
+	}
+	let c = exec.New("git", []string{"-C", root, "--no-optional-locks", "cat-file", "--batch"}).WithStdin(strings.Join(ids, "\n") + "\n")
+	let r = v.run.Run(c) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+	let out = try rawOk(r, root)
+	let mut at = 0
+	for i, path in paths {
+		let end = strings.Index(out[at:], "\n")
+		if end < 0 {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
+		}
+		let words = strings.Fields(out[at : at+end])
+		if len(words) != 3 || words[0] != ids[i] || words[1] != "blob" {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): \(out[at : at+end]) for \(path)"}
+		}
+		let size = strconv.Atoi(words[2]) catch {
+		case _:
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): a size \(words[2])"}
+		}
+		let start = at + end + 1
+		if start+size+1 > len(out) {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
+		}
+		files[path] = out[start : start+size]
+		at = start + size + 1
 	}
 	files
 }

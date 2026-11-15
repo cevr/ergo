@@ -9,6 +9,7 @@
 // through it (the context overPlugin), and PluginIsTransparent holds it to Lines itself.
 
 import exec
+import filepath
 import fs
 import fstest
 import maps
@@ -367,6 +368,16 @@ func configuredWorld(lines Lines, files Map[string, string], config string, trus
 	disk.MkdirAll(home) catch {
 	case fs.Denied, fs.Failed:
 		Unreachable("a folder of a memory disk")
+	}
+	for path, text in files {
+		disk.MkdirAll(filepath.Dir(theBase + "/" + path)) catch {
+		case fs.Denied, fs.Failed:
+			Unreachable("a folder of a memory disk")
+		}
+		disk.WriteFile(theBase+"/"+path, text) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a file of a memory disk")
+		}
 	}
 	if config != "" {
 		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {

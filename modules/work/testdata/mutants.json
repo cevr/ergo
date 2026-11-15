@@ -1008,6 +1008,38 @@
       "to": "import maps\nimport slices\nimport strings\nimport code\n",
       "rule": "The core reads a language only through the seam: no code import in modules/work/work (internal/residue TestWorkCoreReadsNoLanguage counts 0).",
       "anchor": {"tests": ["internal/residue:TestWorkCoreReadsNoLanguage"]}, "killers": ["internal/residue:TestWorkCoreReadsNoLanguage"]
+    },
+    {
+      "name": "wg4-listed-tracked-only", "origin": "wf10/semws WG4",
+      "file": "modules/work/git/git.ergo",
+      "from": "\"ls-files\", \"-z\", \"--cached\", \"--others\", \"--exclude-standard\"",
+      "to": "\"ls-files\", \"-z\", \"--cached\", \"--exclude-standard\"",
+      "rule": "Listed names the untracked files a snapshot holds (git's ListedIsTheSnapshotInARepository).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-listed-keeps-deleted", "origin": "wf10/semws WG4",
+      "file": "modules/work/git/git.ergo",
+      "from": "\t\tif path == \"\" || skip.Get(path) != None || seen.Get(path) != None {",
+      "to": "\t\tif path == \"\" || seen.Get(path) != None {",
+      "rule": "Listed leaves a tracked file deleted from the folder (git's ListedIsTheSnapshotInARepository).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-listed-ignored", "origin": "wf10/semws WG4",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "func Listed(v Vcs, root string) []string fails work.VcsFailed { slices.Sorted(maps.Keys(Working(try checkout(v, root)))) }",
+      "to": "func Listed(v Vcs, root string) []string fails work.VcsFailed { slices.Sorted(maps.Keys(try checkout(v, root))) }",
+      "rule": "Listed is a snapshot's files: none of .git, none ignored (Vcs law ListedIsTheSnapshot on memory.Vcs).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-batch-misaligned", "origin": "wf10/semws WG4",
+      "file": "modules/work/git/git.ergo",
+      "from": "\t\tat = start + size + 1\n",
+      "to": "\t\tat = start + size\n",
+      "rule": "Read takes each blob of cat-file --batch by its size and the newline after it (git's SnapshotLeavesTheIndex reads four files).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

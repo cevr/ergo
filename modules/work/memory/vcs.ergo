@@ -71,6 +71,8 @@ func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
 
 func Snapshot(v Vcs, root string) string fails work.VcsFailed { stored(v, Working(try checkout(v, root))) }
 
+func Listed(v Vcs, root string) []string fails work.VcsFailed { slices.Sorted(maps.Keys(Working(try checkout(v, root)))) }
+
 func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {
 	let _ = try checkout(v, root)
 	match v.store.Get().trees.Get(tree) {

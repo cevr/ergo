@@ -3,6 +3,7 @@
 // the base's own files and on edits made from them. A plugin that fails
 // a law is refused with the law's name, the file and why.
 
+import filepath
 import maps
 import slices
 import strings
@@ -94,13 +95,13 @@ func PluginTest(t Tool, command string, o PluginTestOptions) PluginAdmitted fail
 
 // sample is the base's files that match one of patterns (every file
 // when there are none), at most max of them, spread over the sorted list.
-// A file that is not UTF-8 is left: the protocol's JSON cannot carry it.
+// It lists the working files by name (Vcs.Listed: no file is hashed) and
+// reads only those it keeps; a file it cannot read, or that is not UTF-8
+// (the protocol's JSON cannot carry it), is left.
 func sample(t Tool, patterns []string, max int) Map[string, string] fails VcsFailed {
-	let all = try t.vcs.Read(t.base, try t.vcs.Snapshot(t.base))
 	let mut paths = []string{}
-	for path in slices.Sorted(maps.Keys(all)) {
-		let text = maps.GetOr(all, path, "")
-		if utf8.ValidString(text) && (len(patterns) == 0 || slices.IndexFunc(patterns, func(p string) bool { Matches(p, path) }) >= 0) {
+	for path in try t.vcs.Listed(t.base) {
+		if len(patterns) == 0 || slices.IndexFunc(patterns, func(p string) bool { Matches(p, path) }) >= 0 {
 			paths = paths.Append(path)
 		}
 	}
@@ -109,7 +110,13 @@ func sample(t Tool, patterns []string, max int) Map[string, string] fails VcsFai
 	let keep = if max <= 0 || max > n { n } else { max }
 	for k in 0..keep {
 		let path = paths[k*n/keep]
-		out[path] = maps.GetOr(all, path, "")
+		let text = t.files.ReadFile(filepath.Join([]string{t.base, path})) catch {
+		case _:
+			continue
+		}
+		if utf8.ValidString(text) {
+			out[path] = text
+		}
 	}
 	out
 }
