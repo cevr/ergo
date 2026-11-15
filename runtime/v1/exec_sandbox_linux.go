@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -59,6 +60,10 @@ const (
 	sbMountAttrReadOnly    = 0x1
 )
 
+// execSandboxReexecs counts the commands execSandbox sent through the
+// helper: one re-exec of this binary each (TestExecSandboxReexecsOncePerCommand).
+var execSandboxReexecs atomic.Int64
+
 // execSandboxed is the parent's end of one sandboxed start.
 type execSandboxed struct {
 	status, w *os.File // the helper's report: read end, and the write end the parent closes after the start
@@ -85,6 +90,7 @@ func execSandbox(cmd *exec.Cmd, root string) (execSandboxed, error) {
 	attr.UidMappings = []syscall.SysProcIDMap{{ContainerID: uid, HostID: uid, Size: 1}}
 	attr.GidMappings = []syscall.SysProcIDMap{{ContainerID: gid, HostID: gid, Size: 1}}
 	attr.AmbientCaps = []uintptr{sbCapSetpcap, sbCapSysAdmin, sbCapSysResource}
+	execSandboxReexecs.Add(1)
 	return execSandboxed{status: r, w: w}, nil
 }
 
