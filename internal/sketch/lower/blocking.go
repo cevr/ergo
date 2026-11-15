@@ -395,6 +395,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"BitsLen64":              {},
 	"BitsRotateLeft32":       {},
 	"BitsRotateLeft64":       {},
+	"BitsAdd64":              {},
+	"BitsSub64":              {},
+	"BitsMul64":              {},
+	"BitsDiv64":              {},
 	// std hex, base64, sha256 and crc32 (G3 std-digest; stdlib.md,
 	// encodings and digests): pure bodies that neither wait nor release.
 	"HexEncode":       {},

@@ -126,6 +126,29 @@ func BitsRotateLeft32(x uint32, k int) uint32 { return bits.RotateLeft32(x, k) }
 //ergo:pure
 func BitsRotateLeft64(x uint64, k int) uint64 { return bits.RotateLeft64(x, k) }
 
+// BitsAdd64 is bits.Add64(x, y, carry): the sum and the carry out.
+//
+//ergo:pure
+func BitsAdd64(x, y, carry uint64) (uint64, uint64) { return bits.Add64(x, y, carry) }
+
+// BitsSub64 is bits.Sub64(x, y, borrow): the difference and the borrow
+// out.
+//
+//ergo:pure
+func BitsSub64(x, y, borrow uint64) (uint64, uint64) { return bits.Sub64(x, y, borrow) }
+
+// BitsMul64 is bits.Mul64(x, y): the high and low halves of the product.
+//
+//ergo:pure
+func BitsMul64(x, y uint64) (uint64, uint64) { return bits.Mul64(x, y) }
+
+// BitsDiv64 is bits.Div64(hi, lo, y): the quotient and remainder of the
+// 128-bit (hi, lo) by y. Like Go's, it is a defect (a panic) when y is 0
+// or not above hi, the quotient would not fit 64 bits.
+//
+//ergo:pure
+func BitsDiv64(hi, lo, y uint64) (uint64, uint64) { return bits.Div64(hi, lo, y) }
+
 // Float to integer conversion (docs/spec/types.md, Conversions 4;
 // GLOSSARY "Saturating float conversion"). Go leaves a non-constant
 // conversion of a float that the integer type cannot hold to the
