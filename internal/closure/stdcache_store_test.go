@@ -22,6 +22,12 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The process works in the checkout, as a gate does: a build that ran
+	// in the process's directory (build.Dir = ".") ran inside the
+	// checkout, which this test could not see while its checkout was a
+	// directory the process never entered (GT-COMPILE-b,
+	// g16fix2-store-built-in-checkout survived).
+	t.Chdir(root)
 	temp := t.TempDir()
 	t.Setenv("TMPDIR", temp)
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "go.log")

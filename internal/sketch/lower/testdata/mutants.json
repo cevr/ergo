@@ -276,6 +276,7 @@
       "from": "Response needs R) fails InvalidLimits needs R | Scheduler",
       "to": "Response needs R) fails InvalidLimits needs Scheduler",
       "rule": "The function handler's capability row reaches the serving caller and the runtime's serve call. (GT-COMPILE-b: the row's first edit, R dropped from Serve's own row, never compiled: S102 at the handler call; the edit now drops R from the runtime binding's row, which checks.)",
+      "gap": "CK-EXTROW: a runtime binding's effect row is not checked against the Ergo declaration it binds",
       "killers": ["lower:TestHTTPHandlerRows"], "anchor": {"tests": ["lower:TestHTTPHandlerRows"]}
     },
     {
