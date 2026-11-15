@@ -1,0 +1,79 @@
+# Names after "mutant" in a test comment that are no ledger row
+# (TestTestCommentsNameLedgerRows; batch 18 verify M4). A row is `path<TAB>name`.
+# The test fails on a name no row covers and on a row that covers nothing,
+# so the list only shrinks: repair a stale name by naming the ledger row,
+# adding the row, or dropping the claim, then remove its row here.
+# At the rule's start (wf10 FK, 2026-11-13) these 70 were listed unsorted:
+# most are stale or never-added mutant names (the test claims a mutant no
+# ledger holds); some are hyphenated prose in a sentence that says mutant.
+
+internal/proclimit/bound_linux_test.go	batch-12
+internal/residue/run_dir_test.go	round-7
+internal/residue/runtime_waits_test.go	mk1-residue-skips-literals
+internal/sketch/check/arrays_test.go	array-const-index-off-by-one
+internal/sketch/check/arrays_test.go	array-empty-literal-invents
+internal/sketch/check/arrays_test.go	array-len-ignored-in-identity
+internal/sketch/check/arrays_test.go	array-literal-count-unchecked
+internal/sketch/check/arrays_test.go	array-slice-bound-unchecked
+internal/sketch/check/callsite_test.go	site-any-final-type
+internal/sketch/check/contextvalues_test.go	context-literal-admitted
+internal/sketch/check/contextvalues_test.go	missing-capability
+internal/sketch/check/contextvalues_test.go	row-parameter
+internal/sketch/check/contextvalues_test.go	value-missing-cap-unchecked
+internal/sketch/check/contextvalues_test.go	value-owns-close
+internal/sketch/check/contextvalues_test.go	value-row-param-built
+internal/sketch/check/durable_test.go	dh1-checker-newhost-refused
+internal/sketch/check/extern_test.go	own-check-15
+internal/sketch/check/extern_test.go	standard-library
+internal/sketch/check/fold_row_test.go	fold-needs-step-row-only
+internal/sketch/check/fold_row_test.go	runner-needs-work-row
+internal/sketch/check/pattern_ownership_model_test.go	po1-plan
+internal/sketch/check/row_args_test.go	row-for-a-type
+internal/sketch/check/row_args_test.go	row-in-index
+internal/sketch/check/row_args_test.go	row-in-type
+internal/sketch/check/row_args_test.go	row-keeps-every-element
+internal/sketch/check/script_test.go	script-func-param-admitted
+internal/sketch/check/script_test.go	script-implements-any
+internal/sketch/check/script_test.go	script-literal-fields-admitted
+internal/sketch/check/script_test.go	script-noncap-admitted
+internal/sketch/check/script_test.go	script-task-admitted
+internal/sketch/check/script_test.go	script-typeparam-admitted
+internal/sketch/check/tail_failure_test.go	tail-reported
+internal/sketch/lower/eval_agreement_test.go	eval-model-shared-drift
+internal/sketch/lower/eval_agreement_test.go	paired-mutant
+internal/sketch/lower/json_fields_test.go	g3-wrap
+internal/sketch/lower/json_value_test.go	g4-peek
+internal/sketch/lower/json_value_test.go	g4-replay-tag
+internal/sketch/lower/law_run_test.go	lawctx-close-runs
+internal/sketch/lower/law_run_test.go	same-kind
+internal/sketch/lower/pure_protocol_test.go	own-lower-2
+internal/sketch/lower/refine_test.go	error-type
+internal/sketch/lower/script_test.go	script-defect-text
+internal/sketch/lower/script_test.go	script-fallible-noresult-unanswered
+internal/sketch/lower/stage4_refusals_test.go	existing-52
+internal/sketch/lower/stage4_refusals_test.go	existing-53
+internal/sketch/lower/std_lets_test.go	user-file
+internal/sketch/lower/values_test.go	in-process
+internal/sketch/lower/values_test.go	run-based
+internal/sketchfront/evaluate_test.go	eval-bypassed
+runtime/rt/idle_test.go	idle-tie-fix-removed
+runtime/v1/actor_trace_child_test.go	child-started
+runtime/v1/http_network_test.go	fixed-origin
+runtime/v1/http_sink_test.go	eager-file
+runtime/v1/http_sink_test.go	empty-file
+runtime/v1/http_sink_test.go	fixed-origin
+runtime/v1/http_sink_test.go	open-failure
+runtime/v1/http_test.go	keep-alive
+runtime/v1/moves_test.go	non-generic
+runtime/v1/redacted_test.go	bad-verb
+runtime/v1/rpc_test.go	rchk-m1
+runtime/v1/rpc_test.go	re-typed
+runtime/v1/rpc_test.go	rpc-m1
+runtime/v1/rpc_test.go	rpc-m2
+runtime/v1/rpc_test.go	rpc-m3
+runtime/v1/rpc_test.go	rpc-m5
+runtime/v1/stopwins_test.go	stop-wins
+runtime/v1/sync_test.go	non-atomic
+scripts/gate/main_tier_test.go	gate-shard
+scripts/mutants/memory_test.go	span-queue
+scripts/mutants/runner_test.go	string-literal
