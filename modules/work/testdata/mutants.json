@@ -632,6 +632,62 @@
       "to": "\t\t\tlet _ = on.Value\n",
       "rule": "A new -on whose parent an rm took while it read the parent's branch answers NoWorkspace, not Git's failure: SchedulesKeepTheInvariants (no Begin answers VcsFailed).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-snapshot-real-index", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/git/git.ergo",
+      "from": "let env = []string{\"GIT_INDEX_FILE\", filepath.Join([]string{dir, SnapshotIndex})}",
+      "to": "let env = []string{\"WORK_UNUSED\", filepath.Join([]string{dir, SnapshotIndex})}",
+      "rule": "git's snapshot builds its tree in an index of its own, so the user's index stays as it was: git's SnapshotLeavesTheIndex (TestAmbient).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-non-ff-accepted", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/git/git.ergo",
+      "from": "let force = if p.Force { \"+\" } else { \"\" }",
+      "to": "let force = \"+\"",
+      "rule": "git's push of a branch is fast-forward only: git's NonFastForwardIsRefused (TestAmbient).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-holds-not-contained", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/git/git.ergo",
+      "from": "[]string{\"branch\", \"--contains\", commit,",
+      "to": "[]string{\"branch\", \"--no-contains\", commit,",
+      "rule": "A commit is held by the branches that contain it: Vcs.OwnBranchHoldsItsHead under git's onHost (a real checkout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-set-ref-ignores-old", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/git/git.ergo",
+      "from": "[]string{\"update-ref\", ref, value, old}",
+      "to": "[]string{\"update-ref\", ref, value}",
+      "rule": "A ref is set only from the value its writer read: Vcs.CompareAndSetIsAtomic under git's onHost (a real checkout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-copy-follows-links", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/copy/copy.ergo",
+      "from": "[]string{\"-a\", from, to}",
+      "to": "[]string{\"-rL\", from, to}",
+      "rule": "A copy keeps links and modes, so git's status in the clone is the base's: copy's CloneStatusEqualsBaseStatus (TestAmbient).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-sh-exit-ignored", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/sh/sh.ergo",
+      "from": "\tif r.Status != 0 {\n\t\treturn work.HookFailed{Hook: hook, Command: command, Status: r.Status, Stderr: r.Stderr}\n\t}",
+      "to": "\tif r.Status > 200 {\n\t\treturn work.HookFailed{Hook: hook, Command: command, Status: r.Status, Stderr: r.Stderr}\n\t}",
+      "rule": "A hook that exits with any status but 0 is HookFailed: Hooks.ExitIsAFailure under sh's onHost (sh for real).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1h-journal-release-keeps-flock", "origin": "wf10/semws WG1 r3 (TH1)",
+      "file": "modules/work/journal/lock.ergo",
+      "from": "\t\tl.host.UnlockFile(k.Value)\n",
+      "to": "\t\tlet _ = k.Value\n",
+      "rule": "A release gives the kernel lock back, so the key is held again: Lock.HoldExcludes under journal's onHost (fs.LockFile for real).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

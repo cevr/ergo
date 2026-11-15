@@ -10,6 +10,7 @@ import github.com/cevr/ergo/modules/work/work
 let onHost = context needs TestAmbient {
 	work.Cloner:         New(exec.NewTestHost()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
+	exec.Runner:         exec.NewTestHost(),
 }
 
 test CloneCopiesATree {
@@ -26,5 +27,28 @@ test CloneCopiesATree {
 		assert !work.Cloner.Has("trees/one") && work.Cloner.Has("trash/one")
 		try work.Cloner.Discard("trash/one")
 		assert !work.Cloner.Has("trash/one")
+	}
+}
+
+// BaseScript makes base a checkout whose files hold every kind git's
+// status tells apart: a committed file, an executable script, a symbolic
+// link, a change not staged, a staged new file, an untracked file and an
+// ignored one.
+let BaseScript = "git init -q -b main base && cd base && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && printf '#!/bin/sh\\n' > run.sh && chmod +x run.sh && ln -s a.txt link && printf 'ignored\\n' > .gitignore && git add -A && git commit -q -m one && printf 'two\\n' >> a.txt && printf 'staged\\n' > s.txt && git add s.txt && printf 'new\\n' > new.txt && printf 'x\\n' > ignored"
+
+// CloneStatusEqualsBaseStatus: git's status in a clone of a checkout is
+// the base's, line for line: the clone carries the index, the modes, the
+// links and every untracked and ignored file, and its first status reads
+// no change the base does not have.
+test CloneStatusEqualsBaseStatus {
+	with onHost {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", BaseScript})).Status == 0
+		try work.Cloner.Clone("base", "trees/one")
+		let status = func(root string) string fails exec.NotFound | exec.Denied | exec.Failed {
+			try exec.Runner.Run(exec.New("git", []string{"-C", root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored"})).Stdout
+		}
+		let base = try status("base")
+		assert base == " M a.txt\nA  s.txt\n?? new.txt\n!! ignored\n"
+		assert try status("trees/one") == base
 	}
 }

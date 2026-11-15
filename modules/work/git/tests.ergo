@@ -1,15 +1,33 @@
-// The work.Vcs law on the host, in a folder of each case's own
+// The work.Vcs laws on the host, in a folder of each case's own
 // (TestAmbient): git runs for real, confined to the folder, with
-// GIT_CEILING_DIRECTORIES above it.
+// GIT_CEILING_DIRECTORIES above it. The folder is a checkout as the
+// memory Vcs's is (Checkout), so each law reads a real repository.
 
 import exec
 import os
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs TestAmbient {
-	work.Vcs:    New(exec.NewTestHost()),
+	work.Vcs:    Checkout(exec.NewTestHost()),
 	exec.Runner: exec.NewTestHost(),
 	os.Process:  os.NewTestHost(),
+}
+
+// CheckoutScript makes the working folder a checkout of branch main
+// with one commit (a.txt and a .gitignore), then a change to a.txt that
+// is not staged, a new file s.txt that is staged, an untracked new.txt
+// and an ignored file: every kind of state a snapshot must leave.
+let CheckoutScript = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && printf 'ignored\\n' > .gitignore && git add a.txt .gitignore && git commit -q -m one && printf 'two\\n' >> a.txt && printf 'staged\\n' > s.txt && git add s.txt && printf 'new\\n' > new.txt && printf 'x\\n' > ignored"
+
+// Checkout is the git Vcs over run, after it made run's folder a
+// checkout (CheckoutScript). A failure leaves the folder as it is, and
+// the laws then hold by their failure cases.
+func Checkout(run exec.Runner) Vcs {
+	let _ = run.Run(exec.New("sh", []string{"-c", CheckoutScript})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		exec.Result{Stdout: "", Stderr: "", Status: 1}
+	}
+	New(run)
 }
 
 // A command runs in the case's folder, with HOME and TMPDIR there too, so
@@ -28,6 +46,12 @@ func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed need
 	try exec.Runner.Run(exec.New("git", args)).Status
 }
 
+// status is git's porcelain status of the checkout at root: the index
+// and the working files, untracked ones each named.
+func status(root string) string fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New("git", []string{"-C", root, "status", "--porcelain=v1", "--untracked-files=all"})).Stdout
+}
+
 test OwnBranchHoldsItsHeadInARepository {
 	with onHost {
 		assert try run([]string{"init", "-q", "-b", "main", "repo"}) == 0
@@ -36,5 +60,51 @@ test OwnBranchHoldsItsHeadInARepository {
 		let head = try work.Vcs.Head("repo")
 		assert try work.Vcs.Holds("repo", head)
 		assert try work.Vcs.Clean("repo")
+	}
+}
+
+// SnapshotLeavesTheIndex: a snapshot of a checkout with a staged file, a
+// change not staged, an untracked file and an ignored one leaves git's
+// status as it was (it builds its tree in an index of its own), and the
+// tree holds every file that is not ignored, as the working folder has
+// them. (SnapshotChangesNoBranch compares the head, the branch and
+// whether the checkout is clean, which a snapshot through the user's
+// index leaves as they were.)
+test SnapshotLeavesTheIndex {
+	with onHost {
+		let before = try status(".")
+		assert before == " M a.txt\nA  s.txt\n?? new.txt\n"
+		let tree = try work.Vcs.Snapshot(".")
+		assert try status(".") == before
+		let files = try work.Vcs.Read(".", tree)
+		assert files == Map[string, string]{".gitignore": "ignored\n", "a.txt": "one\ntwo\n", "new.txt": "new\n", "s.txt": "staged\n"}
+	}
+}
+
+// NonFastForwardIsRefused: a push of a branch onto a parent's branch that
+// moved on (side, not checked out) is NotFastForward, and side stays
+// where it moved. The parent is named by its absolute path: exec confines
+// each argument as a path from the folder, so the relative path from the
+// child (../parent) would be Denied.
+test NonFastForwardIsRefused {
+	with onHost {
+		assert try run([]string{"init", "-q", "-b", "main", "parent"}) == 0
+		assert try run([]string{"-C", "parent", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one"}) == 0
+		assert try run([]string{"clone", "-q", "parent", "child"}) == 0
+		assert try run([]string{"-C", "parent", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two"}) == 0
+		assert try run([]string{"-C", "parent", "update-ref", "refs/heads/side", "HEAD"}) == 0
+		assert try run([]string{"-C", "child", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "three"}) == 0
+		let moved = try work.Vcs.Ref("parent", "refs/heads/side")
+		let pushed = []work.Pushed{work.Pushed{From: "refs/heads/main", To: "refs/heads/side", Force: false}}
+		work.Vcs.Push("child", try os.Process.Getwd()+"/parent", pushed) catch {
+		case work.NotFastForward as n:
+			assert n.Ref == "refs/heads/side"
+			assert try work.Vcs.Ref("parent", "refs/heads/side") == moved
+			return
+		case work.VcsFailed:
+			assert false
+			return
+		}
+		assert false
 	}
 }

@@ -13,18 +13,19 @@ skip law work.Cloner.FailedCloneLeavesNothing for Cloner: its values have no gen
 skip law work.Cloner.FreshCloneSharesItsBlocks for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.MoveMoves for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
-# git.Vcs runs git through an exec.Runner, as the Cloners do; the law runs
-# under git's onHost context on the host, and against memory.Vcs.
+# git.Vcs runs git through an exec.Runner, as the Cloners do; its laws
+# run under git's onHost context, on a real checkout in each case's folder
+# (git.Checkout), and against memory.Vcs.
 skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
-# sh.Hooks runs sh through a host exec.Runner, as the Cloners do; the law
-# runs against memory.Hooks (whose "exit N" is sh's), and the hook cases
-# of examples/work run sh on the host.
+# sh.Hooks runs sh through an exec.Runner, as the Cloners do; the law runs
+# under sh's onHost context (sh for real in each case's folder), and
+# against memory.Hooks (whose "exit N" is sh's).
 skip law work.Hooks.ExitIsAFailure for Hooks: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewHooks() Hooks with no rows would build one for each case
-# journal.Lock takes the host's file locks through fs.Host, which only
-# main makes (fs.NewHost needs Ambient). The law runs in package memory
-# against the model of shared locks; runtime/v1 TestFSLockFileExcludes
-# holds the host lock's exclusion, and scripts/workrace races two
-# processes on it.
-skip law work.Lock.HoldExcludes for Lock: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewHost; a func NewLock() Lock with no rows would build one for each case
+# journal.Lock takes the host's file locks through an fs.Host, which no
+# generator builds. The law runs under journal's onHost context (fs.LockFile
+# in each case's folder) and against memory's shared locks;
+# runtime/v1 TestFSLockFileExcludes holds the lock's exclusion, and
+# scripts/workrace races two processes on it.
+skip law work.Lock.HoldExcludes for Lock: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost; a func NewLock() Lock with no rows would build one for each case
