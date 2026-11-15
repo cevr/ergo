@@ -5,17 +5,18 @@ One program with two scenes on a canvas:
 - **balls**: a press drops a ball with a random size, speed, heading and colour, and the balls bounce off the edges.
 - **flow**: about 55 particles drift on a field of noise that moves with time, swirl round the pointer and leave trails, and a press bursts 22 more outward.
 
-It is a port of Foldkit's `canvas-art` and `generative-art` examples (`conformance/upstream/foldkit-d21db423/examples/`, MIT). This is stage a of FK12: the model, with no view yet.
+It is a port of Foldkit's `canvas-art` and `generative-art` examples (`conformance/upstream/foldkit-d21db423/examples/`, MIT). This is stage b of FK12: the view, on std ui's test host.
 
-The program plays a script of frames and acts. After each, it shows the scene: every ball, or the flow's time, controls and particles.
+The program plays a script of frames and the user's acts on the screen. After each, it shows what changed on the screen: the heading and prompt, the buttons and the count, the sliders, whether the screen asks for frames, and the canvas, read from its paint.
 
 Tag: `default`.
 
 ```sh
 fk-flow < cases/tour/stdin
+fk-flow -stats < cases/tour/stdin
 ```
 
-The script's words are listed in `script/script.ergo`: `seed`, `frame`, `press`, `move`, `toggle`, `clear`, `strength`, `scale` and `show`.
+The script's words are listed in `script/script.ergo`: `seed`, `frame`, `press`, `move`, `click`, `strength` and `scale`. With `-stats`, each line also shows its work (`ui.Counts`) and the frames the host sent.
 
 ## The shape
 
@@ -26,13 +27,17 @@ The script's words are listed in `script/script.ergo`: `seed`, `frame`, `press`,
 - Package `balls` is canvas-art's model. `Drop`, `Advance` and `Clear` are pure functions of the field.
 - Package `flow` is generative-art's model: `Burst`, `Advance`, `PointAt`, `Reset`, `Toggle` and the two sliders. `noise.ergo` holds the Perlin noise and its fractal sum.
 - Package `seed` is a seeded stream (SplitMix64) kept as a value in each field. Every number a ball or particle is born with is drawn from it, where upstream's commands draw from `Random`. A step is therefore pure, and the same seed and acts replay the same scene.
-- Package `script` is the host. The scenes have no timer and no work, so the host steps them with `machines.Next`. A frame is a script line, not a clock.
+- Package `app` is the program, the machine `Shown`: the scene and the time of the last frame. The screen's frames (`ui.Animate`) carry the time since the host started; upstream's animation-frame subscription carries the time since the frame before. So `app` keeps the last frame's time and steps the scene by the difference. The first frame after the frames begin (the start, or play after a pause) starts the count and moves nothing.
+- Package `screen` is the view. Each scene has its heading and prompt, its canvas in an Area that takes the pointer, Pause or Play, Clear or Reset, and the count; the flow also has its two sliders. The canvas paints what upstream's `Canvas` shape list draws, in the same order: a circle is four cubics, a trail a polyline stroked twice, and a colour is CSS's `hsla` worked out to bytes.
+- Package `script` is the host. It runs `app.Shown` as an actor on `ui.NewTestHost`. A `frame MS xK` line sets the host's frame period to MS and moves the clock by K periods. The host sends a frame each period while the screen asks for them.
 
 How the port differs from upstream:
 
 - **No commands.** Upstream's `GenerateBall`, `GenerateAmbientParticle` and `GenerateBurstParticle` are commands that draw from `Random` and answer with a `Completed…` message. Here the draw happens in the step, from the field's own stream, so a press adds the ball at once. The plan names `random` seeded: std `rand` is a context service and a machine step is pure, so the stream lives in the state.
-- **One program, two scenes.** Upstream has two apps. Here `show balls` and `show flow` switch scenes, and the stream passes on through the switch.
-- **Sliders are values.** Upstream's sliders are `@foldkit/ui` Slider children. Here `strength` and `scale` set the value, kept in the slider's range and on its step. The sliders themselves come in FK12b.
+- **One program, two scenes.** Upstream has two apps. Here the Balls and Flow buttons switch scenes, and the stream passes on through the switch.
+- **The first frame moves nothing.** Upstream's first frame moves the scene by the few milliseconds since its subscription began. Here it only starts the count (`app` law `FramesAreTheTimeBetween`).
+- **Sliders take a press.** Upstream's sliders are `@foldkit/ui` Slider children, dragged or keyed. Here each slider is an Area named by its label that shows its value; a press at x on its 200-pixel track asks for the value at x, kept in range and on its step. An Area cannot tell a drag from a hover, so a move sets nothing (gap FK12-g1).
+- **The canvas is read from its paint.** The script shows the canvas's fills, strokes and path points, and each filled circle under 30 pixels (a ball, or a particle's head) by its centre, radius and colour, the first six of them, and the pointer's ring.
 - **The noise hash wraps in 32 bits.** Upstream multiplies in doubles and truncates. The fields differ in detail but not in kind.
 - **Floats.** The goldens show positions rounded to whole pixels, so the last bits that a fused multiply-add may change on another host (plan Q5) rarely show. Whether they show on the Mac check is recorded as a gap, not hidden.
 
@@ -42,7 +47,7 @@ How the port differs from upstream:
 
 ## Upstream tests
 
-Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.txt`. No story is an Ergo test, because a law or the `tour` case already kills every mutant that a test of it would. The scene tests need a view and are stage b.
+Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.txt`. No story or scene is an Ergo test, because a law or a case already kills every mutant that a test of it would. The scenes are case `scenes`, on the test host, one comment each.
 
 ## Laws
 
@@ -57,6 +62,9 @@ Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.
   - `SeedReplays`: the same seed and acts give the same scene, and another seed gives another, through a switch.
   - `PausedTickIsIdentity`: a frame of a paused scene is ignored, and a frame of a running scene is a step in the same scene.
   - `ActsReachTheShownScene`: an act the shown scene has no use for is ignored, and a switch starts the other scene afresh.
+- `app`:
+  - `FramesAreTheTimeBetween`: over drawn frame times, a running scene is stepped by the time between frames, and the first frame moves nothing.
+  - `APauseStopsTheCount`: a paused scene ignores frames, and the first frame after play moves nothing, however long the pause was.
 
 The mutants these laws and the cases kill are in `testdata/mutants.json`.
 
@@ -66,4 +74,5 @@ The mutants these laws and the cases kill are in `testdata/mutants.json`.
   - the balls: presses, frames, a bounce, pause and play, and clear;
   - the flow: the first frames, a pointer, a burst, both sliders clamped and snapped, six seconds of deaths and births, a long frame capped at 50 ms, and reset;
   - a switch back to the balls.
+- `scenes`: upstream's 8 scene tests, each a comment and the acts that show it, and a click on a button the screen does not show.
 - `badscript`: a repeat of zero frames. The program says which line and exits 1.
