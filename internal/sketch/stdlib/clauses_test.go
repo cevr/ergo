@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -151,8 +151,8 @@ func namedOf(t check.Type) *check.TypeName {
 // non-escaping callback must be in the reviewed v1.GoSyncCallbacks
 // (interop.md, Callbacks 1) and is not listed again.
 func TestExternArgumentClauses(t *testing.T) {
-	listed := map[string]std.ArgClause{}
-	for _, c := range std.ArgClauses {
+	listed := map[string]stdlib.ArgClause{}
+	for _, c := range stdlib.ArgClauses {
 		key := c.Func + "." + c.Param
 		if _, dup := listed[key]; dup {
 			t.Errorf("std.ArgClauses lists %s twice", key)

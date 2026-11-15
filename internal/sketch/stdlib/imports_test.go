@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"slices"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -18,8 +18,8 @@ import (
 // finds every std import from the sources and fails on a cycle, naming it.
 func TestStdImportsAreAcyclic(t *testing.T) {
 	edges := map[string][]string{}
-	for _, path := range std.Packages() {
-		sources, _ := std.Package(path)
+	for _, path := range stdlib.Packages() {
+		sources, _ := stdlib.Package(path)
 		for name, src := range sources {
 			f, err := syntax.Parse(src)
 			if err != nil {
@@ -28,7 +28,7 @@ func TestStdImportsAreAcyclic(t *testing.T) {
 			for _, d := range f.Decls {
 				if imp, ok := d.(*syntax.ImportDecl); ok {
 					for _, spec := range importPaths(imp) {
-						if _, isStd := std.Package(spec); isStd {
+						if _, isStd := stdlib.Package(spec); isStd {
 							edges[path] = append(edges[path], spec)
 						}
 					}

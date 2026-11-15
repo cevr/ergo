@@ -4,7 +4,7 @@ import (
 	"go/constant"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -1142,7 +1142,7 @@ func isCallLike(x syntax.Expr) bool {
 // collFuncs are the prelude's functions on slices and Maps (D-D6). The
 // prelude reads its own; every other package reads the checked prelude's.
 func (c *checker) collFuncs() map[collKey]*Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath {
 		return c.pkg.collFuncs
 	}
 	return prelude().pkg.collFuncs
@@ -1169,7 +1169,7 @@ func (c *checker) collFunc(t Type, name string) *Func {
 // prelude type (Sleep). The prelude's own operations are in its package
 // scope, so it has none here.
 func (c *checker) preludeOp(name string) *Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath {
 		return nil
 	}
 	return prelude().ops[name]
@@ -1192,7 +1192,7 @@ func opForm(f *Func) string {
 
 // isUnreachable reports the prelude's Unreachable (owner q29, 2026-11-08).
 func isUnreachable(f *Func) bool {
-	return f != nil && f.Name == "Unreachable" && f.Pkg != nil && f.Pkg.Path == std.PreludePath
+	return f != nil && f.Name == "Unreachable" && f.Pkg != nil && f.Pkg.Path == stdlib.PreludePath
 }
 
 // IsUnreachable reports a call of the prelude's Unreachable, which the

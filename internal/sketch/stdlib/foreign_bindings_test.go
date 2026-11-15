@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -44,9 +44,9 @@ func TestStdBindsNoForeignBody(t *testing.T) {
 			target, body := f.Decl.Extern.Split()
 			bindings = append(bindings, stdBinding{pkg: p.path, name: f.Name, body: target + "." + body})
 		}
-		files := std.Prelude()
-		if p.path != std.PreludePath {
-			files, _ = std.Package(p.path)
+		files := stdlib.Prelude()
+		if p.path != stdlib.PreludePath {
+			files, _ = stdlib.Package(p.path)
 		}
 		for name, text := range files {
 			sources[p.path+"/"+name] = text

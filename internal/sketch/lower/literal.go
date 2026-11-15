@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -344,7 +344,7 @@ func (l *lowerer) ergoType(t check.Type) string {
 		return strings.Join(parts, " | ")
 	case *check.Named:
 		name := u.Obj.Name
-		if p := u.Obj.Pkg; p != nil && p != l.pkg && p.Path != std.PreludePath {
+		if p := u.Obj.Pkg; p != nil && p != l.pkg && p.Path != stdlib.PreludePath {
 			name = l.importName(p) + "." + name
 		}
 		if len(u.TArgs) > 0 {

@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -655,15 +655,15 @@ func prelude() preludeResult {
 	preludeOnce.Do(func() {
 		u := universe()
 		var files []*syntax.File
-		for _, name := range sortedKeys(std.Prelude()) {
-			f, err := syntax.Parse(std.Prelude()[name])
+		for _, name := range sortedKeys(stdlib.Prelude()) {
+			f, err := syntax.Parse(stdlib.Prelude()[name])
 			if err != nil {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
-		c := newChecker(std.PreludePath, nil, u)
+		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		pkg := c.run(files)
 		pkg.qualify = false
@@ -732,7 +732,7 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := std.Package(path)
+	sources, ok := stdlib.Package(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}

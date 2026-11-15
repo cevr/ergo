@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -103,7 +103,7 @@ func externValue(f *Func) bool {
 		// host type) is call-only, as an import go function is.
 		return f.goExtern == nil || f.goExtern.Basic
 	}
-	if f.Pkg.Path == std.PreludePath {
+	if f.Pkg.Path == stdlib.PreludePath {
 		return false
 	}
 	path, name := f.Decl.Extern.Split()
@@ -641,9 +641,9 @@ var stdExternResults = sync.OnceValue(stdExternResultSet)
 // Parse site of its own in the provenance manifest; it returns only names,
 // so no node it parses leaves it.
 func stdExternResultSet() map[string]bool {
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		if files, ok := std.Package(path); ok {
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, path := range stdlib.Packages() {
+		if files, ok := stdlib.Package(path); ok {
 			sources[path] = files
 		}
 	}
@@ -716,7 +716,7 @@ func stdExternResultSet() map[string]bool {
 							if declared[x.Name] {
 								set[path+"."+x.Name] = true
 							} else {
-								set[std.PreludePath+"."+x.Name] = true
+								set[stdlib.PreludePath+"."+x.Name] = true
 							}
 						}
 						return true

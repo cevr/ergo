@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -175,7 +175,7 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 			}
 			for _, f := range p.Files() {
 				sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-				if p.Path == std.PreludePath {
+				if p.Path == stdlib.PreludePath {
 					sf.path = "std/" + f.Name
 				}
 				syntax.Inspect(f, func(m syntax.Node) bool {

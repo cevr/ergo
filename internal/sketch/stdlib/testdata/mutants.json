@@ -1,5 +1,5 @@
 {
-  "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
+  "about": "The mutant ledger of internal/sketch/stdlib (and the std sources it reads): edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
     {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f escaping func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","std:TestExternArgumentClauses"]},
     {
@@ -20,24 +20,24 @@
     },
     {
       "name": "gs9-observe-never", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\tif root == \"\" {\n\t\treturn\n\t}\n", "to": "\tif root == \"\" || true {\n\t\treturn\n\t}\n",
       "rule": "Under a coverage record each embedded std file read is opened at its checkout path, so the gate's selection knows its readers.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
     {
       "name": "gs9-package-unobserved", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\t\tobserve(path.Join(importPath, entry.Name()))\n", "to": "",
       "rule": "Package observes every file it reads.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
     {
       "name": "gs9-prelude-unobserved", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     }
   ]
 }

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -538,7 +538,7 @@ law OnlyALawUsesThem(s string, n int) {
 func TestStdLawsAddNoGo(t *testing.T) {
 	names := map[string]bool{"OnlyALawUsesThem": true}
 	for _, p := range []string{"queue", "task", "timeout", "scope", "trace", "log"} {
-		files, ok := std.Package(p)
+		files, ok := stdlib.Package(p)
 		if !ok {
 			t.Fatalf("no std package %s", p)
 		}

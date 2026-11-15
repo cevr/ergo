@@ -39,8 +39,8 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sourcefile "ergo.local/prototype/internal/source"
 )
@@ -342,7 +342,7 @@ func modulePathProblem(module string) string {
 		return fmt.Sprintf("the module path %s is not an import path: its elements are not empty", module)
 	}
 	first, _, _ := strings.Cut(module, "/")
-	if _, isStd := std.Package(first); isStd || first == std.PreludePath {
+	if _, isStd := stdlib.Package(first); isStd || first == stdlib.PreludePath {
 		return fmt.Sprintf("the module path %s starts with the std package %s, which a std import always names; choose another module name", module, first)
 	}
 	return ""
@@ -584,7 +584,7 @@ func (l *loader) checkAll() {
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {
-	if _, isStd := std.Package(path); isStd {
+	if _, isStd := stdlib.Package(path); isStd {
 		return check.Std.Import(path)
 	}
 	if p := l.pkgs[path]; p != nil && p.pkg != nil {

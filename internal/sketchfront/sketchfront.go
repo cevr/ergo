@@ -34,7 +34,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -400,9 +400,9 @@ func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
 // summary is the conservative digest of the package's whole source, for
 // its interface and its implementation alike.
 func stdDependencies() []build.Dependency {
-	deps := []build.Dependency{sourceDependency(std.PreludePath, std.Prelude())}
-	for _, path := range std.Packages() {
-		files, _ := std.Package(path)
+	deps := []build.Dependency{sourceDependency(stdlib.PreludePath, stdlib.Prelude())}
+	for _, path := range stdlib.Packages() {
+		files, _ := stdlib.Package(path)
 		deps = append(deps, sourceDependency(path, files))
 	}
 	return deps
