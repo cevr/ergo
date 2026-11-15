@@ -20,6 +20,8 @@ import queue
 import scope
 import strings
 import sync
+import task
+import testing
 import time
 
 type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
@@ -1031,6 +1033,80 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	}
 	let s = ui.StateOf(&h)
 	s.ready == valueOf(s.key) && ui.Fetching(&h) == 0 && ui.SameShapes(ui.Screen(&h), freshShape(view, s))
+}
+
+func lawOffClockAnswerIsWaitedFor(steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		offClock(steps, m)
+	}
+}
+
+func offClock(steps int, m time.Manual) bool needs Scheduler {
+	let asks = queue.New[int](8)
+	let answers = queue.New[int](8)
+	let hops = (steps%32+32)%32 + 32
+	let server = task.Go() {
+		let c = testing.NewVirtualClock(0)
+		let mut open = true
+		for open {
+			let k = asks.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+			if k < 0 {
+				open = false
+			} else {
+				for _ in 0..hops {
+					testing.Sleep(c, 1ms)
+				}
+				answers.Push(-1 - valueOf(k)) catch {
+				case queue.Closed:
+					open = false
+				}
+			}
+		}
+		true
+	}
+	let timer = task.Go() {
+		time.Sleep(m, 1h)
+		true
+	}
+	let view = func(f *ui.Frame[int], s chosen) {
+		let k = s.key
+		ui.Text(f, "key \(k) ready \(s.ready)")
+		ui.Pressable(f, "next", k+1) {
+			ui.Text(f, "next")
+		}
+		ui.Load(f, ui.ByInt(k), func() int {
+			asks.Push(k) catch {
+			case queue.Closed:
+			}
+			answers.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut held = true
+	for i in 0..(steps%4+4)%4+1 {
+		let script = if i == 0 { []ui.Act{ui.SettleAll} } else { []ui.Act{ui.TapOn{Label: "next"}, ui.SettleAll} }
+		ui.Play(&h, script) catch {
+		case _:
+			return false
+		}
+		let s = ui.StateOf(&h)
+		held = held && s.ready == valueOf(s.key) && ui.Fetching(&h) == 0 && time.Sleepers(m) == 1
+	}
+	asks.End()
+	timer.Stop()
+	server.Stop()
+	held
 }
 
 type spin { left int, at int }
@@ -3970,6 +4046,10 @@ test UiCancelledFetchStops(steps int) {
 	assert lawCancelledFetchStops(steps)
 }
 
+test UiOffClockAnswerIsWaitedFor(steps int) {
+	assert lawOffClockAnswerIsWaitedFor(steps)
+}
+
 test UiNoTickWhenSettled(seed int, steps int) {
 	assert lawNoTickWhenSettled(seed, steps)
 }
@@ -4149,6 +4229,7 @@ test UiLocationBackStopsAtTheStart(n int, path string) {
 var stdUIHostStatements = map[string]string{
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
+	"ui OffClockAnswerIsWaitedFor":     `OffClockAnswerIsWaitedFor(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { offClock(steps, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
 	"ui AdvanceTakesThePosted":         `AdvanceTakesThePosted(n int) { let m = time.NewManual(0) with context { Scheduler: m } { advanceTakes(n, m) } }`,
 	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,

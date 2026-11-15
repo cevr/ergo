@@ -12,6 +12,8 @@ import queue
 import scope
 import strings
 import sync
+import task
+import testing
 import time
 
 // shelf is the state of the list app: its rows, by key, and the next key.
@@ -235,6 +237,88 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	}
 	let s = StateOf(&h)
 	s.ready == valueOf(s.key) && Fetching(&h) == 0 && SameShapes(Screen(&h), freshShape(view, s))
+}
+
+// OffClockAnswerIsWaitedFor: the load app's fetch asks a server and waits
+// for its answer. The server answers from a task of its own, which left the
+// host's clock for a clock of its own and waits there before each answer,
+// as a real server answers on its own time; meanwhile a timer sleeps an
+// hour on the host's clock. After each press of "next", Settle waits for
+// the answer: it returns with the live key's result shown, no fetch in
+// flight, and the timer still asleep. A sleeper the script could wake
+// never makes it give up on a fetch the clock does not hold (FK4-g2-g1).
+law OffClockAnswerIsWaitedFor(steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		offClock(steps, m)
+	}
+}
+
+func offClock(steps int, m time.Manual) bool needs Scheduler {
+	let asks = queue.New[int](8)
+	let answers = queue.New[int](8)
+	let hops = (steps%32+32)%32 + 32
+	let server = task.Go() {
+		let c = testing.NewVirtualClock(0)
+		let mut open = true
+		for open {
+			let k = asks.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+			if k < 0 {
+				open = false
+			} else {
+				for _ in 0..hops {
+					testing.Sleep(c, 1ms)
+				}
+				answers.Push(-1 - valueOf(k)) catch {
+				case queue.Closed:
+					open = false
+				}
+			}
+		}
+		true
+	}
+	let timer = task.Go() {
+		time.Sleep(m, 1h)
+		true
+	}
+	let view = func(f *Frame[int], s chosen) {
+		let k = s.key
+		Text(f, "key \(k) ready \(s.ready)")
+		Pressable(f, "next", k+1) {
+			Text(f, "next")
+		}
+		Load(f, ByInt(k), func() int {
+			asks.Push(k) catch {
+			case queue.Closed:
+			}
+			answers.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut held = true
+	for i in 0..(steps%4+4)%4+1 {
+		let script = if i == 0 { []Act{SettleAll} } else { []Act{TapOn{Label: "next"}, SettleAll} }
+		Play(&h, script) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		held = held && s.ready == valueOf(s.key) && Fetching(&h) == 0 && time.Sleepers(m) == 1
+	}
+	asks.End()
+	timer.Stop()
+	server.Stop()
+	held
 }
 
 // spin is the state of the animation app: the frames it still wants, and
