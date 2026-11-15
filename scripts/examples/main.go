@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -27,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
@@ -103,7 +105,12 @@ type program struct {
 	module bool
 	main   string
 	tests  []string
-	cases  []*testCase
+	// checked holds, while a program of packages loads, the checked
+	// analysis of each of its package folders by absolute path, from one
+	// load of them all (checkPackageFolders); checkedDir adds a folder it
+	// checks alone. The asset scan and the law rule read it.
+	checked map[string]sketchfront.Analysis
+	cases   []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
 	// library marks a module of modules/ (MK0, modules.go): no binary,
@@ -430,6 +437,8 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 // folders of .ergo files, beside the files every program holds. Top-level
 // .ergo files are the module root's package.
 func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
+	p.checked = loadPackageFolders(p.dir, entries)
+	defer func() { p.checked = nil }()
 	var problems []string
 	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	present := map[string]bool{}
@@ -515,6 +524,78 @@ func checkCommands(p *program, dir string) []string {
 	return problems
 }
 
+// checkPackageFolders checks the package folders of a program of packages
+// (the folders below dir, cases, testdata, ergo.bind, origin and ts left
+// out, that hold an .ergo file, and dir itself when it does) with one load
+// (sketchfront.CheckPackages): the std packages and the module's packages
+// they import are read and checked once, not once per folder and again
+// for the law rule. Two in-process checks of every folder were 17 CPU-s
+// of the examples step's 120 after a checker edit, on every run, replays
+// included (gate-speed GS31a). A load that cannot be shared (a
+// diagnostic, a binding) gives no analysis: each folder is then checked
+// alone (checkedDir), as before.
+func checkPackageFolders(dir string, entries []os.DirEntry) map[string]sketchfront.Analysis {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	holdsErgo := func(folder string) bool {
+		files, err := os.ReadDir(folder)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(files, func(f os.DirEntry) bool {
+			return strings.HasSuffix(f.Name(), ".ergo") && f.Type().IsRegular()
+		})
+	}
+	if holdsErgo(dir) {
+		dirs = append(dirs, dir)
+	}
+	for _, entry := range entries {
+		switch name := entry.Name(); {
+		case !entry.IsDir() || name == "cases" || name == "testdata" || name == "ergo.bind" || name == "origin" || name == "ts":
+			continue
+		}
+		_ = filepath.WalkDir(filepath.Join(dir, entry.Name()), func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() && holdsErgo(path) {
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+	analyses, err := sketchfront.CheckPackages(dirs, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	if err != nil {
+		return nil
+	}
+	checked := make(map[string]sketchfront.Analysis, len(dirs))
+	for i, folder := range dirs {
+		checked[folder] = analyses[i]
+	}
+	return checked
+}
+
+// loadPackageFolders is checkPackageFolders; a test sets it to load
+// nothing, the reference of every folder checked alone.
+var loadPackageFolders = checkPackageFolders
+
+// checkedDir is the checked analysis of the package folder dir, an
+// absolute path: the program's shared load's (checkPackageFolders), or the
+// folder checked alone and kept, so no folder is checked twice.
+func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
+	if a, ok := p.checked[dir]; ok {
+		return a, nil
+	}
+	a, err := sketchfront.CheckDir(dir)
+	if err == nil && p.checked != nil {
+		p.checked[dir] = a
+	}
+	return a, err
+}
+
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
 // folder holds .ergo files and package folders only.
@@ -537,7 +618,7 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 	var problems []string
 	for _, entry := range entries {
 		if strings.HasSuffix(entry.Name(), ".ergo") {
-			if a, err := sketchfront.CheckDir(dir); err == nil {
+			if a, err := p.checkedDir(dir); err == nil {
 				for _, name := range a.EmbeddedPaths() {
 					assets[name] = true
 				}
