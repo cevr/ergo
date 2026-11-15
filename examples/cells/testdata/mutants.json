@@ -86,7 +86,7 @@
       "origin": "wf10/dod/NS6 (NS4 mapping)",
       "file": "examples/cells/host/look.ergo",
       "from": "out = out + if e.Value { m.Expanded } else { m.Collapsed }",
-      "to": "out = out + \"\"",
+      "to": "out = out + if e.Value { \"\" } else { \"\" }",
       "rule": "CellsShowEveryName: a Semantic node's declared Expanded state shows its mark (▾ or ▸).",
       "anchor": {
         "tests": [
@@ -118,7 +118,7 @@
       "origin": "wf10/dod/NS6 (NS4 mapping)",
       "file": "examples/cells/host/look.ergo",
       "from": "\t\tdeclaresPress(x.On)\n\tcase ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode",
-      "to": "\t\tfalse\n\tcase ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode",
+      "to": "\t\tdeclaresPress(x.On) && false\n\tcase ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode",
       "rule": "HitMatchesDraw: a tap on an enabled Semantic node that declares a press sends its signal.",
       "anchor": {
         "tests": [
