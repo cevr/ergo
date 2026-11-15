@@ -1,0 +1,19 @@
+# Test functions that make a file or directory in the system temporary
+# directory and leave its removal to their caller
+# (TestTestsRemoveTheirTemporaryFiles; GS18). A row is `path<TAB>function`.
+# The test fails on a row that names no such function, so the list only
+# shrinks. Each row was read at the rule's start (2026-11-13): its caller
+# removes what it makes.
+
+# TestMain removes testCLI.dir.
+cmd/ergo/main_test.go	buildTestCLI
+# The run's scratch.remove (removeTree).
+internal/closure/sandbox_test.go	newScratch
+# runPlan: defer removeTree(cache).
+internal/closure/sandbox_test.go	newSharedCache
+# TestMain removes testCLI.dir.
+internal/sketch/lower/main_test.go	ergoCLI
+# TestMain calls removeProgramTables.
+internal/sketch/lower/table_test.go	sharedBuild
+# Its caller calls w.close (os.RemoveAll).
+scripts/gate/replay/model_test.go	newWorld

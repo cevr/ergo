@@ -16,21 +16,6 @@ import (
 	"testing"
 )
 
-// init gives every CLI this package's tests start a private emission cache:
-// it runs before TestMain captures the environment, so no test writes the
-// developer's $XDG_CACHE_HOME or $HOME/.cache. The directory is not
-// removed (follow-up: move this into TestMain, with cleanup, once
-// main_test.go is this unit's to edit).
-func init() {
-	dir, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
-	if err != nil {
-		panic("cmd/ergo tests: private cache directory: " + err.Error())
-	}
-	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
-		panic(err)
-	}
-}
-
 // innerRunVariable marks the package run that
 // TestPackageNeverWritesUnderHome starts, which must not start another.
 const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
