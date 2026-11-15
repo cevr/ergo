@@ -1,0 +1,109 @@
+{
+  "about": "module work's mutants (SEMWS WS0); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples ergo-work), not by a compiler test. The law, test or case that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif !copyAllowed {\n",
+      "to": "\tif false {\n",
+      "rule": "A plain copy is never picked silently: with no sharing Cloner and no -copy, new is CopyRefused and registers nothing (memory's ToolAgreesWithTheReference, CopyRefusedSaysTheBytes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-write-into-shared-block", "origin": "wf10/semws WS0",
+      "file": "modules/work/memory/cloner.ergo",
+      "from": "\ttree[path] = d.next\n\tblocks[d.next] = t\n",
+      "to": "\tlet block = maps.GetOr(tree, path, d.next)\n\ttree[path] = block\n\tblocks[block] = t\n",
+      "rule": "A clone shares no writable block after a write (the model's hard link: a write into a block another tree holds): memory's WritesStayPrivate, CloneOfCloneEqualsBase.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-reflink-hard-links", "origin": "wf10/semws WS0",
+      "file": "modules/work/reflink/reflink.ergo",
+      "from": "[]string{\"-a\", \"--reflink=always\", \"--\", from, to}",
+      "to": "[]string{\"-a\", \"-l\", \"--\", from, to}",
+      "rule": "A host clone shares no writable block after a write (the provider returns a hard link): the new case's warm command writes the clone's a.txt and prints the base's, which must be unchanged.",
+      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+    },
+    {
+      "name": "ws0-gc-shares-a-home", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "func Home(base string) string { filepath.Join([]string{filepath.Dir(base), \".ergo-work\", filepath.Base(base)}) }",
+      "to": "func Home(base string) string { filepath.Join([]string{filepath.Dir(base), \".ergo-work\"}) }",
+      "rule": "gc reads only its own base's registry and trash: one home for every base beside one folder makes the bases share a registry and a trash (the gc, list and rm cases, which keep two bases' folders apart).",
+      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+    },
+    {
+      "name": "ws0-rm-unkept-work", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\t\tif !kept {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "rm refuses a workspace whose work is not in its parent unless -abandon: memory's ToolAgreesWithTheReference (an edit, then rm), the rm-dirty case.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:ergo-work"]
+    },
+    {
+      "name": "ws0-refused-clone-stays-registered", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tcase CopyRefused as e:\n\t\ttry t.registry.Drop(name)\n\t\treturn e\n",
+      "to": "\tcase CopyRefused as e:\n\t\treturn e\n",
+      "rule": "A new that does not clone leaves no registered workspace with no tree: memory's ToolAgreesWithTheReference, CopyRefusedSaysTheBytes.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\t\tage >= stale && strings.HasPrefix(w.Path, Home(t.base)+\"/\")\n",
+      "to": "\t\t\tfalse\n",
+      "rule": "A crash between the record and the clone leaves Creating, and gc removes it once it is an hour old: memory's ToolAgreesWithTheReference (CrashOp, WaitOp, GcOp).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-usage-shared-as-exclusive", "origin": "wf10/semws WS0",
+      "file": "modules/work/memory/cloner.ergo",
+      "from": "\t\tif heldElsewhere(d, root, block) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "Usage reports shared bytes as shared, not exclusive: memory's UsageSplitsTheBlocks and work.Cloner.FreshCloneSharesItsBlocks.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-leave-out-ignored", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\tif by.Has(left) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "new leaves out the leave-out folders of ergo.work: the new case's warm command checks that tmp is not in the clone.",
+      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+    },
+    {
+      "name": "ws0-torn-line-kept", "origin": "wf10/semws WS0",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "\t\tif i == len(lines)-1 || line == \"\" {\n",
+      "to": "\t\tif line == \"\" {\n",
+      "rule": "A journal line a crash cut short is no record: journal's TornWriteIsDropped, the list case.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:ergo-work"]
+    },
+    {
+      "name": "ws0-landing-commits-to-active", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/workspace.ergo",
+      "from": "\tcase (Landing, Committed):\n\t\tEnter[State]{Next: Landed}\n",
+      "to": "\tcase (Landing, Committed):\n\t\tEnter[State]{Next: Active}\n",
+      "rule": "A committed land lands the workspace: Lifecycle.SomeWorkspaceLands, OnlyActiveLands.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-landed-cannot-be-removed", "origin": "wf10/semws WS0",
+      "file": "modules/work/work/workspace.ergo",
+      "from": "\tcase (Landed, Remove):\n\t\tEnter[State]{Next: Trashed}\n",
+      "to": "\tcase (Landed, Remove):\n\t\tReject\n",
+      "rule": "Every workspace can be removed: Lifecycle.EveryWorkspaceCanBeRemoved, LandedIsFinal.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws0-git-always-clean", "origin": "wf10/semws WS0",
+      "file": "modules/work/git/git.ergo",
+      "from": "\ttry answer(v, root, []string{\"status\", \"--porcelain\", \"--untracked-files=normal\"}) == \"\"\n",
+      "to": "\ttrue\n",
+      "rule": "git's Clean sees an untracked file: the rm-dirty case is NotHeld.",
+      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+    }
+  ]
+}

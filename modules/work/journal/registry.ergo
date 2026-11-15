@@ -1,0 +1,117 @@
+// Package journal is a work.Registry kept in one journal file: plain
+// text, a record a line, appended and never rewritten, so a person can
+// read a damaged registry and Git alone can recover the workspaces. A
+// line is a word and tab-separated fields, each Go-quoted (a tab in a
+// field is \t, so a tab only separates):
+//
+//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800
+//	drop	"name"
+//
+// A reader replays every whole line; the last put of a name is its
+// record, a drop forgets it. Each write is one append of one line, so two
+// writers never interleave within a line, and a crash in a write leaves
+// a line with no newline, which a reader drops.
+//
+// Go control: an append-only text log replayed at each read (a
+// write-ahead log with no checkpoint).
+
+import fs
+import fstest
+import github.com/cevr/ergo/modules/work/memory
+import github.com/cevr/ergo/modules/work/work
+import strconv
+import strings
+
+// Registry is the journal at path.
+type Registry { files fs.Files, writes fs.Writes, path string } implements work.Registry
+
+// Open is the registry of the journal at path. The file is read at each
+// All, so a second process's records are seen.
+func Open(files fs.Files, writes fs.Writes, path string) Registry { Registry{files: files, writes: writes, path: path} }
+
+// NewRegistry is a registry over an empty memory disk: the laws' value.
+func NewRegistry() Registry {
+	let disk = fstest.NewMemory()
+	Registry{files: disk, writes: disk, path: "/registry"}
+}
+
+func Put(r Registry, w work.Workspace) fails work.Unkept { try appendLine(r, PutLine(w)) }
+
+func Drop(r Registry, name string) fails work.Unkept { try appendLine(r, "drop\t"+strconv.Quote(name)+"\n") }
+
+func All(r Registry) []work.Workspace fails work.Unkept {
+	let text = r.files.ReadFile(r.path) catch {
+	case fs.NotFound:
+		return []work.Workspace{}
+	case fs.Denied:
+		return work.Unkept{Reason: "\(r.path): permission denied"}
+	case fs.Failed as f:
+		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
+	}
+	try Replay(text)
+}
+
+func appendLine(r Registry, line string) fails work.Unkept {
+	r.writes.AppendFile(r.path, line) catch {
+	case fs.NotFound:
+		return work.Unkept{Reason: "\(r.path): its folder is not there; run ergo work init"}
+	case fs.Denied:
+		return work.Unkept{Reason: "\(r.path): permission denied"}
+	case fs.Failed as f:
+		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
+	}
+}
+
+// PutLine is the journal line of a put of w.
+func PutLine(w work.Workspace) string {
+	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10)}
+	strings.Join(fields, "\t") + "\n"
+}
+
+// Replay is the records of a journal's text: each whole line in order,
+// the text after the last newline (a write a crash cut short) dropped.
+func Replay(text string) []work.Workspace fails work.Unkept {
+	let mut records = []work.Workspace{}
+	let lines = strings.Split(text, "\n")
+	for i, line in lines {
+		if i == len(lines)-1 || line == "" {
+			continue
+		}
+		let fields = strings.Split(line, "\t")
+		match fields[0] {
+		case "put":
+			if len(fields) != 8 {
+				return bad(i, "a put has 7 fields")
+			}
+			let state = match work.StateNamed(fields[6]) {
+			case Some[work.State] as s:
+				s.Value
+			case None:
+				return bad(i, "no state \(fields[6])")
+			}
+			let since = strconv.ParseInt(fields[7], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return bad(i, "the time \(fields[7]) is not a number")
+			}
+			let w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since}
+			records = memory.Kept(records, w)
+		case "drop":
+			if len(fields) != 2 {
+				return bad(i, "a drop has 1 field")
+			}
+			records = memory.Dropped(records, try field(i, fields[1]))
+		case _:
+			return bad(i, "unknown word \(fields[0])")
+		}
+	}
+	records
+}
+
+func field(i int, text string) string fails work.Unkept {
+	strconv.Unquote(text) catch {
+	case strconv.Malformed:
+		return bad(i, "\(text) is not a quoted field")
+	}
+}
+
+func bad(i int, why string) work.Unkept { work.Unkept{Reason: "registry line \(i + 1): \(why)"} }

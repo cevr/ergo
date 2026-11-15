@@ -1,0 +1,69 @@
+import strings
+
+// ConfigFile is the name of the one checked-in configuration, at the
+// root of a base (Go's go.work is the convention).
+let ConfigFile = "ergo.work"
+
+// Config is what ergo.work says: the module roots of the repository, the
+// folders a new workspace leaves out of its clone, the command that warms
+// a new workspace (run in it, by sh), and whether a plain copy may be made
+// when no copy-on-write clone can.
+type Config {
+	Modules  []string,
+	LeaveOut []string,
+	Warm     string,
+	Copy     bool,
+}
+
+// BadConfig is a line of ergo.work that does not read.
+type BadConfig { Line int, Why string }
+
+// StarterConfig is the ergo.work that init writes when there is none.
+let StarterConfig = "# ergo.work: the workspaces of this repository (ergo work).\n#\n#   module DIR       a module root\n#   leave-out DIR    a folder a new workspace leaves out of its clone\n#   warm COMMAND     run by sh in a new workspace\n#   copy             a plain copy may be made where no clone can share blocks\nmodule .\n"
+
+// ParseConfig reads the text of ergo.work: one directive a line, a word
+// then its value; a blank line or one that starts with # says nothing. An
+// unknown word, a missing value or a folder that leaves the root is
+// BadConfig.
+func ParseConfig(text string) Config fails BadConfig {
+	let mut c = Config{Modules: []string{}, LeaveOut: []string{}, Warm: "", Copy: false}
+	for i, raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let words = strings.Fields(line)
+		let value = strings.TrimSpace(strings.TrimPrefix(line, words[0]))
+		match words[0] {
+		case "module":
+			c = Config{..c, Modules: c.Modules.Append(try folder(i+1, value))}
+		case "leave-out":
+			c = Config{..c, LeaveOut: c.LeaveOut.Append(try folder(i+1, value))}
+		case "warm":
+			if value == "" {
+				return BadConfig{Line: i + 1, Why: "warm takes a command"}
+			}
+			c = Config{..c, Warm: value}
+		case "copy":
+			if value != "" {
+				return BadConfig{Line: i + 1, Why: "copy takes no value"}
+			}
+			c = Config{..c, Copy: true}
+		case _:
+			return BadConfig{Line: i + 1, Why: "unknown word \(words[0]); ergo.work knows module, leave-out, warm and copy"}
+		}
+	}
+	c
+}
+
+// folder is the folder value of line n: one word, relative, inside the
+// root.
+func folder(n int, value string) string fails BadConfig {
+	if value == "" || len(strings.Fields(value)) != 1 {
+		return BadConfig{Line: n, Why: "a folder is one word"}
+	}
+	if strings.HasPrefix(value, "/") || value == ".." || strings.HasPrefix(value, "../") || strings.Contains(value, "/../") || strings.HasSuffix(value, "/..") {
+		return BadConfig{Line: n, Why: "\(value) is not a folder inside the repository"}
+	}
+	value
+}

@@ -1,0 +1,96 @@
+import github.com/cevr/ergo/modules/work/work
+import maps
+import strings
+
+// Vcs is a Vcs over the trees of a memory Cloner, so a clone carries its
+// Git folder as a real clone does. A checkout keeps, under .git/: HEAD
+// (its commit), branch (its branch), index/PATH (the committed text of
+// each file) and held/COMMIT (each commit a branch of it holds).
+type Vcs { trees Cloner } implements work.Vcs
+
+// NewVcs is the Vcs over the trees of c.
+func NewVcs(c Cloner) Vcs { Vcs{trees: c} }
+
+func Head(v Vcs, root string) string fails work.VcsFailed { try at(v, root, ".git/HEAD") }
+
+func Branch(v Vcs, root string) string fails work.VcsFailed { maps.GetOr(try checkout(v, root), ".git/branch", "") }
+
+func Clean(v Vcs, root string) bool fails work.VcsFailed {
+	let files = try checkout(v, root)
+	for path, text in files {
+		if strings.HasPrefix(path, ".git/") {
+			if strings.HasPrefix(path, ".git/index/") && files.Get(strings.TrimPrefix(path, ".git/index/")) == None {
+				return false
+			}
+			continue
+		}
+		if files.Get(".git/index/"+path) != (Some[string]{Value: text}) {
+			return false
+		}
+	}
+	true
+}
+
+func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
+	(try checkout(v, parent)).Get(".git/held/"+commit) != None
+}
+
+// checkout is the files of the checkout at root.
+func checkout(v Vcs, root string) Map[string, string] fails work.VcsFailed {
+	if !v.trees.Has(root) {
+		return work.VcsFailed{Reason: "\(root): no checkout"}
+	}
+	let files = Files(v.trees, root)
+	if files.Get(".git/HEAD") == None {
+		return work.VcsFailed{Reason: "\(root): not a git checkout"}
+	}
+	files
+}
+
+func at(v Vcs, root string, path string) string fails work.VcsFailed {
+	match (try checkout(v, root)).Get(path) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		work.VcsFailed{Reason: "\(root): no \(path)"}
+	}
+}
+
+// Repo plants a checkout at root on branch with the files, committed as
+// commit.
+func Repo(c Cloner, root string, branch string, files Map[string, string], commit string) {
+	let mut all = Map[string, string]{}
+	for path, text in files {
+		all[path] = text
+	}
+	all[".git/branch"] = branch
+	Plant(c, root, all)
+	Commit(c, root, commit)
+}
+
+// Commit commits every file of the checkout at root as commit, which its
+// branch then holds. It is false when no tree is at root.
+func Commit(c Cloner, root string, commit string) bool {
+	let files = Files(c, root)
+	if !c.Has(root) {
+		return false
+	}
+	for path, text in files {
+		if !strings.HasPrefix(path, ".git/") {
+			let _ = Write(c, root, ".git/index/"+path, text)
+		}
+	}
+	let _ = Write(c, root, ".git/held/"+commit, "")
+	Write(c, root, ".git/HEAD", commit)
+}
+
+// Land makes a branch of the checkout at parent hold the head of the
+// checkout at root, as a push of its branch does.
+func Land(c Cloner, root string, parent string) bool {
+	match Files(c, root).Get(".git/HEAD") {
+	case Some[string] as head:
+		Write(c, parent, ".git/held/"+head.Value, "")
+	case None:
+		false
+	}
+}

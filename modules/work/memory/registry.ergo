@@ -1,0 +1,49 @@
+import github.com/cevr/ergo/modules/work/work
+import sync
+
+// Registry is a Registry in memory: the records in the order their names
+// were first put.
+type Registry { records sync.Ref[[]work.Workspace] } implements work.Registry
+
+// NewRegistry is an empty registry.
+func NewRegistry() Registry { Registry{records: sync.NewRef([]work.Workspace{})} }
+
+func Put(r Registry, w work.Workspace) fails work.Unkept {
+	r.records.Set(Kept(r.records.Get(), w))
+}
+
+func Drop(r Registry, name string) fails work.Unkept {
+	r.records.Set(Dropped(r.records.Get(), name))
+}
+
+func All(r Registry) []work.Workspace fails work.Unkept { r.records.Get() }
+
+// Kept is records with w as the record of its name: in the place of the
+// one before, or last.
+func Kept(records []work.Workspace, w work.Workspace) []work.Workspace {
+	let mut out = []work.Workspace{}
+	let mut placed = false
+	for r in records {
+		if r.Name == w.Name {
+			out = out.Append(w)
+			placed = true
+		} else {
+			out = out.Append(r)
+		}
+	}
+	if !placed {
+		out = out.Append(w)
+	}
+	out
+}
+
+// Dropped is records without the record of name.
+func Dropped(records []work.Workspace, name string) []work.Workspace {
+	let mut out = []work.Workspace{}
+	for r in records {
+		if r.Name != name {
+			out = out.Append(r)
+		}
+	}
+	out
+}

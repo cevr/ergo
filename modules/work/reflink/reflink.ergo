@@ -1,0 +1,44 @@
+// Package reflink is a work.Cloner by a reflink of each file
+// (FICLONE, through cp --reflink=always): one clone call per file and a
+// mkdir per folder, on a file system with shared extents (btrfs, XFS). A
+// file system without them is Unsupported, never a silent copy: cp's
+// --reflink=always fails where --reflink=auto would copy.
+//
+// Go control: Rift's per-file FICLONE walk.
+
+import exec
+import github.com/cevr/ergo/modules/work/system
+import github.com/cevr/ergo/modules/work/work
+
+// Cloner reflinks each file through GNU cp.
+type Cloner { trees system.Trees } implements work.Cloner
+
+// New is the Cloner over a Runner.
+func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+
+// unsupported are cp's errors that mean "no reflink here", and the
+// options a cp without --reflink refuses.
+let unsupported = []string{"operation not supported", "failed to clone", "invalid argument", "unrecognized option", "illegal option", "invalid option"}
+
+func Name(_ Cloner) string { "reflink" }
+
+func Shares(_ Cloner) bool { true }
+
+func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	try system.Prepare(c.trees, "reflink", from, to)
+	let r = try system.Run(c.trees, "reflink", "cp", []string{"-a", "--reflink=always", "--", from, to})
+	if r.Status != 0 {
+		system.Leave(c.trees, to)
+		try system.Failure("reflink", from, to, r.Stderr, unsupported)
+	}
+}
+
+func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
+
+func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "reflink", from, to) }
+
+func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed { try system.Discard(c.trees, "reflink", root) }
+
+// Usage is btrfs's count of shared extents; on another file system with
+// reflinks (XFS) it is Unsupported, since du cannot tell shared bytes.
+func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try system.SharedUsage(c.trees, "reflink", root) }

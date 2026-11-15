@@ -1,0 +1,52 @@
+// The rules of the lifecycle and of names, as laws.
+
+import strings
+
+// LandedIsFinal: no signal moves a landed workspace but Remove, and the
+// trash takes none.
+law LandedIsFinal(e Signal) {
+	let landed = match e {
+	case Remove:
+		StateName(After(Landed, e)) == "trashed"
+	case Cloned, Land, Refused, Committed, Abandon, Restore:
+		StateName(After(Landed, e)) == "landed"
+	}
+	landed && StateName(After(Trashed, e)) == "trashed"
+}
+
+// OnlyActiveLands: a land starts from an active workspace only, and a
+// workspace lands (enters Landed) only from Landing.
+law OnlyActiveLands(s State, e Signal) {
+	let next = StateName(After(s, e))
+	let from = StateName(s)
+	(next != "landing" || from == "active" || from == "landing") && (next != "landed" || from == "landing" || from == "landed")
+}
+
+// StateNamesRoundTrip: every state's name reads back as the state.
+law StateNamesRoundTrip(s State) {
+	match StateNamed(StateName(s)) {
+	case Some[State] as back:
+		StateName(back.Value) == StateName(s)
+	case None:
+		false
+	}
+}
+
+// FolderIsOneLevel: the folder of a name that checks is one path element.
+law FolderIsOneLevel(name string) {
+	CheckName(name) catch {
+	case BadName:
+		return true
+	}
+	let folder = FolderOf(name)
+	folder != "" && !strings.Contains(folder, "/") && folder != "." && folder != ".."
+}
+
+// ConfigStarterReads: the starter ergo.work reads, as one module root.
+law ConfigStarterReads() {
+	let c = ParseConfig(StarterConfig) catch {
+	case BadConfig:
+		return false
+	}
+	c.Modules == []string{"."} && len(c.LeaveOut) == 0 && c.Warm == "" && !c.Copy
+}

@@ -1,0 +1,31 @@
+// The two refusals of new, as the command line prints them: the text is
+// the diagnostic a person reads, so each is a row.
+
+import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workcli
+
+// CopyRefusedSaysTheBytes: where no Cloner shares blocks, new without
+// -copy refuses, names the bytes a copy would take and why each Cloner
+// could not, and registers nothing.
+test CopyRefusedSaysTheBytes {
+	let w = world(false)
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	assert o.Code == 1
+	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":36,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
+	let listed = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		assert false
+		return
+	}
+	assert len(listed) == 0
+}
+
+// NotSameVolumeNamesBoth: a workspaces folder on another file system than
+// its base is refused with both folders, not copied.
+test NotSameVolumeNamesBoth {
+	let w = world(true)
+	Mount(w.trees, "/w/.ergo-work", "other")
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	assert o.Code == 1
+	assert o.Err == "NotSameVolume: {\"_tag\":\"NotSameVolume\",\"from\":\"/w/base\",\"to\":\"/w/.ergo-work/base/a\"}\n"
+}

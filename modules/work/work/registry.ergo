@@ -1,0 +1,107 @@
+import slices
+
+// Unkept is a registry that could not read or keep a record.
+type Unkept { Reason string }
+
+// Registry is the record of every workspace of one base: one record per
+// name, the latest written. A reader sees every record a writer kept.
+type Registry {
+	// Put keeps w as the record of w.Name, in place of the one before.
+	Put(w Workspace) fails Unkept,
+	// Drop forgets the record of name; a name with no record is no change.
+	Drop(name string) fails Unkept,
+	// All is every record, in the order their names were first put.
+	All() []Workspace fails Unkept,
+
+	// PutIsRead: a record put is the one record of its name.
+	law PutIsRead(w Workspace) {
+		Put(w) catch {
+		case Unkept:
+			return true
+		}
+		let all = All() catch {
+		case Unkept:
+			return false
+		}
+		named(all, w.Name) == []Workspace{w}
+	},
+
+	// LastPutWins: of two records of one name, the second is kept, in the
+	// place of the first.
+	law LastPutWins(a Workspace, b Workspace) {
+		let second = Workspace{..b, Name: a.Name}
+		Put(a) catch {
+		case Unkept:
+			return true
+		}
+		let before = All() catch {
+		case Unkept:
+			return false
+		}
+		Put(second) catch {
+		case Unkept:
+			return true
+		}
+		let after = All() catch {
+		case Unkept:
+			return false
+		}
+		len(after) == len(before) && named(after, a.Name) == []Workspace{second} && slices.Index(names(after), a.Name) == slices.Index(names(before), a.Name)
+	},
+
+	// DropForgets: a dropped name has no record, and every other record
+	// stays as it was.
+	law DropForgets(w Workspace, other Workspace) {
+		if w.Name == other.Name {
+			return true
+		}
+		Put(other) catch {
+		case Unkept:
+			return true
+		}
+		Put(w) catch {
+		case Unkept:
+			return true
+		}
+		Drop(w.Name) catch {
+		case Unkept:
+			return true
+		}
+		let all = All() catch {
+		case Unkept:
+			return false
+		}
+		len(named(all, w.Name)) == 0 && named(all, other.Name) == []Workspace{other}
+	},
+}
+
+// Find is the record of name in the registry, or None.
+func Find(name string) Option[Workspace] fails Unkept needs Registry {
+	let all = try Registry.All()
+	for w in all {
+		if w.Name == name {
+			return Some[Workspace]{Value: w}
+		}
+	}
+	None
+}
+
+// named is the records of ws with the name.
+func named(ws []Workspace, name string) []Workspace {
+	let mut out = []Workspace{}
+	for w in ws {
+		if w.Name == name {
+			out = out.Append(w)
+		}
+	}
+	out
+}
+
+// names is the name of each record of ws.
+func names(ws []Workspace) []string {
+	let mut out = []string{}
+	for w in ws {
+		out = out.Append(w.Name)
+	}
+	out
+}

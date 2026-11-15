@@ -1,0 +1,257 @@
+// Package memory holds the providers of work's contracts in memory: the
+// tests' providers and the laws' reference. Its Cloner is a model of a
+// copy-on-write file system: a tree maps each file to a block, a clone
+// copies the map (so the clone shares every block), and a write to a
+// shared block gives the writer a new block. A root's volume is the text
+// before its first colon ("vol:/base"; a root with no colon is on the
+// volume ""), and a clone across volumes is NotSameVolume.
+
+import github.com/cevr/ergo/modules/work/work
+import maps
+import strings
+import sync
+
+// Disk is the model: each root's tree (a file path to its block) and each
+// block's text.
+type Disk {
+	trees  Map[string, Map[string, int]],
+	blocks Map[int, string],
+	next   int,
+	mounts Map[string, string],
+}
+
+// Cloner is a Cloner over a Disk: sharing (copy-on-write) or copying.
+type Cloner {
+	disk    sync.Ref[Disk],
+	shares  bool,
+	refuses bool,
+} implements work.Cloner
+
+// NewCloner is a copy-on-write Cloner over an empty disk.
+func NewCloner() Cloner { Cloner{disk: sync.NewRef(emptyDisk()), shares: true, refuses: false} }
+
+// NewCopier is a Cloner that copies each file's block, over an empty disk.
+func NewCopier() Cloner { Cloner{disk: sync.NewRef(emptyDisk()), shares: false, refuses: false} }
+
+// Beside is a Cloner over the same disk as c, sharing or copying as
+// shares says: the plain copy a sharing Cloner falls back to.
+func Beside(c Cloner, shares bool) Cloner { Cloner{disk: c.disk, shares: shares, refuses: false} }
+
+// Refusing is a Cloner over the same disk as c whose clones are all
+// Unsupported, as a file system with no copy-on-write call: the case
+// where only a plain copy can make a workspace.
+func Refusing(c Cloner) Cloner { Cloner{disk: c.disk, shares: true, refuses: true} }
+
+func emptyDisk() Disk { Disk{trees: Map[string, Map[string, int]]{}, blocks: Map[int, string]{}, next: 1, mounts: Map[string, string]{}} }
+
+// Volume is the volume of root: the text before its first colon.
+func Volume(root string) string {
+	match strings.Cut(root, ":") {
+	case Some[strings.Halves] as h:
+		h.Value.Before
+	case None:
+		""
+	}
+}
+
+// Mount puts the folder prefix and everything under it on volume, as a
+// file system mounted there: the case of a workspaces folder on another
+// file system than its base.
+func Mount(c Cloner, prefix string, volume string) {
+	let d = c.disk.Get()
+	let mut mounts = d.mounts
+	mounts[prefix] = volume
+	c.disk.Set(Disk{..d, mounts: mounts})
+}
+
+// volumeOf is the volume of root on d: its longest mount's, else the text
+// before its first colon.
+func volumeOf(d Disk, root string) string {
+	let mut best = ""
+	let mut volume = Volume(root)
+	for prefix, v in d.mounts {
+		if (root == prefix || strings.HasPrefix(root, prefix+"/")) && len(prefix) > len(best) {
+			best = prefix
+			volume = v
+		}
+	}
+	volume
+}
+
+func Name(c Cloner) string {
+	if c.shares {
+		return "memory"
+	}
+	"memory-copy"
+}
+
+func Shares(c Cloner) bool { c.shares }
+
+func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	if c.refuses {
+		return work.Unsupported{Cloner: "memory", Why: "this disk has no copy-on-write clone"}
+	}
+	let d = c.disk.Get()
+	let source = match d.trees.Get(from) {
+	case Some[Map[string, int]] as t:
+		t.Value
+	case None:
+		return work.Missing{Path: from}
+	}
+	if held(d, to) {
+		return work.Exists{Path: to}
+	}
+	if volumeOf(d, from) != volumeOf(d, to) {
+		return work.NotSameVolume{From: from, To: to}
+	}
+	let mut blocks = d.blocks
+	let mut next = d.next
+	let mut tree = Map[string, int]{}
+	for path, block in source {
+		if c.shares {
+			tree[path] = block
+		} else {
+			blocks[next] = text(d, block)
+			tree[path] = next
+			next = next + 1
+		}
+	}
+	let mut trees = d.trees
+	trees[to] = tree
+	c.disk.Set(Disk{..d, trees: trees, blocks: blocks, next: next})
+}
+
+func Has(c Cloner, root string) bool { held(c.disk.Get(), root) }
+
+func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	let tree = match d.trees.Get(from) {
+	case Some[Map[string, int]] as t:
+		t.Value
+	case None:
+		return work.Missing{Path: from}
+	}
+	if from == to {
+		return
+	}
+	if held(d, to) {
+		return work.Exists{Path: to}
+	}
+	let mut trees = d.trees.Delete(from)
+	trees[to] = tree
+	c.disk.Set(Disk{..d, trees: trees})
+}
+
+func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	if !held(d, root) {
+		return work.Missing{Path: root}
+	}
+	c.disk.Set(Disk{..d, trees: d.trees.Delete(root)})
+}
+
+func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	let tree = match d.trees.Get(root) {
+	case Some[Map[string, int]] as t:
+		t.Value
+	case None:
+		return work.Missing{Path: root}
+	}
+	let mut seen = Map[int, bool]{}
+	let mut exclusive = 0
+	let mut shared = 0
+	for _, block in tree {
+		if maps.GetOr(seen, block, false) {
+			continue
+		}
+		seen[block] = true
+		let size = len(text(d, block))
+		if heldElsewhere(d, root, block) {
+			shared = shared + size
+		} else {
+			exclusive = exclusive + size
+		}
+	}
+	work.Usage{Total: exclusive + shared, Exclusive: exclusive, Shared: shared}
+}
+
+// held reports whether a tree is at root.
+func held(d Disk, root string) bool {
+	match d.trees.Get(root) {
+	case Some[Map[string, int]]:
+		true
+	case None:
+		false
+	}
+}
+
+// text is the text of block.
+func text(d Disk, block int) string { maps.GetOr(d.blocks, block, "") }
+
+// heldElsewhere reports whether a tree other than root's holds block.
+func heldElsewhere(d Disk, root string, block int) bool {
+	for other, tree in d.trees {
+		if other == root {
+			continue
+		}
+		for _, b in tree {
+			if b == block {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// Plant makes the tree at root with the files (a path to its text), each
+// in a block of its own, in place of any tree there.
+func Plant(c Cloner, root string, files Map[string, string]) {
+	let d = c.disk.Get()
+	let mut blocks = d.blocks
+	let mut next = d.next
+	let mut tree = Map[string, int]{}
+	for path, t in files {
+		blocks[next] = t
+		tree[path] = next
+		next = next + 1
+	}
+	let mut trees = d.trees
+	trees[root] = tree
+	c.disk.Set(Disk{..d, trees: trees, blocks: blocks, next: next})
+}
+
+// Write writes t to the file path of the tree at root. A block another
+// tree shares is never written: the file gets a new block (copy on
+// write). It is false when no tree is at root.
+func Write(c Cloner, root string, path string, t string) bool {
+	let d = c.disk.Get()
+	let mut tree = match d.trees.Get(root) {
+	case Some[Map[string, int]] as found:
+		found.Value
+	case None:
+		return false
+	}
+	let mut blocks = d.blocks
+	tree[path] = d.next
+	blocks[d.next] = t
+	let mut trees = d.trees
+	trees[root] = tree
+	c.disk.Set(Disk{..d, trees: trees, blocks: blocks, next: d.next + 1})
+	true
+}
+
+// Files is the tree at root: each file's path and text (empty when no
+// tree is there).
+func Files(c Cloner, root string) Map[string, string] {
+	let d = c.disk.Get()
+	let mut out = Map[string, string]{}
+	match d.trees.Get(root) {
+	case Some[Map[string, int]] as t:
+		for path, block in t.Value {
+			out[path] = text(d, block)
+		}
+	case None:
+	}
+	out
+}

@@ -1,0 +1,63 @@
+// Package git is a work.Vcs by the git command. Every call reads: it
+// passes --no-optional-locks, so a status in a workspace never takes the
+// index lock another process is using.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+import strings
+
+// Vcs runs git through a Runner.
+type Vcs { run exec.Runner } implements work.Vcs
+
+// New is the Vcs over a Runner.
+func New(run exec.Runner) Vcs { Vcs{run: run} }
+
+// git runs git in the checkout at root with args.
+func git(v Vcs, root string, args []string) exec.Result fails work.VcsFailed {
+	let mut all = []string{"--no-optional-locks", "-C", root}
+	for a in args {
+		all = all.Append(a)
+	}
+	v.run.Run(exec.New("git", all)) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+}
+
+// answer is the trimmed standard output of a git call that ended with
+// status 0.
+func answer(v Vcs, root string, args []string) string fails work.VcsFailed {
+	let r = try git(v, root, args)
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "git \(strings.Join(args, " ")) in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func Head(v Vcs, root string) string fails work.VcsFailed { try answer(v, root, []string{"rev-parse", "--verify", "HEAD"}) }
+
+func Branch(v Vcs, root string) string fails work.VcsFailed {
+	let r = try git(v, root, []string{"symbolic-ref", "--quiet", "--short", "HEAD"})
+	if r.Status != 0 {
+		return ""
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func Clean(v Vcs, root string) bool fails work.VcsFailed {
+	try answer(v, root, []string{"status", "--porcelain", "--untracked-files=normal"}) == ""
+}
+
+// Holds asks the parent for the branches that contain commit; a commit
+// the parent has never seen is held by none.
+func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
+	let known = try git(v, parent, []string{"cat-file", "-e", commit + "^{commit}"})
+	if known.Status != 0 {
+		return false
+	}
+	try answer(v, parent, []string{"branch", "--contains", commit, "--format=%(refname)"}) != ""
+}

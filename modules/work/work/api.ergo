@@ -1,0 +1,487 @@
+import exec
+import filepath
+import fs
+import strconv
+import strings
+import time
+
+// NoBase is a command run where no base is registered: `ergo work init`
+// registers one.
+type NoBase { Path string }
+
+// NoWorkspace is a name with no live workspace.
+type NoWorkspace { Name string }
+
+// NameTaken is a name a workspace of this base already has (a trashed one
+// keeps its name until gc).
+type NameTaken { Name string }
+
+// BadName is a name that cannot name a workspace.
+type BadName { Name string, Why string }
+
+// CopyRefused is a plain copy that was not asked for: no copy-on-write
+// clone could share blocks here, and a copy of Bytes bytes needs --copy
+// or a copy line in ergo.work.
+type CopyRefused { From string, Bytes int, Why string }
+
+// NotHeld is a workspace whose work is not in its parent: it has an
+// uncommitted or untracked change, or a commit no branch of the parent
+// holds. Remove it with --abandon.
+type NotHeld { Name string, Path string }
+
+// Busy is a workspace in a state that refuses the command (a land runs).
+type Busy { Name string, State string }
+
+// BadAge is an age that does not read as a duration.
+type BadAge { Text string }
+
+// WarmFailed is a warm command of ergo.work that did not end with status
+// 0. The workspace stays: it is active, and the command can run again.
+type WarmFailed { Path string, Status int, Stderr string }
+
+// NewOptions are new's flags: -copy allows a plain copy.
+type NewOptions { Copy bool }
+
+// AdoptOptions are adopt's flags: -name names the workspace (its folder's
+// name when absent).
+type AdoptOptions { Name Option[string] }
+
+// RmOptions are rm's flags: -abandon removes a workspace whose work is not
+// in its parent.
+type RmOptions { Abandon bool }
+
+// GcOptions are gc's flags: -older is the age a trashed workspace must
+// have to be deleted (0s when absent). A workspace whose clone never ended
+// is deleted at an hour, or at -older when that is longer.
+type GcOptions { Older Option[string] }
+
+// Space is the bytes one workspace takes.
+type Space { Name string, Path string, Usage Usage }
+
+// Api is `ergo work`: the commands of one base. `ergo gen cli` makes its
+// command line (work/workcli).
+type Api {
+	// Init registers the base: it writes a starter ergo.work when the base
+	// has none, and the registry. A second init changes nothing.
+	Init() string fails BadConfig | Unkept | fs.Denied | fs.Failed,
+	// New clones the base into a new workspace named name and prints its
+	// folder.
+	New(name string, o NewOptions) string fails NoBase | BadConfig | BadName | NameTaken | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | WarmFailed,
+	// Adopt registers an existing clone (a Rift, a Git clone) as a
+	// workspace; it moves no file.
+	Adopt(dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed,
+	// List is every workspace of the base.
+	List() []Workspace fails NoBase | Unkept,
+	// Rm moves a workspace to the trash.
+	Rm(name string, o RmOptions) Workspace fails NoBase | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed,
+	// Gc deletes the trash of this base (never another's) and the
+	// workspaces whose clone never ended, and names each.
+	Gc(o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept,
+	// Du is the bytes each live workspace takes, exclusive and shared.
+	Du() []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept,
+
+	// NewIsListedOnce: a workspace new made is listed once, active, at the
+	// folder new printed; a second new of the name is NameTaken.
+	law NewIsListedOnce(name string) {
+		let path = New(name, NewOptions{Copy: true}) catch {
+		case _:
+			return true
+		}
+		let all = List() catch {
+		case NoBase, Unkept:
+			return false
+		}
+		let mine = named(all, name)
+		let listed = len(mine) == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
+		New(name, NewOptions{Copy: true}) catch {
+		case NameTaken:
+			return listed
+		case _:
+			return false
+		}
+		false
+	},
+}
+
+// Tool is the Api over the contracts: the base it serves and the
+// providers the binary chose. Cloners are the Cloners that share blocks,
+// tried in order; the copier is the plain copy, made only when asked, and
+// it moves, discards and finds every tree (a tree is a folder, whoever
+// made it).
+type Tool {
+	base     string,
+	cloners  []Cloner,
+	copier   Cloner,
+	registry Registry,
+	vcs      Vcs,
+	files    fs.Files,
+	writes   fs.Writes,
+	runner   exec.Runner,
+	clock    time.Clock,
+} implements Api
+
+// NewTool is the Tool of the base folder over the providers.
+func NewTool(base string, cloners []Cloner, copier Cloner, registry Registry, vcs Vcs, files fs.Files, writes fs.Writes, runner exec.Runner, clock time.Clock) Tool {
+	Tool{base: base, cloners: cloners, copier: copier, registry: registry, vcs: vcs, files: files, writes: writes, runner: runner, clock: clock}
+}
+
+// Home is the folder of a base's workspaces: beside the base, on the
+// same file system, so that a clone shares blocks
+// (/workspaces/ergo has /workspaces/.ergo-work/ergo).
+func Home(base string) string { filepath.Join([]string{filepath.Dir(base), ".ergo-work", filepath.Base(base)}) }
+
+// RegistryFile is the registry's journal of a base.
+func RegistryFile(base string) string { filepath.Join([]string{Home(base), ".registry"}) }
+
+// TrashOf is where rm moves the workspace at path, removed at the Unix
+// second at: a .ergo-trash folder beside it, so the move is a rename on
+// one file system (an adopted Rift's trash is beside the Rift).
+func TrashOf(path string, at int64) string {
+	filepath.Join([]string{filepath.Dir(path), ".ergo-trash", filepath.Base(path) + "." + strconv.FormatInt(at, 10)})
+}
+
+// InTrash reports whether path is a folder of a trash that rm made.
+func InTrash(path string) bool { filepath.Base(filepath.Dir(path)) == ".ergo-trash" }
+
+// FolderOf is the folder name of a workspace name: a slash is a dash
+// (wf10/ws0 is wf10-ws0, as Rift names it).
+func FolderOf(name string) string { strings.ReplaceAll(name, "/", "-") }
+
+// CheckName refuses a name that cannot name a workspace and a branch: an
+// empty one, one that starts with a dot or a dash, and one with a
+// character other than a letter, a digit, a dot, a dash, an underscore or
+// a slash, or with an empty or dotted part.
+func CheckName(name string) fails BadName {
+	if name == "" {
+		return BadName{Name: name, Why: "a name is not empty"}
+	}
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "-") {
+		return BadName{Name: name, Why: "a name does not start with a dot or a dash"}
+	}
+	for r in name {
+		let ok = (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' || r == '_' || r == '/'
+		if !ok {
+			return BadName{Name: name, Why: "a name holds letters, digits, dots, dashes, underscores and slashes"}
+		}
+	}
+	for part in strings.Split(name, "/") {
+		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, ".") {
+			return BadName{Name: name, Why: "each part of a name between slashes is a word that does not start with a dot"}
+		}
+	}
+}
+
+func now(t Tool) int64 { t.clock.Now().UnixSeconds() }
+
+// initialized fails NoBase when the base has no registry.
+func initialized(t Tool) fails NoBase {
+	let _ = t.files.Stat(RegistryFile(t.base)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return NoBase{Path: t.base}
+	}
+}
+
+// config is the base's ergo.work, or the empty one when it has none.
+func config(t Tool) Config fails BadConfig {
+	let text = t.files.ReadFile(filepath.Join([]string{t.base, ConfigFile})) catch {
+	case fs.NotFound:
+		return Config{Modules: []string{}, LeaveOut: []string{}, Warm: "", Copy: false}
+	case fs.Denied:
+		return BadConfig{Line: 0, Why: "\(ConfigFile): permission denied"}
+	case fs.Failed as f:
+		return BadConfig{Line: 0, Why: "\(ConfigFile): \(f.Reason)"}
+	}
+	try ParseConfig(text)
+}
+
+// live is the record of name unless it is trashed.
+func live(t Tool, name string) Option[Workspace] fails Unkept {
+	let all = try t.registry.All()
+	for w in all {
+		if w.Name == name {
+			match w.State {
+			case Trashed:
+				return None
+			case Creating, Active, Landing, Landed, Abandoned:
+				return Some[Workspace]{Value: w}
+			}
+		}
+	}
+	None
+}
+
+// taken reports whether a record of any state has name.
+func taken(t Tool, name string) bool fails Unkept {
+	let all = try t.registry.All()
+	for w in all {
+		if w.Name == name {
+			return true
+		}
+	}
+	false
+}
+
+// moved is w after the signal e at the Unix second at. The lifecycle
+// decides; a signal it rejects is Busy.
+func moved(w Workspace, e Signal, at int64) Workspace fails Busy {
+	match Step(w.State, e) {
+	case Enter[State] as n:
+		Workspace{..w, State: n.Next, Since: at}
+	case Stay[State], Emit[State, State], Tell[State, State], Done[State], Ignore, Reject:
+		Busy{Name: w.Name, State: StateName(w.State)}
+	}
+}
+
+func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
+	let file = filepath.Join([]string{t.base, ConfigFile})
+	let _ = t.files.Stat(file) catch {
+	case fs.NotFound:
+		t.writes.WriteFile(file, StarterConfig) catch {
+		case fs.NotFound:
+			return fs.Failed{Path: file, Reason: "the base folder is not there"}
+		case fs.Denied as d:
+			return d
+		case fs.Failed as f:
+			return f
+		}
+		fs.Info{Name: ConfigFile, Size: 0, Dir: false, Perm: 0}
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+	let _ = try config(t)
+	try t.writes.MkdirAll(Home(t.base))
+	t.writes.AppendFile(RegistryFile(t.base), "") catch {
+	case fs.NotFound:
+		return fs.Failed{Path: RegistryFile(t.base), Reason: "the workspaces folder is not there"}
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+	t.base
+}
+
+func New(t Tool, name string, o NewOptions) string fails NoBase | BadConfig | BadName | NameTaken | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | WarmFailed {
+	try initialized(t)
+	try CheckName(name)
+	let c = try config(t)
+	if try taken(t, name) {
+		return NameTaken{Name: name}
+	}
+	let path = filepath.Join([]string{Home(t.base), FolderOf(name)})
+	let creating = Workspace{Name: name, Path: path, Parent: t.base, Branch: "", Cloner: "", State: Creating, Since: now(t)}
+	// The record comes first: a crash after it leaves Creating, which gc
+	// removes; a crash before it leaves no tree the registry names.
+	try t.registry.Put(creating)
+	let by = cloned(t, path, o.Copy || c.Copy) catch {
+	case NotSameVolume as e:
+		try t.registry.Drop(name)
+		return e
+	case Unsupported as e:
+		try t.registry.Drop(name)
+		return e
+	case CopyRefused as e:
+		try t.registry.Drop(name)
+		return e
+	case Exists as e:
+		try t.registry.Drop(name)
+		return e
+	case Missing as e:
+		try t.registry.Drop(name)
+		return e
+	case NoSpace as e:
+		try t.registry.Drop(name)
+		return e
+	case CloneFailed as e:
+		try t.registry.Drop(name)
+		return e
+	}
+	for folder in c.LeaveOut {
+		let left = filepath.Join([]string{path, folder})
+		if by.Has(left) {
+			by.Discard(left) catch {
+			case Missing:
+			case CloneFailed as e:
+				return e
+			}
+		}
+	}
+	let branch = try t.vcs.Branch(path)
+	let active = moved(Workspace{..creating, Branch: branch, Cloner: by.Name()}, Cloned, now(t)) catch {
+	case Busy:
+		Unreachable("a workspace being created takes Cloned")
+		creating
+	}
+	try t.registry.Put(active)
+	if c.Warm != "" {
+		let r = t.runner.Run(exec.New("sh", []string{"-c", c.Warm}).WithDir(path)) catch {
+		case exec.NotFound, exec.Denied:
+			return WarmFailed{Path: path, Status: 127, Stderr: "sh could not start"}
+		case exec.Failed as f:
+			return WarmFailed{Path: path, Status: 1, Stderr: f.Reason}
+		}
+		if r.Status != 0 {
+			return WarmFailed{Path: path, Status: r.Status, Stderr: r.Stderr}
+		}
+	}
+	path
+}
+
+// cloned clones the base to path with the first sharing Cloner the file
+// system supports, or with the copier when none is supported and a copy
+// is allowed; it is the Cloner that made the tree. A copy that is not
+// allowed is CopyRefused with the bytes it would copy: it is never picked
+// silently. A failure other than Unsupported stops at its Cloner.
+func cloned(t Tool, path string, copyAllowed bool) Cloner fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed {
+	let mut why = []string{}
+	for c in t.cloners {
+		c.Clone(t.base, path) catch {
+		case Unsupported as u:
+			why = why.Append("\(u.Cloner): \(u.Why)")
+			continue
+		case NotSameVolume as e:
+			return e
+		case Exists as e:
+			return e
+		case Missing as e:
+			return e
+		case NoSpace as e:
+			return e
+		case CloneFailed as e:
+			return e
+		}
+		return c
+	}
+	if !copyAllowed {
+		let bytes = t.copier.Usage(t.base) catch {
+		case Unsupported, Missing, CloneFailed:
+			Usage{Total: -1, Exclusive: -1, Shared: 0}
+		}
+		return CopyRefused{From: t.base, Bytes: bytes.Total, Why: strings.Join(why, "; ")}
+	}
+	try t.copier.Clone(t.base, path)
+	t.copier
+}
+
+// usage is the bytes of w's tree, measured by the Cloner that made it
+// (the copier measures an adopted tree and one of a Cloner not bound).
+func usage(t Tool, w Workspace) Usage fails Unsupported | Missing | CloneFailed {
+	for c in t.cloners {
+		if c.Name() == w.Cloner {
+			return try c.Usage(w.Path)
+		}
+	}
+	try t.copier.Usage(w.Path)
+}
+
+func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed {
+	try initialized(t)
+	let folder = if filepath.IsAbs(dir) { filepath.Clean(dir) } else { filepath.Join([]string{t.base, dir}) }
+	let name = match o.Name {
+	case Some[string] as n:
+		n.Value
+	case None:
+		filepath.Base(folder)
+	}
+	try CheckName(name)
+	if try taken(t, name) {
+		return NameTaken{Name: name}
+	}
+	if !t.copier.Has(folder) {
+		return Missing{Path: folder}
+	}
+	let w = Workspace{Name: name, Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t)}
+	try t.registry.Put(w)
+	w
+}
+
+func List(t Tool) []Workspace fails NoBase | Unkept {
+	try initialized(t)
+	try t.registry.All()
+}
+
+func Rm(t Tool, name string, o RmOptions) Workspace fails NoBase | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed {
+	try initialized(t)
+	let w = match try live(t, name) {
+	case Some[Workspace] as found:
+		found.Value
+	case None:
+		return NoWorkspace{Name: name}
+	}
+	let at = now(t)
+	let ready = match w.State {
+	case Active:
+		if o.Abandon {
+			try moved(w, Abandon, at)
+		} else {
+			let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent) }
+			if !kept {
+				return NotHeld{Name: name, Path: w.Path}
+			}
+			w
+		}
+	case Creating, Landed, Abandoned:
+		w
+	case Landing, Trashed:
+		return Busy{Name: name, State: StateName(w.State)}
+	}
+	let trash = TrashOf(w.Path, at)
+	if t.copier.Has(w.Path) {
+		try t.copier.Move(w.Path, trash)
+	}
+	let gone = try moved(Workspace{..ready, Path: trash}, Remove, at)
+	try t.registry.Put(gone)
+	gone
+}
+
+func Gc(t Tool, o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept {
+	try initialized(t)
+	let older = match o.Older {
+	case Some[string] as text:
+		time.ParseDuration(text.Value) catch {
+		case time.ParseError:
+			return BadAge{Text: text.Value}
+		}
+	case None:
+		0s
+	}
+	let stale = if older > 1h { older } else { 1h }
+	let at = now(t)
+	let mut gone = []string{}
+	for w in try t.registry.All() {
+		let age = time.Times(1s, int(at-w.Since))
+		let due = match w.State {
+		case Trashed:
+			age >= older && InTrash(w.Path)
+		case Creating:
+			age >= stale && strings.HasPrefix(w.Path, Home(t.base)+"/")
+		case Active, Landing, Landed, Abandoned:
+			false
+		}
+		if !due {
+			continue
+		}
+		if t.copier.Has(w.Path) {
+			try t.copier.Discard(w.Path)
+		}
+		try t.registry.Drop(w.Name)
+		gone = gone.Append(w.Name)
+	}
+	gone
+}
+
+func Du(t Tool) []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept {
+	try initialized(t)
+	let mut out = []Space{}
+	for w in try t.registry.All() {
+		match w.State {
+		case Trashed:
+			continue
+		case Creating, Active, Landing, Landed, Abandoned:
+		}
+		out = out.Append(Space{Name: w.Name, Path: w.Path, Usage: try usage(t, w)})
+	}
+	out
+}
