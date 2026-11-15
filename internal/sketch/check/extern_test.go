@@ -801,6 +801,47 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.Measure": `import ui
+
+type Mine {} implements ui.Measure
+
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { font.Size }
+
+func use(_ ui.Measure) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Clipboard": `import ui
+
+type Mine {} implements ui.Clipboard
+
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+
+func use(_ ui.Clipboard) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Host": `import ui
+
+type Mine {} implements ui.Host[int]
+
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+
+func use(_ ui.Host[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
@@ -1008,6 +1049,9 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
+	"ui.Measure":        true,
+	"ui.Clipboard":      true,
+	"ui.Host":           true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
 	"http.Streaming":    true,
