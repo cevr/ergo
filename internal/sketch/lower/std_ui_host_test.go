@@ -1091,6 +1091,37 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func lawAdvanceTakesThePosted(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		advanceTakes(n, m)
+	}
+}
+
+func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+	let frames = (n%8+8)%8 + 3
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, spinView, m, 2) catch {
+	case ui.BadPatch:
+		return false
+	}
+	a.Send(frames + 1) catch {
+	case actor.Stopped:
+		return false
+	}
+	ui.Settle(&h) catch {
+	case _:
+		return false
+	}
+	for _ in 0..frames {
+		ui.Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+	}
+	ui.Posted(&h) <= 1 && ui.Frames(&h) == frames
+}
+
 type pad { open bool, last int, n int }
 
 func padStep(s pad, e int) Decision[pad, int] {
@@ -1968,6 +1999,39 @@ func replyShown(n int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func lawWatcherHoldsOneState(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watcherHolds(n, m)
+	}
+}
+
+func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+	let commits = (n%8+8)%8 + 3
+	let gate = queue.New[int](1)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let (s, _) = ui.Start(a, spinView, func(ev ui.Event[int]) {
+		let _ = gate.Pop() catch {
+		case queue.Closed:
+			return
+		}
+	})
+	let _ = s
+	// The watcher has subscribed and is blocked in its first post.
+	m.Advance(0ns)
+	for i in 0..commits {
+		a.Send(i) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(0ns)
+	let held = a.Held()
+	gate.End()
+	a.Stop()
+	held <= 1
+}
+
 func lawWatcherShowsWorkReplies(n int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2078,8 +2142,8 @@ func crashAppView(f *ui.Frame[int], s int) {
 	ui.Toggle(f, fl, "keep")
 }
 
-func crashText(c ui.Crash[Boom]) string {
-	match c {
+func crashText(c ui.Crash[int, int, Boom]) string {
+	match c.Cause {
 	case ui.DefectCrash:
 		"crashed: defect"
 	case ui.FailureCrash[Boom] as x:
@@ -2090,7 +2154,7 @@ func crashText(c ui.Crash[Boom]) string {
 	}
 }
 
-func crashOwnView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func crashOwnView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.Text(f, crashText(c))
 	ui.Pressable(f, "reload", 3) {
 		ui.Text(f, "reload")
@@ -2115,7 +2179,7 @@ func lawCrashShowsTheCrashView(seed int, steps int) bool {
 func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let reports = sync.NewRef(0)
-	let crashes = ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {
+	let crashes = ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {
 		reports.Update(func(n int) int { n + 1 })
 	}}
 	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
@@ -2124,13 +2188,13 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	let mut count = 0
 	let mut on = false
-	let mut crash Option[ui.Crash[Boom]] = None
+	let mut crash Option[ui.Crash[int, int, Boom]] = None
 	let mut crashed = 0
 	for _ in 0..(steps%24+24)%24+1 {
 		let pick = draw(&r, 4)
 		let mut label = "reload"
 		match crash {
-		case Some[ui.Crash[Boom]]:
+		case Some[ui.Crash[int, int, Boom]]:
 			crash = None
 			count = 0
 			on = false
@@ -2140,11 +2204,11 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 				count = count + 1
 			} else if pick == 1 {
 				label = "defect"
-				crash = Some{Value: ui.DefectCrash}
+				crash = Some{Value: ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: Some{Value: 1}}}
 				crashed = crashed + 1
 			} else if pick == 2 {
 				label = "fail"
-				crash = Some{Value: ui.FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crash = Some{Value: ui.Crash[int, int, Boom]{Cause: ui.FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: Some{Value: 2}}}
 				crashed = crashed + 1
 			} else {
 				label = "keep"
@@ -2156,16 +2220,43 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let want = match crash {
-		case Some[ui.Crash[Boom]] as c:
+		case Some[ui.Crash[int, int, Boom]] as c:
 			[]ui.Shape[int]{leaf(ui.TextNode{Value: crashText(c.Value), Style: ui.Plain()}), pressShape("reload", 3, "reload")}
 		case None:
 			crashAppShapes(count, on)
 		}
-		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || ui.CrashOf(&h) != crash {
+		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || !sameCrash(ui.CrashOf(&h), crash) {
 			return false
 		}
 	}
 	true
+}
+
+func lawPlainCrashSaysWhatItKnows(reason string, e int) bool {
+	let mut f = ui.NewFrame[int]()
+	let sent = ui.Render(&f, ui.PlainCrash[int, int, Boom], ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}})
+	let mut g = ui.NewFrame[int]()
+	let none = ui.Render(&g, ui.PlainCrash[int, int, Boom], ui.Crash[int, int, Boom]{Cause: ui.FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None})
+	writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)")
+}
+
+func sameCrash(got Option[ui.Crash[int, int, Boom]], want Option[ui.Crash[int, int, Boom]]) bool {
+	match (got, want) {
+	case (Some[ui.Crash[int, int, Boom]] as g, Some[ui.Crash[int, int, Boom]] as w):
+		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
+		match (g.Value.Cause, w.Value.Cause) {
+		case (ui.DefectCrash as x, ui.DefectCrash as y):
+			same && strings.HasPrefix(x.Reason, "unreachable at ") && strings.HasSuffix(x.Reason, ": "+y.Reason)
+		case (ui.FailureCrash[Boom] as x, ui.FailureCrash[Boom] as y):
+			same && x.Failure == y.Failure
+		case _:
+			false
+		}
+	case (None, None):
+		true
+	case _:
+		false
+	}
 }
 
 func lawReloadIsInitial(seed int, defect bool) bool {
@@ -2177,7 +2268,7 @@ func lawReloadIsInitial(seed int, defect bool) bool {
 
 func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {}}, m, 4) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -2191,7 +2282,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {}}, m, 4) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -2236,7 +2327,7 @@ func keyView(f *ui.Frame[int], s int) {
 	ui.Text(f, "at \(s)")
 }
 
-func keyCrashView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func keyCrashView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
 	ui.Text(f, "crashed")
 }
@@ -2277,8 +2368,10 @@ func crashFollows() bool needs Scheduler {
 	let posted = queue.New[ui.Event[int]](64)
 	let reports = sync.NewRef(0)
 	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
-	let crashes = ui.Crashes[int, Boom]{View: keyCrashView, Report: func(c ui.Crash[Boom]) {
+	let reported = sync.NewRef([]ui.Crash[int, int, Boom]{})
+	let crashes = ui.Crashes[int, int, Boom]{View: keyCrashView, Report: func(c ui.Crash[int, int, Boom]) {
 		reports.Update(func(k int) int { k + 1 })
+		reported.Update(func(cs []ui.Crash[int, int, Boom]) []ui.Crash[int, int, Boom] { cs.Append(c) })
 	}}
 	let (s, first) = ui.StartApp(mach, 1, keyView, crashes, func(ev ui.Event[int]) {
 		posted.Push(ev) catch {
@@ -2325,12 +2418,16 @@ func crashFollows() bool needs Scheduler {
 	case queue.Closed:
 		return false
 	}
-	match endedOf(&session, posted, 2) {
+	let shown = match endedOf(&session, posted, 2) {
 	case Some[[]ui.Op[int]] as ops:
 		writesText(ops.Value, "crashed") && reports.Get() == 3
 	case None:
 		false
 	}
+	let cs = reported.Get()
+	let step = ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
+	let work = ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
+	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
 }
 
 func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
@@ -2534,7 +2631,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		// The pass wrote the log's line and the texts.
 		let texts = a.State().texts
 		if texts%3 != 0 && texts+1 > bound {
-			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			want = want.Append(ui.Slow{Counter: ui.WrittenCounter, Count: texts + 1, Bound: bound})
 			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
 			// the law takes the posted events until it shows it.
 			// A ui.Slow is one commit, so it shows within a few posted
@@ -3757,6 +3854,10 @@ test UiNoTickWhenSettled(seed int, steps int) {
 	assert lawNoTickWhenSettled(seed, steps)
 }
 
+test UiAdvanceTakesThePosted(n int) {
+	assert lawAdvanceTakesThePosted(n)
+}
+
 test UiInputGivesSignal(seed int, steps int) {
 	assert lawInputGivesSignal(seed, steps)
 }
@@ -3801,12 +3902,20 @@ test UiWorkReplyIsShown(n int) {
 	assert lawWorkReplyIsShown(n)
 }
 
+test UiWatcherHoldsOneState(n int) {
+	assert lawWatcherHoldsOneState(n)
+}
+
 test UiWatcherShowsWorkReplies(n int) {
 	assert lawWatcherShowsWorkReplies(n)
 }
 
 test UiCrashShowsTheCrashView(seed int, steps int) {
 	assert lawCrashShowsTheCrashView(seed, steps)
+}
+
+test UiPlainCrashSaysWhatItKnows(reason string, e int) {
+	assert lawPlainCrashSaysWhatItKnows(reason, e)
 }
 
 test UiReloadIsInitial(seed int, defect bool) {
@@ -3917,6 +4026,7 @@ var stdUIHostStatements = map[string]string{
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
+	"ui AdvanceTakesThePosted":         `AdvanceTakesThePosted(n int) { let m = time.NewManual(0) with context { Scheduler: m } { advanceTakes(n, m) } }`,
 	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
 	"ui PaintMatchesList":              `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
 	"ui RowsAreTheCutEach":             `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
@@ -3928,8 +4038,10 @@ var stdUIHostStatements = map[string]string{
 	"ui SegmentsReadPathOf":            `SegmentsReadPathOf(xs []string) { let path = PathOf(xs) let mut want = []string{} for x in xs { if x != "" { want = want.Append(x) } } let got = Segments(URL{Path: path, Query: "", Fragment: ""}) if len(got) != len(want) || ParseURL(path).Path != path { return false } for i, x in want { if got[i] != x { return false } } true }`,
 	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
 	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
+	"ui WatcherHoldsOneState":          `WatcherHoldsOneState(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watcherHolds(n, m) } }`,
 	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
 	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
+	"ui PlainCrashSaysWhatItKnows":     `PlainCrashSaysWhatItKnows(reason string, e int) { let mut f = NewFrame[int]() let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}}) let mut g = NewFrame[int]() let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None}) writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)") }`,
 	"ui ReloadIsInitial":               `ReloadIsInitial(seed int, defect bool) { let m = time.NewManual(0) with context { Scheduler: m } { reloadInitial(seed, defect, m) } }`,
 	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
 	"ui StatsCountEveryPhase":          `StatsCountEveryPhase(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { statsFollow(seed, steps) } }`,

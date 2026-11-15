@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -149,22 +150,90 @@ func rootRefusal(path, name string) string {
 }
 
 // Platforms are the GOOS/GOARCH pairs a binding holds for: a declaration
-// that differs between them is refused (interop.md). They are also Ergo's
-// target list: `ergo build` links for each of them and refuses any other
-// (EF110), so a program that checks against the bindings links on every
-// platform it may be built for.
+// that differs between them is refused (interop.md). `ergo build` links
+// for each of them, and for the rest of BuildPlatforms.
 var Platforms = []Platform{{"darwin", "amd64"}, {"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}}
+
+// BuildPlatforms are the GOOS/GOARCH pairs `ergo build` links for and
+// refuses any other (EF110): the binding platforms, then Windows, the
+// browser and WASI. Go is the one target; GOOS and GOARCH are Go's choice
+// of where it runs. A program for one of the last three may import only
+// a Go binding that states it (Bind; a std binding does not, so its
+// import is S104 there), and the runtime
+// refuses there what it cannot do as a typed failure (exec.Failed;
+// term.NotTerminal), so a program that checks links on each of them.
+var BuildPlatforms = append(slices.Clip(Platforms), Platform{"windows", "amd64"}, Platform{"js", "wasm"}, Platform{"wasip1", "wasm"})
 
 // Bind writes the binding file of each Go package that patterns name, by
 // import path, loading them on every platform of Platforms. A package
 // outside Go's standard library is stamped with its module (ModuleLine),
 // and every such package a binding names gets its binding too, so the
 // written set checks on its own.
+//
+// A binding also states each build platform past Platforms (windows,
+// js, wasip1) where the packages load and its declarations are the ones
+// it has on Platforms, rendered alike: a portable package's binding holds
+// there too, and a program that imports it builds there. A platform
+// where the package differs is left out of its header, never a reason to
+// refuse a declaration the binding platforms agree on (interop.md,
+// Platforms).
 func Bind(dir string, env []string, goVersion string, patterns ...string) (map[string]string, error) {
-	perPlatform := make([]map[string]*types.Package, len(Platforms))
+	files, err := bindOn(dir, env, goVersion, Platforms, patterns)
+	if err != nil {
+		return nil, err
+	}
+	agree := map[string][]Platform{}
+	for _, p := range BuildPlatforms[len(Platforms):] {
+		wide, err := bindOn(dir, env, goVersion, append(slices.Clip(Platforms), p), patterns)
+		if err != nil {
+			continue // the packages do not load there
+		}
+		for path, text := range files {
+			if w, ok := wide[path]; ok && withoutHeader(w) == withoutHeader(text) {
+				agree[path] = append(agree[path], p)
+			}
+		}
+	}
+	for path, ps := range agree {
+		files[path] = withPlatforms(files[path], path, goVersion, append(slices.Clip(Platforms), ps...))
+	}
+	return files, nil
+}
+
+// withoutHeader is a binding's text without its `// ergo:bind` line, the
+// one line the platforms it was bound on decide.
+func withoutHeader(text string) string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(line, "// ergo:bind ") {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// withPlatforms is text with its `// ergo:bind` line naming ps.
+func withPlatforms(text, path, goVersion string, ps []Platform) string {
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = p.String()
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "// ergo:bind ") {
+			lines[i] = "// ergo:bind " + path + " " + goVersion + " " + strings.Join(names, " ")
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// bindOn is Bind's bindings over platforms.
+func bindOn(dir string, env []string, goVersion string, platforms []Platform, patterns []string) (map[string]string, error) {
+	perPlatform := make([]map[string]*types.Package, len(platforms))
 	var order []string
-	c := newCloser(Platforms)
-	for i, p := range Platforms {
+	c := newCloser(platforms)
+	for i, p := range platforms {
 		pkgs, modules, err := Load(dir, env, p, patterns...)
 		if err != nil {
 			return nil, err
@@ -181,19 +250,19 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 		}
 	}
 	files := map[string]string{}
-	for i := range Platforms {
+	for i := range platforms {
 		for _, pkg := range perPlatform[i] {
 			c.add(i, pkg)
 		}
 	}
 	for _, path := range order {
 		n := 0
-		for i := range Platforms {
+		for i := range platforms {
 			if _, ok := perPlatform[i][path]; ok {
 				n++
 			}
 		}
-		if n != len(Platforms) {
+		if n != len(platforms) {
 			continue // a package of one platform only (syscall/js) has no binding
 		}
 		text, err := c.file(path, perPlatform[0][path].Name(), goVersion)

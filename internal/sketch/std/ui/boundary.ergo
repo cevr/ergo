@@ -37,10 +37,10 @@ func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fa
 // mark is where a pass stood when a group started: the lengths of the
 // pass's lists, the identity counts taken, the parent and its last child,
 // and the row a group in an Each started in.
-type mark { nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, each CallSite, key Key }
+type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, each CallSite, key Key }
 
 func markOf[E](f *Frame[E]) mark {
-	mark{nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
+	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
 }
 
 // cut takes the pass back to m: the specs, cells, key and frame
@@ -54,6 +54,14 @@ func markOf[E](f *Frame[E]) mark {
 // node, which is parked, or moves to the parent when the old node does
 // not hold it.
 func cut[E](f *Frame[E], m mark) {
+	// The groups written since go with their specs (group.ergo), and a
+	// slot one of them took new is freed.
+	for i in m.ngroups..f.ngroups {
+		if f.groups[i].fresh {
+			argsFree(f.args, f.groups[i].slot)
+		}
+	}
+	f.ngroups = m.ngroups
 	for i in m.nseen..f.nseen {
 		let s = f.seenLog[i]
 		let c = count(f.seen, s)

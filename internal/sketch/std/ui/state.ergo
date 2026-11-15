@@ -273,7 +273,9 @@ func settle[E](f *Frame[E]) {
 		if s.skip {
 			// A skipped Same keeps what its last run stored (UC-4).
 			skipped[s.ref] = true
-			f.skips = f.skips + 1
+			if !s.again {
+				f.skips = f.skips + 1
+			}
 		} else {
 			let up = memoRef(f, s.parent)
 			change(f, s.ref, func(n *node[E]) {

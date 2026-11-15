@@ -1,0 +1,21 @@
+# a saved picture read back: hits across layers, a drag the edge stops, a band selection
+show
+hit 10 308
+hit 10 400
+hit 524 373
+hit 791 444
+tool select
+down 10 308
+move -10000 308
+show
+up -10000 308
+escape
+down 0 0
+move 800 600
+up 800 600
+show
+escape
+pan 400 300
+zoom 200
+show
+export

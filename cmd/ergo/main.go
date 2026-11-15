@@ -385,7 +385,7 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 	if err != nil {
 		return loaded{}, err
 	}
-	analysis := sketchfront.Check(string(text))
+	analysis := sketchfront.CheckForPlatform(string(text), platform)
 	return loaded{
 		source:   source,
 		name:     strings.TrimSuffix(filepath.Base(source.String()), filepath.Ext(source.String())),

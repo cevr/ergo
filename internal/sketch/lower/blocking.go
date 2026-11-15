@@ -344,6 +344,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	// copy of a shared value under the same lock.
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
+	// std ui groups (P-ui, skipping; stdlib.md, UI 13): the memo of a
+	// frame's group arguments, one task's, with no lock and no wait.
+	"NewUIArgs":  {},
+	"UIArgsPut":  {},
+	"UIArgsSame": {},
+	"UIArgsSet":  {},
+	"UIArgsFree": {},
+	"UIArgsHeld": {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
 	// an Op holds its mutex for one step and calls no program code.
 	"NewOp":     {},
@@ -537,18 +545,25 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Actor.Ask":        {wait: callerWait},
 	"Actor.State":      {wait: callerWait},
 	"Actor.Changes":    {wait: callerWait},
-	"Actor.Stop":       {wait: endWait},
-	"Actor.Dropped":    {},
-	"ActorNoTimer":     {},
+	// F-GP4c-1: the conflated subscription waits as Changes does.
+	"Actor.LatestChanges": {wait: callerWait},
+	"Actor.Held":          {},
+	// F-GP4c-1: std actor's Changes(a, room) loop waits as Changes does.
+	"ActorChanges":  {wait: callerWait},
+	"Actor.Stop":    {wait: endWait},
+	"Actor.Dropped": {},
+	"ActorNoTimer":  {},
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
-	"Actor.Drain":    {wait: endWait},
-	"ActorExitKind":  {wait: callerWait},
-	"ActorFinal":     {},
-	"ActorFailure":   {},
-	"ActorHasLatest": {},
-	"ActorLatest":    {},
+	"Actor.Drain":   {wait: endWait},
+	"ActorExitKind": {wait: callerWait},
+	"ActorFinal":    {},
+	"ActorFailure":  {},
+	// FK13-g1: the defect's text, read under the actor's lock once it ended.
+	"ActorDefectReason": {},
+	"ActorHasLatest":    {},
+	"ActorLatest":       {},
 	// MU5: MachineChild starts the child's task as a child of the caller's
 	// task, shielded from its stop (the owner entry stops it), and waits
 	// for nothing but the child's start, as MachineStart does.

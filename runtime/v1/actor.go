@@ -1160,7 +1160,16 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 		return
 	}
 	for c := range a.subs {
-		c.buf = append(c.buf, s)
+		if len(c.buf) >= c.room {
+			// Full: the unread states are dropped and counted, and s waits
+			// alone; the reader learns of the gap before s (Overflowed). A
+			// LatestChanges loop, of room 1, so holds the latest state.
+			c.missed += len(c.buf)
+			clear(c.buf)
+			c.buf = append(c.buf[:0], s)
+		} else {
+			c.buf = append(c.buf, s)
+		}
 		c.signal()
 	}
 }
@@ -1613,6 +1622,30 @@ func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	return a.final
 }
 
+// ActorDefectReason is std actor's defectOf(a): the text of the first
+// defect that ended a, as the runtime's report writes it after "panic: "
+// (reportDefect), such as "unreachable at a.ergo:9:3: no route"; "" when
+// no defect ended a. Read after ActorExitKind gave exitDefected (FK13-g1).
+func ActorDefectReason[S, E, D any](a *Actor[S, E, D]) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return defectReason(a.exit)
+}
+
+// defectReason is the text of err's first defect, "" when it has none.
+func defectReason(err error) string {
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return ""
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindDefect {
+			return fmt.Sprintf("%v", r.Value)
+		}
+	}
+	return ""
+}
+
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
 func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
@@ -1660,15 +1693,71 @@ func defectsOnly(err error) error {
 // entries the runner dropped (rule 6; decision MQ6).
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
-// Changes is a.Changes() on the iterating task t: the actor's state when
-// the loop begins, then each state the runner commits after it (an Enter,
-// a Stay, an Emit), in commit order; it ends when the actor has ended and
-// the states committed before are given. A break ends the subscription.
-// Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
-// that does not read keeps every state in its buffer.
-func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
+// Held is a.Held(): how many committed states the actor's Changes and
+// LatestChanges loops hold and have not given yet, summed over its loops;
+// a LatestChanges loop holds at most one (F-GP4c-1). It is the counter a
+// growth guard reads.
+func (a *Actor[S, E, D]) Held() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for c := range a.subs {
+		n += len(c.buf)
+	}
+	return n
+}
+
+// Changes is the subscription std actor's Changes(a, room) reads, on the
+// iterating task t: the actor's state when the loop begins, then each
+// state the runner commits after it (an Enter, a Stay, an Emit), in commit
+// order, each with the number of states dropped just before it (0 but
+// after an overflow); it ends when the actor has ended and the states
+// committed before are given. It holds at most room states (1 when room
+// is less): a commit that finds room unread states drops them, counts
+// them, and waits alone, so a subscriber that stops reading holds room
+// states, never one per commit (F-GP4c-1; owner, q4). A break ends the
+// subscription. Each step waits on t: a stop of t raises rt.Interrupted.
+func (a *Actor[S, E, D]) Changes(t *rt.Task, room int) iter.Seq2[S, int] {
+	return a.subscribe(t, max(room, 1))
+}
+
+// ActorChanges is std actor's changesOf(a, room, changed, overflowed): the
+// loop of Changes(a, room), giving changed(s) for each state and, before
+// a state an overflow dropped others for, overflowed(n) with their number.
+func ActorChanges[S, E, D, C any](t *rt.Task, a *Actor[S, E, D], room int, changed func(S) C, overflowed func(int) C) iter.Seq[C] {
+	return func(yield func(C) bool) {
+		for s, missed := range a.Changes(t, room) {
+			if missed > 0 && !yield(overflowed(missed)) {
+				return
+			}
+			if !yield(changed(s)) {
+				return
+			}
+		}
+	}
+}
+
+// LatestChanges is a.LatestChanges() on the iterating task t: as Changes,
+// but a subscriber that reads slower than the runner commits sees only the
+// latest state, never the ones in between (conflated, as Effect's
+// SubscriptionRef.changes read through a sliding buffer of one, or a Go
+// channel of one slot that the writer overwrites). It holds at most one
+// state, so a subscriber that stops reading keeps one state, not every
+// state (F-GP4c-1: ui's watcher, blocked on its host, kept every state).
+func (a *Actor[S, E, D]) LatestChanges(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
-		c := &changes[S]{}
+		for s := range a.subscribe(t, 1) {
+			if !yield(s) {
+				return
+			}
+		}
+	}
+}
+
+// subscribe is a subscription on t of room states.
+func (a *Actor[S, E, D]) subscribe(t *rt.Task, room int) iter.Seq2[S, int] {
+	return func(yield func(S, int) bool) {
+		c := &changes[S]{room: room}
 		a.mu.Lock()
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
@@ -1684,8 +1773,8 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		}()
 		for {
 			t.Check()
-			s, ok := a.nextChange(t, c)
-			if !ok || !yield(s) {
+			s, missed, ok := a.nextChange(t, c)
+			if !ok || !yield(s, missed) {
 				return
 			}
 		}
@@ -1695,9 +1784,13 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 // changes is one Changes subscription: the committed states it has not
 // given yet, guarded by the actor's mu.
 type changes[S any] struct {
-	buf   []S
-	ended bool
-	wake  chan struct{}
+	buf []S
+	// room is how many states buf may hold (1 for LatestChanges); missed
+	// counts the states an overflow dropped since the reader last took one.
+	room   int
+	missed int
+	ended  bool
+	wake   chan struct{}
 	// task is the subscriber while it waits in a clock's domain (fua-b).
 	task *rt.Task
 }
@@ -1714,9 +1807,9 @@ func (c *changes[S]) signal() {
 	}
 }
 
-// nextChange is c's next state, waiting on t; false once the actor ended
-// and c gave every state.
-func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
+// nextChange is c's next state and the number of states dropped before
+// it, waiting on t; false once the actor ended and c gave every state.
+func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, int, bool) {
 	a.mu.Lock()
 	for {
 		if len(c.buf) > 0 {
@@ -1724,13 +1817,15 @@ func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 			var zero S
 			c.buf[0] = zero
 			c.buf = c.buf[1:]
+			missed := c.missed
+			c.missed = 0
 			a.mu.Unlock()
-			return s, true
+			return s, missed, true
 		}
 		if c.ended {
 			a.mu.Unlock()
 			var zero S
-			return zero, false
+			return zero, 0, false
 		}
 		if c.wake == nil {
 			c.wake = make(chan struct{})

@@ -151,6 +151,24 @@
       "from": "\t\tif other, ok := prefixes[prefix]; ok {\n", "to": "\t\tif other, ok := prefixes[prefix]; ok && other == \"\" {\n",
       "rule": "Two folders whose last elements match are refused, since their FILEs cannot be told apart.",
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "md2-mod-cold-skipped",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/mod.go",
+      "from": "\tr.fail(p.name + \": mod\")\n",
+      "to": "",
+      "rule": "A program tagged mod whose module cache is cold fails; it is never skipped.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {
+      "name": "md2-mod-leg-unrun",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/main.go",
+      "from": "if p.tagged(\"mod\") && !r.modLeg(p) {",
+      "to": "if false && !r.modLeg(p) {",
+      "rule": "The mod leg runs before the build of a program tagged mod.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
     }
   ]
 }

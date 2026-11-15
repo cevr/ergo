@@ -43,6 +43,12 @@ type GoBindings struct {
 	// the binding's stamp with go.mod, reading files only); "" when it
 	// matches. The import is then S104 with the command that rewrites it.
 	Stale func(path string) string
+	// Unbound, when set, is why the binding of a Go import path holds for
+	// no declaration on the selected platform and no command rewrites it
+	// (Go's standard-library bindings, which state the binding platforms,
+	// on a build platform outside them); "" when it holds. The import is
+	// then S104.
+	Unbound func(path string) string
 }
 
 // NewGoBindings returns the Go packages read through lookup, which returns
@@ -105,6 +111,13 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 		c.errorf(spec.Path, CodeUnknown, "no binding for Go package %q; run ergo bind go %s (docs/spec/interop.md)", path, path)
 		c.bindBrokenImportName(fi, spec, path, name)
 		return
+	}
+	if set.Unbound != nil {
+		if why := set.Unbound(path); why != "" {
+			c.errorf(spec.Path, CodeUnknown, "import go %q: %s (docs/spec/interop.md, Platforms)", path, why)
+			c.bindBrokenImportName(fi, spec, path, name)
+			return
+		}
 	}
 	if set.Stale != nil {
 		if why := set.Stale(path); why != "" {
