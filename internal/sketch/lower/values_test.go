@@ -226,10 +226,26 @@ func shelve(r sync.Ref[Map[int, Box]], k int) int {
 	})
 }
 
+func shelveArms(r sync.Ref[Map[int, Box]], k int, deny bool) int {
+	sync.Modify(r, func(all Map[int, Box]) (int, Map[int, Box]) {
+		let s = shelfAt(all, k)
+		match deny {
+		case true:
+			let mut opened = all
+			opened[k] = Box{M: Map[int, int]{}, S: []int{}}
+			(0, opened)
+		case false:
+			let mut next = all
+			next[k] = Box{M: s.M, S: s.S.Append(k)}
+			(len(s.S), next)
+		}
+	})
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true))")
 }
 `
 
@@ -304,6 +320,11 @@ func TestValueRuleElides(t *testing.T) {
 	// the cell's clone argument, once.
 	if body := goFunc(t, code, "shelve"); strings.Count(body, "ergoCloneMap") != 1 || !strings.Contains(body, "ergoCloneBox(") {
 		t.Errorf("shelve copies the whole Map at the bind, not the entry it read:\n%s", body)
+	}
+	// shelveArms binds all in each of two arms (pinata's Change): a use
+	// in the other arm never follows, so each arm moves it (exclusive).
+	if body := goFunc(t, code, "shelveArms"); strings.Count(body, "ergoCloneMap") != 1 {
+		t.Errorf("shelveArms copies the whole Map in an arm, as if the other arm's use followed:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls

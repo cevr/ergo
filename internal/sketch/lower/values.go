@@ -1841,11 +1841,59 @@ func (w *valueWalk) later(vv *vvar, o, wr *vocc) bool {
 	if valueMutant == "elide-escape" {
 		return false
 	}
-	if wr.at > o.pre {
+	if wr.at > o.pre && !(valueOwned() && w.exclusive(o.id, wr.id)) {
 		return true
 	}
 	for _, l := range o.loops {
 		if !containsNode(vv.loops, l) && containsNode(wr.loops, l) {
+			return true
+		}
+	}
+	return false
+}
+
+// exclusive reports whether a and b lie in two arms of one match or of
+// one if: in one run of the statement at most one of them runs, so
+// neither follows the other (wf10 OWN1 arms; pinata's Change, whose
+// Denied arm binds `let mut opened = all` beside the other arm's
+// `let mut next = all`). A loop around the statement runs both, in two
+// passes; the callers check loops apart (freshPath, later).
+func (w *valueWalk) exclusive(a, b syntax.Node) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	// up maps each ancestor of a to its child on the path from a.
+	up := map[syntax.Node]syntax.Node{}
+	for c, p := a, w.parent[a]; p != nil; c, p = p, w.parent[p] {
+		up[p] = c
+	}
+	for cb, p := b, w.parent[b]; p != nil; cb, p = p, w.parent[p] {
+		ca, ok := up[p]
+		if !ok {
+			continue
+		}
+		if ca == cb {
+			return false
+		}
+		switch s := p.(type) {
+		case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+			_, ka := ca.(*syntax.CaseClause)
+			_, kb := cb.(*syntax.CaseClause)
+			return ka && kb
+		case *syntax.IfStmt:
+			arm := func(n syntax.Node) bool { return n == syntax.Node(s.Body) || s.Else != nil && n == syntax.Node(s.Else) }
+			return arm(ca) && arm(cb)
+		}
+		return false
+	}
+	return false
+}
+
+// loopedSince reports whether the use o is in a loop that is not one of
+// outer, the loops its binding is made in.
+func (w *valueWalk) loopedSince(o *vocc, outer []syntax.Node) bool {
+	for _, l := range o.loops {
+		if !containsNode(outer, l) {
 			return true
 		}
 	}
@@ -2099,6 +2147,12 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		}
 		if o.frame != frame {
 			return false
+		}
+		if valueOwned() && w.exclusive(o.id, use.id) && !w.loopedSince(use, loops) {
+			// A use in another arm of the match or if runs instead of
+			// this one, never after it nor before it, unless a loop the
+			// binding is outside runs the statement twice.
+			continue
 		}
 		// An earlier use in a returned value that does not hold use ends
 		// the frame when it runs, so use does not run after it.

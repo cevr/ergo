@@ -190,7 +190,7 @@ func (w *valueWalk) moveOver(e syntax.Expr) {
 		if o == use || o.kind != occEscape && o.kind != occReturn || w.vf.clone[o.path] || w.vf.handed[o.path] {
 			continue
 		}
-		if o.pre > use.pre {
+		if o.pre > use.pre || w.exclusive(o.id, use.id) {
 			// freshPath decides whether a later use stops the move (one
 			// in another arm, or past a return, does not).
 			continue
