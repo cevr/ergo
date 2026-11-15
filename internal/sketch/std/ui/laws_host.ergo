@@ -243,10 +243,12 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 // for its answer. The server answers from a task of its own, which left the
 // host's clock for a clock of its own and waits there before each answer,
 // as a real server answers on its own time; meanwhile a timer sleeps an
-// hour on the host's clock. After each press of "next", Settle waits for
-// the answer: it returns with the live key's result shown, no fetch in
-// flight, and the timer still asleep. A sleeper the script could wake
-// never makes it give up on a fetch the clock does not hold (FK4-g2-g1).
+// hour on the host's clock, and so does a second fetch of the view. After
+// each press of "next", Settle waits for the answer: it returns with the
+// live key's result shown, only the sleeping fetch in flight, and the
+// timer still asleep. A sleeper the script could wake, a fetch's own
+// among them, never makes it give up on a fetch the clock does not hold
+// (FK4-g2-g1).
 law OffClockAnswerIsWaitedFor(steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -299,6 +301,10 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 				-1
 			}
 		})
+		Load(f, ByInt(-1), func() int {
+			time.Sleep(m, 1h)
+			0
+		})
 	}
 	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, view, m, 4) catch {
@@ -313,7 +319,7 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = StateOf(&h)
-		held = held && s.ready == valueOf(s.key) && Fetching(&h) == 0 && time.Sleepers(m) == 1
+		held = held && s.ready == valueOf(s.key) && Fetching(&h) == 1 && time.Sleepers(m) == 2
 	}
 	asks.End()
 	timer.Stop()

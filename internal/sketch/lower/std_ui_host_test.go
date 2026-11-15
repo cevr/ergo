@@ -1087,6 +1087,10 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 				-1
 			}
 		})
+		ui.Load(f, ui.ByInt(-1), func() int {
+			time.Sleep(m, 1h)
+			0
+		})
 	}
 	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
 	let mut h = ui.NewTestHost(a, view, m, 4) catch {
@@ -1101,7 +1105,7 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = ui.StateOf(&h)
-		held = held && s.ready == valueOf(s.key) && ui.Fetching(&h) == 0 && time.Sleepers(m) == 1
+		held = held && s.ready == valueOf(s.key) && ui.Fetching(&h) == 1 && time.Sleepers(m) == 2
 	}
 	asks.End()
 	timer.Stop()
