@@ -40,6 +40,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 			return bad(x)
 		}
 	}
+	if m := c.patternCalls[x]; m != nil {
+		return c.patternCall(x, m)
+	}
 	if op, ok := c.lawOpCall(x); ok {
 		return op
 	}

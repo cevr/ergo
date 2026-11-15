@@ -823,6 +823,9 @@
       "killers": [
         "runtime/v1:TestHeapFloorRaisesTheGoal"
       ]
-    }
+    },
+    {"name": "rpc-exit-wrapped", "origin": "wf10/FD1-g3", "file": "runtime/v1/rpc.go", "from": "\t\t\tc.ok, c.value = true, v\n", "to": "\t\t\tc.exit = rpcExit(v, err)\n", "rule": "A success's value is written once, into the answer, not first wrapped into an exit text (FD1-g3).", "killers": ["runtime/v1:TestRPCExitsWriteTheValueOnce"]},
+    {"name": "rpc-exits-copied", "origin": "wf10/FD1-g3", "file": "runtime/v1/rpc.go", "from": "\tout.WriteByte(']')\n\treturn out.String()\n", "to": "\tout.WriteByte(']')\n\treturn string([]byte(out.String()))\n", "rule": "The json answer is the Builder's bytes, not copied once more (FD1-g3).", "killers": ["runtime/v1:TestRPCExitsWriteTheValueOnce"]},
+    {"name": "crc-copies", "origin": "wf10/FD1-g3", "file": "runtime/v1/digest.go", "from": "\t\tcrc = crc32.Update(crc, crc32.IEEETable, buf[:n])\n", "to": "\t\tcrc = crc32.Update(crc, crc32.IEEETable, []byte(s[:n]))\n", "rule": "Crc32Update does not copy its string to a new slice (FD1-g3).", "killers": ["runtime/v1:TestCrc32UpdateDoesNotCopy"]}
   ]
 }

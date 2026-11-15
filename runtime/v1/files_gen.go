@@ -614,7 +614,7 @@ var typeTable = map[string]GoType{
 	"Queue":               {Arity: 1, Struct: true, Fields: []string{"mu", "capacity", "buf", "senders", "closed", "wake", "parked", "domain"}},
 	"RPCEnvelope":         {Struct: true, Fields: []string{"Tag", "ID", "RPC", "Payload"}},
 	"RPCFailed":           {Struct: true, Fields: []string{"Text"}},
-	"RPCMalformed":        {Struct: true, Fields: []string{"Reason"}},
+	"RPCMalformed":        {Struct: true, Fields: []string{"Name", "Reason"}},
 	"RPCTransport":        {Struct: true, Fields: []string{"Reason"}},
 	"RPCUnrepresentable":  {Struct: true, Fields: []string{"Path", "Value"}},
 	"ReadFailed":          {Struct: true, Fields: []string{"Reason"}},

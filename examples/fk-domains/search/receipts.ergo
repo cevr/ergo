@@ -1,0 +1,115 @@
+// The receipts of plan §20.5 that the machine alone gives (FD3a): P1, the
+// requests of a typing script, as Fetch effects on the manual clock; P6,
+// what the state holds per candidate; P7, what a session holds; P8, the
+// work of choosing an order. The counts are exact: they are the
+// machine's own counters (Fetches, Checked, Comparisons) and the cache's
+// SettledCount, never a time. The live-heap forms of P6 and P7 wait for
+// the view on TestHost (FD5).
+
+import fk-domains/domains
+import fk-domains/search/cache
+import fk-domains/search/plan
+import fk-domains/search/route
+
+// Held is how many values the state holds per candidate: the rows of a
+// listed index and the listings shown.
+func Held(s Search) int {
+	let mut n = match s.Index {
+	case Identity:
+		0
+	case Listed as l:
+		len(l.Rows)
+	}
+	for _, p in s.Pages {
+		n = n + len(p)
+	}
+	n
+}
+
+// prefixes types text one prefix at a time, each left to settle (its
+// answers given) and then gap ms more.
+func prefixes(m Sim, texts []string, gap int) Sim {
+	let mut at = m
+	for t in texts {
+		at = Wait(Settle(Feed(at, Typed{Text: t})), gap)
+	}
+	at
+}
+
+// P1: the original's four typing scripts. A settled cold query makes 2
+// requests and a burst 2 (BurstMakesOneSearch); seven prefixes each left
+// to settle make 14; three backspaces and the same three keys, each
+// settling, inside the minute, make none: every range is a fresh hit.
+// The original made 1 there (origin/measure, section 3; 11 of its 12
+// range reads came from the cache, and which one missed is not
+// recorded); the port's count is 0 and does not depend on the host.
+test TypingScriptsMakeTheOriginalsRequests {
+	let cold = Settle(Feed(page(), Typed{Text: "foldkit"}))
+	assert len(cold.Fetches) == 2
+	let settled = prefixes(page(), []string{"f", "fo", "fol", "fold", "foldk", "foldki", "foldkit"}, 250)
+	assert len(settled.Fetches) == 14
+	let retyped = prefixes(settled, []string{"foldki", "foldk", "fold", "foldk", "foldki", "foldkit"}, 250)
+	assert len(retyped.Fetches) == 14 && retyped.S.Checked == 60
+}
+
+// P6: before a row is loaded the state holds nothing per candidate: Held
+// is 0 at each of the plan's four catalog sizes, scrolled anywhere, and
+// the ranges are one Load per range (plan.Count(n), n/60 and two).
+test HoldsNothingPerCandidate {
+	for n in []int{556, 1000, 10000, 100000} {
+		let mut catalog = []string{}
+		for i in 0..n {
+			catalog = catalog.Append("x\(i)")
+		}
+		for top in []int{0, 4800, 480000, 4800000} {
+			let m = Feed(Wait(Feed(Open("/", catalog, 15), Typed{Text: "acme"}), 150), Scrolled{Top: top})
+			assert Held(m.S) == 0 && len(m.S.Ranges) == plan.Count(n) && len(m.Fetches) == 1
+		}
+	}
+}
+
+// P7: a session of 400 distinct settled queries holds what a session of
+// 100 holds: the cache keeps 100 settled answers, and the page shows one
+// query's first page.
+test ASessionIsBounded {
+	let mut m = page()
+	let mut at100 = m
+	for i in 0..400 {
+		m = Settle(Feed(m, Typed{Text: "q\(i)"}))
+		if i == 99 {
+			at100 = m
+		}
+	}
+	assert cache.SettledCount(at100.S.Cache) == Capacity() && cache.SettledCount(m.S.Cache) == Capacity()
+	assert Held(at100.S) == Held(m.S) && Held(m.S) == 60
+	assert len(m.Fetches) == 800
+}
+
+// P8: choosing a price order makes one request, the whole catalog, and
+// one sort of the index after it: at most n * ceil(log2 n) comparisons.
+test ChoosingAnOrderMakesOneRequestAndOneSort {
+	let acme = Settle(Feed(page(), Typed{Text: "acme"}))
+	assert acme.S.Comparisons == 0
+	let chosen = Feed(acme, Ordered{Order: route.PriceAscending})
+	assert len(chosen.Fetches) == 3 && fetched(chosen, 2, "acme", 0, 556) && chosen.S.Comparisons == 0
+	let done = Settle(chosen)
+	let n = len(domains.Catalog)
+	assert len(done.Fetches) == 3 && done.S.Comparisons > 0 && done.S.Comparisons <= n*10
+	// The index lists the available listings by price, then the taken.
+	let mut last = 0.0
+	let mut takenSeen = false
+	for i in 0..Rows(done.S.Index) {
+		match ListingAt(done.S, At(done.S.Index, i)) {
+		case Some[domains.Listing] as l:
+			match l.Value {
+			case domains.Available as a:
+				assert !takenSeen && a.Price >= last
+				last = a.Price
+			case domains.Unavailable:
+				takenSeen = true
+			}
+		case None:
+			assert false
+		}
+	}
+}

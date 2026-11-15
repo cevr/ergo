@@ -739,6 +739,11 @@ const (
 	CallDecode
 	// CallEmbed is the compile-time embedded[T](pattern) initializer.
 	CallEmbed
+	// CallPattern is a where's matches(it, `…`) in the ParseN and NWhere
+	// a refinement derives: Pattern is the compiled pattern, and the call
+	// is true when it matches the whole of its first argument (types.md,
+	// Refinements 11). Added in FKre.
+	CallPattern
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -781,6 +786,8 @@ type Call struct {
 	// position after the written arguments (types.md, Call sites); nil
 	// otherwise. Added in unit L3 (additive).
 	Site *Named
+	// Pattern is a CallPattern's compiled pattern.
+	Pattern *Matcher
 }
 
 // RecvIsParam reports whether c's receiver is its callee's first

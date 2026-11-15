@@ -75,7 +75,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion:
+			case check.CallLen, check.CallConversion, check.CallPattern:
 			case check.CallFunc:
 				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
 					why = "a generic call with unresolved operation witnesses"

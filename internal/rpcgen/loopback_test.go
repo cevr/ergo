@@ -97,6 +97,9 @@ func loopback(t *testing.T, seed uint64) {
 	direct := runOnce(t, exe, "direct")
 	srv := startServer(t, exe)
 	viaRPC := runOnce(t, exe, "http://"+srv.addr+"/rpc")
+	if err := refusals("http://" + srv.addr + "/rpc"); err != nil {
+		t.Errorf("seed %d: %v\n%s", seed, err, replay)
+	}
 	srv.stop(t)
 	// A fresh server for the checked run: the provider counts its calls.
 	srv = startServer(t, exe)
@@ -253,6 +256,49 @@ func effectView(t *testing.T, p *program, exe string, files map[string]string, r
 			t.Fatalf("seed %d: call %d (%s), as Effect's client reads it: %v\nrequest %s\nanswer %s\n%s\n%s", p.seed, k, cl.op.name, err, body, answer, sources(files), replay)
 		}
 	}
+}
+
+// refusals holds the server at url to Effect's answers for what is not a
+// call (FD1-g2): a GET is a 404 with no body (Effect's router has one POST
+// route), and a body that is not JSON is a 200 whose one message is the
+// Defect named SyntaxError, as a json array or as an ndjson line.
+func refusals(url string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 404 || len(body) != 0 {
+		return fmt.Errorf("GET %s: %d %q, want 404 with no body", url, resp.StatusCode, body)
+	}
+	for _, framing := range []struct{ contentType, open, close string }{
+		{"application/json", "[", "]"},
+		{"application/x-ndjson", "", "\n"},
+	} {
+		resp, err := http.Post(url, framing.contentType, strings.NewReader(`{"_tag":"Request",`))
+		if err != nil {
+			return err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		text := string(body)
+		var d struct {
+			Tag    string `json:"_tag"`
+			Defect struct {
+				Name    string `json:"name"`
+				Message string `json:"message"`
+			} `json:"defect"`
+		}
+		ok := resp.StatusCode == 200 && strings.HasPrefix(text, framing.open) && strings.HasSuffix(text, framing.close) && len(text) > len(framing.open)+len(framing.close)
+		if ok {
+			ok = json.Unmarshal([]byte(text[len(framing.open):len(text)-len(framing.close)]), &d) == nil && d.Tag == "Defect" && d.Defect.Name == "SyntaxError" && d.Defect.Message != ""
+		}
+		if !ok {
+			return fmt.Errorf("a body that is not JSON (%s): %d %q, want 200 and one Defect named SyntaxError", framing.contentType, resp.StatusCode, text)
+		}
+	}
+	return nil
 }
 
 func postJSON(url, body string) ([]byte, error) {

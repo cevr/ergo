@@ -464,7 +464,13 @@ func (g *gen) walkerOf(t check.Type) *walker {
 		if k == "ExactUint" {
 			conv = "uint64"
 		}
-		fmt.Fprintf(&b, "try rpc.%s(\"\", %s(v))\n", k, conv)
+		// A defined or refined int converts through its base: Ergo
+		// converts a refined value in one step only to its base.
+		x := "v"
+		if _, named := t.(*check.Named); named {
+			x = bk.String() + "(v)"
+		}
+		fmt.Fprintf(&b, "try rpc.%s(\"\", %s(%s))\n", k, conv, x)
 	} else {
 		under := t
 		if n, ok := t.(*check.Named); ok {
