@@ -1,5 +1,6 @@
 import hex
 import json
+import maps
 import sha256
 import slices
 import strings
@@ -27,16 +28,24 @@ let ConfigFile = "work.toml"
 //   - Hooks are the four hooks of Rift, each a list of shell commands.
 //   - Classes are the [[class]] lines: how a file merges, by its path
 //     (merge.ergo), the lock presets after them.
+//   - Languages are the [language.NAME] tables: the plugin command of a
+//     language and the files it reads (language.ergo, plugin.ergo).
 type Config {
-	Storage  string,
-	LeaveOut []string,
-	Copy     bool,
-	Env      []string,
-	Lock     string,
-	Install  string,
-	Hooks    HookCommands,
-	Classes  []ClassLine,
+	Storage   string,
+	LeaveOut  []string,
+	Copy      bool,
+	Env       []string,
+	Lock      string,
+	Install   string,
+	Hooks     HookCommands,
+	Classes   []ClassLine,
+	Languages []LanguageLine,
 }
+
+// LanguageLine is one [language.NAME] table: the command of its plugin
+// (run by work only once work trust allowed it) and the patterns of the
+// files it reads, as a [[class]] matches.
+type LanguageLine { Name string, Command string, Files []string }
 
 // HookCommands are the commands of each hook, run by sh in order:
 // precreate in the parent before the clone, postcreate in the new
@@ -68,14 +77,20 @@ law ConfigStarterReads() {
 
 // EmptyConfig is the configuration of a base with no work.toml.
 func EmptyConfig() Config {
-	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}}
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
 }
 
 type fileTable {
-	Work  json.Optional[workTable] "work",
-	Deps  json.Optional[depsTable] "deps",
-	Hooks json.Optional[hooksTable] "hooks",
-	Class json.Optional[[]classTable] "class",
+	Work     json.Optional[workTable] "work",
+	Deps     json.Optional[depsTable] "deps",
+	Hooks    json.Optional[hooksTable] "hooks",
+	Class    json.Optional[[]classTable] "class",
+	Language json.Optional[Map[string, languageTable]] "language",
+}
+
+type languageTable {
+	Command json.Optional[string] "command",
+	Files   json.Optional[[]string] "files",
 }
 
 type classTable {
@@ -106,8 +121,8 @@ type hooksTable {
 }
 
 // ParseConfig reads the text of work.toml (TOML 1.0). A table or key it
-// does not know is skipped ([language.*] and [land] belong to later
-// units); a value of the wrong type, a folder that leaves the root, an
+// does not know is skipped ([land] belongs to a later unit); a
+// [language.NAME] with no command or no files, a value of the wrong type, a folder that leaves the root, an
 // [deps] with a lock and no install, and a [[class]] with no match, a kind
 // it does not know or a driver with no command are BadConfig.
 func ParseConfig(text string) Config fails BadConfig {
@@ -157,6 +172,20 @@ func ParseConfig(text string) Config fails BadConfig {
 			lines = lines.Append(line)
 		}
 		c = Config{..c, Classes: lines}
+	case json.Absent:
+	}
+	match f.Language {
+	case json.Present[Map[string, languageTable]] as m:
+		let mut langs = []LanguageLine{}
+		for name in slices.Sorted(maps.Keys(m.Value)) {
+			let l = maps.GetOr(m.Value, name, languageTable{Command: json.Absent, Files: json.Absent})
+			let line = LanguageLine{Name: name, Command: orText(l.Command), Files: or(l.Files)}
+			if line.Command == "" || len(line.Files) == 0 {
+				return BadConfig{Line: 0, Why: "[language.\(name)] needs a command and files"}
+			}
+			langs = langs.Append(line)
+		}
+		c = Config{..c, Languages: langs}
 	case json.Absent:
 	}
 	c
@@ -236,6 +265,9 @@ func Commands(c Config) []string {
 		if line.Driver != "" {
 			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
 		}
+	}
+	for l in c.Languages {
+		out = out.Append("language.\(l.Name).command: \(l.Command)")
 	}
 	out
 }

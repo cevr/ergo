@@ -55,6 +55,8 @@ func Trust(w Workspaces) work.Trusted fails work.NoBase | work.BadConfig | work.
 
 func Doctor(w Workspaces, o work.DoctorOptions) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed | work.RiftUnread { try w.tool.Doctor(o) }
 
+func PluginTest(w Workspaces, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.NoBase | work.BadConfig | work.Untrusted | work.VcsFailed | work.PluginRefused { try w.tool.PluginTest(command, o) }
+
 func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed { try w.tool.Refresh() }
 
 func Bases(w Workspaces) []string fails work.Unkept { try w.tool.Bases() }

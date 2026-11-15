@@ -1,0 +1,442 @@
+// The language seam on memory providers (SEMWS WG3a). Lines is a tiny
+// reference language: a line "unit NAME…" starts a unit (NAME up to a
+// space or a parenthesis; its contract is that line), the text before
+// the first is a preamble, a line "# …" is a comment, a line "error …"
+// is a diagnostic, and a use of a name is the name as a word on a line
+// that is neither a header nor a comment. Serving is an exec.Runner that
+// answers a plugin's requests in process with work.Serve, so a Plugin
+// over it is the wire with no process: the contracts' laws run through
+// it (the context wire), and WireIsTransparent holds it to Lines itself.
+
+import exec
+import fs
+import fstest
+import maps
+import slices
+import strings
+import time
+import utf8
+import github.com/cevr/ergo/modules/work/work
+
+// Lines is the reference language. drops and seesComments are the two
+// faults work plugin-test must refuse: units that lose the last byte,
+// and comment lines read as part of a body.
+type Lines { drops bool, seesComments bool } implements work.Splitter, work.Indexer, work.Checker
+
+// NewLines is the reference language with no fault.
+func NewLines() Lines { Lines{drops: false, seesComments: false} }
+
+// linesOf is text cut after each newline (the last piece may have none).
+func linesOf(text string) []string {
+	let mut out = []string{}
+	let parts = strings.Split(text, "\n")
+	for i, part in parts {
+		if i < len(parts)-1 {
+			out = out.Append(part + "\n")
+		} else if part != "" {
+			out = out.Append(part)
+		}
+	}
+	out
+}
+
+// unitName is the name a header line declares.
+func unitName(line string) string {
+	let rest = strings.TrimPrefix(line, "unit ")
+	let mut end = len(rest)
+	for i in 0..len(rest) {
+		if rest[i] == ' ' || rest[i] == '(' || rest[i] == '\n' || rest[i] == '\r' || rest[i] == '\t' {
+			end = i
+			break
+		}
+	}
+	rest[0:end]
+}
+
+func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable | work.Unanswered {
+	let mut units = []work.Unit{}
+	let mut seen = Map[string, bool]{}
+	let mut cur = ""
+	let mut key = ""
+	let mut kind = "preamble"
+	for i, line in linesOf(text) {
+		if !strings.HasPrefix(line, "unit ") {
+			cur = cur + line
+			continue
+		}
+		if cur != "" {
+			units = units.Append(work.Unit{Key: key, Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+		}
+		key = unitName(line)
+		if key == "" {
+			return work.Unreadable{File: file, Why: "a unit with no name at line \(i + 1)"}
+		}
+		if seen.Get(key) != None {
+			return work.Unreadable{File: file, Why: "two units named \(key)"}
+		}
+		seen[key] = true
+		kind = "unit"
+		cur = line
+	}
+	if cur != "" {
+		units = units.Append(work.Unit{Key: key, Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+	}
+	if l.drops && len(units) > 0 {
+		let last = units[len(units)-1]
+		units[len(units)-1] = work.Unit{..last, Text: last.Text[0 : len(last.Text)-1]}
+	}
+	units
+}
+
+func exported(key string) bool { key != "" && key[0] >= 'A' && key[0] <= 'Z' }
+
+// shape is a unit's contract (its header) and its body (the other lines
+// that are not blank, nor comments unless seesComments).
+func shape(l Lines, u work.Unit) (string, []string) {
+	let mut header = ""
+	let mut body = []string{}
+	for i, line in linesOf(u.Text) {
+		let text = strings.TrimSpace(line)
+		if i == 0 && u.Kind == "unit" {
+			header = text
+		} else if text != "" && (l.seesComments || !strings.HasPrefix(text, "#")) {
+			body = body.Append(text)
+		}
+	}
+	(header, body)
+}
+
+// declared is the units of each file of s that declare something: a unit,
+// or a preamble with a body. A file that does not parse declares nothing.
+func declared(l Lines, s work.Snapshot) Map[string, Map[string, work.Unit]] {
+	let mut out = Map[string, Map[string, work.Unit]]{}
+	for path, text in work.LayerFiles(s.Layer) {
+		let mut keyed = Map[string, work.Unit]{}
+		let units = Units(NewLines(), path, text) catch {
+		case work.Unreadable, work.Unanswered:
+			[]work.Unit{}
+		}
+		for u in units {
+			let (_, body) = shape(l, u)
+			if u.Kind == "unit" || len(body) > 0 {
+				keyed[u.Key] = u
+			}
+		}
+		out[path] = keyed
+	}
+	out
+}
+
+func Changes(l Lines, base work.Snapshot, head work.Snapshot) []work.Change fails work.NotProvided | work.Unanswered {
+	let before = declared(l, base)
+	let after = declared(l, head)
+	let mut paths = slices.Collect(maps.Keys(before))
+	for p in maps.Keys(after) {
+		if !slices.Contains(paths, p) {
+			paths = paths.Append(p)
+		}
+	}
+	let mut out = []work.Change{}
+	for path in slices.Sort(paths) {
+		let b = maps.GetOr(before, path, Map[string, work.Unit]{})
+		let a = maps.GetOr(after, path, Map[string, work.Unit]{})
+		let mut keys = slices.Collect(maps.Keys(b))
+		for k in maps.Keys(a) {
+			if !slices.Contains(keys, k) {
+				keys = keys.Append(k)
+			}
+		}
+		for k in slices.Sort(keys) {
+			match (b.Get(k), a.Get(k)) {
+			case (None, Some[work.Unit]):
+				out = out.Append(work.Change{Key: k, File: path, Kind: "added"})
+			case (Some[work.Unit], None):
+				out = out.Append(work.Change{Key: k, File: path, Kind: "removed"})
+			case (Some[work.Unit] as was, Some[work.Unit] as now):
+				let (h1, b1) = shape(l, was.Value)
+				let (h2, b2) = shape(l, now.Value)
+				if h1 != h2 {
+					out = out.Append(work.Change{Key: k, File: path, Kind: "contract"})
+				} else if b1 != b2 {
+					out = out.Append(work.Change{Key: k, File: path, Kind: "body"})
+				}
+			case (None, None):
+			}
+		}
+	}
+	out
+}
+
+func Sites(l Lines, snap work.Snapshot, of string) []work.Site fails work.NotProvided | work.Unanswered {
+	if of == "" {
+		return []work.Site{}
+	}
+	let files = work.LayerFiles(snap.Layer)
+	let mut out = []work.Site{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		for i, line in strings.Split(maps.GetOr(files, path, ""), "\n") {
+			let text = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "unit ") || strings.HasPrefix(text, "#") {
+				continue
+			}
+			let mut from = 0
+			for from+len(of) <= len(line) {
+				let at = strings.Index(line[from:], of)
+				if at < 0 {
+					break
+				}
+				let start = from + at
+				let end = start + len(of)
+				if (start == 0 || !word(line[start-1])) && (end == len(line) || !word(line[end])) {
+					out = out.Append(work.Site{File: path, Line: i + 1, Column: start + 1})
+				}
+				from = start + 1
+			}
+		}
+	}
+	out
+}
+
+func word(b byte) bool { (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' }
+
+func Comment(l Lines, text string) string fails work.NotProvided | work.Unanswered {
+	"# " + strings.ReplaceAll(strings.ReplaceAll(text, "\n", " "), "\r", " ") + "\n"
+}
+
+func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic fails work.ToolMissing | work.NotProvided | work.Unanswered {
+	let files = work.LayerFiles(slices.Concat(base.Layer, layer))
+	let mut out = []work.Diagnostic{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		let text = maps.GetOr(files, path, "")
+		let _ = Units(NewLines(), path, text) catch {
+		case work.Unreadable as u:
+			out = out.Append(work.Diagnostic{File: path, Line: 1, Column: 1, Message: u.Why})
+			continue
+		case work.Unanswered:
+			continue
+		}
+		for i, line in strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "error ") {
+				out = out.Append(work.Diagnostic{File: path, Line: i + 1, Column: 1, Message: strings.TrimPrefix(line, "error ")})
+			}
+		}
+	}
+	out
+}
+
+// Serving answers a plugin's requests in process: its standard output is
+// work.Serve of its standard input over the three providers, or nothing
+// with status when status is not 0 (a plugin that died) or when silent (a
+// plugin that ends well and answers nothing).
+type Serving { s work.Splitter, i work.Indexer, c work.Checker, status int, silent bool } implements exec.Runner
+
+// NewServing serves the reference language.
+func NewServing() Serving { serving(NewLines()) }
+
+func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: false} }
+
+func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if sv.status != 0 {
+		return exec.Result{Status: sv.status, Stdout: "", Stderr: "the plugin died\n"}
+	}
+	if sv.silent {
+		return exec.Result{Status: 0, Stdout: "", Stderr: ""}
+	}
+	exec.Result{Status: 0, Stdout: work.Serve(c.Stdin, sv.s, sv.i, sv.c), Stderr: ""}
+}
+
+func Start(sv Serving, c exec.Command, st exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): try sv.Run(c)}}.Start(c, st)
+}
+
+// wire binds the three contracts to the reference language through a
+// Plugin, so each contract law runs through the wire too.
+let wire = context {
+	work.Splitter: work.PluginOf(NewServing(), "lines", "/"),
+	work.Indexer:  work.PluginOf(NewServing(), "lines", "/"),
+	work.Checker:  work.PluginOf(NewServing(), "lines", "/"),
+}
+
+// linesText is a Lines file with a unit for each name (a body line from
+// bodies under it, and now and then a comment or an error line).
+func linesText(names []string, bodies []string) string {
+	let mut out = ""
+	for i, n in names {
+		let mut name = n
+		for bad in []string{" ", "(", "\n", "\r", "\t"} {
+			name = strings.ReplaceAll(name, bad, "x")
+		}
+		out = out + "unit \(name)(a)\n"
+		if i < len(bodies) {
+			out = out + strings.ReplaceAll(bodies[i], "unit ", "u ") + "\n"
+		}
+		if i%3 == 1 {
+			out = out + "# note \(i)\n"
+		}
+		if i%4 == 2 {
+			out = out + "error line \(i)\n"
+		}
+	}
+	out
+}
+
+// WireIsTransparent: a provider through a Plugin (the requests and the
+// answers as JSON lines, the way a child process gets and gives them)
+// answers every request as the provider in process does, failures and a
+// level-1 plugin's NotProvided included.
+law WireIsTransparent(names []string, bodies []string, extra []work.FileEdit, of string, note string, level1 bool) {
+	let text = linesText(names, bodies)
+	let mut valid = utf8.ValidString(text) && utf8.ValidString(of) && utf8.ValidString(note)
+	for f in extra {
+		valid = valid && utf8.ValidString(f.Path) && utf8.ValidString(match f.Text {
+		case Some[string] as t:
+			t.Value
+		case None:
+			""
+		})
+	}
+	if !valid {
+		return true
+	}
+	let l = NewLines()
+	let mut runner = serving(l)
+	let mut i work.Indexer = l
+	let mut c work.Checker = l
+	if level1 {
+		runner = Serving{s: l, i: work.Absent, c: work.Absent, status: 0, silent: false}
+		i = work.Absent
+		c = work.Absent
+	}
+	let p = work.PluginOf(runner, "lines", "/")
+	let s = work.Snapshot{Root: "", Layer: extra.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}})}
+	let head = work.Snapshot{Root: "", Layer: s.Layer.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text + "unit zz\n\(of)\n"}})}
+	let requests = []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.UnitsOf{File: "b.lines", Text: "unit \nunit a\n"}, work.ChangesOf{Base: s, Head: s}, work.ChangesOf{Base: s, Head: head}, work.SitesOf{Snap: head, Of: of}, work.CommentOf{Text: note}, work.CheckOf{Base: s, Layer: head.Layer}}
+	for r in requests {
+		if work.AnswerOf(r, l, i, c) != work.AnswerOf(r, p, p, p) {
+			return false
+		}
+	}
+	true
+}
+
+// PluginFailuresAreUnanswered: a plugin that died, or that ended well and
+// answered nothing, answers every request Unanswered, never an empty list
+// (no diagnostics, no changes), and units that lost a byte are Unanswered
+// before any caller merges by them.
+law PluginFailuresAreUnanswered(names []string, bodies []string) {
+	let text = linesText(names, bodies)
+	if !utf8.ValidString(text) {
+		return true
+	}
+	let s = work.Snapshot{Root: "", Layer: []work.FileEdit{work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}}}}
+	for broken in []Serving{Serving{..NewServing(), status: 1}, Serving{..NewServing(), silent: true}} {
+		let died = work.PluginOf(broken, "lines", "/")
+		for r in []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.ChangesOf{Base: s, Head: s}, work.SitesOf{Snap: s, Of: "a"}, work.CommentOf{Text: "n"}, work.CheckOf{Base: s, Layer: []work.FileEdit{}}} {
+			match work.AnswerOf(r, died, died, died) {
+			case work.Unanswered:
+			case work.UnitsAre, work.ChangesAre, work.SitesAre, work.CheckIs, work.CommentIs, work.Unreadable, work.NotProvided, work.ToolMissing:
+				return false
+			}
+		}
+	}
+	let dropping = work.PluginOf(serving(Lines{drops: true, seesComments: false}), "lines", "/")
+	let _ = dropping.Units("a.lines", text) catch {
+	case work.Unanswered:
+		return true
+	case work.Unreadable:
+		return true
+	}
+	text == ""
+}
+
+// pluginWorld is a Tool whose base holds files (committed) and whose
+// runner serves lines, for work plugin-test; config is its work.toml
+// ("" for none) and trusted whether work trust allowed it.
+func pluginWorld(lines Lines, files Map[string, string]) work.Tool { configuredWorld(lines, files, "", false) }
+
+func configuredWorld(lines Lines, files Map[string, string], config string, trusted bool) work.Tool {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	Repo(vcs, theBase, "main", files, "c0")
+	let disk = fstest.NewMemory()
+	let home = work.Home(theBase, "")
+	disk.MkdirAll(theBase) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	disk.MkdirAll(home) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	if config != "" {
+		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a file of a memory disk")
+		}
+		let c = work.ParseConfig(config) catch {
+		case work.BadConfig:
+			work.EmptyConfig()
+		}
+		if trusted {
+			disk.WriteFile(work.TrustFile(home), work.Digest(c)+"\n") catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				Unreachable("a file of a memory disk")
+			}
+		}
+	}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: serving(lines), Clock: time.NewManual(1000)}
+	work.NewTool(theBase, home, "/data", p, "/")
+}
+
+let pluginFiles = Map[string, string]{"a.lines": "unit A(x)\n  call b\n# a note\n", "b.lines": "unit b(y)\n  error none\n", "c.txt": "not read\n"}
+
+// refusal is the refusal of plugin-test on t's Lines files, or none.
+func refusal(t work.Tool) work.PluginRefused {
+	let none = work.PluginRefused{Command: "", Law: "", File: "", Why: "admitted, or another failure"}
+	let _ = t.PluginTest("lines", linesOnly) catch {
+	case work.PluginRefused as r:
+		return r
+	case _:
+		return none
+	}
+	none
+}
+
+let linesOnly = work.PluginTestOptions{Files: Some[string]{Value: "*.lines"}, Max: None, Seed: None}
+
+// plugin-test admits the reference language at level 2 with every law
+// it ran named, and refuses a plugin that drops a byte, or that reads a
+// comment as a change, with the law's name and the file.
+test PluginTestNamesTheLaw {
+	let ok = try pluginWorld(NewLines(), pluginFiles).PluginTest("lines", linesOnly)
+	assert ok == work.PluginAdmitted{Command: "lines", Level: 2, Files: 2, Unreadable: 0, Laws: []string{"UnitsAreTheFile", "KeysAreUnique", "EditStaysInItsUnit", "ChangesOfSameIsEmpty", "CommentEditIsNoChange", "CheckIsPure", "EmptyLayerIsTheBase"}}
+	let dropped = refusal(pluginWorld(Lines{drops: true, seesComments: false}, pluginFiles))
+	assert dropped == work.PluginRefused{Command: "lines", Law: "UnitsAreTheFile", File: "a.lines", Why: "the units' texts join to 27 bytes, the file has 28"}
+	let comments = refusal(pluginWorld(Lines{drops: false, seesComments: true}, pluginFiles))
+	assert comments == work.PluginRefused{Command: "lines", Law: "CommentEditIsNoChange", File: "a.lines", Why: "a comment added at its end is a change of A (body)"}
+}
+
+// A [language.NAME] runs its command only once work trust allowed it,
+// and reads only its files; one with no command is BadConfig.
+test LanguageRunsOnlyTrusted {
+	let config = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
+	let none = work.PluginTestOptions{Files: None, Max: None, Seed: None}
+	let asked = configuredWorld(NewLines(), pluginFiles, config, false).PluginTest("lines", none) catch {
+	case work.Untrusted as u:
+		assert u.Commands == []string{"language.lines.command: lines"}
+		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	case _:
+		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	}
+	assert asked.Command == ""
+	let ran = try configuredWorld(NewLines(), pluginFiles, config, true).PluginTest("lines", none)
+	assert ran.Command == "lines" && ran.Files == 2
+	let bad = configuredWorld(NewLines(), pluginFiles, "[language.x]\nfiles = [\"*\"]\n", true).PluginTest("x", none) catch {
+	case work.BadConfig as b:
+		assert b.Why == "[language.x] needs a command and files"
+		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	case _:
+		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	}
+	assert bad.Command == ""
+}

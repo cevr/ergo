@@ -25,7 +25,7 @@ func Rm(t Tool, name string, o RmOptions) []Removed fails NoBase | BadConfig | N
 // lock, it writes the intent, moves the folder to the trash and writes
 // that it is there; then it runs the postremove hooks.
 func removeLeaf(t Tool, c Config, name string, expect Option[string], abandon bool) Removed fails NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
-	let env = try Check(t, c, name, expect, abandon)
+	let env = try t.Check(c, name, expect, abandon)
 	match try Intend(t, name, expect, abandon) {
 	case Removed as r:
 		r

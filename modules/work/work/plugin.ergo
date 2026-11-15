@@ -1,0 +1,291 @@
+// A language plugin over a child process (SEMWS §2.13, WG3a). The
+// process reads requests on its standard input, one JSON object a line
+// (a Request, its "_tag" naming the operation), and writes one Answer a
+// line on its standard output, in order, then ends with status 0. One
+// run may carry many requests, so a caller pays one start for a batch.
+// The wire is written by hand here; WG3b replaces it with the one SEM3's
+// generator writes from the three operation types.
+
+import exec
+import json
+import strings
+
+// Request is one call to a plugin.
+type Request =
+	| UnitsOf{File string, Text string}
+	| ChangesOf{Base Snapshot, Head Snapshot}
+	| SitesOf{Snap Snapshot, Of string}
+	| CheckOf{Base Snapshot, Layer []FileEdit}
+	| CommentOf{Text string}
+
+// Answer is a plugin's answer to one Request: the value, or the failure
+// as its tagged record.
+type Answer =
+	| UnitsAre{Units []Unit}
+	| ChangesAre{Changes []Change}
+	| SitesAre{Sites []Site}
+	| CheckIs{Diagnostics []Diagnostic}
+	| CommentIs{Text string}
+	| Unreadable
+	| NotProvided
+	| ToolMissing
+	| Unanswered
+
+// Plugin is a language provider in a child process: command (its words,
+// split at white space, with no quoting) run in dir.
+type Plugin { runner exec.Runner, command string, dir string }
+
+// PluginOf is the plugin that command runs in dir.
+func PluginOf(runner exec.Runner, command string, dir string) Plugin { Plugin{runner: runner, command: command, dir: dir} }
+
+let wireCodec = json.Codec[Request]{MaxBytes: 1 << 28, MaxDepth: 64}
+let answerCodec = json.Codec[Answer]{MaxBytes: 1 << 28, MaxDepth: 64}
+
+// Ask runs the plugin once with requests and is its answers, one for
+// each in order. A plugin that does not start, ends with another status
+// than 0, answers another number of lines or writes a line that is no
+// Answer is Unanswered: never an empty answer.
+func Ask(p Plugin, requests []Request) []Answer fails Unanswered {
+	let words = strings.Fields(p.command)
+	if len(words) == 0 {
+		return Unanswered{Command: p.command, Why: "the command is empty"}
+	}
+	let mut lines = []string{}
+	for r in requests {
+		lines = lines.Append(json.Encode(wireCodec, r))
+	}
+	let c = exec.New(words[0], words[1:]).WithDir(p.dir).WithStdin(strings.Join(lines, "\n") + "\n")
+	let r = p.runner.Run(c) catch {
+	case exec.NotFound:
+		return Unanswered{Command: p.command, Why: "\(words[0]) is not on PATH"}
+	case exec.Denied:
+		return Unanswered{Command: p.command, Why: "\(words[0]) may not run"}
+	case exec.Failed as f:
+		return Unanswered{Command: p.command, Why: f.Reason}
+	}
+	if r.Status != 0 {
+		let said = firstLine(r.Stderr)
+		return Unanswered{Command: p.command, Why: if said == "" { "it ended with status \(r.Status)" } else { "it ended with status \(r.Status): \(said)" }}
+	}
+	let mut answers = []Answer{}
+	for line in strings.Split(r.Stdout, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		let a = json.Decode(answerCodec, line) catch {
+		case _:
+			return Unanswered{Command: p.command, Why: "answer \(len(answers) + 1) is not an Answer: \(firstLine(line))"}
+		}
+		answers = answers.Append(a)
+	}
+	if len(answers) != len(requests) {
+		return Unanswered{Command: p.command, Why: "it answered \(len(answers)) of \(len(requests)) requests"}
+	}
+	answers
+}
+
+func firstLine(text string) string {
+	let line = strings.TrimSpace(strings.Split(strings.TrimSpace(text), "\n")[0])
+	if len(line) > 200 { line[0:200] } else { line }
+}
+
+// one is the plugin's answer to r alone.
+func one(p Plugin, r Request) Answer fails Unanswered { (try Ask(p, []Request{r}))[0] }
+
+// unexpected is the plugin's answer a to op, when it is none op can give.
+func unexpected(p Plugin, op string, a Answer) Unanswered { Unanswered{Command: p.command, Why: "it answered \(tagOf(a)) to \(op)"} }
+
+// tagOf names what a is.
+func tagOf(a Answer) string {
+	match a {
+	case UnitsAre:
+		"units"
+	case ChangesAre:
+		"changes"
+	case SitesAre:
+		"sites"
+	case CheckIs:
+		"diagnostics"
+	case CommentIs:
+		"a comment"
+	case Unreadable:
+		"Unreadable"
+	case NotProvided:
+		"NotProvided"
+	case ToolMissing:
+		"ToolMissing"
+	case Unanswered:
+		"Unanswered"
+	}
+}
+
+// Units asks the plugin for the units of file. Its answer is checked:
+// units whose texts do not join to the file are Unanswered, so no caller
+// merges by units that lost a byte.
+func Units(p Plugin, file string, text string) []Unit fails Unreadable | Unanswered {
+	let a = try one(p, UnitsOf{File: file, Text: text})
+	match a {
+	case UnitsAre as u:
+		if !JoinsToTheFile(text, u.Units) {
+			return Unanswered{Command: p.command, Why: "its units of \(file) do not join to the file"}
+		}
+		u.Units
+	case Unreadable as e:
+		e
+	case Unanswered as e:
+		e
+	case ChangesAre, SitesAre, CheckIs, CommentIs, NotProvided, ToolMissing:
+		unexpected(p, "Units", a)
+	}
+}
+
+func Changes(p Plugin, base Snapshot, head Snapshot) []Change fails NotProvided | Unanswered {
+	let a = try one(p, ChangesOf{Base: base, Head: head})
+	match a {
+	case ChangesAre as c:
+		c.Changes
+	case NotProvided as e:
+		e
+	case Unanswered as e:
+		e
+	case UnitsAre, SitesAre, CheckIs, CommentIs, Unreadable, ToolMissing:
+		unexpected(p, "Changes", a)
+	}
+}
+
+func Sites(p Plugin, snap Snapshot, of string) []Site fails NotProvided | Unanswered {
+	let a = try one(p, SitesOf{Snap: snap, Of: of})
+	match a {
+	case SitesAre as s:
+		s.Sites
+	case NotProvided as e:
+		e
+	case Unanswered as e:
+		e
+	case UnitsAre, ChangesAre, CheckIs, CommentIs, Unreadable, ToolMissing:
+		unexpected(p, "Sites", a)
+	}
+}
+
+func Comment(p Plugin, text string) string fails NotProvided | Unanswered {
+	let a = try one(p, CommentOf{Text: text})
+	match a {
+	case CommentIs as c:
+		c.Text
+	case NotProvided as e:
+		e
+	case Unanswered as e:
+		e
+	case UnitsAre, ChangesAre, SitesAre, CheckIs, Unreadable, ToolMissing:
+		unexpected(p, "Comment", a)
+	}
+}
+
+func Check(p Plugin, base Snapshot, layer []FileEdit) []Diagnostic fails ToolMissing | NotProvided | Unanswered {
+	let a = try one(p, CheckOf{Base: base, Layer: layer})
+	match a {
+	case CheckIs as c:
+		c.Diagnostics
+	case ToolMissing as e:
+		e
+	case NotProvided as e:
+		e
+	case Unanswered as e:
+		e
+	case UnitsAre, ChangesAre, SitesAre, CommentIs, Unreadable:
+		unexpected(p, "Check", a)
+	}
+}
+
+// Absent is the Indexer and the Checker of a level-1 language: each
+// operation fails NotProvided.
+type Absent {}
+
+func Changes(a Absent, base Snapshot, head Snapshot) []Change fails NotProvided | Unanswered { NotProvided{Op: "Changes"} }
+
+func Sites(a Absent, snap Snapshot, of string) []Site fails NotProvided | Unanswered { NotProvided{Op: "Sites"} }
+
+func Comment(a Absent, text string) string fails NotProvided | Unanswered { NotProvided{Op: "Comment"} }
+
+func Check(a Absent, base Snapshot, layer []FileEdit) []Diagnostic fails ToolMissing | NotProvided | Unanswered { NotProvided{Op: "Check"} }
+
+// Serve is a plugin's standard output for its standard input stdin: the
+// answer of s, i and c to each request line, a line each. A line that is
+// no Request is answered Unanswered. A plugin written in Ergo is a main
+// that writes Serve of what it reads.
+func Serve(stdin string, s Splitter, i Indexer, c Checker) string {
+	let mut out = []string{}
+	for line in strings.Split(stdin, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		let a = json.Decode(wireCodec, line) catch {
+		case _:
+			out = out.Append(json.Encode(answerCodec, Unanswered{Command: "", Why: "a line that is no Request"}))
+			continue
+		}
+		out = out.Append(json.Encode(answerCodec, AnswerOf(a, s, i, c)))
+	}
+	if len(out) == 0 { "" } else { strings.Join(out, "\n") + "\n" }
+}
+
+// AnswerOf is the Answer of the providers to r: what Serve writes, and
+// what a provider in process and the same one through a plugin must both
+// give (memory's WireIsTransparent).
+func AnswerOf(r Request, s Splitter, i Indexer, c Checker) Answer {
+	match r {
+	case UnitsOf as u:
+		let units = s.Units(u.File, u.Text) catch {
+		case Unreadable as e:
+			let v Answer = e
+			return v
+		case Unanswered as e:
+			let v Answer = e
+			return v
+		}
+		UnitsAre{Units: units}
+	case ChangesOf as q:
+		let changes = i.Changes(q.Base, q.Head) catch {
+		case NotProvided as e:
+			let v Answer = e
+			return v
+		case Unanswered as e:
+			let v Answer = e
+			return v
+		}
+		ChangesAre{Changes: changes}
+	case SitesOf as q:
+		let sites = i.Sites(q.Snap, q.Of) catch {
+		case NotProvided as e:
+			let v Answer = e
+			return v
+		case Unanswered as e:
+			let v Answer = e
+			return v
+		}
+		SitesAre{Sites: sites}
+	case CommentOf as q:
+		let text = i.Comment(q.Text) catch {
+		case NotProvided as e:
+			let v Answer = e
+			return v
+		case Unanswered as e:
+			let v Answer = e
+			return v
+		}
+		CommentIs{Text: text}
+	case CheckOf as q:
+		let found = c.Check(q.Base, q.Layer) catch {
+		case ToolMissing as e:
+			let v Answer = e
+			return v
+		case NotProvided as e:
+			let v Answer = e
+			return v
+		case Unanswered as e:
+			let v Answer = e
+			return v
+		}
+		CheckIs{Diagnostics: found}
+	}
+}
