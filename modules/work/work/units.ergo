@@ -1,0 +1,213 @@
+// The merge of a file by its language's units (SEMWS WG4, level 1): the
+// three texts are cut by a Splitter and merged unit by unit, keyed by
+// the names each declares. A unit one side changed takes that side; a
+// unit both changed apart is merged by lines within it, then by its
+// members (a class's, an import's specifiers); only what still clashes
+// is a conflict, named by its overlap: SameDeclaration (both changed or
+// one removed what the other changed), SameNewHandle (both added one
+// name apart), SameMember (both changed one member apart).
+//
+// Prior art: Mergiraf and IntelliMerge merge by syntax trees after a
+// line merge fails; here the line merge runs inside each unit, so two
+// edits of one function's lines apart still merge as Git would, and two
+// imports of one module merge as a set of specifiers.
+
+import github.com/cevr/ergo/modules/work/classes
+import slices
+import strings
+
+// OverlapKinds are the names of a units merge's conflicts.
+let OverlapKinds = []string{"SameDeclaration", "SameNewHandle", "SameMember"}
+
+func byKey(units []Unit) Map[string, Unit] {
+	let mut out = Map[string, Unit]{}
+	for u in units {
+		out[u.Key] = u
+	}
+	out
+}
+
+// MergeUnits is the merge of ours and theirs against base, file's three
+// texts, by the units s cuts them into. A side s cannot cut is
+// Unreadable; a provider that gives no answer is Unanswered (the caller
+// merges by lines then).
+func MergeUnits(s Splitter, file string, base string, ours string, theirs string) classes.Merged fails Unreadable | Unanswered {
+	if ours == theirs || theirs == base {
+		return classes.Merged{Text: ours, Conflicts: []string{}, Regenerate: false}
+	}
+	if ours == base {
+		return classes.Merged{Text: theirs, Conflicts: []string{}, Regenerate: false}
+	}
+	let b = try s.Units(file, base)
+	let o = try s.Units(file, ours)
+	let t = try s.Units(file, theirs)
+	let m = mergedSeq(b, o, t, "")
+	classes.Merged{Text: m.Text, Conflicts: m.Conflicts, Regenerate: false}
+}
+
+// seq is a merged run of units: its text and its conflicts.
+type seq { Text string, Conflicts []string }
+
+// mergedSeq merges three runs of units by key, in ours' order, each unit
+// theirs alone added after the unit before it in theirs. parent is ""
+// for a file's units, else the key of the unit whose members they are.
+func mergedSeq(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
+	let b = byKey(base)
+	let o = byKey(ours)
+	let t = byKey(theirs)
+	let mut order = []string{}
+	for u in ours {
+		order = order.Append(u.Key)
+	}
+	let mut after Option[string] = None
+	for u in theirs {
+		if o.Get(u.Key) == None {
+			order = placed(order, after, u.Key)
+		}
+		after = Some[string]{Value: u.Key}
+	}
+	let mut texts = []string{}
+	let mut conflicts = []string{}
+	for key in order {
+		let m = mergedUnit(b.Get(key), o.Get(key), t.Get(key), parent)
+		texts = texts.Append(m.Text)
+		conflicts = slices.Concat(conflicts, m.Conflicts)
+	}
+	seq{Text: strings.Join(texts, ""), Conflicts: conflicts}
+}
+
+// placed is order with key after the key after (first when None).
+func placed(order []string, after Option[string], key string) []string {
+	if after == None {
+		return slices.Concat([]string{key}, order)
+	}
+	let mut out = []string{}
+	let mut done = false
+	for k in order {
+		out = out.Append(k)
+		if !done && after == (Some[string]{Value: k}) {
+			out = out.Append(key)
+			done = true
+		}
+	}
+	if done { out } else { out.Append(key) }
+}
+
+func textOfUnit(u Option[Unit]) Option[string] {
+	match u {
+	case Some[Unit] as x:
+		Some[string]{Value: x.Value.Text}
+	case None:
+		None
+	}
+}
+
+// mergedUnit is one key's merge: the side that changed it, else the
+// lines within it merged, else its members merged, else a conflict.
+func mergedUnit(base Option[Unit], ours Option[Unit], theirs Option[Unit], parent string) seq {
+	match classes.Choose(textOfUnit(base), textOfUnit(ours), textOfUnit(theirs), func(a string, b string) bool { a == b }) {
+	case classes.Take as k:
+		return seq{Text: textOf(k.Value), Conflicts: []string{}}
+	case classes.Clash:
+	}
+	let key = match (ours, theirs) {
+	case (Some[Unit] as x, _):
+		x.Value.Key
+	case (_, Some[Unit] as y):
+		y.Value.Key
+	case (None, None):
+		""
+	}
+	let name = if parent == "" { key } else { parent + "." + key }
+	match (ours, theirs) {
+	case (Some[Unit] as x, Some[Unit] as y):
+		let b = textOf(textOfUnit(base))
+		let lines = classes.MergeText(b, x.Value.Text, y.Value.Text)
+		if lines.Clashes == 0 && base != None {
+			return seq{Text: classes.Text(lines), Conflicts: []string{}}
+		}
+		let members = match base {
+		case Some[Unit] as z:
+			mergedMembers(z.Value, x.Value, y.Value, name)
+		case None:
+			mergedMembers(Unit{Key: key, Kind: x.Value.Kind, Text: "", Exported: false, Members: []Unit{}}, x.Value, y.Value, name)
+		}
+		match members {
+		case Some[seq] as m:
+			return m.Value
+		case None:
+		}
+	case _:
+	}
+	let overlap = if parent != "" { "SameMember" } else if base == None { "SameNewHandle" } else { "SameDeclaration" }
+	seq{Text: classes.Marked(textOf(textOfUnit(ours)), textOf(textOfUnit(theirs))) + "\n", Conflicts: []string{"\(overlap) \(name)"}}
+}
+
+// shell is a unit's text around its members' run: the text before it
+// and after it, or None when the unit has no members or they are not one
+// run of its text.
+type shell { Before string, After string }
+
+func shellOf(u Unit) Option[shell] {
+	if len(u.Members) == 0 {
+		return None
+	}
+	let mut parts = []string{}
+	for m in u.Members {
+		parts = parts.Append(m.Text)
+	}
+	let run = strings.Join(parts, "")
+	let at = strings.Index(u.Text, run)
+	if at < 0 {
+		return None
+	}
+	Some[shell]{Value: shell{Before: u.Text[0:at], After: u.Text[at+len(run):]}}
+}
+
+// mergedMembers merges a unit both sides changed by its members, when
+// its text around them merges (one side changed it, or neither): None
+// when it cannot. A base with no text is a unit both sides added: its
+// shells must be equal. Members that clash are conflicts SameMember.
+func mergedMembers(base Unit, ours Unit, theirs Unit, name string) Option[seq] {
+	let o = match shellOf(ours) {
+	case Some[shell] as s:
+		s.Value
+	case None:
+		return None
+	}
+	let t = match shellOf(theirs) {
+	case Some[shell] as s:
+		s.Value
+	case None:
+		return None
+	}
+	let b = match shellOf(base) {
+	case Some[shell] as s:
+		s.Value
+	case None:
+		if base.Text != "" {
+			return None
+		}
+		if o != t {
+			return None
+		}
+		o
+	}
+	let before = match classes.Choose(Some[string]{Value: b.Before}, Some[string]{Value: o.Before}, Some[string]{Value: t.Before}, func(x string, y string) bool { x == y }) {
+	case classes.Take as k:
+		textOf(k.Value)
+	case classes.Clash:
+		return None
+	}
+	let after = match classes.Choose(Some[string]{Value: b.After}, Some[string]{Value: o.After}, Some[string]{Value: t.After}, func(x string, y string) bool { x == y }) {
+	case classes.Take as k:
+		textOf(k.Value)
+	case classes.Clash:
+		return None
+	}
+	let m = mergedSeq(base.Members, ours.Members, theirs.Members, name)
+	if len(m.Conflicts) > 0 {
+		return Some[seq]{Value: seq{Text: classes.Marked(ours.Text, theirs.Text) + "\n", Conflicts: m.Conflicts}}
+	}
+	Some[seq]{Value: seq{Text: before + m.Text + after, Conflicts: []string{}}}
+}

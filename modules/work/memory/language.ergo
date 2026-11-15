@@ -3,7 +3,8 @@
 // space or a parenthesis; its contract is that line), the text before
 // the first is a preamble, a line "# …" is a comment, a line "error …"
 // is a diagnostic, and a use of a name is the name as a word on a line
-// that is neither a header nor a comment. Serving is an exec.Runner that
+// that is neither a header nor a comment. A run of lines "  m NAME …" in
+// a unit is its members. Serving is an exec.Runner that
 // answers a plugin's requests in process with work.Serve, so a Plugin
 // over it is the plugin protocol with no process: the contracts' laws run
 // through it (the context overPlugin), and PluginIsTransparent holds it to Lines itself.
@@ -12,8 +13,10 @@ import exec
 import filepath
 import fs
 import fstest
+import github.com/cevr/ergo/modules/work/classes
 import maps
 import slices
+import strconv
 import strings
 import time
 import utf8
@@ -72,7 +75,7 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 			continue
 		}
 		if cur != "" {
-			units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+			units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
 		}
 		start = at - len(line)
 		key = unitName(line)
@@ -87,13 +90,39 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 		cur = line
 	}
 	if cur != "" {
-		units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+		units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
 	}
 	if l.fault == "drops" && len(units) > 0 {
 		let last = units[len(units)-1]
 		units[len(units)-1] = work.Unit{..last, Text: last.Text[0 : len(last.Text)-1]}
 	}
 	units
+}
+
+// membersOf is a unit's members: its lines "  m NAME ...", each keyed by
+// NAME, when they are one run of lines with no name twice (else none). A
+// preamble has none.
+func membersOf(kind string, text string) []work.Unit {
+	if kind != "unit" {
+		return []work.Unit{}
+	}
+	let mut out = []work.Unit{}
+	let mut seen = Map[string, bool]{}
+	let mut ended = false
+	for line in linesOf(text) {
+		let words = strings.Fields(line)
+		if !strings.HasPrefix(line, "  m ") || len(words) < 2 {
+			ended = len(out) > 0
+			continue
+		}
+		let name = words[1]
+		if ended || seen.Get(name) != None {
+			return []work.Unit{}
+		}
+		seen[name] = true
+		out = out.Append(work.Unit{Key: name, Kind: "member", Text: line, Exported: false, Members: []work.Unit{}})
+	}
+	out
 }
 
 // keyed is a unit's key: its name, or with the fault "positional" its
@@ -476,4 +505,256 @@ test PluginTestRefusesEachFault {
 	let moved = refusal(pluginWorld(Lines{fault: "positional"}, Map[string, string]{"p.lines": "unit A(x) y\n  call\nunit c\n"}))
 	assert moved == work.PluginRefused{Command: "lines", Law: "EditStaysInItsUnit", File: "p.lines", Why: "a space added at byte 10, in unit A@0, changed another unit"}
 	assert refusal(pluginWorld(Lines{fault: "layer"}, pluginFiles)) == work.PluginRefused{Command: "lines", Law: "EmptyLayerIsTheBase", File: "", Why: "2 diagnostics, the first check had 0"}
+}
+
+// The units merge (work.MergeUnits) against a reference written apart
+// from it, on Lines files made from keyed values by two edit scripts:
+// each unit (or member) one side changed takes that side, two equal
+// changes are one, and the keys both sides changed apart are the
+// conflicts, named by their overlap.
+
+// scripted is units with the script made, each key folded into 0..5 so
+// that the two scripts meet on some.
+func scripted(units Map[int, int], script []classes.Edit) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in units {
+		out[fold(k)] = v
+	}
+	for e in script {
+		match e {
+		case classes.Set as s:
+			out[fold(s.Key)] = s.Value
+		case classes.Drop as d:
+			out = out.Delete(fold(d.Key))
+		}
+	}
+	out
+}
+
+func fold(k int) int { if k < 0 { (0 - k) % 6 } else { k % 6 } }
+
+// picked is the reference merge: the merged values and the keys that
+// clash.
+func picked(base Map[int, int], ours Map[int, int], theirs Map[int, int]) (Map[int, int], []int) {
+	let mut out = Map[int, int]{}
+	let mut clashes = []int{}
+	for key in 0..6 {
+		let (b, o, t) = (base.Get(key), ours.Get(key), theirs.Get(key))
+		let v = if o == b {
+			t
+		} else if t == b || o == t {
+			o
+		} else {
+			clashes = clashes.Append(key)
+			None
+		}
+		match v {
+		case Some[int] as x:
+			out[key] = x.Value
+		case None:
+		}
+	}
+	(out, clashes)
+}
+
+// unitFile is units as a Lines file: "unit kK" over "  vV" for each.
+func unitFile(units Map[int, int]) string {
+	let mut out = ""
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			out = out + "unit k\(key)\n  v\(v.Value)\n"
+		case None:
+		}
+	}
+	out
+}
+
+// memberFile is a preamble and one unit c whose members are the units
+// ("  m kK vV"), after a member a that no script touches, then a line
+// "  end".
+func memberFile(units Map[int, int]) string {
+	let mut out = "# a file\nunit c\n  m a v0\n"
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			out = out + "  m k\(key) v\(v.Value)\n"
+		case None:
+		}
+	}
+	out + "  end\n"
+}
+
+// valuesOf is the values a merged text holds: of its units, or of the
+// members of its unit c. None when it does not parse.
+func valuesOf(text string, members bool) Option[Map[int, int]] {
+	let units = Units(NewLines(), "f.lines", text) catch {
+	case work.Unreadable, work.Unanswered:
+		return None
+	}
+	let mut out = Map[int, int]{}
+	for u in units {
+		let pieces = if members && u.Key == "c" { u.Members } else if members { []work.Unit{} } else { []work.Unit{u} }
+		for p in pieces {
+			if !strings.HasPrefix(p.Key, "k") {
+				continue
+			}
+			let words = strings.Fields(p.Text)
+			let key = strconv.Atoi(p.Key[1:]) catch {
+			case _:
+				return None
+			}
+			let value = strconv.Atoi(strings.TrimPrefix(words[len(words)-1], "v")) catch {
+			case _:
+				return None
+			}
+			out[key] = value
+		}
+	}
+	Some[Map[int, int]]{Value: out}
+}
+
+// UnitsMergeIsTheReference: two scripts on a file of units merge unit by
+// unit to the reference, with ours' units in ours' order and theirs' in
+// theirs'; where it clashes, the conflicts are its keys, SameNewHandle for
+// a key both added and SameDeclaration for the others.
+law UnitsMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let ours = scripted(base, ourEdits)
+	let theirs = scripted(base, theirEdits)
+	let got = work.MergeUnits(NewLines(), "f.lines", unitFile(base), unitFile(ours), unitFile(theirs)) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	let mut names = []string{}
+	for k in clashes {
+		names = names.Append(if base.Get(k) == None { "SameNewHandle k\(k)" } else { "SameDeclaration k\(k)" })
+	}
+	if len(names) > 0 {
+		return slices.Sort(got.Conflicts) == slices.Sort(names)
+	}
+	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want} && keeps(got.Text, ours) && keeps(got.Text, theirs)
+}
+
+// keeps reports whether the units of text that side holds are in side's
+// order (unitFile's: by key).
+func keeps(text string, side Map[int, int]) bool {
+	let units = Units(NewLines(), "f.lines", text) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let mut last = -1
+	for u in units {
+		let key = strconv.Atoi(strings.TrimPrefix(u.Key, "k")) catch {
+		case _:
+			return false
+		}
+		if side.Get(key) != None {
+			if key < last {
+				return false
+			}
+			last = key
+		}
+	}
+	true
+}
+
+// MembersMergeIsTheReference: the same for the members of one unit both
+// sides changed (fresh: a unit both sides added, as two imports of one
+// module): they merge member by member, and the conflicts are
+// SameMember c.kK for the members both changed apart. When theirs also
+// changes the unit's last line (tail), the text around the members takes
+// it; for a fresh unit, two texts around them are SameNewHandle c.
+law MembersMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, fresh bool, tail bool) {
+	let base = if fresh { Map[int, int]{} } else { scripted(units, []classes.Edit{}) }
+	let ours = scripted(base, ourEdits)
+	let theirs = scripted(base, theirEdits)
+	let baseText = if fresh { "# a file\n" } else { memberFile(base) }
+	let theirText = if tail { strings.ReplaceAll(memberFile(theirs), "  end\n", "  done\n") } else { memberFile(theirs) }
+	let got = work.MergeUnits(NewLines(), "f.lines", baseText, memberFile(ours), theirText) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	if fresh && tail {
+		return got.Conflicts == []string{"SameNewHandle c"}
+	}
+	if tail && !strings.HasSuffix(got.Text, "  done\n") && len(got.Conflicts) == 0 {
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	let mut names = []string{}
+	for k in clashes {
+		names = names.Append("SameMember c.k\(k)")
+	}
+	if len(names) > 0 {
+		return slices.Sort(got.Conflicts) == slices.Sort(names)
+	}
+	len(got.Conflicts) == 0 && valuesOf(got.Text, true) == Some[Map[int, int]]{Value: want}
+}
+
+// bodyFile is one unit c with no members: a line "  kK vV" for each of
+// the keys 0..5 (a key with no value is v0), each line after a line "  -"
+// so that no two changed lines are next to each other.
+func bodyFile(values Map[int, int]) string {
+	let mut out = "unit c\n"
+	for key in 0..6 {
+		out = out + "  -\n  k\(key) v\(maps.GetOr(values, key, 0))\n"
+	}
+	out
+}
+
+func bodyValues(text string) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for line in strings.Split(text, "\n") {
+		let words = strings.Fields(line)
+		if len(words) == 2 && strings.HasPrefix(words[0], "k") {
+			let key = strconv.Atoi(words[0][1:]) catch {
+			case _:
+				continue
+			}
+			let value = strconv.Atoi(strings.TrimPrefix(words[1], "v")) catch {
+			case _:
+				continue
+			}
+			if value != 0 {
+				out[key] = value
+			}
+		}
+	}
+	out
+}
+
+// BodyLinesMergeWithinTheUnit: a unit with no members whose lines both
+// sides changed apart, on lines that are not next to each other, merges
+// by lines within it, as Git would merge the file; changed apart on one
+// line it is SameDeclaration c.
+law BodyLinesMergeWithinTheUnit(values Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let mut base = Map[int, int]{}
+	for k, v in scripted(values, []classes.Edit{}) {
+		if v != 0 {
+			base[k] = v
+		}
+	}
+	let ours = without0(scripted(base, ourEdits))
+	let theirs = without0(scripted(base, theirEdits))
+	let got = work.MergeUnits(NewLines(), "f.lines", bodyFile(base), bodyFile(ours), bodyFile(theirs)) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	if len(clashes) > 0 {
+		return got.Conflicts == []string{"SameDeclaration c"}
+	}
+	len(got.Conflicts) == 0 && bodyValues(got.Text) == want
+}
+
+func without0(m Map[int, int]) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in m {
+		if v != 0 {
+			out[k] = v
+		}
+	}
+	out
 }

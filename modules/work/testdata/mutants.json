@@ -37,7 +37,7 @@
       "name": "ws0-rm-unkept-work", "origin": "wf10/semws WS0",
       "file": "modules/work/work/remove.ergo",
       "from": "\t\t\tif !kept {\n",
-      "to": "\t\t\tif false {\n",
+      "to": "\t\t\tif !kept && false {\n",
       "rule": "rm refuses a workspace whose work is not in its parent unless -abandon: memory's ToolAgreesWithTheReference (an edit, then rm), the rm-dirty case.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:work"]
     },
@@ -205,7 +205,7 @@
       "name": "ws1-env-unreplaced", "origin": "wf10/semws WS1",
       "file": "modules/work/work/api.ergo",
       "from": "lines = lines.Append(strings.ReplaceAll(line, \"{workspace}\", w.Path))",
-      "to": "lines = lines.Append(line)",
+      "to": "lines = lines.Append(strings.ReplaceAll(line, \"{workspace}\", w.Path[0:0] + \"{workspace}\"))",
       "rule": "env names the workspace's folder: the env case.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
@@ -237,7 +237,7 @@
       "name": "ws5e-their-row-dropped", "origin": "wf10/semws WS5a-early (compounding #6)",
       "file": "modules/work/classes/rows.ergo",
       "from": "\t\t\t\t\tout = rowInserted(out, after, Row{Key: r.Key, Raw: v.Value})",
-      "to": "\t\t\t\t\tout = out",
+      "to": "\t\t\t\t\tout = out.Append(Row{Key: r.Key, Raw: v.Value})[0:len(out)]",
       "rule": "A row only theirs added is in the merge: classes' RowsAreTheReference.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -445,7 +445,7 @@
       "name": "wg0-stat-dirty-counts-changes", "origin": "wf10/semws WG0",
       "file": "modules/work/git/git.ergo",
       "from": "\tstat - changed\n",
-      "to": "\tstat\n",
+      "to": "\tstat - changed*0\n",
       "rule": "refresh and doctor count stale stats, not changed files: the refresh case.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
@@ -693,7 +693,7 @@
       "name": "ws9a-idle-age-ignored", "origin": "wf10/semws WS9a",
       "file": "modules/work/work/remove.ergo",
       "from": "\t\tif time.Times(1s, int(at-w.Since)) < idle {\n",
-      "to": "\t\tif false {\n",
+      "to": "\t\tif time.Times(1s, int(at-w.Since)) < idle && false {\n",
       "rule": "gc -idle finds only the workspaces unused for the age: memory's ToolAgreesWithTheReference (the reported names are the reference's idled).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -853,7 +853,7 @@
       "name": "wg6-rift-marker-unchecked", "origin": "wf10/semws WG6a",
       "file": "modules/work/work/rift.ergo",
       "from": "\tif strings.TrimSpace(marker) != c.Id {",
-      "to": "\tif false {",
+      "to": "\tif strings.TrimSpace(marker) != c.Id && false {",
       "rule": "A copy whose .rift marker names another id is left (memory's AdoptRiftKeepsTheTree).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1053,7 +1053,7 @@
       "name": "wg4-plugintest-edit-unchecked", "origin": "wf10/semws WG4",
       "file": "modules/work/work/plugintest.ergo",
       "from": "\t\tif !StaysInItsUnit(before, u.Units, inside) {",
-      "to": "\t\tif false {",
+      "to": "\t\tif !StaysInItsUnit(before, u.Units, inside) && false {",
       "rule": "plugin-test refuses a key that moves with an edit before its unit by law EditStaysInItsUnit (memory's PluginTestRefusesEachFault).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1061,8 +1061,64 @@
       "name": "wg4-plugintest-layer-unchecked", "origin": "wf10/semws WG4",
       "file": "modules/work/work/plugintest.ergo",
       "from": "\t\tlet a = answers[i]\n",
-      "to": "\t\tlet a = answers[0]\n",
+      "to": "\t\tlet a = answers[i*0]\n",
       "rule": "plugin-test checks the layer that writes the files as they are by law EmptyLayerIsTheBase (memory's PluginTestRefusesEachFault).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-no-members", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tif len(u.Members) == 0 {\n\t\treturn None",
+      "to": "\tif true {\n\t\treturn None",
+      "rule": "A unit both sides changed apart merges by its members (memory's MembersMergeIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-no-lines-within", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\t\tif lines.Clashes == 0 && base != None {",
+      "to": "\t\tif false {",
+      "rule": "A unit both sides changed on lines apart merges by lines within it (memory's BodyLinesMergeWithinTheUnit).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-theirs-at-the-end", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\t\t\torder = placed(order, after, u.Key)",
+      "to": "\t\t\torder = placed(order, Some[string]{Value: textOf(after) + \" none\"}, u.Key)",
+      "rule": "A unit theirs added goes after the unit before it in theirs (memory's UnitsMergeIsTheReference keeps theirs' order).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-new-handle-unnamed", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "} else if base == None { \"SameNewHandle\" } else {",
+      "to": "} else if base == None { \"SameDeclaration\" } else {",
+      "rule": "Two units of one name both sides added apart are SameNewHandle (memory's UnitsMergeIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-member-unnamed", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tlet overlap = if parent != \"\" { \"SameMember\" }",
+      "to": "\tlet overlap = if parent != \"\" { \"SameDeclaration\" }",
+      "rule": "Two members both sides changed apart are SameMember (memory's MembersMergeIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-fresh-shells-apart", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\t\tif o != t {\n\t\t\treturn None\n\t\t}\n",
+      "to": "",
+      "rule": "A unit both sides added with other text around its members is SameNewHandle, not merged by members (memory's MembersMergeIsTheReference, fresh and tail).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-tail-ours", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "Some[string]{Value: o.After}, Some[string]{Value: t.After}",
+      "to": "Some[string]{Value: o.After}, Some[string]{Value: o.After}",
+      "rule": "The text after a unit's members takes the side that changed it (memory's MembersMergeIsTheReference, tail).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
