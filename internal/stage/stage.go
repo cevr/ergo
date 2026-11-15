@@ -66,6 +66,12 @@ const (
 	// or the Go source text alone, the reference lowering (TEQb).
 	BinariesIR
 	BinariesText
+	// ObligationsEvaluated counts the tests and law runs whose verdict
+	// `ergo test` printed from the check-time evaluator (tier 1, TESTSPEED
+	// FT1), and EvalSteps the evaluator steps `ergo test` spent, whether
+	// or not the evaluator then decided the package.
+	ObligationsEvaluated
+	EvalSteps
 	numCounters
 )
 
@@ -78,6 +84,7 @@ var names = [numCounters]string{
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
 	"shared_fallbacks", "binaries_ir", "binaries_text",
+	"obligations_evaluated", "eval_steps",
 }
 
 var counts [numCounters]atomic.Int64

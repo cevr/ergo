@@ -107,6 +107,9 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		}
 		return err
 	}
+	if answered, err := evaluatedTestRun(opts, l, os.Stdout, os.Stderr); answered {
+		return err
+	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
 		return err
@@ -289,6 +292,18 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	// laws and site instances the run build uses, checked alone. In a
 	// module's one test binary (sharedTestCommand) this runs once per
 	// package, as each package's own `ergo test` does.
+	if err := writeTestLedger(opts, l); err != nil {
+		return err
+	}
+	if store != nil {
+		store(result)
+	}
+	return nil
+}
+
+// writeTestLedger writes the law ledger a passing full run leaves
+// (runtime.md, Tests 10), whichever tier answered it.
+func writeTestLedger(opts fileOptions, l loaded) error {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err
@@ -311,9 +326,6 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	}
 	if changed > 0 {
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
-	}
-	if store != nil {
-		store(result)
 	}
 	return nil
 }
