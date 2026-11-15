@@ -30,7 +30,10 @@ import (
 // A record argument the component does not read all of is compared by
 // the fields it reads (check.Info.Reads; NS2b) when each of them compares
 // with == and holds no pointer, so a record holding a slice the component
-// never reads is a group too (readFields).
+// never reads is a group too (readFields). With NS2c a compared value
+// may also be a slice, a Map or a record holding one (eqArg): the call
+// goes through groupBy with the generated structural equality and a copy
+// the group keeps, made only when the call runs (sameLit, keepLit).
 //
 // SetUISkipForTest(false) selects the reference: every call runs
 // (TestUISkipAgrees); so does a compiler built with
@@ -79,11 +82,85 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 		if !(plainOperand(a) || fc.rowFree(a)) {
 			return nil
 		}
-		if _, ok := fc.readFields(fn, k, x); !ok && !groupArg(fc.typeOf(a)) {
+		if _, ok := fc.readFields(fn, k, x); !ok && !eqArg(fc.typeOf(a)) {
 			return nil
 		}
 	}
 	return g
+}
+
+// uiEqOff selects the lowering without generated equality (NS2b's): an
+// argument or read field that Go's == cannot compare makes the call no
+// group.
+var uiEqOff bool
+
+// SetUIEqForTest selects comparing slices, Maps and the records that hold
+// them by their generated structural equality, against a copy the group
+// keeps (true, the default; NS2c), or making such a call no group (false),
+// and returns a function that restores the previous choice.
+func SetUIEqForTest(on bool) func() {
+	old := uiEqOff
+	uiEqOff = !on
+	return func() { uiEqOff = old }
+}
+
+// eqArg reports a type a group may compare: one Go's == compares that
+// holds no pointer (groupArg), or, with NS2c, one whose structural
+// equality the lowering generates (a slice, a Map, a record, tuple or
+// union that holds one) and that reaches no pointer and no function, so
+// that equal values are interchangeable and a copy of one is a value of
+// its own. Its compare is O(n) in the value, against the O(nodes) run of
+// the call it may skip (measured: about 10 instructions a row of ints
+// against about 7,700 to run the row; corpus-wave/LY/ns2c-proposal.md).
+func eqArg(t check.Type) bool {
+	if groupArg(t) {
+		return true
+	}
+	return !uiEqOff && check.Equatable(t) && !mentionsTypeParam(t) && valueFree(t, map[check.Type]bool{})
+}
+
+// valueFree is pointerFree that also goes through a slice's elements and a
+// Map's keys and values.
+func valueFree(t check.Type, seen map[check.Type]bool) bool {
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	if n, ok := t.(*check.Named); ok {
+		return valueFree(n.Underlying(), seen)
+	}
+	switch u := t.(type) {
+	case *check.Basic:
+		return true
+	case *check.Slice:
+		return valueFree(u.Elem, seen)
+	case *check.Map:
+		return valueFree(u.Key, seen) && valueFree(u.Elem, seen)
+	case *check.Array:
+		return valueFree(u.Elem, seen)
+	case *check.Struct:
+		for _, f := range u.Fields {
+			if !valueFree(f.Type, seen) {
+				return false
+			}
+		}
+		return true
+	case *check.Union:
+		for _, v := range u.Variants {
+			if !valueFree(v, seen) {
+				return false
+			}
+		}
+		return true
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if !valueFree(e, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // uiReadsOff selects the lowering without read sets (NS2a's): a record
@@ -103,9 +180,8 @@ func SetUIReadsForTest(on bool) func() {
 // x of fn that fn reads (check.Info.Reads; NS2b), when the group may
 // compare those alone: the argument has the parameter's record type, with
 // no conversion and no type arguments, fn's body does not read all of it,
-// and each field it reads compares with Go's == and holds no pointer
-// (groupArg), so that the comparison is constant time. A record that
-// holds a slice is then a group when the component reads no slice of it.
+// and each field it reads is one a group may compare (eqArg): with Go's
+// == in constant time, or, with NS2c, by generated equality.
 func (fc *funcCtx) readFields(fn *check.Func, k int, x *syntax.CallExpr) ([]*check.Field, bool) {
 	if uiReadsOff || fn.Pkg.Info == nil || len(x.Args) != len(fn.Sig.Params) {
 		return nil, false
@@ -133,7 +209,7 @@ func (fc *funcCtx) readFields(fn *check.Func, k int, x *syntax.CallExpr) ([]*che
 				break
 			}
 		}
-		if field == nil || !groupArg(field.Type) {
+		if field == nil || !eqArg(field.Type) {
 			return nil, false
 		}
 		out = append(out, field)
@@ -288,7 +364,23 @@ func pointerFree(t check.Type, seen map[check.Type]bool) bool {
 // groupCall is the Go text of the component call x of c through group g.
 func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (string, bool, bool) {
 	frame, _ := groupFrame(fc.typeOf(x.Args[0]))
+	// by: some compared value is one Go's == cannot compare, so the call
+	// goes through groupBy with generated equality and copy (NS2c).
+	by := false
+	for k, a := range x.Args {
+		if k == 0 {
+			continue
+		}
+		if fields, ok := fc.readFields(c.Func, k, x); ok {
+			for _, f := range fields {
+				by = by || !groupArg(f.Type)
+			}
+		} else {
+			by = by || !groupArg(fc.typeOf(a))
+		}
+	}
 	var types, vals []string
+	var ctypes []check.Type
 	preset := map[syntax.Expr]string{}
 	for k, a := range x.Args {
 		if k == 0 {
@@ -304,13 +396,17 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 			td := fc.l.typeDecl(fc.typeOf(a).(*check.Named).Obj, a)
 			for _, f := range fields {
 				types = append(types, fc.goType(f.Type))
+				ctypes = append(ctypes, f.Type)
 				vals = append(vals, loc+"."+td.fieldName[f.Name])
 			}
 			continue
 		}
 		types = append(types, t)
+		ctypes = append(ctypes, fc.typeOf(a))
 		v := fc.value(a)
-		if _, constant := fc.l.info.Values[a]; !constant && !plainOperand(a) {
+		// Under groupBy a name or selection is read once too: a value the
+		// value rule copies at the call would be copied twice.
+		if _, constant := fc.l.info.Values[a]; !constant && (by || !plainOperand(a)) {
 			// Evaluated once, here, in order: the call reads the local.
 			loc := fc.temp("arg")
 			fc.line("var " + loc + " " + t + " = " + v)
@@ -341,6 +437,20 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 	if fallible {
 		ice(x, "a component call lowered as fallible")
 	}
+	body := fc.goType(g.Sig.Params[2].Type)
+	env := strings.TrimSuffix(strings.TrimPrefix(body, "func("), ") (struct{}, error)")
+	if env == body || strings.Contains(env, ",") {
+		ice(x, "std ui's group body has the Go type %s, not func(env) (struct{}, error)", body)
+	}
+	lit := "func(_ " + env + ") (struct{}, error) {\n" + text + "\nreturn struct{}{}, nil\n}"
+	operands := []string{f, args}
+	if by {
+		g = groupByOf(frame)
+		if g == nil {
+			ice(x, "std ui declares no groupBy over its frame")
+		}
+		operands = append(operands, fc.sameLit(env, argType, ctypes, x), fc.keepLit(env, argType, ctypes, x))
+	}
 	gd := fc.l.useFunc(g, x)
 	if gd.method != nil {
 		ice(x, "std ui's group lowered as a method")
@@ -349,16 +459,77 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 	if !ok {
 		ice(x, "std ui's group takes no CallSite last")
 	}
-	body := fc.goType(g.Sig.Params[2].Type)
-	env := strings.TrimSuffix(strings.TrimPrefix(body, "func("), ") (struct{}, error)")
-	if env == body || strings.Contains(env, ",") {
-		ice(x, "std ui's group body has the Go type %s, not func(env) (struct{}, error)", body)
-	}
-	lit := "func(_ " + env + ") (struct{}, error) {\n" + text + "\nreturn struct{}{}, nil\n}"
 	lead := []string{}
 	if !gd.pure {
 		lead = fc.taskDestArgs(x, c, g.Sig)
 	}
-	call := gd.name + "[" + fc.goType(frame.TArgs[0]) + ", " + argType + "](" + strings.Join(append(lead, f, args, lit, fc.siteValue(x, site)), ", ") + ")"
+	operands = append(append(lead, operands...), lit, fc.siteValue(x, site))
+	call := gd.name + "[" + fc.goType(frame.TArgs[0]) + ", " + argType + "](" + strings.Join(operands, ", ") + ")"
 	return call, false, gd.fallible
+}
+
+// sameLit is the Go text of groupBy's same for arguments of the Go type
+// argType holding values of ctypes (one, or fields F0, F1, …): each
+// compared by Go's == or its generated structural equality (equal.go).
+func (fc *funcCtx) sameLit(env, argType string, ctypes []check.Type, x syntax.Node) string {
+	a, b := fc.temp("ga"), fc.temp("gb")
+	var conj []string
+	if len(ctypes) == 1 {
+		conj = []string{fc.equalCall(ctypes[0], a, b, x)}
+	} else {
+		for i, t := range ctypes {
+			n := "F" + strconv.Itoa(i)
+			conj = append(conj, fc.equalCall(t, a+"."+n, b+"."+n, x))
+		}
+	}
+	return "func(_ " + env + ", " + a + ", " + b + " " + argType + ") (bool, error) {\nreturn " + strings.Join(conj, " && ") + ", nil\n}"
+}
+
+// keepLit is the Go text of groupBy's keep: a copy of the arguments that
+// shares no slice or Map with them (the value rule's copy, values.go).
+func (fc *funcCtx) keepLit(env, argType string, ctypes []check.Type, x syntax.Node) string {
+	a := fc.temp("ga")
+	var v string
+	if len(ctypes) == 1 {
+		v = fc.cloneValue(ctypes[0], a, x)
+	} else {
+		var fs []string
+		for i, t := range ctypes {
+			fs = append(fs, fc.cloneValue(t, a+".F"+strconv.Itoa(i), x))
+		}
+		v = argType + "{" + strings.Join(fs, ", ") + "}"
+	}
+	return "func(_ " + env + ", " + a + " " + argType + ") (" + argType + ", error) {\nreturn " + v + ", nil\n}"
+}
+
+// groupByOf is the group function over frame for arguments Go's == cannot
+// compare, found by its checked shape as groupFrame finds group:
+//
+//	func g[E, A](f *T[E], args A, same func(a A, b A) bool, keep func(a A) A, body func(), at CallSite)
+func groupByOf(frame *check.Named) *check.Func {
+	for _, g := range frame.Obj.Pkg.Funcs {
+		sig := g.Sig
+		if g.Decl == nil || g.Decl.Extern != nil || sig == nil || len(sig.TParams) != 2 || len(sig.Params) != 6 || len(sig.Results) != 0 {
+			continue
+		}
+		p, ok := sig.Params[0].Type.(*check.Pointer)
+		if !ok {
+			continue
+		}
+		f, ok := p.Elem.(*check.Named)
+		a := check.Type(sig.TParams[1])
+		if !ok || origin(f) != origin(frame) || sig.Params[1].Type != a {
+			continue
+		}
+		same, ok1 := sig.Params[2].Type.(*check.Signature)
+		keep, ok2 := sig.Params[3].Type.(*check.Signature)
+		body, ok3 := sig.Params[4].Type.(*check.Signature)
+		if !ok1 || !ok2 || !ok3 || len(same.Params) != 2 || len(same.Results) != 1 || len(keep.Params) != 1 || len(keep.Results) != 1 || keep.Results[0] != a || len(body.Params) != 0 || len(body.Results) != 0 {
+			continue
+		}
+		if _, ok := sig.Params[5].Type.(*check.Named); ok {
+			return g
+		}
+	}
+	return nil
 }

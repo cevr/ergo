@@ -347,6 +347,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"UIArgsSet":  {},
 	"UIArgsFree": {},
 	"UIArgsHeld": {},
+	// NS2c: the memo of arguments compared by generated equality.
+	"UIArgsPutAny": {},
+	"UIArgsSetAny": {},
+	"UIArgsHas":    {},
+	"UIArgsAt":     {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
 	// an Op holds its mutex for one step and calls no program code.
 	"NewOp":     {},

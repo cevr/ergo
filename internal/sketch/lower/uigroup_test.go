@@ -279,6 +279,85 @@ func wideView(f *ui.Frame[int], w Wide) {
 	wideA(f, w)
 }
 
+// cards is a list holder: a component whose argument is a slice, a group
+// compared by its structural equality against a copy it keeps (NS2c).
+func cards(f *ui.Frame[int], xs []Item) {
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, xs, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
+			ui.Text(f, "card \(it.Text) \(b(it.Done))")
+		}
+	}
+}
+
+func cardsView(f *ui.Frame[int], s St) {
+	ui.Text(f, "tick \(s.A)")
+	cards(f, s.Items)
+}
+
+// Bag is a record with a nested slice, read whole by bagged.
+type Bag { Name string, Tags []int }
+
+func bagged(f *ui.Frame[int], g Bag) {
+	ui.Text(f, "bag \(g.Name) \(len(g.Tags))")
+}
+
+// cardsGuard renders n cards under a header, then the header alone
+// changed, then one card's text: the components run and the nodes
+// compared after each of the last two.
+func cardsGuard(n int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let _ = ui.Render(&f, cardsView, St{A: 0, It: it, Items: listed(n, -1)})
+	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, -1)})
+	Console.Println("cards \(n) tick \(ui.GroupRuns(&f)) \(ui.Compared(&f))")
+	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, n/2)})
+	Console.Println("cards \(n) edit \(ui.GroupRuns(&f))")
+}
+
+// marks shows its first card, then writes it through a let mut of its
+// parameter, dead after it, so in place, into the array it was called
+// with.
+func marks(f *ui.Frame[int], xs []Item) {
+	ui.Text(f, "first \(xs[0].Text)")
+	let mut ys = xs
+	ys[0] = Item{Id: 0, Text: "seen", Done: true}
+	ui.Text(f, "after \(ys[0].Text)")
+}
+
+func marksView(f *ui.Frame[int], s St) {
+	marks(f, s.Items)
+}
+
+// tagged takes two values (compared as fields of one), then writes its
+// tags in place through a let mut of its parameter.
+func tagged(f *ui.Frame[int], name string, tags []int) {
+	ui.Text(f, "tag \(name) \(tags[0])")
+	let mut t = tags
+	t[0] = 99
+	ui.Text(f, "t \(t[0])")
+}
+
+func taggedView(f *ui.Frame[int], g Bag) {
+	tagged(f, g.Name, g.Tags)
+}
+
+// aliased renders marks over three cards, then over the cards marks
+// wrote: the group's kept copy is its own, so the write in place did not
+// reach it, the arguments differ and the new first card shows.
+func aliased() needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let _ = ui.Render(&f, marksView, St{A: 0, It: it, Items: listed(3, -1)})
+	let mut xs = listed(3, -1)
+	xs[0] = Item{Id: 0, Text: "seen", Done: true}
+	let _ = ui.Render(&f, marksView, St{A: 0, It: it, Items: xs})
+	Console.Println(shot(ui.FrameShape(&f), "aliased "))
+	let mut g = ui.NewFrame[int]()
+	let _ = ui.Render(&g, taggedView, Bag{Name: "x", Tags: []int{1, 2}})
+	let _ = ui.Render(&g, taggedView, Bag{Name: "x", Tags: []int{99, 2}})
+	Console.Println(shot(ui.FrameShape(&g), "aliased "))
+}
+
 // subset renders wideA as only Tags changes, then M (read by no one),
 // then N (read through label): the components run and the groups kept
 // after each of the last three passes.
@@ -430,6 +509,7 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		// is kept on equal It.Text and N; wideB reads the slice, so runs.
 		w("wideA(f, Wide{It: it, Tags: rows(a), N: a%%3, M: a})")
 		w("wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})")
+		w("bagged(f, Bag{Name: it.Text, Tags: rows(a)})")
 	case 0:
 		w(`ui.Text(f, "c%d \(a) \(it.Text)")`, i)
 	case 1:
@@ -501,6 +581,7 @@ func s%dview(f *ui.Frame[int], s St) {
 			%s(f, s.A, it)
 		}
 	}
+	cards(f, s.Items)
 }
 `, g.seed, g.name(0), g.name(1))
 }
@@ -592,7 +673,13 @@ func (g *uiSkipGen) states(n int) []string {
 // reads, through a nested call too (NS2b): generated components read
 // subsets of their Item, and subset counts a record kept while its slice
 // and an unread field change, and run when a field read through label
-// changes.
+// changes. A list holder, cards(f, s.Items), and a record with a nested
+// slice, Bag, are groups compared by their structural equality against
+// a copy the group keeps (NS2c): each seed's view calls cards over its
+// edited, grown, shrunk and shuffled items; cardsGuard counts a header
+// change above n cards (no run, the header alone compared, at 50 and 200)
+// and one edited card (one run); aliased writes a card in place after a
+// pass, which the kept copy must not see.
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
@@ -604,10 +691,14 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-group-again-skips, ui-group-fresh-impure-leak, ui-group-cut-slot-leak,
 // ui-group-inner-unstamped, ui-group-inner-unlisted, ui-ns2a-arg-twice,
 // ui-ns2a-arg-unvalued, ui-ns2a-computed-refused, ui-ns2b-nested-unjoined,
-// ui-ns2b-whole-record, ui-ns2b-slice-field, ui-ns2b-field-unread.
+// ui-ns2b-whole-record, ui-ns2b-field-unread, ui-ns2c-off,
+// ui-ns2c-same-length, ui-ns2c-keep-aliases, ui-ns2c-fields-unkept.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
-	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	var seeds []uint64
+	for s := range uint64(32) {
+		seeds = append(seeds, s+1)
+	}
 	if *uiSkipSeed != 0 {
 		seeds = []uint64{*uiSkipSeed}
 	}
@@ -631,7 +722,7 @@ func TestUISkipAgrees(t *testing.T) {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -653,7 +744,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") && !strings.HasPrefix(l, "subset ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") && !strings.HasPrefix(l, "subset ") && !strings.HasPrefix(l, "cards ") {
 				keep = append(keep, l)
 			}
 		}
@@ -694,7 +785,7 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
-		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "), strings.HasPrefix(l, "subset "):
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "), strings.HasPrefix(l, "subset "), strings.HasPrefix(l, "cards "):
 			elsewhere = append(elsewhere, l)
 		}
 	}
@@ -715,7 +806,7 @@ func TestUISkipAgrees(t *testing.T) {
 	// NS2b: a record argument with a slice is a group of the fields its
 	// component reads: kept while only the slice or an unread field
 	// changes, run when a field read through a nested call changes.
-	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1", "cards 50 tick 0 1", "cards 50 edit 1", "cards 200 tick 0 1", "cards 200 edit 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
 		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change; components run and groups kept in subset)", elsewhere, want)
 	}
 }
