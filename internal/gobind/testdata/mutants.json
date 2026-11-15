@@ -55,6 +55,15 @@
       "rule": "A binding does not state a build platform where its declarations differ from the binding platforms'.",
       "killers": ["gobind:TestBindMappingProperty"]
     },
+    {
+      "name": "gobind-w1-std-widened",
+      "origin": "wf10 LY W1",
+      "file": "internal/gobind/std.go",
+      "from": "return bindOn(dir, env, v, Platforms, paths)",
+      "to": "return Bind(dir, env, v, paths...)",
+      "rule": "Go's standard-library bindings state the binding platforms only, as generated (an import of one off them is S104).",
+      "killers": ["gobind:TestGoStdBindingsMatchToolchain"]
+    },
     {"name":"exc1-bind-close-param","origin":"wf10 EXC1","file":"internal/gobind/map.go","from":"if !ok || sig.Params().Len() != 0 || sig.Variadic() {","to":"if !ok || sig.Variadic() {","rule":"ergo bind go writes implements Closer only for Close() or Close() error, never for a Close with a parameter.","killers":["internal/gobind:TestBindMappingProperty"]}
   ]
 }

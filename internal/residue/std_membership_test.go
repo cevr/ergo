@@ -610,3 +610,30 @@ var stdPrivilegesBaseline = []string{
 	"internal/tsproj/http.go:httpTables",
 	"internal/tsproj/project.go:stdJSON",
 }
+
+// stringConsts are the lowering's package-level constants whose value is
+// a string literal, by name: a comparison with one (n.Obj.Pkg.Path ==
+// jsonPackage) keys on the literal it names, as a comparison with the
+// literal does.
+func stringConsts(files map[string]*ast.File) map[string]*ast.BasicLit {
+	out := map[string]*ast.BasicLit{}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, s := range gd.Specs {
+				vs := s.(*ast.ValueSpec)
+				for i, n := range vs.Names {
+					if i < len(vs.Values) {
+						if b, ok := vs.Values[i].(*ast.BasicLit); ok && b.Kind == token.STRING {
+							out[n.Name] = b
+						}
+					}
+				}
+			}
+		}
+	}
+	return out
+}
