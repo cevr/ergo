@@ -57,7 +57,7 @@ func generic[P Pid](p P) int { p.Get() }
 					}
 				}
 			}
-			if want := "Stable for Real: building Real as Pid calls Go and needs go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"; !slices.Contains(reasons, want) {
+			if want := "Stable for Real: building Real as Pid calls Go and requires go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"; !slices.Contains(reasons, want) {
 				t.Errorf("law runs %q, want %q", reasons, want)
 			}
 		}

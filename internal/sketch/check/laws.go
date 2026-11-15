@@ -640,7 +640,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
 	if captured {
-		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and needs go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and requires go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
 		return lp, true
 	}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
