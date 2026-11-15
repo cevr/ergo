@@ -47,7 +47,8 @@ import (
 //   - testdata/reuse, the REUSE plan's shapes (§1) on one user type
 //     Set { xs []int } whose Insert owns its argument, each a = f(a, …)
 //     n times: g1 (Insert, in place since V5), g4 (an early return of the
-//     whole parameter), f2 and f3 (a = InsertCapped(a, …) catch { … }), r1
+//     whole parameter), f2 and f3 (a = InsertCapped(a, …) catch { … }, handed over
+//     across the handled failure since RU2's own-catch), r1
 //     and r2 (a part moved into a literal and an update), r3 (the prelude's
 //     Append in an update), u1 (a union's payload), fv (Insert through a
 //     function value); st (examples/jobs' settle in place, ST's gx9 item
@@ -159,8 +160,8 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		}, ""},
 		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
 		{"reuse-g4", reuse, 200000, "", shape("g4"), ""},
-		{"reuse-f2", reuse, 2000, "", shape("f2"), "RU2"},
-		{"reuse-f3", reuse, 2000, "", shape("f3"), "RU2"},
+		{"reuse-f2", reuse, 200000, "", shape("f2"), ""},
+		{"reuse-f3", reuse, 200000, "", shape("f3"), ""},
 		{"reuse-r1", reuse, 200000, "", shape("r1"), ""},
 		{"reuse-r2", reuse, 200000, "", shape("r2"), ""},
 		{"reuse-r3", reuse, 200000, "", shape("r3"), ""},
