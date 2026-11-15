@@ -1,6 +1,7 @@
 import hex
 import json
 import sha256
+import slices
 import strings
 import toml
 
@@ -24,6 +25,8 @@ let ConfigFile = "work.toml"
 //     installs from it, run only when the lock changed since the last
 //     install.
 //   - Hooks are the four hooks of Rift, each a list of shell commands.
+//   - Classes are the [[class]] lines: how a file merges, by its path
+//     (merge.ergo), the lock presets after them.
 type Config {
 	Storage  string,
 	LeaveOut []string,
@@ -32,6 +35,7 @@ type Config {
 	Lock     string,
 	Install  string,
 	Hooks    HookCommands,
+	Classes  []ClassLine,
 }
 
 // HookCommands are the commands of each hook, run by sh in order:
@@ -64,13 +68,22 @@ law ConfigStarterReads() {
 
 // EmptyConfig is the configuration of a base with no work.toml.
 func EmptyConfig() Config {
-	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}}
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}}
 }
 
 type fileTable {
 	Work  json.Optional[workTable] "work",
 	Deps  json.Optional[depsTable] "deps",
 	Hooks json.Optional[hooksTable] "hooks",
+	Class json.Optional[[]classTable] "class",
+}
+
+type classTable {
+	Match  json.Optional[string] "match",
+	Kind   json.Optional[string] "kind",
+	Sets   json.Optional[[]string] "sets",
+	By     json.Optional[string] "by",
+	Driver json.Optional[string] "driver",
 }
 
 type workTable {
@@ -93,9 +106,10 @@ type hooksTable {
 }
 
 // ParseConfig reads the text of work.toml (TOML 1.0). A table or key it
-// does not know is skipped ([[class]], [language.*] and [land] belong to
-// later units); a value of the wrong type, a folder that leaves the root
-// and an [deps] with a lock and no install are BadConfig.
+// does not know is skipped ([language.*] and [land] belong to later
+// units); a value of the wrong type, a folder that leaves the root, an
+// [deps] with a lock and no install, and a [[class]] with no match, a kind
+// it does not know or a driver with no command are BadConfig.
 func ParseConfig(text string) Config fails BadConfig {
 	let f = toml.Decode(json.Codec[fileTable]{MaxBytes: 1 << 20, MaxDepth: 32}, text) catch {
 	case toml.Malformed as m:
@@ -124,6 +138,25 @@ func ParseConfig(text string) Config fails BadConfig {
 	match f.Hooks {
 	case json.Present[hooksTable] as h:
 		c = Config{..c, Hooks: HookCommands{Precreate: or(h.Value.Precreate), Postcreate: or(h.Value.Postcreate), Preremove: or(h.Value.Preremove), Postremove: or(h.Value.Postremove)}}
+	case json.Absent:
+	}
+	match f.Class {
+	case json.Present[[]classTable] as list:
+		let mut lines = []ClassLine{}
+		for k in list.Value {
+			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver)}
+			if line.Match == "" {
+				return BadConfig{Line: 0, Why: "a [[class]] needs a match"}
+			}
+			if !slices.Contains(ClassKinds, line.Kind) {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): kind \(line.Kind) is not one of \(strings.Join(ClassKinds, ", "))"}
+			}
+			if line.Kind == "driver" && line.Driver == "" {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): a driver needs its command"}
+			}
+			lines = lines.Append(line)
+		}
+		c = Config{..c, Classes: lines}
 	case json.Absent:
 	}
 	c
@@ -184,7 +217,8 @@ func folder(value string) string fails BadConfig {
 }
 
 // Commands is every command work.toml makes the tool run, in a fixed
-// order: the install of [deps], then each hook's commands.
+// order: the install of [deps], then each hook's commands, then each
+// class line's command (a derived file's by, a driver).
 func Commands(c Config) []string {
 	let mut out = []string{}
 	if c.Install != "" {
@@ -193,6 +227,14 @@ func Commands(c Config) []string {
 	for h in HookNames() {
 		for command in HookList(c.Hooks, h) {
 			out = out.Append("hooks.\(h): \(command)")
+		}
+	}
+	for line in c.Classes {
+		if line.By != "" {
+			out = out.Append("class.\(line.Match).by: \(line.By)")
+		}
+		if line.Driver != "" {
+			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
 		}
 	}
 	out

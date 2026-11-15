@@ -41,9 +41,11 @@ func Sync(w Workspaces, o work.SyncOptions) work.Synced fails work.NoBase | work
 
 func Env(w Workspaces, o work.EnvOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept { try w.tool.Env(o) }
 
-func MergeFile(w Workspaces, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadClass | work.MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+func MergeFile(w Workspaces, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadClass | work.BadConfig | work.MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	try w.tool.MergeFile(class, base, ours, theirs, o)
 }
+
+func Derive(w Workspaces, o work.DeriveOptions) work.Derived fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept | work.Untrusted | work.DeriveFailed { try w.tool.Derive(o) }
 
 func Deps(w Workspaces, o work.DepsOptions) work.DepsDone fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept | work.Untrusted | work.DepsFailed | work.Locked { try w.tool.Deps(o) }
 
@@ -87,7 +89,7 @@ law MergeFileWritesTheMerge(base string, ours string, theirs string, rows bool) 
 	case work.MergeConflict as m:
 		failed = true
 		named = m.Path == "f"
-	case work.BadClass, fs.NotFound, fs.Denied, fs.Failed:
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
 	let got = disk.ReadFile("/m/a") catch {

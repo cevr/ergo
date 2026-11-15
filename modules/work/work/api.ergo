@@ -198,12 +198,18 @@ type Api {
 	// Env is the shell lines of work.toml's env for the workspace, for
 	// eval "$(ergo work env)".
 	Env(o EnvOptions) string fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept,
-	// MergeFile is a Git merge driver (merge.<name>.driver = ergo work
-	// merge-file CLASS %O %A %B -path %P): it merges the files ours and
+	// MergeFile is a Git merge driver (merge.<name>.driver = work
+	// merge-file -path %P CLASS %O %A %B): it merges the files ours and
 	// theirs against base by the units of the class (rows, measured,
-	// lines, derived) and writes the merge into ours. A conflict fails,
-	// so the driver ends with status 1 and Git keeps the file conflicted.
-	MergeFile(class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | MergeConflict | fs.NotFound | fs.Denied | fs.Failed,
+	// lines, derived, json; auto takes the class of -path from work.toml's
+	// [[class]] lines and the lock presets) and writes the merge into
+	// ours. A conflict fails, so the driver ends with status 1 and Git
+	// keeps the file conflicted.
+	MergeFile(class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | BadConfig | MergeConflict | fs.NotFound | fs.Denied | fs.Failed,
+	// Derive makes the derived files again (each derived class line's
+	// command, a lock by its package manager) in the workspace, or the
+	// base, after a merge.
+	Derive(o DeriveOptions) Derived fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DeriveFailed,
 	// Deps installs the workspace's packages ([deps] of work.toml) when
 	// its lock file changed since its last install, and starts no process
 	// when it did not.
@@ -377,13 +383,14 @@ func initialized(t Tool) fails NoBase {
 func config(t Tool) Config fails BadConfig {
 	let text = t.files.ReadFile(filepath.Join([]string{t.base, ConfigFile})) catch {
 	case fs.NotFound:
-		return EmptyConfig()
+		return Config{..EmptyConfig(), Classes: PresetLines([]ClassLine{}, presentLocks(t, t.base))}
 	case fs.Denied:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): permission denied"}
 	case fs.Failed as f:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): \(f.Reason)"}
 	}
-	try ParseConfig(text)
+	let c = try ParseConfig(text)
+	Config{..c, Classes: PresetLines(c.Classes, presentLocks(t, t.base))}
 }
 
 // live is the record of name unless it is trashed.
@@ -469,6 +476,7 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 	case VcsFailed:
 	}
 	try register(t)
+	try registerDriver(t, c)
 	t.base
 }
 
@@ -730,32 +738,23 @@ func Env(t Tool, o EnvOptions) string fails NoBase | NotHere | NoWorkspace | Bad
 }
 
 // MergeFile merges the three files by class and writes ours.
-func MergeFile(t Tool, class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+func MergeFile(t Tool, class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | BadConfig | MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	let path = match o.Path {
 	case Some[string] as p:
 		p.Value
 	case None:
 		ours
 	}
+	if class == "auto" {
+		return try MergeByPath(t, try config(t), path, base, ours, theirs)
+	}
 	let c = match classes.ClassNamed(class) {
 	case Some[classes.Class] as k:
 		k.Value
 	case None:
-		return BadClass{Name: class, Known: []string{"rows", "measured", "lines", "derived"}}
+		return BadClass{Name: class, Known: slices.Concat(classes.ClassNames, []string{"auto"})}
 	}
-	let b = try t.files.ReadFile(base)
-	let a = try t.files.ReadFile(ours)
-	let other = try t.files.ReadFile(theirs)
-	let merged = classes.Merge(c, b, a, other) catch {
-	case classes.Unreadable as u:
-		try t.writes.WriteFile(ours, classes.Text(classes.MergeText(b, a, other)))
-		return MergeConflict{Path: path, Class: class, Units: []string{}, Why: "the \(u.Side) side does not read as \(class) at byte \(u.At): \(u.Why)"}
-	}
-	try t.writes.WriteFile(ours, merged.Text)
-	if len(merged.Conflicts) > 0 {
-		return MergeConflict{Path: path, Class: class, Units: merged.Conflicts, Why: "both sides changed these units apart"}
-	}
-	FileMerged{Path: path, Class: class, Regenerate: merged.Regenerate}
+	try mergeWith(t, c, class, path, base, ours, theirs)
 }
 
 // mark writes the marker of the workspace at path: its id in its Git

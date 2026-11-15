@@ -16,4 +16,5 @@ cp -a base .work/base/w
 one=$(printf 'lock one\n' | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-64)
 printf 'put\t"w"\t".work/base/w"\t"base"\t"main"\t"reflink"\tactive\t900\t""\t""\t"w1"\t"%s"\n' "$one" >> .work/base/.registry
 printf 'lock two\n' > .work/base/w/bun.lock
-printf 'deps.install: %s' "$cmd" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-64 > .work/base/.trusted
+# The trust covers every command: the install, and the bun.lock preset's.
+printf 'deps.install: %s\nclass.bun.lock.by: bun install --lockfile-only' "$cmd" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-64 > .work/base/.trusted
