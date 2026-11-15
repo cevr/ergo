@@ -514,8 +514,10 @@ type Halted[S] {
 }
 
 // Defected is an actor that a defect ended (of its step, its timer or its
-// work). The defect itself is Stop's to raise.
-type Defected {}
+// work): Reason is the defect's text, as the runtime's report writes it
+// after "panic: " (an Unreachable's "unreachable at a.ergo:9:3: no
+// route"). The defect itself is Stop's to raise (FK13-g1).
+type Defected { Reason string }
 
 // Failed is an actor that its step's typed failure ended, after a Send or
 // a timer: the failure, a value of the row F (owner q47; an Ask's failure
@@ -548,7 +550,7 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 		}
 	}
 	if k == 3 {
-		return Defected
+		return Defected{Reason: defectOf(a)}
 	}
 	Halted[S]{State: a.State()}
 }
@@ -598,6 +600,9 @@ extern go ergo.local/prototype/runtime/v1.ActorExitKind func exitKind[S, E, D, F
 extern go ergo.local/prototype/runtime/v1.ActorFinal func final[S, E, D, F](a Actor[S, E, D, F]) D
 
 extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](a Actor[S, E, D, F]) fails F
+
+// defectOf is the text of the defect that ended a (kind 3).
+extern go ergo.local/prototype/runtime/v1.ActorDefectReason func defectOf[S, E, D, F](a Actor[S, E, D, F]) string
 
 extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
 

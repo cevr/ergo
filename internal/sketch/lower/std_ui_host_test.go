@@ -2078,8 +2078,8 @@ func crashAppView(f *ui.Frame[int], s int) {
 	ui.Toggle(f, fl, "keep")
 }
 
-func crashText(c ui.Crash[Boom]) string {
-	match c {
+func crashText(c ui.Crash[int, int, Boom]) string {
+	match c.Cause {
 	case ui.DefectCrash:
 		"crashed: defect"
 	case ui.FailureCrash[Boom] as x:
@@ -2090,7 +2090,7 @@ func crashText(c ui.Crash[Boom]) string {
 	}
 }
 
-func crashOwnView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func crashOwnView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.Text(f, crashText(c))
 	ui.Pressable(f, "reload", 3) {
 		ui.Text(f, "reload")
@@ -2115,7 +2115,7 @@ func lawCrashShowsTheCrashView(seed int, steps int) bool {
 func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let reports = sync.NewRef(0)
-	let crashes = ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {
+	let crashes = ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {
 		reports.Update(func(n int) int { n + 1 })
 	}}
 	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
@@ -2124,13 +2124,13 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	let mut count = 0
 	let mut on = false
-	let mut crash Option[ui.Crash[Boom]] = None
+	let mut crash Option[ui.Crash[int, int, Boom]] = None
 	let mut crashed = 0
 	for _ in 0..(steps%24+24)%24+1 {
 		let pick = draw(&r, 4)
 		let mut label = "reload"
 		match crash {
-		case Some[ui.Crash[Boom]]:
+		case Some[ui.Crash[int, int, Boom]]:
 			crash = None
 			count = 0
 			on = false
@@ -2140,11 +2140,11 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 				count = count + 1
 			} else if pick == 1 {
 				label = "defect"
-				crash = Some{Value: ui.DefectCrash}
+				crash = Some{Value: ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: Some{Value: 1}}}
 				crashed = crashed + 1
 			} else if pick == 2 {
 				label = "fail"
-				crash = Some{Value: ui.FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crash = Some{Value: ui.Crash[int, int, Boom]{Cause: ui.FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: Some{Value: 2}}}
 				crashed = crashed + 1
 			} else {
 				label = "keep"
@@ -2156,16 +2156,35 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let want = match crash {
-		case Some[ui.Crash[Boom]] as c:
+		case Some[ui.Crash[int, int, Boom]] as c:
 			[]ui.Shape[int]{leaf(ui.TextNode{Value: crashText(c.Value), Style: ui.Plain()}), pressShape("reload", 3, "reload")}
 		case None:
 			crashAppShapes(count, on)
 		}
-		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || ui.CrashOf(&h) != crash {
+		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || !sameCrash(ui.CrashOf(&h), crash) {
 			return false
 		}
 	}
 	true
+}
+
+func sameCrash(got Option[ui.Crash[int, int, Boom]], want Option[ui.Crash[int, int, Boom]]) bool {
+	match (got, want) {
+	case (Some[ui.Crash[int, int, Boom]] as g, Some[ui.Crash[int, int, Boom]] as w):
+		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
+		match (g.Value.Cause, w.Value.Cause) {
+		case (ui.DefectCrash as x, ui.DefectCrash as y):
+			same && strings.HasPrefix(x.Reason, "unreachable at ") && strings.HasSuffix(x.Reason, ": "+y.Reason)
+		case (ui.FailureCrash[Boom] as x, ui.FailureCrash[Boom] as y):
+			same && x.Failure == y.Failure
+		case _:
+			false
+		}
+	case (None, None):
+		true
+	case _:
+		false
+	}
 }
 
 func lawReloadIsInitial(seed int, defect bool) bool {
@@ -2177,7 +2196,7 @@ func lawReloadIsInitial(seed int, defect bool) bool {
 
 func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {}}, m, 4) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -2191,7 +2210,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, int, Boom]{View: crashOwnView, Report: func(c ui.Crash[int, int, Boom]) {}}, m, 4) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -2236,7 +2255,7 @@ func keyView(f *ui.Frame[int], s int) {
 	ui.Text(f, "at \(s)")
 }
 
-func keyCrashView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func keyCrashView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
 	ui.Text(f, "crashed")
 }
@@ -2277,8 +2296,10 @@ func crashFollows() bool needs Scheduler {
 	let posted = queue.New[ui.Event[int]](64)
 	let reports = sync.NewRef(0)
 	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
-	let crashes = ui.Crashes[int, Boom]{View: keyCrashView, Report: func(c ui.Crash[Boom]) {
+	let reported = sync.NewRef([]ui.Crash[int, int, Boom]{})
+	let crashes = ui.Crashes[int, int, Boom]{View: keyCrashView, Report: func(c ui.Crash[int, int, Boom]) {
 		reports.Update(func(k int) int { k + 1 })
+		reported.Update(func(cs []ui.Crash[int, int, Boom]) []ui.Crash[int, int, Boom] { cs.Append(c) })
 	}}
 	let (s, first) = ui.StartApp(mach, 1, keyView, crashes, func(ev ui.Event[int]) {
 		posted.Push(ev) catch {
@@ -2325,12 +2346,16 @@ func crashFollows() bool needs Scheduler {
 	case queue.Closed:
 		return false
 	}
-	match endedOf(&session, posted, 2) {
+	let shown = match endedOf(&session, posted, 2) {
 	case Some[[]ui.Op[int]] as ops:
 		writesText(ops.Value, "crashed") && reports.Get() == 3
 	case None:
 		false
 	}
+	let cs = reported.Get()
+	let step = ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
+	let work = ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
+	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
 }
 
 func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {

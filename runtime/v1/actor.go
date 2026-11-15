@@ -1613,6 +1613,30 @@ func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	return a.final
 }
 
+// ActorDefectReason is std actor's defectOf(a): the text of the first
+// defect that ended a, as the runtime's report writes it after "panic: "
+// (reportDefect), such as "unreachable at a.ergo:9:3: no route"; "" when
+// no defect ended a. Read after ActorExitKind gave exitDefected (FK13-g1).
+func ActorDefectReason[S, E, D any](a *Actor[S, E, D]) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return defectReason(a.exit)
+}
+
+// defectReason is the text of err's first defect, "" when it has none.
+func defectReason(err error) string {
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return ""
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindDefect {
+			return fmt.Sprintf("%v", r.Value)
+		}
+	}
+	return ""
+}
+
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
 func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {

@@ -538,12 +538,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
-	"Actor.Drain":    {wait: endWait},
-	"ActorExitKind":  {wait: callerWait},
-	"ActorFinal":     {},
-	"ActorFailure":   {},
-	"ActorHasLatest": {},
-	"ActorLatest":    {},
+	"Actor.Drain":   {wait: endWait},
+	"ActorExitKind": {wait: callerWait},
+	"ActorFinal":    {},
+	"ActorFailure":  {},
+	// FK13-g1: the defect's text, read under the actor's lock once it ended.
+	"ActorDefectReason": {},
+	"ActorHasLatest":    {},
+	"ActorLatest":       {},
 	// MU5: MachineChild starts the child's task as a child of the caller's
 	// task, shielded from its stop (the owner entry stops it), and waits
 	// for nothing but the child's start, as MachineStart does.

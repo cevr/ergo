@@ -226,8 +226,8 @@ func reported[F](e actor.Exit[fetch.Manager, fetch.Report, F], at int) string {
 		"stopped"
 	case actor.Failed[F]:
 		"failed"
-	case actor.Defected:
-		"defected"
+	case actor.Defected as d:
+		"defected: \(d.Reason)"
 	}
 }
 

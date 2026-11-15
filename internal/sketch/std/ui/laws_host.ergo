@@ -1464,8 +1464,8 @@ func crashAppView(f *Frame[int], s int) {
 }
 
 // crashText is the crash view's line for c.
-func crashText(c Crash[Boom]) string {
-	match c {
+func crashText(c Crash[int, int, Boom]) string {
+	match c.Cause {
 	case DefectCrash:
 		"crashed: defect"
 	case FailureCrash[Boom] as x:
@@ -1477,7 +1477,7 @@ func crashText(c Crash[Boom]) string {
 }
 
 // crashOwnView is the crash app's crash view: what crashed, and a reload.
-func crashOwnView(f *Frame[int], c Crash[Boom]) {
+func crashOwnView(f *Frame[int], c Crash[int, int, Boom]) {
 	Text(f, crashText(c))
 	Pressable(f, "reload", 3) {
 		Text(f, "reload")
@@ -1499,7 +1499,9 @@ func crashAppShapes(n int, on bool) []Shape[int] {
 // screen is the app's view of the model's count while the actor runs; once
 // it crashed, the crash view of the model's crash, which only a reload
 // leaves; the report ran once per crash, before the crash view showed; and
-// the test host's crash is the model's.
+// the test host's crash is the model's: its cause (a defect's reason is
+// the Unreachable's text), the count it crashed at and the signal it
+// crashed on (FK13-g1).
 law CrashShowsTheCrashView(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1510,7 +1512,7 @@ law CrashShowsTheCrashView(seed int, steps int) {
 func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let reports = sync.NewRef(0)
-	let crashes = Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {
+	let crashes = Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(n int) int { n + 1 })
 	}}
 	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
@@ -1519,13 +1521,13 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	let mut count = 0
 	let mut on = false
-	let mut crash Option[Crash[Boom]] = None
+	let mut crash Option[Crash[int, int, Boom]] = None
 	let mut crashed = 0
 	for _ in 0..(steps%24+24)%24+1 {
 		let pick = draw(&r, 4)
 		let mut label = "reload"
 		match crash {
-		case Some[Crash[Boom]]:
+		case Some[Crash[int, int, Boom]]:
 			crash = None
 			count = 0
 			on = false
@@ -1535,11 +1537,11 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 				count = count + 1
 			} else if pick == 1 {
 				label = "defect"
-				crash = Some{Value: DefectCrash}
+				crash = Some{Value: Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: Some{Value: 1}}}
 				crashed = crashed + 1
 			} else if pick == 2 {
 				label = "fail"
-				crash = Some{Value: FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crash = Some{Value: Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: Some{Value: 2}}}
 				crashed = crashed + 1
 			} else {
 				label = "keep"
@@ -1551,16 +1553,38 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let want = match crash {
-		case Some[Crash[Boom]] as c:
+		case Some[Crash[int, int, Boom]] as c:
 			[]Shape[int]{leaf(TextNode{Value: crashText(c.Value), Style: Plain()}), pressShape("reload", 3, "reload")}
 		case None:
 			crashAppShapes(count, on)
 		}
-		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || CrashOf(&h) != crash {
+		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || !sameCrash(CrashOf(&h), crash) {
 			return false
 		}
 	}
 	true
+}
+
+// sameCrash is whether got is the model's crash want, whose defect's
+// Reason is the end of got's: the runtime's text starts with the
+// Unreachable's position.
+func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Boom]]) bool {
+	match (got, want) {
+	case (Some[Crash[int, int, Boom]] as g, Some[Crash[int, int, Boom]] as w):
+		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
+		match (g.Value.Cause, w.Value.Cause) {
+		case (DefectCrash as x, DefectCrash as y):
+			same && strings.HasPrefix(x.Reason, "unreachable at ") && strings.HasSuffix(x.Reason, ": "+y.Reason)
+		case (FailureCrash[Boom] as x, FailureCrash[Boom] as y):
+			same && x.Failure == y.Failure
+		case _:
+			false
+		}
+	case (None, None):
+		true
+	case _:
+		false
+	}
 }
 
 // ReloadIsInitial (H6a): after drawn adds and presses of the check box, a
@@ -1576,7 +1600,7 @@ law ReloadIsInitial(seed int, defect bool) {
 
 func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -1590,7 +1614,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -1640,7 +1664,7 @@ func keyView(f *Frame[int], s int) {
 }
 
 // keyCrashView is its crash view: any key reloads.
-func keyCrashView(f *Frame[int], c Crash[Boom]) {
+func keyCrashView(f *Frame[int], c Crash[int, int, Boom]) {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
 	Text(f, "crashed")
 }
@@ -1677,7 +1701,9 @@ func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.
 // nothing); a reload's patch shows the fresh actor, and the Ended of an
 // actor a reload replaced changes nothing either; a defect of the fresh
 // actor's work, which no signal of the loop caused, reaches the loop as
-// Ended and shows the crash view. Each crash is reported once.
+// Ended and shows the crash view. Each crash is reported once, the step's
+// on its signal and the work's on none, each with its defect's reason and
+// the state it crashed in (FK13-g1).
 law SessionCrashFollowsTheEnd(n int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1690,8 +1716,10 @@ func crashFollows() bool needs Scheduler {
 	let posted = queue.New[Event[int]](64)
 	let reports = sync.NewRef(0)
 	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
-	let crashes = Crashes[int, Boom]{View: keyCrashView, Report: func(c Crash[Boom]) {
+	let reported = sync.NewRef([]Crash[int, int, Boom]{})
+	let crashes = Crashes[int, int, Boom]{View: keyCrashView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(k int) int { k + 1 })
+		reported.Update(func(cs []Crash[int, int, Boom]) []Crash[int, int, Boom] { cs.Append(c) })
 	}}
 	let (s, first) = StartApp(mach, 1, keyView, crashes, func(ev Event[int]) {
 		posted.Push(ev) catch {
@@ -1738,12 +1766,16 @@ func crashFollows() bool needs Scheduler {
 	case queue.Closed:
 		return false
 	}
-	match endedOf(&session, posted, 2) {
+	let shown = match endedOf(&session, posted, 2) {
 	case Some[[]Op[int]] as ops:
 		writesText(ops.Value, "crashed") && reports.Get() == 3
 	case None:
 		false
 	}
+	let cs = reported.Get()
+	let step = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
+	let work = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
+	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
 }
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
