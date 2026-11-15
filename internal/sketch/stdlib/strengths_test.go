@@ -43,7 +43,9 @@ var (
 // TestStdStrengthsTable: the table has one row per std package, found on
 // disk and in the embedded set, and each row's cells keep the rule.
 func TestStdStrengthsTable(t *testing.T) {
-	disk, err := stdPackageDirs(".")
+	// The std sources are in internal/sketch/std, beside this package (GS25).
+	sources := filepath.Join("..", "std")
+	disk, err := stdPackageDirs(sources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +60,7 @@ func TestStdStrengthsTable(t *testing.T) {
 		t.Fatalf("the walk found %d std packages; want 20 or more", len(disk))
 	}
 	doc := readStdlibDoc(t)
-	for _, problem := range strengthsProblems(t, ".", doc) {
+	for _, problem := range strengthsProblems(t, sources, doc) {
 		t.Error(problem)
 	}
 }
