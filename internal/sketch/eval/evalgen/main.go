@@ -61,7 +61,7 @@ func flush() needs Console {
 	journal.Set([]string{})
 }
 
-type Res { name string }
+type Res { name string } implements Closer
 
 type Pt { X int8, Label string }
 type Circle { R float64 }

@@ -85,7 +85,7 @@ func Outbox(s Session) []string {
 func listen(s Session) Option[machines.Work[Signal, Channel]] {
 	match s.Link {
 	case Connecting:
-		Some{machines.Work{Listen: func(send func(sig Signal)) needs Channel {
+		Some{machines.Work[Signal, Channel]{Start: func(send entry func(sig Signal)) needs Channel {
 			let line = Channel.Dial() catch {
 			case Refused as r:
 				send(Denied{Why: r.Why})

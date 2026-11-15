@@ -46,6 +46,6 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-weather: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-weather: the script did not run"}
 	}
 }

@@ -73,7 +73,7 @@ type Probe {
 	Ping() int,
 }
 
-type Live {}
+type Live {} implements Probe
 
 func Ping(_ Live) int { 1 }
 

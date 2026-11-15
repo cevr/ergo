@@ -15,7 +15,7 @@ import strings
 
 // Sheet is a board.Store in the file at path. It holds the file system it
 // reads and writes as values (as kvstore's Log does).
-type Sheet { path string, files fs.Files, writes fs.Writes }
+type Sheet { path string, files fs.Files, writes fs.Writes } implements board.Store
 
 // Name is the file of a Sheet made by NewSheet.
 let Name = "board.txt"

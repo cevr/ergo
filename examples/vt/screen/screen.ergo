@@ -37,7 +37,7 @@ type Screen {
 	title     string,
 	styles    dense.Counted[vt.Style],
 	grown     int,
-}
+} implements vt.Screen
 
 // New is a blank screen of config's size: at least 1 row and 2 columns.
 func New(config vt.Config) Screen {

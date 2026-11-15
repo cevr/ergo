@@ -11,7 +11,7 @@ import "testing"
 func TestLiteralNeedsAreTheCallers(t *testing.T) {
 	pkg := checked(t, `type Name { Get() string }
 
-type fixed { v string }
+type fixed { v string } implements Name
 
 func Get(f fixed) string { f.v }
 

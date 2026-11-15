@@ -18,7 +18,7 @@ type OpenLine { ID int, Frames queue.Queue[Frame] }
 // Echo is the server and its one open line. Its fields are shared
 // handles, so every copy of an Echo is the same server: NewEcho makes
 // one.
-type Echo { open sync.Ref[Option[OpenLine]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame] }
+type Echo { open sync.Ref[Option[OpenLine]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame] } implements talk.Channel
 
 // NewEcho is a server with no line, which takes the next dial.
 func NewEcho() Echo {

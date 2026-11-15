@@ -6,7 +6,7 @@ import catalog/catalog
 import catalog/xml
 
 // Feed publishes and reads a catalog as XML.
-type Feed {}
+type Feed {} implements catalog.Feed
 
 // NewFeed is the XML feed.
 func NewFeed() Feed { Feed }

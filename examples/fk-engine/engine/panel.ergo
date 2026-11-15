@@ -46,7 +46,7 @@ func Step(m Mode, s Signal) Decision[Mode, Never] {
 func hold(m Mode) Option[machines.Work[Signal, Engines]] {
 	match m {
 	case Booting:
-		Some{machines.Work{Listen: func(send func(s Signal)) needs Engines {
+		Some{machines.Work[Signal, Engines]{Start: func(send entry func(s Signal)) needs Engines {
 			let lease = Engines.Boot() catch {
 			case BootFailed as b:
 				send(Refused{Why: b.Why})

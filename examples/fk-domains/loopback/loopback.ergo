@@ -12,7 +12,7 @@ import fk-domains/domains/domainsrpc
 import fk-domains/sample
 
 // Loopback is a domains.Registry whose every search is an RPC call.
-type Loopback { client domainsrpc.Client }
+type Loopback { client domainsrpc.Client } implements domains.Registry
 
 // NewLoopback serves a sample registry in process and is its client.
 func NewLoopback() Loopback {

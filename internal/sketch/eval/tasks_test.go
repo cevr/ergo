@@ -173,7 +173,7 @@ let journal = sync.NewRef[[]string]([]string{})
 
 func say(s string) { journal.Update(func(xs []string) []string { xs.Append(s) }) }
 
-type Res { name string }
+type Res { name string } implements Closer
 
 func Close(r Res) { say("close " + r.name) }
 

@@ -34,7 +34,7 @@ func main() needs Console {
 `,
 	`type Store { Get() string }
 
-type Holder { V string }
+type Holder { V string } implements Store
 
 func Get(h Holder) string { h.V }
 
@@ -90,7 +90,7 @@ func main() needs Console {
 `,
 	`type Sized { Size() int }
 
-type Box { n int }
+type Box { n int } implements Sized
 
 func Size(b Box) int { b.n }
 

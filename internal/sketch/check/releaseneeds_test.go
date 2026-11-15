@@ -61,17 +61,17 @@ func TestReleaseNeedRows(t *testing.T) {
 		},
 		{
 			name: "with provider part",
-			src:  "type B { Use() }\ntype C { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) needs B { B.Use() }\ntype PcBox { r RB, id int }\nfunc Use(_ PcBox) {}\n\nfunc G() {\n\twith context { C: PcBox{r: RB{id: 1}, id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
+			src:  "type B { Use() }\ntype C { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) needs B { B.Use() }\ntype PcBox { r RB, id int } implements C\nfunc Use(_ PcBox) {}\n\nfunc G() {\n\twith context { C: PcBox{r: RB{id: 1}, id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
 			want: "9:2: S102 RB.Close, run by the release of PcBox when this with ends, requires B, which is not in the capability row of function G and no with provides it; write: func G() needs B",
 		},
 		{
 			name: "with generic capability",
-			src:  "type Log[T] { Put(v T) }\ntype Job { id int }\ntype C { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) needs Log[Job] { Log[Job].Put(Job{id: r.id}) }\nfunc Use(_ RB) {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
+			src:  "type Log[T] { Put(v T) }\ntype Job { id int }\ntype C { Use() }\ntype RB { id int } implements Closer, C\nfunc Close(r RB) needs Log[Job] { Log[Job].Put(Job{id: r.id}) }\nfunc Use(_ RB) {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
 			want: "9:2: S102 RB.Close, run by the release of RB when this with ends, requires Log[Job], which is not in the capability row of function G and no with provides it; write: func G() needs Log[Job]",
 		},
 		{
 			name: "with generic capability, composite arguments",
-			src:  "type Tab[K, V] { Put(k K, v V) }\ntype Job { id int }\ntype C { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) needs Tab[Map[Job, [2]Job], []Job] {}\nfunc Use(_ RB) {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
+			src:  "type Tab[K, V] { Put(k K, v V) }\ntype Job { id int }\ntype C { Use() }\ntype RB { id int } implements Closer, C\nfunc Close(r RB) needs Tab[Map[Job, [2]Job], []Job] {}\nfunc Use(_ RB) {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
 			want: "9:2: S102 RB.Close, run by the release of RB when this with ends, requires Tab[Map[Job, [2]Job], []Job], which is not in the capability row of function G and no with provides it; write: func G() needs Tab[Map[Job, [2]Job], []Job]",
 		},
 		{

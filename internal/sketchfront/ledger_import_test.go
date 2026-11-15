@@ -14,26 +14,14 @@ import (
 // RawJoins the build rewrites by, and Show, which encodes any wire value
 // on it. It has no main, so no ergo test of its own writes a ledger.
 const importedTapeSource = `type Tape {
-	Null(),
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	..Writer,
 	Written() string,
 	raw(text string),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
 
-type tape { out string }
+type tape { out string } implements Tape
 
 func raw(t *tape, s string) { t.out = t.out + s }
 func Written(t *tape) string { t.out }

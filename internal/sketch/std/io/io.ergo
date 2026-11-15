@@ -86,7 +86,7 @@ func NewHost() Host needs Ambient { Host{live: hostOnly} }
 // In is the host's Stdin provider. It is a type of its own, not Host,
 // because each stream answers IsTerminal for itself: `prog < file` has a
 // terminal on standard output and a file on standard input.
-type In { live hostOnly } implements Stdin
+type In { live hostOnly } implements Stdin, Source
 
 // NewStdin is the host's provider of Stdin. It needs Ambient.
 func NewStdin() In needs Ambient { In{live: hostOnly} }

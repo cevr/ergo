@@ -13,19 +13,7 @@ import (
 // examples/cborpack): count's body is an if on its argument, each arm a
 // constant append, the short arm a slice of a constant.
 const unfoldFoldSource = `type Tape {
-	Null(),
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	..Writer,
 	Written() string,
 	raw(text string),
 	count(n int),
@@ -33,7 +21,7 @@ const unfoldFoldSource = `type Tape {
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
 
-type tape { out string }
+type tape { out string } implements Tape
 
 func raw(t *tape, s string) { t.out = t.out + s }
 func count(t *tape, n int) {

@@ -5,7 +5,7 @@
 import hex
 
 // hexOf is the CBOR of v in hex, as the RFC writes its examples.
-func hexOf[T wire](v T) string { hex.Encode(Encode(v)) }
+func hexOf[T wire](v T) string needs wired[T] { hex.Encode(Encode(v)) }
 
 type Pair { A int, B []int }
 

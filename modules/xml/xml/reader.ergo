@@ -13,7 +13,7 @@ import sync
 // It holds its place in a sync.Ref, as std codec's Replay does: a cell
 // cannot be passed as the prelude's Reader, so decode[T] cannot read
 // from a provider a let binds by a cell (std-nopriv inbox, 2026-11-13).
-type reader { text string, c sync.Ref[cursor] }
+type reader { text string, c sync.Ref[cursor] } implements Reader
 
 // cursor is a reader's place: at is the next byte of the value being
 // read. closed says that value's element was <name/>, so its content is

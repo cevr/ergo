@@ -4,7 +4,7 @@
 import twig/script
 
 // Texts holds the sources by name.
-type Texts { Sources Map[string, string] }
+type Texts { Sources Map[string, string] } implements script.Sources
 
 // Read is the source named path.
 func Read(t Texts, path string) string fails script.Unreadable {

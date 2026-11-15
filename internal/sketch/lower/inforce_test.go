@@ -225,7 +225,7 @@ func TestInForceAfterWithEnds(t *testing.T) {
 	needsBuild(t)
 	o := mustLower(t, "inforcedefect", `type Store { Get() string }
 
-type Conn { n int }
+type Conn { n int } implements Store, Closer
 
 func Get(c Conn) string { "conn \(c.n)" }
 

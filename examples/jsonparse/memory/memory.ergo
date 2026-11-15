@@ -4,7 +4,7 @@
 import jsonparse/app
 
 // Texts holds the documents by name.
-type Texts { Documents Map[string, string] }
+type Texts { Documents Map[string, string] } implements app.Documents
 
 // Read is the document named path.
 func Read(t Texts, path string) string fails app.Unreadable {

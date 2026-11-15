@@ -149,7 +149,7 @@ let open = sync.NewRef[int](0)
 // closed.
 func ReleasedSoFar() bool { open.Get() == 0 || open.Get() == 1 }
 
-type Res { name string }
+type Res { name string } implements Store, Closer
 
 func Put(r Res, k string) { say(r.name + ".put " + k) }
 
@@ -160,19 +160,19 @@ func Close(r Res) {
 	}
 }
 
-type Aud { name string }
+type Aud { name string } implements Audit, Closer
 
 func Note(a Aud, s string) { say(a.name + ".note " + s) }
 
 func Close(a Aud) { say("close " + a.name) }
 
-type Lease { name string }
+type Lease { name string } implements Store, Closer
 
 func Put(l Lease, k string) { say(l.name + ".put " + k) }
 
 func Close(l Lease) needs Audit { Audit.Note("release " + l.name) }
 
-type Plain { name string }
+type Plain { name string } implements Store
 
 func Put(p Plain, k string) { say(p.name + ".put " + k) }
 
