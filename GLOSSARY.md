@@ -38,7 +38,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Constructor**: An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
-**Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
+**Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own. Today only `go.Foreign` is captured: a provider whose operations call Go converts to its operation type where it is built, and that site is charged `go.Foreign` (README Gap 17; [rows](docs/spec/rows.md) Context 2).
 
 **Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient` and the function `Unreachable`.
 

@@ -619,11 +619,18 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		}
 		slot = c.instantiate(own, targs)
 	}
+	// A provider whose operations call Go converts only where its build
+	// holds go.Foreign (README Gap 17), which no test does (rows.md, Entry
+	// 4): it provides the operation type, and its laws are reported as
+	// not run, never dropped in silence.
+	captured := false
+	c.capture = &captured
 	a, _ := c.providerAssignability(p, slot)
 	value := false
 	if _, record := p.Underlying().(*Struct); record {
 		// A law owns a fresh record and may lend it to *P operations.
 		// This is not a value-to-operation-type conversion (PS3).
+		c.capture = &captured
 		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
 		value = a.ok()
 	}
@@ -632,6 +639,10 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	}
 	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
+	if captured {
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and needs go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
+		return lp, true
+	}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
