@@ -819,3 +819,40 @@ func TestExecRunGrace(t *testing.T) {
 		t.Errorf("the TERM trap did not run before the end (term holds %q)", data)
 	}
 }
+
+// TestStartFlushesStdoutFirst holds exec's flush point (stdlib.md, io 11):
+// the child that ExecStart starts writes after what the program printed
+// before it. Standard output is a pipe, so the print is held; the first
+// byte the pipe receives is read before any wait of the runtime could
+// flush it. It catches sb8-no-flush-start, which the core's model
+// (TestStdoutFlushModel) caught before exec moved to this leaf (BS8).
+func TestStartFlushesStdoutFirst(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	old := os.Stdout
+	os.Stdout = w
+	defer func() {
+		os.Stdout = old
+		v1.FlushStdout()
+		_ = w.Close()
+	}()
+	task := rt.Root("exec flush test")
+	v1.IOPrint("a")
+	p, err := ExecStart(task, "sh", []string{"-c", "printf c"}, nil, "", "", 0, execInherit, "", false, execInherit, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := make([]byte, 1)
+	_, rerr := io.ReadFull(r, first)
+	p.Wait(task)
+	p.Close(task)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(first) != "a" {
+		t.Errorf("the pipe received %q first, want %q: the child started before what was printed was written", first, "a")
+	}
+}

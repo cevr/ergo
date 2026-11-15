@@ -105,9 +105,6 @@ func renderBodyTable(decls goDecls) string {
 	for _, name := range types {
 		t, _ := decls.goType(name)
 		var fields []string
-		if t.Package != "" {
-			fields = append(fields, fmt.Sprintf("Package: %q", t.Package))
-		}
 		if t.Arity > 0 {
 			fields = append(fields, fmt.Sprintf("Arity: %d", t.Arity))
 		}
@@ -117,6 +114,7 @@ func renderBodyTable(decls goDecls) string {
 		if len(t.Fields) > 0 {
 			fields = append(fields, fmt.Sprintf("Fields: %#v", t.Fields))
 		}
+		fields = append(fields, packageField(t.Package))
 		fmt.Fprintf(&b, "\t%q: {%s},\n", name, strings.Join(fields, ", "))
 	}
 	b.WriteString("}\n")
@@ -174,13 +172,6 @@ func bodyLiteral(b Body) string {
 	if b.Owned != "" {
 		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
 	}
-	if leaf, ok := strings.CutPrefix(b.Package, Path+"/"); ok {
-		fields = append(fields, fmt.Sprintf("Package: Path + %q", "/"+leaf))
-	} else if b.Package == Path {
-		fields = append(fields, "Package: Path")
-	} else if b.Package != "" {
-		fields = append(fields, fmt.Sprintf("Package: %q", b.Package))
-	}
 	if b.Check != "" {
 		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
 	}
@@ -193,5 +184,17 @@ func bodyLiteral(b Body) string {
 	if b.BridgeTarget != "" {
 		fields = append(fields, fmt.Sprintf("BridgeTarget: %q, BridgeProvider: %q", b.BridgeTarget, b.BridgeProvider))
 	}
+	if b.Package != "" {
+		fields = append(fields, packageField(b.Package))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
+}
+
+// packageField is the Package field of a generated row: Path, or Path
+// and the leaf's name (binsize BS1).
+func packageField(pkg string) string {
+	if leaf, ok := strings.CutPrefix(pkg, Path+"/"); ok {
+		return fmt.Sprintf("Package: Path + %q", "/"+leaf)
+	}
+	return "Package: Path"
 }

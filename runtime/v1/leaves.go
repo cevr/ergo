@@ -26,3 +26,7 @@ func RootErr(path string, err error) error { return rootErr(path, err) }
 // OSRoot is the directory r holds, for a leaf that writes under it (http's
 // IntoFile).
 func (r *HostRoot) OSRoot() *os.Root { return r.root }
+
+// FlushStdout is flushStdout for a leaf: a flush point, such as exec's
+// before a child starts (stdlib.md, io 11).
+func FlushStdout() { flushStdout() }

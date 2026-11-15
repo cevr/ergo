@@ -66,7 +66,7 @@ func Sleep(t *rt.Task, d time.Duration) {
 //
 //ergo:host
 func Fail(err error) {
-	stderrSink{}.Write([]byte("error: " + rt.Text(err) + "\n"))
+	_, _ = stderrSink{}.Write([]byte("error: " + rt.Text(err) + "\n"))
 	os.Exit(1)
 }
 

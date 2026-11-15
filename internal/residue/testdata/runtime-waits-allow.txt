@@ -33,7 +33,6 @@ runtime/v1/gocall.go	Call	no task: the Go caller waits, after the root task's ru
 # wait on one keeps an Advance waiting until the host answers
 runtime/v1/exec/exec.go	ExecRun	host: the program's exit and output, and a reader's end
 runtime/v1/host.go	lineReader.take	host: a line of standard input, or the reader's stop
-runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
 runtime/v1/exec/exec_start.go	Running.next	host: the next chunk of the program's output
 runtime/v1/exec/exec_start.go	Running.Wait	host: the program's exit
 runtime/v1/exec/exec_start.go	Running.end	host: the program's exit within its grace
@@ -44,6 +43,7 @@ runtime/v1/rpc/rpc.go	rpcCalls	host: the end of a call that a network request st
 runtime/v1/rpc/rpc.go	rpcRun.stopAll	host: the end of each call left, which a network request started
 runtime/v1/rpc/rpc.go	rpcRun.end	host: the handle of a call that ended; it has ended, so the wait returns
 runtime/v1/rpc/rpc.go	rpcRun.start	handshake: a call task waits until its spawner set its handle, then hands its end to the serve loop
+runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
 
 # a wait that parks inside runtime/rt
 runtime/v1/task.go	Task.Wait	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go)

@@ -223,11 +223,11 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 	}
 	path, name := tn.Decl.Extern.Split()
 	if !v1.Owns(path) {
-		return fmt.Sprintf("extern go %s: a type names a Go type of %s/v1 or a leaf of it (docs/spec/stdlib.md, The body contract)", target, runtimeModule)
+		return fmt.Sprintf("extern go %s: a type names a Go type of %s/v1 (docs/spec/stdlib.md, The body contract)", target, runtimeModule)
 	}
-	gt, ok := v1.TypeOf(name)
-	if !ok || gt.In() != path {
-		return fmt.Sprintf("extern go %s: %s has no exported type %s (docs/spec/stdlib.md, The body contract)", target, path, name)
+	gt, ok := v1.TypeIn(path, name)
+	if !ok {
+		return fmt.Sprintf("extern go %s: runtime/v1 has no exported type %s (docs/spec/stdlib.md, The body contract)", target, name)
 	}
 	n, ok := tn.Type.(*Named)
 	if !ok {

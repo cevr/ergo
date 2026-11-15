@@ -168,11 +168,11 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 // buildAction is the Go build action of opts' command: the release of the
 // go command ERGO_GO selects (goCommand), with ergo's patched compile
 // (patchedCompile), the user's GOFLAGS, linking for opts.platform, always
-// stated, so the go env file's GOOS and GOARCH never choose it. The
-// emitted module is the same for every platform; Go's action cache keys
-// the link on the platform and the flags: `ergo build` strips the symbol
-// table and DWARF unless --debug is given; `ergo run` keeps them, as its
-// binary is not shipped. Every build lowers Ergo bodies through IR
+// stated, so the go env file's GOOS and GOARCH never choose it. `ergo
+// build` strips the symbol table and DWARF unless --debug is given;
+// `ergo run` keeps them, as its binary is not shipped. The emitted module
+// is the same for every platform and either way; Go's action cache keys
+// the link on the platform and the flags. Every build lowers Ergo bodies through IR
 // (plan-tier §1.1), which only the patched compile reads.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()

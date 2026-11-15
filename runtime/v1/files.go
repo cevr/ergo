@@ -98,9 +98,6 @@ type Body struct {
 	// authority (docs/spec/stdlib.md, Host packages 7). An exported body
 	// that reaches a host member (hostReach) and is not marked is refused.
 	Host bool
-	// Package is the import path of the body's package: runtime/v1 (Path)
-	// or one of its leaves (Leaves), which the lowering imports to call it.
-	Package string
 	// Owned names the body's owned form, from a directive line
 	// "//ergo:owned Name" in its doc comment: a body of the same shape
 	// that takes its first argument over, so it may keep that argument's
@@ -132,6 +129,9 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
+	// Package is the import path of the body's package: runtime/v1 (Path)
+	// or one of its leaves (Leaves), which the lowering imports to call it.
+	Package string
 }
 
 // WaitMark, ReleaseMark and BridgeMark start the directive lines of a
@@ -182,7 +182,7 @@ type Bodies struct{ decls goDecls }
 
 // ReadBodies parses the non-test Go files at the root of fsys.
 func ReadBodies(fsys fs.FS) (Bodies, error) {
-	d, err := parseDeclsIn(fsys, "", false)
+	d, err := parseDeclsIn(fsys, false, "")
 	return Bodies{d}, err
 }
 
@@ -442,8 +442,8 @@ func parseSources() (goDecls, error) {
 // with the local name its file gives runtime/rt, the import paths of its
 // file, and the package's names of functions and variables at top level.
 type goDecl struct {
-	// pkg is the import path of the declaring package: Path, a leaf, or
-	// "" for a module's own package (ReadBodies).
+	// pkg is the import path of the declaring package: Path or a leaf;
+	// "" for a trusted module's own package (ReadBodies).
 	pkg string
 	fn  *ast.FuncDecl
 	typ *ast.TypeSpec
@@ -479,24 +479,15 @@ type goDecls map[string]goDecl
 // The declaration states the binding, so no table keyed by an Ergo name
 // says which std type is which Go type.
 type GoType struct {
-	// Package is the import path of the leaf that declares it, or ""
-	// for runtime/v1 itself.
-	Package string
 	// Arity is the number of its type parameters.
 	Arity int
 	// Struct reports a plain struct type (no alias, no embedded field),
 	// whose field names are Fields, in order.
 	Struct bool
 	Fields []string
-}
-
-// In is the import path of the package that declares the type: Path or
-// a leaf.
-func (t GoType) In() string {
-	if t.Package == "" {
-		return Path
-	}
-	return t.Package
+	// Package is the import path of the type's package: runtime/v1 (Path)
+	// or one of its leaves (Leaves).
+	Package string
 }
 
 // TypeOf returns the shape of the exported type name of Source, and
@@ -507,16 +498,20 @@ func TypeOf(name string) (GoType, bool) {
 	return t, ok
 }
 
+// TypeIn is TypeOf for a declaration that names the type in the package
+// path: there is none when the type is in another package (BodyIn).
+func TypeIn(path, name string) (GoType, bool) {
+	t, ok := TypeOf(name)
+	return t, ok && t.Package == path
+}
+
 // goType is the shape of the exported type name of the parse.
 func (d goDecls) goType(name string) (GoType, bool) {
 	g, ok := d[name]
 	if !ok || g.typ == nil {
 		return GoType{}, false
 	}
-	t := GoType{Arity: g.typ.TypeParams.NumFields()}
-	if g.pkg != Path {
-		t.Package = g.pkg
-	}
+	t := GoType{Arity: g.typ.TypeParams.NumFields(), Package: g.pkg}
 	if fields, err := d.structFieldsOf(name, t.Arity); err == nil {
 		t.Struct = true
 		if len(fields) > 0 {
@@ -570,16 +565,18 @@ func (d goDecls) structFieldsOf(name string, arity int) ([]string, error) {
 	return fields, nil
 }
 
-// parseDecls parses every non-test Go file at the root of fsys, the
-// package whose import path is pkg: runtime/v1's own package (or a
-// fixture of it), whose hidden types are unqualified, or a leaf, which
-// names them through its import of runtime/v1.
-func parseDecls(fsys fs.FS, pkg string) (goDecls, error) { return parseDeclsIn(fsys, pkg, pkg == Path) }
+// parseDecls parses every non-test Go file at the root of fsys, the package
+// whose import path is pkg: runtime/v1's own package (or a fixture of it),
+// whose hidden types are unqualified, or one of its leaves, which names
+// them through its import of runtime/v1.
+func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
+	return parseDeclsIn(fsys, pkg == Path, pkg)
+}
 
-// parseDeclsIn parses every non-test Go file at the root of fsys: v1's own
-// package when own, or another package (a leaf, a module's own Go), which
-// names v1's hidden types through its import of runtime/v1.
-func parseDeclsIn(fsys fs.FS, pkg string, own bool) (goDecls, error) {
+// parseDeclsIn parses every non-test Go file at the root of fsys, the
+// package pkg: v1's own package when own, or another package, which names
+// v1's hidden types through its import of runtime/v1.
+func parseDeclsIn(fsys fs.FS, own bool, pkg string) (goDecls, error) {
 	names, err := fs.Glob(fsys, "*.go")
 	if err != nil {
 		return nil, err
@@ -1102,8 +1099,8 @@ func (q quals) v1Type(e ast.Expr, name string) bool {
 }
 
 // hiddenOf names the hidden parameter whose Go type e is: *Scope, Site,
-// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf, ContextPackage or
-// Releaser[T], v1's types qualified as the file names v1 (quals).
+// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf,
+// ContextPackage or Releaser[T], v1's types qualified as the file names v1 (quals).
 func hiddenOf(e ast.Expr, q quals) (Hidden, bool) {
 	switch x := e.(type) {
 	case *ast.IndexExpr:
@@ -1120,7 +1117,7 @@ func hiddenOf(e ast.Expr, q quals) (Hidden, bool) {
 			}
 		}
 	default:
-		for name, h := range map[string]Hidden{"Site": CallSite, "Sleeper": CallerScheduler, "GraphOf": Graph, "ContextPackage": ReadingPackage} {
+		for name, h := range map[string]Hidden{"Site": CallSite, "Sleeper": CallerScheduler, "ContextPackage": ReadingPackage, "GraphOf": Graph} {
 			if q.v1Type(e, name) {
 				return h, true
 			}

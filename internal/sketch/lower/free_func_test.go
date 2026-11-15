@@ -20,7 +20,7 @@ import (
 func TestRuntimeRecordFunctionIsFree(t *testing.T) {
 	// The fixture std package's record names its runtime struct, as
 	// rpc.Malformed does (v1.RPCMalformed, a struct with Reason).
-	const fixture = `extern go ergo.local/prototype/runtime/v1.RPCMalformed type Malformed { Reason string }
+	const fixture = `extern go ergo.local/prototype/runtime/v1/rpc.RPCMalformed type Malformed { Name string, Reason string }
 
 func Describe(m Malformed) string {
 	"malformed: " + m.Reason
@@ -30,7 +30,7 @@ func Describe(m Malformed) string {
 	prog := lowerSourceWith("runtime_record_free", `import fixturerpc
 
 func main() needs Console {
-	Console.Println(fixturerpc.Describe(fixturerpc.Malformed{Reason: "x"}))
+	Console.Println(fixturerpc.Describe(fixturerpc.Malformed{Name: "n", Reason: "x"}))
 }
 `, true, imp)
 	if prog.err != nil || len(prog.diags) > 0 || prog.panicked != nil {

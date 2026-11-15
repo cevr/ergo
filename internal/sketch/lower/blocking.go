@@ -93,7 +93,7 @@ var runtimeBindings = bodyCatalog()
 // uninterruptibly. No extra poll is needed for any of these primitives.
 func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) string {
 	binding, ok := runtimeBindings[name]
-	pkg := fc.l.rt()
+	pkg := "" // a module's own Go package, or "" for runtime/v1 (rtRef)
 	if i := strings.LastIndex(name, "."); i >= 0 && strings.Contains(name[:i], "/") {
 		// A body of the module's own Go package (check.ModuleBody), named
 		// by its full target: the policy it states, read with its shape.
@@ -117,8 +117,8 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	var head string
 	if recv == "" {
-		if pkg == fc.l.rt() {
-			head = fc.l.rtRef(name) + typeArgs // runtime/v1 or the leaf that declares it (v1.PackageOf)
+		if pkg == "" {
+			head = fc.l.rtRef(name) + typeArgs // runtime/v1 or its leaf (BS8)
 		} else {
 			head = pkg + "." + name + typeArgs
 		}

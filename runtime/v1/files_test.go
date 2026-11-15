@@ -50,10 +50,10 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 			t.Errorf("BodyOf(%q): %v", name, err)
 			continue
 		}
-		w.Package = Path
 		// The calling policy is pinned by the body table
 		// (TestBodyTableIsCurrent); these rows pin the shape.
 		got.Wait, got.Release = "", ""
+		w.Package = Path
 		if !reflect.DeepEqual(got, w) {
 			t.Errorf("BodyOf(%q) = %+v, want %+v", name, got, w)
 		}
