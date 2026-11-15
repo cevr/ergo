@@ -6,8 +6,8 @@ How: `scripts/workrace/workrace.sh 300` with `S` a scratch folder on btrfs (the 
 
 | Outcome (300 trials each) | Rift 0.0.13 | `work` |
 | --- | ---: | ---: |
-| remove won, the create refused (`work`: `NoWorkspace`) | 160 + 108 with a stray source folder | 280 |
-| the create won, the remove refused (`HasDescendants`) | 0 | 20 |
+| remove won, the create refused (`work`: `NoWorkspace`) | 160 + 108 with a stray source folder | 280 (277 at the WG1 r3 head) |
+| the create won, the remove refused (`HasDescendants`) | 0 | 20 (23) |
 | both said they succeeded | 32 (a folder with no record) | 0 |
 | folders under the storage no record names | 140 | 0 |
 | records whose folder is missing | n/a | 0 |
@@ -16,4 +16,4 @@ Rift's 108 stray folders are the source's `.git/info/exclude`, which Rift's crea
 
 One defect the first run found, fixed before this run: `new -on` reads its parent's branch with no lock, and when the remove moved the parent in that window the create failed with Git's error (`VcsFailed`, 20 of 300) instead of `NoWorkspace`. It left no folder; the answer is now `NoWorkspace` when the parent is gone.
 
-Raw rows: the unit's run folder (`semws/WG1/race-300.txt`; Rift's in `semws/receipts/race-create-remove.txt`); `scripts/workrace/workrace.sh N` rewrites them.
+Raw rows: the unit's run folder (`semws/WG1/race-300.txt`, and `race-300-r3.txt` at the WG1 r3 head, after Claim compares the parent's id: 0 orphans, 0 records without a folder; Rift's in `semws/receipts/race-create-remove.txt`); `scripts/workrace/workrace.sh N` rewrites them.
