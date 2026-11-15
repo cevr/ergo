@@ -14,7 +14,7 @@ import (
 // back end on that many goroutines: more shorten one compile on an idle
 // host, and cost CPU. On the IR path (the patched compile, -ergoir) -c=2
 // does the least work: a whole `ergo test --count 1` of three examples
-// costs 3.5 % to 6 % more instructions at -c=4, and as much or more at
+// costs 2.4 % to 6.9 % more instructions at -c=4 and 4.8 % to 5.8 % more at
 // -c=1, with release flags and with the dev profile alike (FT5b receipt,
 // irc.txt and irc-dev.txt). So a compile takes
 //
