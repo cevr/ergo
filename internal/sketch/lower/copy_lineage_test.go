@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -40,4 +41,50 @@ func TestNamedTailsSettle(t *testing.T) {
 	if body := goFuncBody(t, mainGo, "cb"); strings.Contains(body, "LineageAppend(") {
 		t.Errorf("a callback by name keeps its one-extender site, so its result is not fresh:\n%s", body)
 	}
+}
+
+// TestNamedTailsSettleAcrossPackages: a library function passed by name
+// from the root package (maps.Update(m, k, cbs.Start)) settles its
+// one-extender tail as one passed in its own package does; a library
+// function only called keeps it. Mutant: passedByName reads only the
+// function's own package (mapcopy-named-lineage-own-package).
+func TestNamedTailsSettleAcrossPackages(t *testing.T) {
+	lib := checkPackage(t, "cbs", []pkgSource{
+		{"/ergo-test/cbs/a.ergo", "type State { Log []int }\n\nfunc Keep(s State) []int { s.Log.Append(1) }\n\n" +
+			"func Start(o Option[[]int]) []int {\n\tmatch o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}\n}\n"},
+	}, nil)
+	root := checkPackage(t, "main", []pkgSource{
+		{"/ergo-test/main.ergo", "import maps\nimport cbs\n\n" +
+			"func main() needs Console {\n\tlet mut m = Map[string, []int]{\"a\": []int{1}}\n\tm = maps.Update(m, \"a\", cbs.Start)\n\tConsole.Println(\"\\(len(m)) \\(len(cbs.Keep(cbs.State{Log: []int{}})))\")\n}\n"},
+	}, pkgImporter{"cbs": lib.Package})
+	root.Imports = []Unit{lib}
+	src := mustLowerUnit(t, "namedtailspkg", root, false).mainGo()
+	keep, start := goFuncNamed(t, src, "Keep"), goFuncNamed(t, src, "Start")
+	if !strings.Contains(keep, "LineageAppend(") {
+		t.Errorf("a library function only called lost its one-extender site:\n%s", keep)
+	}
+	if strings.Contains(start, "LineageAppend(") {
+		t.Errorf("a library callback passed by name from the root keeps its one-extender site:\n%s", start)
+	}
+	if body := goFuncNamed(t, src, "main_1"); strings.Contains(body, "maps.Clone(") {
+		t.Errorf("m = maps.Update(m, k, cbs.Start) copies the Map:\n%s", body)
+	}
+}
+
+// goFuncNamed is the Go text of the one function of src whose name ends
+// in name (a library's functions carry its package's prefix).
+func goFuncNamed(t *testing.T, src, name string) string {
+	t.Helper()
+	var found []string
+	for _, part := range strings.Split(src, "\nfunc ")[1:] {
+		// A function whose first parameter is a local type is a method.
+		m := regexp.MustCompile(`^(\([^)]*\) )?(\w+)\(`).FindStringSubmatch(part)
+		if m != nil && strings.HasSuffix(m[2], name) {
+			found = append(found, part)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d Go functions named …%s in\n%s", len(found), name, src)
+	}
+	return found[0]
 }
