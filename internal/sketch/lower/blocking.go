@@ -356,6 +356,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"UTF8RuneText":           {},
 	"UTF8AppendRune":         {},
 	"UTF8ValidString":        {},
+	"UTF8String":             {},
 	"UTF8ValidRune":          {},
 	"UTF8RuneLen":            {},
 	"StringsToValidUTF8":     {},

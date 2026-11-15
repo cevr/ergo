@@ -470,6 +470,7 @@ var bodyTable = map[string]bodyFact{
 	"UTF8RuneCount":             {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"int"}, Pure: true}},
 	"UTF8RuneLen":               {body: Body{Params: []Param{{Type: "rune"}}, Results: []string{"int"}, Pure: true}},
 	"UTF8RuneText":              {body: Body{Params: []Param{{Type: "rune"}}, Results: []string{"string"}, Pure: true}},
+	"UTF8String":                {body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"string"}, Pure: true}},
 	"UTF8ValidRune":             {body: Body{Params: []Param{{Type: "rune"}}, Results: []string{"bool"}, Pure: true}},
 	"UTF8ValidString":           {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"bool"}, Pure: true}},
 	"Unreachable":               {body: Body{Params: []Param{{Type: "string"}}, Pure: true}},

@@ -8,6 +8,7 @@
 
 import strings
 import sync
+import utf8
 
 type ListenFailed { Addr string, Reason string }
 type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
@@ -120,9 +121,6 @@ func SendBytes(status int, header []Field, body []byte) Response needs Streaming
 	Response{Status: status, Header: header, Body: Streaming.reply(status, header, body)}
 }
 
-// bytesText is the bytes of b as a string (a Recorder's body).
-extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(b []byte) string
-
 // Stream answers the request with status and header, then a body that
 // write sends in parts (Effect HttpServerResponse.stream; Go's Flusher).
 // status and header are sent before write starts, so they cannot depend
@@ -203,5 +201,5 @@ func reply(r Recorder, status int, header []Field, body []byte) string {
 		Unreachable("http.SendBytes: the response has already started")
 	}
 	r.state.Set(2)
-	bytesText(body)
+	utf8.String(body)
 }

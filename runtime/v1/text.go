@@ -157,6 +157,11 @@ func UTF8RuneText(r rune) string { return string(r) }
 //ergo:pure
 func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
 
+// UTF8String is Go's string(b): std utf8.String.
+//
+//ergo:pure
+func UTF8String(b []byte) string { return string(b) }
+
 // UTF8ValidString is utf8.ValidString.
 //
 //ergo:pure

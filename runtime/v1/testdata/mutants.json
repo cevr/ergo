@@ -820,7 +820,7 @@
       "name": "gx9-send-no-length",
       "origin": "wf10 GX9",
       "file": "runtime/v1/http.go",
-      "from": "\th.Set(\"Content-Length\", strconv.Itoa(len(body.B)))\n",
+      "from": "\th.Set(\"Content-Length\", strconv.Itoa(len(body)))\n",
       "to": "",
       "rule": "stdlib.md, std http 10 (GX9): SendBytes declares the text's length; a long body is never chunked.",
       "killers": [
