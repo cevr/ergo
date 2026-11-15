@@ -406,8 +406,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		irNo("std call into an owning literal")
-	case len(body.TypeParams) > 0:
-		irNo("generic or task call")
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(x.Args):
@@ -425,6 +423,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
 		irNo("std call with an adapted result")
 	}
+	// A generic body's instance (F1): each Go type parameter takes the
+	// call's type argument for the Ergo type parameter of its name, as the
+	// emitter's stdTypeArgs writes it; the body's Go types read with them.
+	targs, subst := b.stdTypeArgs(body, c, x)
 	// The decoder takes an argument and a result of the runtime's Go type
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.
@@ -432,20 +434,106 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if q.Func != nil || q.Funcs != nil {
 			irNo("std call that adapts a function")
 		}
-		if !b.sameGo(b.l.info.Types[x.Args[i]], q.Type) {
+		if !b.sameGo(b.l.info.Types[x.Args[i]], q.Type) && !b.sameRT(b.l.info.Types[x.Args[i]], q.Type, subst) {
 			irNo("std call with a converted operand")
 		}
 	}
 	if goFallible(body) != failsHere(c) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) {
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
-	b.keepImport("var _ = " + b.l.rt() + "." + name)
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: append(hidden, args...)}, !body.Pure
+	// A generic function stands in Go text only as an instance, whose type
+	// arguments may be the body's own type parameters: the import is
+	// kept by a variable of the runtime's Site type, which is not generic.
+	if targs != "" {
+		b.keepImport("var _ " + b.l.rt() + ".Site")
+	} else {
+		b.keepImport("var _ = " + b.l.rt() + "." + name)
+	}
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, V: targs, Args: append(hidden, args...)}, !body.Pure
+}
+
+// stdTypeArgs is the IR type argument list of the call x of a generic std
+// body ("" for a body that is not generic), and the Go spelling of each of
+// the body's type parameters at this call.
+func (b *irBuilder) stdTypeArgs(body v1.Body, c *check.Call, x *syntax.CallExpr) (string, map[string]string) {
+	if len(body.TypeParams) == 0 {
+		return "", nil
+	}
+	if c.Func == nil {
+		irNo("generic or task call")
+	}
+	var out []string
+	subst := map[string]string{}
+	for _, gp := range body.TypeParams {
+		j := -1
+		for k, tp := range c.Func.Sig.TParams {
+			if tp.Name == gp.Name {
+				j = k
+			}
+		}
+		if j < 0 || j >= len(c.TypeArgs) {
+			irNo("generic or task call")
+		}
+		if c.TypeArgs[j] == check.NoValue {
+			irNo("type argument with no value")
+		}
+		out = append(out, b.goType(c.TypeArgs[j], x))
+		subst[gp.Name] = b.fc.goType(c.TypeArgs[j])
+	}
+	return strings.Join(out, ", "), subst
+}
+
+// sameRT reports whether the Ergo type t lowers to the Go type a
+// runtime/v1 body spells goType at a call whose type parameters are
+// subst: both read as main.go spells them (rtSpelling).
+func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string) bool {
+	if t == nil {
+		return false
+	}
+	return b.fc.goType(t) == rtSpelling(goType, b.l.rt(), subst)
+}
+
+// rtSpelling is a runtime/v1 body's Go type spelling s as main.go spells
+// it at a call: each identifier that names a type parameter in subst is
+// its spelling there ([]T at T = int is []int), each other exported name
+// is the runtime's, qualified by rt (*Ref[T] is *rt.Ref[int]), and byte
+// and rune are Go's uint8 and int32. A name before or after a dot is
+// another package's, as it stands.
+func rtSpelling(s, rt string, subst map[string]string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			j := i
+			for j < len(s) && (s[j] == '_' || s[j] >= 'a' && s[j] <= 'z' || s[j] >= 'A' && s[j] <= 'Z' || s[j] >= '0' && s[j] <= '9') {
+				j++
+			}
+			id := s[i:j]
+			r, param := subst[id]
+			switch {
+			case i > 0 && s[i-1] == '.' || j < len(s) && s[j] == '.':
+			case param:
+				id = r
+			case id == "byte":
+				id = "uint8"
+			case id == "rune":
+				id = "int32"
+			case c >= 'A' && c <= 'Z':
+				id = rt + "." + id
+			}
+			out.WriteString(id)
+			i = j
+			continue
+		}
+		out.WriteByte(c)
+		i++
+	}
+	return out.String()
 }
 
 // hidden is the hidden arguments of the std body called at x, as the
