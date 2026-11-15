@@ -1,6 +1,6 @@
 // Package lease is the domain of lease-sync: a pool of named leases with a
 // capacity. A user takes a lease by its name and gives it back. It is pure:
-// Decide has no needs row, so a client can run it to predict a command and
+// Decide needs no capability: a client can run it to predict a command and
 // run it again at each rebase, and the authority runs the same function to
 // decide. Who acts and when are data in the envelope.
 //
