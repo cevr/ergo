@@ -55,4 +55,9 @@ func TestMergeTierReplaysUnchangedSweeps(t *testing.T) {
 	write(t, root, "src/input.txt", "edited\n")
 	merge("after an edit inside the sweep's closure")
 	counts("after an edit inside the sweep's closure (both sweep again)", 4, 7)
+	// --merge --no-cache is the reference: its uncached run sweeps though
+	// the merge-tier key holds (the inner tier replays its record).
+	g.noCache = true
+	merge("the reference, --no-cache")
+	counts("the reference, --no-cache (the uncached run sweeps)", 5, 8)
 }

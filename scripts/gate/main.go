@@ -361,7 +361,7 @@ func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
 func main() {
 	list := flag.Bool("list", false, "print the checks the gate runs, one per line, and exit")
 	full := flag.Bool("full", false, "the full tier: every test of every package, uncached; the batch gate before main")
-	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded")
+	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded; with --merge, the reference: the uncached run replays no closure sweep")
 	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1; a closure sweep whose merge-tier key is unchanged replays, which --no-cache does not) and compare each verdict with the full tier's whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
@@ -372,9 +372,6 @@ func main() {
 	}
 	if *cpu && (!*recordDurations || *fast) {
 		fatal(errors.New("-cpu goes with -record-durations only, without -fast"))
-	}
-	if *merge && *noCache {
-		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
 	}
 	if flag.NArg() > 0 && !*recordDurations {
 		fatal(fmt.Errorf("unexpected arguments %q: only -record-durations takes packages", flag.Args()))
@@ -636,12 +633,15 @@ func (g *gate) mergeTier(out io.Writer) int {
 			run := g.derive(uncached, true, nil)
 			run.tier = mergeTierName
 			run.enclosure = box
-			run.sweepCollect = func() (*replay.Facts, error) {
-				facts, err := g.collectFacts(g.whole.mechanism)
-				if err != nil {
-					return nil, err
+			if !g.noCache {
+				// --merge --no-cache, the reference, sweeps every package.
+				run.sweepCollect = func() (*replay.Facts, error) {
+					facts, err := g.collectFacts(g.whole.mechanism)
+					if err != nil {
+						return nil, err
+					}
+					return replay.WithTier(facts, mergeTierName), nil
 				}
-				return replay.WithTier(facts, mergeTierName), nil
 			}
 			run.run(out)
 			var names []string

@@ -243,6 +243,15 @@
       "to": "if own, err := replay.Open(g.cacheDir).NewObject(); err == nil && own == nil {",
       "rule": "A sweep pass of the uncached run stores its output, so it can be recorded.",
       "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-reference-replays",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "\t\t\tif !g.noCache {\n\t\t\t\t// --merge --no-cache, the reference, sweeps every package.",
+      "to": "\t\t\tif true {\n\t\t\t\t// --merge --no-cache, the reference, sweeps every package.",
+      "rule": "--merge --no-cache, the reference, replays no sweep.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
     }
   ]
 }
