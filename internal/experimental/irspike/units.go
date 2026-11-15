@@ -200,6 +200,5 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed
-	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
 }

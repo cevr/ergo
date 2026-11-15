@@ -122,6 +122,23 @@ func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 		&irStmt{K: "ret", Pos: p, X: h})
 }
 
+// lawOpCap is the capability a law's bare operation call c calls
+// (CallLawOp): the operation type that declares the law, which the law's
+// run binds to the provider under test (calls.go). Nil for any other call.
+func (b *irBuilder) lawOpCap(c *check.Call) *check.Named {
+	if c.Kind != check.CallLawOp {
+		return nil
+	}
+	if b.law == nil || b.law.Owner == nil {
+		irNo("law operation call outside its law's body")
+	}
+	own, ok := b.law.Owner.Type.(*check.Named)
+	if !ok {
+		irNo("law of an operation type with no name")
+	}
+	return own
+}
+
 // refutedFunc is the harness's Refuted with the law's declaration as one
 // argument: the IR calls no variadic function. The naming pass reserves
 // its name under LowerIR and CensusIR only (nameTests).
