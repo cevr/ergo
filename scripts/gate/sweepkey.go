@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"go/scanner"
 	"go/token"
+	"io"
 	"maps"
 	"os"
 	"path"
@@ -138,6 +140,35 @@ func stringLiterals(source []byte) []string {
 		if value, err := strconv.Unquote(lit); err == nil {
 			literals = append(literals, value)
 		}
+	}
+}
+
+// keySweepSteps keys the closure sweep steps of a run that has no whole-gate
+// key, the merge tier's uncached run (gate.sweepCollect; GATE2 GT5): each
+// replays a pass of an earlier merge run while its package key, made from
+// the merge tier's facts at the start, is unchanged, and records its pass
+// (recordPackages). The merge tier checks a clean checkout, whose sources
+// are the export its sandbox runs; ignored files of the checkout in a
+// sweep's closure are keyed too, which can only make the key miss. Keys
+// name the merge tier (replay.WithTier), so a full-tier pass never stands
+// for a merge one, nor the reverse. --no-cache, the reference, sweeps every
+// package.
+func (g *gate) keySweepSteps(out io.Writer) {
+	facts, err := g.sweepCollect()
+	if err != nil {
+		fmt.Fprintf(out, "gate: no closure sweep key: %v\n", err)
+		return
+	}
+	g.packageKeys = map[*Step]packageKey{}
+	for _, step := range g.steps {
+		if step.Sweep == "" || step.Package == nil {
+			continue
+		}
+		key, problem := replay.PackageKey(facts, step.Package, packageIdentity(step)...)
+		if step.PackageProblem != "" && problem == "" {
+			fmt.Fprintf(out, "gate: %s: %s\n", step.Name, step.PackageProblem)
+		}
+		g.packageKeys[step] = packageKey{key: key, problem: problem}
 	}
 }
 

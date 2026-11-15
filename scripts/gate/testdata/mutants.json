@@ -207,6 +207,42 @@
       "to": "Env:     []string{sweepVariable + \"=\" + selection},",
       "rule": "Every sweep step names the one std store, outside its emptied TMPDIR.",
       "killers": ["scripts/gate:TestGateTierReachesReplay"]
+    },
+    {
+      "name": "gt5-merge-sweeps-uncached",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "case !g.noCache || g.sweepCollect != nil && step.Sweep != \"\":",
+      "to": "case !g.noCache:",
+      "rule": "The merge tier's uncached run replays a sweep whose merge-tier key is unchanged.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-merge-takes-full",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "return replay.WithTier(facts, mergeTierName), nil",
+      "to": "return replay.WithTier(facts, fullTier), nil",
+      "rule": "A merge-tier sweep key names the merge tier: a full-tier pass never stands for it.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-end-facts-whole",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "\t\tcollectEnd = g.sweepCollect\n",
+      "to": "\t\t_ = collectEnd\n",
+      "rule": "The uncached run's sweep records compare their start key with the end facts of the same tier.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-no-own-object",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "if own, err := replay.Open(g.cacheDir).NewObject(); err == nil {",
+      "to": "if own, err := replay.Open(g.cacheDir).NewObject(); err == nil && own == nil {",
+      "rule": "A sweep pass of the uncached run stores its output, so it can be recorded.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
     }
   ]
 }
