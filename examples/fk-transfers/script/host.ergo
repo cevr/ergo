@@ -26,21 +26,21 @@ type Frame { Top []string, Rows []string, Actions []string, Counts string }
 // to end and reads the screen again. A press whose button is not on the
 // screen (a cancel of a transfer that does not send, a restart of one that
 // was not cancelled, an id with no row) clicks nothing, as on upstream's
-// screen, where the button is not there.
-func PlayScreen(lines []Line, end duration, clock time.Manual) []Frame fails actor.Stopped | ui.BadPatch needs Scheduler {
+// screen, where the button is not there. Each frame goes to show as it is
+// read, so a long script keeps none.
+func PlayScreen[R](lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
 	let app = with context { time.Clock: clock } { actor.StartMachine(desk.Desks{}, 16, func(o Never) {}) }
-	let out = played(app, lines, end, clock) catch {
+	played(app, lines, end, clock, show) catch {
 	case err:
 		app.Stop()
 		return err
 	}
 	app.Stop()
-	out
 }
 
-func played(app actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]], lines []Line, end duration, clock time.Manual) []Frame fails actor.Stopped | ui.BadPatch needs Scheduler {
+func played[R](app actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]], lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
 	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 16)
-	let mut out = []Frame{read(&h)}
+	show(read(&h))
 	let mut now = 0s
 	for l in lines {
 		try ui.Advance(&h, l.At-now)
@@ -53,11 +53,11 @@ func played(app actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]],
 		case ui.BadPatch as p:
 			return p
 		}
-		out = out.Append(read(&h))
+		show(read(&h))
 	}
 	try ui.Advance(&h, end-now)
 	try ui.Settle(&h)
-	out.Append(read(&h))
+	show(read(&h))
 }
 
 // Label is the accessible name of the button a press clicks.

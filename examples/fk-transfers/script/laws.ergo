@@ -42,15 +42,18 @@ func live(ls []Line, end duration) [][]string {
 // fresh time.Manual; a screen that fails gives no rows at all.
 func onScreen(ls []Line, end duration) [][]string {
 	let c = time.NewManual(0)
-	let frames = with context { Scheduler: c } { PlayScreen(ls, end, c) } catch {
+	let mut out = [][]string{}
+	let mut first = true
+	with context { Scheduler: c } {
+		PlayScreen(ls, end, c, func(f Frame) {
+			if !first {
+				out = out.Append(f.Rows)
+			}
+			first = false
+		})
+	} catch {
 	case _:
 		return [][]string{}
-	}
-	let mut out = [][]string{}
-	for i, f in frames {
-		if i > 0 {
-			out = out.Append(f.Rows)
-		}
 	}
 	out
 }
