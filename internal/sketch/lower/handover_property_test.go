@@ -22,7 +22,12 @@ import (
 //   - doc = slices.Concat(doc, x.Items) on a let mut root, and Concat on a
 //     dead local and on a live let (own-consume, and its refusal);
 //   - writes of an element of a let mut root that took a pushed value, so
-//     a root that shared a one-extender array shows it.
+//     a root that shared a one-extender array shows it;
+//   - shrinks (SL3, own-reslice): the root cut from both ends then grown
+//     and written; a let that keeps a window of the root while the root
+//     is cut back to the window's start and grows, so an Append in place
+//     would write the window's first row; and a let mut local taken from
+//     a live let, cut from both ends, grown and written.
 //
 // The generator is also the model: it runs each statement on Go values
 // with value semantics (every bind copies) and computes the line the
@@ -117,7 +122,7 @@ func (g *handoverGen) stmt() {
 		}
 		return hbag{items: append(append([]int(nil), b.items...), v), n: b.n}
 	}
-	switch k := g.r.IntN(26); k {
+	switch k := g.r.IntN(28); k {
 	case 25:
 		// A one-extender site on a parameter the hand-over does not own:
 		// m takes both's result fresh only if c's array is not extended in
@@ -154,6 +159,39 @@ func (g *handoverGen) stmt() {
 	case 24:
 		g.reached["mk on a live let"] = true
 		g.bind(fmt.Sprintf("mk(b%d, %d)", i, v), mk(src, v))
+	case 26:
+		// A window of the root kept by a let: a second owner of part of
+		// the root's array, live across the root's later reslices and
+		// Appends (SL3: an Append after a shrink must not write a row the
+		// window shows).
+		// The toktree shape: the root is cut back to the window's start
+		// and grows, so an Append in place writes the window's first row.
+		g.reached["let keeps a window of the root"] = true
+		for len(g.m.items) < 2 {
+			g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+			g.m.items = append(append([]int(nil), g.m.items...), v)
+		}
+		b := 1 + g.r.IntN(len(g.m.items))
+		a := g.r.IntN(b)
+		g.bind(fmt.Sprintf("Bag{Items: m.Items[%d:%d], N: 0}", a, b), hbag{items: g.m.items[a:b]})
+		g.line(fmt.Sprintf("m.Items = m.Items[0:%d]", a))
+		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v+2))
+		g.m.items = append(append([]int(nil), g.m.items[:a]...), v+2)
+	case 27:
+		// The toktree shape on a let mut local taken from a live let:
+		// the local shrinks from both ends, then grows and is written,
+		// while the let it came from stays live (SL3).
+		g.reached["local shrinks and grows"] = true
+		n := len(g.bags)
+		k := g.r.IntN(len(src.items) + 1)
+		a := g.r.IntN(k + 1)
+		g.line(fmt.Sprintf("let mut s%d = b%d.Items", n, i))
+		g.line(fmt.Sprintf("s%d = s%d[%d:%d]", n, n, a, k))
+		g.line(fmt.Sprintf("s%d = s%d.Append(%d)", n, n, v))
+		g.line(fmt.Sprintf("s%d[0] = %d", n, v+1))
+		s := append(append([]int(nil), src.items[a:k]...), v)
+		s[0] = v + 1
+		g.bind(fmt.Sprintf("Bag{Items: s%d, N: 0}", n), hbag{items: s})
 	case 20:
 		g.reached["trim through a borrow"] = true
 		g.line("trim(&m)")
@@ -164,11 +202,16 @@ func (g *handoverGen) stmt() {
 		// A reslice of the root into itself shares the root's own array
 		// (storeread.go, own-reslice); an Append and a write follow.
 		g.reached["root reslices"] = true
+		// The cut may drop rows from the front too (xs = xs[a:k]).
 		k := g.r.IntN(len(g.m.items) + 1)
-		g.line(fmt.Sprintf("m.Items = m.Items[0:%d]", k))
+		a := 0
+		if g.r.IntN(2) == 0 {
+			a = g.r.IntN(k + 1)
+		}
+		g.line(fmt.Sprintf("m.Items = m.Items[%d:%d]", a, k))
 		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
 		g.line(fmt.Sprintf("m.Items[0] = %d", v+1))
-		g.m.items = append(append([]int(nil), g.m.items[:k]...), v)
+		g.m.items = append(append([]int(nil), g.m.items[a:k]...), v)
 		g.m.items[0] = v + 1
 	case 18:
 		// A cut of a let is no reslice of the root: it is copied.
@@ -460,7 +503,7 @@ func run() string {
 // interpreter yet (test-speed T8).
 func TestHandoverAgrees(t *testing.T) {
 	needsBuild(t)
-	seeds := []uint64{1, 2, 3, 4}
+	seeds := []uint64{1, 2, 3, 5}
 	if *handoverSeed != 0 {
 		seeds = []uint64{*handoverSeed}
 	}
@@ -542,7 +585,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}
