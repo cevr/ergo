@@ -7,8 +7,8 @@ import time
 type UnknownZone { Name string }
 
 // Zones is a zone database, by IANA name. It is a capability: a function
-// that loads a zone states needs tz.Zones, and its context chooses the
-// database, so no program reads zones it did not choose. Std's provider is
+// that loads a zone has tz.Zones in its row, and its context chooses
+// the database, so no program reads zones it did not choose. Std's provider is
 // tz/iana's, std's own copy of the IANA database; following the host's
 // zone files is an explicit choice of another provider.
 type Zones {
