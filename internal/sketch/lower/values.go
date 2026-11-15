@@ -1169,14 +1169,7 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 	// A reslice of the place, p = f(…, p[a:b], …), hands over the array p
 	// alone holds, as p = p[a:b] keeps it (moves.go): p's old value is dead
 	// from the call on (LWR-INLINE-OWNED: buf = AppendX(…, buf[:0])).
-	place := arg
-	for w.l.takes("own-reslice") {
-		x, ok := unparen(place).(*syntax.SliceExpr)
-		if !ok {
-			break
-		}
-		place = x.X
-	}
+	place := cutPlace(arg)
 	if lid == nil || aid == nil || !samePlace(s.Lhs[0], place) {
 		return false
 	}
@@ -1205,10 +1198,18 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			return false
 		}
 	}
-	if place != arg {
-		w.l.took("own-reslice")
-	}
 	return true
+}
+
+// cutPlace is the place x slices (any depth of slicing), or x.
+func cutPlace(x syntax.Expr) syntax.Expr {
+	for {
+		s, ok := unparen(x).(*syntax.SliceExpr)
+		if !ok {
+			return x
+		}
+		x = s.X
+	}
 }
 
 // handedArg is the argument that the rebinding p = f(…, p, …) hands over
