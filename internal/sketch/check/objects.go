@@ -205,6 +205,13 @@ type Context struct {
 	// replace of a replace is one override on each context (contextsum.go,
 	// finishBody).
 	Overrides []Override
+	// TestAmbient is the prelude's TestAmbient for a named context whose
+	// header says `needs TestAmbient` (rows.md, Test's ambient), nil for any
+	// other: its build may require the test's ambient, which the test
+	// runner provides, so only a test's with or a law run builds it.
+	// headerRead marks the header read (contextTestAmbient).
+	TestAmbient *Named
+	headerRead  bool
 }
 
 func (o *TypeName) name() string { return o.Name }

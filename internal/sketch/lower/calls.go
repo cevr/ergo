@@ -1085,6 +1085,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	fc.depth++
 	outer := fc.envExpr(arg)
 	fc.line(env + " := *" + outer)
+	if ta := w.Contexts[0].TestAmbient; ta != nil {
+		fc.testAmbient(env, ta)
+	}
 	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
@@ -1118,6 +1121,25 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	}
 	fc.depth--
 	fc.line("}")
+}
+
+// testAmbient gives the build of a context that needs TestAmbient
+// (rows.md, Test's ambient) its case's folder: a fresh one made here, which the
+// runner's provider of TestAmbient in env names, and removed when the
+// Go function that holds the with returns, which for a with in a test is
+// the end of the test's case (the checker admits it only in a test).
+func (fc *funcCtx) testAmbient(env string, ta *check.Named) {
+	dir := fc.temp("dir")
+	fc.line(testAmbientOpen(fc.l, env, dir, ta))
+}
+
+// testAmbientOpen is the Go statements that make the folder dir, remove
+// it at the end of the enclosing Go function, and put the runner's
+// provider of the test's ambient ta into the environment env.
+func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
+	rt := l.rt()
+	return dir + " := " + rt + ".TestFolderOpen(); defer " + rt + ".TestFolderRemove(" + dir + "); " +
+		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
 }
 
 // scopeCall writes a call of the with scope's method name on recv through
@@ -1180,7 +1202,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil {
+	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
 		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
 	}
 }

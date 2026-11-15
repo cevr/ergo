@@ -862,7 +862,22 @@ func (r *runner) testProgram(p *program) {
 
 func (r *runner) testTarget(p *program, target, leg string) {
 	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
-	o, err := r.tool(r.cfg.timeout, "test", target)
+	// The run gets a TMPDIR of its own, which must be empty after it: a
+	// law case or a test under TestAmbient makes its folder there,
+	// and the runner removes each when its case ends (rows.md, Test's ambient).
+	tmp, err := os.MkdirTemp(r.scratch, "test-tmp-")
+	if err != nil {
+		fmt.Fprintf(r.out, "FAIL %s: %s: %v\n", p.name, leg, err)
+		r.fail(p.name + ": " + leg)
+		return
+	}
+	defer os.RemoveAll(tmp)
+	o, err := r.live.execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(os.Environ(), "TMPDIR="+tmp), "", r.cfg.timeout, 0)
+	if left, _ := os.ReadDir(tmp); err == nil && len(left) > 0 {
+		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
+		r.fail(p.name + ": " + leg)
+		return
+	}
 	if evaluation != nil && err == nil && o.overCap() == "" && !o.timedOut {
 		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.stdout)
 	}

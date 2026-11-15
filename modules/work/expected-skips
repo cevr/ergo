@@ -3,17 +3,18 @@
 # against memory.Workspaces, a Tool over the memory providers.
 skip law Api.NewIsListedOnce for Tool: its values have no generator: Lock is an operation type with no builder: neither main nor maintest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewTool() Tool with no rows would build one for each case
 # The host Cloners (btrfs, reflink, clonefile, copy) run system commands
-# through a host exec.Runner, which only main makes (exec.NewHost needs
-# Ambient). Their laws run in package memory against the model, and the
-# examples/work cases run new, rm and gc through them on the host.
+# through an exec.Runner, which no generator builds. Their laws run under
+# each package's onHost context instead, over exec.NewTestHost in a folder
+# of each case's own (TestAmbient), and in package memory against the
+# model; clonefile's run on macOS only, through the work cases.
 skip law work.Cloner.CloneMakesTheTree for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.DiscardDiscards for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.FailedCloneLeavesNothing for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.FreshCloneSharesItsBlocks for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.MoveMoves for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
-# git.Vcs runs git through a host exec.Runner, as the Cloners do; the law
-# runs against memory.Vcs, and the rm cases run git on the host.
+# git.Vcs runs git through an exec.Runner, as the Cloners do; the law runs
+# under git's onHost context on the host, and against memory.Vcs.
 skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case

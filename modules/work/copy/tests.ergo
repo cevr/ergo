@@ -1,0 +1,30 @@
+// The work.Cloner laws on the host, in a folder of each case's own
+// (TestAmbient): every case runs cp, test, mkdir, mv, rm and du for
+// real, confined to its folder.
+
+import exec
+import fs
+
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient {
+	work.Cloner:         New(exec.NewTestHost()),
+	fs.Files, fs.Writes: fs.NewTestHost(),
+}
+
+test CloneCopiesATree {
+	with onHost {
+		try fs.Writes.MkdirAll("base/sub")
+		try fs.Writes.WriteFile("base/sub/note", "kept")
+		try work.Cloner.Clone("base", "trees/one")
+		assert try fs.Files.ReadFile("trees/one/sub/note") == "kept"
+		try fs.Writes.WriteFile("trees/one/sub/note", "changed")
+		assert try fs.Files.ReadFile("base/sub/note") == "kept"
+		let usage = try work.Cloner.Usage("trees/one")
+		assert usage.Shared == 0 && usage.Total == usage.Exclusive
+		try work.Cloner.Move("trees/one", "trash/one")
+		assert !work.Cloner.Has("trees/one") && work.Cloner.Has("trash/one")
+		try work.Cloner.Discard("trash/one")
+		assert !work.Cloner.Has("trash/one")
+	}
+}

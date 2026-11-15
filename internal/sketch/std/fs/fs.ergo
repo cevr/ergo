@@ -6,7 +6,9 @@
 // prelude's Ambient, which only the entry provides. So code that makes a
 // Host shows Ambient in its row: main lists it and binds
 // `context { fs.Files: fs.NewHost() }`. A test cannot get Ambient and
-// binds Memory instead (memory.ergo), a tree of files in memory. The
+// binds fstest.Memory instead, a tree of files in memory, or the disk in
+// a folder of its case's own through NewTestHost, under the test's
+// ambient (confined.ergo). The
 // externs are unexported, so a program reads or writes the disk only
 // through a Host it was given or made under Ambient. No handle is exposed,
 // so no file stays open after a call returns, except an explicit HostRoot.
@@ -297,19 +299,18 @@ extern go ergo.local/prototype/runtime/v1.FSOpenRoot func OpenRoot(dir string) H
 
 // Host is the host's Files and Writes provider. Its field gives this
 // package the construction authority (types.md, Zero values 6): no other
-// package writes fs.Host{}, its zero value or a record update of it.
-type Host { live hostOnly } implements Files, Writes
-
-// hostOnly is the zero-size type of Host's field, so Host stays zero size.
-type hostOnly {}
+// package writes fs.Host{}, its zero value or a record update of it. root
+// is "" for the host's own (NewHost), and the case's folder for a test's
+// (NewTestHost, confined.ergo).
+type Host { root string } implements Files, Writes
 
 // NewHost is the host's Files and Writes provider. It needs Ambient: only
 // code whose row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs Ambient { Host{root: ""} }
 
 // ReadFile is the whole text of the file at path.
-func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
-	try hostReadFile(path)
+func ReadFile(h Host, path string) string fails NotFound | Denied | Failed {
+	try hostReadFile(try at(h, path))
 }
 
 // MapFile is the whole text of the file at path, as ReadFile gives it,
@@ -318,61 +319,61 @@ func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
 // never unmapped, so a program maps a file it reads to the end, once. It
 // is a function of Host alone, not an operation of Files: a memory
 // provider has its text already.
-func MapFile(_ Host, path string) string fails NotFound | Denied | Failed {
-	try hostMapFile(path)
+func MapFile(h Host, path string) string fails NotFound | Denied | Failed {
+	try hostMapFile(try at(h, path))
 }
 
 // ReadDir is the names of the entries of the directory at path, sorted.
-func ReadDir(_ Host, path string) []string fails NotFound | Denied | Failed {
-	try hostReadDir(path)
+func ReadDir(h Host, path string) []string fails NotFound | Denied | Failed {
+	try hostReadDir(try at(h, path))
 }
 
 // Stat describes the file at path, after symbolic links.
-func Stat(_ Host, path string) Info fails NotFound | Denied | Failed {
-	try hostStat(path)
+func Stat(h Host, path string) Info fails NotFound | Denied | Failed {
+	try hostStat(try at(h, path))
 }
 
 // WriteFile makes the file at path hold text, by a new file in its
 // directory renamed over it.
-func WriteFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
-	try hostWriteFile(path, text)
+func WriteFile(h Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostWriteFile(try at(h, path), text)
 }
 
 // MkdirAll makes the directory path and each missing parent.
-func MkdirAll(_ Host, path string) fails Denied | Failed {
-	try hostMkdirAll(path)
+func MkdirAll(h Host, path string) fails Denied | Failed {
+	try hostMkdirAll(try at(h, path))
 }
 
 // WriteFileMode makes the file at path hold text with exactly mode, by a
 // new file made with mode in its directory and renamed over it.
-func WriteFileMode(_ Host, path string, text string, mode Mode) fails NotFound | Denied | Failed {
-	try hostWriteFileMode(path, text, Perm(mode))
+func WriteFileMode(h Host, path string, text string, mode Mode) fails NotFound | Denied | Failed {
+	try hostWriteFileMode(try at(h, path), text, Perm(mode))
 }
 
 // MkdirAllMode makes the directory path and each missing parent, each
 // with exactly mode.
-func MkdirAllMode(_ Host, path string, mode Mode) fails Denied | Failed {
-	try hostMkdirAllMode(path, Perm(mode))
+func MkdirAllMode(h Host, path string, mode Mode) fails Denied | Failed {
+	try hostMkdirAllMode(try at(h, path), Perm(mode))
 }
 
 // AppendFile adds text at the end of the file at path in one write.
-func AppendFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
-	try hostAppendFile(path, text)
+func AppendFile(h Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostAppendFile(try at(h, path), text)
 }
 
 // Chmod gives the file at path exactly mode.
-func Chmod(_ Host, path string, mode Mode) fails NotFound | Denied | Failed {
-	try hostChmod(path, Perm(mode))
+func Chmod(h Host, path string, mode Mode) fails NotFound | Denied | Failed {
+	try hostChmod(try at(h, path), Perm(mode))
 }
 
 // Rename moves the file at from to to.
-func Rename(_ Host, from string, to string) fails NotFound | Denied | Failed {
-	try hostRename(from, to)
+func Rename(h Host, from string, to string) fails NotFound | Denied | Failed {
+	try hostRename(try at(h, from), try at(h, to))
 }
 
 // Remove removes the file, or the empty directory, at path.
-func Remove(_ Host, path string) fails NotFound | Denied | Failed {
-	try hostRemove(path)
+func Remove(h Host, path string) fails NotFound | Denied | Failed {
+	try hostRemove(try at(h, path))
 }
 
 // FileLock is an exclusive kernel lock on a file, which LockFile took and
@@ -388,9 +389,9 @@ type FileLock { fd int }
 // never strands it. The lock is advisory: it excludes only LockFile. The
 // wait is a host wait, as a slow read's is: a stop of the caller ends it
 // at most wait later. It is a function of Host alone: a memory disk has
-// one process, whose own lock counts.
-func LockFile(_ Host, path string, wait duration) Option[FileLock] fails NotFound | Denied | Failed {
-	let fd = try hostLockFile(path, wait)
+// one process, whose own lock counts. A test's Host locks in its folder.
+func LockFile(h Host, path string, wait duration) Option[FileLock] fails NotFound | Denied | Failed {
+	let fd = try hostLockFile(try at(h, path), wait)
 	if fd < 0 {
 		return None
 	}

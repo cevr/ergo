@@ -1,0 +1,40 @@
+// The work.Vcs law on the host, in a folder of each case's own
+// (TestAmbient): git runs for real, confined to the folder, with
+// GIT_CEILING_DIRECTORIES above it.
+
+import exec
+import os
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient {
+	work.Vcs:    New(exec.NewTestHost()),
+	exec.Runner: exec.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+// A command runs in the case's folder, with HOME and TMPDIR there too, so
+// git's global configuration and its temporary files stay in it.
+test CommandsRunInTheFolder {
+	with onHost {
+		let folder = try os.Process.Getwd()
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", "printf '%s|%s|%s' \"$PWD\" \"$HOME\" \"$TMPDIR\""}))
+		assert r.Stdout == "\(folder)|\(folder)|\(folder)"
+		assert os.Process.Getenv("HOME") == Some[string]{Value: folder}
+	}
+}
+
+// run runs a git command in the folder and gives its status.
+func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New("git", args)).Status
+}
+
+test OwnBranchHoldsItsHeadInARepository {
+	with onHost {
+		assert try run([]string{"init", "-q", "-b", "main", "repo"}) == 0
+		assert try run([]string{"-C", "repo", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "first"}) == 0
+		assert try work.Vcs.Branch("repo") == "main"
+		let head = try work.Vcs.Head("repo")
+		assert try work.Vcs.Holds("repo", head)
+		assert try work.Vcs.Clean("repo")
+	}
+}

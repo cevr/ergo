@@ -40,9 +40,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
 
-**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient` and the function `Unreachable`.
+**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient`, `TestAmbient` and the functions `Unreachable` and `TestFolder`.
 
 **Ambient**: The prelude capability that is the authority to choose the host. Only the entry gives it to a `main` that lists it. Its one operation is unexported, so no program type implements it and no context binds it. A host package's `NewHost` has it in its row, and so has code that makes a host provider. Pony's `AmbientAuth` and Austral's `RootCapability` are the prior art. See [stdlib](docs/spec/stdlib.md#host-packages).
+
+**Test's ambient**: The prelude capability `TestAmbient`, the authority a test has to reach the host, confined to a fresh folder per case. Its one provider is the test runner, for a named context whose header says `needs TestAmbient`, built by a `with` in a test or by a law case; the runner removes the folder when the case ends. Its providers, `fs.NewTestHost`, `exec.NewTestHost` and `os.NewTestHost`, refuse a path out of the folder with their `Denied`. It is never the host's `Ambient`, which a test never holds. See [rows](docs/spec/rows.md#tests-ambient).
 
 **Host package**: A reviewed standard-library package, such as `os`, `fs`, `net` or `sql`, that calls Go. Only host packages and `import go` reach the host, so every effect appears in some footprint. Its host provider `Host` has construction authority, and its one constructor `NewHost` needs `Ambient`.
 

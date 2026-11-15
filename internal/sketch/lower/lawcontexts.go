@@ -72,7 +72,13 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 			sep = ", "
 		}
 		build := l.contextBuilder(lc.With, law.Decl)
-		body := e + " := *" + env + "; " + build + "(&" + e + "); " +
+		open := ""
+		if ta := lc.Context.TestAmbient; ta != nil {
+			// The case's own folder, removed when the case returns
+			// (rows.md, Test's ambient).
+			open = testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
+		}
+		body := e + " := *" + env + "; " + open + build + "(&" + e + "); " +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")

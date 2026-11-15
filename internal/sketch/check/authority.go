@@ -22,6 +22,13 @@ func isAmbient(t Type) bool {
 	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "Ambient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == std.PreludePath
 }
 
+// isTestAmbient reports whether t is the prelude's TestAmbient, the test's
+// ambient (testambient.go): the authority the test runner provides.
+func isTestAmbient(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "TestAmbient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == std.PreludePath
+}
+
 // Construction authority and member visibility across packages
 // (types.md, Zero values 6; grammar.md, Visibility 2 and 3; 196b plan Q6,
 // Q7). A record with an unexported field is built only by its package:
