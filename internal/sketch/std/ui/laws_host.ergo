@@ -336,6 +336,47 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+// AdvanceTakesThePosted (F-GP4c-1): while the view animates for a drawn
+// number of frames more than the host's queue holds, Advance takes the
+// events posted after each frame, as the live loop does: at most the one
+// Committed of the last frame's commit is left, so the session's watcher
+// never blocks on a full queue, which kept every state the actor committed
+// and grew the heap with the frame count.
+law AdvanceTakesThePosted(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		advanceTakes(n, m)
+	}
+}
+
+func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+	let frames = (n%8+8)%8 + 3
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, spinView, m, 2) catch {
+	case BadPatch:
+		return false
+	}
+	a.Send(frames + 1) catch {
+	case actor.Stopped:
+		return false
+	}
+	Settle(&h) catch {
+	case _:
+		return false
+	}
+	for _ in 0..frames {
+		Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+	}
+	let mut left = 0
+	for h.posted.Poll() != None {
+		left = left + 1
+	}
+	left <= 1 && Frames(&h) == frames
+}
+
 // pad is the state of the input app: whether its dialog is open, the
 // last signal the pad gave, and how many it gave.
 type pad { open bool, last int, n int }
@@ -1347,6 +1388,44 @@ func replyShown(n int, m time.Manual) bool needs Scheduler {
 // reply's text (a Committed of a state a pass showed already writes
 // nothing, and the law takes the next). The law waits for each post; a session that never posts hangs the law, which
 // the test's deadline names.
+// WatcherHoldsOneState (F-GP4c-1): a host that never takes its events
+// blocks the session's watcher in its first post; while it stays blocked,
+// the actor commits a drawn number of states, and the watcher's
+// subscription holds at most one of them (actor.Held), not each: the
+// host's heap does not grow with the commits.
+law WatcherHoldsOneState(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watcherHolds(n, m)
+	}
+}
+
+func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+	let commits = (n%8+8)%8 + 3
+	let gate = queue.New[int](1)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let (s, _) = Start(a, spinView, func(ev Event[int]) {
+		let _ = gate.Pop() catch {
+		case queue.Closed:
+			return
+		}
+	})
+	let _ = s
+	// The watcher has subscribed and is blocked in its first post.
+	m.Advance(0ns)
+	for i in 0..commits {
+		a.Send(i) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(0ns)
+	let held = a.Held()
+	gate.End()
+	a.Stop()
+	held <= 1
+}
+
 law WatcherShowsWorkReplies(n int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {

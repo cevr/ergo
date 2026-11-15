@@ -193,8 +193,11 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 // the clock's time since the host started; time short of a period is owed
 // to the next Advance while the view still animates. A pass that stops
 // animating stops the frames: the rest of d passes with no Tick, and
-// nothing is owed. Advance takes no fetch result: a fetch it wakes posts
-// on its own task, and Settle or Pump takes it.
+// nothing is owed. After each Tick it takes the events already posted, as
+// the live loop takes its queue after each frame (Pump), so a session that
+// animates never leaves its watcher blocked on a full queue (F-GP4c-1). A
+// fetch the last stretch wakes posts on its own task, and Settle or Pump
+// takes it.
 func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
 	for Animating(&h.session.frame) && left >= h.period-h.owed {
@@ -204,6 +207,7 @@ func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails a
 		h.owed = duration(int64(0))
 		h.frames = h.frames + 1
 		try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+		try Pump(h)
 	}
 	h.clock.Advance(left)
 	if Animating(&h.session.frame) {

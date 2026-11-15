@@ -72,7 +72,10 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	let stale = s.stale
 	let run = s.run
 	s.watch = task.Go() {
-		for _ in a.Changes() {
+		// LatestChanges: the watcher wants the current state, not the
+		// history, so a watcher its host blocks keeps one state, not every
+		// state the actor commits meanwhile (F-GP4c-1).
+		for _ in a.LatestChanges() {
 			if !sync.Modify(stale, func(b bool) (bool, bool) { (b, true) }) {
 				post(Committed)
 			}

@@ -1091,6 +1091,41 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func lawAdvanceTakesThePosted(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		advanceTakes(n, m)
+	}
+}
+
+func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+	let frames = (n%8+8)%8 + 3
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, spinView, m, 2) catch {
+	case ui.BadPatch:
+		return false
+	}
+	a.Send(frames + 1) catch {
+	case actor.Stopped:
+		return false
+	}
+	ui.Settle(&h) catch {
+	case _:
+		return false
+	}
+	for _ in 0..frames {
+		ui.Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+	}
+	let mut left = 0
+	for h.posted.Poll() != None {
+		left = left + 1
+	}
+	left <= 1 && ui.Frames(&h) == frames
+}
+
 type pad { open bool, last int, n int }
 
 func padStep(s pad, e int) Decision[pad, int] {
@@ -1966,6 +2001,39 @@ func replyShown(n int, m time.Manual) bool needs Scheduler {
 		}
 	}
 	true
+}
+
+func lawWatcherHoldsOneState(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watcherHolds(n, m)
+	}
+}
+
+func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+	let commits = (n%8+8)%8 + 3
+	let gate = queue.New[int](1)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let (s, _) = ui.Start(a, spinView, func(ev ui.Event[int]) {
+		let _ = gate.Pop() catch {
+		case queue.Closed:
+			return
+		}
+	})
+	let _ = s
+	// The watcher has subscribed and is blocked in its first post.
+	m.Advance(0ns)
+	for i in 0..commits {
+		a.Send(i) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(0ns)
+	let held = a.Held()
+	gate.End()
+	a.Stop()
+	held <= 1
 }
 
 func lawWatcherShowsWorkReplies(n int) bool {
@@ -3790,6 +3858,10 @@ test UiNoTickWhenSettled(seed int, steps int) {
 	assert lawNoTickWhenSettled(seed, steps)
 }
 
+test UiAdvanceTakesThePosted(n int) {
+	assert lawAdvanceTakesThePosted(n)
+}
+
 test UiInputGivesSignal(seed int, steps int) {
 	assert lawInputGivesSignal(seed, steps)
 }
@@ -3832,6 +3904,10 @@ test UiQueryRoundTrips(seed int, a string, b string, tags []string) {
 
 test UiWorkReplyIsShown(n int) {
 	assert lawWorkReplyIsShown(n)
+}
+
+test UiWatcherHoldsOneState(n int) {
+	assert lawWatcherHoldsOneState(n)
 }
 
 test UiWatcherShowsWorkReplies(n int) {
@@ -3954,6 +4030,7 @@ var stdUIHostStatements = map[string]string{
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
+	"ui AdvanceTakesThePosted":         `AdvanceTakesThePosted(n int) { let m = time.NewManual(0) with context { Scheduler: m } { advanceTakes(n, m) } }`,
 	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
 	"ui PaintMatchesList":              `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
 	"ui RowsAreTheCutEach":             `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
@@ -3965,6 +4042,7 @@ var stdUIHostStatements = map[string]string{
 	"ui SegmentsReadPathOf":            `SegmentsReadPathOf(xs []string) { let path = PathOf(xs) let mut want = []string{} for x in xs { if x != "" { want = want.Append(x) } } let got = Segments(URL{Path: path, Query: "", Fragment: ""}) if len(got) != len(want) || ParseURL(path).Path != path { return false } for i, x in want { if got[i] != x { return false } } true }`,
 	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
 	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
+	"ui WatcherHoldsOneState":          `WatcherHoldsOneState(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watcherHolds(n, m) } }`,
 	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
 	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
 	"ui PlainCrashSaysWhatItKnows":     `PlainCrashSaysWhatItKnows(reason string, e int) { let mut f = NewFrame[int]() let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}}) let mut g = NewFrame[int]() let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None}) writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)") }`,
