@@ -3,7 +3,6 @@ package lower
 import (
 	"regexp"
 	"slices"
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
@@ -15,18 +14,64 @@ import (
 // codeLawStatements are std code's laws as the ledger states them, by
 // ledger key.
 var codeLawStatements = map[string]string{
+	"code AppliedIsPlanned":             `AppliedIsPlanned(seed int, pick int, word int) { appliedIsPlanned(seed, pick, word) }`,
+	"code ApplyIsSafe":                  `ApplyIsSafe(seed int, mode int, at int, out int) { applyIsSafe(seed, mode, at, out) }`,
+	"code CanonicalStaysCanonical":      `CanonicalStaysCanonical(seed int, pick int, word int) { canonicalStaysCanonical(seed, pick, word) }`,
+	"code Checker.CheckIsDeterministic": `CheckIsDeterministic(seed int) { checkIsDeterministic(seed) }`,
+	"code Checker.FormatIsIdempotent":   `FormatIsIdempotent(text string) { formatIsIdempotent(text) }`,
+	"code Files.ExchangeSwaps":          `ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) }`,
+	"code Files.WriteThenRead":          `WriteThenRead(x string) { writeThenRead(x) }`,
 	"code IndexIsScan":                  `IndexIsScan(seed int, size int) { indexIsScan(seed, size) }`,
+	"code OverlapIsRefused":             `OverlapIsRefused(seed int) { overlapIsRefused(seed) }`,
+	"code OverlayDiagnosticBlocks":      `OverlayDiagnosticBlocks(seed int, pick int) { overlayDiagnosticBlocks(seed, pick) }`,
+	"code Planner.PlanIsDeterministic":  `PlanIsDeterministic(pick int, word int) { planIsDeterministic(pick, word) }`,
+	"code Planner.PlanOfIsThePlan":      `PlanOfIsThePlan(pick int, word int) { planOfIsThePlan(pick, word) }`,
+	"code PlanOfAppliedIsEmpty":         `PlanOfAppliedIsEmpty(seed int, pick int, word int) { planOfAppliedIsEmpty(seed, pick, word) }`,
+	"code PlanWritesNothing":            `PlanWritesNothing(seed int, pick int, word int) { planWritesNothing(seed, pick, word) }`,
 	"code Reader.HandleRoundTrips":      `HandleRoundTrips(pick int) { handleRoundTrips(pick) }`,
-	"code Reader.ReferencesAreSound":    `ReferencesAreSound(pick int, kinds []string) { referencesAreSound(pick, kinds) }`,
-	"code Reader.ReferencesAreComplete": `ReferencesAreComplete() { referencesAreComplete() }`,
 	"code Reader.PagesPartition":        `PagesPartition(pick int, size int) { pagesPartition(pick, size) }`,
+	"code Reader.ReferencesAreComplete": `ReferencesAreComplete() { referencesAreComplete() }`,
+	"code Reader.ReferencesAreSound":    `ReferencesAreSound(pick int, kinds []string) { referencesAreSound(pick, kinds) }`,
+	"code ReformatIsSameCode":           `ReformatIsSameCode(seed int, pick int) { reformatIsSameCode(seed, pick) }`,
+	"code SecondApplyIsStale":           `SecondApplyIsStale(seed int, pick int, word int) { secondApplyIsStale(seed, pick, word) }`,
+	"code StaleChangesNothing":          `StaleChangesNothing(seed int, pick int, word int, which int) { staleChangesNothing(seed, pick, word, which) }`,
+	"code UntouchedKeepsBytes":          `UntouchedKeepsBytes(seed int, pick int, word int) { untouchedKeepsBytes(seed, pick, word) }`,
+	"code Writer.UnknownPlanIsNoPlan":   `UnknownPlanIsNoPlan(id string) { unknownPlanIsNoPlan(id) }`,
+}
+
+// codeLawLines are the lines ergo test prints when each law holds: one
+// per provider for a member law.
+var codeLawLines = map[string][]string{
+	"code AppliedIsPlanned":             {"ok law AppliedIsPlanned"},
+	"code ApplyIsSafe":                  {"ok law ApplyIsSafe"},
+	"code CanonicalStaysCanonical":      {"ok law CanonicalStaysCanonical"},
+	"code Checker.CheckIsDeterministic": {"ok law Checker.CheckIsDeterministic for Model"},
+	"code Checker.FormatIsIdempotent":   {"ok law Checker.FormatIsIdempotent for Model"},
+	"code Files.ExchangeSwaps":          {"ok law Files.ExchangeSwaps for Disk"},
+	"code Files.WriteThenRead":          {"ok law Files.WriteThenRead for Disk"},
+	"code IndexIsScan":                  {"ok law IndexIsScan"},
+	"code OverlapIsRefused":             {"ok law OverlapIsRefused"},
+	"code OverlayDiagnosticBlocks":      {"ok law OverlayDiagnosticBlocks"},
+	"code Planner.PlanIsDeterministic":  {"ok law Planner.PlanIsDeterministic for Session"},
+	"code Planner.PlanOfIsThePlan":      {"ok law Planner.PlanOfIsThePlan for Session"},
+	"code PlanOfAppliedIsEmpty":         {"ok law PlanOfAppliedIsEmpty"},
+	"code PlanWritesNothing":            {"ok law PlanWritesNothing"},
+	"code Reader.HandleRoundTrips":      {"ok law Reader.HandleRoundTrips for Index", "ok law Reader.HandleRoundTrips for Scan"},
+	"code Reader.PagesPartition":        {"ok law Reader.PagesPartition for Index", "ok law Reader.PagesPartition for Scan"},
+	"code Reader.ReferencesAreComplete": {"ok law Reader.ReferencesAreComplete for Index", "ok law Reader.ReferencesAreComplete for Scan"},
+	"code Reader.ReferencesAreSound":    {"ok law Reader.ReferencesAreSound for Index", "ok law Reader.ReferencesAreSound for Scan"},
+	"code ReformatIsSameCode":           {"ok law ReformatIsSameCode"},
+	"code SecondApplyIsStale":           {"ok law SecondApplyIsStale"},
+	"code StaleChangesNothing":          {"ok law StaleChangesNothing"},
+	"code UntouchedKeepsBytes":          {"ok law UntouchedKeepsBytes"},
+	"code Writer.UnknownPlanIsNoPlan":   {"ok law Writer.UnknownPlanIsNoPlan for Applier"},
 }
 
 // TestStdCodeLawsRun runs std code's laws as ergo test runs them: the
 // package's own sources are checked as a program, so its test build runs
-// the member laws of Reader against both of its providers, Index and Scan
-// (each built by NewIndex or NewScan from generated tables), and the
-// top-level law IndexIsScan; lawledger.Run holds that this test runs
+// the member laws of each operation type against its providers (Reader
+// against Index and Scan, Checker against Model, Planner against Session,
+// Files against Disk, Writer against Applier) and the top-level laws; lawledger.Run holds that this test runs
 // exactly the ledger's rows of std code. It builds Go because a law runs
 // only in the built test binary. Mutants code-short-first,
 // code-page-repeats-a-row, code-kinds-ignored
@@ -75,11 +120,7 @@ func TestStdCodeLawsRun(t *testing.T) {
 	}
 	laws := map[string]lawledger.Law{}
 	for key, statement := range codeLawStatements {
-		_, law, _ := strings.Cut(key, " ")
-		lines := []string{"ok law " + law}
-		if strings.Contains(law, ".") {
-			lines = []string{"ok law " + law + " for Index", "ok law " + law + " for Scan"}
-		}
+		lines := codeLawLines[key]
 		laws[key] = lawledger.Law{Statement: statement, Check: func(t *testing.T) {
 			for _, line := range lines {
 				if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + ` \(\d+ cases\)$`).MatchString(stdout) {

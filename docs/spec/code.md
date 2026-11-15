@@ -33,6 +33,63 @@ type Reader {
 5. **Laws.** `HandleRoundTrips`: the declaration at a declaration's handle is that declaration. `ReferencesAreSound`: each site answered names the declaration asked for, with a kind asked for. `ReferencesAreComplete`: the sites of every declaration, counted, are every site of the tables. `PagesPartition`: as above. The top-level law `IndexIsScan` holds the product provider to the reference one on generated tables. They run in `internal/sketch/lower`'s `TestStdCodeLawsRun` ([stdlib.md, Std laws](stdlib.md#std-laws)).
 6. **Providers.** `Index` (`IndexOf(t)`) indexes the tables once, by handle, by position and by short name, so a question reads the rows of its answer. `Scan` (`ScanOf(t)`) reads every row for every question: slow and plainly right. `NewIndex(seed)` and `NewScan(seed)` build each over `Generated(seed)`, the tables a law run draws. A program that reads code needs only `Reader`: its row shows it cannot write.
 
+## Plans and apply
+
+A change is a plan first. `Planner.Plan` computes a change's edits, checks the result, and stores the plan by its id; it writes nothing. `Writer.Apply` writes a stored plan, and nothing else in package `code` writes a source file. (SEMTOOLS SEM4a; the CLI, MCP and the product providers are SEM4b.)
+
+```
+type Planner {
+	Plan(c Change) Planned fails BadChange,
+	PlanOf(id string) Planned fails NoPlan,
+	law PlanIsDeterministic(pick int, word int) { … },
+	law PlanOfIsThePlan(pick int, word int) { … },
+}
+
+type Writer {
+	Apply(id string) Receipt fails NoPlan | NotReady | Stale | Busy | IOFailed,
+	Recover() Recovered fails Busy | IOFailed,
+	law UnknownPlanIsNoPlan(id string) { … },
+}
+
+type Change = Replace{Of string, Text string} | Insert{After string, Text string}
+	| Delete{Of string} | Fixes{Rules []string} | Script{Steps []Change}
+type Proof = Alpha{} | SameCode{} | Checked{}
+type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
+```
+
+1. **Changes.** `Replace` puts `Text`, formatted, in place of the whole declaration at `Of`. `Insert` adds `Text` after the declaration at `After`. `Delete` removes the declaration at `Of`, and is refused while a site outside it names it. `Fixes` applies the fixes of the diagnostics whose code is in `Rules` (all codes when `Rules` is empty), checks again, and repeats until no fix is left, at most 8 rounds. `Script` runs `Steps` in order, each on the result of the step before. An address is taken as `Reader.Symbol` takes one; an address that names nothing, or several declarations, is `BadChange`.
+2. **Edits.** An edit replaces a byte range found from the declaration's extent in the check. Edits of one plan that overlap, or that insert at the same place, are refused (`BadChange` names both). They are never merged.
+3. **Formatting.** Only the text a change writes is formatted, so a declaration the change does not touch keeps its bytes (law `UntouchedKeepsBytes`). A file that was canonical stays canonical (`CanonicalStaysCanonical`).
+4. **The overlay check.** The changed sources are checked as an overlay through the `Checker` seam.
+   - When the overlay has a diagnostic the base does not have (counted by code and message), the plan is `Blocked` by those diagnostics (`OverlayDiagnosticBlocks`), and `Apply` refuses it with `NotReady`.
+   - Otherwise the plan is `Ready`. Its proof is `SameCode` when the base checks and the lowered program is unchanged (`ReformatIsSameCode`). It is `Checked` when the code changed, or when the base did not check: in that case no proof is claimed. `Alpha` belongs to rename (SEM5).
+5. **The plan.** A plan holds:
+   - its id: a digest of the change and of the revisions it read; the same change at the same revisions gives the same id (`PlanIsDeterministic`);
+   - every file it read, with that file's revision;
+   - each file it changes, with the revision before, the revision after and the new text;
+   - a line diff per changed file;
+   - its verdict.
+
+   A store keeps the latest 64 plans. A planner holds no `Files`, so it cannot write (`PlanWritesNothing`).
+6. **Apply.** `Apply` follows the protocol of the model `models/apply`, which `ergo test models/apply` proves in its scope:
+   - It takes the workspace's lock (`Busy` when another applier holds it) and recovers any journal a dead applier left.
+   - It reads every file the plan read. Unless each is at its revision, it fails `Stale` and changes nothing (`StaleChangesNothing`). A plan applied once is `Stale` the second time (`SecondApplyIsStale`).
+   - It writes the journal (`intent`, with each changed file's revisions) and one temporary file per changed file, in that file's folder.
+   - For each file it **exchanges** the temporary file and the path in one call, then **verifies** that what came out is the revision the plan read. When it is not, an outside write landed after the read: it restores and fails `Stale`.
+   - It writes the journal (`committed`), then removes the temporary files and the journal. After it, the files are the plan's (`AppliedIsPlanned`), and planning the change again finds nothing to do (`PlanOfAppliedIsEmpty`).
+7. **Recovery.** `Recover`, and `Apply` before it writes, read only the journal and the disk:
+   - With no journal there is nothing to do.
+   - With `committed`, they remove what is left.
+   - With `intent`, they look at each file's temporary file. If it holds the new text, they remove it. If it holds the old text, they exchange it back when the path holds the new text, and otherwise remove it. If it holds other text, they exchange it back, so the outside write is kept.
+
+   A recovery that stops part way starts again from the top. The law `ApplyIsSafe` runs the model on the product code. An applier stops, or one call fails, at any call, and an outside write may land before any call. Afterwards no outside write is lost, the other files are all new or all old, the files only read are unchanged, and no temporary file, journal or lock is left.
+8. **Seams.** `Checker` (`Check`, `Format`) and `Files` (`Read`, `Write`, `Exchange`, `Remove`, `Exists`, `Lock`, `Unlock`) are operation types with laws.
+   - Their memory providers are `Model` and `Disk`. `Model` is a small language with a checker, a formatter and fixable diagnostics. `Disk` can stop, fail once, or let an outside write in, at any call.
+   - The product providers wrap the Go checker and formatter, and Linux's `renameat2(RENAME_EXCHANGE)` and macOS's `renamex_np(RENAME_SWAP)`. They wait for README Gap 17, a provider that captures `go.Foreign` (SEM4b). Where no atomic exchange exists, apply is refused, with no fall-back to check-then-rename (the model's first mutant).
+9. **Out of scope** (as in the model): two outside writes to one file inside one apply; a writer that keeps the old file open and writes through it later; power loss.
+
+*Prior art:* gopls's `go_rename_symbol` returns edits and writes nothing; go fix merges fixes against one baseline and drops the ones that conflict; LSP's `WorkspaceEdit` names the document versions it was computed from; Roslyn's FixAll may merge incorrectly. Here a plan names its revisions, refuses overlaps, and checks its overlay before anything is written, so a semantic conflict is a refused plan rather than a broken tree.
+
 ## ergo code
 
 `ergo code [--in DIR] [--json] COMMAND [ARGS...]` checks the program in `DIR` (the current folder by default), builds its fact tables and answers one question through `Reader`'s command line, which `ergo gen cli` generates ([rpc.md](rpc.md), ergo gen cli): `describe`, `symbols [--name N] [--match M] [--kind K] [--package P] [--offset O] [--limit L]`, `symbol ADDRESS`, `references --of ADDRESS [--kinds K]... [--offset O] [--limit L]`. A record answer prints as its JSON. A typed failure prints its tag and its JSON on standard error with status 1, or its tagged JSON on standard output with `--json`:

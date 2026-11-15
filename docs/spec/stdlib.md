@@ -1117,11 +1117,29 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `journal` | `Journal.SnapshotDropsSignals` | `SnapshotDropsSignals(s S) { Snapshot(s) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s}) }` | `TestStdJournalLawsRun` | tested |
 | `journal/memory` | `DroppedIsNotJournaled` | `DroppedIsNotJournaled() { with context { Scheduler: time.NewManual(0) } { dropped(New[int, int]()) } }` | `TestStdJournalLawsRun` | tested |
 | `journal/memory` | `RecoveryIsTheFold` | `RecoveryIsTheFold(ops []int, every int) { with context { Scheduler: time.NewManual(0) } { let (j, arm, all) = crashing() recovers(j, arm, all, ops, every) } }` | `TestStdJournalLawsRun` | tested |
+| `code` | `AppliedIsPlanned` | `AppliedIsPlanned(seed int, pick int, word int) { appliedIsPlanned(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `ApplyIsSafe` | `ApplyIsSafe(seed int, mode int, at int, out int) { applyIsSafe(seed, mode, at, out) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `CanonicalStaysCanonical` | `CanonicalStaysCanonical(seed int, pick int, word int) { canonicalStaysCanonical(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Checker.CheckIsDeterministic` | `CheckIsDeterministic(seed int) { checkIsDeterministic(seed) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Checker.FormatIsIdempotent` | `FormatIsIdempotent(text string) { formatIsIdempotent(text) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Files.ExchangeSwaps` | `ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Files.WriteThenRead` | `WriteThenRead(x string) { writeThenRead(x) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `IndexIsScan` | `IndexIsScan(seed int, size int) { indexIsScan(seed, size) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `OverlapIsRefused` | `OverlapIsRefused(seed int) { overlapIsRefused(seed) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `OverlayDiagnosticBlocks` | `OverlayDiagnosticBlocks(seed int, pick int) { overlayDiagnosticBlocks(seed, pick) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Planner.PlanIsDeterministic` | `PlanIsDeterministic(pick int, word int) { planIsDeterministic(pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Planner.PlanOfIsThePlan` | `PlanOfIsThePlan(pick int, word int) { planOfIsThePlan(pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `PlanOfAppliedIsEmpty` | `PlanOfAppliedIsEmpty(seed int, pick int, word int) { planOfAppliedIsEmpty(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `PlanWritesNothing` | `PlanWritesNothing(seed int, pick int, word int) { planWritesNothing(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.HandleRoundTrips` | `HandleRoundTrips(pick int) { handleRoundTrips(pick) }` | `TestStdCodeLawsRun` | tested |
-| `code` | `Reader.ReferencesAreSound` | `ReferencesAreSound(pick int, kinds []string) { referencesAreSound(pick, kinds) }` | `TestStdCodeLawsRun` | tested |
-| `code` | `Reader.ReferencesAreComplete` | `ReferencesAreComplete() { referencesAreComplete() }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.PagesPartition` | `PagesPartition(pick int, size int) { pagesPartition(pick, size) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Reader.ReferencesAreComplete` | `ReferencesAreComplete() { referencesAreComplete() }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Reader.ReferencesAreSound` | `ReferencesAreSound(pick int, kinds []string) { referencesAreSound(pick, kinds) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `ReformatIsSameCode` | `ReformatIsSameCode(seed int, pick int) { reformatIsSameCode(seed, pick) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `SecondApplyIsStale` | `SecondApplyIsStale(seed int, pick int, word int) { secondApplyIsStale(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `StaleChangesNothing` | `StaleChangesNothing(seed int, pick int, word int, which int) { staleChangesNothing(seed, pick, word, which) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `UntouchedKeepsBytes` | `UntouchedKeepsBytes(seed int, pick int, word int) { untouchedKeepsBytes(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Writer.UnknownPlanIsNoPlan` | `UnknownPlanIsNoPlan(id string) { unknownPlanIsNoPlan(id) }` | `TestStdCodeLawsRun` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
 | `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
 | `machines` | `NextTakesItsState` | `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }` | `TestStdMachinesLawsRun` | tested |
@@ -1548,7 +1566,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 ## Code
 
-SEMTOOLS SEM1. Std `code` answers questions about a workspace's code from its fact tables: the declarations of its packages and the sites that name each one, as the checker resolved them ([code.md](code.md)). `Reader` is the contract: `Describe`, `Symbols`, `Symbol` and `References`, which fail `NoSymbol` or `Ambiguous`. Its providers are `Index` (the tables indexed once by handle, position and short name; `IndexOf`) and `Scan` (every question a scan of every row; `ScanOf`), the reference that the top-level law `IndexIsScan` holds `Index` to. `Generated(seed)` draws tables for the law runs, and `NewIndex` and `NewScan` build a provider from it. `ergo code` is `Reader`'s command line, generated by `ergo gen cli` and linked into the binary (docs/tooling.md, Linked Ergo packages). Laws: `HandleRoundTrips`, `ReferencesAreSound`, `ReferencesAreComplete`, `PagesPartition`, `IndexIsScan` ([Std laws](#std-laws)). *Prior art:* Gleam's compiler records kinded references while it checks; gopls serves references to agents by symbol name; SCIP names symbols by printable strings.
+SEMTOOLS SEM1. Std `code` answers questions about a workspace's code from its fact tables: the declarations of its packages and the sites that name each one, as the checker resolved them ([code.md](code.md)). `Reader` is the contract: `Describe`, `Symbols`, `Symbol` and `References`, which fail `NoSymbol` or `Ambiguous`. Its providers are `Index` (the tables indexed once by handle, position and short name; `IndexOf`) and `Scan` (every question a scan of every row; `ScanOf`), the reference that the top-level law `IndexIsScan` holds `Index` to. `Generated(seed)` draws tables for the law runs, and `NewIndex` and `NewScan` build a provider from it. `ergo code` is `Reader`'s command line, generated by `ergo gen cli` and linked into the binary (docs/tooling.md, Linked Ergo packages). `Planner` plans a `Change` (`Replace`, `Insert`, `Delete`, `Fixes`, `Script`) over the `Checker` seam and stores it; `Writer.Apply` writes a stored plan through the `Files` seam by the protocol of `models/apply` (exchange, verify, journal); `Model` and `Disk` are their memory providers, and the product ones wait for README Gap 17 (SEM4a; [code.md, Plans and apply](code.md#plans-and-apply)). Laws: [Std laws](#std-laws), rows `code`. *Prior art:* Gleam's compiler records kinded references while it checks; gopls serves references to agents by symbol name; SCIP names symbols by printable strings.
 
 ## HTML
 
