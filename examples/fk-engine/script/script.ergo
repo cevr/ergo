@@ -84,38 +84,36 @@ func count(n int, word string) int fails BadLine {
 // and the screen and the pool after it.
 type Seen { Before engine.Mode, Mode engine.Mode, Held int, Booted int }
 
-// Play plays lines on a live screen with a fresh pool on clock, moving
-// clock to each line's time first (so a boot due by then has ended), and
-// gives what is seen after each press, then after end once the screen has
-// stopped: every engine is back by then.
-func Play(lines []Line, end duration, clock time.Manual) []Seen needs Scheduler {
-	let pool = memory.OnClock(clock, BootTakes())
-	with context { engine.Engines: pool } {
-		let screen = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
-		let mut out = []Seen{}
-		let mut now = 0s
-		for l in lines {
-			time.Advance(clock, l.At-now)
-			now = l.At
-			let before = screen.State()
-			match l.Press {
-			case Start:
-				ask(screen, engine.Start)
-			case Stop:
-				ask(screen, engine.Stop)
-			case Compute:
-				ask(screen, engine.Compute)
-			case Fault:
-				memory.Fault(pool)
-			}
-			out = out.Append(Seen{Before: before, Mode: screen.State(), Held: memory.Held(pool), Booted: memory.Booted(pool)})
+// Play plays lines on a live screen with a fresh pool on clock, which the
+// caller binds as engine.Engines, moving clock to each line's time first
+// (so a boot due by then has ended), and gives what is seen after each
+// press, then after end once the screen has stopped: every engine is back
+// by then.
+func Play(lines []Line, end duration, clock time.Manual, pool memory.Pool) []Seen needs Scheduler | engine.Engines {
+	let screen = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
+	let mut out = []Seen{}
+	let mut now = 0s
+	for l in lines {
+		time.Advance(clock, l.At-now)
+		now = l.At
+		let before = screen.State()
+		match l.Press {
+		case Start:
+			ask(screen, engine.Start)
+		case Stop:
+			ask(screen, engine.Stop)
+		case Compute:
+			ask(screen, engine.Compute)
+		case Fault:
+			memory.Fault(pool)
 		}
-		time.Advance(clock, end-now)
-		let last = screen.State()
-		screen.Stop()
-		let _ = actor.ExitOf(screen)
-		out.Append(Seen{Before: last, Mode: last, Held: memory.Held(pool), Booted: memory.Booted(pool)})
+		out = out.Append(Seen{Before: before, Mode: screen.State(), Held: memory.Held(pool), Booted: memory.Booted(pool)})
 	}
+	time.Advance(clock, end-now)
+	let last = screen.State()
+	screen.Stop()
+	let _ = actor.ExitOf(screen)
+	out.Append(Seen{Before: last, Mode: last, Held: memory.Held(pool), Booted: memory.Booted(pool)})
 }
 
 // ask steps s on the screen and waits for it: the screen never ends
@@ -129,8 +127,9 @@ func ask(screen actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, Ne
 
 // Run reads the script from io.Stdin and shows the screen after each
 // press and at the end: `@MS WORD`, then `  SCREEN; N out`. It returns
-// the exit status: 0, or 1 when the script is refused.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+// the exit status: 0, or 1 when the script is refused. pool is the fresh
+// pool on clock that the entry binds as engine.Engines.
+func Run(clock time.Manual, pool memory.Pool) int needs Console | io.Stdin | Scheduler | engine.Engines {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
@@ -140,7 +139,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	for i, seen in Play(s.Lines, s.End, clock) {
+	for i, seen in Play(s.Lines, s.End, clock, pool) {
 		let at = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
 		let what = if i < len(s.Lines) { Name(s.Lines[i].Press) } else { "end" }
 		Console.Println("@\(time.Count(at, 1ms)) \(what)")

@@ -79,6 +79,18 @@ func onModel(rs []Request, m pipeline.Model) []string {
 	}
 }
 
+// Loopback is the generated client of m, which the generated server
+// serves in this process (rpc.Loopback): every call crosses Effect RPC's
+// HTTP wire and the contract's codecs both ways. It binds m, a program
+// implementation, so it stands in this file of laws (lint with-at-entry).
+func Loopback(m pipeline.Model) pipelinerpc.Client {
+	pipelinerpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { pipeline.Pipeline: m } {
+			try pipelinerpc.Handle(tag, payload)
+		}
+	}))
+}
+
 // overWire is the wire's answers: each request through the client of m.
 func overWire(rs []Request, m pipeline.Model) []string {
 	let mut out = []string{}

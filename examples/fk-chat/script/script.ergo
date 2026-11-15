@@ -29,39 +29,37 @@ type Chat = actor.Actor[talk.Session, talk.Signal, Decision[talk.Session, Never]
 type Bad { Line int, Why string }
 
 // Run plays the script on standard input and prints what the chat does.
-// It returns the exit status: 0, or 1 for a line it cannot read.
-func Run() int needs Console | io.Stdin | Scheduler {
-	let echo = memory.NewEcho()
-	memory.Hold(echo)
-	with context { talk.Channel: echo } {
-		let chat = actor.StartMachine(talk.Chat{}, 16, func(n Never) {})
-		let mut shown = talk.Blank
-		let mut n = 0
-		for raw in io.Stdin.Lines() {
-			n = n + 1
-			let line = strings.TrimSpace(raw)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			Console.Println("> " + line)
-			act(chat, echo, line, raw) catch {
-			case Bad as b:
-				Console.Println("? line \(n): \(b.Why)")
-				chat.Stop()
-				return 1
-			}
-			let now = chat.State()
-			for l in Changes(shown, now) {
-				Console.Println("  " + l)
-			}
-			Console.Println("  lines held: \(memory.Held(echo))")
-			shown = now
+// It returns the exit status: 0, or 1 for a line it cannot read. echo is
+// the in-process server, held (memory.Hold), that the entry binds as the
+// chat's talk.Channel; the script plays the server's acts on it.
+func Run(echo memory.Echo) int needs Console | io.Stdin | Scheduler | talk.Channel {
+	let chat = actor.StartMachine(talk.Chat{}, 16, func(n Never) {})
+	let mut shown = talk.Blank
+	let mut n = 0
+	for raw in io.Stdin.Lines() {
+		n = n + 1
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
-		chat.Stop()
-		Console.Println("> stop")
-		Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
-		0
+		Console.Println("> " + line)
+		act(chat, echo, line, raw) catch {
+		case Bad as b:
+			Console.Println("? line \(n): \(b.Why)")
+			chat.Stop()
+			return 1
+		}
+		let now = chat.State()
+		for l in Changes(shown, now) {
+			Console.Println("  " + l)
+		}
+		Console.Println("  lines held: \(memory.Held(echo))")
+		shown = now
 	}
+	chat.Stop()
+	Console.Println("> stop")
+	Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
+	0
 }
 
 // act does a script line and waits until the chat has taken it.

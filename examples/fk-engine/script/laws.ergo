@@ -2,6 +2,7 @@
 // computes, boot faults and clock moves.
 
 import fkengine/engine
+import fkengine/memory
 import time
 
 // lines is a generated script: gaps of 0 to 2999 ms, or (for an even
@@ -30,7 +31,8 @@ func lines(gaps []int, kinds []int) []Line {
 // live is Play over ls until end, on a fresh time.Manual.
 func live(ls []Line, end duration) []Seen {
 	let c = time.NewManual(0)
-	with context { Scheduler: c } { Play(ls, end, c) }
+	let pool = memory.OnClock(c, BootTakes())
+	with context { Scheduler: c, engine.Engines: pool } { Play(ls, end, c, pool) }
 }
 
 // ReleasesEqualAcquires: after every press, one engine is out while the
