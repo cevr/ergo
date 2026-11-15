@@ -541,10 +541,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..93193ff
+index 0000000..cb80058
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,378 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -624,6 +624,15 @@ index 0000000..93193ff
 +		default:
 +			c.errorf(x.Pos, "ergoir: unary %s on %v", x.Op, t)
 +			return nil, nil
++		}
++		if b, ok := e0.(*syntax.Operation); ok && b.Y != nil {
++			// A binary operand stands in parentheses, as Go's parser
++			// leaves it: the writer's staticBool reads Not(AndAnd) as the
++			// AndAnd's own value, and !(p && false) would drop its branch.
++			p := &syntax.ParenExpr{X: e0}
++			p.SetPos(e0.Pos())
++			ergoValue(p, t, ergoConstOf(e0))
++			e0 = p
 +		}
 +		e := &syntax.Operation{Op: op, X: e0}
 +		e.SetPos(pos)
@@ -2868,7 +2877,7 @@ index 0000000..d2707a5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..8f78c74
+index 0000000..6854a3a
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
 @@ -0,0 +1,211 @@
