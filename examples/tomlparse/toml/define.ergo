@@ -1,0 +1,126 @@
+// What a key of a table may still become is a machine: its state is how
+// the text has defined the key so far, and each use of the key in a
+// header or a key/value pair is a signal. TOML 1.0's rules (Tables,
+// Array of Tables, Keys) are its transitions; a use the rules forbid ends
+// the machine with the failure it is.
+
+// Shape is how a key is defined so far.
+type Shape = Absent | Implicit | Header | Dotted | Tables | Closed
+
+// Absent: the key is not in its table.
+type Absent {}
+
+// Implicit: a header named a table below the key, which made the key a
+// table that no header has defined ([a.b] makes a).
+type Implicit {}
+
+// Header: a [header] defined the table.
+type Header {}
+
+// Dotted: a dotted key made the table (a.b = 1 makes a).
+type Dotted {}
+
+// Tables: an array of tables ([[a]]).
+type Tables {}
+
+// Closed: a value (a scalar, an array, an inline table): nothing can be
+// added to it, so nothing can be added below it either.
+type Closed {}
+
+// Use is what the text does with a key.
+type Use = Pass | Open | Append | Dot | Set
+
+// Pass: a header names a table below the key ([a.b] passes a).
+type Pass {}
+
+// Open: a header defines the key's table ([a.b] opens b).
+type Open {}
+
+// Append: a header adds a table to the key's array of tables ([[a]]).
+type Append {}
+
+// Dot: a dotted key names a key below this one (a.b = 1 dots a).
+type Dot {}
+
+// Set: a key/value pair gives the key its value.
+type Set {}
+
+// Refusal is a use the rules forbid: the key is defined twice, or it
+// clashes with what it is, and why.
+type Refusal = Twice | Conflict{Why string}
+
+type Twice {}
+
+// DefineStep is TOML's rule for a use of a key in a shape.
+func DefineStep(s Shape, u Use) Decision[Shape, Refusal] {
+	match (s, u) {
+	case (Absent, Pass):
+		Enter[Shape]{Next: Implicit}
+	case (Absent, Open):
+		Enter[Shape]{Next: Header}
+	case (Absent, Append):
+		Enter[Shape]{Next: Tables}
+	case (Absent, Dot):
+		Enter[Shape]{Next: Dotted}
+	case (Absent, Set):
+		Enter[Shape]{Next: Closed}
+	case (_, Set):
+		Done[Refusal]{Output: Twice}
+	case (Implicit, Pass), (Header, Pass), (Dotted, Pass), (Tables, Pass), (Tables, Append), (Dotted, Dot):
+		Stay[Shape]{Next: s}
+	case (Implicit, Open):
+		Enter[Shape]{Next: Header}
+	case (Implicit, Dot):
+		Enter[Shape]{Next: Dotted}
+	case (Header, Open):
+		Done[Refusal]{Output: Twice}
+	case (Implicit, Append), (Header, Append), (Dotted, Append):
+		Done[Refusal]{Output: Conflict{Why: "is a table, not an array of tables"}}
+	case (Header, Dot):
+		Done[Refusal]{Output: Conflict{Why: "is a table a header defined, which dotted keys cannot extend"}}
+	case (Dotted, Open):
+		Done[Refusal]{Output: Conflict{Why: "is a table dotted keys defined, which a header cannot define"}}
+	case (Tables, Open):
+		Done[Refusal]{Output: Conflict{Why: "is an array of tables, not a table"}}
+	case (Tables, Dot):
+		Done[Refusal]{Output: Conflict{Why: "is an array of tables, which dotted keys cannot extend"}}
+	case (Closed, Open), (Closed, Append), (Closed, Pass), (Closed, Dot):
+		Done[Refusal]{Output: Conflict{Why: "is a value, so nothing can be added to it"}}
+	}
+}
+
+// Definition is a key's definition as a machine.
+type Definition machine[Shape, Use] {
+	initial: Absent,
+	step:    DefineStep,
+
+	// HeaderAfterImplicit: [a.b] then [a] defines a.
+	law HeaderAfterImplicit path [Absent, Implicit, Header],
+
+	// DottedAfterImplicit: [a.b.c], then [a] and b.d = 1, extends b.
+	law DottedAfterImplicit path [Absent, Implicit, Dotted],
+
+	// ClosedTakesNothing: a value refuses every use.
+	law ClosedTakesNothing(pick int) {
+		let uses = []Use{Pass, Open, Append, Dot, Set}
+		let u = uses[if pick < 0 { -(pick % 5) } else { pick % 5 }]
+		match DefineStep(Closed, u) {
+		case Done[Refusal]:
+			true
+		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Ignore, Reject:
+			false
+		}
+	},
+
+	// SetOnlyOnce: a key that is anything already takes no value.
+	law SetOnlyOnce(pick int) {
+		let shapes = []Shape{Implicit, Header, Dotted, Tables, Closed}
+		let s = shapes[if pick < 0 { -(pick % 5) } else { pick % 5 }]
+		match DefineStep(s, Set) {
+		case Done[Refusal] as d:
+			d.Output == Twice
+		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Ignore, Reject:
+			false
+		}
+	},
+}

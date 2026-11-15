@@ -1,0 +1,24 @@
+// Package files is the host's Documents provider: a file of a file
+// system, read whole. The binary gives it the host's; a test gives it an
+// fstest.Memory.
+
+import fs
+import tomlparse/app
+
+// Disk reads the files of a file system.
+type Disk { files fs.Files }
+
+// New is the provider over files.
+func New(files fs.Files) Disk { Disk{files: files} }
+
+// Read is the whole text of the file at path.
+func Read(d Disk, path string) string fails app.Unreadable {
+	d.files.ReadFile(path) catch {
+	case fs.NotFound:
+		return app.Unreadable{Path: path, Reason: "no such file"}
+	case fs.Denied:
+		return app.Unreadable{Path: path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return app.Unreadable{Path: path, Reason: e.Reason}
+	}
+}

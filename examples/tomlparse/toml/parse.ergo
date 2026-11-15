@@ -1,0 +1,528 @@
+import slices
+import strconv
+import strings
+import utf8
+
+// Malformed is a text that is not TOML: where the first byte that is not
+// TOML stands (its offset, and its line and column, each from 1, a column
+// counting bytes), and why.
+type Malformed { Offset int, Line int, Col int, Reason string }
+
+// Duplicate is a key the text defines twice: where the second definition
+// names it, and the key as a dotted path from the root.
+type Duplicate { Offset int, Line int, Col int, Key string }
+
+// Clash is a key the text uses as what it is not: a table as an array of
+// tables, a value as a table, a header's table extended by dotted keys.
+type Clash { Offset int, Line int, Col int, Key string, Why string }
+
+// Form is what a node of the builder holds.
+type Form = Leaf | Items | Keys | Elements
+
+// Leaf: a scalar, in the node's val.
+type Leaf {}
+
+// Items: an array; its elements are the nodes below it, in order.
+type Items {}
+
+// Keys: a table; its members are the nodes below it, in order.
+type Keys {}
+
+// Elements: an array of tables; its tables are the nodes below it.
+type Elements {}
+
+// node is a key, an array element or a table of an array of tables, as
+// the builder holds it: its parent's id, its name, its definition so far,
+// what it holds, and for an array of tables the id of its last table.
+type node { parent int, name string, shape Shape, form Form, val Value, last int }
+
+// slot is the key name in the table node parent.
+type slot { parent int, name string }
+
+// Seg is one key of a dotted key and the offset of its first byte.
+type Seg { Name string, At int }
+
+// builder is the text, the offset of the next byte, how deep arrays and
+// inline tables nest there, the nodes so far (the root table is node 0),
+// the index of the keys of each table, and the table and its dotted path
+// that the last header opened.
+type builder {
+	src   string,
+	pos   int,
+	depth int,
+	nodes []node,
+	index Map[slot, int],
+	table int,
+	path  string,
+}
+
+// Parse is the root table of the TOML text src.
+func Parse(src string) Value fails Malformed | Duplicate | Clash {
+	let mut b = builder{src: src, pos: 0, depth: 0, nodes: []node{}, index: Map[slot, int]{}, table: 0, path: ""}
+	try checkUTF8(&b)
+	if strings.HasPrefix(src, "\uFEFF") {
+		b.pos = 3
+	}
+	b.nodes = b.nodes.Append(node{parent: -1, name: "", shape: Header, form: Keys, val: Bool{B: false}, last: 0})
+	for {
+		blank(&b)
+		if b.pos >= len(b.src) {
+			break
+		}
+		let c = b.src[b.pos]
+		if c == '[' {
+			try header(&b)
+		} else if c != '#' && c != '\n' && c != '\r' {
+			try keyval(&b, b.table, b.path)
+		}
+		try endLine(&b)
+	}
+	tree(&b)
+}
+
+// Locate is the failure at offset of src: its line and column.
+func Locate(src string, offset int, reason string) Malformed {
+	let mut line = 1
+	let mut start = 0
+	for i in 0..offset {
+		if src[i] == '\n' {
+			line += 1
+			start = i + 1
+		}
+	}
+	Malformed{Offset: offset, Line: line, Col: offset - start + 1, Reason: reason}
+}
+
+func fail(b *builder, at int, reason string) Malformed { Locate(b.src, at, reason) }
+
+// found is how a failure names the byte at offset at.
+func found(b *builder, at int) string {
+	if at >= len(b.src) {
+		return "the end"
+	}
+	strconv.Quote(strings.Slice(b.src, at, at+1))
+}
+
+// checkUTF8 fails at the first byte of src that is not UTF-8.
+func checkUTF8(b *builder) fails Malformed {
+	let mut i = 0
+	for i < len(b.src) {
+		if b.src[i] < 0x80 {
+			i += 1
+			continue
+		}
+		let d = utf8.DecodeRuneInString(strings.Slice(b.src, i, len(b.src)))
+		if d.Size == 1 {
+			return fail(b, i, "a byte that is not UTF-8")
+		}
+		i += d.Size
+	}
+}
+
+// blank moves past spaces and tabs.
+func blank(b *builder) {
+	for b.pos < len(b.src) && (b.src[b.pos] == ' ' || b.src[b.pos] == '\t') {
+		b.pos += 1
+	}
+}
+
+// control says whether c may not stand in a comment or a string: a
+// control character other than tab, or DEL.
+func control(c byte) bool { (c < 0x20 && c != '\t') || c == 0x7f }
+
+// comment moves past a comment that starts at the next byte, up to the
+// end of its line.
+func comment(b *builder) fails Malformed {
+	b.pos += 1
+	for b.pos < len(b.src) {
+		let c = b.src[b.pos]
+		if c == '\n' || (c == '\r' && b.pos+1 < len(b.src) && b.src[b.pos+1] == '\n') {
+			return
+		}
+		if control(c) {
+			return fail(b, b.pos, "a control character in a comment")
+		}
+		b.pos += 1
+	}
+}
+
+// newline moves past a newline at the next byte, and says whether there
+// was one.
+func newline(b *builder) bool {
+	if b.pos < len(b.src) && b.src[b.pos] == '\n' {
+		b.pos += 1
+		return true
+	}
+	if b.pos+1 < len(b.src) && b.src[b.pos] == '\r' && b.src[b.pos+1] == '\n' {
+		b.pos += 2
+		return true
+	}
+	false
+}
+
+// endLine moves past the rest of a line: blanks, a comment, and the
+// newline or the end of the text.
+func endLine(b *builder) fails Malformed {
+	blank(b)
+	if b.pos < len(b.src) && b.src[b.pos] == '#' {
+		try comment(b)
+	}
+	if b.pos >= len(b.src) || newline(b) {
+		return
+	}
+	fail(b, b.pos, "expected the end of the line, found "+found(b, b.pos))
+}
+
+// bare says whether c may stand in a bare key.
+func bare(c byte) bool {
+	(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+}
+
+// key reads a dotted key: one key or more, joined by dots.
+func key(b *builder) []Seg fails Malformed {
+	let mut segs = []Seg{}
+	for {
+		let at = b.pos
+		if b.pos >= len(b.src) {
+			return fail(b, b.pos, "expected a key, found the end")
+		}
+		let c = b.src[b.pos]
+		if c == '"' {
+			if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "\"\"\"") {
+				return fail(b, b.pos, "a key cannot be a multi-line string")
+			}
+			segs = segs.Append(Seg{Name: try basic(b), At: at})
+		} else if c == '\'' {
+			if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "'''") {
+				return fail(b, b.pos, "a key cannot be a multi-line string")
+			}
+			segs = segs.Append(Seg{Name: try literal(b), At: at})
+		} else if bare(c) {
+			let mut i = b.pos
+			for i < len(b.src) && bare(b.src[i]) {
+				i += 1
+			}
+			segs = segs.Append(Seg{Name: strings.Slice(b.src, b.pos, i), At: at})
+			b.pos = i
+		} else {
+			return fail(b, b.pos, "expected a key, found "+found(b, b.pos))
+		}
+		blank(b)
+		if b.pos >= len(b.src) || b.src[b.pos] != '.' {
+			return segs
+		}
+		b.pos += 1
+		blank(b)
+	}
+}
+
+// Shown is a key as a failure names it: bare when it can be, else quoted.
+func Shown(name string) string {
+	if len(name) == 0 {
+		return "\"\""
+	}
+	for i in 0..len(name) {
+		if !bare(name[i]) {
+			return Quoted(name)
+		}
+	}
+	name
+}
+
+func joined(path string, name string) string {
+	if len(path) == 0 {
+		return Shown(name)
+	}
+	path + "." + Shown(name)
+}
+
+// add puts a node below parent and is its id.
+func add(b *builder, parent int, name string, shape Shape, form Form) int {
+	b.nodes = b.nodes.Append(node{parent: parent, name: name, shape: shape, form: form, val: Bool{B: false}, last: 0})
+	len(b.nodes) - 1
+}
+
+// touch is the use u of the key seg in the table node parent, by the
+// machine Definition: the node of the key, made when it is new, or the
+// table it leads into (the last table of an array of tables, or the table
+// that Append adds). shown is the key's dotted path.
+func touch(b *builder, parent int, seg Seg, u Use, shown string) int fails Duplicate | Clash {
+	let at = slot{parent: parent, name: seg.Name}
+	let mut id = -1
+	let mut s Shape = Absent
+	match b.index.Get(at) {
+	case Some[int] as f:
+		id = f.Value
+		s = b.nodes[id].shape
+	case None:
+	}
+	match DefineStep(s, u) {
+	case Enter[Shape] as e:
+		if id < 0 {
+			let form = match u {
+			case Append:
+				Elements
+			case Set:
+				Leaf
+			case Pass, Open, Dot:
+				Keys
+			}
+			id = add(b, parent, seg.Name, e.Next, form)
+			b.index = b.index.Put(at, id)
+		} else {
+			let mut n = b.nodes[id]
+			n.shape = e.Next
+			b.nodes[id] = n
+		}
+	case Stay[Shape]:
+	case Done[Refusal] as d:
+		let where = Locate(b.src, seg.At, "")
+		match d.Output {
+		case Twice:
+			return Duplicate{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown}
+		case Conflict as c:
+			return Clash{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown, Why: c.Why}
+		}
+	case Emit[Shape, Refusal], Ignore, Reject:
+		Unreachable("the machine Definition neither emits, ignores nor rejects")
+	}
+	match u {
+	case Append:
+		let t = add(b, id, "", Header, Keys)
+		let mut n = b.nodes[id]
+		n.last = t
+		b.nodes[id] = n
+		t
+	case Pass:
+		if b.nodes[id].form == Elements { b.nodes[id].last } else { id }
+	case Open, Dot, Set:
+		id
+	}
+}
+
+// header reads a [table] or [[array of tables]] header and makes its
+// table the one that key/value pairs go to.
+func header(b *builder) fails Malformed | Duplicate | Clash {
+	let tables = b.pos+1 < len(b.src) && b.src[b.pos+1] == '['
+	b.pos += if tables { 2 } else { 1 }
+	blank(b)
+	let segs = try key(b)
+	let close = if tables { "]]" } else { "]" }
+	if !strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), close) {
+		return fail(b, b.pos, "expected '"+close+"', found "+found(b, b.pos))
+	}
+	b.pos += len(close)
+	let mut at = 0
+	let mut shown = ""
+	for i, seg in segs {
+		shown = joined(shown, seg.Name)
+		let u Use = if i < len(segs)-1 { Pass } else if tables { Append } else { Open }
+		at = try touch(b, at, seg, u, shown)
+	}
+	b.table = at
+	b.path = shown
+}
+
+// keyval reads a key/value pair into the table node table, whose dotted
+// path is path.
+func keyval(b *builder, table int, path string) fails Malformed | Duplicate | Clash {
+	let segs = try key(b)
+	if b.pos >= len(b.src) || b.src[b.pos] != '=' {
+		return fail(b, b.pos, "expected '=' after a key, found "+found(b, b.pos))
+	}
+	b.pos += 1
+	blank(b)
+	let mut at = table
+	let mut shown = path
+	for i, seg in segs {
+		shown = joined(shown, seg.Name)
+		let u Use = if i < len(segs)-1 { Dot } else { Set }
+		at = try touch(b, at, seg, u, shown)
+	}
+	try value(b, at, shown)
+}
+
+// value reads the value at the next byte into the node id, whose dotted
+// path is shown.
+func value(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+	if b.pos >= len(b.src) {
+		return fail(b, b.pos, "expected a value, found the end")
+	}
+	let c = b.src[b.pos]
+	match c {
+	case '"':
+		leaf(b, id, Str{S: try basic(b)})
+	case '\'':
+		leaf(b, id, Str{S: try literal(b)})
+	case '[':
+		try array(b, id, shown)
+	case '{':
+		try inline(b, id, shown)
+	case 't':
+		try word(b, "true")
+		leaf(b, id, Bool{B: true})
+	case 'f':
+		try word(b, "false")
+		leaf(b, id, Bool{B: false})
+	case _:
+		if c == '+' || c == '-' || c == 'i' || c == 'n' || (c >= '0' && c <= '9') {
+			leaf(b, id, try scalar(b))
+		} else {
+			return fail(b, b.pos, "expected a value, found "+found(b, b.pos))
+		}
+	}
+}
+
+func leaf(b *builder, id int, v Value) {
+	let mut n = b.nodes[id]
+	n.val = v
+	b.nodes[id] = n
+}
+
+func reform(b *builder, id int, f Form) {
+	let mut n = b.nodes[id]
+	n.form = f
+	b.nodes[id] = n
+}
+
+// word moves past the literal w, which must end there.
+func word(b *builder, w string) fails Malformed {
+	if !strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), w) {
+		return fail(b, b.pos, "expected a value, found "+found(b, b.pos))
+	}
+	b.pos += len(w)
+	try ended(b, b.pos)
+}
+
+// ended fails unless a value may end at offset at: at the end of the
+// text, a blank, a newline, a comma, a closing bracket or a comment.
+func ended(b *builder, at int) fails Malformed {
+	if at >= len(b.src) {
+		return
+	}
+	match b.src[at] {
+	case ' ', '\t', '\n', '\r', ',', ']', '}', '#':
+	case _:
+		return fail(b, at, "expected the end of a value, found "+found(b, at))
+	}
+}
+
+// enter opens an array or an inline table: one level deeper, at most
+// MaxDepth.
+func enter(b *builder) fails Malformed {
+	b.depth += 1
+	if b.depth > MaxDepth {
+		return fail(b, b.pos, "nesting deeper than \(MaxDepth)")
+	}
+	b.pos += 1
+}
+
+// fill moves past what may stand between the values of an array: blanks,
+// newlines and comments.
+func fill(b *builder) fails Malformed {
+	for {
+		blank(b)
+		if b.pos < len(b.src) && b.src[b.pos] == '#' {
+			try comment(b)
+		}
+		if !newline(b) {
+			return
+		}
+	}
+}
+
+// array reads an array after its [ into the node id.
+func array(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+	try enter(b)
+	reform(b, id, Items)
+	for {
+		try fill(b)
+		if b.pos < len(b.src) && b.src[b.pos] == ']' {
+			b.pos += 1
+			b.depth -= 1
+			return
+		}
+		let item = add(b, id, "", Closed, Leaf)
+		try value(b, item, shown)
+		try fill(b)
+		if b.pos < len(b.src) && b.src[b.pos] == ',' {
+			b.pos += 1
+			continue
+		}
+		if b.pos < len(b.src) && b.src[b.pos] == ']' {
+			b.pos += 1
+			b.depth -= 1
+			return
+		}
+		return fail(b, b.pos, "expected ',' or ']', found "+found(b, b.pos))
+	}
+}
+
+// inline reads an inline table after its { into the node id. Its keys
+// need no closing when it ends: the node id is Closed (Set made it), and
+// every later use reaches them only through it.
+func inline(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+	try enter(b)
+	reform(b, id, Keys)
+	blank(b)
+	if b.pos < len(b.src) && b.src[b.pos] == '}' {
+		b.pos += 1
+		b.depth -= 1
+		return
+	}
+	for {
+		try keyval(b, id, shown)
+		blank(b)
+		if b.pos < len(b.src) && b.src[b.pos] == ',' {
+			b.pos += 1
+			blank(b)
+			continue
+		}
+		if b.pos < len(b.src) && b.src[b.pos] == '}' {
+			b.pos += 1
+			b.depth -= 1
+			return
+		}
+		return fail(b, b.pos, "expected ',' or '}', found "+found(b, b.pos))
+	}
+}
+
+// tree is the root table the builder's nodes make.
+func tree(b *builder) Value {
+	let n = len(b.nodes)
+	let mut first = slices.Repeat([]int{0}, n+1)
+	for id in 1..n {
+		first[b.nodes[id].parent+1] += 1
+	}
+	for k in 0..n {
+		first[k+1] += first[k]
+	}
+	let mut next = slices.Clone(first)
+	let mut kids = slices.Repeat([]int{0}, n)
+	for id in 1..n {
+		let p = b.nodes[id].parent
+		kids[next[p]] = id
+		next[p] += 1
+	}
+	build(b, first, kids, 0)
+}
+
+func build(b *builder, first []int, kids []int, id int) Value {
+	let n = b.nodes[id]
+	match n.form {
+	case Leaf:
+		n.val
+	case Items, Elements:
+		let mut items = []Value{}
+		for k in first[id]..first[id+1] {
+			items = items.Append(build(b, first, kids, kids[k]))
+		}
+		Array{Items: items}
+	case Keys:
+		let mut members = []Member{}
+		for k in first[id]..first[id+1] {
+			members = members.Append(Member{Key: b.nodes[kids[k]].name, Val: build(b, first, kids, kids[k])})
+		}
+		Table{Members: members}
+	}
+}

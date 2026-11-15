@@ -1,0 +1,101 @@
+import jsonparse/json
+import strings
+
+// Compact is the text of the value at id on one line, as json.Compact
+// prints the same value.
+func Compact(t Tree, id NodeId) string {
+	let mut b = strings.NewBuilder()
+	compact(&b, t, id)
+	b.String()
+}
+
+// Indent is the text of the value at id in jq's layout, as json.Indent
+// prints the same value.
+func Indent(t Tree, id NodeId) string {
+	let mut b = strings.NewBuilder()
+	indent(&b, t, id, 0)
+	b.String()
+}
+
+func compact(b *strings.Builder, t Tree, id NodeId) {
+	let n = At(t, id)
+	match n.Kind {
+	case Null:
+		b.WriteString("null")
+	case True:
+		b.WriteString("true")
+	case False:
+		b.WriteString("false")
+	case Number:
+		b.WriteString(TextOf(t, n))
+	case Text, Pooled:
+		json.WriteQuoted(b, TextOf(t, n))
+	case Array:
+		b.WriteByte('[')
+		for k in 0..int(n.B) {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			compact(b, t, Child(t, n, k))
+		}
+		b.WriteByte(']')
+	case Object:
+		b.WriteByte('{')
+		for k in 0..int(n.B) {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			json.WriteQuoted(b, TextOf(t, At(t, Child(t, n, 2*k))))
+			b.WriteByte(':')
+			compact(b, t, Child(t, n, 2*k+1))
+		}
+		b.WriteByte('}')
+	}
+}
+
+func newline(b *strings.Builder, depth int) {
+	b.WriteByte('\n')
+	for _ in 0..depth {
+		b.WriteString("  ")
+	}
+}
+
+func indent(b *strings.Builder, t Tree, id NodeId, depth int) {
+	let n = At(t, id)
+	match n.Kind {
+	case Array:
+		if n.B == 0 {
+			b.WriteString("[]")
+			return
+		}
+		b.WriteByte('[')
+		for k in 0..int(n.B) {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			indent(b, t, Child(t, n, k), depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte(']')
+	case Object:
+		if n.B == 0 {
+			b.WriteString("{}")
+			return
+		}
+		b.WriteByte('{')
+		for k in 0..int(n.B) {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			json.WriteQuoted(b, TextOf(t, At(t, Child(t, n, 2*k))))
+			b.WriteString(": ")
+			indent(b, t, Child(t, n, 2*k+1), depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte('}')
+	case Null, True, False, Number, Text, Pooled:
+		compact(b, t, id)
+	}
+}

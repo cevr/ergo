@@ -1,0 +1,1 @@
+usage: flattree stats [-tree] FILE | path [-tree] FILE POINTER | print [-tree] FILE | gen -seed S -n N

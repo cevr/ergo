@@ -1,0 +1,56 @@
+// twig workload: seed 7, 2 rounds
+fn fib(n) {
+	if n < 2 {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
+}
+
+fn counter() {
+	let c = 0
+	return fn() {
+		c = c + 1
+		return c
+	}
+}
+
+fn step(bodies, dt) {
+	for a in bodies {
+		for b in bodies {
+			if a != b {
+				let dx = b.x - a.x
+				let dy = b.y - a.y
+				let d2 = dx * dx + dy * dy + 0.01
+				let f = b.m / (d2 * sqrt(d2))
+				a.vx = a.vx + dx * f * dt
+				a.vy = a.vy + dy * f * dt
+			}
+		}
+	}
+	for a in bodies {
+		a.x = a.x + a.vx * dt
+		a.y = a.y + a.vy * dt
+	}
+}
+
+let tick = counter()
+let bodies = []
+push(bodies, {x: float(-1531) / 1000.0, y: float(47) / 1000.0, vx: 0.0, vy: 0.0, m: float(775) / 1000.0 + 3.0})
+push(bodies, {x: float(-1184) / 1000.0, y: float(-584) / 1000.0, vx: 0.0, vy: 0.0, m: float(401) / 1000.0 + 3.0})
+push(bodies, {x: float(389) / 1000.0, y: float(1368) / 1000.0, vx: 0.0, vy: 0.0, m: float(1972) / 1000.0 + 3.0})
+let words = ["w25", "w59", "w40", "w56"]
+let total = 0
+let round = 0
+while round < 2 {
+	total = total + fib(8)
+	step(bodies, 0.01)
+	let s = ""
+	for w in words {
+		s = s + w
+	}
+	total = total + len(s) + tick()
+	round = round + 1
+}
+print(total)
+print(bodies[0].x)
+print(bodies[1].vy)

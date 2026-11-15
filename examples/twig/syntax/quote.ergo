@@ -1,0 +1,135 @@
+// A string literal is read by a machine: its state is whether the last
+// byte was a backslash, and each byte of the literal is a signal.
+
+import machines
+import strings
+
+// Quote is where the lexer is inside a string literal: in its body, or
+// just after a backslash.
+type Quote = Body | Escape
+
+type Body {}
+type Escape {}
+
+// Mark is a byte of a string literal, by what it does there.
+type Mark = Close | Backslash | Newline | Plain{C byte}
+
+type Close {}
+type Backslash {}
+type Newline {}
+
+// Piece is what a byte of a literal gives: a byte of the value, the end
+// of the literal, or the reason the literal is broken.
+type Piece = Char{C byte} | Closed | Broken{Why string}
+
+type Closed {}
+
+// MarkOf is the Mark of the byte c.
+func MarkOf(c byte) Mark {
+	match c {
+	case '"':
+		Close
+	case '\\':
+		Backslash
+	case '\n':
+		Newline
+	case _:
+		Plain{C: c}
+	}
+}
+
+// QuoteStep is the literal's transition. In the body a quote ends the
+// literal, a backslash starts an escape, a newline breaks the literal and
+// any other byte is itself. After a backslash, n, t, a quote and a
+// backslash stand for a newline, a tab, a quote and a backslash; anything
+// else breaks the literal.
+func QuoteStep(q Quote, m Mark) Decision[Quote, Piece] {
+	match (q, m) {
+	case (Body, Close):
+		Done[Piece]{Output: Closed}
+	case (Body, Backslash):
+		Enter[Quote]{Next: Escape}
+	case (Body, Newline):
+		Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
+	case (Body, Plain as p):
+		Emit[Quote, Piece]{Next: Body, Output: Char{C: p.C}}
+	case (Escape, Close):
+		Emit[Quote, Piece]{Next: Body, Output: Char{C: '"'}}
+	case (Escape, Backslash):
+		Emit[Quote, Piece]{Next: Body, Output: Char{C: '\\'}}
+	case (Escape, Newline):
+		Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
+	case (Escape, Plain as p):
+		match p.C {
+		case 'n':
+			Emit[Quote, Piece]{Next: Body, Output: Char{C: '\n'}}
+		case 't':
+			Emit[Quote, Piece]{Next: Body, Output: Char{C: '\t'}}
+		case _:
+			Done[Piece]{Output: Broken{Why: "unknown escape \\" + escaped(p.C)}}
+		}
+	}
+}
+
+// escaped is the byte c as a failure prints it: itself when it is a
+// printable ASCII byte, else its value in hex.
+func escaped(c byte) string {
+	let mut b = strings.NewBuilder()
+	if c >= ' ' && c <= '~' {
+		b.WriteByte(c)
+	} else {
+		let hex = "0123456789abcdef"
+		b.WriteByte('x')
+		b.WriteByte(hex[int(c)/16])
+		b.WriteByte(hex[int(c)%16])
+	}
+	b.String()
+}
+
+// Quoting is a string literal as a machine.
+type Quoting machine[Quote, Mark] {
+	initial: Body,
+	step:    QuoteStep,
+
+	// EscapesReturn: an escape goes back to the body.
+	law EscapesReturn path [Body, Escape, Body],
+
+	// PlainBytesAreThemselves: a byte that is no quote, backslash or
+	// newline is a byte of the value, in the body.
+	law PlainBytesAreThemselves(c byte) {
+		match MarkOf(c) {
+		case Plain:
+			match QuoteStep(Body, MarkOf(c)) {
+			case Emit[Quote, Piece] as e:
+				e.Output == Char{C: c} && e.Next == Body
+			case Enter[Quote], Stay[Quote], Ignore, Reject, Done[Piece]:
+				false
+			}
+		case Close, Backslash, Newline:
+			true
+		}
+	},
+
+	// EscapedQuoteStaysOpen: a backslash and a quote put a quote in the
+	// value, and the literal goes on.
+	law EscapedQuoteStaysOpen(rest []byte) {
+		let mut marks = []Mark{Backslash, Close}
+		for c in rest {
+			match MarkOf(c) {
+			case Plain:
+				marks = marks.Append(MarkOf(c))
+			case Close, Backslash, Newline:
+			}
+		}
+		let o = machines.Run(Quoting{}, marks) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Running[Quote, Piece] as r:
+			r.State == Body
+		case machines.Finished[Quote, Piece]:
+			false
+		}
+	},
+}
