@@ -92,6 +92,9 @@ type SplitReport struct {
 	// names IR bodies use that another package declares, which their own
 	// package declares again (pkgsplit_ir.go).
 	IRPackages, IRForeign int
+	// Shards counts the Go packages that declaration shards made below
+	// the packages of the program (pkgshard.go).
+	Shards int
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -118,11 +121,18 @@ func isGoInit(name string) bool { return name == "init" }
 // than main.go stay as they are. A program it cannot split keeps the
 // one-package files, with the reason in the report.
 func LowerSplit(u Unit, tests bool) ([]File, SplitReport, error) {
-	return lowerSplit(u, tests, programModule)
+	return lowerSplit(u, tests, programModule, nil)
 }
 
-// lowerSplit is LowerSplit with the root package at the import path base.
-func lowerSplit(u Unit, tests bool, base string) ([]File, SplitReport, error) {
+// LowerShards is LowerSplit with declaration shards (pkgshard.go): each
+// big package of the program is cut into Go packages below it.
+func LowerShards(u Unit, tests bool) ([]File, SplitReport, error) {
+	return lowerSplit(u, tests, programModule, devShards)
+}
+
+// lowerSplit is LowerSplit with the root package at the import path base,
+// and shards of the sizes sh (none when nil).
+func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitReport, error) {
 	if err := u.Validate(); err != nil {
 		return nil, SplitReport{}, err
 	}
@@ -135,7 +145,7 @@ func lowerSplit(u Unit, tests bool, base string) ([]File, SplitReport, error) {
 		return nil, SplitReport{}, err
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	out, rep := splitFiles(u, files, l.stdOrigins(), base)
+	out, rep := splitFiles(u, files, l.stdOrigins(), base, sh)
 	return out, rep, nil
 }
 
@@ -160,12 +170,12 @@ func (l *lowerer) stdOrigins() map[string]*check.Package {
 }
 
 // splitFiles splits files, the lowering of u, by the std origins.
-func splitFiles(u Unit, files []File, origins map[string]*check.Package, base string) ([]File, SplitReport) {
+func splitFiles(u Unit, files []File, origins map[string]*check.Package, base string, sh *shardOpts) ([]File, SplitReport) {
 	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
-	out, rep := splitMain(u, files[i].Data, base, origins, nil)
+	out, rep := splitMain(u, files[i].Data, base, origins, nil, sh)
 	if out == nil {
 		if rep.Packages == 0 {
 			rep.Packages = 1
@@ -292,8 +302,9 @@ func (p *splitPlan) place(groups []splitGroup) string {
 // nil files when it does not split. File paths are relative to the root
 // package. With ir, the IR of main.go's bodiless functions (LowerIRSplit),
 // each IR body counts as its function's references, and each package
-// gets the IR file of its functions (pkgsplit_ir.go).
-func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, ir *irFile) ([]File, SplitReport) {
+// gets the IR file of its functions (pkgsplit_ir.go). With sh, each big
+// package of the program is cut into shards after placement (pkgshard.go).
+func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
 	if err != nil {
@@ -382,6 +393,20 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			prev = off(f.Decls[i-1].End())
 		}
 		segStart[i], segEnd[i] = prev, off(d.End())
+	}
+	// An embedded asset's directive may stand in a comment group before
+	// the one that is the declaration's Doc (anchorLines puts a /*line*/
+	// comment before var): every comment of the segment counts.
+	for i, d := range f.Decls {
+		g := declGroup[i]
+		if _, ok := d.(*ast.GenDecl); !ok || g < 0 {
+			continue
+		}
+		for _, c := range f.Comments {
+			if at := off(c.Pos()); at >= segStart[i] && at < off(d.Pos()) && hasEmbed(c) {
+				groups[g].pin, groups[g].embed = true, true
+			}
+		}
 	}
 	// A declaration's natural package is the Ergo package of the source
 	// file its last //line directive before it names.
@@ -583,13 +608,28 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	if reason := plan.place(groups); reason != "" {
 		return nil, SplitReport{Reason: reason}
 	}
-	used := map[int]bool{}
-	pulled, foreign := 0, 0
+	pulled := 0
 	for _, g := range groups {
-		used[g.pkg] = true
 		if g.natural >= 0 && g.pkg != g.natural {
 			pulled++
 		}
+	}
+	shards := 0
+	if sh != nil {
+		name := func(g int) string { return declName(f.Decls[groups[g].decls[0]], groups[g].decls[0]) }
+		size := func(g int) int {
+			n := 0
+			for _, i := range groups[g].decls {
+				n += segEnd[i] - segStart[i]
+			}
+			return n
+		}
+		shards = plan.shard(groups, sh, name, size)
+	}
+	used := map[int]bool{}
+	foreign := 0
+	for _, g := range groups {
+		used[g.pkg] = true
 		if plan.pkgs[g.pkg].std && (g.natural < 0 || !plan.pkgs[g.natural].std) {
 			foreign++
 		}
@@ -815,7 +855,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		outFiles = append(outFiles, File{Path: file, Data: b.Bytes()})
 	}
-	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign}
+	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
 	if irs != nil {
 		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
 		if err != nil {
