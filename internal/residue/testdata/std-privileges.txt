@@ -54,7 +54,7 @@ debt	internal/sketch/check/mappedtext.go:ownWalk.textRootOf	decides by std membe
 debt	internal/sketch/check/mappedtext.go:textTemporary	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/never.go:IsNever	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/never.go:checker.emptyUnion	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/expr.go:interp.callOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/plan.go:interp.planOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/machinevalue.go:interp.machineOption	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/natives.go:nativeOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/natives.go:readsOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP

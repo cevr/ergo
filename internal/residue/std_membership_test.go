@@ -599,7 +599,8 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/work.go:checker.workLit",
 	"internal/sketch/check/work.go:checker.workLitForm",
 	"internal/sketch/check/work.go:isWorkType",
-	"internal/sketch/eval/expr.go:interp.callOf",
+	// ORACLE O38 moved callOf's std check (takes) into planOf (FT1 merge).
+	"internal/sketch/eval/plan.go:interp.planOf",
 	"internal/sketch/eval/machine.go:interp.machineLaw",
 	"internal/sketch/eval/machinevalue.go:interp.machineOption",
 	"internal/sketch/eval/natives.go:nativeOf",
