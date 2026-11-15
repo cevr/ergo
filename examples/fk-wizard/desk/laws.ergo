@@ -6,7 +6,7 @@ import machines
 law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
 	let mut d = Blank
 	for i in 0..n {
-		d = machines.Next(d, Track(d, permit.Chose{Overnight: i%2 == 0}))
+		d = machines.Next(d, Track(d, Do{Signal: permit.Chose{Overnight: i%2 == 0}}))
 	}
 	let kept = if n < LogLimit { n } else { LogLimit }
 	if len(d.Log) != kept || d.Next != n {
