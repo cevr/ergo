@@ -1,0 +1,251 @@
+// Package script is the host of stage a: it plays a script of pointer,
+// keyboard and form acts on the program, one per line, runs what the
+// program asks (a card's id, a save to the board.Store in the context, a
+// focus, where a keyboard move goes), and shows what happens. A line is
+// one of:
+//
+//	press CARD [X Y]          the pointer goes down on a card (at 100 100)
+//	move X Y COLUMN INDEX     the pointer moves over a spot of a column
+//	move X Y off              the pointer moves over no column
+//	release                   the pointer goes up
+//	escape                    Escape
+//	lift CARD                 Space on a card: a keyboard drag
+//	up | down | left | right  an arrow key in a keyboard drag
+//	next | previous           Tab or Shift+Tab in a keyboard drag
+//	drop                      Space again: the keyboard drop
+//	add COLUMN                Add card on a column
+//	type TEXT                 the form's title (the rest of the line)
+//	submit | cancel           the form's buttons
+//	show                      the board
+//
+// A blank line or one that starts with # is skipped.
+
+import fkboard/board
+import fkboard/drag
+import fkboard/kanban
+import io
+import strconv
+import strings
+
+// Host is the program and what the host has made: the ids it gave.
+type Host { Board kanban.Board, Made int }
+
+// Run plays the script on standard input from the board the store holds
+// (the default board when it holds none or cannot be read) and prints
+// what happens. It returns the exit status: 0, or 1 for a line it cannot
+// read.
+func Run() int needs Console | io.Stdin | board.Store {
+	let start = board.Store.Load() catch {
+	case board.Broken as b:
+		Console.Println("? the saved board cannot be read (\(b.Why)); starting from the default board")
+		None
+	}
+	let columns = match start {
+	case Some[[]board.Column] as s:
+		s.Value
+	case None:
+		board.Defaults
+	}
+	let mut h = Host{Board: kanban.Start(columns), Made: 0}
+	let mut n = 0
+	for raw in io.Stdin.Lines() {
+		n = n + 1
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let sig = read(h.Board, line, raw) catch {
+		case Unread as u:
+			Console.Println("? line \(n): \(u.Why)")
+			return 1
+		}
+		Console.Println("> " + line)
+		if line == "show" {
+			for l in Show(h.Board.Columns) {
+				Console.Println("  " + l)
+			}
+			continue
+		}
+		h = play(h, sig)
+	}
+	Console.Println("> end")
+	for l in Show(h.Board.Columns) {
+		Console.Println("  " + l)
+	}
+	0
+}
+
+// Unread is a line the host cannot read, and why.
+type Unread { Why string }
+
+// read is the signal of a script line (trimmed, and raw) on board b
+// ("show" reads as a save done, which changes nothing).
+func read(b kanban.Board, line string, raw string) kanban.Signal fails Unread {
+	let w = strings.Fields(line)
+	// The title is the raw line after "type ", spaces and all.
+	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
+	match w[0] {
+	case "press":
+		let at = try spot(b, w)
+		let p = if len(w) == 4 { drag.Point{X: try num(w[2]), Y: try num(w[3])} } else { drag.Point{X: 100, Y: 100} }
+		kanban.Dragging{Signal: drag.Pressed{Item: w[1], Container: at.Column, Index: at.Index, Screen: p}}
+	case "move":
+		if len(w) != 4 && len(w) != 5 {
+			return Unread{Why: "move is move X Y COLUMN INDEX or move X Y off"}
+		}
+		let p = drag.Point{X: try num(w[1]), Y: try num(w[2])}
+		let target Option[drag.Target] = if len(w) == 5 { Some[drag.Target]{Value: drag.Target{Container: w[3], Index: try num(w[4])}} } else { None }
+		kanban.Dragging{Signal: drag.Moved{Screen: p, Client: p, Target: target}}
+	case "release":
+		kanban.Dragging{Signal: drag.Released}
+	case "escape":
+		kanban.Dragging{Signal: drag.Cancel}
+	case "lift":
+		let at = try spot(b, w)
+		kanban.Dragging{Signal: drag.Activated{Item: w[1], Container: at.Column, Index: at.Index}}
+	case "up":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.Up}}
+	case "down":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.Down}}
+	case "left":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.Left}}
+	case "right":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.Right}}
+	case "next":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.NextContainer}}
+	case "previous":
+		kanban.Dragging{Signal: drag.Arrow{Way: drag.PreviousContainer}}
+	case "drop":
+		kanban.Dragging{Signal: drag.Confirmed}
+	case "add":
+		if len(w) != 2 {
+			return Unread{Why: "add is add COLUMN"}
+		}
+		kanban.AddClicked{Column: w[1]}
+	case "type":
+		kanban.Typed{Text: rest}
+	case "submit":
+		kanban.Submitted
+	case "cancel":
+		kanban.Cancelled
+	case "show":
+		kanban.Saved
+	case _:
+		Unread{Why: "unknown word \(w[0])"}
+	}
+}
+
+// spot is where the card named by a line's second word is.
+func spot(b kanban.Board, w []string) board.Spot fails Unread {
+	if len(w) < 2 {
+		return Unread{Why: "\(w[0]) needs a card"}
+	}
+	match board.Where(b.Columns, w[1]) {
+	case Some[board.Spot] as s:
+		s.Value
+	case None:
+		Unread{Why: "the board has no card \(w[1])"}
+	}
+}
+
+func num(word string) int fails Unread {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Unread{Why: "\(word) is not a number"}
+	}
+}
+
+// play steps the program with sig, answers what it asks until it asks
+// nothing more, and prints each ask, each new phase of the drag and of
+// the form, and each new line a screen reader says.
+func play(h Host, sig kanban.Signal) Host needs Console | board.Store {
+	let mut at = h
+	let mut queue = []kanban.Signal{sig}
+	for len(queue) > 0 {
+		let s = queue[0]
+		queue = queue[1:]
+		let before = at.Board
+		let d = kanban.Step(at.Board, s)
+		at = Host{..at, Board: kanban.After(at.Board, d)}
+		if Phase(at.Board.Drag.State) != Phase(before.Drag.State) {
+			Console.Println("  drag: " + Phase(at.Board.Drag.State))
+		}
+		if Form(at.Board) != Form(before) {
+			Console.Println("  form: " + Form(at.Board))
+		}
+		if at.Board.Said != before.Said {
+			Console.Println("  says: " + at.Board.Said)
+		}
+		for c in kanban.Commands(d) {
+			match c {
+			case kanban.MakeID as m:
+				at = Host{..at, Made: at.Made + 1}
+				Console.Println("  asks: an id for \"\(m.Title)\" in \(m.Column)")
+				queue = queue.Append(kanban.IDMade{ID: "new-\(at.Made)", Column: m.Column, Title: m.Title})
+			case kanban.Save as v:
+				board.Store.Save(v.Columns) catch {
+				case board.Broken as b:
+					Console.Println("  ? the board was not saved: " + b.Why)
+				}
+				Console.Println("  asks: save the board")
+				queue = queue.Append(kanban.Saved)
+			case kanban.FocusForm:
+				Console.Println("  asks: focus the form")
+				queue = queue.Append(kanban.FormFocused)
+			case kanban.FocusCard as f:
+				Console.Println("  asks: focus \(f.ID)")
+				queue = queue.Append(kanban.Dragging{Signal: drag.Focused})
+			case kanban.Locate as l:
+				let to = board.Step(at.Board.Columns, l.Item, l.At, l.Way)
+				Console.Println("  asks: where a move goes from \(l.At.Column) \(l.At.Index): \(to.Column) \(to.Index)")
+				queue = queue.Append(kanban.Dragging{Signal: drag.Resolved{Container: to.Column, Index: to.Index}})
+			}
+		}
+	}
+	at
+}
+
+// Phase is how the drag's phase shows.
+func Phase(s drag.State) string {
+	match s {
+	case drag.Idle:
+		"idle"
+	case drag.Pending as p:
+		"pressed \(p.Item)"
+	case drag.Dragging as g:
+		let over = match g.Target {
+		case Some[drag.Target] as t:
+			"over \(t.Value.Container) \(t.Value.Index)"
+		case None:
+			"over nothing"
+		}
+		"dragging \(g.Item) \(over)"
+	case drag.Lifted as l:
+		"lifted \(l.Item) to \(l.To) \(l.ToIndex)"
+	}
+}
+
+// Form is how the add-card form shows.
+func Form(b kanban.Board) string {
+	match b.Adding {
+	case Some[string] as c:
+		"open on \(c.Value), title \"\(b.Title)\""
+	case None:
+		"shut"
+	}
+}
+
+// Show is the board, a line per column: its name, its count and its
+// cards in order.
+func Show(columns []board.Column) []string {
+	let mut out = []string{}
+	for c in columns {
+		let mut cards = []string{}
+		for card in c.Cards {
+			cards = cards.Append(card.ID)
+		}
+		let list = if len(cards) == 0 { "" } else { " " + strings.Join(cards, " ") }
+		out = out.Append("\(c.Name) (\(len(c.Cards))):" + list)
+	}
+	out
+}

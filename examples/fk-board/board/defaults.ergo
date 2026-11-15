@@ -1,0 +1,43 @@
+// The board a first run starts with (upstream's constant.ts names work on
+// a drag-and-drop library; the port's are chores of an observatory).
+
+import fkboard/sortkey
+
+// Defaults is the board with nothing saved.
+let Defaults = []Column{
+	keyed("todo", "To Do", []string{
+		"Align the finder scope",
+		"Recoat the primary mirror",
+		"Log the meteor shower counts",
+		"Replace the dome's drive belt",
+		"Calibrate the spectrograph",
+		"Clear the moss off the north path",
+	}, 1),
+	keyed("in-progress", "In Progress", []string{
+		"Map the variable stars of Cygnus",
+		"Repaint the dome slit",
+		"Archive the 1998 plates",
+		"Fix the dew heater",
+		"Write the open-night guide",
+	}, 7),
+	keyed("done", "Done", []string{
+		"Order the new eyepieces",
+		"Survey the light pollution",
+		"Oil the declination gears",
+		"Photograph the Andromeda galaxy",
+		"Clean the telescope's corrector plate",
+		"Restock the red torches",
+	}, 12),
+}
+
+// keyed is a column whose cards have the titles, ids from card-first on,
+// and keys in order.
+func keyed(id string, name string, titles []string, first int) Column {
+	let mut cards = []Card{}
+	let mut key = sortkey.Between(None, None)
+	for i, t in titles {
+		cards = cards.Append(Card{ID: "card-\(first + i)", Title: t, Description: "", Key: key})
+		key = sortkey.After(key)
+	}
+	Column{ID: id, Name: name, Cards: cards}
+}
