@@ -643,19 +643,25 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if streamed {
 		return
 	}
-	for _, f := range response.Header {
+	httpWriteAnswer(w, response)
+}
+
+// httpWriteAnswer writes a handler's buffered answer: Serve's, and a local
+// Network's (httpLocalServe), so both send the same bytes.
+func httpWriteAnswer(w http.ResponseWriter, r HTTPResponse) {
+	for _, f := range r.Header {
 		w.Header().Add(f.Name, f.Value)
 	}
-	if response.Body == "" {
+	if r.Body == "" {
 		// A nil value suppresses net/http's content sniffing without
 		// writing an empty Content-Type header in the HTTP output.
 		w.Header()["Content-Type"] = nil
 	}
-	w.WriteHeader(response.Status)
+	w.WriteHeader(r.Status)
 	// net/http suppresses HEAD's body and still computes the GET
 	// content length and content type from this buffered representation.
-	if response.Body != "" {
-		_, _ = io.WriteString(w, response.Body)
+	if r.Body != "" {
+		_, _ = io.WriteString(w, r.Body)
 	}
 }
 

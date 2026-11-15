@@ -103,20 +103,6 @@ func httpToken(s string) bool {
 	return true
 }
 
-// httpQuery is fields in their order, each name=value escaped.
-func httpQuery(fields []HTTPField) string {
-	var b strings.Builder
-	for i, f := range fields {
-		if i > 0 {
-			b.WriteByte('&')
-		}
-		b.WriteString(url.QueryEscape(f.Name))
-		b.WriteByte('=')
-		b.WriteString(url.QueryEscape(f.Value))
-	}
-	return b.String()
-}
-
 type httpDone struct {
 	res HTTPResponse
 	err error
@@ -159,13 +145,20 @@ func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTT
 	if err != nil {
 		return nil, httpFailed(httpMalformed, err.Error())
 	}
-	u.Path, u.RawQuery = path, httpQuery(query)
+	u.Path, u.RawQuery = path, HTTPEncodeQuery(query)
 	return u, nil
 }
 
 // httpDoURL is the shared stopped-and-joined exchange for fixed and dynamic
 // origins. Its client never follows redirects implicitly.
 func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string) (HTTPResponse, error) {
+	return httpDoVia(t, httpTransportFor(limits.MaxHeaderBytes), nil, u, limits, method, header, body)
+}
+
+// httpDoVia is httpDoURL through tr. When local is not nil, the exchange
+// is served in memory: the caller's task answers each request local's
+// server takes (httpLocal.answer) while it waits for the response.
+func httpDoVia(t *rt.Task, tr *http.Transport, local *httpLocal, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string) (HTTPResponse, error) {
 	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -183,16 +176,27 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 		req.Header.Add(f.Name, f.Value)
 	}
 	got := make(chan httpDone, 1)
-	go func() { got <- httpExchange(httpTransportFor(limits.MaxHeaderBytes), req, limits) }()
-	var d httpDone
-	select {
-	case d = <-got:
-	case <-t.Done():
-		cancel()
-		<-got
-		panic(rt.Interrupted)
+	go func() { got <- httpExchange(tr, req, limits) }()
+	joined := false
+	// The join runs on every exit: a stop, and a defect or stop of a local
+	// answer, cancel the exchange and wait for its goroutine.
+	defer func() {
+		if !joined {
+			cancel()
+			<-got
+		}
+	}()
+	for {
+		select {
+		case d := <-got:
+			joined = true
+			return d.res, d.err
+		case c := <-local.calls():
+			local.answer(t, c)
+		case <-t.Done():
+			panic(rt.Interrupted)
+		}
 	}
-	return d.res, d.err
 }
 
 // httpExchange sends req and reads at most limits.MaxBodyBytes of body.
@@ -288,6 +292,12 @@ func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path strin
 // and the goroutine joined before the call returns, so the connection is
 // let go. The returned response has an empty Body.
 func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string, follow func(HTTPResponse) bool, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
+	return httpStreamVia(t, httpTransportFor(limits.MaxHeaderBytes), nil, u, limits, method, header, body, follow, accepts, put)
+}
+
+// httpStreamVia is httpStreamURL through tr, served in memory when local
+// is not nil, as httpDoVia is.
+func httpStreamVia(t *rt.Task, tr *http.Transport, local *httpLocal, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string, follow func(HTTPResponse) bool, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
 	// As httpDoURL: made for the origin, then u whole, so an Opaque target
@@ -305,7 +315,7 @@ func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, hea
 		req.Header.Add(f.Name, f.Value)
 	}
 	events := make(chan httpEvent)
-	go httpStreamRead(ctx, httpTransportFor(limits.MaxHeaderBytes), req, limits, events)
+	go httpStreamRead(ctx, tr, req, limits, events)
 	// The join: cancel, then take every event until the reader closes the
 	// channel. It runs on every exit, a panic of put or of a stop included.
 	defer func() {
@@ -318,6 +328,9 @@ func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, hea
 		var e httpEvent
 		select {
 		case e = <-events:
+		case c := <-local.calls():
+			local.answer(t, c)
+			continue
 		case <-t.Done():
 			panic(rt.Interrupted)
 		}

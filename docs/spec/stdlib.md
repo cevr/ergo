@@ -658,6 +658,53 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     is; finite properties are tested, not proved. `examples/download`
     captures the delegated provider outside main and accepts runtime URLs.
 
+    **In memory (FK3-g3).** `InMemoryNetwork(policy, limits, redirects,
+    handle) Local fails InvalidClient | InvalidLimits` is a `Network` with
+    no socket, for a test of a client of many origins: `handle escaping
+    func(origin string, r Request) Response needs Streaming` routes by the
+    origin (as the policy reads it: `https://B.test:443` is
+    `https://b.test`) and the path, and gets the request as Serve gives a
+    handler. Everything else is NewNet's, through the same runtime policy
+    loop: the origin policy, credentials at their own origin, redirects
+    and hops, and the body budget. It needs no Ambient, since it reaches no
+    host, and `Local` is an ordinary provider: a record of this package
+    with Ergo functions over two runtime bodies (`HTTPFetchLocal`,
+    `HTTPFetchLocalInto`), nothing a module could not write. It is not a
+    model of HTTP: each exchange is Go's own client (HTTPFetch's
+    transport settings, with this budget's MaxResponseHeaderBytes) and
+    Go's own server, writing the answer as Serve writes it, joined by an
+    in-memory `net.Pipe`; the server hands each request to the caller's
+    task, which runs `handle` while it waits. Its bodies name of package
+    `net` only `Pipe`, `Conn` and `Addr`, and of `syscall` only the errno
+    `ECONNREFUSED`, which the host rule's `HostImportsExcept` lists as
+    reaching no host state, so they carry no `//ergo:host` and `Local`
+    needs no Ambient. So a caller sees what a
+    loopback Serve gives by construction: no body for HEAD, 204 or 304, a
+    1xx before the final status, the declared length, the header budget
+    (TooLarge), and a status outside 100-999, which the server refuses by
+    closing the connection, with Go's retry of an idempotent request on a
+    kept-alive connection (the handler runs twice). Its law is
+    `TestHTTPLocalMatchesLoopback`: a seeded property that sends each
+    generated fetch (methods, statuses with 1xx, 204, 304 and refused
+    ones, bodies around the body budget, headers around the header
+    budget, escaped paths and queries, redirects and hop limits, a fresh
+    or a kept-alive connection, the streamed form with its accepted
+    statuses and a failing sink) once through Serve on a loopback
+    listener and once in memory, with one handler, and compares what the
+    caller sees, what the handler was given and the origin it was given;
+    it fails if its cases never reach a header over budget or a retry. A
+    failing seed prints the case, both outcomes and the replay variable.
+    Only the Date header is left out of the comparison.
+    `EncodeQuery(fields)`
+    is the raw query of fields, as a Client sends a Request's Query, so a
+    caller builds a URL whose query `ParseQuery` reads back. Its body is
+    marked `//ergo:pure`, the mark any module's Go body takes (The body
+    contract), in a file of pure bodies (`runtime/v1/http_query.go`);
+    `TestHTTPEncodeQueryIsGos` holds it to Go's `url.QueryEscape`. Effect's
+    `HttpClient` test layer and Gleam's and Elixir's `Req.Test` plug
+    stubs answer in memory the same way; Req routes by a plug, which here
+    is `handle`.
+
     Effect `HttpClient.followRedirects` supplies the intent: a bounded
     traversal without leaking credentials. An ordinary operation type,
     explicit policy unions, typed refusals and captured provider replace

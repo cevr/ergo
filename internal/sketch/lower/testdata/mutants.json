@@ -4726,6 +4726,7 @@
       "killers": [
         "lower:TestInlinedCallEndsAnArm"
       ]
-    }
+    },
+    {"name":"runtime-record-method","origin":"wf10 STD-NOPRIV FD1-g2","file":"internal/sketch/lower/decls.go","from":"\tif _, bound := check.GoTypeOf(n); bound {\n","to":"\tif _, bound := check.GoTypeOf(n); bound && false {\n","rule":"types.md Methods 3: a function on a record whose declaration names a runtime Go type lowers as a Go function, never a method on the runtime's type (FD1-g2).","killers":["lower:TestRuntimeRecordFunctionIsFree"]}
   ]
 }

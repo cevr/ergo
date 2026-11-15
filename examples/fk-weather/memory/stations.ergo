@@ -5,7 +5,7 @@ import fkweather/weather
 // Stations is a weather.Forecast of four fixed reports. The zip 99999
 // belongs to a station that is down, so a script can show a forecast that
 // cannot answer; any other zip has no place.
-type Stations {} implements weather.Forecast
+type Stations {}
 
 func Fetch(_ Stations, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
 	if zip == "99999" {

@@ -1,6 +1,6 @@
 # Skip lines `ergo test` prints for this program's packages (fs4).
-# web.OpenMeteo holds two http.Nets, and a law generator must not forge a
+# web.OpenMeteo holds an http.Network, and a law generator must not forge a
 # network. web/tests.ergo's property ContractHoldsOverTheFixture runs both
-# Forecast laws against OpenMeteo over http.InMemory Nets instead.
-skip law weather.Forecast.ReportIsForTheZip for OpenMeteo: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewOpenMeteo() OpenMeteo with no rows would build one for each case
-skip law weather.Forecast.NotFoundNamesTheZip for OpenMeteo: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewOpenMeteo() OpenMeteo with no rows would build one for each case
+# Forecast laws against OpenMeteo over an http.InMemoryNetwork instead.
+skip law weather.Forecast.ReportIsForTheZip for OpenMeteo: its values have no generator: http.Network is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewOpenMeteo() OpenMeteo with no rows would build one for each case
+skip law weather.Forecast.NotFoundNamesTheZip for OpenMeteo: its values have no generator: http.Network is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewOpenMeteo() OpenMeteo with no rows would build one for each case
