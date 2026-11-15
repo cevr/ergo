@@ -116,7 +116,6 @@ var bodyTable = map[string]bodyFact{
 	"ExecReplay":                {body: Body{Params: []Param{{Type: "[]ExecChunk"}, {Type: "int"}, {Type: "bool"}}, Results: []string{"*Running"}}},
 	"ExecRun":                   {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "[]string"}, {Type: "map[string]string"}, {Type: "string"}, {Type: "string"}, {Type: "time.Duration"}}, Results: []string{"ExecResult", "error"}, Host: true}},
 	"ExecStart":                 {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "[]string"}, {Type: "map[string]string"}, {Type: "string"}, {Type: "string"}, {Type: "time.Duration"}, {Type: "int"}, {Type: "string"}, {Type: "bool"}, {Type: "int"}, {Type: "string"}, {Type: "bool"}}, Results: []string{"*Running", "error"}, Host: true}},
-	"ExecTestEnv":               {body: Body{Params: []Param{{Type: "string"}, {Type: "map[string]string"}}, Results: []string{"map[string]string"}}},
 	"ExecWaitFor":               {body: Body{Hidden: []Hidden{"site", "task", "scheduler"}, Params: []Param{{Type: "*Running"}, {Type: "time.Duration"}}, Results: []string{"int", "error"}}},
 	"Exit.Error":                {body: Body{Results: []string{"string"}}},
 	"Expired.Error":             {body: Body{Results: []string{"string"}}},
