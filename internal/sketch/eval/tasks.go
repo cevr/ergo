@@ -19,7 +19,7 @@ import (
 // value no Wait took.
 type drainer interface{ drain() []Value }
 
-func init() {
+func registerTasks() {
 	natives["task.Go"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		c, ok := args[0].(*closure)
 		if !ok {

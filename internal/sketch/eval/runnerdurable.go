@@ -107,7 +107,7 @@ func holdsHosts(v Value, held map[*hostV]bool, seen map[any]bool) {
 	}
 }
 
-func init() {
+func registerRunnerdurable() {
 	natives["actor.recovering"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.cur == nil {
 			return nil, fr.unsupported(at, "a durable actor outside a run's tasks")

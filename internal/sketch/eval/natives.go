@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -34,9 +35,40 @@ import (
 // panics.
 type native func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)
 
+// natives is built on first use (loadNatives), not at process start: the
+// registrations make hundreds of closures, every ergo command's init cost
+// (TestStartBuildsNoTables).
 var natives map[string]native
 
-func init() {
+var nativesOnce sync.Once
+
+// loadNatives runs the registrations once, in the order of their files,
+// as Go ran them when each was an init (process.go wraps natives the
+// earlier files made).
+func loadNatives() {
+	nativesOnce.Do(func() {
+		registerNatives()
+		registerNativesbits()
+		registerNativesconfig()
+		registerNativescsv()
+		registerNativesembed()
+		registerNativesgo()
+		registerNativeshttp()
+		registerNativesjson()
+		registerNativesmore()
+		registerNativesnet()
+		registerNativestime()
+		registerNativestimeout()
+		registerNativestoml()
+		registerProcess()
+		registerRunner()
+		registerRunnerdurable()
+		registerRunnerkids()
+		registerTasks()
+	})
+}
+
+func registerNatives() {
 	natives = map[string]native{}
 	str := func(v Value) string { return v.(string) }
 	i64 := func(v Value) int { return int(v.(int64)) }
@@ -356,6 +388,7 @@ func nativeOf(fn *check.Func) native {
 	if fn.Pkg == nil || !fn.Pkg.Std() {
 		return nil
 	}
+	loadNatives()
 	return natives[fn.Pkg.Path+"."+fn.Name]
 }
 

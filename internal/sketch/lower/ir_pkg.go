@@ -102,7 +102,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case len(b.fc.captureOwners(x)) > 0:
 		irNo("call that captures owners")
 	}
-	if _, bound := runtimeBindings[name]; !bound {
+	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {

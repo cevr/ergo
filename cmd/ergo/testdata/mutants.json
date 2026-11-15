@@ -48,7 +48,7 @@
       "name": "dist1h-build-ignores-target",
       "origin": "wf10 DIST1-h",
       "file": "cmd/ergo/build.go",
-      "from": "l, err := loadForPlatform(opts.file, opts.target, opts.platform)",
+      "from": "l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)",
       "to": "l, err := load(opts.file, opts.target)",
       "rule": "Build validates a binding against --platform before placing its artifact.",
       "killers": ["cmd/ergo:TestGoBindingPlatforms"]
@@ -229,8 +229,8 @@
       "name": "check-host-fallback",
       "origin": "wf10/l7-eval/EV5",
       "file": "cmd/ergo/main.go",
-      "from": "\treturn evaluationExit(evaluation)\n",
-      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
+      "from": "\texit := evaluationExit(evaluation)\n",
+      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\texit := evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },
@@ -288,8 +288,8 @@
       "name": "irt-build-source-path",
       "origin": "wf10 IRT0b",
       "file": "cmd/ergo/build.go",
-      "from": "\t\tIR:        true,\n\t\tStderr:    os.Stderr,\n\t\tLedger:",
-      "to": "\t\tIR:        false,\n\t\tStderr:    os.Stderr,\n\t\tLedger:",
+      "from": "\t\tIR:        true,\n\t\tStderr:    stderr,\n\t\tLedger:",
+      "to": "\t\tIR:        false,\n\t\tStderr:    stderr,\n\t\tLedger:",
       "rule": "ergo build lowers every program through IR (plan-tier §1.1): the module holds the IR file the patched compile reads.",
       "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
     },
@@ -361,6 +361,114 @@
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
     },
+    {
+      "name": "test-main-initialized",
+      "origin": "wf10 fu-test-main, g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "if opts.search.mode == \"\" && nothingToTest(",
+      "to": "if false && opts.search.mode == \"\" && nothingToTest(",
+      "rule": "ergo test builds and runs no package with nothing to test, so a main package's initializers never run.",
+      "killers": ["cmd/ergo:TestModuleCommands"],
+      "anchor": {"tests": ["cmd/ergo:TestModuleCommands"]}
+    },
+    {
+      "name": "empty-receipt-builds",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "if opts.search.mode == \"\" && nothingToTest(",
+      "to": "if opts.search.mode == \"\" && opts.receipt == \"\" && nothingToTest(",
+      "rule": "A package with nothing to test is not built for a receipt either (the fu-test-main gap).",
+      "killers": ["cmd/ergo:TestModuleCommands"],
+      "anchor": {"tests": ["cmd/ergo:TestModuleCommands"]}
+    },
+    {
+      "name": "empty-run-names",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\"; the names: \"",
+      "to": "\"; names: \"",
+      "rule": "The empty run refuses a --run name with the test binary's own usage line.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "empty-seed-default",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\t\t\tseed = \"1\"\n",
+      "to": "\t\t\tseed = \"0\"\n",
+      "rule": "The empty run's receipt names the seed the test binary would use, 1 when none is given.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "empty-law-status",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\"error: no law \"+opts.law)\n\t\treturn exitStatusError{code: 1, handled: true}",
+      "to": "\"error: no law \"+opts.law)\n\t\treturn exitStatusError{code: 2, handled: true}",
+      "rule": "A --law name in a package with nothing to test fails with the test binary's status, 1.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "cache-args-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\tfor _, a := range args {\n\t\twrite(a)\n\t}\n",
+      "to": "",
+      "rule": "A test result is keyed by the binary's arguments: a --run name replays no run of every test.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-env-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\twrite(strconv.Itoa(len(env)))\n\tfor _, kv := range env {\n\t\twrite(kv)\n\t}\n",
+      "to": "",
+      "rule": "A test result is keyed by the GO*, CGO_* and ERGO_* variables the go command and the runtime read.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-go-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\twrite(goPath)\n\twrite(strconv.FormatInt(info.Size(), 10))\n\twrite(strconv.FormatInt(info.ModTime().UnixNano(), 10))\n",
+      "to": "\t_ = info\n",
+      "rule": "A test result is keyed by the go command that links the binary, so another or a reinstalled Go misses.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-count-ignored",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "opts.uncached || ",
+      "to": "",
+      "rule": "--count 1 always runs, as go test -count=1.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-fail-kept",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "\tif err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {\n\t\treturn err\n\t}\n",
+      "to": "\terr = runEntryProcess(child, limit, proclimit.Watch(child))\n\t_ = cache.PutResult(module, key, result.encode())\n\tif err != nil {\n\t\treturn err\n\t}\n",
+      "rule": "Only a passing run is cached: a cached verdict is the verdict of a rerun.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-hit-links",
+      "origin": "wf10 g-b2",
+      "file": "internal/sketchfront/sketchfront.go",
+      "from": "if req.Reuse != nil && req.Reuse(module) {",
+      "to": "if req.Reuse != nil && req.Reuse(module) && false {",
+      "rule": "A cached test result is found before the link: a warm hit invokes no go command.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
     {"name":"ap1-cli-check-blind","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\t\t\t\tstale = append(stale, filepath.Join(target, name))\n","to":"\t\t\t\tif kind == \"rpc\" {\n\t\t\t\t\tstale = append(stale, filepath.Join(target, name))\n\t\t\t\t}\n","rule":"ergo gen cli --check fails on a cli.ergo the contract no longer generates.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
     {"name":"ap1-cli-stale-rpc","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"if err != nil || !bytes.Equal(have, []byte(text)) {","to":"if err != nil && len(have) == 0 && text != \"\" {","rule":"ergo gen cli refuses to name the Request of a stale rpc package.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
     {"name":"ap1-cli-own-request","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\treturn path + \"/\" + glue.Dir, nil\n","to":"\treturn \"\", nil\n","rule":"A cli package beside an rpc package names the rpc package's Request.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}}

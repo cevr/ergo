@@ -17,7 +17,7 @@ import (
 // joined by "__". The reverse maps join the words back in camel case: the
 // first word as it is (a variable's in lower case), each other with its
 // first letter in upper case.
-func init() {
+func registerNativesconfig() {
 	pure := func(f func(args []string) string) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {

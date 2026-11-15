@@ -21,7 +21,7 @@ var goNatives = map[string]native{
 
 // std math is Go's math for float64 (std/math/math.ergo): the same Go
 // functions, as a program's extern calls them.
-func init() {
+func registerNativesgo() {
 	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt} {
 		natives["math."+name] = goFloat(f)
 	}

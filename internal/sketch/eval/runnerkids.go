@@ -101,7 +101,7 @@ func ownerOf(t *etask) *entryRef {
 	return nil
 }
 
-func init() {
+func registerRunnerkids() {
 	stoppedOf := func(fn *check.Func) *check.Named { return stdRecord(fn, "Stopped", nil).t }
 	natives["actor.NewHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 2, 0); ab != nil {

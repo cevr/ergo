@@ -166,11 +166,10 @@ var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
 // that BodyOf reads, sorted, a refused one included.
 func BodyNames() []string {
 	names := make([]string, 0, len(bodyTable))
-	for name := range bodyTable {
-		names = append(names, name)
+	for _, r := range bodyTable {
+		names = append(names, r.name)
 	}
-	slices.Sort(names)
-	return names
+	return names // bodyTable is sorted by name
 }
 
 // Bodies are the Go bodies of a package other than runtime/v1 that follows
@@ -304,18 +303,25 @@ type Param struct {
 // with goDecls.body and fails on when it is stale, so it parses nothing
 // (CHK1).
 func BodyOf(name string) (Body, error) {
-	f, ok := bodyTable[name]
+	i, ok := slices.BinarySearchFunc(bodyTable, name, func(r bodyRow, name string) int { return strings.Compare(r.name, name) })
 	if !ok {
 		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
+	f := bodyTable[i].fact
 	if f.refusal != "" {
 		return Body{}, errors.New(f.refusal)
 	}
 	return f.body, nil
 }
 
-// bodyFact is one row of bodyTable: a body's shape, or the text of the
-// error goDecls.body refuses it with.
+// bodyRow is one row of bodyTable: a BodyOf name and its fact.
+type bodyRow struct {
+	name string
+	fact bodyFact
+}
+
+// bodyFact is a body's shape, or the text of the error goDecls.body
+// refuses it with.
 type bodyFact struct {
 	body    Body
 	refusal string
@@ -494,8 +500,17 @@ type GoType struct {
 // whether there is one. It reads the generated table (typeTable), so no
 // check parses Source (CHK1).
 func TypeOf(name string) (GoType, bool) {
-	t, ok := typeTable[name]
-	return t, ok
+	i, ok := slices.BinarySearchFunc(typeTable, name, func(r typeRow, name string) int { return strings.Compare(r.name, name) })
+	if !ok {
+		return GoType{}, false
+	}
+	return typeTable[i].typ, true
+}
+
+// typeRow is one row of typeTable: a TypeOf name and its shape.
+type typeRow struct {
+	name string
+	typ  GoType
 }
 
 // TypeIn is TypeOf for a declaration that names the type in the package

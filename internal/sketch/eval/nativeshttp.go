@@ -24,7 +24,7 @@ import (
 // (client.ergo, causeOf).
 const sendMalformed = 3
 
-func init() {
+func registerNativeshttp() {
 	natives["http.checkNetwork"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		origins := args[0].(sliceV).elems()
 		if ab := in.charge(fr, at, 1+argWork(args[:1])); ab != nil {

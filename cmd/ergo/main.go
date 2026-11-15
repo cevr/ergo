@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
+	"ergo.local/prototype/internal/stage"
 )
 
 func main() {
@@ -33,7 +35,11 @@ func main() {
 		// The checked std snapshot lives beside the emission cache (CHK1b).
 		sketchfront.UseStdCache(root)
 	}
-	if err := command(os.Args[1:]); err != nil {
+	err := command(os.Args[1:])
+	if werr := sketchfront.WriteStageReport(); werr != nil {
+		fmt.Fprintln(os.Stderr, "ergo: stage report:", werr)
+	}
+	if err != nil {
 		if exit, ok := err.(exitStatusError); ok {
 			if !exit.handled && exit.message != "" {
 				fmt.Fprintln(os.Stderr, exit.message)
@@ -135,8 +141,11 @@ type fileOptions struct {
 	law, skipLaw string
 	// run is test's --run NAME: the one test or law the test binary runs,
 	// plain or explored; empty runs every one (X8).
-	run  string
-	file string
+	run string
+	// uncached is test's --count 1: the run neither replays nor keeps a
+	// cached result (testcache.go), as go test -count=1.
+	uncached bool
+	file     string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -165,6 +174,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	selected, ran := false, false
 	platform, platformed := "", false
 	stepsGiven, bytesGiven := false, false
+	count, counted := "", false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -179,6 +189,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
 			opts.run, ran = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--count="); ok {
+			count, counted = value, true
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--states="); ok {
@@ -211,11 +225,13 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "-go-text":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "-go-text", "--count":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "--count":
+				count, counted = args[i+1], true
 			case "--eval-steps":
 				opts.evalSteps, stepsGiven = args[i+1], true
 			case "--eval-bytes":
@@ -297,6 +313,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--seed is only supported by check and test")
 	case ran && command != "test":
 		return opts, fmt.Errorf("--run is only supported by test")
+	case counted && command != "test":
+		return opts, fmt.Errorf("--count is only supported by test")
+	case counted && count != "1":
+		return opts, fmt.Errorf("--count takes 1, a run that ignores the cached result, not %q", count)
 	case ran && opts.run == "":
 		return opts, fmt.Errorf("--run takes the name of a test or a law")
 	case seeded && !validSeed(opts.seed):
@@ -323,6 +343,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, err
 	}
 	opts.file = positional[0]
+	opts.uncached = counted
 	if opts.search.mode != "" {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true
@@ -375,8 +396,14 @@ func load(path, target string) (loaded, error) {
 }
 
 func loadForPlatform(path, target string, platform gobind.Platform) (loaded, error) {
+	return loadThrough(nil, path, target, platform)
+}
+
+// loadThrough is loadForPlatform reading a package folder through fsys (a
+// warm request's Recorder); nil reads the host.
+func loadThrough(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	if isPackageFolder(path) {
-		return loadFolder(path, target, platform)
+		return loadFolder(fsys, path, target, platform)
 	}
 	if err := requireSourceExtension(path); err != nil {
 		return loaded{}, err
@@ -398,6 +425,8 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 	if err != nil {
 		return loaded{}, err
 	}
+	stage.Add(stage.FilesRead, 1)
+	stage.Add(stage.BytesRead, int64(len(text)))
 	analysis := sketchfront.CheckForPlatform(string(text), platform)
 	return loaded{
 		source:   source,
@@ -410,7 +439,7 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 
 // loadFolder admits a package folder once and checks its program. The
 // executable is named after the folder, as go build names it.
-func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
+func loadFolder(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	source, err := receipt.LocateSource(path)
 	if err != nil {
 		return loaded{}, err
@@ -419,7 +448,12 @@ func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
 	if err != nil {
 		return loaded{}, err
 	}
-	analysis, err := sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	var analysis sketchfront.Analysis
+	if fsys == nil {
+		analysis, err = sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	} else {
+		analysis, err = sketchfront.CheckDirFS(fsys, source.Admitted(), platform)
+	}
 	if err != nil {
 		return loaded{}, err
 	}
@@ -466,7 +500,12 @@ func checkCommand(args []string) error {
 }
 
 func checkPackage(opts fileOptions) error {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	w := startWarm(opts, nil)
+	if w != nil && w.hit {
+		_, err := os.Stdout.Write(w.answer.Stdout)
+		return err
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
@@ -486,10 +525,18 @@ func checkPackage(opts fileOptions) error {
 		return err
 	}
 	l.result.SetEvaluation(evaluation)
-	if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
+	var out bytes.Buffer
+	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
 		return err
 	}
-	return evaluationExit(evaluation)
+	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
+		return err
+	}
+	exit := evaluationExit(evaluation)
+	if exit == nil {
+		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
+	}
+	return exit
 }
 
 // evalBudget is check's evaluation budget: the editor default

@@ -25,7 +25,7 @@ import (
 //   - open checks the whole text (phase 1) and fails Malformed at the
 //     first byte that breaks a rule; it parses the text into a tree once,
 //     and a Cursor walks the tree.
-func init() {
+func registerNativesjson() {
 	natives["json.appendQuoted"] = jsonAppend(func(args []Value) string { return jsonQuote(args[0].(string), args[1].(bool)) })
 	natives["json.appendInt"] = jsonAppend(func(args []Value) string { return strconv.FormatInt(args[0].(int64), 10) })
 	natives["json.appendUint"] = jsonAppend(func(args []Value) string { return strconv.FormatUint(args[0].(uint64), 10) })

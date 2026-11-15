@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -85,14 +86,14 @@ var goDurationName = reflect.TypeFor[time.Duration]().String()
 
 // runtimeBindings is the catalog, derived from the marks of runtime/v1's
 // bodies (bodyCatalog, body.go): no body name is written here.
-var runtimeBindings = bodyCatalog()
+var runtimeBindings = sync.OnceValue(bodyCatalog)
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
 // stdResult calls it inside the invocation environment for a deferred Seq.
 // Wait uses the handle's owning task inside the primitive; Stop drains
 // uninterruptibly. No extra poll is needed for any of these primitives.
 func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) string {
-	binding, ok := runtimeBindings[name]
+	binding, ok := runtimeBindings()[name]
 	pkg := "" // a module's own Go package, or "" for runtime/v1 (rtRef)
 	if i := strings.LastIndex(name, "."); i >= 0 && strings.Contains(name[:i], "/") {
 		// A body of the module's own Go package (check.ModuleBody), named
@@ -140,7 +141,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 // call (hostCall).
 func (l *lowerer) hostBlockingIntrinsic(f *check.Func) func(*funcCtx, []string) string {
 	target := strings.Trim(f.Decl.Extern.Target.Value, "\"`")
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.hostTarget == "" || target != binding.hostTarget {
 			continue
 		}

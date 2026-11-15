@@ -305,7 +305,7 @@ func hostNative(name string, f func(in *interp, h *host, fr *frame, at syntax.No
 	}
 }
 
-func init() {
+func registerProcess() {
 	hostNative("io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stdout.WriteString(args[0].(string))
 		return unit{}, nil

@@ -44,6 +44,7 @@ import (
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sourcefile "ergo.local/prototype/internal/source"
+	"ergo.local/prototype/internal/stage"
 )
 
 // ModFile is the file that marks a module root (196b Q1).
@@ -58,6 +59,8 @@ type FS interface {
 	ReadFile(name string) ([]byte, error)
 	// Stat describes a file, following links.
 	Stat(name string) (fs.FileInfo, error)
+	// Lstat describes a file, not following a link.
+	Lstat(name string) (fs.FileInfo, error)
 }
 
 // hostFS is the host file system. A source is read only when it is a
@@ -65,8 +68,16 @@ type FS interface {
 type hostFS struct{}
 
 func (hostFS) ReadDir(dir string) ([]fs.DirEntry, error) { return os.ReadDir(dir) }
-func (hostFS) ReadFile(name string) ([]byte, error)      { return sourcefile.ReadRegularFile(name, 0) }
-func (hostFS) Stat(name string) (fs.FileInfo, error)     { return os.Stat(name) }
+func (hostFS) ReadFile(name string) ([]byte, error) {
+	data, err := sourcefile.ReadRegularFile(name, 0)
+	if err == nil {
+		stage.Add(stage.FilesRead, 1)
+		stage.Add(stage.BytesRead, int64(len(data)))
+	}
+	return data, err
+}
+func (hostFS) Stat(name string) (fs.FileInfo, error)  { return os.Stat(name) }
+func (hostFS) Lstat(name string) (fs.FileInfo, error) { return os.Lstat(name) }
 
 // loadedFile is one source file of a loaded package.
 type loadedFile struct {
@@ -261,6 +272,12 @@ func CheckDir(dir string) (Analysis, error) {
 // the check reads committed source only and runs no Go tool.
 func CheckDirForPlatform(dir string, platform gobind.Platform) (Analysis, error) {
 	return checkDirForPlatform(hostFS{}, dir, platform)
+}
+
+// CheckDirFS is CheckDirForPlatform reading through fsys, such as a warm
+// request's Recorder.
+func CheckDirFS(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirForPlatform(fsys, dir, platform)
 }
 
 func checkDir(fsys FS, dir string) (Analysis, error) {
@@ -549,6 +566,8 @@ func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) 
 		f := loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
 		l.texts[f.rel] = f.text
 		parsed, err := syntax.Parse(f.text)
+		stage.Add(stage.FilesParsed, 1)
+		stage.Add(stage.BytesParsed, int64(len(f.text)))
 		if err != nil {
 			d := syntaxDiagnostic(err)
 			d.File = f.rel
@@ -752,6 +771,10 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 		path = "main" // the root package is the program's main package
 	}
 	pkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)
+	stage.Add(stage.PackagesChecked, 1)
+	for _, f := range files {
+		stage.Add(stage.DeclsChecked, int64(len(f.Decls)))
+	}
 	p.pkg = pkg
 	ds[p] = found
 	if len(found) > 0 {

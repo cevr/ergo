@@ -53,14 +53,12 @@ func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]c
 		if parent == dir {
 			return nil, fmt.Errorf("the package is outside the module")
 		}
-		entries, err := l.fsys.ReadDir(parent)
+		info, err := l.fsys.Lstat(dir)
 		if err != nil {
 			return nil, err
 		}
-		for _, e := range entries {
-			if e.Name() == filepath.Base(dir) && e.Type()&fs.ModeSymlink != 0 {
-				return nil, fmt.Errorf("a symbolic link in the package path may leave the module")
-			}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return nil, fmt.Errorf("a symbolic link in the package path may leave the module")
 		}
 	}
 	all := strings.HasPrefix(pattern, "all:")

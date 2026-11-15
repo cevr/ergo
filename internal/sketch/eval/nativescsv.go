@@ -13,7 +13,7 @@ import (
 // record's field count held for every other), ReadAll's error as the
 // ParseError record, scan as a loop over Reader.Read with FieldPos, and
 // Format as csv.Writer with a row of one empty field written "".
-func init() {
+func registerNativescsv() {
 	parseError := func(fn *check.Func, err error) *record {
 		if pe, ok := err.(*csv.ParseError); ok {
 			return stdRecord(fn, "ParseError", map[string]Value{"Line": int64(pe.Line), "Column": int64(pe.Column), "Reason": pe.Err.Error(), "Message": pe.Error()})

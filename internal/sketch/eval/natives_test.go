@@ -33,6 +33,9 @@ import (
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
 // oracle-o1-native-split-empty-sep.
+// The tests read natives directly; a run loads them on first lookup.
+func init() { loadNatives() }
+
 func TestNativesAgreeWithRuntime(t *testing.T) {
 	n := 300
 	if testing.Short() {

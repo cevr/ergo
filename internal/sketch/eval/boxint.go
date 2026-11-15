@@ -1,6 +1,9 @@
 package eval
 
-import "unsafe"
+import (
+	"sync"
+	"unsafe"
+)
 
 // Boxed ints (ORACLE O32). A Value is an interface, and Go allocates the
 // eight bytes of every int64 it boxes past 255. Most ints a program
@@ -13,13 +16,20 @@ const (
 	smallMax = 1 << 16
 )
 
-var smallInts = func() *[smallMax - smallMin]int64 {
-	var a [smallMax - smallMin]int64
+// smallInts is made on the first boxInt, not at process start: its 530
+// KB would be every ergo command's init cost (TestStartBuildsNoTables).
+var (
+	smallOnce sync.Once
+	smallInts *[smallMax - smallMin]int64
+)
+
+func makeSmallInts() {
+	a := new([smallMax - smallMin]int64)
 	for i := range a {
 		a[i] = int64(i) + smallMin
 	}
-	return &a
-}()
+	smallInts = a
+}
 
 // int64Type is the type word of an int64 in an interface.
 var int64Type = func() unsafe.Pointer {
@@ -32,6 +42,7 @@ func boxInt(n int64) Value {
 	if n < smallMin || n >= smallMax {
 		return n
 	}
+	smallOnce.Do(makeSmallInts)
 	var v any
 	w := (*[2]unsafe.Pointer)(unsafe.Pointer(&v))
 	w[0], w[1] = int64Type, unsafe.Pointer(&smallInts[n-smallMin])
