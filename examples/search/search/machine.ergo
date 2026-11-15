@@ -42,10 +42,13 @@ let Latency = 100ms
 func find(s Search) Option[machines.Work[Signal, Index | Scheduler]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() []Entry fails IndexDown needs Index | Scheduler {
+		Some{machines.Attempt(func() []Entry fails IndexDown needs Index | Scheduler {
 			Scheduler.Sleep(Latency)
 			try Index.Find(q.Query)
-		}, OnSuccess: func(hits []Entry) Signal { Found{Hits: hits} }}}
+		}, func(hits []Entry) Signal { Found{Hits: hits} }, func(failure) {
+			let down Signal = failure
+			down
+		})}
 	case Idle:
 		None
 	case Typing:

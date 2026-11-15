@@ -526,7 +526,7 @@ func stagedTimer(s staged) Option[Timeout[stagedSignal]] {
 func stagedWork(s staged) Option[machines.Work[stagedSignal, Scheduler]] {
 	match s {
 	case stagedSaving:
-		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Work{Run: func() stagedSignal { stagedStored }}}
+		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Do[stagedSignal, Scheduler](func() stagedSignal { stagedStored })}
 	case stagedOpen, stagedSaved:
 		None
 	}

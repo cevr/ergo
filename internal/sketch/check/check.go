@@ -187,12 +187,9 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
-	// workSends holds the declaring identifier of each Listen work's send
-	// parameter (workLit): the one value actor.Child accepts (childRule).
-	workSends map[*syntax.Ident]bool
-	// durableCalls are the calls of a durable runner (durable.go), which
-	// checkDurableSteps judges once the footprints are known.
-	durableCalls []durableCall
+	// pureArgs are the arguments of pure parameters (durable.go), which
+	// checkPureArgs judges once the footprints are known.
+	pureArgs []pureArg
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law

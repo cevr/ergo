@@ -60,7 +60,10 @@ func show(l Lookup, p Panel) Decision[Lookup, Never] { Enter[Lookup]{Next: Looku
 func fetch(l Lookup) Option[machines.Work[Signal, Forecast]] {
 	match l.Panel {
 	case Loading as q:
-		Some{machines.Work{Run: func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, OnSuccess: func(r Report) Signal { Got{Report: r} }}}
+		Some{machines.Attempt(func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, func(r Report) Signal { Got{Report: r} }, func(failure) {
+			let failed Signal = failure
+			failed
+		})}
 	case Blank, Ready, Failed:
 		None
 	}

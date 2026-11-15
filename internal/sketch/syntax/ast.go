@@ -360,6 +360,12 @@ type Field struct {
 	// Refinements), or NoPos and nil.
 	WherePos Pos
 	Where    Expr
+	// Pure marks a named parameter's clause `pure` before its type
+	// (grammar.md, Declarations 16; rows.md, Footprints 6), written at
+	// PurePos. PurePos means nothing without Pure: a Field built with
+	// neither, or repositioned (derive), has no clause.
+	Pure    bool
+	PurePos Pos
 }
 
 func (f *Field) Pos() Pos {
@@ -621,6 +627,12 @@ type (
 	// is the position of `escaping`, or NoPos.
 	FuncType struct {
 		Escaping Pos
+		// Entry marks `entry func(…)`, the type of an entry's send
+		// (grammar.md, Types; runtime.md, Machines and actors 14), written
+		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
+		// built with neither has no clause.
+		Entry    bool
+		EntryPos Pos
 		Func     Pos
 		Params   *FieldList
 		Results  *FieldList
@@ -772,6 +784,8 @@ func (x *FuncType) Pos() Pos {
 	switch {
 	case x.Escaping.IsValid():
 		return x.Escaping
+	case x.Entry:
+		return x.EntryPos
 	case x.Func.IsValid():
 		return x.Func
 	}

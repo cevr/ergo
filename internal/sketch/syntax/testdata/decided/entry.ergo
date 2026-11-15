@@ -1,0 +1,17 @@
+// entry before a function type marks the type of an entry's send
+// (grammar.md, Types): on a declaration's parameter, on a parameter of a
+// function type and of a function literal. Elsewhere entry is a name: a
+// parameter named entry, and a parameter of a type named entry.
+type Work[E] { Start func(send entry func(e E)) }
+
+func Pass[E](send entry func(e E), e E) {
+	send(e)
+}
+
+func Listen[E](e E) Work[E] {
+	Work[E]{Start: func(send entry func(v E)) { send(e) }}
+}
+
+func Named(entry int, x entry) int {
+	entry
+}

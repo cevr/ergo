@@ -329,6 +329,10 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			if len(f.Names) > 0 {
 				p.space()
 			}
+			if f.Pure {
+				p.token(f.PurePos, "pure")
+				p.space()
+			}
 			p.typ(f.Type)
 		}
 		if f.Where != nil {
@@ -1113,6 +1117,10 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 func (p *printer) funcType(t *syntax.FuncType) {
 	if t.Escaping.IsValid() {
 		p.token(t.Escaping, "escaping")
+		p.space()
+	}
+	if t.Entry {
+		p.token(t.EntryPos, "entry")
 		p.space()
 	}
 	if t.Func.IsValid() {

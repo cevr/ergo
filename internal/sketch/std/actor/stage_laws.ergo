@@ -47,7 +47,7 @@ func stagedTimer(s staged) Option[Timeout[stagedSignal]] {
 func stagedWork(s staged) Option[machines.Work[stagedSignal, Scheduler]] {
 	match s {
 	case stagedSaving:
-		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Work{Run: func() stagedSignal { stagedStored }}}
+		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Do[stagedSignal, Scheduler](func() stagedSignal { stagedStored })}
 	case stagedOpen, stagedSaved:
 		None
 	}
@@ -76,7 +76,7 @@ func stagedStepOf(k int) testing.Step[stagedSignal] {
 }
 
 // stagedMove is the move of the act k.
-func stagedMove(k int) duration { duration(int64(((k % 1500) + 1500) % 1500) * int64(1ms)) }
+func stagedMove(k int) duration { duration(int64(((k%1500)+1500)%1500) * int64(1ms)) }
 
 // stagedFolded is the state after each act, by the fold: an add adds, a
 // save ends saved (the work's end), a move ticks once per second the open
@@ -97,8 +97,8 @@ func stagedFolded(acts []int) []staged {
 			case stagedStored, stagedTick:
 			}
 		case (stagedOpen as o, testing.Advance as m):
-			let waited = since + int(int64(m.By) / int64(1ms))
-			s = stagedOpen{N: o.N, Ticks: o.Ticks + waited / 1000}
+			let waited = since + int(int64(m.By)/int64(1ms))
+			s = stagedOpen{N: o.N, Ticks: o.Ticks + waited/1000}
 			since = waited % 1000
 		case (_, _):
 		}
