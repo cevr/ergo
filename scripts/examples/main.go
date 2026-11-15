@@ -831,13 +831,30 @@ func (r *runner) finish() int {
 }
 
 // tool runs a compiler command from the root with the runner's environment
-// and empty input, in its own process group.
+// and empty input, in its own process group. A check runs with the
+// law-verdict store off (lawCacheOff): the key's check, a check leg and a
+// program of packages' check alike, so a leg takes the key's result
+// (keyed) and no check stores a verdict the native test leg would print
+// cached.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 	if o, ok := r.keyed[keyedCall(args)]; ok {
 		return o, nil
 	}
-	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, r.toolEnv, "", timeout, 0)
+	env := r.toolEnv
+	if len(args) > 0 && args[0] == "check" {
+		env = append(slices.Clip(env), lawCacheOff)
+	}
+	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
 }
+
+// lawCacheOff turns the law-verdict store off for a check (lawcache): every
+// law it reports it evaluated, and it stores none. A verdict a check
+// stored would be printed "(cached)" by the native test leg of the same
+// run, and the check/native comparison would be of one evaluation with
+// itself (checkTarget). Before, the key's check ran with the store on and
+// a check leg with it off: a missed program checked each target twice
+// (gate-speed GS30).
+const lawCacheOff = "ERGO_LAWCACHE=off"
 
 // emissionCacheVariable is build.RootVariable, the emission cache root.
 const emissionCacheVariable = "ERGO_CACHE"
