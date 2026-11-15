@@ -524,6 +524,33 @@
       "killers": ["mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
     },
     {
+      "name": "GPl-no-tiles",
+      "origin": "GPl (stroke tiles)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tif mw > maskTile || mh > maskTile {",
+      "to": "\tif false {",
+      "rule": "a stroke's mask wider or taller than a tile draws as tiles, which the atlas holds, not one mask it leaves out",
+      "killers": ["mygo/screen:TestWideStrokeIsTiled"]
+    },
+    {
+      "name": "GPl-tile-not-moved",
+      "origin": "GPl (stroke tiles)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "X: x0 + float32(ox), Y: y0 + float32(oy)",
+      "to": "X: x0, Y: y0",
+      "rule": "each tile of a stroke's mask is drawn at its place in the mask",
+      "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
+    },
+    {
+      "name": "GPl-tile-all",
+      "origin": "GPl (stroke tiles)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\t\t\tif !reached[(r-r0)*vc+c-c0] {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\t_ = reached\n",
+      "rule": "a stroke rasterizes only the tiles its segments come near",
+      "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",

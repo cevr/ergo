@@ -99,12 +99,14 @@ type Window struct {
 	strokes, shownStrokes, refStrokes []stroke
 	drawing                           *stroke
 	masks, lined                      int
-	z                                 vec.Rasterizer
-	frames                            bool
-	start                             time.Time
-	width                             float64
-	height                            float64
-	painted                           int
+	// vw and vh are the frame being built's size in device pixels.
+	vw, vh  float32
+	z       vec.Rasterizer
+	frames  bool
+	start   time.Time
+	width   float64
+	height  float64
+	painted int
 
 	// The damage paint (Mark, Seal, Again): the parts of the list being
 	// made and of the shown one each key drew, the parts still open, and
@@ -773,6 +775,7 @@ func (w *Window) build(width, height, scale float64) {
 	s.Scale, s.Zoom = float32(scale), 1
 	s.MaskAtlas, s.ColorAtlas = w.sys.MaskAtlas, w.sys.ColorAtlas
 	s.Text = w.sys.TextParams()
+	w.vw, w.vh = float32(width*scale), float32(height*scale)
 	ops := w.shown
 	texts := w.texts
 	strokes := w.shownStrokes
@@ -798,8 +801,9 @@ func (w *Window) build(width, height, scale float64) {
 // moved to quarters of a pixel from the mask's corner, and the mask is
 // keyed by them and the width, so the atlas keeps it while they do not
 // change. The mask covers each segment's rectangle and a disc at each
-// point, as Line's rounded rectangles do. When the atlas cannot hold it,
-// the stroke is a Line a segment.
+// point, as Line's rounded rectangles do. A mask wider or taller than
+// maskTile pixels draws as tiles (strokeTiles). When the atlas cannot hold
+// it, the stroke is a Line a segment.
 func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 	hw := t.width * scale / 2
 	n := len(t.pts) / 2
@@ -814,7 +818,7 @@ func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 	y0 := float32(math.Floor(float64(minY-hw))) - 1
 	mw := int(math.Ceil(float64(maxX+hw-x0))) + 2
 	mh := int(math.Ceil(float64(maxY+hw-y0))) + 2
-	if mw <= 0 || mh <= 0 || mw > maskMax || mh > maskMax || math.IsNaN(float64(x0+y0)) {
+	if mw <= 0 || mh <= 0 || mw > maskSpanMax || mh > maskSpanMax || math.IsNaN(float64(x0+y0)) {
 		w.strokeLines(s, t)
 		return
 	}
@@ -832,21 +836,132 @@ func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 		binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(q[2*i+1]))
 		hs.Write(buf[:])
 	}
-	gi := w.sys.Mask(hs.Sum64(), func() (int, int, []byte) {
-		w.masks++
-		return mw, mh, w.rasterize(q, hw, mw, mh)
-	})
-	if !gi.OK {
+	key := hs.Sum64()
+	start := int32(len(s.Glyphs))
+	if mw > maskTile || mh > maskTile {
+		if !w.strokeTiles(s, t, key, q, hw, x0, y0, mw, mh) {
+			s.Glyphs = s.Glyphs[:start]
+			w.strokeLines(s, t)
+			return
+		}
+	} else if !w.maskGlyph(s, key, q, hw, x0, y0, 0, 0, mw, mh, t.color) {
 		w.strokeLines(s, t)
 		return
 	}
-	start := int32(len(s.Glyphs))
-	s.Glyphs = append(s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: t.color})
-	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1, Transform: scene.Translation(0, 0)})
+	if end := int32(len(s.Glyphs)); end > start {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
+	}
 }
 
-// maskMax is the widest and tallest mask of a stroke, in pixels.
-const maskMax = 2048
+// maskGlyph adds to s the glyph of the tw×th part at (ox, oy) of the mask
+// of polyline q, whose corner is at (x0, y0), cached under key; false when
+// the atlas left it out.
+func (w *Window) maskGlyph(s *scene.Scene, key uint64, q []float32, hw, x0, y0 float32, ox, oy, tw, th int, color scene.Color) bool {
+	gi := w.sys.Mask(key, func() (int, int, []byte) {
+		w.masks++
+		return tw, th, w.rasterize(q, hw, ox, oy, tw, th)
+	})
+	if !gi.OK {
+		return false
+	}
+	s.Glyphs = append(s.Glyphs, scene.Glyph{X: x0 + float32(ox), Y: y0 + float32(oy), W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: color})
+	return true
+}
+
+// strokeTiles adds to s the mw×mh mask of polyline q at (x0, y0), too
+// large for one, as tiles of maskTile pixels a side from its corner, as
+// MyGo's Painter.pathTiles does: each a mask of its own, of the whole
+// polyline clipped to it, cached under the stroke's key and its place, so
+// that tiles meet as the pixels of one mask do. It draws the tiles that
+// show, within a pixel, and that a segment comes within the half width
+// and two pixels of (a pixel of antialiasing and one of rounding). It reports false when more than maskTilesMax
+// tiles show or the atlas left one out.
+func (w *Window) strokeTiles(s *scene.Scene, t stroke, key uint64, q []float32, hw, x0, y0 float32, mw, mh int) bool {
+	tile := maskTile
+	cols, rows := (mw+tile-1)/tile, (mh+tile-1)/tile
+	span := func(from, to, origin float32, n int) (int, int) {
+		a := math.Floor(float64((from - origin - 1) / float32(tile)))
+		b := math.Ceil(float64((to - origin + 1) / float32(tile)))
+		return int(max(a, 0)), int(min(b, float64(n)))
+	}
+	c0, c1 := span(0, w.vw, x0, cols)
+	r0, r1 := span(0, w.vh, y0, rows)
+	vc, vr := c1-c0, r1-r0
+	if vc <= 0 || vr <= 0 {
+		return true
+	}
+	if vc*vr > maskTilesMax {
+		return false
+	}
+	reached := make([]bool, vc*vr)
+	m := hw + 2
+	n := len(q) / 2
+	for i := 0; i < n; i++ {
+		ax, ay := q[2*i], q[2*i+1]
+		bx, by := ax, ay
+		if i > 0 {
+			ax, ay = q[2*i-2], q[2*i-1]
+		}
+		size := float32(tile)
+		rl := max(int(math.Floor(float64((min(ay, by)-m)/size))), r0)
+		rh := min(int(math.Floor(float64((max(ay, by)+m)/size))), r1-1)
+		for r := rl; r <= rh; r++ {
+			// The part of the segment within m of the row, as pathTiles
+			// takes it.
+			xl, xh := min(ax, bx), max(ax, bx)
+			if ay != by {
+				k0 := (float32(r*tile) - m - ay) / (by - ay)
+				k1 := (float32((r+1)*tile) + m - ay) / (by - ay)
+				k0, k1 = max(min(k0, k1), 0), min(max(k0, k1), 1)
+				xa, xb := ax+(bx-ax)*k0, ax+(bx-ax)*k1
+				xl, xh = min(xa, xb), max(xa, xb)
+			}
+			cl := max(int(math.Floor(float64((xl-m)/size))), c0)
+			ch := min(int(math.Floor(float64((xh+m)/size))), c1-1)
+			for c := cl; c <= ch; c++ {
+				reached[(r-r0)*vc+c-c0] = true
+			}
+		}
+	}
+	for r := r0; r < r1; r++ {
+		for c := c0; c < c1; c++ {
+			if !reached[(r-r0)*vc+c-c0] {
+				continue
+			}
+			ox, oy := c*tile, r*tile
+			tw, th := min(tile, mw-ox), min(tile, mh-oy)
+			if !w.maskGlyph(s, tileKey(key, ox, oy, tw, th), q, hw, x0, y0, ox, oy, tw, th, t.color) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// tileKey is the key of the tw×th tile at (ox, oy) of the mask of key.
+func tileKey(key uint64, ox, oy, tw, th int) uint64 {
+	var buf [24]byte
+	binary.LittleEndian.PutUint64(buf[:], key)
+	binary.LittleEndian.PutUint32(buf[8:], uint32(ox))
+	binary.LittleEndian.PutUint32(buf[12:], uint32(oy))
+	binary.LittleEndian.PutUint32(buf[16:], uint32(tw))
+	binary.LittleEndian.PutUint32(buf[20:], uint32(th))
+	return maphash.Bytes(maskSeed, buf[:])
+}
+
+// maskTile is the side of a stroke's mask tile, in pixels: 512 with the
+// atlas's padding, as MyGo's pathTile. A variable, so that tests can tile
+// small strokes.
+var maskTile = 511
+
+// maskTilesMax is how many tiles of a stroke that show strokeTiles draws
+// at most; maskSpanMax the widest and tallest mask, beyond which float32
+// no longer holds the quarter pixels its points move to (MyGo's
+// pathSpanMax).
+const (
+	maskTilesMax = 64 * 64
+	maskSpanMax  = 1 << 22
+)
 
 // strokeLines adds t to s as a Line a segment (a point, a dot).
 func (w *Window) strokeLines(s *scene.Scene, t stroke) {
@@ -860,12 +975,14 @@ func (w *Window) strokeLines(s *scene.Scene, t stroke) {
 	}
 }
 
-// rasterize is the coverage, w by h, of the polyline q (pixels from the
-// mask's corner) hw to each side: each segment's rectangle and a disc at
-// each point, all wound one way, so where they overlap they cover once.
-func (w *Window) rasterize(q []float32, hw float32, mw, mh int) []byte {
+// rasterize is the coverage, tw by th from (ox, oy) of the mask, of the
+// polyline q (pixels from the mask's corner) hw to each side: each
+// segment's rectangle and a disc at each point, all wound one way, so
+// where they overlap they cover once.
+func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 	z := &w.z
-	z.Reset(mw, mh)
+	z.Reset(tw, th)
+	offX, offY := float32(ox), float32(oy)
 	poly := func(p [][2]float32) {
 		area := float32(0)
 		for i := range p {
@@ -877,9 +994,9 @@ func (w *Window) rasterize(q []float32, hw float32, mw, mh int) []byte {
 				p[i], p[j] = p[j], p[i]
 			}
 		}
-		z.MoveTo(p[0][0], p[0][1])
+		z.MoveTo(p[0][0]-offX, p[0][1]-offY)
 		for _, v := range p[1:] {
-			z.LineTo(v[0], v[1])
+			z.LineTo(v[0]-offX, v[1]-offY)
 		}
 		z.ClosePath()
 	}
@@ -905,8 +1022,8 @@ func (w *Window) rasterize(q []float32, hw float32, mw, mh int) []byte {
 		nx, ny := -dy/l*hw, dx/l*hw
 		poly([][2]float32{{ax + nx, ay + ny}, {cx + nx, cy + ny}, {cx - nx, cy - ny}, {ax - nx, ay - ny}})
 	}
-	pix := make([]byte, mw*mh)
-	z.Mask(pix, mw)
+	pix := make([]byte, tw*th)
+	z.Mask(pix, tw)
 	return pix
 }
 
