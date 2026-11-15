@@ -1345,6 +1345,10 @@
     "TestRunRefusesAnAbsentFootprint": 0,
     "TestRunStopsTheRun": 0
   },
+  "ergo.local/prototype/internal/sketch/fix": {
+    "TestFixMigratesModel": 0.51,
+    "TestOwnSpellsTheOldModes": 0.39
+  },
   "ergo.local/prototype/internal/sketch/format": {
     "FuzzFormat": 0.1,
     "TestAlignmentIsLinear": 2.43,
