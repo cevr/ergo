@@ -129,6 +129,15 @@ type Result struct {
 	Schedule uint64
 	// Machine is a reachability law's search (machine.go), else nil.
 	Machine *MachineSearch
+	// Drawn is a refuted drawn case's arguments as drawn, when shrinking
+	// (shrink.go) found a smaller case that fails the same way: Arguments
+	// are then the smaller case's, as the native runner's FAIL line shows
+	// them before "shrunk from:" (TESTSPEED FT1).
+	Drawn []Argument
+	// escaped says a refutation is a typed failure that escaped the body,
+	// not a failed assert or a false law: a shrink keeps a candidate only
+	// when it fails the same way.
+	escaped bool
 }
 
 type Argument struct{ Name, Value string }
@@ -393,6 +402,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	case ctlFail, ctlEscape:
 		res.Status, res.Reason = Refuted, "a failure escaped: "+describe(ab.val)
 		res.Site = in.site(pkg, decl, decl.Pos())
+		res.escaped = true
 	case ctlDefect:
 		res.Status, res.Reason = Defect, ab.msg
 	case ctlExhausted:

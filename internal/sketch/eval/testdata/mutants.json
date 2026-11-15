@@ -1698,6 +1698,51 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-ft1-shrink-no-zero-pass",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\t\t\tif !zero && try(c) {\n",
+      "to": "\t\t\t\tif !zero && len(c) < 0 && try(c) {\n",
+      "rule": "The evaluator shrinks a refuted case as the native runner does: the same passes, so the same candidates and the same smallest tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-shrink-budget-ignored",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\tif tries >= budget {\n\t\t\treturn false\n",
+      "to": "\t\tif tries >= budget+1000 {\n\t\t\treturn false\n",
+      "rule": "A shrink stops at the native runner's budget of replays, so both tiers stop at the same tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-no-shrink",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tif result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "to": "\t\tif false && result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "rule": "A refuted drawn case reports its shrunk arguments, the native runner's counterexample (TESTSPEED FT1).",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-int-drawn-unrecorded",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tv, _ := fromInt64(u.Kind, int64(r.Integer(width, signed)))\n",
+      "to": "\t\t\t\tv, _ := fromInt64(u.Kind, r.I64())\n\t\t\t\t_, _ = width, signed\n",
+      "rule": "An integer is drawn as the native runner draws it, sign and magnitude on the tape, so a shrink lowers it to the same value.",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-drawn-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tgot.Drawn = large\n",
+      "to": "\t\t_ = large\n",
+      "rule": "A shrunk case keeps its drawn arguments, which the native FAIL line shows after \"shrunk from:\".",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",
