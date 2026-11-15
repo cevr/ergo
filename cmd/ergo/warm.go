@@ -45,11 +45,12 @@ func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
 }
 
 // prepareWarm is the request's key and store, and the check its stored
-// answer must pass; nil when the warm answer does not apply.
+// answer must pass; nil when the warm answer does not apply (-work and
+// -report copies print what only a build that runs writes).
 func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm, func(sketchfront.WarmAnswer) bool) {
 	building := opts.command == "build" || opts.command == "run"
 	linking := opts.command != "check"
-	if !sketchfront.WarmEnabled() || opts.work || !isPackageFolder(opts.file) || linking && tc == nil {
+	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || !isPackageFolder(opts.file) || linking && tc == nil {
 		return nil, nil
 	}
 	source, err := receipt.LocateSource(opts.file)

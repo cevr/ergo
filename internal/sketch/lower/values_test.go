@@ -274,8 +274,10 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	// A literal given to a Ref's Update or to sync.Modify takes the held
 	// value over: the call is the runtime body's owned form, told that
-	// the literal returns a fresh value (refown.go).
-	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateOwned[") || !strings.Contains(body, "RefModifyOwned[") || strings.Count(body, ", true)") != 2 {
+	// the literal returns a fresh value (refown.go). tally's literals hold
+	// the value in one let mut from first to last, so both take the
+	// in-place form, with no copy of the Map in or out (inPlaceLit, ST G1).
+	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateInPlace[") || !strings.Contains(body, "RefModifyInPlace[") || strings.Count(body, ", true)") != 2 {
 		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):

@@ -185,5 +185,8 @@ func bodyLiteral(b Body) string {
 	if b.BridgeTarget != "" {
 		fields = append(fields, fmt.Sprintf("BridgeTarget: %q, BridgeProvider: %q", b.BridgeTarget, b.BridgeProvider))
 	}
+	if b.Check != "" {
+		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }
