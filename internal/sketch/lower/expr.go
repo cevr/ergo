@@ -648,7 +648,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		if x.Base != nil {
 			return fc.update(x, t, td)
 		}
-		var keys []string
+		var keys, fields []string
 		var values []syntax.Expr
 		set := map[string]bool{}
 		for i, e := range x.Elts {
@@ -662,6 +662,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 					ice(id, "%s has no field %s", t, id.Name)
 				}
 				keys = append(keys, name)
+				fields = append(fields, id.Name)
 				values = append(values, kv.Value)
 				set[id.Name] = true
 				continue
@@ -670,10 +671,14 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 				ice(e, "a positional record literal with more values than fields")
 			}
 			keys = append(keys, td.fieldName[td.fields[i].Name])
+			fields = append(fields, td.fields[i].Name)
 			values = append(values, e)
 			set[td.fields[i].Name] = true
 		}
 		vals := fc.operands(values, true)
+		for i := range vals {
+			vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+		}
 		if td.goError {
 			// go.Error{Text: s}: a native error of its own (IG5).
 			if len(vals) == 0 {
@@ -752,7 +757,7 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 	}
 	u := fc.temp("u")
 	fc.line(u + " := " + fc.value(x.Base))
-	var keys []string
+	var keys, fields []string
 	var values []syntax.Expr
 	for _, e := range x.Elts {
 		kv, ok := e.(*syntax.KeyValueExpr)
@@ -768,9 +773,13 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 			ice(id, "%s has no field %s", t, id.Name)
 		}
 		keys = append(keys, name)
+		fields = append(fields, id.Name)
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	for i := range vals {
+		vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+	}
 	vals = fc.handBase(x.Base, vals)
 	fc.ownReplaced(x, u, td)
 	if td.goError && len(vals) == 1 {
@@ -812,7 +821,7 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 		b = fc.temp("b")
 		fc.line(b + " := " + base)
 	}
-	var parts []string
+	var parts, fields []string
 	var values []syntax.Expr
 	for _, e := range x.Elts {
 		kv := e.(*syntax.KeyValueExpr)
@@ -821,9 +830,13 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 			ice(kv.Key, "%s has no field %s", t, kv.Key)
 		}
 		parts = append(parts, name)
+		fields = append(fields, kv.Key.(*syntax.Ident).Name)
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	for i := range vals {
+		vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+	}
 	vals = fc.handBase(x.Base, vals)
 	for i := range parts {
 		parts[i] += ": " + vals[i]

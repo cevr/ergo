@@ -24,7 +24,8 @@ type Code int where 1 <= it && it <= 125
 
 // NoWorkdir is the failure of Getwd when the host cannot name the
 // process's working directory: it was removed, or a directory above it
-// cannot be read. Message is the host's reason.
+// cannot be read. Message is the host's reason. Getwd fails with NoWorkdir
+// when the working directory has been removed, on every host.
 type NoWorkdir { Message string }
 
 // Process is the host process: the arguments after the program name, the

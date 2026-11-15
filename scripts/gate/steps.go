@@ -26,10 +26,6 @@ const durationsFile = "scripts/gate/durations.json"
 // shardTarget is the measured work each Go test process should receive.
 const shardTargetSeconds = 12.0
 
-// testTimeout is a safety net for a hung test process, never a performance
-// budget: a shard that needs it is a defect to split or fix.
-const testTimeout = "-timeout=15m"
-
 // testTools are the executables Go tests spawn besides the Go toolchain,
 // whose binary and version Go's test cache already keys on: git, and sh,
 // which runs the shell scripts tests write.
@@ -114,11 +110,12 @@ func hostSteps(root, pkg, relative string, measured map[string]float64) []*Step 
 	selections := shardArgs(append(groups, nil))
 	var steps []*Step
 	for i, selection := range selections {
-		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg), Weight: recordedSeconds(rest, measured), Class: classHeavy}
+		step := &Step{Name: name, Needs: []string{"go test build"}, Weight: recordedSeconds(rest, measured), Class: classHeavy}
 		if i < len(groups) {
 			step.Name += " " + groups[i][0]
 			step.Weight = recordedSeconds(groups[i], measured)
 		}
+		step.Argv = append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeoutFor(step.Weight)}, selection...), pkg)
 		steps = append(steps, step)
 	}
 	return steps
@@ -170,26 +167,25 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
-// sweepTimeout is the test timeout of a closure sweep step. The sweep runs
-// a package's test binary in runs of at most a set recorded test time each
+// sweepStep runs the closure sweep over selection, one package directory,
+// whose expected seconds are weight (sweepWeight). The sweep runs a
+// package's test binary in runs of at most a set recorded test time each
 // (internal/closure, planRuns), so many at a time as its jobs allow and the
-// rest in turn, and stops a run that passes its own deadline (20 minutes,
-// ERGO_CLOSURE_RUN_DEADLINE) with its package and slowest tests named. The
-// step's timeout must outlast every run of the package in turn: with the
-// gate's 15 minute testTimeout the binary's deadline cut each run of
-// internal/sketch/lower at 13m58s, which the four runs, at once on the
-// step's share of the batch-10 merge tier, reached (841 s; fu-sweep-
-// deadline). It is a safety net for a sweep that hangs, as testTimeout is.
-const sweepTimeout = "-timeout=45m"
-
-// sweepStep runs the closure sweep over selection: one package directory.
-func sweepStep(selection string) *Step {
+// rest in turn, and stops a run that passes its own deadline (hangDeadline
+// of the run's recorded cost there) with its package and slowest tests
+// named. The step's timeout, hangDeadline of weight, must outlast every
+// run of the package in turn: a fixed 45 minutes let the runs of
+// internal/sketch/lower, which took 2210 s under the batch-16b merge tier's
+// load, reach their own 20 minute deadline (gate16b-fix3). It is a safety
+// net for a sweep that hangs, as every go test step's timeout is.
+func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
-		Argv:    []string{"go", "test", sweepTimeout, "-run", "^" + sweepTest + "$", sweepPackage},
+		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
 		Env:     []string{sweepVariable + "=" + selection},
 		ToolEnv: testTools,
 		Sweep:   selection,
+		Weight:  weight,
 		Class:   classHeavy,
 	}
 }
@@ -263,7 +259,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	add(&Step{Name: "gofmt", Argv: gofmtScript.command(append([]string{"gofmt"}, gofmtDirectories...)...), Class: classFast})
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
-	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", "-run", "^$", "./..."}, Class: classHeavy})
+	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", testTimeout, "-run", "^$", "./..."}, Class: classHeavy})
 	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
 	// The CLI and the runtime it embeds also build for a 32-bit target,
 	// where int is 32 bits: a constant that overflows it fails here
@@ -279,13 +275,19 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/rt"]), Class: classHeavy})
+	cpu, err := readTestCPU(root)
+	if err != nil {
+		return nil, err
+	}
+	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
+	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
 	// The explored build's worker and children laws (runtime/v1
 	// explore_on.go, explore_laws.go): their tests alone, since the rest
 	// of runtime/v1 runs untagged. The tagged tests have no row of their
 	// own, so the step weighs runtime/v1's record, an upper bound that
 	// starts it early.
-	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource)$", "./runtime/v1"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/v1"]), Class: classHeavy})
+	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
+	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource)$", "./runtime/v1"}, Weight: v1, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
@@ -299,7 +301,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			hermetic = append(hermetic, pkg)
 			continue
 		}
-		measured, ok := durations[pkg]
+		_, ok := durations[pkg]
+		// The shards' cost per test: CPU where testCPUFile has the
+		// package's rows, else wall (shardCosts).
+		measured := shardCosts(durations, cpu, pkg)
 		cli := slices.Contains(cliTestPackages, relative)
 		// A CLI package always gets steps of its own, which need the
 		// CLI's build (cliTestPackages); unmeasured, it runs in one.
@@ -328,7 +333,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		groups := shard(names, measured, n)
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
-			argv := append([]string{"go", "test", testTimeout}, selection...)
+			argv := append([]string{"go", "test", testTimeoutFor(weights[i])}, selection...)
 			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i], Class: classHeavy})
 		}
 	}
@@ -336,7 +341,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, pkg := range unsharded {
 		others += packageSeconds(durations[pkg])
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier
@@ -351,10 +356,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 				continue
 			}
-			sweep := sweepStep(dir)
+			sweep := sweepStep(dir, sweepWeight(durations, pkg))
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
-			sweep.Weight = sweepWeight(durations, pkg)
 			add(sweep)
 		}
 	}
@@ -365,7 +369,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		for _, pkg := range hermetic {
 			weight += packageSeconds(durations[pkg])
 		}
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Weight: weight, Class: classHeavy})
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(weight)}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Weight: weight, Class: classHeavy})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its

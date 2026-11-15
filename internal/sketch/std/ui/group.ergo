@@ -37,10 +37,15 @@ extern go ergo.local/prototype/runtime/v1.UIArgsHeld func argsHeld(m GroupArgs) 
 type groupKey[E] { owner arena.Ref[node[E]], id ident }
 
 // keptGroup is a group of the last pass that a pass may write again: its
-// arguments' slot, the specs it wrote (parent -1 for one under the group's
-// parent, else an index among these specs) with the node each became, and
-// the keys of the groups inside it.
-type keptGroup[E] { slot int, specs []spec[E], inner []groupKey[E] }
+// arguments' slot, the nodes it wrote under the group's parent (tops), and
+// the keys of the groups inside it. What is below a top is in the tree
+// already, so a group written again writes its tops alone and Commit
+// skips what is below them, as it skips a skipped Same's subtree.
+type keptGroup[E] { slot int, tops []keptTop[E], inner []groupKey[E] }
+
+// keptTop is one top node of a kept group: what it shows, its identity
+// and its node.
+type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]] }
 
 // groupRec is one group of a pass: its parent spec, identity and slot, the
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
@@ -56,6 +61,7 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
 	let r = len(f.groups)
+	let start = f.nspecs
 	let mut slot = -1
 	// The kept groups are a list the map indexes: a Map whose values hold
 	// slices is copied whole when read (measured: 93% of a pass).
@@ -63,24 +69,30 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 	case Some[int] as i:
 		slot = f.keptList[i.Value].slot
 		if argsSame(f.args, slot, args) && writeAgain(f, i.Value) {
-			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs) - len(f.keptList[i.Value].specs), end: len(f.specs), outer: outer, pure: true, again: i.Value})
+			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: i.Value})
 			return
 		}
 		argsSet(f.args, slot, args)
 	case None:
 		slot = argsPut(f.args, args)
 	}
-	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs), end: len(f.specs), outer: outer, pure: true, again: -1})
-	let cells = len(f.cells)
-	let loads = len(f.loads)
-	let keys = len(f.keys)
-	let anims = len(f.anims)
+	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1})
+	let cells = f.ncells
+	let loads = f.nloads
+	let keys = f.nkeys
+	let urls = f.nurls
+	let anims = f.nanims
+	let stops = f.nstops
+	let sames = f.sameSkips
 	f.group = r
 	f.groupRuns = f.groupRuns + 1
 	body()
 	f.group = outer
-	f.groups[r].end = len(f.specs)
-	f.groups[r].pure = len(f.cells) == cells && len(f.loads) == loads && len(f.keys) == keys && len(f.anims) == anims
+	f.groups[r].end = f.nspecs
+	// A body that read state, or skipped a Same (whose subtree may hold
+	// state), or stopped a group, writes what its arguments alone do not
+	// say.
+	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nurls == urls && f.nanims == anims && f.nstops == stops && f.sameSkips == sames
 }
 
 // groupIdent is the identity of a group under the current parent, counted
@@ -94,32 +106,34 @@ func groupIdent[E](f *Frame[E], at CallSite) ident {
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
-// writeAgain writes the specs of kept group i under the current parent, as its call would:
-// each spec under the group's parent takes the next count of its identity
-// there, which must be the count it had, else nothing is written and the
-// call runs. It is true when it wrote them.
+// writeAgain writes the top nodes of kept group i under the current
+// parent, as its call would, each skipped: each takes the next count of
+// its identity there, which must be the count it had, and must keep its
+// disabled state; else nothing is written and the call runs. It is true
+// when it wrote them. A kept group was written by the last pass and not
+// cut (cut drops the groups it takes back), so its top nodes are the
+// children of its owner in the host's tree, never parked, and its owner,
+// which this pass matched, is no node that comes back from being parked.
 func writeAgain[E](f *Frame[E], i int) bool {
+	let p = f.parent
+	let up = p >= 0 && f.specs[p].off
 	let mut counts = Map[slotOf, int]{}
-	for s in f.keptList[i].specs {
-		if s.parent < 0 {
-			let at = slotOf{parent: f.parent, b: base{site: s.id.site, each: s.id.each, key: s.id.key}}
-			let n = count(counts, at)
-			if count(f.seen, at)+n != s.id.n {
-				return false
-			}
-			counts[at] = n + 1
+	for x in f.keptList[i].tops {
+		let at = slotOf{parent: p, b: base{site: x.id.site, each: x.id.each, key: x.id.key}}
+		let n = count(counts, at)
+		if count(f.seen, at)+n != x.id.n {
+			return false
 		}
-	}
-	for at, n in counts {
-		f.seen[at] = count(f.seen, at) + n
-	}
-	let first = len(f.specs)
-	for s in f.keptList[i].specs {
-		let mut parent = f.parent
-		if s.parent >= 0 {
-			parent = first + s.parent
+		let mut off = false
+		change(f, x.ref, func(m *node[E]) { off = m.off })
+		if off != (up || disables(x.node)) {
+			return false
 		}
-		f.specs = f.specs.Append(spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: s.ref, onText: s.onText, onPoint: s.onPoint, binds: s.binds, same: s.parent < 0})
+		counts[at] = n + 1
+	}
+	for x in f.keptList[i].tops {
+		let _ = see(f, slotOf{parent: p, b: base{site: x.id.site, each: x.id.each, key: x.id.key}})
+		let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: arena.Null[node[E]](), onText: x.onText, onPoint: x.onPoint, binds: None, off: up || disables(x.node), memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p)})
 	}
 	true
 }
@@ -170,18 +184,15 @@ func keepGroups[E](f *Frame[E]) {
 			next[keys[i]] = len(list)
 			list = list.Append(f.keptList[g.again])
 		} else if g.pure {
-			let mut specs = []spec[E]{}
+			let mut tops = []keptTop[E]{}
 			for j in g.start..g.end {
-				let mut c = f.specs[j]
-				if c.parent < g.start {
-					c.parent = -1
-				} else {
-					c.parent = c.parent - g.start
+				let c = f.specs[j]
+				if c.parent == g.parent {
+					tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint})
 				}
-				specs = specs.Append(c)
 			}
 			next[keys[i]] = len(list)
-			list = list.Append(keptGroup[E]{slot: g.slot, specs: specs, inner: inner[i]})
+			list = list.Append(keptGroup[E]{slot: g.slot, tops: tops, inner: inner[i]})
 		}
 	}
 	// Each slot the last pass's groups or this pass's held and no kept
@@ -191,30 +202,19 @@ func keepGroups[E](f *Frame[E]) {
 		live[k.slot] = true
 	}
 	for old in f.keptList {
-		if !isLive(live, old.slot) {
+		if !has(live, old.slot) {
 			argsFree(f.args, old.slot)
 			live[old.slot] = true
 		}
 	}
 	for g in f.groups {
-		if !isLive(live, g.slot) {
+		if !has(live, g.slot) {
 			argsFree(f.args, g.slot)
 			live[g.slot] = true
 		}
 	}
 	f.kept = next
 	f.keptList = list
-}
-
-// isLive reports slot marked in live (a set of ints; also the parents
-// prior has indexed).
-func isLive(live Map[int, bool], slot int) bool {
-	match live.Get(slot) {
-	case Some[bool]:
-		true
-	case None:
-		false
-	}
 }
 
 // GroupRuns is how many component calls the last pass of f ran: a call

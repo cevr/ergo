@@ -1199,6 +1199,13 @@ func isUnreachable(f *Func) bool {
 // lowering writes as a panic at its site, never as a call of its Go body.
 func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
 
+// IsInForce reports a call of the prelude's InForce, which the lowering
+// writes in place: the providers of its row in force at the call, as a
+// Context value (rows.md, Context values, InForce; CK-rowarg part 3).
+func IsInForce(c *Call) bool {
+	return c != nil && c.Kind == CallFunc && c.Func != nil && c.Func.Name == "InForce" && c.Func.Pkg != nil && c.Func.Pkg.Path == std.PreludePath
+}
+
 // unreachableCall reports whether x is a call of the prelude's
 // Unreachable, before it is checked: its callee is a bare name that
 // resolves to it here (a local of that name is refused by D-D3 and still

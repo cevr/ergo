@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 
@@ -56,6 +57,18 @@ type Footprint struct {
 	// An impure frame polls at entry if it is recursive or its footprint
 	// is opaque (unknown code may re-enter it). Pure recursion never polls.
 	EntryPoll bool
+	// Params are the positions of the function's non-escaping function
+	// parameters whose arguments it runs: a call of the parameter in its
+	// body or in a frame it runs, or the parameter passed on to a known
+	// callee that runs it (H2-fp; rows.md, Footprints 3). Opaque counts
+	// them, so the frame read alone runs unknown code; a call of the
+	// function with known arguments joins each argument's footprint in
+	// their place instead.
+	Params []int
+	// OpaqueRest reports unknown code other than the arguments at Params:
+	// Opaque is OpaqueRest or a nonempty Params, or, for a function
+	// literal, a call of a parameter of the function it is written in.
+	OpaqueRest bool
 }
 
 // Empty reports a pure frame: no capability, no task start and no opaque
@@ -71,10 +84,37 @@ type fpNode struct {
 	edges  []*fpNode
 	walked bool // only bodies actually visited may publish a footprint
 
+	// holes are the non-escaping function parameters this frame calls
+	// (H2-fp): its function's own, or, in a literal or block, those of the
+	// function it is written in. calls are its calls of known functions
+	// with non-escaping parameters, whose arguments fill the callee's
+	// holes. params are a function's parameters, by position.
+	holes  map[*Var]bool
+	calls  []fpCall
+	params []*Var
+
 	index, low int // Tarjan's numbering; index 0 is unvisited
 	onStack    bool
 	comp       *fpNode // the component's root, once its component is final
 	final      Footprint
+	cur        map[*Var]bool // the holes while its component is solved, then final
+}
+
+// fpCall is a call of a known function (to) whose arguments at its
+// non-escaping parameters are known: args holds one per parameter
+// position, nil where the argument is unknown or the parameter is not a
+// non-escaping function.
+type fpCall struct {
+	to   *fpNode
+	args []*fpArg
+}
+
+// fpArg is a known argument: the frame of a literal, a trailing block or
+// a named function (node), or a non-escaping parameter of the caller's
+// function (hole), which then becomes a hole of the caller.
+type fpArg struct {
+	node *fpNode
+	hole *Var
 }
 
 func (n *fpNode) addCap(t *Named) {
@@ -109,6 +149,9 @@ type footprinter struct {
 	// imported context with its own package's facts (foreignEntry): it
 	// makes no edge, since no node of that package is walked here.
 	foreign bool
+	// holeVars are the non-escaping function parameters of the package's
+	// functions: a call of one is a hole of its frame, not opaque (H2-fp).
+	holeVars map[*Var]bool
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
@@ -121,9 +164,17 @@ func (c *checker) footprints() {
 		root syntax.Node
 	}
 	var bodies []body
+	fp.holeVars = map[*Var]bool{}
 	for _, f := range c.funcs {
 		if f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil {
-			bodies = append(bodies, body{fp.node(f.Decl), f.Decl.Body})
+			n := fp.node(f.Decl)
+			n.params = declParams(info, f.Decl)
+			for _, v := range n.params {
+				if v != nil && fpParam(v.Type) {
+					fp.holeVars[v] = true
+				}
+			}
+			bodies = append(bodies, body{n, f.Decl.Body})
 		}
 	}
 	// A test body is a frame keyed by its declaration, as a function's is.
@@ -549,8 +600,22 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		}
 		n.opaque = true
 	case CallFunc:
+		if !fp.foreign && fp.knownCall(n, x, c) {
+			return
+		}
 		fp.runs(n, c.Func, c.StartsTask)
 	case CallFuncValue:
+		if id, ok := unparen(x.Fun).(*syntax.Ident); ok && !fp.foreign {
+			if v, ok := fp.info.Uses[id].(*Var); ok && fp.holeVars[v] {
+				// A call of a non-escaping parameter runs the argument of
+				// the call that runs this frame (H2-fp).
+				if n.holes == nil {
+					n.holes = map[*Var]bool{}
+				}
+				n.holes[v] = true
+				return
+			}
+		}
 		if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 			// A literal called where it is written runs its body here.
 			if fp.foreign {
@@ -618,6 +683,156 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 		}
 		n.opaque = true
 	}
+}
+
+// knownCall adds a call of a function with a body and non-escaping
+// function parameters, of this package or of an imported one that
+// recorded its footprint, as a call whose known arguments fill the
+// callee's holes (H2-fp; rows.md, Footprints 3). It reports false for
+// every other call, which runs adds as before.
+func (fp *footprinter) knownCall(n *fpNode, x *syntax.CallExpr, c *Call) bool {
+	f := c.Func
+	if f == nil || f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil || f.Sig == nil || pureStd(f) || MakesHost(f) {
+		return false
+	}
+	var to *fpNode
+	switch {
+	case f.Pkg == fp.pkg:
+		to = fp.node(f.Decl)
+	case f.Pkg != nil && f.Pkg.Info != nil:
+		g, ok := f.Pkg.Info.Footprints[f.Decl]
+		if !ok || len(g.Params) == 0 {
+			return false
+		}
+		to = fp.importedFunc(f, g)
+	default:
+		return false
+	}
+	ops := make([]syntax.Node, 0, len(x.Args)+2)
+	if c.Recv != nil {
+		ops = append(ops, c.Recv)
+	}
+	for _, a := range x.Args {
+		ops = append(ops, a)
+	}
+	if x.Trailing != nil {
+		ops = append(ops, x.Trailing)
+	}
+	args := make([]*fpArg, len(f.Sig.Params))
+	known := false
+	for i, p := range f.Sig.Params {
+		if i < len(ops) && fpParam(p.Type) {
+			args[i] = fp.arg(ops[i])
+			known = true
+		}
+	}
+	if !known {
+		return false
+	}
+	n.calls = append(n.calls, fpCall{to: to, args: args})
+	return true
+}
+
+// fpParam reports a parameter type whose argument a call can fill: a
+// non-escaping function. An escaping parameter may run after the call
+// returns or on another task, so its argument stays unknown code.
+func fpParam(t Type) bool { return nonEscaping(t) }
+
+// importedFunc is the node of an imported function f whose package
+// recorded the footprint g: g less its parameters' arguments, with a hole
+// for each parameter at g.Params. It is made once per function.
+func (fp *footprinter) importedFunc(f *Func, g Footprint) *fpNode {
+	if m := fp.nodes[f]; m != nil {
+		return m
+	}
+	m := fp.node(f)
+	m.params = declParams(f.Pkg.Info, f.Decl)
+	for _, t := range g.Caps {
+		if nt, ok := t.(*Named); ok {
+			m.addCap(nt)
+		}
+	}
+	m.tasks, m.opaque = g.Tasks, g.OpaqueRest
+	m.holes = map[*Var]bool{}
+	for _, i := range g.Params {
+		if i < len(m.params) && m.params[i] != nil {
+			m.holes[m.params[i]] = true
+		} else {
+			m.opaque = true
+		}
+	}
+	return m
+}
+
+// arg is the known argument x, or nil: a function literal or trailing
+// block runs its own frame, a named function runs its body (as a call of
+// it with no known argument), and a non-escaping parameter of the
+// caller's function is a hole of the caller.
+func (fp *footprinter) arg(x syntax.Node) *fpArg {
+	if b, ok := x.(*syntax.BlockStmt); ok {
+		return &fpArg{node: fp.node(b)}
+	}
+	e, ok := x.(syntax.Expr)
+	if !ok {
+		return nil
+	}
+	e = unparen(e)
+	if sel, ok := e.(*syntax.SelectorExpr); ok {
+		// A function of an imported package (qualified records no use of
+		// its name).
+		if id, ok := unparen(sel.X).(*syntax.Ident); ok {
+			if pn, ok := fp.info.Uses[id].(*PkgName); ok && pn.Pkg != nil {
+				if f, ok := pn.Pkg.member(sel.Sel.Name); ok {
+					if f, ok := f.(*Func); ok {
+						return fp.funcArg(f)
+					}
+				}
+			}
+		}
+		return nil
+	}
+	switch a := e.(type) {
+	case *syntax.FuncLit:
+		return &fpArg{node: fp.node(a)}
+	case *syntax.Ident:
+		switch o := fp.info.Uses[a].(type) {
+		case *Var:
+			if fp.holeVars[o] {
+				return &fpArg{hole: o}
+			}
+		case *Func:
+			return fp.funcArg(o)
+		}
+	}
+	return nil
+}
+
+// funcArg is the argument f, a named function: a frame that runs it.
+func (fp *footprinter) funcArg(f *Func) *fpArg {
+	m := &fpNode{walked: true}
+	fp.list = append(fp.list, m)
+	fp.runs(m, f, false)
+	return &fpArg{node: m}
+}
+
+// declParams are the variables of d's parameters, by position (nil for
+// one with no name).
+func declParams(info *Info, d *syntax.FuncDecl) []*Var {
+	var out []*Var
+	if d == nil || d.Type == nil || d.Type.Params == nil {
+		return nil
+	}
+	for _, field := range d.Type.Params.List {
+		if len(field.Names) == 0 {
+			out = append(out, nil)
+			continue
+		}
+		for _, id := range field.Names {
+			v, _ := info.Defs[id].(*Var)
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // pureStdAlso is a test seam, nil outside tests (export_test.go,
@@ -726,13 +941,27 @@ func (fp *footprinter) solve() {
 		// A context's node and a with's frame read their edges here: one
 		// step each (withStep; TestWithSiteWorkLinear counts them).
 		withStep(len(v.edges))
-		for _, w := range v.edges {
+		visit := func(w *fpNode) {
 			switch {
 			case w.index == 0:
 				strong(w)
 				v.low = min(v.low, w.low)
 			case w.onStack:
 				v.low = min(v.low, w.index)
+			}
+		}
+		for _, w := range v.edges {
+			visit(w)
+		}
+		// A known call's callee and its argument frames are solved first,
+		// or with v when they reach back to it (a literal that calls the
+		// function that passes it on makes the pair recursive).
+		for _, c := range v.calls {
+			visit(c.to)
+			for _, a := range c.args {
+				if a != nil && a.node != nil {
+					visit(a.node)
+				}
 			}
 		}
 		if v.low != v.index {
@@ -756,13 +985,25 @@ func (fp *footprinter) solve() {
 			}
 			acc.tasks = acc.tasks || w.tasks
 			acc.opaque = acc.opaque || w.opaque
-			for _, s := range w.edges {
-				if s.comp != v {
-					acc.join(s.final)
+			w.cur = maps.Clone(w.holes)
+			if w.cur == nil {
+				w.cur = map[*Var]bool{}
+			}
+		}
+		// The members' holes grow to a fixpoint: a call within the
+		// component passes a hole on to its caller.
+		for changed := true; changed; {
+			changed = false
+			for _, w := range comp {
+				for _, s := range w.edges {
+					changed = fillHoles(v, acc, w, s, nil) || changed
+				}
+				for _, c := range w.calls {
+					changed = fillHoles(v, acc, w, c.to, c.args) || changed
 				}
 			}
 		}
-		f := Footprint{Tasks: acc.tasks, Opaque: acc.opaque}
+		f := Footprint{Tasks: acc.tasks, OpaqueRest: acc.opaque}
 		for _, t := range acc.caps {
 			f.Caps = append(f.Caps, t)
 		}
@@ -777,9 +1018,20 @@ func (fp *footprinter) solve() {
 		for _, s := range v.edges {
 			recursive = recursive || s == v
 		}
-		f.EntryPoll = !f.Empty() && (recursive || f.Opaque)
+		for _, c := range v.calls {
+			recursive = recursive || c.to == v
+		}
 		for _, w := range comp {
-			w.final = f
+			wf := f
+			wf.Opaque = f.OpaqueRest || len(w.cur) > 0
+			wf.Params = nil
+			for i, p := range w.params {
+				if p != nil && w.cur[p] {
+					wf.Params = append(wf.Params, i)
+				}
+			}
+			wf.EntryPoll = !wf.Empty() && (recursive || wf.Opaque)
+			w.final = wf
 		}
 	}
 	for _, n := range fp.list {
@@ -787,6 +1039,54 @@ func (fp *footprinter) solve() {
 			strong(n)
 		}
 	}
+}
+
+// fillHoles adds to the component of root (its footprint acc, and w, a
+// member) a run of t, which w calls with the known arguments args (nil
+// for a run with none, such as a literal called in place). A t outside
+// the component adds its final footprint less its holes. Each hole of t
+// that is one of its parameters runs the argument there: a frame's
+// footprint and holes, a hole of w, or unknown code when the argument is
+// unknown. Every other hole of t (a literal's call of a parameter of the
+// function it is written in) becomes a hole of w. It reports whether w
+// gained a hole.
+func fillHoles(root, acc, w, t *fpNode, args []*fpArg) bool {
+	changed := false
+	add := func(h *Var) {
+		if !w.cur[h] {
+			w.cur[h] = true
+			changed = true
+		}
+	}
+	if t.comp != root {
+		for _, c := range t.final.Caps {
+			if nt, ok := c.(*Named); ok {
+				acc.addCap(nt)
+			}
+		}
+		acc.tasks = acc.tasks || t.final.Tasks
+		acc.opaque = acc.opaque || t.final.OpaqueRest
+	}
+	for h := range t.cur {
+		i := slices.Index(t.params, h)
+		if i < 0 {
+			add(h)
+			continue
+		}
+		var a *fpArg
+		if i < len(args) {
+			a = args[i]
+		}
+		switch {
+		case a == nil:
+			acc.opaque = true
+		case a.hole != nil:
+			add(a.hole)
+		default:
+			changed = fillHoles(root, acc, w, a.node, nil) || changed
+		}
+	}
+	return changed
 }
 
 func pkgPath(p *Package) string {
