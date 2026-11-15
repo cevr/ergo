@@ -1296,6 +1296,30 @@
       "to": "\tif started.Status != 0 && head.Status == 0 && false {\n",
       "rule": "Snapshot reads HEAD afresh into an index of its own that read-tree -m cannot read (git's SnapshotReadsABadIndexAfresh).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "f4-doctor-proc-only", "origin": "wf10/semws darwin JOB 1 F4",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\treturn if r.Status == 0 { mountedOf(r.Stdout, path) } else { (\"\", \"\") }\n",
+      "to": "\t\treturn if r.Status == 0 && false { mountedOf(r.Stdout, path) } else { (\"\", \"\") }\n",
+      "rule": "On a host with no /proc/mounts doctor reads mount(8)'s list (memory's DoctorNamesTheMountOfMount).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "f4-mount-first-word", "origin": "wf10/semws darwin JOB 1 F4",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tlet at = line[on+4 : paren]\n",
+      "to": "\t\tlet at = strings.Fields(line[on+4 : paren])[0]\n",
+      "rule": "A mount point with a space is read whole (work's MacMountsNameAPFS).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "f3-json-after-command", "origin": "wf10/semws darwin JOB 1 F3",
+      "file": "examples/work/cmd/work/main.ergo",
+      "from": "\t\tif i > 0 && (a == \"--json\" || a == \"-json\") {\n",
+      "to": "\t\tif i > 0 && (a == \"--json\" || a == \"-json\") && false {\n",
+      "rule": "--json after the command is read as before it (the list-json-after case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     }
   ]
 }
