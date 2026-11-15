@@ -287,7 +287,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// own, so the step weighs runtime/v1's record, an upper bound that
 	// starts it early.
 	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
-	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource|TestRPCCallEndWakesTheRequest)$", "./runtime/v1"}, Weight: v1, Class: classHeavy})
+	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource|TestRPCCallEndWakesTheRequest|TestRPCStopWinsOverAnEnd)$", "./runtime/v1"}, Weight: v1, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")

@@ -219,6 +219,28 @@
       "killers": ["runtime/v1[ergoexplore]:TestRPCCallEndWakesTheRequest"]
     },
     {
+      "name": "rpc-end-hides-stop",
+      "origin": "wf10/sync RPC-STOP",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\t\tselect {\n\t\t\tcase <-stop:\n\t\t\t\tpanic(rt.Interrupted)\n\t\t\tdefault:\n\t\t\t}\n",
+      "to": "",
+      "rule": "A stop wins over a call's end that is ready with it: a stopped request ends with the stop, never with an answer (rpc.md rule 6).",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestRPCStopWinsOverAnEnd"
+      ]
+    },
+    {
+      "name": "rpc-stop-wait-unparked",
+      "origin": "wf10/sync RPC-STOP",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\t\tp = rt.Park(s.t, s, nil, func() bool { return len(s.ended) > 0 })\n",
+      "to": "",
+      "rule": "A stopped request's wait for its calls left parks, so the explored scheduler and a clock let the calls run to their ends.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestRPCStopWinsOverAnEnd"
+      ]
+    },
+    {
       "name": "rpc-calls-join",
       "origin": "wf10 Rm",
       "file": "runtime/v1/rpc.go",

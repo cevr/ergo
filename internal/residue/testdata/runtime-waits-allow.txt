@@ -39,7 +39,6 @@ runtime/v1/exec_start.go	Running.end	host: the program's exit within its grace
 runtime/v1/exec_start.go	Running.finish	host: the pipe readers' end within the wait delay
 runtime/v1/http_client.go	httpStreamURL	host: the next event of a streamed response
 runtime/v1/http_client.go	httpRefusedStatus	host: the next event of a refused response's body
-runtime/v1/rpc.go	rpcRun.stopAll	stop: each call left was stopped and ends at its next interruption point, which no clock holds
 runtime/v1/rpc.go	rpcRun.end	host: the handle of a call that ended; it has ended, so the wait returns
 runtime/v1/rpc.go	rpcRun.start	handshake: a call task waits until its spawner set its handle, then hands its end to the serve loop
 
