@@ -479,6 +479,39 @@
       "rule": "A suite built without coverage (a ledger of .ergo rows only) runs without -test.gocoverdir, which would fail every test on the unmutated tree.",
       "gap": "Only a real coverage pass sees it (GT8b acceptance, gate2/GT8b/accept.ts: check's seal-callback-params on std/http/http.ergo, unnamed, is killed by check:TestSealingIsTheVisibilityRule); TestRunnerMatchesModel's fake module embeds nothing and always covers a package.",
       "killers": []
+    },
+    {
+      "name": "gt8b-goflags-p",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tout = append(out, \"GOMAXPROCS=\"+procs, \"GOWORK=off\")",
+      "to": "\tout = append(out, \"GOMAXPROCS=\"+procs, \"GOFLAGS=-p=\"+procs, \"GOWORK=off\")",
+      "rule": "A child of the runner sees no GOFLAGS: a set GOFLAGS makes ergo build refuse its direct path, so cmd/ergo's direct-path tests fail on the unmutated tree.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8b-red-judged",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif len(red) > 0 {\n\t\tslices.Sort(red)",
+      "to": "\tif false {\n\t\tslices.Sort(red)",
+      "rule": "A row that a test failing on the unmutated tree covers or names gets no verdict.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8b-unjudged-exit",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/main.go",
+      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 {",
+      "to": "\tif len(newSurvivors) > 0 {",
+      "rule": "An unjudged row fails the run.",
+      "killers": [
+        "scripts/mutants:TestUnjudgedFailsTheRun"
+      ]
     }
   ]
 }
