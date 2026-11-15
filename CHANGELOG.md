@@ -139,6 +139,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- `hosts/mygo`: a canvas stroke is one polyline the window rasterizes once into a mask of MyGo's atlas, kept while its points do not change (`Window.StrokeBegin`, `StrokeTo`, `StrokeEnd`, `MasksDrawn`), not a turned rounded rectangle a segment: a dash-gui frame goes from 89.7M to 72.7M instructions.
 - `hosts/mygo`: the desktop driver scrolls a virtual list to the offset its pass wrote when that is not the window's, so a `ui.RowsKeeping` list shows the row it keeps; hostagree's list app follows a cursor.
 - `hosts/mygo`: the desktop driver's paint is a damage paint. A node whose inputs did not change (no pass, scroll or focus change touched it or a node below it; the same box, offset and clip) takes its last draw again from the window's last list (`Window.Mark`, `Seal`, `Again`), so a paint draws anew only what changed (`desktop.Drawn`). The full paint stays the reference: `desktop.Check` holds every damage paint's list and spots to it (`Window.Hold`, `Differs`). `TestDesktopDrawsOnlyWhatChanged` is the counted guard.
 - `hosts/mygo/desktop`: the headless `Drain` takes what the session posted after each frame (F-GP4c-1). Before, the session's watcher blocked on the full post queue and the actor kept every state it committed, so an animating app's live heap grew with its frames (dash-gui: 34 MB after 1,000 frames, 952 MB after 10,000). The session's watcher now reads `LatestChanges` (cw-uc), which std ui's tests guard.

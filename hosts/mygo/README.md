@@ -122,8 +122,11 @@ package of this Go module and the Ergo half binds it.
 - A canvas (`ui.Canvas`, H5c) replays its paint list (`desktop/canvas.ergo`):
   paths are flattened under the transforms in effect; a fill is one
   rectangle when its path is one on the axes, else spans one DIP high
-  under the nonzero rule; a stroke is one `Window.Line` a segment, round
-  capped; a clip is the box around its transformed rectangle. Edges are
+  under the nonzero rule; a stroke's contour is one polyline
+  (`Window.StrokeBegin`, `StrokeTo`, `StrokeEnd`) that the frame
+  rasterizes once into a mask of MyGo's atlas, keyed by its points, as
+  MyGo's `Painter.StrokePath` does, with round caps and joins (a `Line` a
+  segment when the atlas cannot hold it); a clip is the box around its transformed rectangle. Edges are
   not smoothed: the drawing layer has no path fill a host can reach.
 
 The driver is not a `ui.Host` provider: an operation type's method cannot
