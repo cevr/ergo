@@ -849,3 +849,41 @@ law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, th
 	}
 	got == want.Text && conflicts == want.Conflicts && written == want.Text && (len(tree.Conflicts) > 0) == (len(want.Conflicts) > 0)
 }
+
+// RenamedUnitTakesTheOtherSidesChange: ours renames a unit in place (its
+// header), theirs changes a line of its body: the merge is clean and
+// holds the unit under its new name with theirs' change, and no unit of
+// the old name. When theirs instead adds a unit of the new name (taken),
+// ours' is no rename: the two new units are SameNewHandle.
+law RenamedUnitTakesTheOtherSidesChange(units Map[int, int], which int, value int, taken bool) {
+	let base = scripted(units, []classes.Edit{})
+	let keys = slices.Sorted(maps.Keys(base))
+	if len(keys) == 0 {
+		return true
+	}
+	let r = keys[fold(which)%len(keys)]
+	let file = func(m Map[int, int], name int) string {
+		let mut out = ""
+		for key in 0..6 {
+			match m.Get(key) {
+			case Some[int] as v:
+				out = out + (if key == name { "unit r\(key)" } else { "unit k\(key)" }) + "\n  -\n  v\(v.Value)\n"
+			case None:
+			}
+		}
+		out
+	}
+	let mut changed = Map[int, int]{}
+	for k, v in base {
+		changed[k] = if k == r { value } else { v }
+	}
+	let theirs = if taken { file(base, -1) + "unit r\(r)\n  -\n  w\n" } else { file(changed, -1) }
+	let got = work.MergeUnits(NewLines(), "f.lines", file(base, -1), file(base, r), theirs) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	if taken {
+		return got.Conflicts == []string{"SameNewHandle r\(r)"}
+	}
+	len(got.Conflicts) == 0 && got.Text == file(changed, r)
+}

@@ -1192,6 +1192,30 @@
       "to": "\tif sameOrder(b, o) && !sameOrder(b, t) && false {",
       "rule": "A reordering of an object's members by one side is carried (classes' JsonCarriesAReorder; WG2's follow-up).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-no-renames", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tlet ours = renamed(base, oursAsIs, theirsAsIs)\n",
+      "to": "\tlet ours = slices.Concat(renamed(base, oursAsIs, theirsAsIs)[0:0], oursAsIs)\n",
+      "rule": "A unit one side renamed in place takes the other side's change (memory's RenamedUnitTakesTheOtherSidesChange; mergereplay's renamed function).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-rename-unlike", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\t2*kept > all\n",
+      "to": "\ttrue\n",
+      "rule": "A unit removed and another added in its place is a rename only when it keeps most of the base unit's lines (memory's UnitsMergeIsTheReference: a removal and an addition stay two).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-rename-taken", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\t\tif b.Get(u.Key) != None || o.Get(u.Key) != None {",
+      "to": "\t\tif b.Get(u.Key) != None || (o.Get(u.Key) != None && false) {",
+      "rule": "A key the other side has is no rename (memory's MembersMergeIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

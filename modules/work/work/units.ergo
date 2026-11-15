@@ -65,7 +65,9 @@ type seq { Text string, Conflicts []string }
 // mergedSeq merges three runs of units by key, in ours' order, each unit
 // theirs alone added after the unit before it in theirs. parent is ""
 // for a file's units, else the key of the unit whose members they are.
-func mergedSeq(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
+func mergedSeq(base []Unit, oursAsIs []Unit, theirsAsIs []Unit, parent string) seq {
+	let ours = renamed(base, oursAsIs, theirsAsIs)
+	let theirs = renamed(base, theirsAsIs, oursAsIs)
 	let b = byKey(base)
 	let o = byKey(ours)
 	let t = byKey(theirs)
@@ -88,6 +90,60 @@ func mergedSeq(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
 		conflicts = slices.Concat(conflicts, m.Conflicts)
 	}
 	seq{Text: strings.Join(texts, ""), Conflicts: conflicts}
+}
+
+// renamed is side's units with each unit that took a base unit's place
+// under a new key keyed as that base unit: a rename, so the other side's
+// change to the unit merges into it, by lines within it, rather than
+// clash as a removal against a change. A rename's key is in neither the
+// base nor other; the base unit is gone from side; the units before and
+// after it are the same; and it keeps more than half the base unit's
+// lines.
+func renamed(base []Unit, side []Unit, other []Unit) []Unit {
+	let b = byKey(base)
+	let s = byKey(side)
+	let o = byKey(other)
+	let mut out = []Unit{}
+	for i, u in side {
+		if b.Get(u.Key) != None || o.Get(u.Key) != None {
+			out = out.Append(u)
+			continue
+		}
+		let mut j = 0
+		if i > 0 {
+			j = len(base) + 1
+			for k, x in base {
+				if x.Key == side[i-1].Key {
+					j = k + 1
+				}
+			}
+		}
+		let nextSame = if i+1 < len(side) { j+1 < len(base) && base[j+1].Key == side[i+1].Key } else { j+1 == len(base) }
+		if j < len(base) && s.Get(base[j].Key) == None && nextSame && mostKept(base[j].Text, u.Text) {
+			out = out.Append(Unit{..u, Key: base[j].Key})
+		} else {
+			out = out.Append(u)
+		}
+	}
+	out
+}
+
+// mostKept reports whether after holds more than half the lines of
+// before.
+func mostKept(before string, after string) bool {
+	let lines = strings.Split(after, "\n")
+	let mut kept = 0
+	let mut all = 0
+	for line in strings.Split(before, "\n") {
+		if line == "" {
+			continue
+		}
+		all = all + 1
+		if slices.Contains(lines, line) {
+			kept = kept + 1
+		}
+	}
+	2*kept > all
 }
 
 // placed is order with key after the key after (at the start when
