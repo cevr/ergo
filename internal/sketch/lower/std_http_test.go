@@ -423,6 +423,20 @@ func queryExpected(pairs []http.Field) (string, queryProbe) {
 	("ok", queryProbe{Load: load, Name: names[0], Note: note, On: on, Page: queryNumber(pages[0]), Size: size, Tags: tags})
 }
 
+type stampedQuery { At time.Time }
+
+// HttpQueryStringBytesReadsString restates the law through DecodeQuery:
+// the reader is private, and a Time, an append-form pair, decodes through
+// its StringBytes, so the instant read back is the one written.
+test HttpQueryStringBytesReadsString(t time.Time) {
+	let got = http.DecodeQuery[stampedQuery](http.ParseQuery("at=" + t.Format(time.RFC3339Nano))) catch {
+	case _:
+		assert false
+		return
+	}
+	assert got.At == t
+}
+
 test HttpQueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 	let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"}
 	let mut pairs = []http.Field{}
@@ -486,10 +500,13 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
+
+// httpQueryBytesStatement is QueryStringBytesReadsString (GX12b).
+const httpQueryBytesStatement = `QueryStringBytesReadsString(s string, pre []byte) { let a = queryReaderOf([]Field{Field{Name: "k", Value: s}}) let b = queryReaderOf([]Field{Field{Name: "k", Value: s}}) try a.BeginObject() try b.BeginObject() let _ = a.Key() let _ = b.Key() let got = try a.StringBytes(pre) utf8.String(got) == utf8.String(pre)+try b.String() }`
 
 // httpSegmentsStatement is MatchIsSplitMatch (GX8).
 const httpSegmentsStatement = `MatchIsSplitMatch(pattern []int, path []int) { let parts = []string{"", "a", "b", ":x", ":"} let pick = func(xs []int) string { let mut text = "" for i, p in xs { let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }] text = if i == 0 { part } else { text + "/" + part } } text } let want = strings.Split(pick(pattern), "/") let got = strings.Split(pick(path), "/") let mut split = len(want) == len(got) for i, part in want { if split && strings.HasPrefix(part, ":") && len(part) > 1 { split = got[i] != "" } else if split { split = part == got[i] } } let found = match Match([]Route[int]{Route{Value: 1, Method: "GET", Path: pick(pattern), Status: 200}}, "GET", pick(path)) { case Found: true case NotFound, MethodNotAllowed: false } found == split }`

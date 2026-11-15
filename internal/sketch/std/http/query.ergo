@@ -3,6 +3,7 @@ import json
 import strconv
 import strings
 import sync
+import utf8
 
 // QueryRepeated is a query that gives Key more than one value where the
 // record's field takes one (a scalar field). A slice field takes them all.
@@ -131,6 +132,19 @@ func String(r queryReader) string fails WireWrongKind { try value(r, "a string")
 
 // StringBytes is into with the bytes of the string String reads (GX12).
 func StringBytes(r queryReader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// QueryStringBytesReadsString: the query reader's StringBytes adds to into
+// the bytes String reads of the same key's value (GX12b).
+law QueryStringBytesReadsString(s string, pre []byte) {
+	let a = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	let b = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	try a.BeginObject()
+	try b.BeginObject()
+	let _ = a.Key()
+	let _ = b.Key()
+	let got = try a.StringBytes(pre)
+	utf8.String(got) == utf8.String(pre)+try b.String()
+}
 
 // appendText is Go's append(into, s...).
 extern go append func appendText(into []byte, s string) []byte
