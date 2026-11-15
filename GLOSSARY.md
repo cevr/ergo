@@ -315,6 +315,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
 
+**Zoned time**: An instant seen on a zone's wall clock, `tz.Zoned { At, Zone }`. Its calendar arithmetic (`tz.Add`) moves the wall date and keeps the wall time; its text is RFC 9557's (`2027-03-14T03:30:00-04:00[America/Toronto]`). Temporal calls it a `ZonedDateTime`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Local zone**: The zone a program's host calls its own, the capability `tz.Local`: a program that shows local time has it in its row, and its context chooses the provider (`tz/host`'s, which reads `TZ`, or a fixed name). Go's `time.Local` is ambient. See [stdlib](docs/spec/stdlib.md#tz).
+
 **Zone database**: The zones by IANA name, the operation type `tz.Zones` in a function's row. Std's own copy of one IANA release (`tz/iana`) is the default provider; the host's zone files (`tz/host`) are an explicit choice.
 
 **Gap**: A wall time a zone skips, as 02:30 on the day clocks go forward: `tz.Gap`, one variant of what `tz.Resolve` gives. No instant shows it.

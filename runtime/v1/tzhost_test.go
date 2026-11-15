@@ -36,3 +36,52 @@ func TestTzHostZone(t *testing.T) {
 		}
 	}
 }
+
+// TestTzLocalBodies holds tz/host's Local bodies to their contract. TzEnv
+// reads TZ at each call, so t.Setenv is its input: set, set to "", and
+// unset (no child process is needed). tzLocalAt, the body of TzHostLocal
+// over a path, reads a link into a zoneinfo directory as the zone's name,
+// a copied zone file as its bytes, and a missing file as nothing.
+// Mutants t3-tzenv-unset-is-set (unset read as "", which is UTC) and
+// t3-local-link-whole-path (the link's whole target as the name).
+func TestTzLocalBodies(t *testing.T) {
+	t.Setenv("TZ", ":America/Toronto")
+	if set, v := TzEnv(); !set || v != ":America/Toronto" {
+		t.Errorf("TZ=:America/Toronto: TzEnv() = %v, %q", set, v)
+	}
+	t.Setenv("TZ", "")
+	if set, v := TzEnv(); !set || v != "" {
+		t.Errorf("TZ=\"\": TzEnv() = %v, %q", set, v)
+	}
+	if err := os.Unsetenv("TZ"); err != nil {
+		t.Fatal(err)
+	}
+	if set, v := TzEnv(); set || v != "" {
+		t.Errorf("TZ unset: TzEnv() = %v, %q", set, v)
+	}
+	root := t.TempDir()
+	zone := filepath.Join(root, "share", "zoneinfo", "America", "Toronto")
+	toronto := tzdata.Zone("America/Toronto")
+	if err := os.MkdirAll(filepath.Dir(zone), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zone, []byte(toronto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link, copied := filepath.Join(root, "link"), filepath.Join(root, "copied")
+	if err := os.Symlink(zone, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(copied, []byte(toronto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ path, name, data string }{
+		{link, "America/Toronto", ""},
+		{copied, "", toronto},
+		{filepath.Join(root, "missing"), "", ""},
+	} {
+		if name, data := tzLocalAt(c.path); name != c.name || data != c.data {
+			t.Errorf("tzLocalAt(%s) = %q and %d bytes, want %q and %d bytes", filepath.Base(c.path), name, len(data), c.name, len(c.data))
+		}
+	}
+}

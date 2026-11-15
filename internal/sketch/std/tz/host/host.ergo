@@ -36,3 +36,30 @@ func Load(_ Zones, name string) tz.Zone fails tz.UnknownZone {
 }
 
 extern go ergo.local/prototype/runtime/v1.TzHostZone func hostZone(name string) string
+
+// Local is the provider of tz.Local over the host: the zone TZ names, or
+// when TZ is unset the zone /etc/localtime names (tz.FromTZ), loaded from
+// the database it was built with.
+type Local { zones tz.Zones }
+
+// NewLocal is the provider of tz.Local over the host, loading names from
+// zones: `tz.Local: host.NewLocal(iana.New())` has the host choose the
+// name and std's copy the rules. Like New, it needs Ambient.
+func NewLocal(zones tz.Zones) Local needs Ambient { Local{zones: zones} }
+
+// Zone is the host's own zone.
+func Zone(l Local) tz.Zone fails tz.UnknownZone {
+	let (set, value) = hostEnv()
+	let (name, data) = hostLocal()
+	try tz.FromTZ(l.zones, set, value, name, data)
+}
+
+// Named is a provider of tz.Local that is always the zone Name of Zones:
+// for a test, or a program that keeps its zone in its own configuration.
+type Named { Name string, Zones tz.Zones }
+
+// Zone is the zone n names.
+func Zone(n Named) tz.Zone fails tz.UnknownZone { try n.Zones.Load(n.Name) }
+
+extern go ergo.local/prototype/runtime/v1.TzEnv func hostEnv() (bool, string)
+extern go ergo.local/prototype/runtime/v1.TzHostLocal func hostLocal() (string, string)

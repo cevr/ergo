@@ -467,6 +467,8 @@ var bodyTable = map[string]bodyFact{
 	"Timeline.Read":             {body: Body{Results: []string{"Reading"}}},
 	"Timeline.Sleepers":         {body: Body{Results: []string{"int"}}},
 	"Timeline.Wait":             {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "time.Duration"}}}},
+	"TzEnv":                     {body: Body{Results: []string{"bool", "string"}, Host: true}},
+	"TzHostLocal":               {body: Body{Results: []string{"string", "string"}, Host: true}},
 	"TzHostZone":                {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Host: true}},
 	"TzLawNames":                {body: Body{Results: []string{"[]string"}}},
 	"TzLawZone":                 {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}}},

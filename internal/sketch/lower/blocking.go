@@ -263,6 +263,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TzdataNames":   {},
 	"TzdataRelease": {},
 	"TzHostZone":    {},
+	"TzEnv":         {},
+	"TzHostLocal":   {},
 	"TzLawNames":    {},
 	"TzLawZone":     {},
 	"CivilBuffer":   {},

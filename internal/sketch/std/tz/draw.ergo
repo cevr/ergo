@@ -36,6 +36,35 @@ func nextChange(z Zone, t time.Time, forward bool) Option[Transition] {
 	None
 }
 
+// lawZones is the laws' provider of Zones over std's IANA copy.
+type lawZones {}
+
+// Load is the zone name of std's IANA copy, or UnknownZone.
+func Load(_ lawZones, name string) Zone fails UnknownZone {
+	let data = ianaZone(name)
+	if len(data) == 0 {
+		return UnknownZone{Name: name}
+	}
+	FromTZif(name, data) catch {
+	case BadData:
+		Unreachable("std's IANA copy holds only zones Go's reader reads")
+	}
+}
+
+// anyZoned is a zoned time at the instant s names in the zone i names,
+// or, when fixed, in the fixed zone of an offset of up to 18 hours.
+func anyZoned(i int64, s int64, ns int64, fixed bool) Zoned {
+	let z = if fixed {
+		FixedOffset(int(within(i, -64800, 64800))) catch {
+		case BadOffset:
+			Unreachable("an offset of 18 hours or less is fixed")
+		}
+	} else {
+		anyZone(i)
+	}
+	Zoned{At: anyInstant(s, ns), Zone: z}
+}
+
 extern go ergo.local/prototype/runtime/v1.TzLawNames func ianaNames() []string
 
 extern go ergo.local/prototype/runtime/v1.TzLawZone func ianaZone(name string) string
