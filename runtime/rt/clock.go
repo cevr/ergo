@@ -275,12 +275,47 @@ func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	if v, ok := s.(*Virtual); ok && v.domain {
 		return v.sleep(t, d)
 	}
+	if _, ok := s.(Live); ok {
+		return sleepLive(t, d)
+	}
 	timer := s.NewTimer(d)
 	select {
 	case <-timer.C():
 		return nil
 	case <-t.Done():
 		timer.Stop()
+		return Interrupted
+	}
+}
+
+// liveTimers holds the host timers of ended live sleeps, for the next.
+var liveTimers sync.Pool
+
+// sleepLive is Sleep on the host's timers. It reuses a host timer of an
+// ended sleep: since Go 1.23 a timer that Stop or a receive ended keeps no
+// stale tick, so Reset arms it as a new one (a stopped phase timer or
+// deadline would otherwise cost a timer and its channel each time).
+func sleepLive(t *Task, d time.Duration) error {
+	timer, _ := liveTimers.Get().(*time.Timer)
+	if timer == nil {
+		timer = time.NewTimer(d)
+	} else {
+		timer.Reset(d)
+	}
+	defer liveTimers.Put(timer)
+	select {
+	case <-timer.C:
+		return nil
+	case <-t.Done():
+		if !timer.Stop() {
+			// Fired as the stop came: with asynctimerchan=1 (the timers
+			// of Go before 1.23) the tick may still wait in the channel;
+			// take it, so the next Reset starts clean.
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
 		return Interrupted
 	}
 }

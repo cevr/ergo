@@ -472,6 +472,8 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.End\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		}
 		write(f.Path, data)
 	}

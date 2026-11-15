@@ -51,6 +51,15 @@ func Run[T any](t *Task, body func(*Task) (T, error)) (v T, err error) {
 //
 //go:noinline
 func (t *Task) exitOf(err error, p any) error {
+	// With no panic, an exit of nothing or of the interruption alone is in
+	// canonical form already: nil, or Interrupted when the task was
+	// stopped. It builds no Cause (a stopped sleep, a cut phase timer).
+	if p == nil && (err == nil || err == Interrupted) {
+		if err == Interrupted || t.Stopped() {
+			return Interrupted
+		}
+		return nil
+	}
 	var c Cause
 	c.Add(err)
 	t.settle(&c, p)
