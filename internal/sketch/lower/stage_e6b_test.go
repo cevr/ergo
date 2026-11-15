@@ -110,11 +110,11 @@ type Named {
 	Label() string,
 }
 
-type Card { Number string }
+type Card { Number string } implements Named
 
 func Label(c Card) string { "card " + c.Number }
 
-type Dog {}
+type Dog {} implements Named
 
 func Label(d Dog) string { "dog" }
 
@@ -205,13 +205,13 @@ func TestErgoRunGenericImplementingFunction(t *testing.T) {
 	Check() bool,
 }
 
-type Card { Number string }
+type Card { Number string } implements Valid
 
 func Check(c Card) bool {
 	c.Number != ""
 }
 
-type Holder[T Valid] { item T }
+type Holder[T Valid] { item T } implements Valid
 
 func Check[T Valid](h Holder[T]) bool {
 	h.item.Check()

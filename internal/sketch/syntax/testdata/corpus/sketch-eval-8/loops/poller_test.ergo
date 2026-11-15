@@ -12,7 +12,7 @@ func Read(c Constant) float64 fails SourceDown {
 }
 
 // sync.Ref is a shareable mutable cell; each context build gets a fresh one.
-type Recorder { sizes sync.Ref[[]int] }
+type Recorder { sizes sync.Ref[[]int] } implements Recorded
 
 func Flush(r Recorder, batch []Reading) fails FlushFailed {
 	r.sizes.Update(func(s *[]int) { *s = *s.Append(len(batch)) })

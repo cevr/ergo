@@ -16,8 +16,8 @@ func TestCloseFormsRelease(t *testing.T) {
 
 type A { Use() string }
 
-type Releaser { Use() string, Close() }
-type R { Q queue.Queue[string] }
+type Releaser { ..A, ..Closer }
+type R { Q queue.Queue[string] } implements Releaser, Closer
 func Use(_ R) string { "use R" }
 func Close(r R) {
 	r.Q.Push("close R") catch {
@@ -26,11 +26,11 @@ func Close(r R) {
 }
 func make(q queue.Queue[string]) Releaser { R{Q: q} }
 
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T](_ G[T]) string { "use G" }
 func Close[T](g G[T]) needs Console { Console.Println("close G") }
 
-type P {}
+type P {} implements A, Closer
 func Use(_ P) string { "use P" }
 func Close(_ *P) needs Console { Console.Println("close P") }
 
@@ -59,7 +59,7 @@ func TestCloseGenericFunctionRelease(t *testing.T) {
 	needsBuild(t)
 	wantRun(t, `type A { Use() string }
 
-type List[T] []T
+type List[T] []T implements A, Closer
 func Use[T](l List[T]) string { "use List" }
 func Close[T](l List[T]) needs Console { Console.Println("close List \(len(l))") }
 
@@ -76,11 +76,11 @@ func TestCloseOverriddenNotRun(t *testing.T) {
 	needsBuild(t)
 	wantRun(t, `type A { Use() string }
 
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T](_ G[T]) string { "use G" }
 func Close[T](g G[T]) needs Console { Console.Println("close G") }
 
-type P {}
+type P {} implements A, Closer
 func Use(_ P) string { "use P" }
 func Close(_ *P) needs Console { Console.Println("close P") }
 
@@ -118,7 +118,7 @@ func TestConvertedReleaseRuns(t *testing.T) {
 import sync
 import tasks
 
-type Res { id int, log sync.Ref[string] }
+type Res { id int, log sync.Ref[string] } implements Closer
 
 type Bad {}
 
@@ -128,10 +128,10 @@ func Close(r Res) {
 
 type Holder { r Res }
 
-type KeeperC { Keep(h Holder) takes h, Close() }
-type TagC { Mark() int, Close() }
+type KeeperC { ..Closer, Keep(h Holder) takes h }
+type TagC { ..Closer, Mark() int }
 
-type Held { r Res }
+type Held { r Res } implements TagC, KeeperC, Closer
 func Mark(h Held) int { 1 }
 func Keep(h Held, x Holder) takes x { let _ = x }
 func Close(h Held) {}
@@ -156,7 +156,7 @@ func run(log sync.Ref[string]) {
 	}
 }
 
-type Box { q queue.Queue[int] }
+type Box { q queue.Queue[int] } implements WaitC
 type WaitC { Wait() int fails queue.Closed }
 func Wait(b Box) int fails queue.Closed { b.q.Pop() }
 

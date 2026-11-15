@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/big"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -56,7 +57,30 @@ type stdSnapshot struct {
 // this process installed a snapshot) and returns their snapshot. It fails
 // when a std package does not check, or when the model holds a value the
 // codec does not carry (a function or an error value).
-func ExportStd() ([]byte, error) {
+func ExportStd() ([]byte, error) { return ExportSnapshot(nil, nil) }
+
+// ExportSnapshot is ExportStd with the checked packages pkgs of required
+// modules after std, pkgs[i] a segment named keys[i] (ModuleSegment), in
+// an order where a package follows the packages it imports (NP5: std is
+// the toolchain's module, and a required module, read-only and named by
+// its content hash, gets the same snapshot). A package must be checked
+// with ModuleImporter, which the codec carries, and declare no derive.
+func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
+	if len(pkgs) != len(keys) {
+		return nil, fmt.Errorf("check: %d packages for %d segment keys", len(pkgs), len(keys))
+	}
+	seen := map[string]bool{}
+	for i, pkg := range pkgs {
+		switch {
+		case pkg == nil || pkg.Std():
+			return nil, fmt.Errorf("check: segment %q is not a checked module package", keys[i])
+		case segmentPackage(keys[i]) != pkg.Path || !strings.Contains(keys[i], "\x00") || seen[keys[i]]:
+			return nil, fmt.Errorf("check: %q is not the one segment key of package %s", keys[i], pkg.Path)
+		case !pkg.Derive.Empty():
+			return nil, fmt.Errorf("check: package %s has a derive record, which a snapshot does not carry", pkg.Path)
+		}
+		seen[keys[i]] = true
+	}
 	prelude()
 	imp := Std.(*stdImporter)
 	for _, path := range std.Packages() {
@@ -90,10 +114,85 @@ func ExportStd() ([]byte, error) {
 			return nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", name)
 		}
 	}
+	s.paths = append(s.paths, keys...)
+	s.packages = append(s.packages, pkgs...)
 	nextID.Lock()
 	s.base.nextID = nextID.n
 	nextID.Unlock()
 	return encodeSnapshot(s)
+}
+
+// ModuleSegment is the segment key of the package at path of a required
+// module, module naming the module's version and content hash: no std
+// path holds the separator, so a module segment never serves std, and a
+// segment of another version or content is another key.
+func ModuleSegment(path, module string) string { return path + "\x00" + module }
+
+// segmentPackage is the package path of a segment key.
+func segmentPackage(key string) string {
+	if i := strings.IndexByte(key, 0); i >= 0 {
+		return key[:i]
+	}
+	return key
+}
+
+// InstalledPackage is the module package of segment key (ModuleSegment)
+// in the snapshot this process installed, decoded with the segments it
+// names, and whether the snapshot holds it and it decodes. The caller
+// checks the package from source otherwise. Work.ModulePackagesDecoded
+// counts each module segment decoded.
+func InstalledPackage(key string) (*Package, bool) {
+	if !strings.Contains(key, "\x00") {
+		return nil, false
+	}
+	imp := Std.(*stdImporter)
+	imp.mu.Lock()
+	snap := imp.snap
+	imp.mu.Unlock()
+	if snap == nil {
+		return nil, false
+	}
+	return snap.load(key, imp.decoded)
+}
+
+// ModuleImporter wraps the importer a required module's package is checked
+// with, so the package can go into a snapshot (ExportSnapshot): the codec
+// carries the wrapper and not the importer, which serves the check alone
+// (a checked package imports nothing later). A package decoded from a
+// snapshot is never checked again; its wrapper imports nothing.
+func ModuleImporter(imp interface {
+	GoImporter
+	EmbedImporter
+}) Importer {
+	return &moduleImporter{next: imp}
+}
+
+type moduleImporter struct {
+	next interface {
+		GoImporter
+		EmbedImporter
+	}
+}
+
+func (m *moduleImporter) Import(path string) (*Package, error) {
+	if m.next == nil {
+		return nil, fmt.Errorf("check: a package decoded from a snapshot imports nothing (%s)", path)
+	}
+	return m.next.Import(path)
+}
+
+func (m *moduleImporter) GoBindings() *GoBindings {
+	if m.next == nil {
+		return NewGoBindings(nil)
+	}
+	return m.next.GoBindings()
+}
+
+func (m *moduleImporter) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]EmbedFile, error) {
+	if m.next == nil {
+		return nil, fmt.Errorf("a package decoded from a snapshot embeds nothing")
+	}
+	return m.next.ResolveEmbed(file, pattern, tree)
 }
 
 // snapshotMagic opens a snapshot, so a file of another format is refused.
@@ -435,7 +534,7 @@ func (s *snapshot) need(i int, count func(string)) bool {
 		}
 	}
 	err := s.decode(i, func(d *decoder) { s.pkgs[i] = d.decPtrPackage() })
-	if err != nil || s.pkgs[i] == nil || s.pkgs[i].Path != s.segs[i].path {
+	if err != nil || s.pkgs[i] == nil || s.pkgs[i].Path != segmentPackage(s.segs[i].path) {
 		s.failed[i] = true
 		return false
 	}

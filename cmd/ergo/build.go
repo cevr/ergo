@@ -118,6 +118,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc,
+		IR:        true,
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
@@ -142,10 +143,13 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if opts.platform.GOOS != runtime.GOOS || opts.platform.GOARCH != runtime.GOARCH {
 		return fmt.Errorf("-go-text builds for the host platform %s/%s only, not %s", runtime.GOOS, runtime.GOARCH, opts.platform)
 	}
-	tc, err := irspike.PatchedToolchain()
+	action, err := buildAction(opts)
 	if err != nil {
 		return fmt.Errorf("-go-text: %w", err)
 	}
+	// The spike's driver keys its own Go cache by the compile's content,
+	// beside the patched release.
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
 	dir, err := filepath.Abs(opts.goText)
 	if err != nil {
 		return err
@@ -161,23 +165,39 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	return irspike.GoText(files, tc, output.Path(), dir, os.Stderr)
 }
 
-// buildAction is the Go build action of opts' command: the go command
-// ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
-// opts.platform, always stated, so the go env file's GOOS and GOARCH never
-// choose it. `ergo build` strips the symbol table and DWARF unless --debug
-// is given; `ergo run` keeps them, as its binary is not shipped. The
-// emitted module is the same for every platform and either way; Go's
-// action cache keys the link on the platform and the flags.
+// buildAction is the Go build action of opts' command: the release of the
+// go command ERGO_GO selects (goCommand), with ergo's patched compile
+// (patchedCompile), the user's GOFLAGS, linking for opts.platform, always
+// stated, so the go env file's GOOS and GOARCH never choose it. The
+// emitted module is the same for every platform; Go's action cache keys
+// the link on the platform and the flags: `ergo build` strips the symbol
+// table and DWARF unless --debug is given; `ergo run` keeps them, as its
+// binary is not shipped. Every build lowers Ergo bodies through IR
+// (plan-tier §1.1), which only the patched compile reads.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()
 	selected, err := goCommand()
 	if err != nil {
 		return build.Toolchain{}, err
 	}
-	tc.Go, tc.Root = selected.Go, selected.Root
+	patched, err := patchedCompile(selected)
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	tc.Go, tc.Root = patched.Go, patched.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	tc.Strip = opts.command == "build" && !opts.debug
 	return tc, nil
+}
+
+// patchedCompile is the release selected runs, with ergo's patched
+// compile, built once into ergo's cache (internal/toolchain, Patch).
+func patchedCompile(selected toolchain.Toolchain) (toolchain.Patched, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	return sketchfront.PatchedRelease(selected, root, os.Stderr)
 }
 
 // goCommand is the go command every build and `ergo bind go` run
@@ -195,9 +215,10 @@ func goCommand() (toolchain.Toolchain, error) {
 // platformOf is the platform a build links for: --platform OS/ARCH when
 // given (spelled), else GOOS and GOARCH of the environment, each one unset
 // or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
-// platform outside the target list (gobind.Platforms, the platforms every
-// generated Go binding holds for) is the EF110 refusal. A module binding
-// must also state the selected platform before the build can link it.
+// platform outside the build list (gobind.BuildPlatforms: the platforms
+// every generated Go binding holds for, then windows/amd64, js/wasm and
+// wasip1/wasm) is the EF110 refusal. A Go binding must also state the
+// selected platform before the build can link it.
 func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
 	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if goos != "" {
@@ -213,11 +234,11 @@ func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platfor
 		}
 		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
 	}
-	if slices.Contains(gobind.Platforms, p) {
+	if slices.Contains(gobind.BuildPlatforms, p) {
 		return p, nil
 	}
-	names := make([]string, len(gobind.Platforms))
-	for i, listed := range gobind.Platforms {
+	names := make([]string, len(gobind.BuildPlatforms))
+	for i, listed := range gobind.BuildPlatforms {
 		names[i] = listed.String()
 	}
 	diagnostic := report.UnsupportedPlatform(p.String(), names)

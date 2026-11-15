@@ -63,7 +63,7 @@ func TestFixHiddenPreludeType(t *testing.T) {
 		if strings.Join(got, "\n") != want {
 			t.Errorf("%s:\ngot:\n%s\nwant:\n%s", c.name, strings.Join(got, "\n"), want)
 		}
-		res, err := Run(texts, Dir(dir))
+		res, err := Rows(texts, Dir(dir))
 		if err != nil {
 			t.Fatalf("%s: fix: %v", c.name, err)
 		}

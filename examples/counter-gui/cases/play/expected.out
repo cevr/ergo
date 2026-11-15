@@ -1,0 +1,25 @@
+1: count 1 by 1
+2: count 1 by 5
+3: count 6 by 5
+4: count 1 by 5
+5: count 0 by 5
+6: count 0 by 5
+7: no node nothing
+8: count 5 by 5
+9: count 0 by 5
+10: count 0 by 10
+11: count 10 by 10
+column
+  text "count 10"
+  row
+    button "dec"
+      text "−"
+    button "inc"
+      text "+"
+    button "reset"
+      text "Reset"
+  row
+    text "step"
+    [ ] "by 1"
+    [ ] "by 5"
+    [x] "by 10"

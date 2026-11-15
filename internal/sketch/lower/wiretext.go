@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -534,8 +533,11 @@ func sameCall(a, b *rwCall) bool {
 }
 
 // cellRewriter is the rewriter of the cell provider prov's laws: the run
-// build's own for a provider of the root package, one on the std ledger
-// for a std provider; nil when the build takes no evidence for it.
+// build's own for a provider of the root package, else one over the laws
+// prov's package runs, on the evidence of the ledger of the module that
+// declares it (evidenceFor); nil when the build takes no evidence for it.
+// Where the provider lives decides nothing else (owner, 2026-11-12: the
+// standard library gets no special treatment).
 func (l *lowerer) cellRewriter(prov *check.Named) *rewriter {
 	if rewriteLowering == "reference" || prov.Obj.Pkg == nil {
 		return nil
@@ -543,34 +545,34 @@ func (l *lowerer) cellRewriter(prov *check.Named) *rewriter {
 	if prov.Obj.Pkg == l.pkg {
 		return l.rewrite
 	}
-	if !prov.Obj.Pkg.Std() {
-		return nil
-	}
 	if l.cellRewrites == nil {
 		l.cellRewrites = map[*check.Package]*rewriter{}
 	}
 	rw, ok := l.cellRewrites[prov.Obj.Pkg]
 	if !ok {
-		rw = newRewriter(prov.Obj.Pkg, newStdEvidence(prov.Obj.Pkg))
+		if ev := l.evidenceFor(prov.Obj.Pkg); ev != nil {
+			rw = newRewriter(prov.Obj.Pkg, ev)
+		}
 		l.cellRewrites[prov.Obj.Pkg] = rw
 	}
 	return rw
 }
 
-// stdEvidence is the std law ledger's evidence for a std package's laws.
-type stdEvidence struct {
+// shippedEvidence is the evidence of the ledger shipped with the packages
+// the compiler ships (shippedLedger) for the laws one of them runs.
+type shippedEvidence struct {
 	entries map[string]LedgerEntry
 	rules   map[string]rwRule
 	digests map[string]string
 }
 
-// newStdEvidence reads the std ledger for the laws of pkg.
-func newStdEvidence(pkg *check.Package) *stdEvidence {
-	entries, err := ParseLedger(std.Ledger())
+// newShippedEvidence reads the shipped ledger for the laws of pkg.
+func newShippedEvidence(pkg *check.Package) *shippedEvidence {
+	entries, err := ParseLedger(shippedLedger())
 	if err != nil {
-		ice(nil, "the std law ledger: %v", err)
+		ice(nil, "the shipped law ledger: %v", err)
 	}
-	e := &stdEvidence{entries: entries, rules: map[string]rwRule{}, digests: map[string]string{}}
+	e := &shippedEvidence{entries: entries, rules: map[string]rwRule{}, digests: map[string]string{}}
 	for prov, rules := range newRewriter(pkg, nil).rules {
 		for _, r := range rules {
 			e.rules[ledgerKey(LedgerNames(nil).law(r.law), LedgerNames(nil).provider(prov), "")] = r
@@ -579,9 +581,9 @@ func newStdEvidence(pkg *check.Package) *stdEvidence {
 	return e
 }
 
-// Admit admits a law whose std ledger entry is proved and current. A
+// Admit admits a law whose shipped ledger entry is proved and current. A
 // proved law holds at every instance, so in's constants are not looked up.
-func (e *stdEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
+func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
 	key := ledgerKey(LedgerNames(nil).law(law), LedgerNames(nil).provider(prov), "")
 	entry, found := e.entries[key]
 	if !found {

@@ -28,6 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -58,18 +59,45 @@ type Analysis struct {
 // Check parses source and checks it as one package with the 2026 checker.
 // A syntax error is the only diagnostic of a source that does not parse.
 func Check(source string) Analysis {
-	return CheckOptions(source, check.Options{})
+	return checkSource(source, nil, check.Options{})
 }
 
 // CheckOptions checks source like Check, in the checker modes opts selects.
 func CheckOptions(source string, opts check.Options) Analysis {
+	return checkSource(source, nil, opts)
+}
+
+// CheckForPlatform is Check against the stated GOOS/GOARCH: an import of
+// Go's standard library whose binding does not state the platform is S104
+// (stdUnbound, load.go).
+func CheckForPlatform(source string, platform gobind.Platform) Analysis {
+	return checkSource(source, platformStd{check.NewGoBindings(nil), platform}, check.Options{})
+}
+
+// platformStd resolves the standard library, as a nil importer does, with
+// Go bindings that refuse a standard-library binding off its platforms.
+type platformStd struct {
+	goBindings *check.GoBindings
+	platform   gobind.Platform
+}
+
+func (p platformStd) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
+
+func (p platformStd) GoBindings() *check.GoBindings {
+	if p.goBindings.Unbound == nil {
+		p.goBindings.Unbound = func(path string) string { return stdUnbound(p.platform, path) }
+	}
+	return p.goBindings
+}
+
+func checkSource(source string, imp check.Importer, opts check.Options) Analysis {
 	file, err := syntax.Parse(source)
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
-	prepareStd()
-	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, nil, opts)
+	prepareStd(nil)
+	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, imp, opts)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
@@ -244,6 +272,12 @@ type BuildRequest struct {
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
+	// IR lowers the bodies the IR builder expresses as typed IR
+	// (lower.LowerIR, lower.LowerIRTests), which only ergo's patched
+	// compile reads: the Toolchain must run it (internal/toolchain,
+	// Patch). Every ergo command's build sets it (plan-tier §1.1); the
+	// source lowering stays the test-time reference.
+	IR bool
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
@@ -300,8 +334,14 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	lowering := lower.Lower
 	switch req.Mode {
 	case build.ModeBuild:
+		if req.IR {
+			lowering = withoutReport(lower.LowerIR)
+		}
 	case build.ModeTest:
 		lowering = lower.LowerTests
+		if req.IR {
+			lowering = withoutReport(lower.LowerIRTests)
+		}
 	default:
 		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
@@ -371,6 +411,14 @@ func link(module build.Module, req BuildRequest) error {
 	return err
 }
 
+// withoutReport is an IR lowering without its report.
+func withoutReport(lowering func(lower.Unit) ([]lower.File, lower.IRReport, error)) func(lower.Unit) ([]lower.File, error) {
+	return func(u lower.Unit) ([]lower.File, error) {
+		files, _, err := lowering(u)
+		return files, err
+	}
+}
+
 // buildInput is the unit of a checked analysis and its emission key's
 // input for req's mode. A program of one source text is anchored at the
 // request's Source; a program read from a folder at the admitted path of
@@ -416,10 +464,14 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 			return build.Input{}, err
 		}
 	}
+	emitter := emitterRevision
+	if req.IR {
+		emitter += "+ir"
+	}
 	input := build.Input{
 		Dependencies: dependencies,
 		Compiler:     compiler,
-		Emitter:      emitterRevision,
+		Emitter:      emitter,
 		Language:     LanguageRevision,
 		Mode:         req.Mode,
 	}
@@ -452,7 +504,11 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev
-	files, err := lower.Lower(unit)
+	lowering := lower.Lower
+	if req.IR {
+		lowering = withoutReport(lower.LowerIR)
+	}
+	files, err := lowering(unit)
 	if err != nil {
 		return nil, nil, err
 	}

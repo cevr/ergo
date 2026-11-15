@@ -64,6 +64,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `StarExpr` | the `StarExpr` syntax node | Checked; runs |  |
 | `StructType` | the `StructType` syntax node | Checked; runs |  |
 | `SwitchStmt` | the `SwitchStmt` syntax node | Checked; runs |  |
+| `TakesClause` | the `TakesClause` syntax node | Checked; runs |  |
 | `TestDecl` | the `TestDecl` syntax node | Checked; runs |  |
 | `TryExpr` | the `TryExpr` syntax node | Checked; runs |  |
 | `TupleExpr` | the `TupleExpr` syntax node | Checked; runs |  |

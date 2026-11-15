@@ -391,10 +391,13 @@ func (e *encoder) encFieldsField(v *Field) {
 	e.encExpr(v.Type)
 	e.encPtrBasicLit(v.Key)
 	e.encPos(v.Any)
+	e.encPos(v.Lent)
 	e.encT4(v.Include)
 	e.encPos(v.Dots)
 	e.encPos(v.WherePos)
 	e.encExpr(v.Where)
+	e.encT4(v.Pure)
+	e.encPos(v.PurePos)
 }
 
 func (e *encoder) encField(v Field) { e.encFieldsField(&v) }
@@ -497,6 +500,8 @@ func (e *encoder) encPtrFuncLit(v *FuncLit) {
 
 func (e *encoder) encFieldsFuncType(v *FuncType) {
 	e.encPos(v.Escaping)
+	e.encT4(v.Entry)
+	e.encPos(v.EntryPos)
 	e.encPos(v.Func)
 	e.encPtrFieldList(v.Params)
 	e.encPtrFieldList(v.Results)
@@ -599,6 +604,7 @@ func (e *encoder) encPtrIndexExpr(v *IndexExpr) {
 
 func (e *encoder) encFieldsInterfaceType(v *InterfaceType) {
 	e.encPos(v.Lbrace)
+	e.encT9(v.Includes)
 	e.encT9(v.Methods)
 	e.encT14(v.Laws)
 	e.encT2(v.Union)
@@ -990,6 +996,8 @@ func (e *encoder) encFieldsTypeDecl(v *TypeDecl) {
 	e.encPos(v.DerivePos)
 	e.encExpr(v.Derive)
 	e.encPtrTypeDecl(v.Origin)
+	e.encPos(v.ImplementsPos)
+	e.encT2(v.Implements)
 }
 
 func (e *encoder) encTypeDecl(v TypeDecl) { e.encFieldsTypeDecl(&v) }
@@ -2072,10 +2080,13 @@ func (d *decoder) decFieldsField(v *Field) {
 	v.Type = d.decExpr()
 	v.Key = d.decPtrBasicLit()
 	v.Any = d.decPos()
+	v.Lent = d.decPos()
 	v.Include = d.decT4()
 	v.Dots = d.decPos()
 	v.WherePos = d.decPos()
 	v.Where = d.decExpr()
+	v.Pure = d.decT4()
+	v.PurePos = d.decPos()
 }
 
 func (d *decoder) decField() (v Field) {
@@ -2196,6 +2207,8 @@ func (d *decoder) decPtrFuncLit() *FuncLit {
 
 func (d *decoder) decFieldsFuncType(v *FuncType) {
 	v.Escaping = d.decPos()
+	v.Entry = d.decT4()
+	v.EntryPos = d.decPos()
 	v.Func = d.decPos()
 	v.Params = d.decPtrFieldList()
 	v.Results = d.decPtrFieldList()
@@ -2316,6 +2329,7 @@ func (d *decoder) decPtrIndexExpr() *IndexExpr {
 
 func (d *decoder) decFieldsInterfaceType(v *InterfaceType) {
 	v.Lbrace = d.decPos()
+	v.Includes = d.decT9()
 	v.Methods = d.decT9()
 	v.Laws = d.decT14()
 	v.Union = d.decT2()
@@ -2773,6 +2787,8 @@ func (d *decoder) decFieldsTypeDecl(v *TypeDecl) {
 	v.DerivePos = d.decPos()
 	v.Derive = d.decExpr()
 	v.Origin = d.decPtrTypeDecl()
+	v.ImplementsPos = d.decPos()
+	v.Implements = d.decT2()
 }
 
 func (d *decoder) decTypeDecl() (v TypeDecl) {

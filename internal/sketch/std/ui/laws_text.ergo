@@ -1,0 +1,151 @@
+// The laws of text layout, over Monospace measures of drawn advances and
+// drawn texts of words, runs of spaces, newlines, words wider than any
+// line, and runes of two and three bytes.
+
+import utf8
+
+// pieces are what a drawn text is made of.
+let pieces = []string{"a", "bb", "ccc", "dddddddddddd", " ", "  ", "\n", "é", "日本", "x y"}
+
+// textCase is a drawn layout problem.
+type textCase { m Monospace, text string, width Length }
+
+func drawText(seed int) textCase {
+	let mut r = seeded(seed)
+	let m = Monospace{Advance: Length(float64(draw(&r, 3) + 1)), Line: Length(float64(draw(&r, 3) + 2))}
+	let mut text = ""
+	for _ in 0..draw(&r, 14) {
+		text = text + pieces[draw(&r, len(pieces))]
+	}
+	textCase{m: m, text: text, width: Length(float64(draw(&r, 24)))}
+}
+
+let mono = Font{Family: "mono", Size: 12.0}
+
+// trimmed is s without trailing spaces.
+func trimmed(s string) string {
+	let mut e = len(s)
+	for e > 0 && s[e-1] == ' ' {
+		e = e - 1
+	}
+	s[:e]
+}
+
+// sizeAt is the size in bytes of the rune at offset at of s.
+func sizeAt(s string, at int) int { utf8.RuneLen(utf8.DecodeRuneInString(s[at:]).Rune) }
+
+// newlineAt is the offset of the first newline of s at or after from, or
+// len(s).
+func newlineAt(s string, from int) int {
+	let mut i = from
+	for i < len(s) && s[i] != '\n' {
+		i = i + 1
+	}
+	i
+}
+
+// boundaryList is every rune boundary of s, 0 and len(s) included.
+func boundaryList(s string) []int {
+	let mut out = []int{0}
+	let mut o = 0
+	for o < len(s) {
+		o = o + sizeAt(s, o)
+		out = out.Append(o)
+	}
+	out
+}
+
+// overflows is whether the wrapped line ln could not have held more: the
+// next place it could end (the next break after a run of spaces, or the
+// next rune of a word it broke) makes it wider than width.
+func overflows(m Monospace, text string, ln Line, width Length) bool {
+	if text[ln.End-1] == ' ' {
+		let pe = newlineAt(text, ln.End)
+		let mut k = ln.End + 1
+		for k < pe && !(text[k-1] == ' ' && text[k] != ' ') {
+			k = k + 1
+		}
+		return m.Width(trimmed(text[ln.Start:k]), mono) > width
+	}
+	m.Width(text[ln.Start:ln.End+sizeAt(text, ln.End)], mono) > width
+}
+
+// LinesCoverText: the lines of a layout cover the text in order, each
+// next line starting where a wrapped one ends or after the newline that
+// ends the other; no line holds a newline; a line is as wide as its text
+// without trailing spaces and no wider than the width unless that text is
+// one rune; and a wrapped line is greedy: the next place it could have
+// ended overflows the width.
+law LinesCoverText(seed int) {
+	let c = drawText(seed)
+	let l = LayoutText(c.m, c.text, mono, c.width)
+	if len(l.Lines) == 0 {
+		return false
+	}
+	let mut at = 0
+	for i, ln in l.Lines {
+		if ln.Start != at || ln.End < ln.Start || ln.End > len(c.text) {
+			return false
+		}
+		for j in ln.Start..ln.End {
+			if c.text[j] == '\n' {
+				return false
+			}
+		}
+		let shown = trimmed(c.text[ln.Start:ln.End])
+		if ln.Width != c.m.Width(shown, mono) || ln.Width > c.width && utf8.RuneCount(shown) > 1 {
+			return false
+		}
+		if ln.Wrapped {
+			if ln.End == ln.Start || !overflows(c.m, c.text, ln, c.width) {
+				return false
+			}
+			at = ln.End
+		} else if i < len(l.Lines)-1 {
+			if ln.End >= len(c.text) || c.text[ln.End] != '\n' {
+				return false
+			}
+			at = ln.End + 1
+		} else if ln.End != len(c.text) {
+			return false
+		}
+	}
+	true
+}
+
+// HitFindsTheCaret: for every rune boundary of the text, the offset under
+// the middle of its caret is that boundary; and the boxes of a drawn
+// selection hold the middle of each rune's box exactly when the rune is
+// selected (newlines have no box).
+law HitFindsTheCaret(seed int, a int, b int) {
+	let c = drawText(seed)
+	let l = LayoutText(c.m, c.text, mono, c.width)
+	let bounds = boundaryList(c.text)
+	for o in bounds {
+		let k = CaretAt(c.m, l, o)
+		if OffsetAt(c.m, l, k.X, k.Top+k.Height/2.0) != o {
+			return false
+		}
+	}
+	let from = bounds[(a%len(bounds)+len(bounds))%len(bounds)]
+	let to = bounds[(b%len(bounds)+len(bounds))%len(bounds)]
+	let rects = SelectionRects(c.m, l, from, to)
+	for o in bounds {
+		if o < len(c.text) && c.text[o] != '\n' {
+			let k = CaretAt(c.m, l, o)
+			let x = k.X + c.m.Width(c.text[o:o+sizeAt(c.text, o)], mono)/2.0
+			let y = k.Top + k.Height/2.0
+			let mut inside = false
+			for r in rects {
+				if x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
+					inside = true
+				}
+			}
+			let want = from <= o && o < to || to <= o && o < from
+			if inside != want {
+				return false
+			}
+		}
+	}
+	true
+}

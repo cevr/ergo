@@ -1,0 +1,74 @@
+// The laws of Conforms: what each keyword refuses.
+
+import json
+
+// parsed is the JSON value text spells (Null when it is not JSON).
+func parsed(text string) json.Value {
+	json.Decode(valueCodec(), text) catch {
+	case _:
+		json.Null
+	}
+}
+
+// RequiredKeyIsRequired: an object fits a schema that requires key
+// exactly when it has a member key.
+law RequiredKeyIsRequired(key string, keys []string) {
+	let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
+	let mut members = []json.Member{}
+	let mut has = false
+	for k in keys {
+		members = members.Append(json.Member{Key: k, Value: json.Null})
+		has = has || k == key
+	}
+	Conforms(schema, json.Object{Members: members}) == has
+}
+
+// PropertiesAreChecked: a member fits its property's schema, or the
+// object does not fit.
+law PropertiesAreChecked(n int, s string) {
+	let schema = parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}}}")
+	let good = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.IntNumber(int64(n))}}}
+	let bad = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.Str{Value: s}}}}
+	Conforms(schema, good) && !Conforms(schema, bad)
+}
+
+// IntegerHasNoFraction: an integer's number is an integer; a number with
+// a fraction or an exponent is a number but no integer.
+law IntegerHasNoFraction(n int) {
+	let integer = parsed("{\"type\":\"integer\"}")
+	let num = parsed("{\"type\":\"number\"}")
+	let frac = parsed("\(n).5")
+	let exp = parsed("\(n)e1")
+	Conforms(integer, json.IntNumber(int64(n))) && !Conforms(integer, frac) && !Conforms(integer, exp) && Conforms(num, frac) && Conforms(num, exp)
+}
+
+// AnyOfIsOneOfItsSchemas: a value fits anyOf when it fits one of its
+// schemas: here, one of two constants.
+law AnyOfIsOneOfItsSchemas(s string) {
+	let schema = parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}")
+	Conforms(schema, json.Str{Value: s}) == (s == "A" || s == "B")
+}
+
+// PrefixItemsFixTheLength: an array fits prefixItems of n schemas only
+// when it has n items, each fitting its own.
+law PrefixItemsFixTheLength(xs []string) {
+	let schema = parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}")
+	let mut items = []json.Value{}
+	for x in xs {
+		items = items.Append(json.Str{Value: x})
+	}
+	let mixed = json.Array{Items: []json.Value{json.Str{Value: "a"}, json.IntNumber(1)}}
+	let swapped = json.Array{Items: []json.Value{json.IntNumber(1), json.Str{Value: "a"}}}
+	let longer = json.Array{Items: mixed.Items.Append(json.Str{Value: "c"})}
+	!Conforms(schema, json.Array{Items: items}) && Conforms(schema, mixed) && !Conforms(schema, swapped) && !Conforms(schema, longer)
+}
+
+// ItemsAreEachChecked: an array fits items when every item does.
+law ItemsAreEachChecked(ns []int) {
+	let schema = parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}")
+	let mut items = []json.Value{}
+	for n in ns {
+		items = items.Append(json.IntNumber(int64(n)))
+	}
+	Conforms(schema, json.Array{Items: items}) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})})
+}

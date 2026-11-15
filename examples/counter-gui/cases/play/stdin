@@ -1,0 +1,12 @@
+# up by one, pick a step of five, then down past zero
+tap inc
+tap by 5
+tap inc
+key -
+key -
+key -
+tap nothing
+key +
+key 0
+tap by 10
+tap inc

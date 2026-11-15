@@ -6,13 +6,13 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"mem"
 }
 
-type Disk {}
+type Disk {} implements Store
 
 func Get(_ Disk) string {
 	"disk"

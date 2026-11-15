@@ -21,7 +21,7 @@ type Open { A int }
 type Ops { inner() int, Outer() int }
 type G[T] { v T, N int }
 func NewG[T](v T) G[T] { G{v: v, N: 0} }
-type Impl {}
+type Impl {} implements Ops, Peek[int]
 func inner(_ Impl) int { 1 }
 func Outer(_ Impl) int { 2 }
 func MakeOps() Ops { Impl }
@@ -179,8 +179,13 @@ func TestFieldVisibility(t *testing.T) {
 			if !found {
 				t.Errorf("no diagnostic says %q: %v", tc.text, ds)
 			}
-			if ds := inside(t, tc.src); len(ds) != 0 {
-				t.Errorf("inside lib: got %v, want none", ds)
+			// Inside lib nothing is hidden; opsealed's Mine still declares
+			// nothing, which is the declared relation's refusal, not the
+			// seal's (types.md, Interface assignability 1).
+			for _, d := range inside(t, tc.src) {
+				if !strings.Contains(d.Message, "does not declare that it implements") {
+					t.Errorf("inside lib: got %v, want none", d)
+				}
 			}
 		})
 	}

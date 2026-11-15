@@ -1,0 +1,164 @@
+import io
+import strconv
+
+// The laws of Stream: what DecodeStream gives over any cutting of a text
+// into chunks is what Decode gives for the text whole, values, shape
+// failures and Malformed alike, with Open's offsets and reasons.
+
+func nat(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+// chunks is text as a Source cut every few bytes, by steps drawn from
+// cuts, so most tokens of a short text cross a chunk edge.
+func chunks(text string, cuts []int) io.Memory {
+	let mut at = 0
+	let mut offsets = []int{}
+	for c in cuts {
+		at = at + nat(c)%8 + 1
+		offsets = offsets.Append(at)
+	}
+	io.CutAt(text, offsets)
+}
+
+func said(m Malformed) string { "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason }
+
+// wholeValue and streamValue are a text's outcome as a Value, read whole
+// and read through a Stream over the text cut at cuts.
+func wholeValue(c Codec[Value], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func streamValue(c Codec[Value], text string, cuts []int) string {
+	let v = DecodeStream(c, chunks(text, cuts)) catch {
+	case Malformed as m:
+		return said(m)
+	case io.ReadFailed:
+		return "read failed"
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+// wholeFleet and streamFleet are the same for a fleet, whose decode reads
+// records, unions by their "_tag", Options, Maps, tuples and every number.
+func wholeFleet(c Codec[fleet], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func streamFleet(c Codec[fleet], text string, cuts []int) string {
+	let v = DecodeStream(c, chunks(text, cuts)) catch {
+	case Malformed as m:
+		return said(m)
+	case io.ReadFailed:
+		return "read failed"
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+// agrees: the text read whole and through a Stream gives one outcome, as
+// a Value and as a fleet, under the same limits.
+func agrees(text string, cuts []int, maxBytes int, maxDepth int) bool {
+	let cv = Codec[Value]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	let cf = Codec[fleet]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	wholeValue(cv, text) == streamValue(cv, text, cuts) && wholeFleet(cf, text) == streamFleet(cf, text, cuts)
+}
+
+// pieces are the parts a broken text is made of: every token, the
+// tokens cut short, escapes good and bad, bytes no value starts with, and
+// starts of a fleet, so a shape failure has a path inside lists.
+let pieces = []string{"{\"states\":[", "{\"nested\":[[1,", "{\"name\":\"n\",\"states\":[{\"host\":\"h\",\"_tag\":\"up\"},", "{", "}", "[", "]", ",", ":", " ", "\n", "\"a\"", "\"_tag\"", "\"up\"", "\"host\"", "\"NaN\"", "\"\\u00e9\\n\"", "\"\\ud83d\\ude00\"", "\"\\udcff\\ud800\"", "\"\\x\"", "\"\\u12\"", "\"\\u12g4\"", "\"\x01\"", "\"", "\\", "1", "-", "0", "01", "0.", "1e", "1.5e+3", "-0.0E-2", "18446744073709551616", "tru", "true", "false", "null", "nul", "é", "\xff"}
+
+// StreamAgreesWithDecode: a text spelled from a doc, with or without white
+// space, and with one piece spliced in or not, reads through a Stream cut
+// anywhere as Decode reads it whole, under any nesting limit.
+law StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, depth int) { agreesSpliced(d, space, splice, at, cuts, depth) }
+
+func agreesSpliced(d doc, space int, splice int, at int, cuts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	agrees(text, cuts, 0, nat(depth)%6)
+}
+
+// StreamAgreesOnPieces: a text made of pieces, mostly not JSON, reads
+// through a Stream cut anywhere as Decode reads it whole: the same break
+// at the same offset, under any byte and nesting limit. So does each
+// piece alone as the element of a fleet's lists, where a scalar piece
+// reads as a value or fails with a path inside a list.
+law StreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) { agreesOnPieces(parts, cuts, bytes, depth) }
+
+func agreesOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
+	let mut text = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !agrees("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", cuts, 0, 0) {
+			return false
+		}
+		text = text + piece
+	}
+	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (len(text) + 2) }
+	agrees(text, cuts, maxBytes, nat(depth)%4)
+}
+
+// StreamRoundTrips: the text Encode writes reads back through a Stream,
+// cut anywhere, as the value Decode reads.
+law StreamRoundTrips(v fleet, cuts []int) { streamRoundTrips(v, cuts) }
+
+func streamRoundTrips(v fleet, cuts []int) bool {
+	let text = Encode(codec(), v)
+	let want = wholeFleet(codec(), text)
+	want == streamFleet(codec(), text, cuts) && want == "ok "+text
+}
+
+// StreamFindsTagAnywhere: a union's "_tag" written after the record's
+// members, past chunk edges, is found as Decode finds it.
+law StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }
+
+func tagAnywhere(v up, cuts []int) bool {
+	let record = Encode(Codec[up]{MaxBytes: 0, MaxDepth: 0}, v)
+	let text = record[:len(record)-1] + ",\"_tag\":\"up\"}"
+	let c = Codec[state]{MaxBytes: 0, MaxDepth: 0}
+	let whole = Decode(c, text) catch {
+	case _:
+		return false
+	}
+	let streamed = DecodeStream(c, chunks(text, cuts)) catch {
+	case _:
+		return false
+	}
+	let want state = v
+	Encode(c, whole) == Encode(c, want) && Encode(c, streamed) == Encode(c, want)
+}

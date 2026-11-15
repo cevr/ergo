@@ -8,7 +8,7 @@ import quota/quota
 // a day of posts writes each line once. A crash inside an append can
 // leave a part of the last line, which Replay reads as a corrupt line:
 // the store is unavailable and names the line, never silently wrong.
-type Journal { path string, read fs.Files, write fs.Writes }
+type Journal { path string, read fs.Files, write fs.Writes } implements quota.Store
 
 // At is the journal at path. A missing file is an empty quota.
 func At(path string, read fs.Files, write fs.Writes) Journal {

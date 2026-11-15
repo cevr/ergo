@@ -46,7 +46,7 @@ func Choice[T](xs []T) Option[T] needs Random {
 
 // shuffleOwned shuffles owned in place and returns it. Its caller made
 // owned and shares it with no one, so the swaps change no other value.
-func shuffleOwned[T](owned []T) []T needs Random {
+func shuffleOwned[T](owned []T) []T needs Random takes owned {
 	let mut out = owned
 	let mut i = len(out) - 1
 	for i > 0 {

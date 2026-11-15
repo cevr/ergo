@@ -74,6 +74,11 @@ type Named struct {
 	// holds this Named (resolvedType, aliasOf).
 	alias        Type
 	aliasShallow bool // the alias's target is being read shallowly (aliasOf)
+	// impls, on an origin only, are the operation types its implements
+	// clause names, at its own type parameters; implExprs are their
+	// expressions (implements.go).
+	impls     []*Named
+	implExprs []syntax.Expr
 }
 
 // Alias returns the type a declaration `type A = B` names when its one
@@ -138,6 +143,9 @@ type Interface struct {
 	// origin's), so its package owns the unexported operations; nil for a
 	// predeclared constraint and the context protocol (authority.go).
 	obj *TypeName
+	// includes are the operation types its members `..I` include, at
+	// this instance's type arguments (implements.go).
+	includes []*Named
 }
 
 // TypeSet is the type set of a predeclared constraint (types.md, Generics
@@ -154,6 +162,7 @@ type TypeSet uint8
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
+	SetLent                      // lent: every type, a borrow included; the body keeps none (types.md, Borrows 7)
 	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
@@ -162,6 +171,8 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
+	case SetLent:
+		return "lent"
 	case SetWire:
 		return "wire"
 	case SetComparable:
@@ -243,6 +254,12 @@ type Signature struct {
 	// at the top level and escaping.go refuses the use instead. Added in
 	// check-v1 stage E2 (additive).
 	NonEscaping bool
+	// Entry marks the type of an entry's send, a parameter written
+	// `entry func(…)` (runtime.md, Machines and actors 14): the runner
+	// gives a value of it to a machine's work, and no Ergo code makes one,
+	// since a value of another function type is not assignable to it
+	// (assignability). It is part of the type's identity.
+	Entry bool
 	// Takes lists the parameters a written `takes` clause names, by index
 	// into Params, in the clause's order; TakesSelf is a bare `takes` of an
 	// operation: the value the operation is called on (#197 A1; resources
@@ -292,8 +309,11 @@ type TypeParam struct {
 	Kind       Kind
 	Constraint Type // nil for none: every type, no operation but assignment
 	Pos        syntax.Pos
-	conflict   bool // a kind conflict, already reported: resolves to nothing
-	id         int
+	// Lent: the bracket writes lent before the constraint, `[T lent C]`
+	// (types.md, Borrows 7); `[T lent]` is the constraint lent itself.
+	Lent     bool
+	conflict bool // a kind conflict, already reported: resolves to nothing
+	id       int
 }
 
 // RowVar is the inferred row of a function that writes no row (class F):
@@ -349,8 +369,14 @@ type RowArg struct{ Row *Row }
 // Wired is the row element wired[T] for a wire type parameter T: the
 // failures of decode[T], which only T's type argument decides (types.md,
 // Codecs 2; owner q80). Substitution replaces it by the argument's wire
-// row (typeops.go subst), so an instance's row is concrete.
-type Wired struct{ T *TypeParam }
+// row (typeops.go subst), so an instance's row is concrete. Uses marks
+// the element of a needs row: the capabilities of T's codec functions
+// (types.md, Codecs 9; q141), which an instance replaces by the needs of
+// the argument's Wire and ParseX functions.
+type Wired struct {
+	T    *TypeParam
+	Uses bool
+}
 
 // Tuple is the value of a call with several results.
 type Tuple struct{ Types []Type }
@@ -453,6 +479,9 @@ func (t *Signature) String() string {
 		}
 		if s, ok := p.Type.(*Signature); ok && !s.NonEscaping {
 			b.WriteString("escaping ")
+		}
+		if s, ok := p.Type.(*Signature); ok && s.Entry {
+			b.WriteString("entry ")
 		}
 		b.WriteString(p.Type.String())
 	}
@@ -748,6 +777,9 @@ func typeString(t Type) string {
 	case *RowArg:
 		return "{" + t.Row.list("|") + "}"
 	case *Wired:
+		if t.Uses {
+			return "wiredneeds[$" + t.T.Name + "]"
+		}
 		return "wired[$" + t.T.Name + "]"
 	case *Slice:
 		return "[]" + typeString(t.Elem)

@@ -1,0 +1,115 @@
+// Package infra is infrastructure as code in direct style (IA1;
+// docs/domain.md, Infrastructure; the design model models/infra). A
+// stack is an ordinary function whose row lists the kinds of object it
+// may touch; Kind is what it calls, and an Engine provides each kind in
+// two modes: a plan records the steps and calls no host, an apply runs
+// the row's protocol (write the row creating, call the driver, write the
+// row live) over a State store, and the sweep deletes, newest first, the
+// objects the stack no longer wants. One run at a time holds a stack's
+// Lock; an operator breaks the lock of a dead holder. The providers live
+// in packages named after their dependency: infra/memory (a cloud, state
+// stores and a lock in memory).
+//
+// Effect: Alchemy's resources (read, diff, reconcile, delete over a state
+// store with a status per row); Terraform's plan, apply and a state lock
+// that a human breaks; Pulumi's direct style, with no deferred outputs:
+// a plan takes an object's attributes from the driver's pure Attrs.
+
+// Failed is the failure of a driver or a state store: the object's id
+// and the provider's reason.
+type Failed { ID string, Reason string }
+
+// Driver is what a provider module implements for one kind of object,
+// with props P (what the stack asks for) and attributes A (what the
+// object has). Apply is an upsert keyed by the id.
+type Driver[P comparable, A comparable] {
+	// Attrs is what Apply gives for id and p. It is pure: a plan calls
+	// it in place of Apply.
+	Attrs(id string, p P) A,
+	// Apply creates or updates the object id with p.
+	Apply(id string, p P) A fails Failed,
+	// Read is the object id as it is, None when there is none.
+	Read(id string) Option[A] fails Failed,
+	// Delete removes the object id; there may be none.
+	Delete(id string) fails Failed,
+
+	// A law proves nothing in a case whose call fails: the provider said
+	// it could not reach the object (a crash).
+
+	// AttrsIsApply: Apply gives what Attrs says, so a plan's values are
+	// an apply's.
+	law AttrsIsApply(id string, p P) {
+		let a = Apply(id, p) catch {
+		case Failed:
+			return true
+		}
+		a == Attrs(id, p)
+	},
+	// RetrySafe: a second Apply of the same props gives the same object,
+	// so a run may take a row that is not live as work to do again.
+	law RetrySafe(id string, p P) {
+		let first = Apply(id, p) catch {
+		case Failed:
+			return true
+		}
+		let again = Apply(id, p) catch {
+		case Failed:
+			return true
+		}
+		again == first
+	},
+	// ReadAfterApply: after an Apply, Read gives the object it gave.
+	law ReadAfterApply(id string, p P) {
+		let a = Apply(id, p) catch {
+		case Failed:
+			return true
+		}
+		let read = Read(id) catch {
+		case Failed:
+			return true
+		}
+		read == (Some[A]{Value: a})
+	},
+	// DeleteIsIdempotent: after a Delete, and a second one, Read gives
+	// None.
+	law DeleteIsIdempotent(id string, p P) {
+		Apply(id, p) catch {
+		case Failed:
+			return true
+		}
+		Delete(id) catch {
+		case Failed:
+			return true
+		}
+		Delete(id) catch {
+		case Failed:
+			return true
+		}
+		let read = Read(id) catch {
+		case Failed:
+			return true
+		}
+		read == None
+	},
+}
+
+// Kind is what a stack calls for one kind of object: Ensure that the
+// object id exists with p, and its attributes. A plan and an apply are two
+// providers of it (Engine).
+type Kind[P comparable, A comparable] {
+	Ensure(id string, p P) A fails Failed,
+
+	// EnsureIsRetrySafe: a second Ensure of the same object gives what the
+	// first gave, so a stack may run again.
+	law EnsureIsRetrySafe(id string, p P) {
+		let first = Ensure(id, p) catch {
+		case Failed:
+			return true
+		}
+		let again = Ensure(id, p) catch {
+		case Failed:
+			return true
+		}
+		again == first
+	},
+}

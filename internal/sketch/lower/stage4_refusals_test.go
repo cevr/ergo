@@ -335,9 +335,9 @@ func TestUnreachableRulesRefuse(t *testing.T) {
 func TestGenericCloseWithWitnessesNamesOwner(t *testing.T) {
 	src := `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} }

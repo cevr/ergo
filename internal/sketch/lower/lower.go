@@ -69,6 +69,9 @@ type Unit struct {
 	// program of one file its directory. Empty keeps the admitted paths.
 	// The root unit's Root holds for its imports too.
 	Root string
+	// Copies, when set, receives the form of each Append and owned-form
+	// site the lowering decides (handover.go; ergo build -report copies).
+	Copies *CopyReport
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

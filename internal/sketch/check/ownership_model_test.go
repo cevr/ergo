@@ -541,7 +541,7 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	// A whole pattern binds a shared type DAG once. It does not expand
 	// the tree of all fields when no pattern splits those fields (PO1).
 	patternWork := func(depth int) int {
-		src := "type T0 {}\nfunc Close(x T0) {}\n"
+		src := "type T0 {} implements Closer\nfunc Close(x T0) {}\n"
 		for i := 1; i <= depth; i++ {
 			src += fmt.Sprintf("type T%d { A T%d, B T%d }\n", i, i-1, i-1)
 		}
@@ -591,7 +591,7 @@ func TestOwnershipMessages(t *testing.T) {
 	// An update or a spread of a record with its own Close would split it
 	// (R39, one rule with a field taken in place; Rust E0509): its Close
 	// never ran (OWGEN r3 (b), 16a r3 On base).
-	const w = "type Core { R Res }\n\ntype W { ..Core, n int }\n\ntype V { ..Core }\n\nfunc Close(w W) {}\n\nfunc lendW(w W) {}\n\nfunc lendV(v V) {}\n\n"
+	const w = "type Core { R Res }\n\ntype W { ..Core, n int } implements Closer\n\ntype V { ..Core }\n\nfunc Close(w W) {}\n\nfunc lendW(w W) {}\n\nfunc lendV(v V) {}\n\n"
 	for _, body := range []string{"lendW(W{..W{R: open(1), n: 1}, R: open(2)})", "lendV(V{..W{R: open(1), n: 1}})"} {
 		_, diags := checkFor(ofPrelude + w + "func body() {\n\t" + body + "\n}\n\nfunc main() {}\n")
 		if want := "W has its own Close, which runs on the whole value, so an update or a spread cannot take it apart (resources R3, R39); build the new value from its fields"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
@@ -602,7 +602,7 @@ func TestOwnershipMessages(t *testing.T) {
 
 const ofPrelude = `import queue
 
-type Res { id int }
+type Res { id int } implements Closer, Closes, Store
 
 type Bad {}
 
@@ -639,7 +639,7 @@ type Empty {}
 
 type Held = Res | Empty
 
-type Closer { Close() }
+type Closes { ..Closer }
 
 type Store { Get() int }
 
@@ -649,7 +649,7 @@ func lendBox(b Box) {}
 
 func keepBox(b Box) takes b {}
 
-func lendCloser(c Closer) {}
+func lendCloser(c Closes) {}
 
 let shared = Res{id: 0}
 

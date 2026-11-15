@@ -1,6 +1,6 @@
 // want S109
 type timeout { Get() string }
-type Holder {}
+type Holder {} implements timeout
 func Get(_ Holder) string { return "ok" }
 func main() needs Console {
 	with context { timeout: Holder } { Console.Println("\(timeout.Get())") }

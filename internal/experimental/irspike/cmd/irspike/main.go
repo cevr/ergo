@@ -83,6 +83,14 @@ func main() {
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateUnion(seed))
 		}
+	case "genstd":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genstd SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateStd(seed))
+		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}

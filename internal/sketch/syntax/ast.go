@@ -166,6 +166,11 @@ type TypeDecl struct {
 	DerivePos Pos
 	Derive    Expr
 	Origin    *TypeDecl
+	// ImplementsPos and Implements are the clause `implements A, B` after
+	// the type's body (types.md, Interface assignability 1): the operation
+	// types the type declares it implements, or NoPos and nil.
+	ImplementsPos Pos
+	Implements    []Expr
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
@@ -248,6 +253,9 @@ func (d *TypeDecl) Pos() Pos {
 func (d *TypeDecl) End() Pos {
 	if d.Derive != nil {
 		return d.Derive.End() // derive.go: the bundle stands at the derive
+	}
+	if len(d.Implements) > 0 {
+		return d.Implements[len(d.Implements)-1].End()
 	}
 	if d.Where != nil {
 		return d.Where.End()
@@ -338,17 +346,26 @@ func (e *ContextEntry) End() Pos {
 // (types.md, Structs 7) has Include set, Dots at its `..`, no Names, and R
 // as its Type.
 type Field struct {
-	Doc     *CommentGroup
-	Names   []*Ident
-	Type    Expr
-	Key     *BasicLit // optional record field key, independent of the codec format
-	Any     Pos
+	Doc   *CommentGroup
+	Names []*Ident
+	Type  Expr
+	Key   *BasicLit // optional record field key, independent of the codec format
+	Any   Pos
+	// Lent is the position of a type parameter's `lent` written before
+	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	Lent    Pos
 	Include bool
 	Dots    Pos
 	// WherePos and Where are a law parameter's `where P` (types.md,
 	// Refinements), or NoPos and nil.
 	WherePos Pos
 	Where    Expr
+	// Pure marks a named parameter's clause `pure` before its type
+	// (grammar.md, Declarations 16; rows.md, Footprints 6), written at
+	// PurePos. PurePos means nothing without Pure: a Field built with
+	// neither, or repositioned (derive), has no clause.
+	Pure    bool
+	PurePos Pos
 }
 
 func (f *Field) Pos() Pos {
@@ -610,6 +627,12 @@ type (
 	// is the position of `escaping`, or NoPos.
 	FuncType struct {
 		Escaping Pos
+		// Entry marks `entry func(…)`, the type of an entry's send
+		// (grammar.md, Types; runtime.md, Machines and actors 14), written
+		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
+		// built with neither has no clause.
+		Entry    bool
+		EntryPos Pos
 		Func     Pos
 		Params   *FieldList
 		Results  *FieldList
@@ -627,11 +650,15 @@ type (
 	// (Methods and Laws, braces set) or a union `type T = A | B{…}` (Union,
 	// each a type name or a *VariantSpec; Lbrace and Rbrace NoPos).
 	InterfaceType struct {
-		Lbrace  Pos
-		Methods []*Field
-		Laws    []*LawDecl
-		Union   []Expr
-		Rbrace  Pos
+		Lbrace Pos
+		// Includes are the members `..I` that include the operations of
+		// the operation type I (types.md, Interface assignability 1):
+		// each a Field with Include set.
+		Includes []*Field
+		Methods  []*Field
+		Laws     []*LawDecl
+		Union    []Expr
+		Rbrace   Pos
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the
@@ -757,6 +784,8 @@ func (x *FuncType) Pos() Pos {
 	switch {
 	case x.Escaping.IsValid():
 		return x.Escaping
+	case x.Entry:
+		return x.EntryPos
 	case x.Func.IsValid():
 		return x.Func
 	}

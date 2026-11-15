@@ -25,6 +25,8 @@ func resetStdCache(t *testing.T) {
 	stdCache.once = sync.Once{}
 	stdCache.mu.Lock()
 	stdCache.compiler = ""
+	stdCache.modules = ""
+	stdCache.taken = 0
 	stdCache.mu.Unlock()
 }
 
@@ -208,6 +210,14 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		out["error"] = err.Error()
 		return out
 	}
+	return analysisOutcome(t, a, c.dir)
+}
+
+// analysisOutcome is every output of a: its diagnostics and, for a program
+// that checks, its inspect envelope, both lowered modes and its evaluation.
+func analysisOutcome(t *testing.T, a Analysis, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
 	marshal := func(x any) string {
 		b, err := json.Marshal(x)
 		if err != nil {
@@ -237,7 +247,7 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		}
 		out["lower-"+mode.name] = b.String()
 	}
-	ev, err := a.Evaluation(eval.DefaultBudget(), c.dir)
+	ev, err := a.Evaluation(eval.DefaultBudget(), dir)
 	out["eval"] = fmt.Sprintf("%s %v", marshal(ev), err)
 	return out
 }

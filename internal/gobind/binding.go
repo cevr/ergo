@@ -266,6 +266,11 @@ func (c *closer) decls(path string) []Decl {
 		platforms = append(platforms, c.platforms[i])
 	}
 	merged := Close(path, Merge(platforms, all), func(ref string) bool {
+		if ref == "io.Closer" {
+			// The release contract's Go form (releaseClause): io binds
+			// it, whether or not the package imports io.
+			return false
+		}
 		p, name := splitRef(ref)
 		for _, d := range c.decls(p) {
 			if d.Name == name {

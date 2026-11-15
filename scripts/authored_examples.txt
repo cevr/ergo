@@ -7,6 +7,9 @@ docs/research/ef-migrate/machine-breaker.ergo
 docs/research/ef-migrate/main.ergo
 models/children/children.ergo
 models/durable/durable.ergo
+models/free/free.ergo
 models/host/host.ergo
+models/region/region.ergo
 models/runner/runner.ergo
 models/supervise/supervise.ergo
+models/infra/infra.ergo

@@ -1,0 +1,101 @@
+{
+  "about": "twig's mutants (wf10 corpus wave 1, PA4): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which TestTwigAgreesWithControl in cmd/ergo (generated programs against the reference model and the hand Go control) kills.",
+  "mutants": [
+    {
+      "name": "twig-infix-binds-right", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/parse.ergo",
+      "from": "let right = try expr(p, power+1)",
+      "to": "let right = try expr(p, power)",
+      "rule": "Every infix operator is left-associative: a - b - c is (a - b) - c (law syntax.PrintParsesBack).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-end-token-at-line-start", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/lex.ergo",
+      "from": "At: Pos{Line: line, Col: len(src) - lineStart + 1}, Fresh: fresh})",
+      "to": "At: Pos{Line: line, Col: 1}, Fresh: fresh})",
+      "rule": "The End token stands after every token: a parse error at the end names the place after the last byte (law syntax.TokensStandInOrder).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-backslash-never-escapes", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/quote.ergo",
+      "from": "Enter[Quote]{Next: Escape}",
+      "to": "Enter[Quote]{Next: Body}",
+      "rule": "A backslash in a string literal starts an escape, which goes back to the body (law syntax.Quoting.EscapesReturn).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-plain-byte-changed", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/quote.ergo",
+      "from": "Output: Char{C: p.C}}",
+      "to": "Output: Char{C: p.C | 1}}",
+      "rule": "A byte that is no quote, backslash or newline is itself in the value (law syntax.Quoting.PlainBytesAreThemselves).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-escaped-quote-stays-escaped", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/quote.ergo",
+      "from": "{Next: Body, Output: Char{C: '\"'}}",
+      "to": "{Next: Escape, Output: Char{C: '\"'}}",
+      "rule": "After \\\" the literal goes on in its body (law syntax.Quoting.EscapedQuoteStaysOpen).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-slots-never-advance", "origin": "wf10 PA4",
+      "file": "examples/twig/resolve/resolve.ergo",
+      "from": "r.frames[d].slots = slot + 1",
+      "to": "r.frames[d].slots = slot",
+      "rule": "Each name a function declares has its own slot, inside the function's frame (law resolve.SlotsFitTheirFrames).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-every-name-declared-twice", "origin": "wf10 PA4",
+      "file": "examples/twig/resolve/resolve.ergo",
+      "from": "if r.binds[i].Name == name {",
+      "to": "if r.binds[i].Name == r.binds[i].Name {",
+      "rule": "A name is declared twice only when its block already declares it; programs that declare distinct names resolve (law resolve.ResolvesSome).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-remainder-subtracts", "origin": "wf10 PA4",
+      "file": "examples/twig/eval/run.ergo",
+      "from": "Int{N: a.N % b.N}",
+      "to": "Int{N: a.N - b.N}",
+      "rule": "An int remainder is Go's: the sign of the dividend, wrapping at the extremes (law eval.ArithmeticAgreesWithModel).",
+      "killers": ["examples:twig"]
+    },
+    {
+      "name": "twig-reused-frame-keeps-old-values", "origin": "wf10 PA4",
+      "file": "examples/twig/eval/machine.ergo",
+      "from": "m.frames[id].Slots[i] = Nil",
+      "to": "let _ = i",
+      "rule": "A call's variables start nil: a function a block binds, called before the let of a name it reads, reads nil, never a value of an earlier call whose frame was reused.",
+      "killers": ["cmd/ergo:TestTwigAgreesWithControl"]
+    },
+    {
+      "name": "twig-string-le-is-lt", "origin": "wf10 PA4",
+      "file": "examples/twig/eval/run.ergo",
+      "from": "Bool{B: a.S <= b.S}",
+      "to": "Bool{B: a.S < b.S}",
+      "rule": "<= on strings is true for equal strings.",
+      "killers": ["cmd/ergo:TestTwigAgreesWithControl"]
+    },
+    {
+      "name": "twig-or-never-short-circuits", "origin": "wf10 PA4",
+      "file": "examples/twig/eval/run.ergo",
+      "from": "if x.B {",
+      "to": "if x.B && false {",
+      "rule": "or is true when its left side is, and does not run its right side then.",
+      "killers": ["cmd/ergo:TestTwigAgreesWithControl"]
+    },
+    {
+      "name": "twig-return-value-on-next-line", "origin": "wf10 PA4",
+      "file": "examples/twig/syntax/parse.ergo",
+      "from": "if is(v, \"}\") || ended(v) || v.Fresh {",
+      "to": "if is(v, \"}\") || ended(v) {",
+      "rule": "A return's value starts on the return's line: a bare return before another statement returns nil and runs nothing more.",
+      "killers": ["cmd/ergo:TestTwigAgreesWithControl"]
+    }
+  ]
+}

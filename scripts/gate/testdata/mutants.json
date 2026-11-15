@@ -180,6 +180,43 @@
       "to": "if pid := childPid.Load(); false && pid != 0 && processEnded(int(pid)) {",
       "rule": "A sandbox whose first process fails is a failure at once: with no time bound on the start, the watch of that process is what ends the wait (killed by the test's deadline, which names TestMergeTierFailsClosed/bwrap_fails_to_mount).",
       "killers": ["scripts/gate:TestMergeTierFailsClosed"]
-    }
+    },
+    {
+      "name": "gatesandbox-sweep-store-per-step",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/steps.go",
+      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir()}",
+      "to": "sweepVariable + \"=\" + selection}",
+      "rule": "The closure sweep steps of a run share one std store, outside each step's TMPDIR.",
+      "killers": ["scripts/gate:TestSweepsShareOneStdStore"]
+    },
+    {
+      "name": "gatesandbox-floor-unchecked",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/main.go",
+      "from": "if reason := belowDiskFloor(floor, tmpDir, g.cacheDir); reason != \"\" {",
+      "to": "if reason := belowDiskFloor(floor*0, tmpDir, g.cacheDir); reason != \"\" {",
+      "rule": "A step is not started below the disk floor: it fails naming the disk, not partway with ENOSPC.",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {
+      "name": "gatesandbox-floor-compare",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/diskfloor.go",
+      "from": "\t\tif free < floor {\n",
+      "to": "\t\tif free < floor/2 {\n",
+      "rule": "Any free space below the floor refuses the step.",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {
+      "name": "gatesandbox-floor-unreadable-passes",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/diskfloor.go",
+      "from": "\t\t\treturn fmt.Sprintf(\"disk floor: cannot read the free space under %s: %v\", path, err)\n",
+      "to": "\t\t\tcontinue\n",
+      "rule": "Free space that cannot be read refuses the step (fail closed).",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {"name":"mk0-step-blind-to-modules","origin":"wf10 MK0","file":"scripts/gate/steps.go","from":"\t\t\tInstalled: []string{\"examples\", \"modules\"},","to":"\t\t\tInstalled: []string{\"examples\"},","rule":"The examples step walks modules/ too, so an edit of a module reruns it (the fast tier's reach).","killers":["scripts/gate:TestFastTierReachOfAnEdit"]}
   ]
 }

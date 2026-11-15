@@ -17,11 +17,11 @@ import (
 const ownPrelude = `type A { Use() }
 type B { Use() }
 type Log { Say(s string) }
-type First {}
-type Second {}
-type Pair {}
-type Other {}
-type Quiet {}
+type First {} implements A, B, Closer
+type Second {} implements A, B
+type Pair {} implements A, B, Closer
+type Other {} implements A, B, Closer
+type Quiet {} implements Log
 func Use(_ First)  {}
 func Use(_ Second) {}
 func Use(_ Pair)   {}
@@ -97,7 +97,7 @@ func checkOwn(t *testing.T, src string) (*check.Package, []check.Diagnostic) {
 }
 
 func TestContextOwnershipReleaseNeeds(t *testing.T) {
-	const closes = `type Res {}
+	const closes = `type Res {} implements A, Closer
 func Use(_ Res) {}
 func Close(_ Res) needs Log { Log.Say("closed") }
 `
@@ -143,7 +143,7 @@ func f() { with Out { with W { A.Use() } } }
 		}
 	})
 	t.Run("the release need reaches the outer with's own release", func(t *testing.T) {
-		pkg, ds := checkOwn(t, closes+`type Sink {}
+		pkg, ds := checkOwn(t, closes+`type Sink {} implements Log, Closer
 func Say(_ Sink, s string) {}
 func Close(_ Sink) {}
 let Out = context { Log: Sink }

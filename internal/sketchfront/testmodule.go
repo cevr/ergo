@@ -76,7 +76,7 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 			return nil, fmt.Errorf("sketchfront: the package folder %s is not absolute and clean", dir)
 		}
 	}
-	l := &loader{fsys: hostFS{}, platform: platform, root: dirs[0], pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := newLoader(hostFS{}, platform, dirs[0], moduleCache())
 	work.loads.Add(1)
 	found, err := l.findModule(dirs[0])
 	if err != nil {
@@ -90,14 +90,14 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 	selected := make([]*loadedPackage, len(dirs))
 	for i, dir := range dirs {
 		rel, err := filepath.Rel(l.root, dir)
-		if err != nil || !filepath.IsLocal(rel) && rel != "." || l.nestedModule(dir) != "" {
+		if err != nil || !filepath.IsLocal(rel) && rel != "." || l.nestedModule(dir, nil) != "" {
 			return nil, ErrNotShared
 		}
 		path := l.module
 		if rel != "." {
 			path += "/" + filepath.ToSlash(rel)
 		}
-		p, err := l.read(path, dir)
+		p, err := l.read(path, dir, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +144,7 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 				texts[f.rel] = f.text
 			}
 			for name, data := range q.assets {
-				texts[l.rel(filepath.Join(q.dir, filepath.FromSlash(name)))] = string(data)
+				texts[l.relIn(q.mod, filepath.Join(q.dir, filepath.FromSlash(name)))] = string(data)
 			}
 		}
 		prog := &program{root: root, imports: imports, texts: texts, module: l.module, modRoot: l.root, dir: l.root}
@@ -166,7 +166,7 @@ func (l *loader) checkShared(p *loadedPackage, path string) bool {
 	for k, f := range p.files {
 		files[k] = f.syntax
 	}
-	pkg, ds := check.CheckTest(path, files, l, l.testOf(p), l.opts)
+	pkg, ds := check.CheckTestOptions(path, files, l, l.testOf(p), l.opts)
 	work.checks.Add(1)
 	p.pkg = pkg
 	return len(ds) == 0

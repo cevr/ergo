@@ -44,6 +44,8 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"ctx":          {why: "the checker that substitutes an instance's body"},
 		"alias":        {why: "an alias's target: every use resolves to it, so no walked type holds an alias's Named"},
 		"aliasShallow": {why: "resolution state of an alias"},
+		"impls":        {why: "the implements clause: operation types the type declares, which hold no part of its values"},
+		"implExprs":    {why: "the clause's syntax, for diagnostics"},
 	},
 	"Struct": {
 		"Fields":    {sel: "Fields"},
@@ -60,11 +62,12 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"origin":  {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
 	},
 	"Interface": {
-		"Methods": {sel: "Methods"},
-		"obj":     {sel: "obj"},
-		"index":   {why: "a cache of Methods"},
-		"byName":  {why: "Methods sorted"},
-		"Set":     {why: "a predeclared constraint's type set: basic types only"},
+		"Methods":  {sel: "Methods"},
+		"obj":      {sel: "obj"},
+		"index":    {why: "a cache of Methods"},
+		"byName":   {why: "Methods sorted"},
+		"Set":      {why: "a predeclared constraint's type set: basic types only"},
+		"includes": {why: "the ..I members: their operations are in Methods, which the walk reads"},
 	},
 	"Method": {
 		"Sig":  {sel: "Sig"},
@@ -97,6 +100,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"NonEscaping": {why: "a lifetime mark of a parameter's function type"},
 		"Takes":       {why: "parameter indexes of a takes clause (#197)"},
 		"TakesSelf":   {why: "a bare takes of an operation (#197)"},
+		"Entry":       {why: "a mark that the function is a machine's entry send"},
 	},
 	"Var": {
 		"Type":        {sel: "Type"},
@@ -120,11 +124,12 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Name":       {why: "a name"},
 		"Kind":       {why: "a kind"},
 		"Pos":        {why: "a position"},
+		"Lent":       {why: "a flag: the bracket writes lent"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},
 	"RowArg": {"Row": {sel: "Row"}},
-	"Wired":  {"T": {sel: "T"}},
+	"Wired":  {"T": {sel: "T"}, "Uses": {why: "a flag: which row the element stands in"}},
 	"RowVar": {
 		"sol":   {sel: "Solution"},
 		"of":    {sel: "Solution"},

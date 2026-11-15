@@ -23,7 +23,7 @@ func TestContextOwnershipImportedContext(t *testing.T) {
 						contexts = "let Base = context { A: Get() }\nlet W = context { Base }\n"
 					}
 					lib, err := syntax.Parse(`type A { Use() }
-type Conn { n int }
+type Conn { n int } implements A, Closer
 func Use(_ Conn) {}
 func Close(_ Conn) {}
 let shared = Conn{n: 1}

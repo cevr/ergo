@@ -41,14 +41,20 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 func (b *irBuilder) textOf(x syntax.Expr) *irExpr {
 	t := b.l.info.Types[x]
 	b.goType(t, x)
-	bt := basicOf(t)
+	// A named scalar's text is its basic type's, through a Go conversion
+	// (ir_union.go's scalarBasic; the emitter's text, as).
+	bt := b.scalarBasic(t)
 	if bt == nil {
 		irNo("interpolated value of type %s", t)
+	}
+	named := basicOf(t) == nil
+	if named && bt.Kind == check.Duration {
+		irNo("interpolated named duration")
 	}
 	v := b.expr(x)
 	p := v.Pos
 	as := func(goType string) *irExpr {
-		if bt.Name == goType {
+		if !named && bt.Name == goType {
 			return v
 		}
 		return &irExpr{K: "conv", Pos: p, T: goType, X: v}

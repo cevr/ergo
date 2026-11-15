@@ -2,7 +2,6 @@ package check
 
 import (
 	"math/rand/v2"
-	"slices"
 	"strings"
 	"testing"
 
@@ -59,7 +58,7 @@ func ofPatternOwners(t *testing.T, seed uint64) {
 	}
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
-type Closed { R Res }
+type Closed { R Res } implements Closer
 func Close(c Closed) {}
 func pair() Pair { Pair{R: open(1), S: open(2)} }
 func lendPair(p Pair) {}
@@ -261,8 +260,8 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 // nothing. The reference: a resource meets a bound only when the bound
 // has a release (a Close; an operation that takes the value keeps it and
 // releases nothing, R1/R13), every use keeps its release (a lend, or a
-// bound with Close), and a sealed queue converts as any value with its
-// members does, a copy site of its element (R22, R44). Mutants:
+// bound with Close), and a sealed queue never converts to a program's operation type: it
+// declares none (EXC1; routes 5, 6, 8, 10). Mutants:
 // 16a-r4-*, 16a-r5-*.
 func ofGenericRoutes(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x16a4))
@@ -349,10 +348,11 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 	case 8:
 		extra = "let src Src[T] = q\nlet _ = src\n"
 	case 9:
-		// outer's bound: the inner one's operations and Close.
-		outerB := ofBound{members: elem.members}
+		// outer's bound: the inner one, included so that U meets it,
+		// and Closer.
+		outerB := ofBound{members: []string{"..B"}}
 		if !elem.close {
-			outerB.members = append(slices.Clone(elem.members), "Close()")
+			outerB.members = append(outerB.members, "..Closer")
 		}
 		helper += outerB.decl("BC") + "func outer[U BC](q queue.Queue[U]) {\nh(q)\n}\n"
 		call = "outer(q)"
@@ -364,17 +364,30 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		lit := map[string]string{"Tagged": "Tagged{R: open(3)}", "TaggedC": "TaggedC{R: open(4)}", "Num": "Num{n: 1}"}[inst]
 		call += "\nlet b B = " + lit + "\nlet _ = b.Mark()"
 	}
+	// What each argument type declares (EXC1): B when the drawn bound
+	// exists and it can meet it (only TaggedC has a Close), else Tag;
+	// TaggedC its release through TagC, and BC in route 9.
+	plain, closing := "Tag", "Tag, TagC"
+	if len(elem.members) > 0 {
+		closing = "TagC, B"
+		if !elem.close {
+			plain = "B"
+		}
+	}
+	if route == 9 {
+		closing += ", BC"
+	}
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
 type Tag { Mark() int }
-type TagC { Mark() int, Close() }
+type TagC { ..Closer, Mark() int }
 type Src[E] { Values() Seq[E] }
-type Tagged { R Res }
+type Tagged { R Res } implements ` + plain + `
 func Mark(t Tagged) int { 1 }
-type TaggedC { R Res }
+type TaggedC { R Res } implements ` + closing + `
 func Mark(t TaggedC) int { 2 }
 func Close(t TaggedC) {}
-type Num { n int }
+type Num { n int } implements ` + plain + `
 func Mark(n Num) int { 3 }
 ` + elem.decl("B") + queueB.decl("QB[E]") + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
 	// The reference.
@@ -405,10 +418,8 @@ func Mark(n Num) int { 3 }
 	case 7:
 		wantBad = true
 	case 8:
-		// A sealed queue converts to Src[T] as any value with its
-		// members does (the lowering builds it: lower
-		// TestSealedStdConvertsToItsOperationTypes); Src has no Close, so
-		// the conversion is a copy site of T (R22, R44).
+		// Src has no Close: R22 and R44 would name the conversion, which
+		// the declared relation refuses first (below).
 		wantBad = res
 	case 9:
 		wantBad = escapes || !elem.close
@@ -423,6 +434,15 @@ func Mark(n Num) int { 3 }
 		} else if !res {
 			want = []string{"has no release"}
 		}
+	}
+	switch route {
+	case 5, 6, 8, 10:
+		// The sealed queue declares none of the program's operation
+		// types, and std cannot (EXC1, q170: a value of an operation
+		// type is used as another only through an include): the
+		// declared relation refuses it first, and the copy sites it
+		// would have made may still be named.
+		wantBad, want = true, append([]string{"does not include"}, want...)
 	}
 	_, ds := checkFor(src)
 	bad, first := false, false
@@ -465,7 +485,9 @@ func (b ofBound) decl(name string) string {
 // value, one that lends one, one that returns an owned value, and Close
 // when close.
 func ofElemBound(r *rand.Rand, close bool) ofBound {
-	b := ofBound{members: []string{"Mark() int"}, close: close}
+	// ..Tag gives Mark, so a T of the bound converts to Tag (route 7);
+	// ..Closer is the release (EXC1: an operation type includes it).
+	b := ofBound{members: []string{"..Tag"}, close: close}
 	for _, m := range []struct{ decl, fn string }{
 		{"Keep(o Res) takes o", "func Keep(t %s, o Res) takes o { keep(o) }\n"},
 		{"See(o Res) bool", "func See(t %s, o Res) bool { held(o) }\n"},
@@ -480,7 +502,7 @@ func ofElemBound(r *rand.Rand, close bool) ofBound {
 		}
 	}
 	if close {
-		b.members = append(b.members, "Close()")
+		b.members = append(b.members, "..Closer")
 	}
 	return b
 }

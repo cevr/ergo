@@ -1,0 +1,43 @@
+// Package screen is the dashboard's view: the app machine that holds the
+// board, and the frame a window shows of it, written once for every ui
+// host (ui.TestHost here; the desktop host at stage c). Each frame of the
+// host's clock is a signal that moves the board a frame; each panel has a
+// pause button and a policy button, and a canvas that draws its samples.
+
+import dash/feed
+import queue
+
+// Signal is what the view sends the app: a frame of the clock, or a press
+// of panel Panel's pause button or policy button.
+type Signal = Next{} | Toggle{Panel int} | Swap{Panel int}
+
+// Dash is the app's state: the board.
+type Dash { Board feed.Board }
+
+// Begin is the app on board b: the machine's input.
+func Begin(b feed.Board) Dash { Dash{Board: b} }
+
+// Step is the app's transition. A frame runs the board's frame (feed.Frame:
+// the sources' samples through their queues, then the panels) and emits
+// the notes of the frame, if any; a press pauses or resumes a panel, or
+// swaps its queue's policy.
+func Step(d Dash, e Signal) Decision[Dash, []feed.Notice] fails queue.Closed needs feed.Sensors {
+	match e {
+	case Next:
+		let s = try feed.Frame(d.Board)
+		if len(s.Notes) == 0 {
+			return Stay[Dash]{Next: Dash{Board: s.Board}}
+		}
+		Emit[Dash, []feed.Notice]{Next: Dash{Board: s.Board}, Output: s.Notes}
+	case Toggle as t:
+		Stay[Dash]{Next: Dash{Board: feed.Toggle(d.Board, t.Panel)}}
+	case Swap as w:
+		Stay[Dash]{Next: Dash{Board: feed.Swap(d.Board, w.Panel)}}
+	}
+}
+
+// App is the dashboard as a machine: an actor runs it under the view.
+type App machine[Dash, Signal] {
+	initial: Begin,
+	step:    Step,
+}

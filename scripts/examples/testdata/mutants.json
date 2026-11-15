@@ -343,6 +343,49 @@
       "rule": "Every compiler call of the runner builds in the run's own emission cache, which the run removes, never the caller's or the user's.",
       "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
     },
-    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] }
+    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] },
+    {
+      "name": "examples-workload-unexpected",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile:",
+      "to": "case file == \"no \"+opcount.WorkloadFile:",
+      "rule": "A program of packages may hold a workload file (scripts/opcount).",
+      "killers": ["scripts/examples:TestRepoExamplesHoldTheirLaws", "scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "problem(\"%s: %s\", file, w)",
+      "to": "_ = w",
+      "rule": "A workload file that does not read is a layout error naming its line.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "md2-mod-cold-skipped",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/mod.go",
+      "from": "\tr.fail(p.name + \": mod\")\n",
+      "to": "",
+      "rule": "A program tagged mod whose module cache is cold fails; it is never skipped.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {
+      "name": "md2-mod-leg-unrun",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/main.go",
+      "from": "if p.tagged(\"mod\") && !r.modLeg(p) {",
+      "to": "if false && !r.modLeg(p) {",
+      "rule": "The mod leg runs before the build of a program tagged mod.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {"name":"dk1-doc-drift","origin":"wf10 DK1","file":"docs/domain.md","from":"\t\t[]Event{Retried{Stage: k.Stage}}","to":"\t\t[]Event{Retried{Stage: f.Stage}}","rule":"Every code block of docs/domain.md is the current text of the examples/ declarations its marker names.","killers":["scripts/examples:TestDomainDocQuotesResolve"]},
+    {"name":"px2-gen-check-skipped","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","to":"","rule":"A program of packages with generated files runs ergo gen KIND --check on each contract, and a stale file fails it.","killers":["scripts/examples:TestModuleProgramGenCheck"]},
+    {"name":"px2-cmd-folder-unchecked","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); err != nil || !info.Mode().IsRegular() {","to":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); false && (err != nil || !info.Mode().IsRegular()) {","rule":"Every folder of a program's cmd is a binary with its main.ergo.","killers":["scripts/examples:TestModuleProgramLayout"]},
+    {"name":"mk0-module-tests-skipped","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n\tr.testProgram(p)\n","to":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","rule":"A module of modules/ runs ergo test on every package folder, so a failing law fails it.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-default-run-skips-modules","origin":"wf10 MK0","file":"scripts/examples/main.go","from":"\t\tselected = append(selected, modules...)\n","to":"","rule":"A run of the tags (the gate's examples step) runs every module of modules/ too.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-module-binary-admitted","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\t\tcase entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","to":"\t\tcase false && entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","rule":"A module is a library: a cmd/ or cases/ folder in it is a layout error.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-module-names-unchecked","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"if ergoName != \"\" && goName != \"\" && ergoName != goName {","to":"if false && ergoName != \"\" && goName != \"\" && ergoName != goName {","rule":"A module's ergo.mod and go.mod name one module path, so a replace that points at it resolves.","killers":["scripts/examples:TestModulesLeg"]}
   ]
 }

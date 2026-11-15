@@ -24,7 +24,7 @@ extern go net/rpc.Call type Call {
 // ergo:refused Call.Done: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go type Client struct
-extern go net/rpc.Client type Client {}
+extern go net/rpc.Client type Client {} implements Closer
 
 // ergo:go func (*Client).Call(serviceMethod string, args any, reply any) error
 // ergo:refused Client.Call: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
@@ -37,7 +37,7 @@ extern go net/rpc.Client.Close func (client *Client) Close() fails go.Error need
 
 // ergo:go type ClientCodec interface
 extern go net/rpc.ClientCodec type ClientCodec {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ReadResponseHeader(p0 *Response) fails go.Error needs go.Foreign takes p0,
 }
 
@@ -137,7 +137,7 @@ extern go net/rpc.Server.ServeRequest func (server *Server) ServeRequest(codec S
 
 // ergo:go type ServerCodec interface
 extern go net/rpc.ServerCodec type ServerCodec {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ReadRequestHeader(p0 *Request) fails go.Error needs go.Foreign takes p0,
 }
 

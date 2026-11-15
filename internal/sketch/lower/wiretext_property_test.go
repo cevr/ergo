@@ -246,7 +246,7 @@ func TestStdEvidenceAdmitsOnlyProvedCurrent(t *testing.T) {
 	if jsonPkg == nil {
 		t.Fatal("no json.Text in the checked program")
 	}
-	e := newStdEvidence(jsonPkg)
+	e := newShippedEvidence(jsonPkg)
 	admitted := 0
 	for prov, rules := range newRewriter(jsonPkg, nil).rules {
 		for _, r := range rules {

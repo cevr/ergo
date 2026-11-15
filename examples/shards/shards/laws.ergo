@@ -5,7 +5,7 @@
 
 // refusing is a target that refuses every write: the Targets laws run
 // against it.
-type refusing {}
+type refusing {} implements Targets
 
 func Write(_ refusing, t Share) Ref fails Refused { Refused{Why: "no"} }
 

@@ -358,9 +358,6 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
-		if lit := fc.l.info.Works[x]; lit != nil {
-			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
-		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
@@ -941,9 +938,14 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if len(x.Indices) != 1 {
 		ice(x, "an index with %d indices", len(x.Indices))
 	}
-	unchecked := fc.uncheckedIndex(x) // bounds.go
+	unchecked := fc.provedIndex(x) // bounds.go
+	if unchecked {
+		fc.indexFact(x) // facts.go
+		unchecked = fc.uncheckedOK()
+	}
 	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
 	if unchecked {
+		fc.l.took("bounds-unchecked")
 		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
 			return "(*" + fc.l.rt() + ".AddrAt(" + parts[0] + ", " + parts[1] + "))"
 		}
@@ -954,7 +956,12 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
 func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
-	if fc.uncheckedSlice(x) { // bounds.go
+	proved := fc.provedSlice(x) // bounds.go
+	if proved {
+		fc.cutFact(x) // facts.go
+	}
+	if proved && fc.uncheckedOK() {
+		fc.l.took("bounds-unchecked")
 		// The subject is a local (bounds.go, subject), so its Go text is a
 		// name, read again for a missing high bound. A cut of a constant
 		// length, s[a:a+n], passes n itself, so gc knows the result's

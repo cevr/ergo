@@ -28,14 +28,14 @@ type Linted struct {
 	Line int    `json:"line"`
 }
 
-// RunLint is Run, then the lint fixes (plan LINT1): when the clause loop
+// RunLint is Rows, then the lint fixes (plan LINT1): when the clause loop
 // leaves no diagnostic, it lints, applies every non-overlapping fixable
-// finding, checks under Explicit, and repeats until no fixable finding is
+// finding, checks again, and repeats until no fixable finding is
 // left. A round whose fixes leave a compiler diagnostic refuses the whole
 // run. The rounds are bounded by the first round's findings + 1: a safe
 // fix removes its finding and adds none.
 func RunLint(texts map[string]string, chk Checker, lintr Linter) (Result, error) {
-	res, err := run(texts, chk, true)
+	res, err := rows(texts, chk, true)
 	if err != nil || lintr == nil || len(res.Remaining) > 0 {
 		return res, err
 	}

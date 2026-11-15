@@ -7,7 +7,7 @@ import sync
 // a Vault is the same store: a Vault bound in a context keeps its keys
 // from one call to the next. Its field is unexported, so only NewVault
 // builds one.
-type Vault { cell sync.Ref[keys.Keys] }
+type Vault { cell sync.Ref[keys.Keys] } implements keys.Store
 
 // NewVault is a vault that holds k.
 func NewVault(k keys.Keys) Vault { Vault{cell: sync.NewRef[keys.Keys](k)} }

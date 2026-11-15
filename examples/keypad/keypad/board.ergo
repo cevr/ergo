@@ -144,7 +144,7 @@ func without[T](xs []T, i int) []T {
 
 // appended is xs and then x, in a new slice: Append may share the array
 // of xs (check-v1 Q2), and an earlier state keeps its own.
-func appended[T](xs []T, x T) []T {
+func appended[T](xs []T, x T) []T takes x {
 	let mut out = []T{}
 	for y in xs {
 		out = out.Append(y)

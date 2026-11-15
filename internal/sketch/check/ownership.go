@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -167,6 +168,17 @@ func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args
 	w.report(at, format, args...)
 }
 
+// refuseLent is refuse for a hand-off of the declaration's lent parameter
+// param (1-based): its diagnostic carries the takes clause to write
+// (takesFix), unless the walk is not of a declaration with a body.
+func (w *ownWalk) refuseLent(i, param int, at syntax.Node, what string, format string, args ...any) {
+	before := len(w.diags)
+	w.refuse(i, at, what, format, args...)
+	if len(w.diags) > before && w.fn != nil && w.fn.Decl != nil && w.fn.Decl.Body != nil && param > 0 {
+		w.diags[len(w.diags)-1].take = param
+	}
+}
+
 type ownScope struct {
 	key   syntax.Node
 	first int
@@ -197,6 +209,9 @@ type ownDiag struct {
 	at   syntax.Node
 	code string
 	msg  string
+	// take is the 1-based declaration parameter whose hand-off the
+	// diagnostic refuses: the takes clause to write names it (takesFix).
+	take int
 }
 
 type ownWalk struct {
@@ -234,7 +249,11 @@ type ownWalk struct {
 	copies  map[*TypeParam]CopySite
 	// borrow maps a let-bound borrow `let p = &h` of an owned local to
 	// that local: a Close called through p takes h (R19).
-	borrow    map[*Var]*Var
+	borrow map[*Var]*Var
+	// textRoots maps a local that holds a mapped text to the local that
+	// owns its Mapped: a use of the text is a use of that owner
+	// (mappedtext.go, Borrows 8).
+	textRoots map[*Var]*Var
 	lending   *lendWalk
 	lendFrame syntax.Node
 	// ranged is the range of the for-in being walked, without its
@@ -277,11 +296,38 @@ func (c *checker) checkOwnership() {
 			default:
 				continue
 			}
+			// A hand-off of a lent parameter names the whole takes clause
+			// to write (q137, EX3): every such site prints one text.
+			var fix *ClauseFix
+			if f := w.fn; f != nil && !(f.Name == "Close" && c.pkg.Info.Closes[f.Decl] != nil) {
+				var missing []int
+				for _, g := range w.diags {
+					if g.take > 0 {
+						missing = append(missing, g.take-1)
+					}
+				}
+				if len(missing) > 0 {
+					fix = c.takesFix(f, missing)
+				}
+			}
 			seen := map[ownDiag]bool{}
 			for _, g := range w.diags {
-				if !seen[g] {
-					seen[g] = true
-					c.errorf(g.at, g.code, "%s", g.msg)
+				if seen[g] {
+					continue
+				}
+				seen[g] = true
+				msg := g.msg
+				if g.take > 0 && fix != nil {
+					if i := strings.LastIndex(msg, "; write takes "); i >= 0 {
+						msg = msg[:i]
+					}
+					msg += "; write: " + fix.Signature
+				}
+				before := len(c.diags)
+				c.errorf(g.at, g.code, "%s", msg)
+				if g.take > 0 && fix != nil && len(c.diags) > before {
+					copied := *fix
+					c.diags[len(c.diags)-1].Fix = &copied
 				}
 			}
 		}
@@ -965,6 +1011,7 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 		}
 	}
 	w.letBorrow(spec)
+	w.letText(spec)
 }
 
 // letBorrow records `let p = &h`, or `let q = p` of such a p, where h is
@@ -1286,7 +1333,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		}
 		// A lent T handed off is a copy of it (the caller keeps its own):
 		// a mode, not a mark, so a call with a resource is refused (q56).
-		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		w.refuseLent(i, l.param, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.loanConflict(i, h)
@@ -1499,6 +1546,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			if v != nil && w.textUse(x, v, h) {
+				return
+			}
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
 			w.valueInstance(x)
@@ -1792,7 +1842,7 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
 		w.promote[l.param-1] = true
 	case l.lent:
-		w.refuse(i, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
+		w.refuseLent(i, l.param, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
 	default:
 		w.st.slots[i].fields |= 1 << k
 		w.info.FieldTakes[sel] = FieldTake{Var: l.v, Index: k}
@@ -2440,12 +2490,14 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			}
 			return false
 		}
-		w.expr(a, mLend, hand{hostLend: hostCallee, lend: func(i int, id *syntax.Ident) {
+		lendTo := func(i int, id *syntax.Ident) {
 			if loan == nil {
 				loan = &ownLoanCall{name: name, active: true}
 			}
 			w.st.slots[i].callLoans = append(liveLoans(w.st.slots[i].callLoans), ownLoan{loan, id})
-		}})
+		}
+		w.expr(a, mLend, hand{hostLend: hostCallee, lend: lendTo})
+		w.textLoan(a, lendTo)
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
 			w.checkLoanValue(a)
 		}

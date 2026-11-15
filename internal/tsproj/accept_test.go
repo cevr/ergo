@@ -396,7 +396,7 @@ import math
 import os
 import rpc
 import strconv
-func enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
+func enc[T wire](v T) string needs wired[T] { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
 func num(text string) json.Num { json.ParseNum(text) catch { case json.Malformed: Unreachable("generated number spelling") } }
 func fl(text string) float64 { strconv.ParseFloat(text) catch { case _: Unreachable("generated float spelling") } }
 // verdict is std json's judgement of a Reading text, re-encoded.

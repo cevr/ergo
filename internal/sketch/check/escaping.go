@@ -81,6 +81,7 @@ func (c *checker) checkEscapes() {
 			w.localFrames(d)
 			w.visit(d)
 			w.finishCaptures()
+			w.checkLentParams(d)
 		}
 		c.checkBorrows(f)
 	}
@@ -119,9 +120,6 @@ type escWalk struct {
 	// borrowHolders maps a local that holds a value converted from a
 	// borrow to the type it holds it as (borrowconv.go).
 	borrowHolders map[*Var]Type
-	// keeps memoizes, for a generic function and a type parameter, why
-	// its body may keep a value of it (borrowtargs.go).
-	keeps map[*Func]map[*TypeParam]string
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local
@@ -146,6 +144,7 @@ func (w *escWalk) visit(n syntax.Node) {
 		return
 	}
 	w.checkBorrowConv(n)
+	w.checkMappedText(n)
 	if id, ok := n.(*syntax.Ident); ok {
 		if v, ok := w.info.Defs[id].(*Var); ok {
 			w.varFrame[v] = len(w.frames) - 1
@@ -542,9 +541,16 @@ func (w *escWalk) mutUse(id *syntax.Ident, v *Var) {
 
 // borrowUse checks a use of the borrow v.
 func (w *escWalk) borrowUse(id *syntax.Ident, v *Var) {
-	if w.escapingFrom(v) != nil {
-		w.c.errorf(id, CodeType, borrowCaptureText, id.Name)
+	if IsMappedText(v.Type) {
+		if w.textEscapingFrom(v) != nil {
+			w.c.errorf(id, CodeType, textCaptureText, id.Name)
+		}
+		return
 	}
+	if w.escapingFrom(v) == nil {
+		return
+	}
+	w.c.errorf(id, CodeType, borrowCaptureText, id.Name)
 }
 
 // aliasUse records a use of the local v that holds a borrow as a write of
@@ -569,9 +575,13 @@ func (w *escWalk) aliasUse(id *syntax.Ident, v *Var) {
 }
 
 // holdsBorrow reports whether a value of type t can hold a borrow: a
-// borrow, or a tuple with an element that can (Borrows 1 keeps borrows
-// out of records, unions, collections and results).
+// borrow, a mapped text (Borrows 8), or a tuple with an element that can
+// (Borrows 1 keeps borrows out of records, unions, collections and
+// results).
 func holdsBorrow(t Type) bool {
+	if IsMappedText(t) {
+		return true
+	}
 	switch t := t.(type) {
 	case *Pointer:
 		return true

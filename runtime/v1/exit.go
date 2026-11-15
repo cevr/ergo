@@ -56,6 +56,9 @@ func (p *Panic) String() string { return rt.Text(p.Value) }
 // the frame's regions close. The stack is read as runtime/debug.Stack
 // reads it, without importing runtime/debug, which imports fmt (binsize
 // BS2).
+//
+// A fault inside a live mapping is recorded as the rt.MappedFault that
+// names its file (rt.FaultValue).
 func defectOf(t *rt.Task, p any) *Panic {
 	stack := make([]byte, 1024)
 	for {
@@ -66,7 +69,7 @@ func defectOf(t *rt.Task, p any) *Panic {
 		}
 		stack = make([]byte, 2*len(stack))
 	}
-	return &Panic{Value: p, Stack: stack, Context: contextOf(t)}
+	return &Panic{Value: rt.FaultValue(p), Stack: stack, Context: contextOf(t)}
 }
 
 // exit carries a recorded exit, in rt's canonical form, across lowered
@@ -530,11 +533,27 @@ func ergoStack(stack []byte) []string {
 // exits with the status of its exit (Exit causes, rule 6): 0 on success, 1
 // for a typed failure, 2 when any reason is a defect, as Go's own panic
 // report does, and 130 when every reason is an interruption. Each reason is
-// written on standard error.
+// written on standard error. The program's heap is paced first
+// (rt.Pace).
 //
 //ergo:host
 func Main(body func(*rt.Task) error) {
-	os.Exit(report(os.Stderr, runMain(body)))
+	os.Exit(mainStatus(body))
+}
+
+// startPace starts the heap pacing of a program (rt.Pace); a test replaces
+// it, so the test process keeps its own collector settings.
+var startPace = rt.Pace
+
+// mainStatus paces the heap, runs body as Main does and returns its exit status, with
+// standard output flushed: each reason goes to standard error after what
+// standard output holds (stderrSink), and the rest of standard output is
+// written before the status is returned (stdlib.md io 11).
+func mainStatus(body func(*rt.Task) error) int {
+	startPace()
+	status := report(stderrSink{}, runMain(body))
+	flushStdout()
+	return status
 }
 
 // runMain runs body as the root task and returns its canonical exit.

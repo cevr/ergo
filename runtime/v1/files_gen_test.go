@@ -146,5 +146,8 @@ func bodyLiteral(b Body) string {
 	} else if b.Package != "" {
 		fields = append(fields, fmt.Sprintf("Package: %q", b.Package))
 	}
+	if b.Check != "" {
+		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }

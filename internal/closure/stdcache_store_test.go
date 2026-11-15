@@ -15,8 +15,9 @@ import (
 // directory outside the checkout, into the fill directory, on the
 // checkout's toolchain; the store replaces every other entry, is filled
 // once, and its files are read-only; seedCache places each entry file and
-// nothing else; and a GOROOT inside the checkout is refused before any
-// build.
+// nothing else; a sweep with another TMPDIR shares the store that
+// ERGO_CLOSURE_STD_DIR names and builds nothing; and a GOROOT inside the
+// checkout is refused before any build.
 func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -24,6 +25,7 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	}
 	temp := t.TempDir()
 	t.Setenv("TMPDIR", temp)
+	t.Setenv(stdStoreVariable, "")
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "go.log")
 	fakeGo := func(goroot string) {
 		script := "#!/bin/sh\n" +
@@ -96,6 +98,14 @@ func TestStdStoreHoldsOnlyStdCompiles(t *testing.T) {
 	})
 	if again, err := fillStdStore(root); err != nil || again != store || len(calls()) != len(logged) {
 		t.Errorf("a second fill: store %s (%v) after %d builds; want %s and no build", again, err, len(calls())-len(logged), store)
+	}
+	// Another sweep step, with a TMPDIR of its own, shares the store the
+	// gate names (stdStoreVariable): it builds nothing and adds no bytes
+	// (fu-gate-sandbox: each step filled its own, 781 MB each).
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv(stdStoreVariable, parent)
+	if shared, err := fillStdStore(root); err != nil || shared != store || len(calls()) != len(logged) {
+		t.Errorf("a sweep with its own TMPDIR and %s=%s: store %s (%v) after %d builds; want %s and no build", stdStoreVariable, parent, shared, err, len(calls())-len(logged), store)
 	}
 
 	cache := t.TempDir()

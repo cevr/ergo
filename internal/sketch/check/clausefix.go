@@ -25,7 +25,7 @@ type Options struct {
 
 // CheckOptions checks like Check, in the modes opts selects.
 func CheckOptions(path string, files []*syntax.File, imp Importer, opts Options) (*Package, []Diagnostic) {
-	return check(path, files, imp, opts, nil)
+	return check(path, files, imp, nil, opts)
 }
 
 // ClauseFix is the edit that writes one clause of a function's signature:
@@ -35,7 +35,7 @@ func CheckOptions(path string, files []*syntax.File, imp Importer, opts Options)
 // element cannot be spelled.
 type ClauseFix struct {
 	File     int
-	Clause   string // "fails" or "needs"
+	Clause   string // "fails", "needs" or "takes"
 	Function string
 	Row      []string
 	InsertAt int
@@ -154,8 +154,81 @@ func (c *checker) inferredClauses() []ClauseFix {
 			}
 			out = append(out, *c.clauseFix(f, v.Kind, row))
 		}
+		if ix := c.pkg.Info.Takes[f]; len(ix) > 0 && f.file != nil && f.Decl != nil {
+			if fix := c.takesFix(f, ix); fix != nil {
+				out = append(out, *fix)
+			}
+		}
 	}
 	return out
+}
+
+// takesFix is the edit that adds the parameters of missing (indexes into
+// f's parameters) to f's takes clause (q137, EX3): after the written
+// names, or as a new clause after the rows. The names keep the
+// parameters' order. Nil when no parameter is missing; Text is empty when
+// a missing parameter has no name to write.
+func (c *checker) takesFix(f *Func, missing []int) *ClauseFix {
+	d := f.Decl
+	ft := d.Type
+	fix := &ClauseFix{File: f.file.index, Function: f.Name, Clause: "takes"}
+	if ft.Takes != nil {
+		for _, id := range ft.Takes.Names {
+			fix.Row = append(fix.Row, id.Name)
+		}
+	}
+	ix := slices.Clone(missing)
+	slices.Sort(ix)
+	var add []string
+	spellable := true
+	for _, i := range ix {
+		if i < 0 || i >= len(f.Sig.Params) {
+			continue
+		}
+		name := f.Sig.Params[i].Name
+		if slices.Contains(fix.Row, name) || slices.Contains(add, name) {
+			continue
+		}
+		if name == "" || name == "_" {
+			spellable = false
+		}
+		add = append(add, name)
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	fix.Row = append(fix.Row, add...)
+	joined := strings.Join(add, ", ")
+	if ft.Takes != nil && len(ft.Takes.Names) > 0 {
+		fix.InsertAt = int(ft.Takes.End())
+		fix.Text = ", " + joined
+	} else {
+		at := clauseAt(ft)
+		if ft.Needs != nil {
+			at = max(at, ft.Needs.End())
+		}
+		fix.InsertAt = int(at)
+		fix.Text = " takes " + joined
+		fix.Open = loneFuncResult(ft)
+	}
+	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
+	if !spellable {
+		fix.Text, fix.Open = "", 0
+	}
+	return fix
+}
+
+// loneFuncResult is where a new clause needs an opening parenthesis: a
+// clause written after a lone result of function type is the function's
+// only when the result is in parentheses; otherwise it is the result
+// type's row. 0 when none is needed.
+func loneFuncResult(ft *syntax.FuncType) int {
+	if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
+		if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
+			return int(r.List[0].Type.Pos())
+		}
+	}
+	return 0
 }
 
 // clauseFix is the edit that adds the elements of missing to f's clause
@@ -205,11 +278,7 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	default:
 		fix.InsertAt = int(clauseAt(ft))
 		fix.Text = " " + fix.Clause + " " + joined
-		if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
-			if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
-				fix.Open = int(r.List[0].Type.Pos())
-			}
-		}
+		fix.Open = loneFuncResult(ft)
 	}
 	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {
@@ -323,6 +392,8 @@ func (s *speller) typ(t Type) string {
 	switch t := t.(type) {
 	case *TypeParam:
 		return t.Name
+	case *Wired:
+		return WiredName + "[" + t.T.Name + "]"
 	case *Named:
 		if p := t.Obj.Pkg; p == nil || p != s.c.pkg && !p.qualify {
 			s.hide(t.Obj.Name)

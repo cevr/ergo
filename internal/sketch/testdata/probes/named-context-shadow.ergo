@@ -1,6 +1,6 @@
 // out: local provider
 type Store { Get() string }
-type Holder { Value string }
+type Holder { Value string } implements Store
 func Get(h Holder) string { return h.Value }
 func build() string       { return "provider" }
 let W = context { Store: Holder{Value: build()} }

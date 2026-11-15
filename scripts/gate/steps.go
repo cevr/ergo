@@ -167,6 +167,20 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
+// sweepStdVariable names the directory of the closure sweep's std store
+// (internal/closure, stdStoreVariable). Each step's TMPDIR is its own
+// (stepTempDir), and the store lived under it: every sweep step filled a
+// store of its own, 781 MB each, ten at once in a merge tier's sandbox
+// (7.7 GB of its 12 GB; ENOSPC in the sweeps, fu-gate-sandbox). The sweeps
+// of a run share sweepStdDir, beside the steps' directories: in the merge
+// tier's sandbox, inside its scratch temporary directory.
+const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
+
+// sweepStdDir is the one std store directory of the run's sweeps.
+func sweepStdDir() string {
+	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
+}
+
 // sweepStep runs the closure sweep over selection, one package directory,
 // whose expected seconds are weight (sweepWeight). The sweep runs a
 // package's test binary in runs of at most a set recorded test time each
@@ -182,7 +196,7 @@ func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
 		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,
@@ -574,7 +588,7 @@ func examplesStep(root string) (*Step, error) {
 			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
 			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
 			Tools:     []string{"go", "sh"},
-			Installed: []string{"examples"},
+			Installed: []string{"examples", "modules"},
 			Built:     []string{"bin/ergo"},
 		},
 	}, nil
@@ -767,8 +781,12 @@ func packageSeconds(measured map[string]float64) float64 {
 // wf10, section 1.1, measured). Their shards are processes, so they need no
 // t.Parallel audit; each shard is a step with its own TMPDIR (stepTempDir).
 // The shard count is the measured work over shardTargetSeconds, at most the
-// CPU budget.
-var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
+// CPU budget. The IR tests (internal/experimental/irspike) run in the full
+// tier with ergo's patched compile since IRT0b; their agreement and text
+// checks are split by example target (1046 s and 1261 s whole at
+// GOMAXPROCS=1), so the shards spread them and no step's timeout holds
+// them all.
+var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./internal/sketch/check", "./internal/sketch/lower"}
 
 // testedPackages are the module's packages that have tests, as "./dir".
 func testedPackages(root string) ([]string, error) {

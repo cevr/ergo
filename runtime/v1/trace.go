@@ -28,7 +28,7 @@ func rootFor() (*rt.Task, func()) {
 	rec := rttrace.New(traceCapacity)
 	return rt.TracedRoot("main", rec), func() {
 		if err := rttrace.WriteFile(path, rec, "", "ergo", nil); err != nil {
-			os.Stderr.WriteString(err.Error() + "\n")
+			stderrSink{}.Write([]byte(err.Error() + "\n"))
 		}
 	}
 }

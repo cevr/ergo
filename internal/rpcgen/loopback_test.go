@@ -1044,7 +1044,7 @@ type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string }
 
 func NewRef(wide string) Ref { Ref{log: sync.NewRef[[]string]([]string{}), n: sync.NewRef[int](0), wide: wide} }
 
-func enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
+func enc[T wire](v T) string needs wired[T] { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
 
 func next(r Ref) int { sync.Modify(r.n, func(c int) (int, int) { (c, c + 1) }) }
 
@@ -1147,7 +1147,7 @@ func (p *program) mainSource() string {
 		caps = append(caps, fmt.Sprintf("c%d.Svc", c.i))
 	}
 	needs := strings.Join(caps, " | ")
-	b.WriteString("\nfunc enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }\n")
+	b.WriteString("\nfunc enc[T wire](v T) string needs wired[T] { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }\n")
 	callFunc := func(name string, c *contract, cl *call) {
 		q := fmt.Sprintf("c%d.", c.i)
 		fmt.Fprintf(&b, "\nfunc %s() string needs %sSvc {\n\t", name, q)

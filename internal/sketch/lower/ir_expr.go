@@ -19,6 +19,10 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var e *irExpr
 	switch y := unparen(x).(type) {
 	case *syntax.CallExpr:
+		if w, ok := b.isWith(y); ok {
+			pre, e = b.withValue(w) // ir_with.go
+			break
+		}
 		pre, e = b.call(y, false)
 	case *syntax.IfStmt:
 		b.plain(y)
@@ -28,6 +32,26 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.Ident:
+		sc := b.scalarIdent(y)
+		if sc == nil {
+			return nil, b.expr(x)
+		}
+		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
+	case *syntax.BinaryExpr:
+		// An if or a match as an operand of an operator that evaluates
+		// both: its statements run in operand order (the emitter's binary
+		// takes its operands).
+		op := y.Op.String()
+		if op == "&&" || op == "||" || op == ".." || !isBranch(y.X) && !isBranch(y.Y) {
+			return nil, b.expr(x)
+		}
+		b.plain(y)
+		b.goType(b.l.info.Types[y], y)
+		b.operator(op, b.l.info.Types[y.X], y)
+		var vals []*irExpr
+		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
+		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
 	default:
 		return nil, b.expr(x) // expr converts
 	}
@@ -95,6 +119,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, known := b.locals[o]; known {
 				return &irExpr{K: "local", Pos: p, I: i}
 			}
+			if b.scalars[o] != nil {
+				// Its gather writes statements: a value (ir_scalar.go).
+				irNo("scalar-form local inside an expression")
+			}
 			if name, ok := b.l.vars[o]; ok {
 				// A package let: its Go variable.
 				b.goType(o.Type, x)
@@ -128,7 +156,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("selector on a non-record")
 		}
 		b.goType(n, x)
-		td := b.l.useType(b.l.typeDecl(n.Obj, x))
+		// goType queued the declaration, unless the runtime's Go type
+		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
+		td := b.l.typeDecl(n.Obj, x)
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
@@ -159,7 +189,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				lit.Elems = append(lit.Elems, b.expr(e))
 			}
 		case *check.Named:
-			td := b.l.useType(b.l.typeDecl(tt.Obj, x))
+			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			s := tt.Underlying().(*check.Struct)
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")

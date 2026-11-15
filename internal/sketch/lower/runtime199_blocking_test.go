@@ -236,6 +236,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// plumbing as NewScope is; it neither waits nor releases. A with
 		// in a body opens its scope through scopeCall.
 		"OpenWith": true,
+		// SB8: the entry's choice of direct standard output, before Main
+		// starts any task: one store and a flush, no wait.
+		"StdoutDirect": true,
 		// IG11: an exported function's root task, as Main is main's; Go's
 		// caller waits on it, no Ergo task does. L5b: a Script operation's
 		// record of a call (script.go): one lock for one append, no wait,

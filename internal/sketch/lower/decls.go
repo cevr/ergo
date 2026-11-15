@@ -358,6 +358,12 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	case *syntax.StructType:
 		td.kind = kindRecord
 		td.fieldName = map[string]string{}
+		if check.IsNever(named) {
+			// The prelude's Never, a union of no variants (types.md,
+			// Never): Go's struct{}, which no lowered code builds, since
+			// no Ergo expression makes a Never.
+			break
+		}
 		td.errorType = l.errorType(named)
 		// A defined error type over this record keeps its Go field names,
 		// so they avoid its Error method too.
@@ -414,6 +420,17 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				}
 				taken[memberName(op.Name)] = true
 				td.ops = append(td.ops, op)
+			}
+		}
+		// The operations a member `..I` includes (EXC1), as the checked
+		// operation type lists them after its own: `..Closer` gives Close,
+		// which a release of the including type's value calls.
+		if it, ok := named.Underlying().(*check.Interface); ok {
+			for _, op := range it.Methods {
+				if !taken[memberName(op.Name)] {
+					taken[memberName(op.Name)] = true
+					td.ops = append(td.ops, op)
+				}
 			}
 		}
 	case *syntax.MachineType:
@@ -587,7 +604,11 @@ func (l *lowerer) emitType(td *typeDecl) {
 	switch td.kind {
 	case kindRecord:
 		b.WriteString("type " + td.name + tparams + " struct {\n")
-		for _, f := range td.fields {
+		// The Go field order is the lowering's (layout.go); every use reads
+		// a field by its Go name.
+		order := l.layoutOrder(td)
+		l.layoutReport(td, order)
+		for _, f := range order {
 			b.WriteString("\t" + td.fieldName[f.Name] + " " + tc.goType(f.Type) + "\n")
 		}
 		b.WriteString("}\n\n")
@@ -734,6 +755,12 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 		return nil, false
 	}
 	if _, isRecord := n.Obj.Decl.Spec.(*syntax.StructType); !isRecord {
+		return nil, false
+	}
+	if l.runtimeType(n, f.Decl) != "" {
+		// A std record bound to a runtime struct (v1.StdRecord, such as
+		// rpc.Malformed): the runtime declares the Go type, and Go takes
+		// a method only in the package of its receiver's declaration.
 		return nil, false
 	}
 	var own []*check.TypeParam
@@ -1056,7 +1083,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
 
-	if fd.method != nil {
+	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
 		for _, tp := range own {
@@ -1077,10 +1104,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		recvName = paramNames[0]
 		typeArgs = nil // the receiver binds them
 	} else if sp != nil {
-		// A copy for a known record (record.go): one instance, its type
-		// parameters the call's Go types.
-		if fd.method != nil || owned || known {
-			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
+		// A copy for a known record (record.go) or a monomorphic copy
+		// (mono.go): one instance, its type parameters the call's Go
+		// types. A method's copy is a plain function of its receiver.
+		if (fd.method != nil && sp.rec != nil) || owned || known {
+			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 		head.WriteString("func " + sp.name + "(")
@@ -1118,7 +1146,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
-		if fd.method != nil && i == 0 {
+		if fd.method != nil && sp == nil && i == 0 {
 			continue
 		}
 		paramNames[i] = name(i)
@@ -1131,7 +1159,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
-	if sp != nil && params[sp.param] != nil {
+	if sp != nil && sp.rec != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}
@@ -1232,6 +1260,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		default:
 			fc.entryPoll(f.Pkg.Info, f.Decl)
 		}
+		fc.entryFacts(f, fd.pure) // facts.go
 		fc.body(f.Decl.Body.List)
 	})
 	if fc.frame.static != nil {
@@ -1432,7 +1461,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		if ok && l.consts[v] {
-			l.stats.Consts++
+			l.stats.Consts++ // forms.go
 			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
 			return
 		}
@@ -1464,6 +1493,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 // immutable and never borrowed (grammar.md, let), so no read needs its
 // address.
 func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
+	if !formsOn() {
+		return false // the OPT5 reference keeps every let a variable
+	}
 	if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
 		return false
 	}

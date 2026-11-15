@@ -4,6 +4,7 @@ import (
 	"iter"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -58,9 +59,13 @@ import (
 type Queue[T any] struct {
 	mu       sync.Mutex
 	capacity int
-	buf      []T          // the values that entered, oldest first; len <= capacity
-	senders  []*sender[T] // the Pushes waiting for room, oldest first
-	closed   bool
+	buf      []T // the values that entered, oldest first; len <= capacity
+	// size is len(buf), stored under mu at each change of buf, so Len reads
+	// it without the lock, as Go's len(ch) reads a channel's count. A read
+	// sees the count of one moment between two changes.
+	size    atomic.Int64
+	senders []*sender[T] // the Pushes waiting for room, oldest first
+	closed  bool
 	// wake is closed, and cleared, at each change a waiter may wait for;
 	// a waiter makes it. It is nil when nobody waits, so an uncontended
 	// Push or Pop allocates nothing for it.
@@ -114,6 +119,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 	}
 	if len(q.senders) == 0 && len(q.buf) < q.capacity {
 		q.buf = append(q.buf, v)
+		q.size.Store(int64(len(q.buf)))
 		q.signal()
 		q.mu.Unlock()
 		return nil
@@ -144,7 +150,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 	rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 	t.Check()
-	v, ok := q.take(t, t.Done())
+	v, ok := q.take(t)
 	if !ok {
 		return v, Closed{}
 	}
@@ -158,7 +164,7 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 		for {
 			rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 			t.Check()
-			v, ok := q.take(t, t.Done())
+			v, ok := q.take(t)
 			if !ok || !yield(v) {
 				return
 			}
@@ -185,14 +191,13 @@ func (q *Queue[T]) Poll() (T, bool) {
 // Len is q.Len(): how many values are in the queue that no Pop, Poll or
 // step of Values has taken yet. It is between 0 and the capacity; the
 // value of a Push still waiting for room is not counted, so a queue of
-// capacity 0 always has Len 0. It never waits. Prior art: Go's len(ch);
-// Effect's Queue.size, without its negative count of waiting takers.
+// capacity 0 always has Len 0. It never waits, and takes no lock: it reads
+// the count each change of the buffer stores (std-speed-1). Prior art: Go's
+// len(ch), which reads the channel's count without its lock too; Effect's
+// Queue.size, without its negative count of waiting takers.
 func (q *Queue[T]) Len() int {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: q})
-	q.mu.Lock()
-	n := len(q.buf)
-	q.mu.Unlock()
-	return n
+	return int(q.size.Load())
 }
 
 // End is q.End().
@@ -232,10 +237,15 @@ func (q *Queue[T]) Drain() []T {
 }
 
 // take removes the front value, waiting while the queue is open and empty;
-// ok is false on a closed, empty queue. When stop closes while it waits,
-// it raises rt.Interrupted, having taken nothing.
-func (q *Queue[T]) take(t *rt.Task, stop <-chan struct{}) (v T, ok bool) {
+// ok is false on a closed, empty queue. When a stop of t comes while it
+// waits, it raises rt.Interrupted, having taken nothing.
+func (q *Queue[T]) take(t *rt.Task) (v T, ok bool) {
 	q.mu.Lock()
+	// t's stop channel is asked for only when take must wait: Done is a
+	// wait of the runtime, where held output is flushed (stdlib.md io 11),
+	// and a take that finds a value waits on nothing.
+	var stop <-chan struct{}
+	asked := false
 	for {
 		if v, ok = q.front(); ok {
 			q.mu.Unlock()
@@ -244,6 +254,9 @@ func (q *Queue[T]) take(t *rt.Task, stop <-chan struct{}) (v T, ok bool) {
 		if q.closed {
 			q.mu.Unlock()
 			return v, false
+		}
+		if !asked {
+			stop, asked = t.Done(), true
 		}
 		if !q.wait(t, stop) {
 			q.mu.Unlock()
@@ -269,6 +282,7 @@ func (q *Queue[T]) front() (v T, ok bool) {
 			s.accepted = true
 			q.signal()
 		}
+		q.size.Store(int64(len(q.buf)))
 		return v, true
 	}
 	if len(q.senders) > 0 {

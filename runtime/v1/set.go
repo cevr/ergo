@@ -2,7 +2,6 @@ package v1
 
 import (
 	"io"
-	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -101,7 +100,7 @@ const (
 // failureLog is where LogFailures writes; a test replaces it.
 var (
 	failureLogMu sync.Mutex
-	failureLog   io.Writer = os.Stderr
+	failureLog   io.Writer = stderrSink{}
 )
 
 // closeGap, when a test sets it, runs in stop between closing admission

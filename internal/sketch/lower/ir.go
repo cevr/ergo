@@ -37,11 +37,11 @@ type IRReport struct {
 	Hash     string         `json:"hash"`
 }
 
-// LowerIR is Lower with the experimental IR bodies. The report's Hash
-// names the IR file's content. The build keys the main package's compile
-// on the IR through one key only: the -ergoir flag names a copy of the IR
-// file named by its content (irspike's stableIR), so main.go carries no
-// hash of its own (batch-18 verify M2: a second key was redundant).
+// LowerIR is Lower with the IR bodies. The report's Hash names the IR
+// file's content. A build keys the main package's compile on the IR
+// through one key: the direct path digests the IR file into the compile's
+// action key, go build's -ergoir flag names a file whose path names its
+// content (batch-18 verify M2: main.go carries no hash of its own).
 func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
@@ -218,6 +218,11 @@ type irStmt struct {
 	Op string `json:"op,omitempty"`
 	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
 	Cases []*irCase `json:"cases,omitempty"`
+	// Label is a loop's or a block's label, or the one a break, continue
+	// or goto names (ir_tree.go).
+	Label string `json:"label,omitempty"`
+	// Y is a store's value: X = Y, X a field (ir_with.go).
+	Y *irExpr `json:"y,omitempty"`
 }
 
 type irExpr struct {
@@ -257,15 +262,25 @@ type irBuilder struct {
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
-	// names allocates the temporaries' names (ir_fail.go, tempNames).
-	names *namer
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
 	// switches is the depth of Go switches (a match's, a catch's) inside
 	// the innermost loop: a break there would leave the switch, not the
-	// loop (ir_match.go).
+	// loop, so it names the loop's label (ir_match.go).
 	switches int
+	// label is the innermost loop's label, "" until a break inside a
+	// switch needs one; labels counts the function's labels (ir_tree.go).
+	label  string
+	labels int
+	// scalars are the locals in the scalar form (ir_scalar.go).
+	scalars map[*check.Var]*irScalar
+	// names allocates the temporaries' names (ir_fail.go, tempNames).
+	names *namer
+	// given are the names the body's locals and temporaries have: a
+	// source local keeps its spelling unless Go's scope or one of these
+	// has it (ir_stmt.go, localName).
+	given map[string]bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -344,9 +359,10 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 			ok = false
 		}
 	}()
-	if !fc.directives {
-		b.gate("library body")
-	}
+	// A library body (a std body the program reaches, written with no
+	// //line directive) takes an IR body as a sourced one does: its
+	// positions name its std file (pos), so its lines and its defects'
+	// locations are its .ergo source's (G5).
 	for _, g := range gates {
 		b.gate(g)
 	}
@@ -404,7 +420,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
-	b.fn.Body = append(b.fn.Body, b.bodyEnd(f.Decl.Body.List, b.fn.End)...)
+	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
+	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -426,16 +443,16 @@ func (st *irState) intrinsic(f *check.Func) {
 	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
-// pos is n's position as the IR spells it. A census also walks bodies
-// outside the program's sources (std); their positions are not needed.
+// pos is n's position as the IR spells it: its file in the program's
+// sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
+// the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
 	if _, ok := b.l.sourceOf(n); !ok {
-		if b.st.census != nil {
-			return irPos{}
+		if _, ok := b.l.stdFileOf(n); !ok {
+			irNo("node outside the program's and std's sources")
 		}
-		irNo("node outside the program's sources")
 	}
-	_, path, line, col := b.l.at(n, p)
+	path, line, col := b.l.locate(n, p)
 	i, ok := b.st.files[path]
 	if !ok {
 		i = len(b.st.out.Files)

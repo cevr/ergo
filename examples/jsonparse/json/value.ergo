@@ -1,0 +1,69 @@
+// Package json reads JSON text (RFC 8259) into a tree of values, and
+// writes a tree back as text. Parse fails with the offset, the line and
+// the column of the first byte that is not JSON. A number keeps its text;
+// a string is its decoded bytes, decoded as Go's encoding/json does: an
+// invalid UTF-8 byte and a lone surrogate escape are U+FFFD.
+
+// Value is a JSON value.
+type Value =
+	| Null{}
+	| Bool{B bool}
+	| Number{Text string}
+	| Str{S string}
+	| Array{Items []Value}
+	| Object{Members []Member}
+
+// Member is a name and its value, in the order of the text. An object may
+// name a key twice; both members stay.
+type Member { Key string, Val Value }
+
+// MaxDepth is how deep arrays and objects may nest, as in Go's
+// encoding/json: one more is a failure, not a stack overflow.
+let MaxDepth = 10000
+
+// Count is the number of values in v, v itself included.
+func Count(v Value) int {
+	match v {
+	case Array as a:
+		let mut n = 1
+		for x in a.Items {
+			n += Count(x)
+		}
+		n
+	case Object as o:
+		let mut n = 1
+		for m in o.Members {
+			n += Count(m.Val)
+		}
+		n
+	case Null, Bool, Number, Str:
+		1
+	}
+}
+
+// Depth is how deep v nests: 0 for a scalar, 1 for an array or object of
+// scalars.
+func Depth(v Value) int {
+	match v {
+	case Array as a:
+		let mut d = 0
+		for x in a.Items {
+			let e = Depth(x)
+			if e > d {
+				d = e
+			}
+		}
+		d + 1
+	case Object as o:
+		let mut d = 0
+		for m in o.Members {
+			let e = Depth(m.Val)
+			if e > d {
+				d = e
+			}
+		}
+		d + 1
+	case Null, Bool, Number, Str:
+		0
+	}
+}

@@ -1,0 +1,212 @@
+// The Feed machine: what one panel does with its source's samples and the
+// clock. Live takes samples and goes Stale after StaleAfter frames with
+// none; Stale comes back Live with the next sample; Paused keeps the view
+// as it was until Resume.
+
+// StaleAfter is how many frames with no sample a live panel waits before
+// it shows its source as stale: half a second at 120 frames a second.
+let StaleAfter = 60
+
+// Kind is what a panel draws.
+type Kind = Chart{} | Spark{} | Gauge{} | Strip{} | Log{}
+
+// Entry is a log line: a sample over its source's alarm, and its frame.
+type Entry { Frame int, Value int }
+
+// View is a panel's drawing state, one for each kind. A chart keeps
+// ChartLen samples, a spark line SparkLen, a heat strip HeatLen, a log
+// LogLen entries; a gauge eases from From toward To from frame Start.
+type View =
+	| ChartView{Samples Ring[int]}
+	| SparkView{Samples Ring[int]}
+	| GaugeView{From int, To int, Start int}
+	| StripView{Samples Ring[int]}
+	| LogView{Entries Ring[Entry]}
+
+let ChartLen = 10000
+let SparkLen = 64
+let HeatLen = 256
+let LogLen = 8
+
+// Panel is a panel: its view, the frame of its last sample, how many
+// samples it took, and the alarm level a log panel writes above.
+type Panel { View View, Seen int, Got int, Alarm int }
+
+// State is a panel in one of its modes.
+type State = Live{P Panel} | Paused{P Panel} | Stale{P Panel}
+
+// Event is what the board gives a panel: the samples of a frame, the end
+// of a frame, a pause or a resume.
+type Event = Samples{Frame int, Values []int} | Tick{Frame int} | Pause{} | Resume{}
+
+// Note is what a panel tells the board: its source went quiet, or came
+// back, at a frame.
+type Note = WentStale{Frame int} | CameBack{Frame int}
+
+// Open is a live panel of kind k with no samples, whose log writes the
+// samples above alarm.
+func Open(k Kind, alarm int) State {
+	let v = match k {
+	case Chart:
+		ChartView{Samples: NewRing[int](ChartLen)}
+	case Spark:
+		SparkView{Samples: NewRing[int](SparkLen)}
+	case Gauge:
+		GaugeView{From: 0, To: 0, Start: 0}
+	case Strip:
+		StripView{Samples: NewRing[int](HeatLen)}
+	case Log:
+		LogView{Entries: NewRing[Entry](LogLen)}
+	}
+	Live{P: Panel{View: v, Seen: 0, Got: 0, Alarm: alarm}}
+}
+
+// PanelOf is the panel of any mode.
+func PanelOf(s State) Panel {
+	match s {
+	case Live as l:
+		l.P
+	case Paused as p:
+		p.P
+	case Stale as t:
+		t.P
+	}
+}
+
+// Step is a panel's transition. A paused panel ignores samples and the
+// clock; a pause of a paused panel and a resume of a running one are
+// rejected.
+func Step(s State, e Event) Decision[State, Note] {
+	match s {
+	case Live as l:
+		match e {
+		case Samples as m:
+			if len(m.Values) == 0 {
+				return Ignore
+			}
+			Stay[State]{Next: Live{P: take(l.P, m)}}
+		case Tick as t:
+			if t.Frame-l.P.Seen > StaleAfter {
+				return Emit[State, Note]{Next: Stale{P: l.P}, Output: WentStale{Frame: t.Frame}}
+			}
+			Ignore
+		case Pause:
+			Enter[State]{Next: Paused{P: l.P}}
+		case Resume:
+			Reject
+		}
+	case Stale as t:
+		match e {
+		case Samples as m:
+			if len(m.Values) == 0 {
+				return Ignore
+			}
+			Emit[State, Note]{Next: Live{P: take(t.P, m)}, Output: CameBack{Frame: m.Frame}}
+		case Tick:
+			Ignore
+		case Pause:
+			Enter[State]{Next: Paused{P: t.P}}
+		case Resume:
+			Reject
+		}
+	case Paused as p:
+		match e {
+		case Samples, Tick:
+			Ignore
+		case Resume:
+			Enter[State]{Next: Live{P: p.P}}
+		case Pause:
+			Reject
+		}
+	}
+}
+
+// take is p with the samples of a frame drawn into its view.
+func take(p Panel, m Samples) Panel {
+	if len(m.Values) == 0 {
+		return p
+	}
+	let v = match p.View {
+	case ChartView as c:
+		ChartView{Samples: pushAll(c.Samples, m.Values)}
+	case SparkView as s:
+		SparkView{Samples: pushAll(s.Samples, m.Values)}
+	case GaugeView as g:
+		GaugeView{From: Shown(g, m.Frame), To: m.Values[len(m.Values)-1], Start: m.Frame}
+	case StripView as h:
+		StripView{Samples: pushAll(h.Samples, m.Values)}
+	case LogView as l:
+		let mut r = l.Entries
+		for x in m.Values {
+			if x > p.Alarm {
+				r = Push(r, Entry{Frame: m.Frame, Value: x})
+			}
+		}
+		LogView{Entries: r}
+	}
+	Panel{..p, View: v, Seen: m.Frame, Got: p.Got + len(m.Values)}
+}
+
+func pushAll(r Ring[int], xs []int) Ring[int] {
+	let mut out = r
+	for x in xs {
+		out = Push(out, x)
+	}
+	out
+}
+
+// Shown is a gauge's eased value at frame f.
+func Shown(g GaugeView, f int) int { Ease(g.From, g.To, f-g.Start, EaseFrames) }
+
+// Begin is a live chart: the Feed machine's input is the alarm level.
+func Begin(alarm int) State { Open(Chart, alarm) }
+
+// Feed is a panel as a machine.
+type Feed machine[State, Event] {
+	initial: Begin,
+	step:    Step,
+
+	// GoesStale: some run of the clock leaves a panel stale.
+	law GoesStale reaches Stale,
+
+	// PauseAndBack: a pause starts from live and a resume ends it.
+	law PauseAndBack path [Live, Paused, Live],
+
+	// StaleAfterSilence: a live panel whose last sample was at frame L is
+	// live at every frame to L+StaleAfter and stale at the next.
+	law StaleAfterSilence(events []Event, gap int) {
+		let mut s = Begin(0)
+		for e in events {
+			s = After(s, e)
+		}
+		match s {
+		case Live as l:
+			let seen = l.P.Seen
+			let k = ((gap % StaleAfter) + StaleAfter) % StaleAfter
+			let quiet = After(s, Tick{Frame: seen + 1 + k})
+			let late = After(quiet, Tick{Frame: seen + StaleAfter + 1})
+			match (quiet, late) {
+			case (Live, Stale):
+				true
+			case _:
+				false
+			}
+		case Paused, Stale:
+			true
+		}
+	},
+}
+
+// After is the state after e: an ignored or rejected event leaves it.
+func After(s State, e Event) State {
+	match Step(s, e) {
+	case Enter[State] as n:
+		n.Next
+	case Stay[State] as t:
+		t.Next
+	case Emit[State, Note] as m:
+		m.Next
+	case Ignore, Reject, Done[Note]:
+		s
+	}
+}

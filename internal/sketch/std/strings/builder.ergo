@@ -16,6 +16,19 @@ func WriteString(b *Builder, s string) { b.buf = builderAppend(b.buf, s) }
 // WriteByte adds c at the end of b, as Go's Builder.WriteByte.
 func WriteByte(b *Builder, c byte) { b.buf = builderAppendByte(b.buf, c) }
 
+// WriteBytes adds the bytes of bs at the end of b, as Go's Builder.Write.
+func WriteBytes(b *Builder, bs []byte) { b.buf = builderAppendBytes(b.buf, bs) }
+
+// WriteFrom adds n bytes at the end of b, copied from b's text at start
+// on, as an LZ77 decoder copies a match: byte k of the n is the byte at
+// start+k of the text after the call, so a run that reaches past the end
+// repeats what the call wrote (WriteFrom(b.Len()-1, n) repeats the last
+// byte n times). A negative n, a start outside the text, or a start at
+// its end with n > 0, is a defect. It copies whole runs, never byte by byte: a run the text holds
+// already is one append, as hand Go copies from its own []byte (Go's
+// Builder has no such write).
+func WriteFrom(b *Builder, start int, n int) { b.buf = builderAppendFrom(b.buf, start, n) }
+
 // Grow makes room for n more bytes in b, so that the next n bytes written
 // allocate nothing, as Go's Builder.Grow; a negative n is a defect, as Go
 // panics.
@@ -33,6 +46,10 @@ extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendByte func builderA
 
 extern go ergo.local/prototype/runtime/v1.StringsBuilderGrow func builderGrow(buf []byte, n int) []byte
 
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendBytes func builderAppendBytes(buf []byte, bs []byte) []byte
+
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendFrom func builderAppendFrom(buf []byte, start int, n int) []byte
+
 extern go ergo.local/prototype/runtime/v1.StringsBuilderText func builderText(buf []byte) string
 
 // BuilderConcatenates: a Builder's text is its writes joined in order,
@@ -47,4 +64,42 @@ law BuilderConcatenates(a string, c byte, d string) {
 	copy.WriteString(d)
 	let want = a + builderText([]byte{c})
 	b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d)
+}
+
+// WriteFromRepeats: WriteFrom is a loop of WriteByte that reads each byte
+// from the text as it grows, from any start in the text and for any count,
+// a run that overlaps its own output included.
+law WriteFromRepeats(a string, start int, n int) {
+	let text = a + "x"
+	let from = if start < 0 { -(start + 1) % len(text) } else { start % len(text) }
+	let count = if n < 0 { -(n + 1) % 300 } else { n % 300 }
+	let mut b = NewBuilder()
+	b.WriteString(text)
+	b.WriteFrom(from, count)
+	let mut want = Bytes(text)
+	for k in 0..count {
+		want = want.Append(want[from+k])
+	}
+	b.String() == FromBytes(want) && b.Len() == len(text)+count
+}
+
+// BytesRoundTrip: Bytes and FromBytes convert both ways, WriteBytes writes
+// what WriteString writes, and the text FromBytes gives is its own: a
+// later write to the bytes, through the binding it read or one that
+// shared them, leaves it.
+law BytesRoundTrip(s string, c byte) {
+	let text = s + "x"
+	let mut a = Bytes(text)
+	let shared = a
+	let t = FromBytes(shared)
+	let u = FromBytes(a)
+	a[0] = c
+	let mut b = NewBuilder()
+	b.WriteString(s)
+	b.WriteBytes(a)
+	let mut w = NewBuilder()
+	w.WriteString(s)
+	w.WriteByte(c)
+	w.WriteString(Slice(text, 1, len(text)))
+	t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text)
 }

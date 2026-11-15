@@ -213,8 +213,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
+		if g := fc.uiGroup(x, c); g != nil {
+			return fc.groupCall(x, c, g) // a component call (uigroup.go)
+		}
 		sp := fc.specAt(x, c)
-		if sp == nil && fc.inlineAt(x, c) {
+		if sp == nil && fc.inGroup != x && fc.inlineAt(x, c) {
 			return "", false, false // the value is fc.inlined
 		}
 		fd := fc.l.useFunc(c.Func, x)
@@ -248,11 +251,22 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose result its statement discards goes to the variant
 		// with no result (forms.go, droppedSite).
 		dropped := !known && fc.droppedSite(x, c, fd)
+		// A call of a known instance goes to its plain copy (mono.go).
+		var mono *specCopy
+		if sp == nil && !known {
+			mono = fc.monoAt(x, c, c.Func, c.TypeArgs)
+		}
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
 		vals := fc.callArgsAddr(list, x, addr)
 		vals = fc.valueSource(x, c, vals)
+		if fd.method == nil && !known {
+			if text := fc.handoverAppend(x, c, vals); text != "" {
+				// A hand-over Append (handover.go).
+				return text, true, fd.fallible
+			}
+		}
 		var head string
 		var rest []string
 		if fd.method != nil {
@@ -271,6 +285,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				name = fc.l.droppedName(c.Func, fd)
 			}
 			head, rest = "("+vals[0]+")."+name, vals[1:]
+			if mono != nil {
+				// The copy is a plain function of the receiver.
+				head, rest = mono.name, vals
+			}
 		} else {
 			// Info names every type argument of a generic call: written,
 			// inferred, bound by a dot call's receiver (D-D8) or by an
@@ -292,6 +310,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
+			}
+			if mono != nil {
+				head = mono.name // one instance: no type arguments
 			}
 		}
 		// A pure function takes no environment (pure.go): no Task result
@@ -923,6 +944,9 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			head, args = args[0]+"."+fd.name, args[1:]
 		case inst != nil:
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
+			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
+				head = mono.name // the instance's plain copy (mono.go)
+			}
 		default:
 			head = fd.name
 		}

@@ -743,6 +743,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	seed := locals.alloc("seed")
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
+	// The harness writes its report through Go's os.Stdout, so a test's
+	// host output stays direct and in order with it (stdlib.md io 11).
+	b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
 		s := l.initSlot(env)
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
@@ -1300,11 +1303,18 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 // $Try runs one case's body on the task t and says how it ended, printing
 // nothing: kind 0 when it held, 1 for a failed assert or a refuted law
 // (msg is the assert's text), 2 for a typed failure that escaped the body
-// declared at at, 3 for any other exit (a defect), which exit holds.
+// declared at at, 3 for any other exit (a defect), which exit holds. A
+// body that held a Script call and never released it fails with kind 1
+// and the report that names the Script and the operation (stdlib.md,
+// Testing 12); every exit empties the report for the next case.
 func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, exit error) {
 	done := false
 	defer func() {
+		held := $Runtime.ScriptHeldTake()
 		if done {
+			if kind == 0 && held != "" {
+				msg, kind = held, 1
+			}
 			return
 		}
 		exit = $Runtime.Capture(t, recover())

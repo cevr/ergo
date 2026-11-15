@@ -136,7 +136,10 @@ func GotOf(s File) int {
 func fetching(s File) Option[machines.Work[Signal, Source]] {
 	match s {
 	case Fetching as f:
-		Some{machines.Work{Run: func() Chunk fails NotFound | TimedOut needs Source { try Source.Chunk(f.Url, f.Got) }, OnSuccess: func(c Chunk) Signal { Got{Chunk: c} }}}
+		Some{machines.Attempt(func() Chunk fails NotFound | TimedOut needs Source { try Source.Chunk(f.Url, f.Got) }, func(c Chunk) Signal { Got{Chunk: c} }, func(failure) {
+			let failed Signal = failure
+			failed
+		})}
 	case Queued:
 		None
 	case Waiting:

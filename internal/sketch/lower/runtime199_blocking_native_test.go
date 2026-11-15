@@ -138,7 +138,8 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.
-// The reads of standard input wait for the host's input (batch-12 C3):
+// The reads of standard input (IOLines, IOReadAll, and IORead, std io.In's
+// Source Read) wait for the host's input (batch-12 C3):
 // runtime/v1/stdin_stop_test.go TestIOStdinStopModel states their laws (a
 // stop ends the wait, each line is taken once and in order, the line read
 // after a stop stays for the next read); a masked caller's Done is nil, so
@@ -172,7 +173,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stopped caller's Lines, Chunks and Wait end with the stop and leave the
 // program to its owner's release, and TestExecStartStopped that a stopped
 // caller's Start starts nothing.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
@@ -257,6 +258,10 @@ func blockingNative(t *testing.T, name, route string) {
 	subjRow, makerRow, launchRow := "", "", ""
 	if strings.Contains(body, "NewLiveScheduler") {
 		subjRow, launchRow = " needs Ambient", " needs Ambient"
+	}
+	if body == "try h.Wait()" {
+		// Wait takes the task, and the takes clause is written (q137, EX3).
+		subjRow += " takes h"
 	}
 	if strings.Contains(maker, "NewLiveScheduler") {
 		makerRow, launchRow = " needs Ambient", " needs Ambient"

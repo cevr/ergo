@@ -48,20 +48,25 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
-	return check(path, files, imp, Options{}, nil)
+	return CheckTest(path, files, imp, nil)
 }
 
-// CheckTest is CheckOptions for a package whose loader gives it the role of
-// under's test package (builders.go, rule 2; nil for none): its New<X>
-// functions may build under's operation types. The role comes from the
-// loader, which knows the package's import path whether it is the
-// program's root (checked as main) or an import (TestedPath), so a package
-// checks the same either way.
-func CheckTest(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
-	return check(path, files, imp, opts, under)
+// CheckTest is Check for a package whose loader gives it the role of under's
+// test package (builders.go, rule 2; nil for none): its New<X> functions
+// may build under's operation types. The role comes from the loader, which
+// knows the package's import path whether it is the program's root
+// (checked as main) or an import (TestedPath), so a package checks the
+// same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
+	return CheckTestOptions(path, files, imp, under, Options{})
 }
 
-func check(path string, files []*syntax.File, imp Importer, opts Options, under *Package) (*Package, []Diagnostic) {
+// CheckTestOptions is CheckTest in the modes opts selects (clausefix.go).
+func CheckTestOptions(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
+	return check(path, files, imp, under, opts)
+}
+
+func check(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -74,8 +79,8 @@ func check(path string, files []*syntax.File, imp Importer, opts Options, under 
 		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
-	c.derive = derived
 	c.opts = opts
+	c.derive = derived
 	c.pkg.testOf = under
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
@@ -120,8 +125,11 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
-	derive *derive.Package // the package's derive record (derive.go)
 	opts   Options
+	derive *derive.Package // the package's derive record (derive.go)
+	// neverOrigins caches, per union origin, whether a variant holds a
+	// Never (switchUnion.mayHoldNever; types.md, Never).
+	neverOrigins map[*Union]bool
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -179,12 +187,9 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
-	// workSends holds the declaring identifier of each Listen work's send
-	// parameter (workLit): the one value actor.Child accepts (childRule).
-	workSends map[*syntax.Ident]bool
-	// durableCalls are the calls of a durable runner (durable.go), which
-	// checkDurableSteps judges once the footprints are known.
-	durableCalls []durableCall
+	// pureArgs are the arguments of pure parameters (durable.go), which
+	// checkPureArgs judges once the footprints are known.
+	pureArgs []pureArg
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -216,7 +221,9 @@ type checker struct {
 	// includesExpanded is set once expandIncludes ran: a record resolved
 	// later splices its includes in as it resolves (include.go).
 	includesExpanded bool
-	inferSubjects    map[any]*switchUnion
+	// declOps memoizes declaredOps of a resolved named type (implements.go).
+	declOps       map[*Named][]*Named
+	inferSubjects map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests
@@ -672,7 +679,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -849,9 +856,16 @@ func (s *stdImporter) available(path string) {
 // calls it under the snapshot's lock, for each segment in import order.
 func (s *stdImporter) decoded(path string) {
 	s.mu.Lock()
-	s.work.StdPackagesDecoded++
+	module := strings.Contains(path, "\x00") // ModuleSegment
+	if module {
+		s.work.ModulePackagesDecoded++
+	} else {
+		s.work.StdPackagesDecoded++
+	}
 	s.mu.Unlock()
-	s.available(path)
+	if !module {
+		s.available(path)
+	}
 }
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
@@ -861,11 +875,14 @@ func (s *stdImporter) decoded(path string) {
 // must grow with the std packages it imports, not with the std (the
 // counted check budget, TestCheckWorkGrowsWithImports and
 // TestStdDecodeGrowsWithImports); it counts work, never time.
+// ModulePackagesDecoded counts the packages of required modules decoded
+// from the snapshot (InstalledPackage, NP5).
 type Work struct {
-	StdFilesParsed       int64
-	StdPackagesChecked   int64
-	StdPackagesDecoded   int64
-	StdSnapshotBytesRead int64
+	StdFilesParsed        int64
+	StdPackagesChecked    int64
+	StdPackagesDecoded    int64
+	StdSnapshotBytesRead  int64
+	ModulePackagesDecoded int64
 }
 
 // WorkDone returns the Work of the Std importer in this process so far.

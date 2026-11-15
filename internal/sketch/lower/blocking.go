@@ -210,6 +210,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsToLower":    {},
 	"StringsToUpper":    {},
 	"StringsIndex":      {},
+	"StringsIndexByte":  {},
 	"StringsContains":   {},
 	"StringsSlice":      {},
 	"StrconvItoa":       {},
@@ -222,6 +223,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsBuilderGrow":       {},
 	"StringsBuilderText":       {},
 	"StringsBuilderTextOwned":  {},
+	// SB2: the Builder's byte writes and the byte conversion.
+	"StringsBuilderAppendBytes": {},
+	"StringsBuilderAppendFrom":  {},
+	"StringsBytes":              {},
 	// std-align S1c: the rest of Go's strings and strconv that the std
 	// takes, and utf8; pure, as above.
 	"StringsReplaceAll":   {},
@@ -248,8 +253,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesContains":       {},
 	"SlicesIndex":          {},
 	"SlicesReverse":        {},
+	"SlicesReverseOwned":   {},
 	"SlicesClone":          {},
 	"SlicesConcat":         {},
+	"SlicesConcatOwned":    {}, // handover.go, own-consume
+	"SlicesConcatPoison":   {}, // its checking form
 	"SlicesRepeat":         {},
 	"SlicesSlice":          {},
 	"MapsClone":            {},
@@ -261,15 +269,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"CmpLess":              {},
 	"CmpMax":               {},
 	"CmpMin":               {},
-	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
-	// host clock and the others compute, so none waits; Timeline.Wait
-	// waits on the caller's task (rt.Sleep on the manual timeline), and
-	// Advance wakes sleepers without waiting.
-	"TimeHostNow": {},
-	"TimeFormat":  {},
-	"TimeParse":   {},
-	"TimeSub":     {},
-	"TimeSubMono": {},
+	// std time (std-align S2b; stdlib.md, time): TimeHostNow and
+	// TimeHostMono read the host clock and the others compute, so none
+	// waits; Timeline.Wait waits on the caller's task (rt.Sleep on the
+	// manual timeline), and Advance wakes sleepers without waiting.
+	"TimeHostNow":  {},
+	"TimeHostMono": {},
+	"TimeFormat":   {},
+	"TimeParse":    {},
+	"TimeSub":      {},
+	"TimeSubMono":  {},
 	// std-csv: pure bodies over encoding/csv on a string.
 	"CSVReadAll":     {},
 	"CSVScan":        {},
@@ -299,6 +308,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Exchange.End":   {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
+	// std machines and actor (FKG1): firingOn and firingOff set and clear
+	// the caller's task's firing mark around a state's After, and never
+	// wait.
+	"MachineFiringOn":  {task: true},
+	"MachineFiringOff": {task: true},
 	// std-duration: pure bodies of duration text and arithmetic.
 	"TimeParseDuration": {},
 	"TimeDurationText":  {},
@@ -342,11 +356,27 @@ var runtimeBindings = map[string]runtimeBinding{
 	// copy of a shared value under the same lock.
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
+	// std ui groups (P-ui, skipping; stdlib.md, UI 13): the memo of a
+	// frame's group arguments, one task's, with no lock and no wait.
+	"NewUIArgs":  {},
+	"UIArgsPut":  {},
+	"UIArgsSame": {},
+	"UIArgsSet":  {},
+	"UIArgsFree": {},
+	"UIArgsHeld": {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
-	// an Op holds its mutex for one step and calls no program code.
-	"NewOp":     {},
-	"Op.Answer": {},
-	"Op.Calls":  {},
+	// an Op holds its mutex for one step and calls no program code. A
+	// Release wakes a held caller and never waits; the held call waits in
+	// Op.Call, which the derived adapter calls with the caller's task
+	// (script.go), not through this catalog. Unanswered reads the ledger.
+	"NewOp":            {},
+	"Op.Answer":        {},
+	"Op.Calls":         {},
+	"Op.Hold":          {},
+	"Op.Release":       {},
+	"Op.Held":          {},
+	"Op.Unread":        {},
+	"ScriptUnanswered": {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},
@@ -483,7 +513,6 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
-	"FSMapFile":   {},
 	"FSReadDir":   {},
 	"FSStat":      {},
 	"FSWriteFile": {},
@@ -502,6 +531,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"HostRoot.ReadDir":  {task: true},
 	"HostRoot.Stat":     {task: true},
 	"HostRoot.Name":     {task: true},
+	// fs.Mapped (wf10 MAPPED): a mapping and its text; Close unmaps. None
+	// waits, and Close releases only the mapping.
+	"FSMapFile":    {},
+	"FSMapText":    {},
+	"FSClone":      {},
+	"Mapped.Text":  {},
+	"Mapped.Close": {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that
@@ -511,6 +547,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal":       {},
 	"IOReadAll":          {wait: callerWait},
 	"IOLines":            {wait: callerWait},
+	"IORead":             {wait: callerWait},
 	"IOStdinIsTerminal":  {},
 	"IOStderrIsTerminal": {},
 	// std term (CU2; stdlib.md, term): a mode change and a size read are

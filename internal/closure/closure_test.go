@@ -141,6 +141,10 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
+	// each std package and its copy), so lower's files, its test files
+	// among them, are in the package's closure: TestStdLawLedger's read of
+	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
 		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
@@ -249,6 +253,7 @@ var declared = map[string][]allowance{
 	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},

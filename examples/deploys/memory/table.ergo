@@ -12,7 +12,7 @@ type entries { byID Map[string, deploys.Deploy], order []string }
 // Table is an deploys.Store in memory. Its entries are in a sync.Ref, so
 // every copy of a Table is the same store: a Table bound in a context
 // keeps its deploys from one request to the next. NewTable makes one.
-type Table { cell sync.Ref[entries] }
+type Table { cell sync.Ref[entries] } implements deploys.Store
 
 // NewTable is an empty Table.
 func NewTable() Table {

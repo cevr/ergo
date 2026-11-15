@@ -123,7 +123,7 @@ func Rebind(a Ambient) int {
 		// bound as before (a program cannot declare its own Ambient: S108,
 		// a prelude name; TestIsAmbientIsThePrelude's).
 		{"N5d control: a prelude capability other than Ambient", `
-type Quiet {}
+type Quiet {} implements Console
 
 func Println(_ Quiet, line string) {}
 
@@ -272,7 +272,7 @@ func main() needs Console | Ambient {
 }
 `, nil},
 		{"P3 memory providers need no Ambient", `
-type Mem { Docs Map[string, string] }
+type Mem { Docs Map[string, string] } implements fs.Files
 
 func ReadFile(m Mem, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	match m.Docs.Get(path) {

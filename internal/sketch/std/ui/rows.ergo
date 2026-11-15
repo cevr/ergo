@@ -1,0 +1,82 @@
+// Virtual rows (H5b): a list of many rows of one height, of which the
+// composer runs only the rows a viewport shows, plus Overscan rows on each
+// side. The viewport is view-local state the host owns, as a field's text
+// is: a host reports it (Scrolled), and the next pass writes the rows it
+// shows. A row's identity and cells are by its key, as in Each, so a row
+// keeps them while it stays in the rows written, wherever it moves.
+
+// Overscan is the number of rows written past each edge of the viewport,
+// so a small scroll shows rows already written.
+let Overscan = 2
+
+// Viewport is a list's scroll offset and visible height.
+type Viewport { Offset Length, Height Length }
+
+// Visible is the range [first, last) of the rows a list of count rows of
+// rowHeight writes at viewport v: the rows v shows, with Overscan rows on
+// each side, inside [0, count). A height under 1 counts as 1.
+func Visible(count int, rowHeight Length, v Viewport) (int, int) {
+	let mut h = rowHeight
+	if h < 1.0 {
+		h = 1.0
+	}
+	let mut off = v.Offset
+	if off < 0.0 {
+		off = 0.0
+	}
+	let mut height = v.Height
+	if height < 0.0 {
+		height = 0.0
+	}
+	let top = int(float64(off / h))
+	let mut bottom = int(float64((off + height) / h))
+	if float64(bottom)*float64(h) < float64(off+height) {
+		bottom = bottom + 1
+	}
+	let mut first = top - Overscan
+	if first < 0 {
+		first = 0
+	}
+	let mut last = bottom + Overscan
+	if last > count {
+		last = count
+	}
+	if first > last {
+		first = last
+	}
+	(first, last)
+}
+
+// Rows writes a list named label of count rows, each rowHeight high, a
+// scroll container whose content is count * rowHeight high. Only the rows
+// of Visible at the list's viewport run row(i), under key(i); the node
+// says which row comes first, so a host places the rows at
+// First * rowHeight. The viewport is (0, 0) until a host reports one.
+func Rows[E](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int), at CallSite) {
+	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0}, at)
+	let mut v = Viewport{Offset: 0, Height: 0}
+	match c {
+	case ViewCell as x:
+		v = Viewport{Offset: x.Offset, Height: x.Height}
+	case _:
+		Unreachable("ui: a list's cell holds its viewport")
+	}
+	let (first, last) = Visible(count, rowHeight, v)
+	let outer = f.parent
+	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first}, None, Some{Value: where}, at)
+	let outerEach = f.each
+	let outerKey = f.key
+	for i in first..last {
+		f.each = at
+		f.key = key(i)
+		f.rowRuns = f.rowRuns + 1
+		row(i)
+	}
+	f.each = outerEach
+	f.key = outerKey
+	f.parent = outer
+}
+
+// ranRows is how many row functions of Rows the last pass ran: the work a
+// list costs, which grows with the viewport and not with the count.
+func ranRows[E](f *Frame[E]) int { f.rowRuns }

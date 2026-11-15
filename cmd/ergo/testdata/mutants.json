@@ -169,8 +169,8 @@
       "name": "dist1-platform-unchecked",
       "origin": "wf10 DIST1",
       "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "from": "if slices.Contains(gobind.BuildPlatforms, p) {",
+      "to": "if true || slices.Contains(gobind.BuildPlatforms, p) {",
       "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
       "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
     },
@@ -265,7 +265,7 @@
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
     },
-    {"name":"ex1-check-writes","origin":"wf10 EX1 r1","file":"cmd/ergo/fix.go","from":"\tif !check {\n\t\tif err := writeFixed(texts, res.Texts); err != nil {","to":"\tif true {\n\t\tif err := writeFixed(texts, res.Texts); err != nil {","rule":"ergo fix --check writes nothing (EXPLICIT §4).","killers":["cmd/ergo:TestFixCheckWritesNothing"]},
+    {"name":"ex1-check-writes","origin":"wf10 EX1 r1","file":"cmd/ergo/fix.go","from":"\t\tif write {\n\t\t\tif err := writeFixed(texts, res.Texts); err != nil {","to":"\t\tif true {\n\t\t\tif err := writeFixed(texts, res.Texts); err != nil {","rule":"ergo fix --check writes nothing (EXPLICIT §4).","killers":["cmd/ergo:TestFixCheckWritesNothing"]},
     {"name":"lint0-config-ignored","origin":"wf10 LINT0","file":"cmd/ergo/lint.go","from":"\tdoc, err := lint.ParseConfig(data)\n\tdoc.Dir = dir\n","to":"\t_ = data\n\tdoc, err := lint.DefaultConfig(), error(nil)\n\tdoc.Dir = dir\n","rule":"ergo lint reads the ergo.lint.json beside the module's ergo.mod.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
     {"name":"lint0-diagnostics-without-lint","origin":"wf10 LINT0","file":"cmd/ergo/main.go","from":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())","to":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, nil); _ = run","rule":"ergo diagnostics merges lint advice after the compiler's findings.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
     {"name":"lint0-strict-ignores-warnings","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"(!strict || report.TotalCounts.Warnings == 0)","to":"true","rule":"--strict fails policy on a lint warning.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}},
@@ -308,6 +308,95 @@
     {"name":"lc-test-no-record","origin":"wf10 LAWCACHE r1","file":"cmd/ergo/test.go","from":"\tverdicts.Record(out.String())\n","to":"\t_ = out\n","rule":"ergo test stores the verdict of each law run that held, so the next ergo test at the same inputs does not run it.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}},
     {"name":"lc-context-run-ignores-cached","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lower/lawcontexts.go","from":"\t\tb.WriteString(\"\\tif !\" + l.helper(\"CachedRun\") + \"(\" + strconv.Quote(label) + \") {\\n\")\n\t\tb.WriteString(\"\\t\\t\" + r + \" := \" + l.helper(\"NewRand\")","to":"\t\tb.WriteString(\"\\tif true {\\n\")\n\t\tb.WriteString(\"\\t\\t\" + r + \" := \" + l.helper(\"NewRand\")","rule":"The test build does not run a law under a context whose verdict ergo test found in the store; it prints it cached. The emitted harness runs only in a built test binary.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}},
     {"name":"lc-search-ignores-cached","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lower/machinelaws.go","from":"\tb.WriteString(\"\\tif !\" + l.helper(\"CachedRun\") + \"(\" + strconv.Quote(label) + \") {\\n\")\n","to":"\tb.WriteString(\"\\tif true {\\n\")\n","rule":"The test build does not run a machine's search whose verdict ergo test found in the store; it prints it cached. The emitted harness runs only in a built test binary.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}},
-    {"name":"lc-record-drops-witness","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lawcache/verdict.go","from":"\t\tv.Text += \"\\n\" + strings.Join(lines[1:end], \"\\n\")\n","to":"\t\t_ = lines\n","rule":"A stored verdict keeps the lines the run printed after its ok line (a search's witness), and a cached run prints them again. ergo test records in its own process, which the package's coverage pass does not instrument.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}}
+    {"name":"lc-record-drops-witness","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lawcache/verdict.go","from":"\t\tv.Text += \"\\n\" + strings.Join(lines[1:end], \"\\n\")\n","to":"\t\t_ = lines\n","rule":"A stored verdict keeps the lines the run printed after its ok line (a search's witness), and a cached run prints them again. ergo test records in its own process, which the package's coverage pass does not instrument.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}},
+    {"name":"inspect-facts-unrouted","origin":"wf10 FACT0","file":"cmd/ergo/inspect.go","from":"\tif len(args) > 0 && args[0] == \"facts\" {","to":"\tif len(args) > 0 && args[0] == \"facts-unrouted\" {","rule":"ergo inspect facts prints the run build's fact export, as text and as JSON.","killers":["cmd/ergo:TestInspectFactsRoute"]},
+    {
+      "name": "goos-build-list-is-binding-list",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "cmd/ergo/build.go",
+      "from": "\tif slices.Contains(gobind.BuildPlatforms, p) {",
+      "to": "\tif slices.Contains(gobind.Platforms, p) {",
+      "rule": "ergo build accepts the build platforms (windows/amd64, js/wasm, wasip1/wasm), not only the binding platforms.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "goos-windows-dropped",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "internal/gobind/load.go",
+      "from": "Platform{\"windows\", \"amd64\"}, ",
+      "to": "",
+      "rule": "windows/amd64 is a build platform.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "irt-build-source-path",
+      "origin": "wf10 IRT0b",
+      "file": "cmd/ergo/build.go",
+      "from": "\t\tIR:        true,\n\t\tStderr:    os.Stderr,\n\t\tLedger:",
+      "to": "\t\tIR:        false,\n\t\tStderr:    os.Stderr,\n\t\tLedger:",
+      "rule": "ergo build lowers every program through IR (plan-tier §1.1): the module holds the IR file the patched compile reads.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    },
+    {
+      "name": "irt-direct-no-ergoir",
+      "origin": "wf10 IRT0b",
+      "file": "internal/sketch/build/direct.go",
+      "from": "\t\targs = append(args, ergoIR(d.module)...)",
+      "to": "\t\targs = append(args)",
+      "rule": "The direct path's root compile reads the module's IR bodies (-ergoir); without them it fails and the build falls back to go build.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    },
+    {
+      "name": "irt-gobuild-no-ergoir",
+      "origin": "wf10 IRT0b",
+      "file": "internal/sketch/build/action.go",
+      "from": "\tif ir := ergoIR(module); ir != nil {",
+      "to": "\tif ir := ergoIR(module); false && ir != nil {",
+      "rule": "go build, the reference build path, passes the IR file to the root package's compile too.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    },
+    {
+      "name": "md2-get-unverified",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tcase r.Why != \"\":\n",
+      "to": "\t\tcase false:\n",
+      "rule": "ergo get reads each fetched module as an import does and refuses one that cannot be imported.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md2-get-kept",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tif err := kept.restore(); err != nil {",
+      "to": "\t\tif err := error(nil); err != nil {",
+      "rule": "A refused ergo get leaves go.mod and go.sum as they were.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md3-deps-go-dropped",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "for _, use := range p.Go {",
+      "to": "for _, use := range p.Go[:0] {",
+      "rule": "ergo inspect deps lists each dependency package's uses of Go, also when the program does not check.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md3-deps-trust-hidden",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "\t\tif r.Trusted {\n",
+      "to": "\t\tif false {\n",
+      "rule": "ergo inspect deps shows whether the root trusts each module's Go.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {"name":"ap1-cli-check-blind","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\t\t\t\tstale = append(stale, filepath.Join(target, name))\n","to":"\t\t\t\tif kind == \"rpc\" {\n\t\t\t\t\tstale = append(stale, filepath.Join(target, name))\n\t\t\t\t}\n","rule":"ergo gen cli --check fails on a cli.ergo the contract no longer generates.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
+    {"name":"ap1-cli-stale-rpc","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"if err != nil || !bytes.Equal(have, []byte(text)) {","to":"if err != nil && len(have) == 0 && text != \"\" {","rule":"ergo gen cli refuses to name the Request of a stale rpc package.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
+    {"name":"ap1-cli-own-request","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\treturn path + \"/\" + glue.Dir, nil\n","to":"\treturn \"\", nil\n","rule":"A cli package beside an rpc package names the rpc package's Request.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}}
   ]
 }

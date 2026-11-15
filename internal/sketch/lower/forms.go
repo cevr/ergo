@@ -30,8 +30,9 @@ import (
 //     at its top, with no other return of a value, writes that value into
 //     the call's result variable itself (renameTail).
 //
-// A constant package let of a basic type is a Go const, read through
-// v1.Let so no fold can fail (decls.go, constLet).
+// A constant package let of an integer, bool or string type is a Go const,
+// read through v1.Let so Go never folds an expression over it at build time
+// (constLet, decls.go; wf10 1BRC and OPT5 as one rule).
 //
 // The reference is formLowering "reference": the forms as they were before
 // OPT5. It is set by a test, or by a build with

@@ -34,7 +34,7 @@ type Scheduler {
 // sleeps on the host's clock, so it is a host provider (docs/spec/
 // stdlib.md, Host packages): its field gives the prelude the construction
 // authority, and only NewLiveScheduler makes one (std-align S2b).
-type LiveScheduler { live liveOnly }
+type LiveScheduler { live liveOnly } implements Scheduler
 
 // liveOnly is the zero-size type of LiveScheduler's field.
 type liveOnly {}
@@ -279,6 +279,27 @@ type Done[O] { Output O }
 // state; Done ends the machine with Output.
 type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O]
 
+// Never is the type with no value: a closed union of no variants
+// (docs/spec/types.md, Never; owner, 2026-11-13). No literal, conversion
+// or zero value makes one, so a value of a type that holds a Never (an
+// Emit[S, Never], a Done[Never]) is never made either. A machine that
+// gives no output is a Decision[S, Never]: its step writes no Emit and no
+// Done, and a match over its decisions or outcomes writes no arm for them.
+// A match on a Never value needs no arm. Never is no bottom type: it
+// converts to no other type, except through Absurd. No source form
+// declares an empty union, so this declaration's braces are the prelude's
+// one exception (check, emptyUnion); it lowers to Go's struct{}, never
+// built.
+type Never {}
+
+// Absurd is the value of any type T that a Never gives: since no Never is
+// made, Absurd is never called (Elm's never, Haskell's absurd, Rust's
+// match on Infallible). It is how a branch that holds a Never fits where a
+// T is wanted.
+func Absurd[T](n Never) T {
+	match n {}
+}
+
 // Timeout is a state's timer: when an entry of the state lasts In, the
 // runner gives the machine Signal. The runner owns the timer: it starts
 // when the entry opens, a Stay keeps it, and it never fires after its
@@ -317,6 +338,17 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
+// Closer is the release contract (resources R1): a type that implements
+// it is a resource, and its owner's scope calls Close where the value
+// dies, on every exit. Close takes the value it is called on (R19). It is
+// an ordinary operation type: a type declares it with `implements
+// Closer`, and an operation type includes it with `..Closer` (types.md,
+// Interface assignability 1).
+// law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
+type Closer {
+	Close() takes,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
@@ -325,11 +357,11 @@ type Task[T, E] {
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,
 	Stop(),
-	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end when no Wait took the task. It
-	// stops the task and waits until it has ended, as Stop does, and drops
-	// its typed failure; a Task is a resource.
-	Close(),
+	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
+	// its owner's scope calls it at the scope's end when no Wait took the
+	// task. It stops the task and waits until it has ended, as Stop does,
+	// and drops its typed failure; a Task is a resource.
+	..Closer,
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

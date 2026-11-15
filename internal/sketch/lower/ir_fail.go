@@ -34,14 +34,6 @@ type irCase struct {
 	Def  bool      `json:"def,omitempty"`
 }
 
-// temp declares a temporary local of the Go type t (an if expression's
-// result, a try's pair, a spilled operand), named after name but unique in
-// the function (tempNames): two temporaries never share a name, so the Go
-// text view (TXT) and DWARF tell them apart.
-func (b *irBuilder) temp(name, t string, p irPos) int {
-	return b.declare(b.names.alloc(name), t, p)
-}
-
 // tempNames is the namer of a body's temporaries: below the function's Go
 // scope (its parameters, the package, Go's reserved names), with every
 // identifier the body spells taken, so a temporary captures no source
@@ -83,7 +75,10 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 	}
 	if call := b.fallibleCall(x); call != nil {
 		if _, implicit := b.l.info.Implicit[x]; implicit {
-			irNo("implicit conversion")
+			// The value converts (a variant into the result's union):
+			// the call's failure leaves first, then the value returns.
+			pre, v := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
 		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
@@ -222,6 +217,9 @@ func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // bind evaluates the fallible call into a value local (-1: none) and an
 // error local.
 func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
+	if w, ok := b.isWith(call); ok {
+		return b.failWith(w) // ir_with.go
+	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
@@ -274,13 +272,19 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		body  []syntax.Stmt
 	}
 	var arms []arm
+	// A catch with record patterns, `case err:` or `case _` takes the
+	// emitter's match tree on the error (patternCatch; ir_tree.go).
+	var alts [][]*check.Pattern
+	patterned := false
 	for _, a := range x.Arms {
 		ar := arm{body: a.Body, pos: b.pos(x, a.Case)}
+		var as []*check.Pattern
 		for _, te := range a.Types {
 			p := b.l.info.Patterns[te]
 			if p == nil {
 				irNo("catch arm without a pattern")
 			}
+			as = append(as, p)
 			switch {
 			case p.Kind == check.PatTypeTest:
 				ar.types = append(ar.types, b.goType(p.Type, te))
@@ -289,10 +293,11 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 				ar.types = append(ar.types, ar.asT)
 				ar.as = p.Var
 			default:
-				irNo("catch with patterns")
+				patterned = true
 			}
 		}
 		arms = append(arms, ar)
+		alts = append(alts, as)
 	}
 	pre, v, e := b.bind(call)
 	p := b.pos(x, x.Catch)
@@ -306,18 +311,6 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		result = b.temp("caught", rt, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
 	}
-	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(x, x.Rbrace), X: &irExpr{K: "local", Pos: p, I: e}}
-	for i, a := range arms {
-		c := &irCase{Pos: a.pos, Types: a.types}
-		if a.as != nil {
-			name := b.temp(a.as.Name, a.asT, a.pos)
-			b.locals[a.as] = name
-			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
-		}
-		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
-		sw.Cases = append(sw.Cases, c)
-	}
-	sw.ElsePos = b.pos(x, x.Rbrace)
 	k := "panic"
 	if partial {
 		k = "fail"
@@ -325,8 +318,33 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			k = "panic"
 		}
 	}
+	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(x, x.Rbrace), X: &irExpr{K: "local", Pos: p, I: e}}
+	var then []*irStmt
+	if patterned {
+		t := &treeIR{b: b, s: x, site: x, p: p}
+		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		t.exit = func(ep irPos) []*irStmt {
+			return []*irStmt{{K: k, Pos: ep, X: &irExpr{K: "local", Pos: ep, I: e}}}
+		}
+		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
+		arms = nil
+	}
+	for i, a := range arms {
+		c := &irCase{Pos: a.pos, Types: a.types}
+		if a.as != nil {
+			name := b.named(a.as.Name, a.asT, a.pos)
+			b.locals[a.as] = name
+			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
+		}
+		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
+		sw.Cases = append(sw.Cases, c)
+	}
+	sw.ElsePos = b.pos(x, x.Rbrace)
 	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
-	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: []*irStmt{sw}}
+	if then == nil {
+		then = []*irStmt{sw}
+	}
+	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		// The call's value joins the union of the arms' (ir_union.go).
@@ -353,6 +371,14 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 		return nil
 	}
 	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
+	switch s := list[len(list)-1].(type) {
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		if result >= 0 {
+			// A match yields the catch's value (ir_match.go).
+			out := b.tail(list[:len(list)-1], false)
+			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
+		}
+	}
 	if !isExpr {
 		if result >= 0 {
 			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {
@@ -389,16 +415,25 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 			}
 			return pre, v
 		}
-	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		return nil, b.expr(x) // inside an operand it keeps its gate (value)
 	}
-	return b.value(x) // the implicit conversion too (ir_union.go)
+	return b.value(x) // an if or match too, the implicit conversion too (ir_union.go)
 }
 
-// operands evaluates list left to right (the emitter's callArgs): an
+// isBranch reports an if or a match: a value whose statements may assign
+// a local.
+func isBranch(x syntax.Expr) bool {
+	switch unparen(x).(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return true
+	}
+	return false
+}
+
+// operands evaluates list left to right (the emitter's operands): an
 // operand before one that runs statements is spilled to a temporary, so
-// it is evaluated first. A constant or a local needs no spill: no
-// statement IR writes before a later operand assigns a local.
+// it is evaluated first. A constant needs no spill, nor a local unless a
+// later operand is an if or a match, whose arms may assign it: no other
+// statement IR writes assigns a source local.
 func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	pres := make([][]*irStmt, len(list))
 	vals := make([]*irExpr, len(list))
@@ -408,11 +443,12 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	var pre []*irStmt
 	for i, a := range list {
 		pre = append(pre, pres[i]...)
-		later := false
-		for _, p := range pres[i+1:] {
+		later, branch := false, false
+		for k, p := range pres[i+1:] {
 			later = later || len(p) > 0
+			branch = branch || isBranch(list[i+1+k])
 		}
-		if later && vals[i].K != "const" && vals[i].K != "local" {
+		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
 			p := vals[i].Pos
 			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})

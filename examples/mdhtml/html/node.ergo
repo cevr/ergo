@@ -1,25 +1,28 @@
 // Package html builds HTML as a tree of nodes and writes it. Escaping is
 // decided by type: a Text node is escaped when it is written, and only
-// this package builds an element, so an attribute value or a link is
-// escaped too. A link takes a Url, which only Href builds, so a link
-// never runs a script.
+// this package builds an element, so an attribute value is escaped too.
+// A link or an image takes a Url, which only Href and Trusted build, so
+// a link from Href never runs a script. Raw HTML is a node of its own,
+// so a program that leaves it out says so where it builds the tree.
 
 import strings
 
-// Node is a part of a document: an element with its children, or text.
-type Node = Element{tag string, attrs []Attr, children []Node} | Text{S string}
+// Node is a part of a document: an element with its children, text, or
+// raw HTML inside a line or as a block of its own.
+type Node = Element{tag string, attrs []Attr, children []Node} | Text{S string} | Raw{S string} | RawBlock{S string}
 
 // Attr is an attribute of an element.
 type Attr { Name string, Value string }
 
-// Url is a link target that is safe to follow: only Href builds one.
+// Url is a link target: only Href and Trusted build one.
 type Url { href string }
 
 // El is the element tag with children and no attributes.
 func El(tag string, children []Node) Node { Element{tag: tag, attrs: []Attr{}, children: children} }
 
 // ElAttrs is the element tag with attrs and children. An attribute
-// named href or src is dropped: a link is made by A, with a Url.
+// named href or src is dropped: a link is made by A and an image by Img,
+// each with a Url.
 func ElAttrs(tag string, attrs []Attr, children []Node) Node {
 	let mut kept = []Attr{}
 	for a in attrs {
@@ -30,76 +33,164 @@ func ElAttrs(tag string, attrs []Attr, children []Node) Node {
 	Element{tag: tag, attrs: kept, children: children}
 }
 
-// A is a link to u.
-func A(u Url, children []Node) Node {
-	Element{tag: "a", attrs: []Attr{Attr{Name: "href", Value: u.href}}, children: children}
+// A is a link to u with children, and a title when title is not empty.
+func A(u Url, title string, children []Node) Node {
+	let mut attrs = []Attr{Attr{Name: "href", Value: u.href}}
+	if title != "" {
+		attrs = attrs.Append(Attr{Name: "title", Value: title})
+	}
+	Element{tag: "a", attrs: attrs, children: children}
 }
 
-// Href is the Url of raw: raw, trimmed, when it is relative or its
-// scheme is http, https or mailto; else "#", so a javascript: or data:
-// link goes nowhere.
-func Href(raw string) Url {
-	let s = strings.TrimSpace(raw)
-	let colon = strings.Index(s, ":")
-	if colon < 0 {
-		return Url{href: s}
+// Img is an image of u with the text alt, and a title when title is not
+// empty.
+func Img(u Url, alt string, title string) Node {
+	let mut attrs = []Attr{Attr{Name: "src", Value: u.href}, Attr{Name: "alt", Value: alt}}
+	if title != "" {
+		attrs = attrs.Append(Attr{Name: "title", Value: title})
 	}
-	let slash = strings.Index(s, "/")
-	if slash >= 0 && slash < colon {
-		// a path whose segment holds a colon, such as a/b:c, is relative
-		return Url{href: s}
-	}
-	let scheme = strings.ToLower(strings.Slice(s, 0, colon))
-	if scheme == "http" || scheme == "https" || scheme == "mailto" {
-		return Url{href: s}
-	}
-	Url{href: "#"}
+	Element{tag: "img", attrs: attrs, children: []Node{}}
 }
+
+// Href is the Url of raw, or the empty Url when raw is a script or data
+// that is not an image, as cmark's safe mode writes it: a javascript:,
+// vbscript: or file: link, or data: other than a png, gif, jpeg or webp
+// image, goes nowhere.
+func Href(raw string) Url {
+	let l = strings.ToLower(raw)
+	if strings.HasPrefix(l, "javascript:") || strings.HasPrefix(l, "vbscript:") || strings.HasPrefix(l, "file:") {
+		return Url{href: ""}
+	}
+	if strings.HasPrefix(l, "data:") {
+		for img in []string{"image/png", "image/gif", "image/jpeg", "image/webp"} {
+			if strings.HasPrefix(strings.Slice(l, 5, len(l)), img) {
+				return Url{href: raw}
+			}
+		}
+		return Url{href: ""}
+	}
+	Url{href: raw}
+}
+
+// Trusted is the Url of raw as it is, for a document whose author is
+// trusted.
+func Trusted(raw string) Url { Url{href: raw} }
 
 // HrefOf is the text of u.
 func HrefOf(u Url) string { u.href }
 
-// Void elements have no end tag.
-let void = []string{"br", "hr", "img"}
+// writer is the text so far, and whether it ends a line (or is empty).
+type writer { out strings.Builder, nl bool }
 
-// Render is the HTML text of n.
-func Render(n Node) string {
-	match n {
-	case Text as t:
-		Escape(t.S)
-	case Element as e:
-		let mut parts = []string{"<", e.tag}
-		for a in e.attrs {
-			parts = parts.Append(" " + a.Name + "=\"" + Escape(a.Value) + "\"")
-		}
-		parts = parts.Append(">")
-		for v in void {
-			if v == e.tag {
-				return strings.Join(parts, "")
-			}
-		}
-		for c in e.children {
-			parts = parts.Append(Render(c))
-		}
-		parts = parts.Append("</" + e.tag + ">")
-		strings.Join(parts, "")
+func lit(w *writer, s string) {
+	if s == "" {
+		return
+	}
+	w.out.WriteString(s)
+	w.nl = s[len(s)-1] == '\n'
+}
+
+// cr ends the line unless it is ended.
+func cr(w *writer) {
+	if !w.nl {
+		lit(w, "\n")
 	}
 }
+
+func open(w *writer, tag string, attrs []Attr, selfClose bool) {
+	lit(w, "<")
+	lit(w, tag)
+	for a in attrs {
+		lit(w, " ")
+		lit(w, a.Name)
+		lit(w, "=\"")
+		lit(w, Escape(a.Value))
+		lit(w, "\"")
+	}
+	lit(w, if selfClose { " />" } else { ">" })
+}
+
+func close(w *writer, tag string) {
+	lit(w, "</")
+	lit(w, tag)
+	lit(w, ">")
+}
+
+func kids(w *writer, ns []Node) {
+	for k in ns {
+		write(w, k)
+	}
+}
+
+// write writes n with CommonMark's line breaks: a block element starts
+// and ends on a line of its own, a list or a quote also puts its
+// children on lines of their own, and br ends its line.
+func write(w *writer, n Node) {
+	match n {
+	case Text as t:
+		lit(w, Escape(t.S))
+	case Raw as r:
+		lit(w, r.S)
+	case RawBlock as r:
+		cr(w)
+		lit(w, r.S)
+		cr(w)
+	case Element as e:
+		match e.tag {
+		case "p", "h1", "h2", "h3", "h4", "h5", "h6", "pre":
+			cr(w)
+			open(w, e.tag, e.attrs, false)
+			kids(w, e.children)
+			close(w, e.tag)
+			cr(w)
+		case "blockquote", "ul", "ol":
+			cr(w)
+			open(w, e.tag, e.attrs, false)
+			cr(w)
+			kids(w, e.children)
+			cr(w)
+			close(w, e.tag)
+			cr(w)
+		case "li":
+			open(w, e.tag, e.attrs, false)
+			kids(w, e.children)
+			close(w, e.tag)
+			cr(w)
+		case "hr":
+			cr(w)
+			open(w, e.tag, e.attrs, true)
+			cr(w)
+		case "br":
+			open(w, e.tag, e.attrs, true)
+			cr(w)
+		case "img":
+			open(w, e.tag, e.attrs, true)
+		case _:
+			open(w, e.tag, e.attrs, false)
+			kids(w, e.children)
+			close(w, e.tag)
+		}
+	}
+}
+
+// Render is the HTML text of n.
+func Render(n Node) string { RenderAll([]Node{n}) }
 
 // RenderAll is the HTML text of ns, one after the other.
 func RenderAll(ns []Node) string {
-	let mut parts = []string{}
-	for n in ns {
-		parts = parts.Append(Render(n))
-	}
-	strings.Join(parts, "")
+	let mut w = writer{out: strings.NewBuilder(), nl: true}
+	kids(&w, ns)
+	w.out.String()
 }
 
 // TextOf is the text of n with its markup removed: what a reader sees.
+// Raw HTML has no text.
 func TextOf(n Node) string {
 	match n {
 	case Text as t:
 		t.S
+	case Raw, RawBlock:
+		""
 	case Element as e:
 		let mut parts = []string{}
 		for c in e.children {
@@ -109,21 +200,42 @@ func TextOf(n Node) string {
 	}
 }
 
-// Escape is s with &, <, >, " and ' written as character references, so
-// it stands for itself in text and in an attribute value.
+// Escape is s with &, <, > and " written as character references, so it
+// stands for itself in text and in an attribute value.
 func Escape(s string) string {
-	let a = strings.ReplaceAll(s, "&", "&amp;")
-	let b = strings.ReplaceAll(a, "<", "&lt;")
-	let c = strings.ReplaceAll(b, ">", "&gt;")
-	let d = strings.ReplaceAll(c, "\"", "&quot;")
-	strings.ReplaceAll(d, "'", "&#39;")
+	let mut plain = true
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '&' || c == '<' || c == '>' || c == '"' {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '&' {
+			b.WriteString("&amp;")
+		} else if c == '<' {
+			b.WriteString("&lt;")
+		} else if c == '>' {
+			b.WriteString("&gt;")
+		} else if c == '"' {
+			b.WriteString("&quot;")
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.String()
 }
 
 // Unescape is the text that Escape wrote as s.
 func Unescape(s string) string {
-	let a = strings.ReplaceAll(s, "&#39;", "'")
-	let b = strings.ReplaceAll(a, "&quot;", "\"")
-	let c = strings.ReplaceAll(b, "&gt;", ">")
-	let d = strings.ReplaceAll(c, "&lt;", "<")
-	strings.ReplaceAll(d, "&amp;", "&")
+	let a = strings.ReplaceAll(s, "&quot;", "\"")
+	let b = strings.ReplaceAll(a, "&gt;", ">")
+	let c = strings.ReplaceAll(b, "&lt;", "<")
+	strings.ReplaceAll(c, "&amp;", "&")
 }

@@ -2,17 +2,52 @@
 <p>A paragraph with <strong>strong</strong>, <em>em</em>, <code>a &lt; b</code> and a
 <a href="https://go.dev/doc?a=1&amp;b=2">link</a> on two lines.</p>
 <p>Escaped: *not em*, [not a link], and a lone * star.</p>
-<ul><li>first</li><li>second, <em>with</em> <code>code</code> and a lazy line</li><li>a new list, another marker</li></ul>
-<ol start="3"><li>three</li><li>four</li></ol>
-<ul><li>a bullet ends the numbered list</li></ul>
+<ul>
+<li>first</li>
+<li>second, <em>with</em> <code>code</code>
+and a lazy line</li>
+</ul>
+<ul>
+<li>a new list, another marker</li>
+</ul>
+<ol start="3">
+<li>three</li>
+<li>four</li>
+</ol>
+<ul>
+<li>a bullet ends the numbered list</li>
+</ul>
 <pre><code class="language-go">func main() {
 	if x &lt; 1 {
 		return
 	}
-}</code></pre>
-<hr>
-<h2><a href="#">bad</a>) link</h2>
+}
+</code></pre>
+<hr />
+<h2><a href="">bad</a> link</h2>
 <h6>six</h6>
 <p>####### seven is text</p>
+<h2>Setext heading</h2>
+<blockquote>
+<p>A quote with a list:</p>
+<ul>
+<li>one
+<ul>
+<li>nested <em>deeper</em></li>
+</ul>
+</li>
+</ul>
+<p>and a <a href="https://go.dev" title="The Go site">reference</a> link,
+lazily continued.</p>
+</blockquote>
+<pre><code>indented code
+  keeps its spaces
+</code></pre>
+<!-- raw HTML omitted -->
+<p>An <img src="/pic.png" alt="image alt" title="a title" />, an autolink &lt;https://example.com/a b&gt;,
+<a href="mailto:me@example.com">me@example.com</a>, © ☃ &amp;, a hard<br />
+break and another<br />
+one, <em>a <strong>nested</strong> run</em> and <strong>strong <em>em</em></strong>.</p>
 <pre><code>an unclosed fence
-runs to the end</code></pre>
+runs to the end
+</code></pre>

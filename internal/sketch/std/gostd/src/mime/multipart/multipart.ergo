@@ -9,7 +9,7 @@ extern go mime/multipart.ErrMessageTooLarge let ErrMessageTooLarge go.Error
 
 // ergo:go type File interface
 extern go mime/multipart.File type File {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Read(p []byte) int fails go.Error needs go.Foreign takes,
 	ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes,
 	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
@@ -48,7 +48,7 @@ extern go mime/multipart.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Wri
 // ergo:go type Part struct
 extern go mime/multipart.Part type Part {
 	Header textproto.MIMEHeader,
-}
+} implements Closer
 
 // ergo:go func (*Part).Close() error
 extern go mime/multipart.Part.Close func (p *Part) Close() fails go.Error needs go.Foreign takes p
@@ -75,7 +75,7 @@ extern go mime/multipart.Reader.NextRawPart func (r *Reader) NextRawPart() go.Re
 extern go mime/multipart.Reader.ReadForm func (r *Reader) ReadForm(maxMemory int64) go.Ref[Form] fails go.Error needs go.Foreign takes r
 
 // ergo:go type Writer struct
-extern go mime/multipart.Writer type Writer {}
+extern go mime/multipart.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).Boundary() string
 extern go mime/multipart.Writer.Boundary func (w *Writer) Boundary() string needs go.Foreign takes w

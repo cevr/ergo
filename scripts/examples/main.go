@@ -6,8 +6,9 @@
 //	go run ./scripts/examples [flags] [PROGRAM...]
 //
 // It imports the standard library, internal/proclimit for the memory limit
-// of the programs it runs, and, for the law check (laws.go), the checker's
-// front end: the gate needs only Go and Git.
+// of the programs it runs, internal/opcount to read a program's workload
+// file, and, for the law check (laws.go), the checker's front end: the gate
+// needs only Go and Git.
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -36,7 +38,7 @@ func main() {
 
 // knownTags are the words a program's tags file may hold. default stands
 // alone; the others keep a program out of the default gate.
-var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui", "ts"}
+var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui", "ts", "mod"}
 
 // laterLegs are the tags whose legs are later units: selecting such a
 // program is a diagnostic, never a silent run.
@@ -76,7 +78,10 @@ type config struct {
 	record      bool
 	check       bool
 	lawless     bool
-	names       []string
+	// modules runs only the modules of modules/ (MK0), the names being
+	// modules; without it a run with no names runs every module too.
+	modules bool
+	names   []string
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -99,6 +104,9 @@ type program struct {
 	cases  []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
+	// library marks a module of modules/ (MK0, modules.go): no binary,
+	// no cases; the fmt, gen and test legs run.
+	library bool
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -133,6 +141,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportLawless(cfg.root, stdout)
 	}
 	programs, problems := loadExamples(cfg.root, cfg.record)
+	modules, moduleProblems := loadModules(cfg.root)
+	problems = append(problems, moduleProblems...)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -140,7 +150,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "examples: %d layout errors; see examples/README.md\n", len(problems))
 		return 2
 	}
-	selected, err := selectPrograms(cfg, programs)
+	var selected []*program
+	if cfg.modules {
+		selected, err = selectModules(cfg.names, modules)
+	} else if selected, err = selectPrograms(cfg, programs); err == nil && len(cfg.names) == 0 && !cfg.record {
+		// A run of the tags runs every module too: the gate's examples
+		// step checks modules/ (MK0).
+		selected = append(selected, modules...)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -225,7 +242,9 @@ func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
 	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, toolEnv: r.toolEnv}
-	if r.cfg.record {
+	if p.library {
+		one.runModule(p)
+	} else if r.cfg.record {
 		one.recordProgram(p)
 	} else {
 		one.runProgram(p)
@@ -266,6 +285,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
+	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -423,6 +443,17 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if strings.HasSuffix(file, ".ergo") {
 				p.sources = append(p.sources, filepath.Join(p.dir, file))
 			}
+		case file == opcount.WorkloadFile:
+			// scripts/opcount's sizes and arguments (examples/README.md,
+			// "Workload"); the runner checks it and does not run it.
+			if !entry.Type().IsRegular() {
+				problem("%s is not a regular file", file)
+				continue
+			}
+			_, found, _ := opcount.Check(filepath.Dir(filepath.Dir(p.dir)), p.dir)
+			for _, w := range found {
+				problem("%s: %s", file, w)
+			}
 		case file == "ts" && entry.IsDir():
 			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():
@@ -431,7 +462,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, workload, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
 		}
 	}
 	if !present["cmd"] {
@@ -443,20 +474,29 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 	return finishProgram(p, present, problems, record)
 }
 
-// checkCommands checks that cmd holds the one binary of the program,
-// cmd/NAME with its main.ergo.
+// checkCommands checks that cmd holds the program's binary, cmd/NAME
+// with its main.ergo, whose cases run, and that every other folder of
+// cmd is a binary too, cmd/OTHER/main.ergo (a server beside its CLI, as
+// Go's cmd/ holds several), which the test leg checks and builds.
 func checkCommands(p *program, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	if len(entries) != 1 || entries[0].Name() != p.name || !entries[0].IsDir() {
-		return []string{fmt.Sprintf("cmd holds one folder, cmd/%s, the program's binary", p.name)}
+	var problems []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			problems = append(problems, fmt.Sprintf("cmd holds only folders, one per binary; cmd/%s is not one", entry.Name()))
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(dir, entry.Name(), "main.ergo")); err != nil || !info.Mode().IsRegular() {
+			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", entry.Name()))
+		}
 	}
-	if info, err := os.Stat(filepath.Join(dir, p.name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
-		return []string{fmt.Sprintf("no cmd/%s/main.ergo", p.name)}
+	if _, err := os.Stat(filepath.Join(dir, p.name)); err != nil {
+		problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo, the program's binary", p.name))
 	}
-	return nil
+	return problems
 }
 
 // packageSources adds the .ergo files of the package folder dir, and of
@@ -527,6 +567,9 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 	}
 	if present["ts"] != p.tagged("ts") {
 		problem("a ts/ folder and the tag ts go together: the ts leg runs the TypeScript side in ts/")
+	}
+	if p.tagged("mod") && !(p.module && present["go.mod"]) {
+		problem("tagged mod: the mod leg checks the modules of the go.mod beside ergo.mod, and this program has none")
 	}
 	for _, source := range p.sources {
 		// The test leg tests every package, as go test ./... does: the
@@ -790,6 +833,9 @@ func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
 // function writes its clauses): a clause ergo fix would write fails the
 // program, as an unformatted file does.
 func (r *runner) runProgram(p *program) {
+	if p.tagged("mod") && !r.modLeg(p) {
+		return
+	}
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
@@ -799,6 +845,9 @@ func (r *runner) runProgram(p *program) {
 			r.toolFailed(p, "fix", o, err)
 			return
 		}
+	}
+	if !r.genProgram(p) {
+		return
 	}
 	dir, err := os.MkdirTemp(r.scratch, "build-")
 	if err != nil {
@@ -879,7 +928,7 @@ func (r *runner) testProgram(p *program) {
 // alone. A run that passed but did not test exactly the program's packages
 // fails the program.
 func (r *runner) testModule(p *program) bool {
-	module, err := moduleName(p.dir)
+	module, err := moduleName(filepath.Join(p.dir, "ergo.mod"))
 	if err != nil {
 		return false
 	}
@@ -923,20 +972,6 @@ func (r *runner) testModule(p *program) bool {
 		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.elapsed))
 	}
 	return true
-}
-
-// moduleName is the module that the ergo.mod in dir declares.
-func moduleName(dir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "ergo.mod"))
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-			return strings.TrimSpace(name), nil
-		}
-	}
-	return "", errors.New("ergo.mod declares no module")
 }
 
 // splitPackages splits the stdout of `ergo test DIR/...` at each `package

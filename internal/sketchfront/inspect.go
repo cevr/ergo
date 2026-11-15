@@ -77,6 +77,28 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 	return ev.Sites(), nil
 }
 
+// InspectFacts is the fact section of the checked analysis's run build
+// (lower/facts.go; facts.md, Lowering 7): each fact the build exports for
+// Go's optimizer, by position. It lowers the program in process and runs
+// no Go tool; source anchors a program of one source text.
+func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := lower.Facts(unit)
+	if facts == nil && err == nil {
+		facts = []lower.Fact{}
+	}
+	return facts, err
+}
+
+// FactsText is facts as ergo inspect facts prints them, one line each.
+func FactsText(facts []lower.Fact) string { return lower.FactsText(facts) }
+
 // GoDerived is one `type T derive E`: what it produced and, for a pattern,
 // the parse matcher's engine, why that engine, and its counts.
 type GoDerived struct {

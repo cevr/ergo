@@ -16,7 +16,7 @@ type Gateway {
 	Charge(order Order) string fails GatewayDown,
 }
 
-type MemoryOrders {}
+type MemoryOrders {} implements Orders
 
 func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	if id == "42" {
@@ -25,7 +25,7 @@ func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	return OrderNotFound{ID: id}
 }
 
-type FakeGateway {}
+type FakeGateway {} implements Gateway
 
 func Charge(_ FakeGateway, order Order) string fails GatewayDown {
 	return "auth-7"

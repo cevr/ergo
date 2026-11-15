@@ -40,7 +40,7 @@ func TestTaskCaptureOwnership(t *testing.T) {
 					if later {
 						after = "lend(r0)"
 					}
-					src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc lend(r R) {}\nfunc main() fails tasks.Closed {\n" + before + decls.String() + start + body + ";\n" + after + "\n}\n"
+					src := "import task\nimport tasks\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc lend(r R) {}\nfunc main() fails tasks.Closed {\n" + before + decls.String() + start + body + ";\n" + after + "\n}\n"
 					if set {
 						src = strings.TrimPrefix(src, "import task\n")
 					}
@@ -53,7 +53,7 @@ func TestTaskCaptureOwnership(t *testing.T) {
 		}
 	}
 	for _, call := range []string{"task.Go()", "tasks.Go(s)"} {
-		src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc main() fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); "
+		src := "import task\nimport tasks\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc main() fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); "
 		if call == "task.Go()" {
 			src += "let mut t = task.Go() {}; "
 		}

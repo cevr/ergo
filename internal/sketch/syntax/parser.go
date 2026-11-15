@@ -519,8 +519,24 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 			p.parseRefinement(d, start)
 		}
 	}
+	if p.atImplements() {
+		// `implements A, B` after the body (types.md, Interface
+		// assignability 1).
+		d.ImplementsPos = p.tok.pos
+		p.next()
+		for {
+			d.Implements = append(d.Implements, p.parseTypeName("implements"))
+			if !p.got(COMMA) {
+				break
+			}
+		}
+	}
 	return d
 }
+
+// atImplements reports the contextual word `implements`, which is no
+// keyword: a name `implements` stays a name everywhere else.
+func (p *parser) atImplements() bool { return p.tok.tok == IDENT && p.tok.lit == "implements" }
 
 // isAny reports the constraint name any.
 func isAny(x Expr) bool {
@@ -528,7 +544,8 @@ func isAny(x Expr) bool {
 	return ok && id.Name == "any"
 }
 
-// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]` or
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
+// `[T lent Counter]` or
 // `[E any, K comparable]` with Go's grouping: names before a constraint
 // share it, names at the end without one have none, and `any` gives a group
 // none where a constrained group follows it.
@@ -538,7 +555,14 @@ func (p *parser) parseTypeParams() *FieldList {
 	for {
 		pending = append(pending, p.parseIdent())
 		if p.tok.tok != COMMA && p.tok.tok != RBRACK {
-			l.List = append(l.List, &Field{Names: pending, Type: p.parseTypeName("a constraint")})
+			f := &Field{Names: pending, Type: p.parseTypeName("a constraint")}
+			// `lent` before a constraint marks the parameter lent and
+			// keeps the constraint: `[T lent Counter]` (types.md, Borrows
+			// 7). `lent` alone is the predeclared constraint.
+			if id, ok := f.Type.(*Ident); ok && id.Name == "lent" && p.tok.tok != COMMA && p.tok.tok != RBRACK {
+				f.Lent, f.Type = id.Pos(), p.parseTypeName("a constraint")
+			}
+			l.List = append(l.List, f)
 			pending = nil
 		}
 		if !p.got(COMMA) || p.tok.tok == RBRACK {
@@ -624,8 +648,9 @@ func (p *parser) parseMembers() *members {
 			m.fields = append(m.fields, f)
 		case p.tok.tok == DOTDOT:
 			// `..R` includes the fields of the record R (types.md,
-			// Structs 7).
-			kind = memberField
+			// Structs 7), or the operations of the operation type R
+			// (Interface assignability 1): the other members decide.
+			kind = -1
 			f := &Field{Doc: doc, Include: true, Dots: p.tok.pos}
 			p.next()
 			f.Type = p.parseType(ctxMember)
@@ -761,7 +786,13 @@ func (p *parser) groupsName(t Token) bool {
 func (p *parser) parseMembersType() Expr {
 	m := p.parseMembers()
 	if len(m.ops) > 0 || len(m.laws) > 0 {
-		return &InterfaceType{Lbrace: m.lbrace, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
+		var includes []*Field
+		for _, f := range m.fields {
+			if f.Include {
+				includes = append(includes, f)
+			}
+		}
+		return &InterfaceType{Lbrace: m.lbrace, Includes: includes, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
 	}
 	return &StructType{Fields: &FieldList{Opening: m.lbrace, List: m.fields, Closing: m.rbrace}}
 }
@@ -1328,6 +1359,10 @@ type paramEntry struct {
 	// wherePos and where are a law parameter's `where P` (refine.go).
 	wherePos Pos
 	where    Expr
+	// pure marks the clause `pure` before a named entry's type, written at
+	// purePos.
+	pure    bool
+	purePos Pos
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
@@ -1385,7 +1420,7 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		if e.where != nil && len(pending) > 0 {
 			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where, Pure: e.pure, PurePos: e.purePos})
 		pending = nil
 	}
 	if len(pending) > 0 {
@@ -1463,7 +1498,32 @@ func (p *parser) parseParamEntry() paramEntry {
 		}
 		return paramEntry{typ: t}
 	}
+	if pos, ok := p.pureClause(); ok {
+		return paramEntry{name: id, typ: p.parseType(ctxList), pure: true, purePos: pos}
+	}
 	return paramEntry{name: id, typ: p.parseType(ctxList)}
+}
+
+// pureClause reads the contextual word `pure` after a parameter's name when
+// a type follows it (`m pure Machine[S, E, O]`, Declarations 16), and
+// reports its position. Elsewhere `pure` stays a name: `x pure` is a
+// parameter of the type pure.
+func (p *parser) pureClause() (Pos, bool) {
+	if p.tok.tok != IDENT || p.tok.lit != "pure" {
+		return 0, false
+	}
+	switch next := p.peek(1); next.tok {
+	case IDENT, FUNC, ESCAPING, LPAREN:
+	case GO:
+		if p.peek(2).tok != PERIOD {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	pos := p.tok.pos
+	p.next()
+	return pos, true
 }
 
 // funcLitParams reads the parameters of a function literal: all typed, or
@@ -1489,6 +1549,15 @@ func (p *parser) funcLitParams(l *FieldList) {
 func (p *parser) parseType(ctx typeCtx) Expr {
 	p.enter()
 	defer p.leave()
+	if p.tok.tok == IDENT && p.tok.lit == "entry" && p.peek(1).tok == FUNC {
+		// `entry func(…)`: the contextual word marks the type of an
+		// entry's send (Types); elsewhere entry stays a name.
+		pos := p.tok.pos
+		p.next()
+		t := p.parseFuncType(ctx)
+		t.Entry, t.EntryPos = true, pos
+		return t
+	}
 	switch p.tok.tok {
 	case IDENT, GO:
 		if p.tok.tok == GO && p.peek(1).tok != PERIOD {

@@ -1,0 +1,240 @@
+// Package script is the headless driver of the drawing tool: a script is
+// lines of commands, each a signal of the Tool machine or a question for
+// the picture, and the driver writes what a window would show and what
+// the tool reports. Saving writes the picture's SVG to the Store in its
+// context.
+
+import draw/canvas
+import io
+import strconv
+import strings
+
+// Command is one line of a script.
+type Command = Show{} | Export{} | Save{} | Hit{At canvas.Point} | Send{Signal canvas.Signal}
+
+// BadLine is a line that is no command, with what was wanted.
+type BadLine { Text string, Want string }
+
+// Parse reads one line of a script:
+//
+//	show, export, save             write the frame, the SVG, save the SVG
+//	hit X Y                        the shape under a screen point
+//	down X Y, move X Y, up X Y     the pointer, in screen units
+//	tool pen|rect|ellipse|line|select
+//	layer N, pan DX DY, zoom PERCENT
+//	delete, escape
+func Parse(line string) Command fails BadLine {
+	let words = strings.Split(line, " ")
+	let args = len(words) - 1
+	match words[0] {
+	case "show", "export", "save", "delete", "escape":
+		if args != 0 {
+			return BadLine{Text: line, Want: "no argument"}
+		}
+		match words[0] {
+		case "show":
+			Show
+		case "export":
+			Export
+		case "save":
+			Save
+		case "delete":
+			Send{Signal: canvas.Delete}
+		case _:
+			Send{Signal: canvas.Escape}
+		}
+	case "hit", "down", "move", "up", "pan":
+		if args != 2 {
+			return BadLine{Text: line, Want: "two numbers"}
+		}
+		let p = canvas.Point{X: try whole(line, words[1]), Y: try whole(line, words[2])}
+		match words[0] {
+		case "hit":
+			Hit{At: p}
+		case "down":
+			Send{Signal: canvas.Down{At: p}}
+		case "move":
+			Send{Signal: canvas.Drag{At: p}}
+		case "up":
+			Send{Signal: canvas.Up{At: p}}
+		case _:
+			Send{Signal: canvas.Pan{By: p}}
+		}
+	case "layer", "zoom":
+		if args != 1 {
+			return BadLine{Text: line, Want: "a number"}
+		}
+		let n = try whole(line, words[1])
+		if words[0] == "layer" { Send{Signal: canvas.OnLayer{N: n}} } else { Send{Signal: canvas.Zoom{Percent: n}} }
+	case "tool":
+		if args != 1 {
+			return BadLine{Text: line, Want: "a tool: pen rect ellipse line select"}
+		}
+		match canvas.ToolNamed(words[1]) {
+		case Some[canvas.Kind] as k:
+			Send{Signal: canvas.Pick{Tool: k.Value}}
+		case None:
+			BadLine{Text: line, Want: "a tool: pen rect ellipse line select"}
+		}
+	case _:
+		BadLine{Text: line, Want: "a command: show export save hit down move up pan layer zoom tool delete escape"}
+	}
+}
+
+// whole reads a whole number from -10000 to 10000.
+func whole(line string, text string) int fails BadLine {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Text: line, Want: "a number from -10000 to 10000"}
+	}
+	if n < -canvas.Limit || n > canvas.Limit {
+		return BadLine{Text: line, Want: "a number from -10000 to 10000"}
+	}
+	n
+}
+
+// Play runs the script's lines on s and writes what each shows. A blank
+// line and a line that starts with # do nothing. It is the state after
+// the last line.
+func Play(s canvas.State, name string, lines Seq[string]) canvas.State needs canvas.Store | io.Stdout {
+	let mut at = s
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as b:
+			io.Stdout.Println("? \"" + b.Text + "\": want " + b.Want)
+			continue
+		}
+		match c {
+		case Show:
+			for l in canvas.Frame(at) {
+				io.Stdout.Println(l)
+			}
+		case Export:
+			io.Stdout.Print(canvas.Export(canvas.CanvasOf(at).Pic))
+		case Save:
+			let text = canvas.Export(canvas.CanvasOf(at).Pic)
+			canvas.Store.Save(name, text) catch {
+			case canvas.Unwritable as u:
+				io.Stdout.Println("cannot save " + u.Name + ": " + u.Reason)
+				continue
+			}
+			io.Stdout.Println("saved " + name + " (\(len(text)) bytes)")
+		case Hit as h:
+			let cv = canvas.CanvasOf(at)
+			match canvas.Top(cv.Pic, canvas.World(cv.View, h.At)) {
+			case Some[int] as id:
+				io.Stdout.Println("hit \(h.At.X),\(h.At.Y) = \(id.Value)")
+			case None:
+				io.Stdout.Println("hit \(h.At.X),\(h.At.Y) = none")
+			}
+		case Send as m:
+			at = step(at, m.Signal)
+		}
+	}
+	at
+}
+
+// step is the state after sig, with what the tool reports written.
+func step(s canvas.State, sig canvas.Signal) canvas.State needs io.Stdout {
+	match canvas.Step(s, sig) {
+	case Enter[canvas.State] as e:
+		e.Next
+	case Stay[canvas.State] as t:
+		t.Next
+	case Emit[canvas.State, canvas.Output] as m:
+		let c = canvas.CanvasOf(m.Next)
+		match m.Output {
+		case canvas.Added as a:
+			match c.Pic.Shapes.Get(a.Id) {
+			case Some[canvas.Placed] as p:
+				io.Stdout.Println("added " + canvas.Paint(c.View, p.Value))
+			case None:
+			}
+		case canvas.Removed as r:
+			let mut ids = []string{}
+			for id in r.Ids {
+				ids = ids.Append("\(id)")
+			}
+			io.Stdout.Println("removed " + strings.Join(ids, ","))
+		}
+		m.Next
+	case Ignore, Reject, Done[canvas.Output]:
+		s
+	}
+}
+
+// LineParsesBack: a command's line reads back as the command.
+law LineParsesBack(c Command) {
+	let line = Line(c)
+	let back = Parse(line) catch {
+	case BadLine:
+		return !fits(c)
+	}
+	back == c
+}
+
+// fits reports whether c's numbers are ones a line can carry.
+func fits(c Command) bool {
+	let ok = func(p canvas.Point) bool { -canvas.Limit <= p.X && p.X <= canvas.Limit && -canvas.Limit <= p.Y && p.Y <= canvas.Limit }
+	match c {
+	case Hit as h:
+		ok(h.At)
+	case Send as s:
+		match s.Signal {
+		case canvas.Down as d:
+			ok(d.At)
+		case canvas.Drag as d:
+			ok(d.At)
+		case canvas.Up as u:
+			ok(u.At)
+		case canvas.Pan as p:
+			ok(p.By)
+		case canvas.OnLayer as l:
+			ok(canvas.Point{X: l.N, Y: 0})
+		case canvas.Zoom as z:
+			ok(canvas.Point{X: z.Percent, Y: 0})
+		case canvas.Pick, canvas.Delete, canvas.Escape:
+			true
+		}
+	case Show, Export, Save:
+		true
+	}
+}
+
+// Line is the script line of c.
+func Line(c Command) string {
+	match c {
+	case Show:
+		"show"
+	case Export:
+		"export"
+	case Save:
+		"save"
+	case Hit as h:
+		"hit \(h.At.X) \(h.At.Y)"
+	case Send as s:
+		match s.Signal {
+		case canvas.Down as d:
+			"down \(d.At.X) \(d.At.Y)"
+		case canvas.Drag as d:
+			"move \(d.At.X) \(d.At.Y)"
+		case canvas.Up as u:
+			"up \(u.At.X) \(u.At.Y)"
+		case canvas.Pan as p:
+			"pan \(p.By.X) \(p.By.Y)"
+		case canvas.OnLayer as l:
+			"layer \(l.N)"
+		case canvas.Zoom as z:
+			"zoom \(z.Percent)"
+		case canvas.Pick as p:
+			"tool " + canvas.ToolName(p.Tool)
+		case canvas.Delete:
+			"delete"
+		case canvas.Escape:
+			"escape"
+		}
+	}
+}

@@ -60,19 +60,14 @@ func ledgerNames(a Analysis) lower.LedgerNames {
 	return lower.LedgerNames{a.program.root.pkg: a.program.root.path}
 }
 
-// ledgerEvidence is the run build's evidence from the module ledger's text
-// and the std ledger.
+// ledgerEvidence is the run build's evidence from the module ledger's
+// text: the evidence for the laws of the module's own packages. A package
+// another module declares takes its own module's ledger (lower's
+// evidenceFor), so this ledger never answers for it (STD-NOPRIV NP2).
 func ledgerEvidence(a Analysis, unit lower.Unit, text string) (*lower.LedgerEvidence, error) {
-	entries, err := lower.ParseLedger(std.Ledger())
-	if err != nil {
-		return nil, fmt.Errorf("the std law ledger: %w", err)
-	}
-	mod, err := lower.ParseLedger(text)
+	entries, err := lower.ParseLedger(text)
 	if err != nil {
 		return nil, err
-	}
-	for k, e := range mod {
-		entries[k] = e
 	}
 	return lower.NewLedgerEvidence(unit.Package, ledgerNames(a), entries), nil
 }
@@ -194,8 +189,7 @@ func (s ledgerSource) find(name string) (*check.Package, bool) {
 	if s.a.pkg != nil && s.names.Of(s.a.pkg) == name {
 		return s.a.pkg, true
 	}
-	if _, ok := std.Package(name); ok {
-		p, err := check.Std.Import(name)
+	if p, shipped, err := shippedImport(name); shipped {
 		return p, err == nil
 	}
 	prog := s.a.program

@@ -60,6 +60,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 	// earlier pass visited (E2 round 2 M1).
 	for _, pass := range []func(){
 		c.collect,
+		c.operationIncludeBodies,
 		c.strayAsserts,
 		c.checkImportAliases,
 		c.solveDeclKinds,
@@ -108,6 +109,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkLaws,
 		c.planLaws,
 		c.checkTypeDecls,
+		c.checkImplementsClauses,
 		c.checkContexts,
 		c.checkContextCycles,
 		c.checkErrorMethods,
@@ -116,6 +118,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkWireNeeds,
 		c.finishInfo,
 		c.closeFacts,
+		c.recordLegacyReleases,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
 		// After the resource types: what each with builds (withown.go),
@@ -130,8 +133,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
-		// After the footprints: a durable machine's step is pure (MU9).
-		c.checkDurableSteps,
+		// After the footprints: the argument of a pure parameter runs a
+		// pure function (Footprints 6), a durable machine's step (MU9).
+		c.checkPureArgs,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
 		// After every body: the first with operand past the with budget,
@@ -908,7 +912,7 @@ func (c *checker) resolveNamed(n *Named) {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -931,6 +935,10 @@ func (c *checker) resolveNamed(n *Named) {
 	defer restore()
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
+		if c.emptyUnion(n, spec) {
+			n.under = &Union{}
+			break
+		}
 		ctx.field = true
 		s := c.structType(spec, ctx)
 		s.obj = n.Obj
@@ -966,6 +974,7 @@ func (c *checker) resolveNamed(n *Named) {
 		n.under = c.definedType(n, spec, ctx)
 	}
 	n.state = 2
+	c.implementsClause(n, d, ctx)
 }
 
 // bracketKinds returns the solved kind of each unconstrained bracket
@@ -1051,6 +1060,7 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string) *Interface {
 	it := &Interface{}
 	seen := map[string]bool{}
+	c.interfaceIncludes(spec, ctx, it, seen)
 	for _, m := range spec.Methods {
 		ft, ok := m.Type.(*syntax.FuncType)
 		if !ok || len(m.Names) == 0 {
@@ -1187,6 +1197,7 @@ type typeCtx struct {
 	decl     bool                  // a type declaration: bracket parameters only
 	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param    bool                  // a parameter or receiver: *T allowed
+	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
 	scope    *Scope
 	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
 }
@@ -1274,6 +1285,9 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 // suppresses every diagnostic that would follow from it (D3).
 func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	t := c.typExpr0(x, ctx)
+	if IsMappedText(t) && !c.textPlacement(x, ctx) {
+		return invalid
+	}
 	if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 		c.errorf(x, CodeType, "generic type %s needs type arguments", n)
 		return invalid
@@ -1348,6 +1362,11 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		inner := typeCtx{}
 		if ctx != nil {
 			inner = *ctx
+		}
+		if x.Entry && (ctx == nil || !ctx.param) {
+			// An entry's send is a parameter's type (Signature.Entry): a
+			// field or a result of it would keep the send past the entry.
+			c.errorIn(x, x.EntryPos, x.EntryPos+syntax.Pos(len("entry")), CodeType, "entry func(…) is written only as a parameter's type: the send a work is given lives no longer than the call that got it (runtime.md, Machines and actors 14)")
 		}
 		inner.field, inner.param = false, false
 		sig := c.signature(x, &inner)
@@ -1841,6 +1860,12 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 			c.errorf(x, CodeType, "generic type %s needs type arguments", n)
 			return nil
 		}
+		if IsNever(t) {
+			// One way to say "fails with nothing": no fails row (owner,
+			// 2026-11-13; types.md, Never).
+			c.errorf(x, CodeType, "Never is no error row: a function that never fails writes no fails (types.md, Never)")
+			return nil
+		}
 		if vs, isRow := c.namedRow(x, t); isRow {
 			if vs == nil {
 				return nil
@@ -2020,6 +2045,9 @@ func writtenParamType(x syntax.Expr, t Type) Type {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
+			// `entry func(…)` is an entry's send (Signature.Entry); it is
+			// written only on a parameter, so only here.
+			ne.Entry = ft.Entry
 			return &ne
 		}
 	}
@@ -2037,6 +2065,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Params.List {
 			var t Type
 			if field.Type != nil {
+				pctx.textTop = field.Type
 				t = writtenParamType(field.Type, c.typExpr(field.Type, &pctx))
 			}
 			if len(field.Names) == 0 {
@@ -2119,7 +2148,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2155,7 +2184,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
-	closeTakes(f)
+	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
 	}

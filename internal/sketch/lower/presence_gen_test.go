@@ -36,7 +36,7 @@ type Notes {
 	law TextReadsBack() { readsBack(Text(), Value()) },
 }
 
-type Kept { e Entry }
+type Kept { e Entry } implements Notes
 
 func NewKept(e Entry) Kept { Kept{e: e} }
 
@@ -44,19 +44,19 @@ func Text(k Kept) string { json.Encode(codec(), k.e) }
 
 func Value(k Kept) Entry { k.e }
 
-type DropsNote { e Entry }
+type DropsNote { e Entry } implements Notes
 
 func Text(d DropsNote) string { json.Encode(codec(), Entry{..d.e, Note: json.Absent}) }
 
 func Value(d DropsNote) Entry { d.e }
 
-type DropsTag { e Entry }
+type DropsTag { e Entry } implements Notes
 
 func Text(d DropsTag) string { json.Encode(codec(), Entry{..d.e, Tag: json.Null}) }
 
 func Value(d DropsTag) Entry { d.e }
 
-type DropsBoth { e Entry }
+type DropsBoth { e Entry } implements Notes
 
 func NewDropsBoth(e Entry) DropsBoth { DropsBoth{e: e} }
 
@@ -64,7 +64,7 @@ func Text(d DropsBoth) string { json.Encode(codec(), Entry{..d.e, Both: json.Abs
 
 func Value(d DropsBoth) Entry { d.e }
 
-type DropsInner { e Entry }
+type DropsInner { e Entry } implements Notes
 
 func NewDropsInner(e Entry) DropsInner { DropsInner{e: e} }
 

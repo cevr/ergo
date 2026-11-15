@@ -71,6 +71,20 @@ func CallbackKeeper(name string) (int, bool) {
 	return 0, false
 }
 
+// EndsRunsBeforeReturn is the reviewed fact that the body name runs its
+// callback parameter param only during the call: every run of it, on any
+// task, has ended when the body returns, whatever the exit. A frame passed
+// there may capture a mapped text (types.md, Borrows 8): a text is read
+// only, so its runs read it at once without a race, and none reads it
+// after the call. TasksTransform waits for every task it starts.
+func EndsRunsBeforeReturn(name string) (param int, ok bool) {
+	switch name {
+	case "TasksTransform":
+		return 2, true
+	}
+	return 0, false
+}
+
 // DrainsLends names operations which cannot return while their keeper's
 // callback still runs. These facts describe the reviewed runtime bodies;
 // no user operation is trusted from its spelling alone.

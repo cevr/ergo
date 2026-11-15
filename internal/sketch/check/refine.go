@@ -55,6 +55,30 @@ func (r *Refinement) Count() *big.Int {
 	return n
 }
 
+// Bounds is the hull of the predicate of the refined type t: the least
+// and the greatest subject value it admits, each nil where it is the end
+// of the subject's domain, which bounds nothing. Every value of t holds
+// it, since only a checked constant and t's derived parse function make
+// a t (Refinements 6). The lowering exports it as a range fact
+// (lower/facts.go, FACT0).
+func (r *Refinement) Bounds(t Type) (lo, hi *big.Int) {
+	n, ok := t.(*Named)
+	if !ok || n.Defined() == nil || len(r.Spans) == 0 {
+		return nil, nil
+	}
+	dom, _, ok := refinementDomain(n.Defined())
+	if !ok {
+		return nil, nil
+	}
+	if l := r.Spans[0].Lo; l.Cmp(dom.Lo) > 0 {
+		lo = new(big.Int).Set(l)
+	}
+	if h := r.Spans[len(r.Spans)-1].Hi; h.Cmp(dom.Hi) < 0 {
+		hi = new(big.Int).Set(h)
+	}
+	return lo, hi
+}
+
 // RefinementOf is the refinement of the type t: of t itself when it is a
 // refined named type, else nil.
 func RefinementOf(t Type) *Refinement {

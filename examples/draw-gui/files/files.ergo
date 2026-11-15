@@ -1,0 +1,36 @@
+// Package files is the host's Store provider: a picture is a file of the
+// host's disk. A save writes a new file beside the old one and renames it
+// over it (fs.WriteFile), so a reader sees the old text or the new text.
+
+import draw/canvas
+import fs
+
+// Disk keeps pictures in the host's files. Only New makes one.
+type Disk { host fs.Host }
+
+// New is the provider over the host's files.
+func New(host fs.Host) Disk { Disk{host: host} }
+
+// Load is the whole text of the file at name.
+func Load(d Disk, name string) string fails canvas.Missing | canvas.Unreadable {
+	fs.ReadFile(d.host, name) catch {
+	case fs.NotFound:
+		return canvas.Missing{Name: name}
+	case fs.Denied:
+		return canvas.Unreadable{Name: name, Reason: "permission denied"}
+	case fs.Failed as e:
+		return canvas.Unreadable{Name: name, Reason: e.Reason}
+	}
+}
+
+// Save makes the file at name hold text.
+func Save(d Disk, name string, text string) fails canvas.Unwritable {
+	fs.WriteFile(d.host, name, text) catch {
+	case fs.NotFound:
+		return canvas.Unwritable{Name: name, Reason: "no such directory"}
+	case fs.Denied:
+		return canvas.Unwritable{Name: name, Reason: "permission denied"}
+	case fs.Failed as e:
+		return canvas.Unwritable{Name: name, Reason: e.Reason}
+	}
+}

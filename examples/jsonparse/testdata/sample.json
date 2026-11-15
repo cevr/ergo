@@ -1,0 +1,5 @@
+{"name": "jsonparse", "version": 1.0e0, "tags": ["parser", "rfc 8259"],
+ "escapes": "tab\there \"quoted\" \u00e9t\u00e9 \ud83d\ude00 \u0001",
+ "nested": {"empty": [], "none": {}, "deep": [[1, [2, [3]]]], "a/b": true, "m~n": null},
+ "twice": 1, "twice": 2,
+ "numbers": [0, -0, 12, -3.25, 6.02E23, 1e-9, 123456789012345678901234567890]}

@@ -1,0 +1,85 @@
+// Package script reads a scene script, one step a line, into ui.Acts that
+// any host plays, and writes seeded scripts for the workload:
+//
+//	tap LABEL          press the node labelled LABEL (an item's check box
+//	                   is labelled with its text, its remove button "del
+//	                   TEXT")
+//	type LABEL<TAB>TEXT  set the field's text
+//	settle             wait for the loads
+//
+// A blank line and a line starting with # are skipped.
+
+import rand
+import strings
+import ui
+
+// BadLine is a line that is no step.
+type BadLine { Line int, Text string }
+
+// Parse is the steps of text, in order.
+func Parse(text string) []ui.Act fails BadLine {
+	let mut out = []ui.Act{}
+	for i, raw in strings.Split(text, "\n") {
+		if strings.TrimSpace(raw) == "" || strings.HasPrefix(strings.TrimSpace(raw), "#") {
+			continue
+		}
+		// the text typed may end in spaces: only the line's start and its
+		// \r go
+		let line = strings.TrimSuffix(strings.TrimLeft(raw, " \t"), "\r")
+		let (verb, rest) = match strings.Cut(line, " ") {
+		case Some[strings.Halves] as c:
+			(c.Value.Before, c.Value.After)
+		case None:
+			(line, "")
+		}
+		match verb {
+		case "tap":
+			out = out.Append(ui.TapOn{Label: rest})
+		case "type":
+			match strings.Cut(rest, "\t") {
+			case Some[strings.Halves] as c:
+				out = out.Append(ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
+			case None:
+				return BadLine{Line: i + 1, Text: raw}
+			}
+		case "settle":
+			out = out.Append(ui.SettleAll)
+		case _:
+			return BadLine{Line: i + 1, Text: raw}
+		}
+	}
+	out
+}
+
+// words are the texts a generated script adds.
+let words = []string{"milk", "eggs", "bread", "tea", "rice", "soap", "jam", "oats"}
+
+// Gen is a script of n steps from seed: adds (typing a word, then add),
+// marks, removes, filters and clears, about the words it may have added.
+func Gen(seed uint64, n int) string {
+	let r = rand.Seeded(seed)
+	let mut out = strings.NewBuilder()
+	let mut added = []string{}
+	let mut i = 0
+	for i < n {
+		let k = r.IntN(10)
+		// a mark or a removal names a word added before, most of the time
+		let w = if len(added) > 0 && r.IntN(5) > 0 { added[r.IntN(len(added))] } else { words[r.IntN(len(words))] }
+		if k < 3 {
+			strings.WriteString(&out, "type new item\t\(w)\ntap add\n")
+			added = added.Append(w)
+			i = i + 2
+		} else if k < 6 {
+			strings.WriteString(&out, "tap \(w)\n")
+			i = i + 1
+		} else if k < 7 {
+			strings.WriteString(&out, "tap del \(w)\n")
+			i = i + 1
+		} else {
+			let pick = []string{"all", "open", "done", "clear"}
+			strings.WriteString(&out, "tap \(pick[r.IntN(len(pick))])\n")
+			i = i + 1
+		}
+	}
+	strings.String(out)
+}

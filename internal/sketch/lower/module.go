@@ -130,6 +130,9 @@ func Lower(u Unit) ([]File, error) {
 	}
 	l := newLowerer(u)
 	code, err := l.program()
+	if u.Copies != nil {
+		u.Copies.Sites = copyReport(l.stats.Copies)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +260,8 @@ type lowerer struct {
 	// unstable are, per package, the let mut locals a bounds fact never
 	// names (bounds.go, unstableVars).
 	unstable map[*check.Info]map[*check.Var]bool
+	// facts are the facts the run build exports (facts.go), once each.
+	facts    factSet
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -287,8 +292,11 @@ type lowerer struct {
 	envOrder  []envCap
 
 	rtName, timeName, taskName string
-	embedName                  string
-	embedUsed                  bool
+	// lineages numbers the one-extender sites, each a Lineage of the
+	// package's array (handover.go, own-lineage).
+	lineages  map[*syntax.CallExpr]int
+	embedName string
+	embedUsed bool
 	// rtLeaves are the leaves of runtime/v1 that main.go names (rtRef),
 	// by import path.
 	rtLeaves map[string]bool
@@ -345,6 +353,8 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
+	monoCount map[*check.Func]int   // copies made per function (mono.go)
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
@@ -624,7 +634,8 @@ func (l *lowerer) program() ([]byte, error) {
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 	}
-	table := l.callTable() // before the imports: it may name the runtime package
+	table := l.callTable()   // before the imports: it may name the runtime package
+	table += l.lineageDecl() // likewise (handover.go)
 	graphs := l.graphAccessor()
 	inits := l.initFunc()
 	var out strings.Builder
@@ -846,6 +857,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
 	})
 	b.WriteString("func main() {\n")
+	// A main that needs go.Foreign may write the host's stdout through
+	// Go's os.Stdout, which v1's buffer cannot see, so its standard output
+	// stays direct (stdlib.md io 11).
+	if usesGoForeign(main.Sig.Uses) {
+		b.WriteString("\t" + rt + ".StdoutDirect()\n")
+	}
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
 	// interruption (runtime.md, Exit causes). The environment holds that
@@ -857,6 +874,16 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		}
 		return s + "\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n"
 	}) + ")\n}\n\n" + l.hostDecl(name, provided, "the entry binds"))
+}
+
+// usesGoForeign reports a row that holds go.Foreign.
+func usesGoForeign(uses *check.Row) bool {
+	for _, cap := range rowElems(uses) {
+		if n, ok := cap.(*check.Named); ok && check.IsGoForeign(n) {
+			return true
+		}
+	}
+	return false
 }
 
 // rootTask is the Go closure a root task runs (main's, the test build's,

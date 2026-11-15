@@ -48,9 +48,12 @@ func idle(b Board) Router { Idle{Board: b, Lanes: lanes(b.Table), Log: []Deliver
 func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]] {
 	match s {
 	case Applying as c:
-		Some{machines.Work{Run: func() Table fails Unknown needs Registry { try Registry.Check(c.Board.Table, c.Current.Change) }, OnSuccess: func(o Table) Signal { Checked{Table: o} }}}
+		Some{machines.Attempt(func() Table fails Unknown needs Registry | Scheduler { try Registry.Check(c.Board.Table, c.Current.Change) }, func(o Table) Signal { Checked{Table: o} }, func(failure) {
+			let unknown Signal = failure
+			unknown
+		})}
 	case Idle as i:
-		Some{machines.Work{Listen: func(send func(e Signal)) needs Scheduler {
+		Some{machines.Work{Start: func(send entry func(e Signal)) needs Scheduler {
 			for l in i.Lanes {
 				let _ = actor.ChildIn(send, l.Courier, machines.Start(Couriers{}, l.Route), 4, told)
 			}

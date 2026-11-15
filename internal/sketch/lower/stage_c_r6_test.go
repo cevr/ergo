@@ -5,14 +5,17 @@ import "testing"
 // Stage C round 5 review M1: an operations conversion from every kind of
 // source to every kind of operation type runs: a concrete record, a
 // pointer, an instantiated generic record of one and of two type
-// parameters and pointers to those, to a plain operation type and to
-// instances of a one- and a two-parameter one. The reviewer's two
-// witnesses come first. A pointer source is a borrow, which converts only
-// at a let (types.md, Borrows 6), so its value is called there.
+// parameters and pointers to those, to instances of a one- and a
+// two-parameter operation type, and the concrete ones also to a plain
+// operation type. (A generic record declares no plain operation type its
+// instance alone would meet: G[T]'s M returns T, not int, so EXC1's clause
+// cannot name J.) The reviewer's two witnesses come first. A pointer
+// source is a borrow, which converts only at a let (types.md, Borrows 6),
+// so its value is called there.
 func TestErgoRunOperationsConversionDomain(t *testing.T) {
 	needsBuild(t)
 	t.Run("reviewer-generic-source", func(t *testing.T) {
-		wantRun(t, `type G[T] { V T }
+		wantRun(t, `type G[T] { V T } implements A[T]
 type A[T] { M() T }
 func M[T](g G[T]) T { g.V }
 func use(a A[int]) int { a.M() }
@@ -22,7 +25,7 @@ func main() needs Console {
 `, "generic source\n")
 	})
 	t.Run("reviewer-generic-pointer-source", func(t *testing.T) {
-		wantRun(t, `type G[T] { V T }
+		wantRun(t, `type G[T] { V T } implements A[T]
 type A[T] { M() T }
 func M[T](g G[T]) T { g.V }
 func main() needs Console {
@@ -40,10 +43,10 @@ type B[T, U] {
 	K(u U) U,
 }
 
-type S {}
-type P {}
-type G[T] { V T }
-type H[T, U] { V T, W U }
+type S {} implements J, A[int], B[int, string]
+type P {} implements J, A[int], B[int, string]
+type G[T] { V T } implements A[T], B[T, string]
+type H[T, U] { V T, W U } implements A[T], B[T, U]
 
 func M(_ S) int { 1 }
 func K(_ S, u string) string { u }
@@ -72,22 +75,20 @@ func main() needs Console {
 	if pj.M() == 2 && pa.M() == 2 && pb.K("k") == "k" {
 		Console.Println("pointer source")
 	}
-	if useJ(g) == 3 && useA(g) == 3 && useB(g) == "k" {
+	if useA(g) == 3 && useB(g) == "k" {
 		Console.Println("generic source")
 	}
-	let gj J = &g
 	let ga A[int] = &g
 	let gb B[int, string] = &g
-	if gj.M() == 3 && ga.M() == 3 && gb.K("k") == "k" {
+	if ga.M() == 3 && gb.K("k") == "k" {
 		Console.Println("generic pointer source")
 	}
-	if useJ(h) == 4 && useA(h) == 4 && useB(h) == "w" {
+	if useA(h) == 4 && useB(h) == "w" {
 		Console.Println("two-parameter source")
 	}
-	let hj J = &h
 	let ha A[int] = &h
 	let hb B[int, string] = &h
-	if hj.M() == 4 && ha.M() == 4 && hb.K("w") == "w" {
+	if ha.M() == 4 && hb.K("w") == "w" {
 		Console.Println("two-parameter pointer source")
 	}
 }

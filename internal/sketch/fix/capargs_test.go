@@ -91,7 +91,7 @@ func TestFixWritesCapabilityArguments(t *testing.T) {
 			fail("want four S102 in main.ergo, each with a clause fix writes; got %d and:\n%s", asks, strings.Join(other, "\n"))
 			continue
 		}
-		res, err := Run(texts, checker)
+		res, err := Rows(texts, checker)
 		if err != nil {
 			fail("fix: %v", err)
 			continue

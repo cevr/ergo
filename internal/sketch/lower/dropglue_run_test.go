@@ -263,7 +263,11 @@ func (g *dgGen) declare(i int) {
 		t.fields = append(t.fields, f)
 		fields = append(fields, fmt.Sprintf("f%d %s", k, f.text()))
 	}
-	fmt.Fprintf(&g.decls, "type %s { %s }\n\n", t.name, strings.Join(fields, ", "))
+	clause := ""
+	if t.closes {
+		clause = " implements Closer"
+	}
+	fmt.Fprintf(&g.decls, "type %s { %s }%s\n\n", t.name, strings.Join(fields, ", "), clause)
 	if t.closes {
 		fmt.Fprintf(&g.decls, "func Close(x %s) needs Console { Console.Println(\"close \\(x.id)\") }\n\n", t.name)
 	}
@@ -360,7 +364,7 @@ func (g *dgGen) value(t *dgType, inMap bool, depth int) (string, []int) {
 	panic("dgType")
 }
 
-const dgPrelude = `type Res { id int, bad bool }
+const dgPrelude = `type Res { id int, bad bool } implements Closer
 
 func Close(r Res) needs Console {
 	Console.Println("close \(r.id)")

@@ -11,7 +11,7 @@ import jobsweb/jobs/jobsrpc
 import rpc
 
 // Loopback is a jobs.Jobs whose every operation is an RPC call.
-type Loopback { client jobsrpc.Client }
+type Loopback { client jobsrpc.Client } implements jobs.Jobs
 
 // NewLoopback serves inner in process and is its client. The server binds
 // inner for each call, so every call reaches the same jobs when the

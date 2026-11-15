@@ -31,6 +31,8 @@ import (
 //go:embed embed/*.ergo
 //go:embed atomic/*.ergo
 //go:embed arena/*.ergo
+//go:embed ui/*.ergo
+//go:embed text/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo
@@ -44,6 +46,8 @@ import (
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 //go:embed lint/*.ergo
+//go:embed bench/*.ergo
+//go:embed ui/layout/*.ergo
 var sources embed.FS
 
 // ledger is the std law ledger (runtime.md, Tests 10): the verdicts of

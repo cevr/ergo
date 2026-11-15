@@ -47,6 +47,9 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		if !ok || b == nil {
 			return t
 		}
+		if t.Uses {
+			return &RowArg{Row: c.wireNeedsRow(b)}
+		}
 		return &RowArg{Row: c.wireRow(b)}
 	case *RowVar:
 		// A use of a generic function's inferred row: the substitution is
@@ -97,6 +100,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		for _, mt := range t.byName {
 			it.byName = append(it.byName, newOf[mt])
 		}
+		for _, inc := range t.includes {
+			if n, ok := c.subst(inc, m).(*Named); ok {
+				it.includes = append(it.includes, n)
+			}
+		}
 		return it
 	case *Union:
 		if t.Row != nil {
@@ -120,7 +128,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Pointer:
 		return &Pointer{Elem: c.subst(t.Elem, m)}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Takes: t.Takes, TakesSelf: t.TakesSelf}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf}
 		for _, p := range t.Params {
 			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
@@ -211,7 +219,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	}
 	as, ok := a.(*Signature)
 	bs, ok2 := b.(*Signature)
-	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping {
+	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry {
 		return false
 	}
 	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
@@ -338,8 +346,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		if why := c.undeclared(v, t, "conversion"); why != "" {
+			return assignment{}, why
+		}
 		cell := false
 		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+			if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {
+				// The clause failed at the type (S106 there).
+				return assignment{clause: assignIdentical}, ""
+			}
 			// A value provider whose functions take *v moves into a cell
 			// (cells.go): *v implements t where v does not.
 			n, named := v.(*Named)
@@ -457,6 +472,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if hasName(v) && hasName(t) {
 		// Two named function types cross only by conversion (D-B7).
 		return assignment{}, ""
+	}
+	if ts.Entry && !vs.Entry {
+		// Only the runner makes an entry's send (Signature.Entry).
+		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
 	if !c.sameShape(vs, ts) {
 		return assignment{}, "the parameters or results differ"
@@ -990,7 +1009,7 @@ func typeSet(t Type) TypeSet {
 // underlying type.
 func inSet(t Type, s TypeSet) bool {
 	switch s {
-	case SetAll:
+	case SetAll, SetLent:
 		return true
 	case SetComparable:
 		return comparable(t)
@@ -1027,9 +1046,6 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		if p := c.firstInferredParse(t); p != nil {
 			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
 		}
-		if r := c.wireInstanceNeeds(t); r != "" {
-			return r
-		}
 		c.recordWire(t)
 		return ""
 	}
@@ -1039,7 +1055,16 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	return c.implements(t, it, true)
+	if why := c.undeclared(t, constraint, "constraint"); why != "" {
+		return why
+	}
+	if why := c.implements(t, it, true); why != "" {
+		if c.clauseUnmet(t, it) {
+			return "" // the clause failed at the type (S106 there)
+		}
+		return why
+	}
+	return ""
 }
 
 // letZero checks `let name T` with no value (types.md, Zero values 3): T

@@ -1,17 +1,16 @@
 package check_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// childRuleSource is a package whose machine's Open entry has a Listen
+// childRuleSource is a package whose machine's Open entry has a listening
 // work; body is that work's body (send is its parameter), helpers are more
-// package declarations, and inMain is a statement of main. Each child
-// call is marked by `@`, the position its diagnostic must have.
+// package declarations, and inMain is a statement of main. Each refused
+// value is marked by `@`, the position its diagnostic must have.
 func childRuleSource(body, helpers, inMain string) string {
 	return `import actor
 import machines
@@ -31,7 +30,7 @@ func toNav(n int) Nav { Saved{N: n} }
 func routerWork(s Phase) Option[machines.Work[Nav, Scheduler]] {
 	match s {
 	case Open:
-		Some{machines.Work{Listen: func(send func(e Nav)) needs Scheduler {
+		Some{machines.Work{Start: func(send entry func(e Nav)) needs Scheduler {
 ` + body + `
 		}}}
 	case Closed:
@@ -53,49 +52,52 @@ func main() needs Scheduler {
 
 const childCall = "actor.Child(@, Editor{}, 1, toNav)"
 
-// TestChildOnlyInWork holds the child rule's text and position (mu5b): a
-// call of actor.Child is accepted only with the send of the Listen work
-// that encloses it, and every other call is one S108 at its first
-// argument. Mutants: without the rule each refused row is accepted; with
-// no send marked each accepted row is refused.
-func TestChildOnlyInWork(t *testing.T) {
-	const text = "S108 actor.%s starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)"
+// TestChildTakesAnEntrySend holds the child rule, which is a type (NP3b;
+// runtime.md, Machines and actors 14): actor.Child and ChildIn take an
+// `entry func(e P)`, which only the runner gives (machines.Work's Start)
+// and a parameter written entry passes on. Every other value is one S108
+// at the value, and entry written outside a parameter's type is one S108
+// at the word. Mutants: entry-assign-unchecked and entry-not-in-identity
+// accept the refused values; entry-from-written-type refuses the send in
+// the work; entry-placement-unchecked accepts the field.
+func TestChildTakesAnEntrySend(t *testing.T) {
+	const refusal = "only an entry's send is one"
 	rows := []struct {
 		name, body, helpers, inMain string
-		refused                     bool
-		fn                          string // the function called, Child when empty
+		want                        string // a part of the one diagnostic, "" for none
 	}{
 		{name: "in the work", body: "\t\t\tlet _ = " + strings.Replace(childCall, "@", "send", 1)},
-		{name: "a copy of send", body: "\t\t\tlet k = send\n\t\t\tlet _ = " + strings.Replace(childCall, "@", "k", 1), refused: true},
-		{name: "a helper's send", helpers: "\nfunc open(send func(e Nav)) needs Scheduler { let _ = " + strings.Replace(childCall, "@", "send", 1) + " }\n", body: "\t\t\topen(send)", refused: true},
-		{name: "in main", inMain: "\tlet _ = " + strings.Replace(childCall, "@", "func(e Nav) {}", 1), refused: true},
+		{name: "a local bound to send", body: "\t\t\tlet k = send\n\t\t\tlet _ = " + strings.Replace(childCall, "@", "k", 1)},
+		{name: "a helper that takes an entry send", helpers: "\nfunc open(send entry func(e Nav)) needs Scheduler { let _ = " + strings.Replace(childCall, "@", "send", 1) + " }\n", body: "\t\t\topen(send)"},
+		{name: "a helper's plain send", helpers: "\nfunc open(send func(e Nav)) needs Scheduler { let _ = " + strings.Replace(childCall, "@", "@send", 1) + " }\n", body: "\t\t\topen(send)", want: refusal},
+		{name: "a function literal in main", inMain: "\tlet _ = " + strings.Replace(childCall, "@", "@func(e Nav) {}", 1), want: refusal},
 		// mu-host: ChildIn is a child start too.
-		{name: "ChildIn in main", fn: "ChildIn", inMain: "\tlet _ = actor.ChildIn(func(e Nav) {}, actor.NewHost[actor.Actor[Screen, Edit, Decision[Screen, int]]](), Editor{}, 1, toNav)", refused: true},
+		{name: "ChildIn in main", inMain: "\tlet _ = actor.ChildIn(@func(e Nav) {}, actor.NewHost[actor.Actor[Screen, Edit, Decision[Screen, int]]](), Editor{}, 1, toNav)", want: refusal},
+		// A function that takes an entry send does not cross into a
+		// plain function type, whose caller could pass any send.
+		{name: "an entry taker as a plain function", helpers: "\nfunc open(send entry func(e Nav)) {}\n", inMain: "\tlet f func(s func(e Nav)) = @open\n\tf(func(e Nav) {})", want: "cannot"},
+		{name: "entry on a field", helpers: "\ntype Keep { Send @entry func(e Nav) }\n", want: "entry func(…) is written only as a parameter's type"},
 	}
 	for _, r := range rows {
 		src := childRuleSource(r.body, r.helpers, r.inMain)
-		_, diags := check.CheckSource(src)
+		at := strings.Index(src, "@")
+		_, diags := check.CheckSource(strings.Replace(src, "@", "", 1))
 		var got []string
 		for _, d := range diags {
 			got = append(got, d.Code+" "+d.Message)
 		}
-		if !r.refused {
+		if r.want == "" {
 			if len(got) != 0 {
 				t.Errorf("%s: diagnostics %q, want none\n%s", r.name, got, src)
 			}
 			continue
 		}
-		fn := r.fn
-		if fn == "" {
-			fn = "Child"
-		}
-		if want := fmt.Sprintf(text, fn); len(got) != 1 || got[0] != want {
-			t.Errorf("%s: diagnostics %q, want [%q]\n%s", r.name, got, want, src)
+		if len(got) != 1 || !strings.HasPrefix(got[0], "S108 ") || !strings.Contains(got[0], r.want) {
+			t.Errorf("%s: diagnostics %q, want one S108 with %q\n%s", r.name, got, r.want, src)
 			continue
 		}
-		// The position: the first argument of the call.
-		if want := strings.LastIndex(src, "actor."+fn+"(") + len("actor."+fn+"("); diags[0].Offset != want {
-			t.Errorf("%s: diagnostic at offset %d, want %d\n%s", r.name, diags[0].Offset, want, src)
+		if diags[0].Offset != at {
+			t.Errorf("%s: diagnostic at offset %d, want %d\n%s", r.name, diags[0].Offset, at, src)
 		}
 	}
 }

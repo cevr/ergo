@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -146,95 +147,136 @@ func emitTests(u lower.Unit, p Path, dir string) error {
 	return writeModule(dir, files)
 }
 
-// TestIRAgreesOnExamples is the agreement property over the examples
-// (plan-tier §1.2): every example binary and every example test build,
-// built by the source path (the reference) and by the IR path; every
-// scripted case of a program run on both binaries, every test build run
-// on both; stdout, exit status and the defect text must be equal. A target
-// that does not build is a failure, never a skip, and the number of
-// targets and cases run must equal the folders' (mutant
-// irt-example-skipped). These tests build Go because the question is the
-// patched compiler's machine code for the IR bodies, which no in-process
-// check reaches.
-func TestIRAgreesOnExamples(t *testing.T) {
+// irAgrees is the agreement property over the examples (plan-tier §1.2),
+// split by target (TestIRAgreesOnExamplesPart0 …): every example binary
+// and every example test build, built by the source path (the reference)
+// and by the IR path; every scripted case of a program run on both
+// binaries, every test build run on both; stdout, exit status and the
+// defect text must be equal. A target that does not build is a failure,
+// never a skip. The parts run every target once
+// (TestSplitsCoverTheirDomain), and TestIRCoverage checks that the
+// targets are every example binary. These tests build Go because the
+// question is the patched compiler's machine code for the IR bodies,
+// which no in-process check reaches.
+var irAgrees = newSplit(split[exampleTarget]{
+	name:  "TestIRAgreesOnExamples",
+	parts: agreeParts,
+	cases: exampleDomain,
+	key:   exampleTarget.key,
+	run:   agreeOn,
+})
+
+// agreeOn checks the agreement on one target.
+func agreeOn(t *testing.T, target exampleTarget) {
 	src, ir := needsBuild(t)
+	if target.test {
+		agreeOnTests(t, src, ir, target)
+		return
+	}
+	u, err := Load(target.dir)
+	if err != nil {
+		t.Fatalf("%s: %v", target.dir, err)
+	}
+	work := t.TempDir()
+	sb, ib, rep := both(t, u, src, ir, work, BuildOptions{})
+	// The program's cases run on its own binary: examples/P/main.ergo or
+	// examples/P/cmd/P/main.ergo.
+	prog := programOf(target.root, target.dir)
+	if target.dir != prog && target.dir != filepath.Join(prog, "cmd", filepath.Base(prog)) || tagged(prog, tsTag) {
+		return
+	}
+	cases := 0
+	for _, c := range loadCases(prog) {
+		agree(t, filepath.Base(prog)+"/"+c.name, runCase(t, sb, c), runCase(t, ib, c))
+		cases++
+	}
+	t.Logf("%s: built by both paths, %d cases agree, %d IR bodies", target.key(), cases, len(rep.IR))
+}
+
+// agreeOnTests builds target's test build by both paths and runs both.
+func agreeOnTests(t *testing.T, src, ir Toolchain, target exampleTarget) {
+	u, err := Load(target.dir)
+	if err != nil {
+		t.Fatalf("%s: %v", target.dir, err)
+	}
+	work := t.TempDir()
+	var bins [2]string
+	for i, p := range []Path{Source, IR} {
+		mod := filepath.Join(work, p.String())
+		if err := emitTests(u, p, mod); err != nil {
+			t.Fatalf("%s test build (%s): %v", target.dir, p, err)
+		}
+		tc := src
+		if p == IR {
+			tc = ir
+		}
+		bins[i] = filepath.Join(work, p.String()+".test")
+		if _, err := Build(tc, p, mod, bins[i], BuildOptions{}); err != nil {
+			t.Fatalf("%s test build: %v", target.dir, err)
+		}
+	}
+	run := caseRun{name: "test", args: []string{"--source", target.dir}}
+	agree(t, target.key(), runCase(t, bins[0], run), runCase(t, bins[1], run))
+}
+
+// agree fails t when the two paths' runs differ, with the part to replay.
+func agree(t *testing.T, what string, a, b outcome) {
+	t.Helper()
+	if a != b {
+		t.Errorf("%s: the paths differ\nsource: %+v\nir:     %+v\nreplay: go test -run '%s' ./internal/experimental/irspike", what, a, b, t.Name())
+	}
+}
+
+// exampleTarget is one target of the example programs (ExampleTargets): a
+// binary, or the test build of a folder.
+type exampleTarget struct {
+	root, dir string
+	test      bool
+}
+
+// key names the target by its folder under examples/.
+func (e exampleTarget) key() string {
+	rel, _ := filepath.Rel(filepath.Join(e.root, "examples"), e.dir)
+	if e.test {
+		return filepath.ToSlash(rel) + " test"
+	}
+	return filepath.ToSlash(rel)
+}
+
+// exampleTargets are the targets of the example programs: every binary,
+// then every test build, as ExampleTargets lists them. It walks the
+// examples once per test process.
+var exampleTargets = sync.OnceValues(func() ([]exampleTarget, error) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	mains, tests, err := ExampleTargets(root)
 	if err != nil {
+		return nil, err
+	}
+	var out []exampleTarget
+	for _, dir := range mains {
+		out = append(out, exampleTarget{root: root, dir: dir})
+	}
+	// ExampleTargets lists a folder's test build again when the walk
+	// comes back to it after a subfolder: one target each.
+	seen := map[string]bool{}
+	for _, dir := range tests {
+		if !seen[dir] {
+			seen[dir] = true
+			out = append(out, exampleTarget{root: root, dir: dir, test: true})
+		}
+	}
+	return out, nil
+})
+
+// exampleDomain is exampleTargets, failing t when the walk fails.
+func exampleDomain(t *testing.T) []exampleTarget {
+	t.Helper()
+	targets, err := exampleTargets()
+	if err != nil {
 		t.Fatal(err)
 	}
-	only := os.Getenv("ERGO_IRSPIKE_EXAMPLE") // a replay of one program
-	built, cases, wantCases, irBodies := 0, 0, 0, 0
-	compare := func(what string, a, b outcome) {
-		if a != b {
-			t.Errorf("%s: the paths differ\nsource: %+v\nir:     %+v\nreplay: ERGO_IRSPIKE_EXAMPLE=%s go test -run TestIRAgreesOnExamples ./internal/experimental/irspike", what, a, b, what)
-		}
-	}
-	for _, dir := range mains {
-		prog := programOf(root, dir)
-		if only != "" && filepath.Base(prog) != only {
-			continue
-		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		work := t.TempDir()
-		sb, ib, rep := both(t, u, src, ir, work, BuildOptions{})
-		built++
-		irBodies += len(rep.IR)
-		// The program's cases run on its own binary: examples/P/main.ergo
-		// or examples/P/cmd/P/main.ergo.
-		if dir != prog && dir != filepath.Join(prog, "cmd", filepath.Base(prog)) {
-			continue
-		}
-		pcases := loadCases(prog)
-		if tagged(prog, tsTag) {
-			continue
-		}
-		wantCases += len(pcases)
-		for _, c := range pcases {
-			compare(filepath.Base(prog)+"/"+c.name, runCase(t, sb, c), runCase(t, ib, c))
-			cases++
-		}
-	}
-	for _, dir := range tests {
-		prog := programOf(root, dir)
-		if only != "" && filepath.Base(prog) != only {
-			continue
-		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		work := t.TempDir()
-		var bins [2]string
-		for i, p := range []Path{Source, IR} {
-			mod := filepath.Join(work, p.String())
-			if err := emitTests(u, p, mod); err != nil {
-				t.Fatalf("%s test build (%s): %v", dir, p, err)
-			}
-			tc := src
-			if p == IR {
-				tc = ir
-			}
-			bins[i] = filepath.Join(work, p.String()+".test")
-			if _, err := Build(tc, p, mod, bins[i], BuildOptions{}); err != nil {
-				t.Fatalf("%s test build: %v", dir, err)
-			}
-		}
-		built++
-		run := caseRun{name: "test", args: []string{"--source", dir}}
-		compare(filepath.Base(prog)+" test "+dir, runCase(t, bins[0], run), runCase(t, bins[1], run))
-	}
-	if only != "" {
-		return
-	}
-	if want := len(mains) + len(tests); built != want || len(mains) != exampleBinaries(root) || cases != wantCases || wantCases == 0 {
-		t.Fatalf("built %d of %d targets (%d binaries, the folders hold %d), ran %d of %d cases", built, want, len(mains), exampleBinaries(root), cases, wantCases)
-	}
-	t.Logf("%d targets built by both paths, %d cases agree, %d IR bodies", built, cases, irBodies)
+	return targets
 }
