@@ -1,9 +1,9 @@
 // The rules of the game as laws over its machine and its loop.
 
 import machines
+import particles/record
 import particles/world
 import rand
-import testing
 import time
 
 // Word names a decision.
@@ -100,8 +100,9 @@ func Sleep(l lateEvery, d duration) {
 
 // recorder is the package's own test provider of a capability, derived as
 // testing.Script is (patterns.md, Provider plans): recorder[Screen] has one
-// testing.Op field per operation of Screen and implements Screen.
-type recorder[S] derive Provider(Of[S](), Of[testing.Op](), Of[testing.NoArgs]())
+// record.Op field per operation of Screen and implements Screen. record.Op
+// is written in Ergo, so no part of it is std's.
+type recorder[S] derive Provider(Of[S](), Of[record.Op](), Of[record.NoArgs]())
 
 // recorded is a Screen for the laws and tests: a recorder that keeps every
 // frame it is shown (s.Show.Calls()) and answers Shown with their count. The

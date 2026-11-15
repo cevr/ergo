@@ -77,8 +77,12 @@ func (c *checker) resolveProviders() {
 		default:
 			if st, ok := none.Underlying().(*Struct); !ok || len(st.Fields) > 0 || len(none.TParams) > 0 {
 				why = fmt.Sprintf("its type of no arguments %s is not a record with no fields", none)
-			} else {
+			} else if _, runtime := GoTypeOf(field); runtime {
 				why = providerFieldRefusal(field)
+			} else if !isExported(field.Obj.Name) {
+				// An Ergo field type (provider.go): every package that uses an
+				// instance names it and calls its pair.
+				why = fmt.Sprintf("its field type %s is declared in Ergo and not exported; each package that uses an instance names it", field)
 			}
 		}
 		if why != "" {
@@ -210,7 +214,17 @@ func (c *checker) scriptUnder(inst *Named) Type {
 		}
 		f := *m.Sig
 		f.NonEscaping = false
-		fields = append(fields, &Field{Name: m.Name, Type: c.instantiate(op, []Type{args, &f}), Pos: m.Pos})
+		fi := c.instantiate(op, []Type{args, &f})
+		field := &Field{Name: m.Name, Type: fi, Pos: m.Pos}
+		if _, runtime := GoTypeOf(op); !runtime {
+			// An Ergo field type: its NewF and Call at this operation
+			// (provider.go); a refused pair leaves the record empty, and
+			// checkProviderFields reports it at the derive.
+			if field.provider = c.providerCalls(inst.Obj.Provider, fi); field.provider == nil {
+				return &Struct{obj: inst.Obj}
+			}
+		}
+		fields = append(fields, field)
 	}
 	return &Struct{Fields: fields, obj: n.origin().Obj}
 }
