@@ -1,0 +1,265 @@
+package build
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// CoverVariable names a directory that turns on the coverage build (GATE2
+// GT7). The mutant runner's coverage pass (scripts/mutants) sets it, so
+// that a program the ergo CLI builds while a test runs records which of
+// its lines run, and those lines map back to the .ergo source through the
+// lowered Go's //line directives.
+//
+// With it set, Build copies the emitted module's own files (main.go, its
+// assets, go.mod and go.sum; not the runtime) into DIR/KEY, under the
+// module path coverModule/KEY, so that the blocks of two programs, which
+// both are ergo.local/program, are never merged under one file name, and
+// links that copy with go build -cover of the program's package. DIR/KEY
+// stays: the runner reads its Go files to map a block to .ergo lines. The
+// copy adds one package, covdir, whose init gives a program started with
+// no GOCOVERDIR (a case command the examples runner starts with a clean
+// environment) the GOCOVERDIR of its nearest ancestor that has one, so the
+// counters land in the running test's directory and the program never
+// prints the cover runtime's "GOCOVERDIR not set" warning; the main
+// package then unsets it again, so the program sees the environment it
+// was given. Without the variable nothing here runs, and the emitted
+// module, the cache and the direct path are as before.
+const CoverVariable = "ERGO_COVER_GO"
+
+// coverModule is the module path prefix of a coverage build's copy.
+const coverModule = "ergo.local/cover"
+
+// coverBuild links the coverage copy of module to output.
+func (t Toolchain) coverBuild(module Module, output string, stderr io.Writer) (Report, error) {
+	report := Report{Refused: "coverage build (" + CoverVariable + ")"}
+	dir, importPath, err := coverCopy(t.Cover, module)
+	if err != nil {
+		return report, fmt.Errorf("coverage build: %w", err)
+	}
+	covered := t
+	covered.GOFLAGS = strings.TrimSpace("-cover -coverpkg=" + importPath + " " + t.GOFLAGS)
+	child := covered.Command(Module{Dir: dir}, output)
+	child.Stdout, child.Stderr = stderr, stderr
+	if err := child.Run(); err != nil {
+		return report, fmt.Errorf("Go build failed: %w", err)
+	}
+	return report, nil
+}
+
+// coverKey names a module's coverage copy: its emission key, or the digest
+// of its directory when it has none.
+func coverKey(module Module) string {
+	key := module.Key
+	if key == "" {
+		sum := sha256.Sum256([]byte(module.Dir))
+		key = hex.EncodeToString(sum[:])
+	}
+	if len(key) > 16 {
+		key = key[:16]
+	}
+	return key
+}
+
+// coverCopy makes (once per key) the coverage copy of module under root
+// and returns its directory and import path.
+func coverCopy(root string, module Module) (string, string, error) {
+	if !filepath.IsAbs(root) {
+		return "", "", fmt.Errorf("%s=%q is not an absolute path", CoverVariable, root)
+	}
+	key := coverKey(module)
+	importPath := coverModule + "/" + key
+	dir := filepath.Join(root, key)
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		return dir, importPath, nil
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", "", err
+	}
+	staging, err := os.MkdirTemp(root, key+".staging-")
+	if err != nil {
+		return "", "", err
+	}
+	defer os.RemoveAll(staging)
+	if err := fillCoverCopy(staging, module.Dir, importPath); err != nil {
+		return "", "", err
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		// Another build of the same key published it first.
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+			return dir, importPath, nil
+		}
+		return "", "", err
+	}
+	return dir, importPath, nil
+}
+
+// fillCoverCopy writes the coverage copy of the module at src into dst.
+func fillCoverCopy(dst, src, importPath string) error {
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case rel == ".":
+			return nil
+		case rel == runtimeDirName && d.IsDir():
+			return filepath.SkipDir // reached through the replace
+		case rel == manifestName:
+			return nil
+		}
+		target := filepath.Join(dst, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s: not a regular file", rel)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if rel == "go.mod" {
+			if data, err = coverGoMod(data, src, importPath); err != nil {
+				return err
+			}
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dst, "covdir"), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dst, "covdir", "covdir.go"), []byte(covdirSource), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dst, "ergo_cover.go"), []byte(strings.ReplaceAll(coverMainSource, "IMPORT", importPath)), 0o644)
+}
+
+// runtimeDirName and manifestName are the emitted module's runtime copy
+// and manifest, which the coverage copy does not hold.
+const (
+	runtimeDirName = "ergo"
+	manifestName   = "ergo-manifest.json"
+)
+
+// coverGoMod is the emitted go.mod with the module path importPath and
+// every relative replace made absolute against src.
+func coverGoMod(data []byte, src, importPath string) ([]byte, error) {
+	lines := strings.Split(string(data), "\n")
+	named := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(trimmed, "module "); ok && !named {
+			if strings.Trim(strings.TrimSpace(rest), `"`) != "ergo.local/program" {
+				return nil, fmt.Errorf("go.mod names module %s, not ergo.local/program", rest)
+			}
+			lines[i] = "module " + importPath
+			named = true
+			continue
+		}
+		at := strings.Index(line, "=> ")
+		if at < 0 {
+			continue
+		}
+		target := strings.TrimSpace(line[at+3:])
+		if strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
+			lines[i] = line[:at+3] + filepath.ToSlash(filepath.Join(src, filepath.FromSlash(target)))
+		}
+	}
+	if !named {
+		return nil, errors.New("go.mod names no module")
+	}
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+// covdirSource is the coverage copy's covdir package (CoverVariable).
+const covdirSource = `// Package covdir gives a coverage build started with no GOCOVERDIR the
+// GOCOVERDIR of its nearest ancestor process that has one (written by
+// internal/sketch/build, coverage builds only).
+package covdir
+
+import (
+	"os"
+	"strconv"
+	"strings"
+)
+
+// Set reports that init set GOCOVERDIR; the main package unsets it.
+var Set bool
+
+func init() {
+	if os.Getenv("GOCOVERDIR") != "" {
+		return
+	}
+	dir := ancestorDir()
+	if dir == "" {
+		dir = os.TempDir() + "/ergo-cover-orphans"
+		os.MkdirAll(dir, 0o755)
+	}
+	os.Setenv("GOCOVERDIR", dir)
+	Set = true
+}
+
+func ancestorDir() string {
+	pid := os.Getppid()
+	for range 64 {
+		if pid <= 1 {
+			return ""
+		}
+		id := strconv.Itoa(pid)
+		if env, err := os.ReadFile("/proc/" + id + "/environ"); err == nil {
+			for _, kv := range strings.Split(string(env), "\x00") {
+				if v, ok := strings.CutPrefix(kv, "GOCOVERDIR="); ok && v != "" {
+					return v
+				}
+			}
+		}
+		stat, err := os.ReadFile("/proc/" + id + "/stat")
+		if err != nil {
+			return ""
+		}
+		s := string(stat)
+		fields := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+		if len(fields) < 2 {
+			return ""
+		}
+		if pid, err = strconv.Atoi(fields[1]); err != nil {
+			return ""
+		}
+	}
+	return ""
+}
+`
+
+// coverMainSource is the coverage copy's file of the main package: it
+// imports covdir (whose init runs before the cover runtime reads
+// GOCOVERDIR) and unsets what covdir set.
+const coverMainSource = `package main
+
+import (
+	"os"
+
+	"IMPORT/covdir"
+)
+
+func init() {
+	if covdir.Set {
+		os.Unsetenv("GOCOVERDIR")
+	}
+}
+`

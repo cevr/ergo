@@ -42,6 +42,9 @@ type Toolchain struct {
 	// own GOFLAGS replaces it, as a later flag does in the go command.
 	// The direct path passes -s -w to the linker where go build does.
 	Strip bool
+	// Cover is the directory of coverage builds (CoverVariable, cover.go),
+	// or empty: Build then links the module as it is.
+	Cover string
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go
@@ -52,7 +55,7 @@ const stripFlags = `'-ldflags=-s -w'`
 // process environment, the action an unconfigured go build would run. It
 // takes the direct path unless ERGO_GO_BUILD=go selects go build.
 func HostToolchain() Toolchain {
-	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go"}
+	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go", Cover: os.Getenv(CoverVariable)}
 }
 
 // Command is the Go build action that links the module's root package to

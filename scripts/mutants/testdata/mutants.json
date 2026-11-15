@@ -288,6 +288,79 @@
       "to": "if true || e.cfg.CoverStore == \"\" {",
       "rule": "The runner's coverage pass takes the stored segments when a store is named.",
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "gt7-no-increment",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tcase cur != nil:\n\t\t\tnext := ergoPos{cur.file, cur.line + 1}",
+      "to": "\t\tcase cur != nil:\n\t\t\tnext := ergoPos{cur.file, cur.line}",
+      "rule": "Each Go line after a //line directive is one .ergo line on.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-func-keeps-position",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tif strings.HasPrefix(line, \"func \") {\n\t\t\tcur = nil",
+      "to": "\t\tif false && strings.HasPrefix(line, \"func \") {\n\t\t\tcur = nil",
+      "rule": "A top-level func starts with no position: a std body, written without directives, maps to no .ergo line of the program.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-inline-not-carried",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tcase last != nil:\n\t\t\tnext := ergoPos{last.file, last.line + 1}\n\t\t\tcur = &next\n",
+      "to": "\t\tcase last != nil && false:\n",
+      "rule": "The lines after an inline /*line*/ directive go on from its position.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-tag-kept",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\treturn ergoPos{untag(file), num}, true",
+      "to": "\treturn ergoPos{file, num}, true",
+      "rule": "An inlined body's directive (FILE#ergo-inline-N) names FILE.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-any-base",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "if !own && path.Base(p.file) != base {",
+      "to": "if false && !own && path.Base(p.file) != base {",
+      "rule": "A block the cover tool names by a directive's base name maps only to lines of files with that name.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-outside-root",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tif err != nil || rel == \"..\" || strings.HasPrefix(rel, \"../\") || filepath.IsAbs(rel) {",
+      "to": "\tif err != nil || filepath.IsAbs(rel) {",
+      "rule": "A directive to a file outside the checkout copy maps to no checkout file.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-column-as-line",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tif f, n, ok := cutLastNumber(file); ok {\n\t\tfile, num = f, n\n\t}",
+      "to": "\tif f, _, ok := cutLastNumber(file); ok {\n\t\tfile = f\n\t}",
+      "rule": "A directive FILE:LINE:COL names LINE, not COL.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-env-dropped",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/runner.go",
+      "from": "e.env(append(env, \"GOCOVERDIR=\"+dir, coverGoVariable+\"=\"+k.ergo.dir)...)",
+      "to": "e.env(append(env, \"GOCOVERDIR=\"+dir)...)",
+      "rule": "The coverage pass's children build the programs they lower as coverage builds, so .ergo lines are covered.",
+      "gap": "Only an end-to-end coverage pass that builds the ergo CLI with coverage and runs a lowered example sees it (GT7 acceptance, gate2/GT7/accept.ts); no test of the package builds the CLI.",
+      "killers": []
     }
   ]
 }

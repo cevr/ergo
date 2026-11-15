@@ -391,7 +391,7 @@ func (e *engine) env(extra ...string) []string {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable:
+		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable:
 			continue
 		}
 		out = append(out, kv)
@@ -736,7 +736,7 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 			c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
 		}
 	}
-	k := &collector{module: e.module, blocks: map[blockKey][]int{}}
+	k := &collector{module: e.module, blocks: map[blockKey][]int{}, ergo: newErgoMapper(filepath.Join(e.cfg.Work, "cover", "ergo-go"), root)}
 	var mu sync.Mutex
 	var firstErr error
 	next := make(chan int)
@@ -788,7 +788,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 		// A nested module's suite is built without coverage (Suite.Module).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
-	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
+	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir)...), e.cfg.CoverDeadline)
 	t.Seconds = o.seconds
 	if o.reason != "" {
 		t.Failed = true

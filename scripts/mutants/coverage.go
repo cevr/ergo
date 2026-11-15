@@ -142,6 +142,9 @@ type blockKey struct {
 type collector struct {
 	module string
 	blocks map[blockKey][]int
+	// ergo maps the blocks of lowered programs' coverage builds to .ergo
+	// lines; nil maps none.
+	ergo *ergoMapper
 }
 
 // add reads one test's profile (go tool covdata textfmt) and records the
@@ -158,16 +161,28 @@ func (k *collector) add(test int, profile io.Reader) error {
 		if err != nil {
 			return err
 		}
+		if count == 0 {
+			continue
+		}
 		rel, ok := strings.CutPrefix(key.file, k.module+"/")
-		if !ok || count == 0 {
+		if !ok {
+			// A block of a lowered program's coverage build stands for
+			// the .ergo lines it came from (ergolines.go).
+			for _, b := range k.ergo.blocks(key.file, key.start, key.end) {
+				k.record(b, test)
+			}
 			continue
 		}
 		key.file = rel
-		if tests := k.blocks[key]; len(tests) == 0 || tests[len(tests)-1] != test {
-			k.blocks[key] = append(tests, test)
-		}
+		k.record(key, test)
 	}
 	return scanner.Err()
+}
+
+func (k *collector) record(key blockKey, test int) {
+	if tests := k.blocks[key]; len(tests) == 0 || tests[len(tests)-1] != test {
+		k.blocks[key] = append(tests, test)
+	}
 }
 
 // parseBlock reads "FILE:L.C,L.C STATEMENTS COUNT".
