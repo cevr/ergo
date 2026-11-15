@@ -979,6 +979,7 @@ var unionPaths = []string{
 	"union flat by use", "union carried past the bound", "union carried by payload", "union past the use bound",
 	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value", "carried by literal result",
 	"niche on", "niche off", "niche off by a record", "no match tree",
+	"two live results that differ",
 }
 
 // gField is a field of a generated variant: its kind and, for a field of
@@ -1003,6 +1004,7 @@ type unionGen struct {
 	// slotMain is main's calls of pickU<i> whose result main only matches
 	// (UNI2's model, slotSites).
 	slotMain map[int]int
+	slotTwo  map[int]bool // u-slot-two's unions
 }
 
 // fieldKinds are the kinds of a variant's fields: "self" is a field of the
@@ -1010,7 +1012,7 @@ type unionGen struct {
 var fieldKinds = []string{"int", "string", "bool", "bool", "bool", "slice", "option", "union", "union", "self", "next"}
 
 func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
-	u := &unionGen{r: r, reached: reached, carried: map[int]bool{}, carriers: map[int]string{}, slotMain: map[int]int{}}
+	u := &unionGen{r: r, reached: reached, carried: map[int]bool{}, carriers: map[int]string{}, slotMain: map[int]int{}, slotTwo: map[int]bool{}}
 	n := 3 + r.IntN(2)
 	for i := range n {
 		nv := 2 + r.IntN(3)
@@ -1482,8 +1484,13 @@ func (u *unionGen) decls() string {
 		fmt.Fprintf(&b, "func showOU%d(o Option[U%d]) string {\n\tmatch o {\n\tcase Some[U%d] as s:\n\t\t\"some \" + showU%d(s.Value)\n\tcase None:\n\t\t\"none\"\n\t}\n}\n\n", i, i, i, i)
 		// mk: variant k % n, built where the function returns.
 		fmt.Fprintf(&b, "func mkU%d(k int) U%d {\n", i, i)
+		mk0 := ""
 		for j := range variants[:len(variants)-1] {
-			fmt.Fprintf(&b, "\tif k %% %d == %d {\n\t\treturn %s\n\t}\n", len(variants), j, u.lit(i, j, 2))
+			lit := u.lit(i, j, 2)
+			if j == 0 {
+				mk0 = lit
+			}
+			fmt.Fprintf(&b, "\tif k %% %d == %d {\n\t\treturn %s\n\t}\n", len(variants), j, lit)
 		}
 		fmt.Fprintf(&b, "\t%s\n}\n\n", u.lit(i, len(variants)-1, 2))
 		// A record of the union and an Option of it, for wire's codec.
@@ -1496,7 +1503,7 @@ func (u *unionGen) decls() string {
 		// A law the generator refutes: its counterexample prints the
 		// union's literal.
 		fmt.Fprintf(&b, "law U%dIsFirst(u U%d) {\n\tmatch u {\n\tcase %s:\n\t\ttrue\n\tcase _:\n\t\tfalse\n\t}\n}\n\n", i, i, variantName(i, 0))
-		u.slotDecls(&b, i)
+		u.slotDecls(&b, i, mk0)
 	}
 	return b.String()
 }
@@ -1505,9 +1512,19 @@ func (u *unionGen) decls() string {
 // returns (slot.go): pickU, recursive so never inlined, returns itself
 // (passing its slots on), a literal or mkU's value; pickFU fails and
 // returns pickFU's or pickU's value; walkU carries a local through a
-// loop; viaU and walkedU match a call's result.
-func (u *unionGen) slotDecls(b *strings.Builder, i int) {
-	fmt.Fprintf(b, "func pickU%d(k int, d int) U%d {\n\tif d > 0 {\n\t\treturn pickU%d(k + 1, d - 1)\n\t}\n\tif k < 0 {\n\t\treturn %s\n\t}\n\tmkU%d(k)\n}\n\n", i, i, i, u.lit(i, 0, 1), i)
+// loop; viaU and walkedU match a call's result. pickU's literal differs
+// from mkU's first one, mk0, where variant 0 has a field that can: then
+// u-slot-two's two results, pickU(-1, 0) and pickU(-1, 1), are the same
+// variant with different fields.
+func (u *unionGen) slotDecls(b *strings.Builder, i int, mk0 string) {
+	lit := u.lit(i, 0, 1)
+	for try := 0; lit == mk0 && try < 20; try++ {
+		lit = u.lit(i, 0, 1)
+	}
+	if lit != mk0 && u.slotTwo[i] && u.form(i, true, false) == "interface" {
+		u.reached["two live results that differ"] = true
+	}
+	fmt.Fprintf(b, "func pickU%d(k int, d int) U%d {\n\tif d > 0 {\n\t\treturn pickU%d(k + 1, d - 1)\n\t}\n\tif k < 0 {\n\t\treturn %s\n\t}\n\tmkU%d(k)\n}\n\n", i, i, i, lit, i)
 	fmt.Fprintf(b, "func pickFU%d(k int) U%d fails BadU%d {\n\tif k > 4 {\n\t\treturn try pickFU%d(k - 2)\n\t}\n\tif k == 3 {\n\t\treturn BadU%d{V: mkU%d(0)}\n\t}\n\tpickU%d(k, 1)\n}\n\n", i, i, i, i, i, i, i)
 	fmt.Fprintf(b, "func walkU%d(k int, n int) U%d {\n\tlet mut u = pickU%d(k, 1)\n\tfor j in 0..n {\n\t\tmatch u {\n\t\tcase %s:\n\t\t\tu = pickU%d(k + j, 0)\n\t\tcase _:\n\t\t\tu = %s\n\t\t}\n\t}\n\tu\n}\n\n", i, i, i, variantName(i, 0), i, u.lit(i, 0, 1))
 	fmt.Fprintf(b, "func viaU%d(k int) string fails BadU%d {\n\tmatch try pickFU%d(k) {\n%s\t}\n}\n\n", i, i, i, u.arms(i, "\t", "\"via \" + showU%d(x)"))
@@ -1529,8 +1546,8 @@ func (u *unionGen) arms(i int, ind, body string) string {
 func (u *unionGen) slotStmt(g *optionGen, path string) {
 	var boxed []int
 	for i := range u.unions {
-		if u.form(i, true, false) == "interface" {
-			boxed = append(boxed, i)
+		if u.form(i, true, false) == "interface" && (path != "u-slot-two" || len(u.unions[i][0]) > 0) {
+			boxed = append(boxed, i) // u-slot-two: a variant 0 with fields
 		}
 	}
 	i := u.r.IntN(len(u.unions))
@@ -1559,9 +1576,10 @@ func (u *unionGen) slotStmt(g *optionGen, path string) {
 	case "u-slot-two":
 		// Two results live at once: one slot set each.
 		u.slotMain[i] += 2
+		u.slotTwo[i] = true
 		a, b := g.name("a"), g.name("b")
-		g.line("let " + a + " = " + call())
-		g.line("let " + b + " = " + call())
+		g.line(fmt.Sprintf("let %s = pickU%d(-1, 0)", a, i))
+		g.line(fmt.Sprintf("let %s = pickU%d(-1, 1)", b, i))
 		match(a, "two a")
 		match(b, "two b")
 	case "u-slot-stored":
