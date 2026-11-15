@@ -96,11 +96,11 @@ type Text {
 	// (Encode only: nothing may use the Text after).
 	finish() string,
 	// bytes is the buffer written so far, read from the Text's value (no
-	// pointer to the cell, so the value rule lends it with no copy); drop(b)
+	// pointer to the cell, so the value rule lends it with no copy); drop
 	// gives it back to the pool (EncodeWith only: nothing may use the Text
 	// after).
 	bytes() []byte,
-	drop(b []byte),
+	drop(),
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -313,7 +313,7 @@ func finish(t *text) string {
 
 func bytes(t text) []byte { t.out }
 
-func drop(t *text, b []byte) { t.out = recycle(b) }
+func drop(t *text) { t.out = recycle(t.out) }
 
 // NewText is a Text with nothing written.
 func NewText() Text { text{comma: false, html: false, out: []byte{}} }
@@ -480,9 +480,8 @@ func Encode[T wire](c Codec[T], v T) string {
 func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R {
 	let t Text = text{comma: false, html: false, out: take()}
 	encode(v, t)
-	let b = t.bytes()
-	let u = use(b)
-	t.drop(b)
+	let u = use(t.bytes())
+	t.drop()
 	u
 }
 

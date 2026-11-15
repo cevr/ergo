@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -719,40 +720,66 @@ func (c *Cursor) Tag() string {
 
 // jsonPool keeps the buffers std json's Encode writes into (JSONTake,
 // JSONRecycle), as encoding/json keeps its encodeState: a buffer is used
-// again, at the size it grew to (GX10: a 26 KB listing grew a new buffer
-// on every request while the pool kept only 1 KB arrays). It holds
-// buffers in boxes, *[]byte, and jsonBoxes holds the empty boxes, so a Put
-// boxes no slice header (no allocation once both are warm). A buffer past
-// jsonPoolKeep is dropped, so the pool holds no large array.
+// again. The pools hold arrays of four sizes, as pointers, so a Put boxes
+// no slice header (no allocation), and each Get is the pooled-array form
+// the lowering reads as fresh (lower/gobody.go, madeValue). jsonSize is
+// the size JSONTake takes: a buffer that grew past its array raises it to
+// the size that holds what it wrote (GX10: a 26 KB listing grew a new
+// buffer on every request while the pool kept only 1 KB arrays), so the
+// next encodes write with no growth. A grown buffer is not kept, nor any
+// past 64 KiB, so the pool holds no large array.
 var (
-	jsonPool  = sync.Pool{New: func() any { b := make([]byte, 0, jsonPoolSize); return &b }}
-	jsonBoxes = sync.Pool{New: func() any { return new([]byte) }}
-)
-
-const (
-	jsonPoolSize = 1024
-	jsonPoolKeep = 256 << 10
+	jsonPool   = sync.Pool{New: func() any { return new([1 << 10]byte) }}
+	jsonPool4  = sync.Pool{New: func() any { return new([4 << 10]byte) }}
+	jsonPool16 = sync.Pool{New: func() any { return new([16 << 10]byte) }}
+	jsonPool64 = sync.Pool{New: func() any { return new([64 << 10]byte) }}
+	jsonSize   atomic.Int32 // 0 to 3: 1, 4, 16 or 64 KiB
 )
 
 // JSONTake is an empty buffer from the pool, for std json's Encode only:
 // JSONRecycle puts it back.
 func JSONTake() []byte {
-	p := jsonPool.Get().(*[]byte)
-	b := (*p)[:0]
-	*p = nil
-	jsonBoxes.Put(p)
+	switch jsonSize.Load() {
+	case 3:
+		return jsonPool64.Get().(*[64 << 10]byte)[:0]
+	case 2:
+		return jsonPool16.Get().(*[16 << 10]byte)[:0]
+	case 1:
+		return jsonPool4.Get().(*[4 << 10]byte)[:0]
+	}
+	return jsonPool.Get().(*[1 << 10]byte)[:0]
+}
+
+// JSONRecycle puts b's array back in the pool when it is one of the pool's
+// sizes, else raises the size JSONTake takes, and gives b. Its caller uses b
+// no more (std json's finish, at the end of Encode), so the pool holds an
+// array only after its one use has ended.
+func JSONRecycle(b []byte) []byte {
+	switch c := cap(b); {
+	case c == 64<<10:
+		jsonPool64.Put((*[64 << 10]byte)(b[:64<<10]))
+	case c == 16<<10:
+		jsonPool16.Put((*[16 << 10]byte)(b[:16<<10]))
+	case c == 4<<10:
+		jsonPool4.Put((*[4 << 10]byte)(b[:4<<10]))
+	case c == 1<<10:
+		jsonPool.Put((*[1 << 10]byte)(b[:1<<10]))
+	case c > 16<<10:
+		jsonRaise(3)
+	case c > 4<<10:
+		jsonRaise(2)
+	case c > 1<<10:
+		jsonRaise(1)
+	}
 	return b
 }
 
-// JSONRecycle puts b's array back in the pool, and gives b. Its caller
-// uses b no more (std json's finish, at the end of Encode), so the pool
-// holds an array only after its one use has ended.
-func JSONRecycle(b []byte) []byte {
-	if cap(b) == 0 || cap(b) > jsonPoolKeep {
-		return b
+// jsonRaise sets jsonSize to at least n.
+func jsonRaise(n int32) {
+	for {
+		old := jsonSize.Load()
+		if old >= n || jsonSize.CompareAndSwap(old, n) {
+			return
+		}
 	}
-	p := jsonBoxes.Get().(*[]byte)
-	*p = b[:0]
-	jsonPool.Put(p)
-	return b
 }
