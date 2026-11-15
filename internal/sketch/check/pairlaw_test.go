@@ -3,6 +3,7 @@ package check_test
 import (
 	"fmt"
 	"math/rand/v2"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,13 +16,15 @@ import (
 // package may write (types.md, Codecs 7; GX11). Otherwise the law does not
 // run and says why. It is a seeded property against a reference model of
 // "own generator" over records, unions of inline variants and defined
-// basic types, with and without NewX, in both pair forms. A failing seed
-// prints the source and the replay.
+// basic types, with and without NewX, in both pair forms, for an exported X
+// and an unexported x, whose constructor is newX (GX12b: it was Newx). A
+// failing seed prints the source and the replay.
 //
 // It kills gx11-pair-own-generator-ignored (the checker runs every pair
 // law whose X is generatable at all, so a record of an unexported field is
 // drawn field by field, values its ParseX may refuse) and
-// gx11-pair-ctor-ignored (a closed X with NewX is not run).
+// gx11-pair-ctor-ignored (a closed X with NewX is not run), and
+// gx12b-ctor-name-new-always (an unexported x's constructor named Newx).
 func TestPairLawDrawsOwnValues(t *testing.T) {
 	for seed := uint64(1); seed <= 200; seed++ {
 		r := rand.New(rand.NewPCG(seed, 7))
@@ -93,10 +96,33 @@ func pairLawSource(r *rand.Rand) (string, bool) {
 	}
 	if r.IntN(2) == 0 {
 		b.WriteString("func ParseX(b []byte) X { Unreachable(\"not run\") }\n")
-		b.WriteString("func Wire(x X, into []byte) []byte { into }\n")
+		b.WriteString("func Wire(v X, into []byte) []byte { into }\n")
 	} else {
 		b.WriteString("func ParseX(s string) X { Unreachable(\"not run\") }\n")
-		b.WriteString("func Wire(x X) string { \"\" }\n")
+		b.WriteString("func Wire(v X) string { \"\" }\n")
 	}
-	return b.String(), open || withCtor
+	src := b.String()
+	if r.IntN(2) == 0 {
+		// An unexported type: its parse is parseX and its constructor
+		// newX, each named as ParseName names the parse.
+		src = strings.NewReplacer("NewX(", "newX(", "ParseX(", "parseX(").Replace(src)
+		src = regexp.MustCompile(`\bX\b`).ReplaceAllString(src, "x")
+	}
+	return src, open || withCtor
+}
+
+// TestPairLawUnrunNamesConstructor: the reason a pair's law does not run
+// names the constructor to declare, newHost for an unexported host (the
+// smallest repro of the GX12b bug: the rule named it Newhost).
+func TestPairLawUnrunNamesConstructor(t *testing.T) {
+	src := "type host { name string }\nfunc parseHost(s string) host { host{name: s} }\nfunc Wire(h host) string { h.name }\n"
+	pkg, ds := check.CheckSource(src)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	for _, l := range pkg.Laws {
+		if l.Decl.Pair != nil && !strings.Contains(l.Unrun, "declare newHost,") {
+			t.Fatalf("the law's reason is %q, want it to name newHost", l.Unrun)
+		}
+	}
 }

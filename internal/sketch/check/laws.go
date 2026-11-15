@@ -342,7 +342,7 @@ func (c *checker) planLaws() {
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
 			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
-				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func " + syntax.ConstructorName(b[0].Type.Obj.Name) + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
 		for i := range r.Contexts {
@@ -376,7 +376,7 @@ func (c *checker) pairUngeneratable(t Type) string {
 			return ""
 		}
 	}
-	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare New" + n.Obj.Name + ", or make " + n.String() + " a record or union of exported fields"
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare " + syntax.ConstructorName(n.Obj.Name) + ", or make " + n.String() + " a record or union of exported fields"
 }
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
@@ -657,7 +657,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
-		lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
+		lp.Unrun = "its values have no generator: " + why + "; a func " + syntax.ConstructorName(p.Obj.Name) + "() " + p.Obj.Name + " with no rows would build one for each case"
 	}
 	return lp, true
 }
