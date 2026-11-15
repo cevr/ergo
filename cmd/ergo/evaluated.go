@@ -13,11 +13,12 @@ import (
 // ledger as a passing native run does.
 //
 // answered is false, and nothing is printed, when tier 2 must answer: with
-// --native, --receipt, --explore (a schedule search or replay included) or
-// a selection (--law, --skip-law, --run), or when the evaluator does not
-// decide every obligation of the package (sketchfront.EvaluateTests).
-func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer) (answered bool, err error) {
-	if opts.native || opts.receipt != "" || opts.explore || opts.search.mode != "" ||
+// --native, -work or --debug (which name or keep what a build writes),
+// --receipt, --explore (a schedule search or replay included) or a
+// selection (--law, --skip-law, --run), or when the evaluator does not decide every
+// obligation of the package (sketchfront.EvaluateTests).
+func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep func([]byte)) (answered bool, err error) {
+	if opts.native || opts.work || opts.debug || opts.receipt != "" || opts.explore || opts.search.mode != "" ||
 		opts.law != "" || opts.skipLaw != "" || opts.run != "" {
 		return false, nil
 	}
@@ -39,5 +40,12 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer) (ans
 		_, _ = io.WriteString(stderr, answer.Stderr)
 		return true, exitStatusError{code: answer.Exit, handled: true}
 	}
-	return true, writeTestLedger(opts, l)
+	if err := writeTestLedger(opts, l); err != nil {
+		return true, err
+	}
+	// A passing answer is kept as the warm answer, as a native pass is.
+	var result testResult
+	result.stdout.WriteString(answer.Stdout)
+	keep(result.encode())
+	return true, nil
 }

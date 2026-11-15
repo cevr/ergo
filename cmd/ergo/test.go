@@ -109,7 +109,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		}
 		return err
 	}
-	if answered, err := evaluatedTestRun(opts, l, os.Stdout, os.Stderr); answered {
+	if answered, err := evaluatedTestRun(opts, l, os.Stdout, os.Stderr, keep); answered {
 		return err
 	}
 	dir, err := os.MkdirTemp("", "ergo-test-")

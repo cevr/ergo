@@ -75,7 +75,9 @@ func TestTestResultCache(t *testing.T) {
 	run := func(env []string, args ...string) outcome {
 		t.Helper()
 		report := filepath.Join(t.TempDir(), "stage.json")
-		command := exec.Command(bin, append([]string{"test"}, args...)...)
+		// --native: the counts are the test binaries' (the evaluator,
+		// tier 1, would answer these packages with no build).
+		command := exec.Command(bin, append([]string{"test", "--native"}, args...)...)
 		command.Dir = root
 		// The counts are the direct path's, which a GOFLAGS of the
 		// caller's (the mutant runner's -p) would turn away.
