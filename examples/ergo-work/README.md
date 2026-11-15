@@ -25,6 +25,8 @@ Each case's `setup.sh` makes a Git base (and, where the command reads them, a re
 - `ready`: the workspace's origin is another repository; ready hands branch `w` and a snapshot holding the untracked `note.txt` to the base, and prints the commit the base's branch holds.
 - `rm-ready`: a workspace with an untracked file whose snapshot ready handed (setup.sh does what ready does, with git) goes to the trash.
 - `sync`: the base's `main` moved; sync merges it into `w` and prints the commit it merged.
+- `merge-rows`: two lanes each added a row at the end of a ledger (a clash for Git's text merge) and one changed a row; merge-file merges them clean.
+- `merge-clash`: both lanes changed one row apart, and one removed a row the other changed: merge-file names both rows and ends with status 1.
 - `env`: the `env` lines of `ergo.work` for workspace `w`.
 - Their `env` files fix Git's author, committer and dates, so the commit and tree ids are the same on every run.
 - `json-noinit`: with `--json` a failure's JSON is on standard output, and standard error says so.
