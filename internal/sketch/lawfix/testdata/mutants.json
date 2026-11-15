@@ -1,0 +1,32 @@
+{
+  "about": "The mutant ledger of internal/sketch/lawfix, the law pass of ergo fix (types.md, Laws 15): edits that TestPlanPlacesEveryLaw, a seeded property against a reference placement, must kill. Run it with go run ./scripts/mutants lawfix.",
+  "mutants": [
+    {
+      "name": "lawloc-fix-drops-helper",
+      "origin": "wf10 LAWLOC",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\t\tblock = append(block, h)\n",
+      "to": "\t\t\t_ = h\n",
+      "rule": "ergo fix moves each helper that only laws use beside the first law that uses it.",
+      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+    },
+    {
+      "name": "lawloc-fix-no-import",
+      "origin": "wf10 LAWLOC",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "add = append(add, \"import \"+t)",
+      "to": "_ = t",
+      "rule": "A moved law or helper takes the imports it names to its new file.",
+      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+    },
+    {
+      "name": "lawloc-fix-keeps-dead-import",
+      "origin": "wf10 LAWLOC",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\tcase cut == len(id.Specs):\n",
+      "to": "\t\tcase false:\n",
+      "rule": "An import that only moved declarations named leaves the file with them (else S110).",
+      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+    }
+  ]
+}

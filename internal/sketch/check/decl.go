@@ -104,6 +104,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.planConstructors,
 		c.checkTests,
 		c.checkLaws,
+		c.checkLawPlacement,
 		c.planLaws,
 		c.checkTypeDecls,
 		c.checkContexts,

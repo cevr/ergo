@@ -25,6 +25,7 @@ A diagnostic has a position, a code and a message: `file:line:col: CODE message`
 | S112 | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | `TestResourceTypeModel` (generated); at an instantiation, `TestTakesInferenceModel` (generated) |
 | S113 | The entry function `main` takes no parameters, returns no value (an error row is allowed) and is not called. | [rows: capability rows](rows.md#capability-rows), README Gap 4 | `main-parameter`, `main-called`, `main-value-result` |
 | S114 | Outside its package, a record with an unexported field is not built by a literal, a record update or an implicit zero value. | [types: zero values](types.md#zero-values-and-definite-initialisation) 6, [grammar: visibility](grammar.md#visibility) 3 | `TestConstructionAuthority`, `TestConstructionAuthorityShapes` |
+| S115 | A top-level law stands in a file that declares one of its subjects, and names at least one declaration of its package. | [types: laws](types.md#laws) 15, [grammar: declarations](grammar.md#declarations) 11 | `TestLawPlacement` |
 
 Designed codes are not emitted yet. Other designed errors in `docs/spec/` (resources, escape, exclusivity, channels of resources) get codes when [#197](https://github.com/cevr/ergo/issues/197) implements them.
 
@@ -257,3 +258,14 @@ Outside the package that declares it, a record with an unexported field, a defin
 Not S114: a value an exported function returns, a conversion between a defined type and its base, a pattern, a copy, and a literal or update of an enclosing record that sets the field. A keyed literal that leaves any field unset is S108 (Zero values 2).
 
 *Prior art:* Rust refuses a struct literal and a functional update with a private field outside its module (E0451); Gleam's `opaque` types hide their constructors; ReScript's abstract type in an interface file hides the representation; Elixir builds `%S{}` anywhere; Go builds `Q{}` from another package.
+
+### S115: law placement
+
+A top-level law stands in a file that declares one of its subjects: the declarations of its own package that it names, through its helpers ([types](types.md#laws) Laws 15; owner, 2026-11-15). Reported at the law's name (`TestLawPlacement`):
+
+- A law in a file that declares none of its subjects: "law Fresh is about Add (shelf.ergo); state it in that file", each subject's file named once, at the first subject it declares ("… about Add (shelf.ergo) and Len (count.ergo); state it in one of those files"). `ergo fix` moves it into its first subject's file.
+- A law that names nothing in its package, only the prelude, std or imports: "law L names nothing in package P; state it in the package it is about".
+
+Not S115: a member law of an operation type, a machine's law, and a law the parser derives; each stands in the declaration it is about.
+
+*Prior art:* Rust's `mod tests`, Zig's `test` blocks and Go's `_test.go` files sit with the code they test by convention only; no compiler checks it.
