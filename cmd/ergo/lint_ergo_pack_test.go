@@ -175,7 +175,7 @@ type Store {
 	Read(key string) int fails Denied | Missing,
 }
 
-type Disk { N int }
+type Disk { N int } implements Store
 
 func Read(d Disk, key string) int fails Denied | Missing {
 	if key == "" {

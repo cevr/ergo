@@ -97,7 +97,7 @@ type Store {
 	law DeleteAfterPut(k string, v int) { DeleteAfterPutHolds(k, v) },
 }
 
-type Table { cells sync.Ref[Map[string, int]], scale int }
+type Table { cells sync.Ref[Map[string, int]], scale int } implements Store
 
 func NewTable() Table { Scaled(1) }
 

@@ -82,7 +82,7 @@ type fakeTest struct {
 	// deadline (go test always passes -test.timeout); it passes without
 	// coverage and with a deadline.
 	plainOnly bool
-	reads       bool // asserts the data file one/word.txt
+	reads     bool // asserts the data file one/word.txt
 }
 
 func (f fakeTest) id() string { return f.suite + ":" + f.name }

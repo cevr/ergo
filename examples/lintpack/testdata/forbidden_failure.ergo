@@ -19,7 +19,7 @@ type Store {
 }
 
 // Table is a Store of fixed values.
-type Table {}
+type Table {} implements Store
 
 func Read(_ Table, key string) int fails Denied | Missing {
 	if key == "secret" {

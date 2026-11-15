@@ -6,7 +6,7 @@ import strings
 // List is a subscribe.Subscribers whose list holds three addresses, upstream's.
 // It refuses a subscription whose address is in the .invalid domain, which
 // takes no mail, so a script can show a refused submit.
-type List {}
+type List {} implements subscribe.Subscribers
 
 func Taken(_ List, e subscribe.Email) bool {
 	let text = strings.ToLower(subscribe.Text(e))

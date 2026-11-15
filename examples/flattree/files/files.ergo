@@ -6,7 +6,7 @@ import fs
 import flattree/app
 
 // Disk reads the files of a file system.
-type Disk { files fs.Files }
+type Disk { files fs.Files } implements app.Documents
 
 // New is the provider over files.
 func New(files fs.Files) Disk { Disk{files: files} }

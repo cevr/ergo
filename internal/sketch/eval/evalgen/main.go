@@ -59,7 +59,7 @@ func flush() needs Console {
 	journal.Set([]string{})
 }
 
-type Res { name string }
+type Res { name string } implements Closer
 
 type Box { a []int, b []int }
 

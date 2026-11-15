@@ -7,7 +7,7 @@
 import dash/feed
 
 // Bank is the sensors of one seed.
-type Bank { Seed int }
+type Bank { Seed int } implements feed.Sensors
 
 // Burst is how many samples a source sends in a burst: more than its
 // queue holds.

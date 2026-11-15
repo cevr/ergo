@@ -452,7 +452,7 @@ let Pinned = context { Shape: pinned }
 
 let live = sync.NewRef(0)
 
-type Gn { g func(int) int, closed sync.Ref[bool] }
+type Gn { g func(int) int, closed sync.Ref[bool] } implements Shape, Closer
 
 func Area(g Gn) int {
 	if g.closed.Get() || live.Get() != 1 {
@@ -473,14 +473,14 @@ func openGn() Gn {
 
 let Kept = context { Shape: openGn() }
 
-type Lock { g func(int) int, closed sync.Ref[bool] }
+type Lock { g func(int) int, closed sync.Ref[bool] } implements Closer
 
 func Close(k Lock) {
 	k.closed.Set(true)
 	live.Set(live.Get() - 1)
 }
 
-type Holder { lock Lock }
+type Holder { lock Lock } implements Shape
 
 func Area(h Holder) int {
 	if h.lock.closed.Get() || live.Get() != 1 {
@@ -502,17 +502,17 @@ func locked() int {
 	}
 }
 
-type Latch { n int }
+type Latch { n int } implements Closer
 
 func Close(_ Latch) needs Console {}
 
-type Gate { latch Latch }
+type Gate { latch Latch } implements Shape
 
 func Area(_ Gate) int { 1 }
 
 let Latched = context { Shape: Gate{latch: Latch{n: 1}} }
 
-type Nd { g func(int) int }
+type Nd { g func(int) int } implements Shape, Closer
 
 func Area(_ Nd) int { 1 }
 
@@ -520,11 +520,11 @@ func Close(_ Nd) needs Console {}
 
 let Needy = context { Shape: Nd{g: func(n int) int { n }} }
 
-type Nm {}
+type Nm {} implements Named
 
 func Name(_ Nm) string { "n" }
 
-type Wt[T] { Value T }
+type Wt[T] { Value T } implements Shape, Closer
 
 func Area[T Named](_ Wt[T]) int { 1 }
 
@@ -532,7 +532,7 @@ func Close[T Named](_ Wt[T]) {}
 
 let Witnessed = context { Shape: Wt[Nm]{Value: Nm} }
 
-type Sq { n int }
+type Sq { n int } implements Shape
 
 func Area(_ Sq) int { 1 }
 

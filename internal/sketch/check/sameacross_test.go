@@ -25,7 +25,7 @@ func TestSameAcrossTellsCapabilitiesApart(t *testing.T) {
 		"Tab[func(*Job)]", "Tab[func(f func())]", "Tab[func(f escaping func())]", "Tab[func(r RB)]", "Tab[func(r RB) takes r]",
 	}
 	var b strings.Builder
-	b.WriteString("type Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype Job { id int }\ntype Bad { text string }\ntype Worse { n int }\ntype A { Use() }\ntype RB { id int }\nfunc Close(r RB) {}\n\n")
+	b.WriteString("type Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype Job { id int }\ntype Bad { text string }\ntype Worse { n int }\ntype A { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) {}\n\n")
 	for i, c := range caps {
 		fmt.Fprintf(&b, "func f%d() needs %s {}\n", i, c)
 	}

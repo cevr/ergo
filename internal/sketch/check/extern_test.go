@@ -980,7 +980,7 @@ func main() {
 	// is never a program function's result (types.md, Borrows 8).
 	"fs.Mapped": `import fs
 
-type Mine {}
+type Mine {} implements Closer
 
 func Close(_ Mine) {}
 

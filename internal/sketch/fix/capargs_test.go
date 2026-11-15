@@ -120,8 +120,8 @@ const (
 	capLib   = "type LBox[T] { v T }\n"
 	capOther = "type Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype OBox[T] { v T }\ntype OJob { id int }\ntype OBad { text string }\ntype OA { Use() }\n"
 	capMore  = "type MJob { n int }\ntype MBad { n int }\n"
-	capMid   = "import m/other\nimport m/more\n\ntype D { Run() }\ntype RB { id int }\n\nfunc NewRB() RB { RB{id: 1} }\nfunc Close(r RB) needs ARG {}\nfunc Run(_ RB) {}\nfunc Need() needs ARG {}\nfunc Keep(_ more.MJob) {}\n"
-	capMain  = "import m/lib\nimport m/mid\n\nfunc KeepLib(_ lib.LBox[int]) {}\n\ntype Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype Box[T] { v T }\ntype Job { id int }\ntype Bad { text string }\ntype Worse { n int }\ntype A { Use() }\ntype C { Use() }\ntype RB { id int }\n\nfunc Close(r RB) needs ARG {}\nfunc Use(_ RB) {}\nfunc H() needs ARG {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc K() {\n\tH()\n}\n\nfunc R() {\n\twith context { mid.D: mid.NewRB() } { mid.D.Run() }\n}\n\nfunc Q() {\n\tmid.Need()\n}\n\nfunc main() {}\n"
+	capMid   = "import m/other\nimport m/more\n\ntype D { Run() }\ntype RB { id int } implements D, Closer\n\nfunc NewRB() RB { RB{id: 1} }\nfunc Close(r RB) needs ARG {}\nfunc Run(_ RB) {}\nfunc Need() needs ARG {}\nfunc Keep(_ more.MJob) {}\n"
+	capMain  = "import m/lib\nimport m/mid\n\nfunc KeepLib(_ lib.LBox[int]) {}\n\ntype Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype Box[T] { v T }\ntype Job { id int }\ntype Bad { text string }\ntype Worse { n int }\ntype A { Use() }\ntype C { Use() }\ntype RB { id int } implements C, Closer\n\nfunc Close(r RB) needs ARG {}\nfunc Use(_ RB) {}\nfunc H() needs ARG {}\n\nfunc G() {\n\twith context { C: RB{id: 1} } { C.Use() }\n}\n\nfunc K() {\n\tH()\n}\n\nfunc R() {\n\twith context { mid.D: mid.NewRB() } { mid.D.Run() }\n}\n\nfunc Q() {\n\tmid.Need()\n}\n\nfunc main() {}\n"
 )
 
 // argForms are the forms argGen builds, each reached by some seed.

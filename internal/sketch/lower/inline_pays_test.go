@@ -95,7 +95,7 @@ type Pick {
 	Once(xs []int) int,
 }
 
-type Picker { base int }
+type Picker { base int } implements Pick
 
 func At(p Picker, xs []int, k int) int { widest(xs, 0, k) + p.base }
 

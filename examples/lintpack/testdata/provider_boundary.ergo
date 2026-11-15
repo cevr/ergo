@@ -10,12 +10,12 @@ type Store {
 }
 
 // Disk is the live store: the provider the configuration restricts.
-type Disk { N int }
+type Disk { N int } implements Store
 
 func Count(d Disk) int { d.N }
 
 // Memory is a store for tests.
-type Memory { N int }
+type Memory { N int } implements Store
 
 func Count(m Memory) int { m.N }
 

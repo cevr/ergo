@@ -20,7 +20,7 @@ type Counter {
 	law Joins(a int, b int) { Add(a); Add(b) } == { Add(a + b) },
 }
 
-type Tally { s sync.Ref[int] }
+type Tally { s sync.Ref[int] } implements Counter
 
 func NewTally() Tally { Tally{s: sync.NewRef[int](0)} }
 

@@ -330,9 +330,9 @@ type Text string
 // law-exempt: only MapFile and MapText make one; MapTextIsText and the
 // runtime's TestFSMappedKeepsItsInvariant check their texts.
 type Mapped {
+	..Closer,
 	runtimeOnly(),
 	Text() Text,
-	Close(),
 }
 
 // MapFile maps the file at path: its text is the whole file, as ReadFile

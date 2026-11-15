@@ -436,7 +436,11 @@ func hasTest(root string, s *Suite, test string) bool {
 		}
 		return false
 	case s.Name == "examples":
-		info, err := os.Stat(filepath.Join(root, "examples", test))
+		dir := filepath.Join(root, "examples", test)
+		if mod, ok := strings.CutPrefix(test, "modules/"); ok {
+			dir, test = filepath.Join(root, "modules", mod), mod // a module of modules/ (MK0)
+		}
+		info, err := os.Stat(dir)
 		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir()
 	}
 	return test != ""

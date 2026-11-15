@@ -149,7 +149,7 @@ func RuleNamed(p Pack, name string) Option[Rule] {
 // Allow). An optional option with no default is a json.Optional field.
 // Options the codec cannot read (past its depth or size) fail with the
 // codec's reason; options of another form than T fail as such.
-func OptionsOf[T wire](options json.Value) T fails RuleFailed {
+func OptionsOf[T wire](options json.Value) T fails RuleFailed needs wired[T] {
 	let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, options)
 	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case json.Malformed as m:

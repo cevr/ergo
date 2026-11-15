@@ -381,9 +381,9 @@ func lowerProblems(at, cell string, benches *benchmarkIndex) []string {
 // theirs (a glob each, one level), so the closure sweep can grant the read
 // (internal/closure declared): a benchmark in another package is refused
 // until its directory is added here and to the sweep's grants. runtime/v1
-// and runtime/rt are in the std tests' closure; internal/sketch/lower and
-// internal/rpcgen are granted.
-var benchmarkPackages = []string{"internal/rpcgen", "internal/sketch/lower", "runtime/rt", "runtime/v1"}
+// and runtime/rt are in the std tests' closure; internal/sketch/lower,
+// internal/rpcgen and the runtime leaves csv, exec and http are granted.
+var benchmarkPackages = []string{"internal/rpcgen", "internal/sketch/lower", "runtime/rt", "runtime/v1", "runtime/v1/csv", "runtime/v1/exec", "runtime/v1/http"}
 
 // benchmarkIndex finds the top-level func Benchmark… declarations of the
 // _test.go files of a package directory of benchmarkPackages, reading each
