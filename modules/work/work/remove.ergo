@@ -286,7 +286,7 @@ func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWor
 	let older = try age(o.Older)
 	let idle = match o.Idle {
 	case Some[string]:
-		try Idled(t, try age(o.Idle))
+		try Idled(t, try age(o.Idle), o.Archive)
 	case None:
 		[]Idle{}
 	}
@@ -314,7 +314,7 @@ func age(text Option[string]) duration fails BadAge {
 // the base unused for idle, the ones made on another before it (the
 // list's last first), and is each one found. One rm refuses stays, with
 // the refusal's name; a failure of the host ends gc.
-func Idled(t Tool, idle duration) []Idle fails NoWorkspace | BadConfig | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadConfig | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
 	let c = try config(t)
 	let at = now(t)
 	let all = try t.registry.All()
@@ -329,16 +329,52 @@ func Idled(t Tool, idle duration) []Idle fails NoWorkspace | BadConfig | Exists 
 		if time.Times(1s, int(at-w.Since)) < idle {
 			continue
 		}
-		let why = try idleRm(t, c, w)
-		out = out.Append(Idle{Name: w.Name, Id: w.Id, Since: w.Since, Removed: why == "", Why: why})
+		let (why, kept) = try idleRm(t, c, w, archive)
+		out = out.Append(Idle{Name: w.Name, Id: w.Id, Since: w.Since, Removed: why == "", Why: why, Archived: kept})
 	}
 	out
 }
 
-// idleRm removes one idle workspace as rm does, and is "" when it is
-// removed or the name of rm's refusal when it stays.
-func idleRm(t Tool, c Config, w Workspace) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, false) catch {
+// idleRm removes one idle workspace as rm does: why is "" when it is
+// removed or the name of rm's refusal when it stays. With archive, one
+// whose work its parent does not hold has that work kept in the base
+// (kept, its ref) and is then removed with -abandon.
+func idleRm(t Tool, c Config, w Workspace, archive bool) (string, string) fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let why = try rmOnce(t, c, w, false)
+	if why != "NotHeld" || !archive {
+		return (why, "")
+	}
+	let kept = try keepWork(t, w)
+	let again = try rmOnce(t, c, w, true)
+	(again, if again == "" { kept } else { "" })
+}
+
+// keepWork keeps a snapshot of w's working files, as a commit on its
+// HEAD, in the base at ArchiveRef: the ref gc -archive names. The base,
+// not the parent: a parent workspace that gc removes next would take the
+// archive with it.
+func keepWork(t Tool, w Workspace) string fails VcsFailed {
+	let tree = try t.vcs.Snapshot(w.Path)
+	let commit = try t.vcs.Keep(w.Path, tree)
+	t.vcs.SetRef(w.Path, LatestRef, try t.vcs.Ref(w.Path, LatestRef), commit) catch {
+	case Moved as m:
+		return VcsFailed{Reason: "\(w.Path): \(LatestRef) moved to \(m.Have) while gc kept its work"}
+	case VcsFailed as e:
+		return e
+	}
+	let ref = ArchiveRef(w.Name, w.Id)
+	t.vcs.Push(w.Path, t.base, []Pushed{Pushed{From: LatestRef, To: ref, Force: false}}) catch {
+	case NotFastForward:
+		return VcsFailed{Reason: "\(t.base) has \(ref) already"}
+	case VcsFailed as e:
+		return e
+	}
+	ref
+}
+
+// rmOnce is rm of the idle w, "" when removed, else the refusal's name.
+func rmOnce(t Tool, c Config, w Workspace, abandon bool) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, abandon) catch {
 	case NotHeld:
 		return "NotHeld"
 	case HasDescendants:

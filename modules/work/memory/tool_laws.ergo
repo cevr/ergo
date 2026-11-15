@@ -230,7 +230,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 		case GcOp as o:
 			let older = small(o.Older, 7200)
 			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
-			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false}) catch {
 			case _:
 				work.Collected{Purged: []string{}, Idle: []work.Idle{}}
 			}
@@ -285,11 +285,49 @@ law UseKeepsAWorkspace(sync bool) {
 			return false
 		}
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
 	case _:
 		return false
 	}
 	len(out.Idle) == 1 && out.Idle[0].Name == "b" && out.Idle[0].Removed
+}
+
+// ArchiveKeepsTheWork: gc -idle -archive removes an idle workspace whose
+// work its parent does not hold (b, made on a, with a file of its own)
+// and its parent after it, and the base, not the parent that goes too,
+// keeps b's work at ArchiveRef: the ref resolves there, and its tree is
+// b's files as they were. Without -archive both stay.
+law ArchiveKeepsTheWork(text string, archive bool) {
+	let w = world(true)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let b = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+	case _:
+		return false
+	}
+	let _ = Write(w.trees, b.Path, "draft.txt", text)
+	let files = Working(Files(w.trees, b.Path))
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	case _:
+		return false
+	}
+	let gone = !w.trees.Has(b.Path)
+	if !archive {
+		return !gone && len(out.Idle) == 2 && out.Idle[0].Name == "b" && out.Idle[0].Why == "NotHeld" && out.Idle[0].Archived == ""
+	}
+	let ref = work.ArchiveRef("b", b.Id)
+	let commit = w.vcs.Resolve(theBase, ref) catch {
+	case _:
+		return false
+	}
+	let tree = treeOf(w.vcs, theBase, commit) catch {
+	case _:
+		return false
+	}
+	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files
 }
 
 // StackRecordsItsParent: a workspace made -on another records that
