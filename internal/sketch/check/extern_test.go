@@ -1047,6 +1047,19 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui/layout.Measure": `import ui/layout
+
+type Mine {} implements layout.Measure
+
+func Widths(_ Mine, text string, size float32) layout.Intrinsic { layout.Intrinsic{Max: 0.0, Min: 0.0} }
+func Height(_ Mine, text string, size float32, width float32) float32 { 0.0 }
+
+func use(m layout.Measure) { _ = m.Height("x", 1.0, 1.0) }
+
+func main() {
+	use(Mine)
+}
+`,
 	"ui.Location": `import ui
 type Mine {} implements ui.Location
 func Current(_ Mine) ui.URL { ui.ParseURL("/") }
@@ -1105,8 +1118,9 @@ var openStd = map[string]bool{
 	"config.Config":     true,
 	"term.Terminal":     true,
 	// Declared after the migration with no private operation: a program
-	// provides it, and cmd/<name>/main.ergo binds it.
-	"ui.Location": true,
+	// provides each one, and cmd/<name>/main.ergo binds it.
+	"ui.Location":       true,
+	"ui/layout.Measure": true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

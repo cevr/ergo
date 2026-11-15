@@ -540,6 +540,9 @@ func parseDeclsIn(fsys fs.FS, own bool) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.VAR {
 				for _, s := range gd.Specs {
 					for _, n := range s.(*ast.ValueSpec).Names {
+						if n.Name == "_" {
+							continue // `var _ = x` (unsupported_os.go) names no value a body can read
+						}
 						values[n.Name] = true
 						index.vars[n.Name] = append(index.vars[n.Name], reachDecl{s, locals})
 					}

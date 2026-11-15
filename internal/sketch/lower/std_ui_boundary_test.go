@@ -88,7 +88,7 @@ type Store {
 	Name(id int) string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Name(_ Mem, id int) string { "m\(id)" }
 
