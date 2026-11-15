@@ -336,6 +336,11 @@ func (b *irBuilder) conversion(x *syntax.CallExpr, c *check.Call, p irPos) ([]*i
 		}
 		return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: helper, Args: []*irExpr{v}}, false
 	}
+	if cv, ok := b.l.info.Values[x.Args[0]]; ok {
+		// A constant converted is a constant of the target type, as Go's
+		// checker folds int64(0) (the text view compiles the folded form).
+		return pre, b.constant(c.Type, cv, x, p), false
+	}
 	return pre, &irExpr{K: "conv", Pos: p, T: b.goType(c.Type, x), X: v}, false
 }
 
