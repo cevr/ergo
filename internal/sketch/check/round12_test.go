@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
 )
 
 // TestRowVariableWitnesses: the round-11 review's witnesses (class F).
@@ -25,7 +23,7 @@ func TestRowVariableWitnesses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, diags := check.CheckSource(string(data))
+			_, diags := checkSourceInfer(string(data))
 			want, have := expected(string(data)), got(diags)
 			if strings.Join(want, " ") != strings.Join(have, " ") {
 				t.Errorf("want %v, got %v\n\t%s", want, have, describe(diags))

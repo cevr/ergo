@@ -161,7 +161,7 @@ func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every
 // state after them. Each signal was committed when it was kept, so a step
 // that does not commit it (Ignore, Reject, Done, a failure) fails
 // Diverged at its index.
-func replay[S, E, O, F, R](step func(s S, e E) Decision[S, O] fails F needs R, s S, signals []E) S fails Diverged needs R {
+func replay[S, E, O, F, R](step func(s S, e E) Decision[S, O] fails F needs R, s S, signals []E) S fails Diverged needs R takes s {
 	let mut at = s
 	for i, e in signals {
 		let d = step(at, e) catch {

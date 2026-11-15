@@ -402,7 +402,7 @@ type Scripted {
 	Noise   float64,
 	Warm    float64,
 	Lose    []Planted,
-}
+} implements Meter
 
 // Planted is a refusal a Scripted meter gives for series Series in block
 // Block.

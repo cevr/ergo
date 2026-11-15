@@ -25,3 +25,9 @@ func point(p *Point) {
 	p.X = 1
 	use(&p.Y)
 }
+
+// A lent type parameter keeps its constraint (types.md, Borrows 7).
+// expect: "func bumped[T lent Counter](x T) int {"
+func bumped[T lent   Counter](x T) int {
+	x.Bump()
+}

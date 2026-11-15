@@ -294,6 +294,9 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 	case *Tuple:
 		return vTuple, nil, int64(len(t.Types)), "", t.Types
 	case *Wired:
+		if t.Uses {
+			return vWired, nil, 1, "", []Type{t.T}
+		}
 		return vWired, nil, 0, "", []Type{t.T}
 	case *Signature:
 		kids := make([]Type, 0, len(t.Params)+len(t.Results)+2)

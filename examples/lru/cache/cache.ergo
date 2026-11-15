@@ -136,7 +136,7 @@ func nodeAt[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]]) node[K, V
 
 // touch moves the node at, whose links are prev and next, to the front
 // of the recency list.
-func touch[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]], prev arena.Ref[node[K, V]], next arena.Ref[node[K, V]]) {
+func touch[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]], prev arena.Ref[node[K, V]], next arena.Ref[node[K, V]]) takes at, prev, next {
 	if c.head == at {
 		return
 	}
@@ -166,7 +166,7 @@ func release[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]]) node[K, 
 
 // unlink joins prev and next, the neighbours of a node on the recency
 // list, so that the list no longer passes through that node.
-func unlink[K comparable, V](c *Cache[K, V], prev arena.Ref[node[K, V]], next arena.Ref[node[K, V]]) {
+func unlink[K comparable, V](c *Cache[K, V], prev arena.Ref[node[K, V]], next arena.Ref[node[K, V]]) takes prev, next {
 	if prev == arena.Null[node[K, V]]() {
 		c.head = next
 	} else {
@@ -187,7 +187,7 @@ func unlink[K comparable, V](c *Cache[K, V], prev arena.Ref[node[K, V]], next ar
 
 // pushed makes at, a node whose next is the old head, the head of the
 // recency list.
-func pushed[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]]) {
+func pushed[K comparable, V](c *Cache[K, V], at arena.Ref[node[K, V]]) takes at {
 	if c.head == arena.Null[node[K, V]]() {
 		c.tail = at
 	} else {

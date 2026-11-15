@@ -21,14 +21,16 @@ import (
 // (releaseneeds.go); the second check's result is the package's.
 func (c *checker) run(files []*syntax.File) *Package {
 	pkg := c.runOnce(files)
-	seeds, edges := c.releaseSeeds(), c.needEdges()
-	if len(seeds) == 0 && len(edges) == 0 {
+	seeds, edges, withs := c.releaseSeeds(), c.needEdges(), c.withNeeds
+	if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {
 		return pkg
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
+	n.opts, n.derive = c.opts, c.derive
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
+	n.withSeeds, n.withHit = withs, map[withNeedKey]bool{}
 	pkg = n.runOnce(files)
 	*c = *n
 	return pkg
@@ -909,7 +911,7 @@ func (c *checker) resolveNamed(n *Named) {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2127,7 +2129,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2520,6 +2522,9 @@ func (c *checker) selfArgsOK(d *syntax.FuncDecl, args []syntax.Expr) bool {
 // exported machine (the export guard) spell their rows.
 func (c *checker) inferFlags(f *Func) {
 	d := f.Decl
+	if !c.opts.Infer {
+		return // q137: an unwritten clause is the empty clause
+	}
 	if d.Body == nil || isExported(f.Name) || f.Name == "main" || c.guarded[f] {
 		return
 	}

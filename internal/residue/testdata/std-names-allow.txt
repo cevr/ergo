@@ -3,6 +3,7 @@ internal/sketch/check/authority.go	n.origin().Obj.Pkg.Path == std.PreludePath	Am
 internal/sketch/check/authority.go	obj.Pkg.Path == std.PreludePath	Task ownership; predeclared language type
 internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic collection functions; follow-up declared contracts
 internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
+internal/sketch/check/clausefix.go	p.Path == "go"	go.Foreign spelling in a written clause: the universe's go package, not a std identity
 internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
 internal/sketch/check/decl.go	c.pkg.Path == std.PreludePath	prelude ownership declarations
 internal/sketch/check/durable.go	f.Pkg.Path == childPath	durable actor contracts; follow-up
@@ -20,6 +21,7 @@ internal/sketch/check/mappedtext.go	c.pkg.Path == "fs"	std fs declares Mapped.Te
 internal/sketch/check/match.go	o.Pkg.Path != std.PreludePath	Decision predeclared machine result
 internal/sketch/check/ownership.go	o.Pkg.Path == "queue"	owned queue elements; follow-up declared contracts
 internal/sketch/check/script.go	n.Obj.Pkg.Path != "testing"	derived Script; follow-up declared contracts
+internal/sketch/check/withown.go	n.Obj.Pkg.Path == c.pkg.Path	with release seed: this package's types are named again in the second check, not a std identity
 internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership; follow-up declared contracts
 internal/sketch/check/work.go	tn.Pkg.Path == workPath	work literal shape; STD1b removes this
 internal/sketch/check/work.go	f.Pkg.Path == childPath	child work scope; STD1b or follow-up declared contracts

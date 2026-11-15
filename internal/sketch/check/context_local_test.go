@@ -121,7 +121,6 @@ func localRules() []localRule {
 		{"charge-written", "func f() string needs Store {\n\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 		{"charge-inferred", "func f() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith w { Store.Get() } // want S102\n}\n"},
 		{"charge-enclosing-with", "func f() string {\n\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\twith Stored {\n\t\twith w { Greeter.Greet(\"x\") }\n\t}\n}\n"},
-		{"charge-let-inside-with", "func f() string {\n\twith Stored {\n\t\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\t\tlet g = func() string {\n\t\t\twith w { Greeter.Greet(\"x\") } // want S102\n\t\t}\n\t\tg()\n\t}\n}\n"},
 		{"charge-each-with", "func f() string needs Store {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet a = with w { Store.Get() }\n\tlet b = with w { Store.Get() }\n\ta + b\n}\n\nfunc g() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith Stored {\n\t\tlet a = with w { Store.Get() }\n\t\t_ = a\n\t}\n\twith w { Store.Get() } // want S102\n}\n"},
 		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() escaping func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
 
@@ -301,7 +300,17 @@ func (cc chargeCase) source() (src string, letLine int, withLines []int) {
 	if len(terms) == 0 {
 		terms = []string{"0"}
 	}
-	b.WriteString("func f() int {\n")
+	// f writes the rows its calls of the literals bring (q137): the
+	// reference's, so a row the checker charges beyond them is a diagnostic.
+	ref := cc.reference()
+	header := "func f() int"
+	if ref.fFails != "" {
+		header += " fails " + strings.ReplaceAll(ref.fFails, "main.", "")
+	}
+	if ref.fNeeds != "" {
+		header += " needs " + strings.ReplaceAll(ref.fNeeds, "main.", "")
+	}
+	b.WriteString(header + " {\n")
 	pad := "\t"
 	if len(cc.aroundLet) > 0 {
 		fmt.Fprintf(&b, "\twith context { %s } {\n", capEntries(cc.aroundLet))
@@ -356,7 +365,9 @@ type chargeRef struct {
 
 // reference computes, from the drawn sets alone: one S102 at a with per
 // need of the context that the literal's written row plus its enclosing
-// with do not hold (the with around the let does not count); each
+// with do not hold (the with around the let does not count), and none in
+// a literal that writes no row, whose row takes them (q139 and law 9);
+// each
 // literal's failure row is the context's failures, which escape at the
 // with that builds it; the holding function fails with them exactly when it
 // calls a literal under try, and it needs what its called literals' rows
@@ -379,9 +390,22 @@ func (cc chargeCase) reference() chargeRef {
 			held[c] = true
 		}
 		missing := 0
-		for _, c := range cc.needs {
-			if !held[c] {
-				missing++
+		litRow := w.row
+		if len(w.row) == 0 {
+			// A literal that writes no row takes what its body charges
+			// (q139), the local context's capabilities among them, as the
+			// inline literal's (law 9): no S102 at its with.
+			litRow = nil
+			for _, c := range cc.needs {
+				if !held[c] {
+					litRow = append(litRow, c)
+				}
+			}
+		} else {
+			for _, c := range cc.needs {
+				if !held[c] {
+					missing++
+				}
 			}
 		}
 		ref.s102 = append(ref.s102, missing)
@@ -390,7 +414,7 @@ func (cc chargeCase) reference() chargeRef {
 			ref.fFails = strings.Join(es, " | ")
 		}
 		if w.call != callNone {
-			for _, c := range w.row {
+			for _, c := range litRow {
 				if !around[c] {
 					fNeeds[c] = true
 				}
@@ -528,12 +552,10 @@ func numbered(src string) string {
 	return b.String()
 }
 
-// TestLocalContextLawNine (rows.md, Composition law 9 and its exception;
-// E5 round 1 M2): the provider make() needs Console. In a function that
-// writes its capability row, `with w` and the inline literal at the same
-// with give one row and one set of codes. In a function whose row is
-// inferred, the literal's need widens the row and the local's is S102 at
-// its operand.
+// TestLocalContextLawNine (rows.md, Composition law 9; E5 round 1 M2):
+// the provider make() needs Console. Every row is written (q137), so
+// `with w` and the inline literal at the same with give one row and one
+// set of codes, the empty row included.
 func TestLocalContextLawNine(t *testing.T) {
 	const prelude = `type Greeter {
 	Greet(name string) string,
@@ -571,19 +593,19 @@ func make() Plain needs Console {
 		t.Fatalf("no f in\n%s", numbered(src))
 		return "", nil, ""
 	}
-	for _, sig := range []string{" needs Console", " needs Console | Greeter", " needs Greeter"} {
-		inRow, inCodes, _ := check1(sig, bodies[0])
-		locRow, locCodes, src := check1(sig, bodies[1])
-		if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
-			t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
+	// In a function literal with no expected type, whose row is the rows
+	// its body charges (q139), the law holds too: the local context's
+	// need joins the literal's row as the inline literal's does.
+	literal := func(body string) string {
+		return "\tlet g = func() string {\n\t" + body + "\t}\n\tg()\n"
+	}
+	for _, wrap := range []func(string) string{func(b string) string { return b }, literal} {
+		for _, sig := range []string{"", " needs Console", " needs Console | Greeter", " needs Greeter"} {
+			inRow, inCodes, _ := check1(sig, wrap(bodies[0]))
+			locRow, locCodes, src := check1(sig, wrap(bodies[1]))
+			if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
+				t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
+			}
 		}
-	}
-	inRow, inCodes, src := check1("", bodies[0])
-	if inRow != "Console" || len(inCodes) != 0 {
-		t.Errorf("inferred row: the inline literal gives %q %v, want Console and no diagnostic\n%s", inRow, inCodes, numbered(src))
-	}
-	_, diags := check.CheckSource(prelude + "func f() string {\n" + bodies[1] + "}\n")
-	if have := strings.Join(got(diags), " "); have != "S102@18" || diags[0].Column != 7 {
-		t.Errorf("inferred row: the local gives %v, want S102@18 at the operand w\n\t%s", have, describe(diags))
 	}
 }

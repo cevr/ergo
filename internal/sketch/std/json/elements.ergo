@@ -35,7 +35,7 @@ func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, seq: sequence
 
 // Next is the next element, or None after the last, once the rest of
 // the text is settled.
-func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | WireWrongKind | wired[T] {
+func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | WireWrongKind | wired[T] needs wired[T] {
 	let r = e.r
 	let at = e.at.Get()
 	if at == eDone {

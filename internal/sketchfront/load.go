@@ -165,6 +165,8 @@ type loader struct {
 	// segments are the packages of required modules the check may take
 	// from the snapshot, or write to it, by segment key (moduleSegments).
 	segments map[*loadedPackage]string
+	// opts are the checker modes of every local package (clauses.go).
+	opts check.Options
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
@@ -249,11 +251,22 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 // checkDirIn checks the package in dir with required modules read from the
 // module cache folder modCache.
 func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) (Analysis, error) {
+	return checkDirFull(fsys, dir, platform, modCache, check.Options{})
+}
+
+// checkDirWith checks the package in dir in the checker modes opts
+// (clauses.go).
+func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Options) (Analysis, error) {
+	return checkDirFull(fsys, dir, platform, moduleCache(), opts)
+}
+
+func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string, opts check.Options) (Analysis, error) {
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
 	l := newLoader(fsys, platform, dir, modCache)
+	l.opts = opts
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -677,6 +690,7 @@ func (l *loader) checkAll() {
 				File:    p.files[d.File].rel,
 				Message: d.Message,
 				Span:    report.Span{Offset: d.Offset, Length: d.Length, Line: d.Line, Column: d.Column},
+				Fix:     reportFix(d.Fix),
 			})
 		}
 	}
@@ -714,7 +728,7 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 	if main {
 		path = "main" // the root package is the program's main package
 	}
-	pkg, found := check.CheckTest(path, files, imp, l.testOf(p))
+	pkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)
 	p.pkg = pkg
 	ds[p] = found
 	if len(found) > 0 {

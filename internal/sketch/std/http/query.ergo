@@ -27,7 +27,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPParseQuery func ParseQuery(raw str
 // the key as Path. A query value has no object form, so a field of a
 // record or union type fails WireWrongKind. Booleans are "true" and
 // "false"; numbers are Go's decimal spellings.
-func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] needs wired[T] {
 	let r = queryReaderOf(fields)
 	try decode[T](r) catch {
 	case WireWrongKind as w:

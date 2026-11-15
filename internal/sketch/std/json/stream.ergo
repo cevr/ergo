@@ -27,7 +27,7 @@ import sync
 import utf8
 
 // Stream is a Reader over the text of an io.Source.
-type Stream { st sync.Ref[scan] }
+type Stream { st sync.Ref[scan] } implements Reader
 
 // The kinds of token the tokenizer gives, in WireKind's order for values:
 // a closing bracket (kClose), a member's key (kKey), the end of the text
@@ -192,7 +192,7 @@ func Settle(r Stream) fails Malformed | io.ReadFailed {
 // result Decode gives for the same text (StreamAgreesWithDecode), since it
 // settles the text before it gives a value or a failure, and
 // io.ReadFailed when src fails.
-func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] {
+func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] needs wired[T] {
 	let r = NewStream(src, c.MaxBytes, c.MaxDepth)
 	// A failed decode settles first: a break of the text explains the
 	// failure better than the shape failure it caused.

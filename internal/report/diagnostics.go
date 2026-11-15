@@ -11,8 +11,9 @@ import (
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
-// dropped the lint fields and the suppression list (#205).
-const DiagnosticReportSchemaVersion = 2
+// dropped the lint fields and the suppression list (#205); version 3 added a
+// diagnostic's fix (Fix).
+const DiagnosticReportSchemaVersion = 3
 
 // SourceSnapshot identifies the exact text a result was computed from. The
 // text stays out of JSON. A program read from a directory has no one text:

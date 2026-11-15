@@ -234,6 +234,7 @@
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },
+    {"name":"ex1-check-writes","origin":"wf10 EX1 r1","file":"cmd/ergo/fix.go","from":"\t\tif write {\n\t\t\tif err := writeFixed(texts, res.Texts); err != nil {","to":"\t\tif true {\n\t\t\tif err := writeFixed(texts, res.Texts); err != nil {","rule":"ergo fix --check writes nothing (EXPLICIT §4).","killers":["cmd/ergo:TestFixCheckWritesNothing"]},
     {
       "name": "rc4b-inspect-engine-missing",
       "origin": "wf10 RC4b",

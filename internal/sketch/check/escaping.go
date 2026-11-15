@@ -81,6 +81,7 @@ func (c *checker) checkEscapes() {
 			w.localFrames(d)
 			w.visit(d)
 			w.finishCaptures()
+			w.checkLentParams(d)
 		}
 		c.checkBorrows(f)
 	}
@@ -119,9 +120,6 @@ type escWalk struct {
 	// borrowHolders maps a local that holds a value converted from a
 	// borrow to the type it holds it as (borrowconv.go).
 	borrowHolders map[*Var]Type
-	// keeps memoizes, for a generic function and a type parameter, why
-	// its body may keep a value of it (borrowtargs.go).
-	keeps map[*Func]map[*TypeParam]string
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local

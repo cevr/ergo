@@ -29,6 +29,9 @@ type Diagnostic struct {
 	Length  int
 	Line    int
 	Column  int
+	// Fix is the clause edit of an S101 or S102 (clausefix.go)
+	// (clausefix.go), or nil.
+	Fix *ClauseFix
 }
 
 func (d Diagnostic) String() string {
@@ -55,6 +58,15 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 // (checked as main) or an import (TestedPath), so a package checks the
 // same either way.
 func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
+	return CheckTestOptions(path, files, imp, under, Options{})
+}
+
+// CheckTestOptions is CheckTest in the modes opts selects (clausefix.go).
+func CheckTestOptions(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
+	return check(path, files, imp, under, opts)
+}
+
+func check(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -67,6 +79,7 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.opts = opts
 	c.derive = derived
 	c.pkg.testOf = under
 	pkg := c.run(met)
@@ -76,6 +89,12 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 	}
 	if pkg != nil {
 		pkg.Derive = derived
+		if opts.Infer {
+			pkg.Clauses = c.inferredClauses()
+			for i := range pkg.Clauses {
+				pkg.Clauses[i].File = order[pkg.Clauses[i].File]
+			}
+		}
 	}
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
@@ -84,6 +103,9 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 	ds := c.sorted()
 	for i := range ds {
 		ds[i].File = order[ds[i].File]
+		if ds[i].Fix != nil {
+			ds[i].Fix.File = ds[i].File
+		}
 	}
 	return pkg, ds
 }
@@ -103,6 +125,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	opts   Options
 	derive *derive.Package // the package's derive record (derive.go)
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
@@ -130,6 +153,13 @@ type checker struct {
 	// inferred needs row that its decodes reach; a second check orders
 	// the bodies by them (wireEdges; wirecall.go).
 	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
+	// withNeeds are the with operands whose providers' release needs a
+	// capability that no outer with provides and no written row holds,
+	// found by the first check; withSeeds are the same, read by the
+	// second check, which charges each where the with is typed, and
+	// withHit records the charged ones (releaseneeds.go).
+	withNeeds, withSeeds map[withOperand][]relCap
+	withHit              map[withNeedKey]bool
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
@@ -649,7 +679,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}

@@ -123,11 +123,12 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Name":       {why: "a name"},
 		"Kind":       {why: "a kind"},
 		"Pos":        {why: "a position"},
+		"Lent":       {why: "a flag: the bracket writes lent"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},
 	"RowArg": {"Row": {sel: "Row"}},
-	"Wired":  {"T": {sel: "T"}},
+	"Wired":  {"T": {sel: "T"}, "Uses": {why: "a flag: which row the element stands in"}},
 	"RowVar": {
 		"sol":   {sel: "Solution"},
 		"of":    {sel: "Solution"},

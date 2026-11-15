@@ -246,7 +246,7 @@ func Finish(c Mark) needs Scheduler {
 	}
 }
 
-func viaDot(fail bool, signal queue.Queue[int]) {
+func viaDot(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -254,7 +254,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func twinFinish(fail bool, signal queue.Queue[int]) {
+func twinFinish(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Mark{Fail: fail}
 		signal.End()
@@ -275,7 +275,7 @@ func fail(exit int) fails Fault needs Scheduler {
 	}
 }
 
-func frame(exit int, nested bool, releaseFail bool) fails Fault {
+func frame(exit int, nested bool, releaseFail bool) fails Fault needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		scope.OnExit() {
 			Scheduler.Sleep(6h)
@@ -296,7 +296,7 @@ func frame(exit int, nested bool, releaseFail bool) fails Fault {
 	}
 }
 
-func launch() Task[int, Fault] {
+func launch() Task[int, Fault] needs Ambient {
 	task.Go() {
 		try frame(0, true, false)
 		0
@@ -332,13 +332,13 @@ func Close(o Other, n int) needs Scheduler {
 	}
 }
 
-func viaOp(fail bool, signal queue.Queue[int]) {
+func viaOp(fail bool, signal queue.Queue[int]) needs Ambient {
 	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	signal.End()
 	r.Close()
 }
 
-func twinOperand(fail bool, signal queue.Queue[int]) {
+func twinOperand(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
 		signal.End()
@@ -356,7 +356,7 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 	{
 		name: "single",
 		extra: `
-func viaPlain(fail bool, signal queue.Queue[int]) {
+func viaPlain(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -364,7 +364,7 @@ func viaPlain(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func viaValue(fail bool, signal queue.Queue[int]) {
+func viaValue(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		let f = Close
@@ -393,7 +393,7 @@ func Close[T](b Box[T]) needs Scheduler {
 	}
 }
 
-func viaGeneric(fail bool, signal queue.Queue[int]) {
+func viaGeneric(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let b = Box[string]{Fail: fail, V: "x"}
 		signal.End()
@@ -418,7 +418,7 @@ func Close(h *Held) needs Scheduler {
 	}
 }
 
-func viaPointer(fail bool, signal queue.Queue[int]) {
+func viaPointer(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let mut h = Held{Fail: fail}
 		let p = &h

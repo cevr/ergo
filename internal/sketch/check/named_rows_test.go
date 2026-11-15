@@ -153,6 +153,12 @@ func TestNamedRowCatch(t *testing.T) {
 		{"f(n) catch { case Fail: 2; case Bad: 1; case Other: 0 }", "caught twice"},
 		{"f(n) catch { case Other: 0 }", "does not handle"},
 		{"only(n) catch { case Other: 0; case _: 1 }", "not in the caught row"},
+		// The union's arm is the one an unreachable pattern names (t6-13:
+		// its rows lose their origin).
+		{"f(n) catch { case Fail: 1; case Bad{At: a}: a; case Other: 0 }", "covered by the earlier case `Fail`"},
+		// A union in the row is no refused test: its name still names the
+		// type in the arm, not a silent placeholder (t6-35).
+		{"f(n) catch { case Fail: let s string = Fail; 1; case Other: 0 }", "Fail is a type, not a value"},
 	} {
 		src := decls + "func G(n int) int {\n\t" + tc.body + "\n}\n"
 		_, diags := CheckSource(src)

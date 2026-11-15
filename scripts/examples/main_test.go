@@ -454,8 +454,10 @@ func TestLayoutErrorsNameTheFolder(t *testing.T) {
 	}
 }
 
-// A program that fails fmt or build fails alone: its cases do not run, the
-// other programs' do, and the runner writes nothing into the root.
+// A program that fails fmt, fix or build fails alone: its cases do not
+// run, the other programs' do, and the runner writes nothing into the
+// root. Mutant (scripts/examples ledger ex2-no-fix-leg): the fix leg
+// dropped, so a clause ergo fix would write passes.
 func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -463,13 +465,14 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
 	f.program("nobuild", "#!/bin/sh\n# BUILDFAIL\necho hi\n", "default\n", hi, nil)
 	f.program("messy", "#!/bin/sh\necho hi\n", "default\n", hi, map[string]string{"part.ergo": "# UNFORMATTED\n"})
+	f.program("unfixed", "#!/bin/sh\n# UNFIXED\necho hi\n", "default\n", hi, nil)
 	before := tree(t, f.root)
 	code, out := f.run()
 	oks, fails := verdicts(out)
-	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !oks["good/basic"] {
+	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !strings.Contains(out, "FAIL unfixed: fix\n") || !oks["good/basic"] {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	if oks["nobuild/basic"] || oks["messy/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" {
+	if oks["nobuild/basic"] || oks["messy/basic"] || oks["unfixed/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" || fails["unfixed/basic"] != "" {
 		t.Fatalf("a failed program's cases ran\n%s", out)
 	}
 	if after := tree(t, f.root); !slices.Equal(before, after) {
@@ -478,6 +481,7 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	calls := readCalls(t, f)
 	for _, want := range []string{
 		"fmt --check " + filepath.Join(f.root, "examples/messy/main.ergo") + " " + filepath.Join(f.root, "examples/messy/part.ergo"),
+		"fix --check " + filepath.Join(f.root, "examples/good/main.ergo"),
 		"build " + filepath.Join(f.root, "examples/good/main.ergo") + " -o ",
 	} {
 		if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, want) }) {

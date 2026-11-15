@@ -43,11 +43,14 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 	}
 	for _, x := range d.Implements {
 		var t Type
-		if id, ok := x.(*syntax.Ident); ok && id.Name == n.Obj.Name && c.pkg.Path != std.PreludePath {
+		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != std.PreludePath {
 			// A type named like a prelude type hides it in its package
 			// (types.md, Scope 2), and no type implements itself: its
 			// own name in its clause is the prelude's type it hides
-			// (`type Reader { … } implements Reader` in std json).
+			// (`type Reader { … } implements Reader` in std json). An
+			// implements clause names operation types, so a package type
+			// that is not one hides no prelude operation type there
+			// either (`type Stream { … } implements Reader` in std json).
 			if p := preludeType(id.Name); p != nil {
 				t = p
 				c.recordUse(id, p.Obj)
@@ -75,6 +78,17 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 		n.impls = append(n.impls, op)
 		n.implExprs = append(n.implExprs, x)
 	}
+}
+
+// hidesNoOps reports whether the package declares a type named name that
+// is not an operation type: a record, a union, a machine or an alias.
+func (c *checker) hidesNoOps(name string) bool {
+	tn, ok := c.pkg.Scope.names[name].(*TypeName)
+	if !ok || tn.Decl == nil {
+		return false
+	}
+	spec, ok := tn.Decl.Spec.(*syntax.InterfaceType)
+	return !ok || len(spec.Union) > 0 || aliasTarget(tn.Decl) != nil
 }
 
 // typeNoun names what kind of type t is, for a clause that wants an

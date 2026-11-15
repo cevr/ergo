@@ -39,7 +39,7 @@ let DefaultChunk = 65536
 // Memory is a Source over a text in memory. Its chunks end at its cut
 // offsets and at most size bytes after the chunk's start (no size limit
 // when size is not positive). Memory reads no host.
-type Memory { text string, cuts []int, size int, pos sync.Ref[place] }
+type Memory { text string, cuts []int, size int, pos sync.Ref[place] } implements Source
 
 // place is where a Memory reads next: at, the offset of the next chunk,
 // and next, the index of the first cut that may still end a chunk.
@@ -91,12 +91,17 @@ func Read(m Memory) Option[string] fails ReadFailed {
 	})
 }
 
-// File is the file at path of the host, mapped read-only (fs.MapFile),
-// as a Memory cut into chunks of size bytes: the page cache holds the
-// text, not the heap, so a reader that drops its chunks reads a file
-// larger than memory in a flat heap.
+// File is the file at path of the host, mapped read-only (fs.MapFile)
+// and copied out of the mapping (fs.Clone), as a Memory cut into chunks
+// of size bytes. A Memory keeps its text, and a mapped text is a borrow
+// that no field holds (types.md, Borrows 8), so the copy is whole; a
+// Source that reads a mapping chunk by chunk is follow-up
+// io-file-mapped-source.
 func File(host fs.Host, path string, size int) Memory fails fs.NotFound | fs.Denied | fs.Failed {
-	Chunked(try fs.MapFile(host, path), size)
+	let m = try fs.MapFile(host, path)
+	let text = fs.Clone(m.Text())
+	m.Close()
+	Chunked(text, size)
 }
 
 // Read is the next chunk of standard input, at most DefaultChunk bytes,

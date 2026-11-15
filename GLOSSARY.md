@@ -54,7 +54,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
-**Inferred row**: A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard. The checker still infers it until the explicit-signature units land.
+**Inferred row** (retired by decision, 2026-11-12; no longer checked since EXPLICIT EX2): A row the checker computed from a body because the row was not written, for an unexported function with a body, per strongly connected component of a package's reference graph. `ergo fix`'s clause writer still computes these least rows to write them. A function literal with no expected type has the rows its body charges (q139); it declares nothing. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard.
 
 **Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
 
@@ -140,7 +140,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
-**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7). A **mapped text**, `fs.Text`, is a borrow of its `fs.Mapped` with no `*` written: it is never stored, returned or converted, and every use of it is a use of its Mapped, so none follows `Close` (Borrows 8).
+**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates only a type parameter whose signature marks it `lent` (`[T lent]`), whose body is checked to keep no value of it (Borrows 7). A **mapped text**, `fs.Text`, is a borrow of its `fs.Mapped` with no `*` written: it is never stored, returned or converted, and every use of it is a use of its Mapped, so none follows `Close` (Borrows 8).
 
 **Resource**: A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
@@ -148,7 +148,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Crossing type**: A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
-**Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on exported signatures, inferred on unexported functions, and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
+**Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on every function, exported or not (q137; `ergo fix` writes a missing one), and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope**: The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
 

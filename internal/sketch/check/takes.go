@@ -13,7 +13,12 @@ import (
 // Takes inference and copy sites (#197 L8 A3; plan 1.1, 1.3; resources
 // R17, R19, R44, Gap 35, Gap 39).
 //
-// The takes clause of an unexported function with a body that writes none
+// Every function writes its takes clause (q137, EX3): a hand-off of a
+// lent parameter is S108 with the whole clause to write and a ClauseFix
+// (takesFix), and an unwritten clause takes nothing. Only ergo fix's
+// clause writer (Options.Infer) infers, as below, and writes what it
+// infers. Under it, the takes clause of an unexported function with a
+// body that writes none
 // is inferred from its body: a parameter is taken when on some path the
 // body hands it off (ownership.go's hand-offs: returned, moved into a
 // composite literal that is handed off, an argument a callee takes, the
@@ -127,11 +132,13 @@ func takesOf(f *Func) []int {
 	return nil
 }
 
-// infersTakes reports whether f's clause is inferred: an unexported
-// function of this package with a body, no receiver and no written clause,
-// other than main.
+// infersTakes reports whether f's clause is inferred: only under ergo fix's
+// clause writer (Options.Infer; q137, EX3), an unexported function of
+// this package with a body, no receiver and no written clause, other than
+// main. Every check, build and test path infers no clause: a hand-off of
+// a lent parameter is S108 with the clause to write (takesFix).
 func (c *checker) infersTakes(f *Func) bool {
-	return f != nil && f.Pkg == c.pkg && f.Decl != nil && f.Decl.Body != nil && f.Decl.Extern == nil &&
+	return c.opts.Infer && f != nil && f.Pkg == c.pkg && f.Decl != nil && f.Decl.Body != nil && f.Decl.Extern == nil &&
 		f.Decl.Recv == nil && !writesTakes(f) && !isExported(f.Name) && f.Name != "main"
 }
 
