@@ -8,5 +8,6 @@ docs/research/ef-migrate/main.ergo
 models/children/children.ergo
 models/durable/durable.ergo
 models/host/host.ergo
+models/replica/replica.ergo
 models/runner/runner.ergo
 models/supervise/supervise.ergo
