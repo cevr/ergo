@@ -146,7 +146,11 @@ type HasDescendants { Name string, Paths []string }
 // active workspace of the base unused for that age (no new, ready or
 // sync: its Since) whose work is held in its parent, so the same gc
 // deletes it; an idle one rm would refuse stays, and gc reports it.
-type GcOptions { Older Option[string], Id Option[string], Idle Option[string] }
+// -archive keeps the work of an idle workspace its parent does not hold
+// (a snapshot of every file that is not ignored, as a commit) in the
+// base at ArchiveRef, then removes it too: Rift's prune with its
+// archive, in the base's repository (a parent workspace may go next).
+type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool }
 
 // Collected is what gc did: the names it purged, and each idle workspace
 // -idle found, removed or not.
@@ -154,7 +158,12 @@ type Collected { Purged []string, Idle []Idle }
 
 // Idle is a workspace -idle found: removed, or kept back with why (the
 // name of the failure rm gave: NotHeld, HasDescendants, Busy).
-type Idle { Name string, Id string, Since int64, Removed bool, Why string }
+// Archived is the parent's ref that keeps its work when -archive did.
+type Idle { Name string, Id string, Since int64, Removed bool, Why string, Archived string }
+
+// ArchiveRef is the ref of an idle workspace's work that gc -archive
+// keeps in the base: one per workspace id, never overwritten.
+func ArchiveRef(name string, id string) string { "refs/work/archive/\(name)/\(id)" }
 
 // TombWindow is how long the registry keeps the tomb of a purged
 // workspace: 30 days. Within it, rm -expect of the id answers
@@ -178,6 +187,10 @@ type Api {
 	// Adopt registers an existing clone (a Rift, a Git clone) as a
 	// workspace; it moves no file.
 	Adopt(dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed | Locked,
+	// AdoptRift registers each Rift copy of the base (Rift's registry,
+	// read only) as a workspace, a copy made on a copy with that one as
+	// its parent; it moves no file, and a second run adopts nothing.
+	AdoptRift(o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Unkept | VcsFailed | Locked,
 	// List is every workspace of the base.
 	List() []Workspace fails NoBase | Unkept,
 	// Rm moves a workspace to the trash.
@@ -218,8 +231,9 @@ type Api {
 	// until then no hook and no install runs.
 	Trust() Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed,
 	// Doctor reports on the base: the clone providers, the file system,
-	// whether a purge is one call, a stale index, the trust.
-	Doctor() Report fails NoBase | BadConfig | Unkept | VcsFailed,
+	// whether a purge is one call, a stale index, the trust; with -rift,
+	// the base's Rift copies no workspace holds yet.
+	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread,
 	// Refresh refreshes the stat data of the base's Git index, so that a
 	// clone starts fresh; it is the number of stale entries it had.
 	Refresh() int fails NoBase | Unkept | VcsFailed,

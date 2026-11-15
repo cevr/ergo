@@ -17,6 +17,8 @@ func New(w Workspaces, name string, o work.NewOptions) work.Created fails work.N
 	try w.tool.New(name, o)
 }
 
+func AdoptRift(w Workspaces, o work.RiftOptions) work.RiftAdopted fails work.NoBase | work.RiftUnread | work.Unkept | work.VcsFailed | work.Locked { try w.tool.AdoptRift(o) }
+
 func Adopt(w Workspaces, dir string, o work.AdoptOptions) work.Workspace fails work.NoBase | work.BadName | work.NameTaken | work.Missing | work.Unkept | work.VcsFailed | work.Locked {
 	try w.tool.Adopt(dir, o)
 }
@@ -51,7 +53,7 @@ func Deps(w Workspaces, o work.DepsOptions) work.DepsDone fails work.NoBase | wo
 
 func Trust(w Workspaces) work.Trusted fails work.NoBase | work.BadConfig | work.Unkept | fs.NotFound | fs.Denied | fs.Failed { try w.tool.Trust() }
 
-func Doctor(w Workspaces) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed { try w.tool.Doctor() }
+func Doctor(w Workspaces, o work.DoctorOptions) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed | work.RiftUnread { try w.tool.Doctor(o) }
 
 func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed { try w.tool.Refresh() }
 

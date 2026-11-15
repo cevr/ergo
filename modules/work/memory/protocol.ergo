@@ -48,7 +48,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id)}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
 	case _:
 		return false
 	}
@@ -76,7 +76,7 @@ law RemovingSparesTheReplacement() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
 	case _:
 		return false
 	}
@@ -139,7 +139,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id)}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
 	case _:
 		return false
 	}
@@ -183,7 +183,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 		return false
 	}
 	if replaced {
-		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None}) catch {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
 		case _:
 			return false
 		}

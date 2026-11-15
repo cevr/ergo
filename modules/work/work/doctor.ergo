@@ -21,7 +21,13 @@ type Report {
 	StaleIndex   int,
 	Trusted      bool,
 	Notes        []string,
+	Rift         []string,
 }
+
+// DoctorOptions are doctor's flags: -rift lists the base's Rift copies
+// that no workspace holds (in the registry -registry names, else
+// Rift's own).
+type DoctorOptions { Rift bool, Registry Option[string] }
 
 // mountOf is the file system type and options of the mount that holds
 // path, from /proc/mounts (the longest mount point that is a prefix);
@@ -52,7 +58,7 @@ func mountOf(t Tool, path string) (string, string) {
 }
 
 // Doctor reports on the base.
-func Doctor(t Tool) Report fails NoBase | BadConfig | Unkept | VcsFailed {
+func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread {
 	try initialized(t)
 	let c = try config(t)
 	let mut names = []string{}
@@ -83,7 +89,11 @@ func Doctor(t Tool) Report fails NoBase | BadConfig | Unkept | VcsFailed {
 	if !ok {
 		notes = notes.Append("work.toml runs commands work trust has not allowed: run work trust")
 	}
-	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes}
+	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
+	if len(rift) > 0 {
+		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
+	}
+	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
 }
 
 // Refresh refreshes the stat data of the base's Git index (git
