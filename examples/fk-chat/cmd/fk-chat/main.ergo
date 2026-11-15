@@ -14,7 +14,7 @@ import time
 
 func main() fails os.Exit needs Console | Ambient {
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run() }
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: clock, Scheduler: clock } { script.Run(clock) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "fk-chat: the script did not run"}
 	}
