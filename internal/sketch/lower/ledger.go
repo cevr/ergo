@@ -805,9 +805,6 @@ type RewriteSite struct {
 	// open, that the proof covers every value of its type and the place
 	// that opens it (construction.go). State says why for any other site.
 	Why string `json:"why,omitempty"`
-	// note is the line a build prints for a site whose entry is not
-	// current: what changed, when the foreign keys say it.
-	note string
 }
 
 // admitLevel is the one admission of a ledger level for a change of code
@@ -849,6 +846,9 @@ type LedgerEvidence struct {
 	order   []string
 	read    map[string]bool
 	refused map[string]bool
+	// notes are the line a build prints for each site whose entry is not
+	// current: what changed, when the foreign keys say it.
+	notes   map[string]string
 	applied int
 	// file, line and col are the position of the window the lowering
 	// asks about (rewriteWindow).
@@ -860,7 +860,7 @@ type LedgerEvidence struct {
 // whose packages names names, with the foreign keys of the Go code the
 // program links.
 func NewLedgerEvidence(pkg *check.Package, names LedgerNames, entries map[string]LedgerEntry, keys ForeignKeys) *LedgerEvidence {
-	e := &LedgerEvidence{names: names, entries: entries, keys: keys, rules: map[string]rwRule{}, digests: map[string][2]string{}, sites: map[string]*RewriteSite{}, read: map[string]bool{}, refused: map[string]bool{}}
+	e := &LedgerEvidence{names: names, entries: entries, keys: keys, rules: map[string]rwRule{}, digests: map[string][2]string{}, sites: map[string]*RewriteSite{}, read: map[string]bool{}, refused: map[string]bool{}, notes: map[string]string{}}
 	for prov, rules := range newRewriter(pkg, nil).rules {
 		for _, r := range rules {
 			e.rules[names.law(r.law)+" for "+names.provider(prov)] = r
@@ -899,8 +899,9 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 		}
 		e.sites[site] = &RewriteSite{
 			File: file, Line: line, Column: col,
-			Law: lawName, Provider: provName, Instance: inst, Verdict: entry.Verdict, By: entry.By, With: with, State: state, note: note,
+			Law: lawName, Provider: provName, Instance: inst, Verdict: entry.Verdict, By: entry.By, With: with, State: state,
 		}
+		e.notes[site] = note
 		e.order = append(e.order, site)
 	}
 	if ok && law.Rewrite != nil {
@@ -910,7 +911,7 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 	case ok:
 		return true, ""
 	case state != "current":
-		return false, e.sites[site].note
+		return false, e.notes[site]
 	case entry.Verdict == "refuted":
 		e.refused[fmt.Sprintf("ergo.laws: law %s is refuted, and the sources are those it was refuted on (%s:%d:%d): the build stops; correct the law or what it reaches, then run ergo test", key, file, line, col)] = true
 		e.sites[site].Why = "law " + key + " is refuted"
@@ -1008,11 +1009,11 @@ func (e *LedgerEvidence) Notes() []string {
 	var out []string
 	for _, k := range e.order {
 		s := e.sites[k]
-		if s.State == "current" || seen[s.note] {
+		if s.State == "current" || seen[e.notes[k]] {
 			continue
 		}
-		seen[s.note] = true
-		out = append(out, s.note)
+		seen[e.notes[k]] = true
+		out = append(out, e.notes[k])
 	}
 	sort.Strings(out)
 	return out
