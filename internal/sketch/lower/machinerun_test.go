@@ -227,7 +227,7 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 		reached["needs"] = true
 		rows += " needs Probe"
 		runRows = " needs Probe"
-		b.WriteString("type Probe { Tick() }\ntype Quiet {}\n\nfunc Tick(_ Quiet) {}\n\n")
+		b.WriteString("type Probe { Tick() }\ntype Quiet {} implements Probe\n\nfunc Tick(_ Quiet) {}\n\n")
 	}
 	last := len(g.states) - 1
 	b.WriteString("func num(s St) int {\n\tmatch s {\n")

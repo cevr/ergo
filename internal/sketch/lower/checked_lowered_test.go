@@ -43,7 +43,8 @@ type pairKind struct {
 	under string
 	named bool
 	// ops: the kind is an operation type with Get() int; impl: the kind
-	// provides Get() int; member: the kind is a variant of U.
+	// declares that it implements Store and Gen[int]; member: the kind is
+	// a variant of U.
 	ops, impl, member, union bool
 	optionMember             bool // Some[int] and None inhabit Option[int].
 	function                 bool // func() int, with the row below
@@ -184,6 +185,9 @@ func admits(s, t pairKind) bool {
 	case s.under == t.under && (!s.named || !t.named):
 		return true
 	case t.ops:
+		// A type converts when its clause names the operation type; one
+		// operation type converts to another only when it includes it, and
+		// none in the grid does (EXC1; types.md, Interface assignability 1).
 		return s.impl && !s.ops
 	case t.name == "U":
 		return s.member
@@ -693,7 +697,7 @@ func stdFunc(op stdOp, site string) (id, code string) {
 		}
 		call = "let t = task.Go() {\n" + op.body + "\n}\nlet r = " + wait
 	case "provider":
-		fmt.Fprintf(&b, "type %sImpl {}\n\nfunc Run(i %sImpl, q queue.Queue[int]) int fails queue.Closed {\n%s\n}\n", id, id, op.body)
+		fmt.Fprintf(&b, "type %sImpl {} implements Runner\n\nfunc Run(i %sImpl, q queue.Queue[int]) int fails queue.Closed {\n%s\n}\n", id, id, op.body)
 		call = "let p Runner = " + id + "Impl\nlet r = try p.Run(q)"
 	default:
 		panic("unknown std site: " + site)
@@ -833,7 +837,7 @@ func orderProgram(k orderKind, list string) string {
 		b.WriteString("import queue\n")
 	}
 	b.WriteString("import task\n\n")
-	b.WriteString("type Shape { Area() int }\ntype Sq { N int }\nfunc Area(s Sq) int { s.N }\n")
+	b.WriteString("type Shape { Area() int }\ntype Sq { N int } implements Shape\nfunc Area(s Sq) int { s.N }\n")
 	b.WriteString("type Fault { Code int }\nfunc id(n int) int { n }\nfunc work(n int) int fails Fault { n }\n")
 	b.WriteString("func spawn(n int) Task[int, Fault] { task.Go() { n } }\nfunc keep[V](v V) {}\n")
 	// A basic type is written as itself, so + and interpolation take it;

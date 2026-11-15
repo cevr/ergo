@@ -260,7 +260,7 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 	if needs {
 		row += " needs Probe"
 		helperRow = " needs Probe"
-		b.WriteString("type Probe { Tick() }\ntype Quiet {}\n\nfunc Tick(_ Quiet) {}\n\n")
+		b.WriteString("type Probe { Tick() }\ntype Quiet {} implements Probe\n\nfunc Tick(_ Quiet) {}\n\n")
 	}
 	fmt.Fprintf(&b, "func step(s St, e Sig) Decision[St, int]%s {\n", row)
 	if needs {
