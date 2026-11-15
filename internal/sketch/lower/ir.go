@@ -402,7 +402,18 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if f.Pkg != nil {
 		pkg = f.Pkg.Path
 	}
-	defer st.finish(b, pkg, name, f.Decl, f.Pkg.Std(), &ok)
+	census := name
+	for _, g := range gates {
+		switch g {
+		case "known-callback variant", "variant with no result", "copy for a known record":
+			// A variant is a body of its own beside the function's: the
+			// census names it apart, so the function's IR body and the
+			// variant's fallback are two records, not one function with
+			// both (IR-RED-2).
+			census = name + " (" + g + ")"
+		}
+	}
+	defer st.finish(b, pkg, census, f.Decl, f.Pkg.Std(), &ok)
 	// A library body (a std body the program reaches, written with no
 	// //line directive) takes an IR body as a sourced one does: its
 	// positions name its std file (pos), so its lines and its defects'
