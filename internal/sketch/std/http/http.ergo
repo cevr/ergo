@@ -6,6 +6,7 @@
 // A handler that needs to send its body in parts uses Stream, through the
 // Streaming capability Serve binds per request.
 
+import json
 import strings
 import sync
 
@@ -107,6 +108,18 @@ func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 type Streaming {
 	open(status int, header []Field) BodyWriter,
 	close() string,
+	reply(status int, header []Field, t json.Text) string,
+}
+
+// SendText answers the request with status, header and the JSON text t
+// as its body, of t's length. Under Serve it writes t's bytes to the
+// connection where they are, with no string of the body, and the
+// result's Body is empty; under a Recorder the Body is t's text. A
+// response that has started (a Stream or a SendText before) is a defect.
+// json.With lends the Text, so the body's bytes are written once, into a
+// pooled buffer (GX9).
+func SendText(status int, header []Field, t json.Text) Response needs Streaming {
+	Response{Status: status, Header: header, Body: Streaming.reply(status, header, t)}
 }
 
 // Stream answers the request with status and header, then a body that
@@ -134,6 +147,9 @@ type Exchange {
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,
 	End(),
+	// Send writes status, header and t's text as the whole response, with
+	// its length.
+	Send(status int, header []Field, t json.Text),
 }
 
 // live is Serve's Streaming provider for one request.
@@ -146,6 +162,11 @@ func open(l live, status int, header []Field) BodyWriter {
 
 func close(l live) string {
 	l.x.End()
+	""
+}
+
+func reply(l live, status int, header []Field, t json.Text) string {
+	l.x.Send(status, header, t)
 	""
 }
 
@@ -174,4 +195,12 @@ func open(r Recorder, status int, header []Field) BodyWriter {
 func close(r Recorder) string {
 	r.state.Set(2)
 	r.text.Get()
+}
+
+func reply(r Recorder, status int, header []Field, t json.Text) string {
+	if r.state.Get() != 0 {
+		Unreachable("http.SendText: the response has already started")
+	}
+	r.state.Set(2)
+	t.Written()
 }

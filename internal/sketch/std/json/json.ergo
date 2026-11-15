@@ -70,6 +70,20 @@ extern go ergo.local/prototype/runtime/v1.NewJSONHTMLText func NewHTMLText() Tex
 extern go ergo.local/prototype/runtime/v1.JSONTake func take() Text
 extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
 
+// drop puts t back in the pool without its text (With only).
+extern go ergo.local/prototype/runtime/v1.JSONDrop func drop(t Text)
+
+// With lends use an empty Text from Encode's pool and returns what use
+// returns. Its reader takes the text where it is, with no copy into a
+// string: http.SendText writes it to the connection (GX9). The Text goes
+// back to the pool when use returns, so use keeps no part of it.
+func With[U, R](use func(t Text) U needs R) U needs R {
+	let t = take()
+	let u = use(t)
+	drop(t)
+	u
+}
+
 // Cursor reads a validated text for Reader: each read takes the next value
 // of the innermost open list or object; Wrong says when it was not of the
 // kind asked for.

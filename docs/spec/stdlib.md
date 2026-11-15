@@ -329,6 +329,7 @@ Std `json` (S-json) writes and reads the derived codec's events ([types.md, Code
 | --- | --- | --- |
 | `Codec` | `Codec[T wire] { MaxBytes int, MaxDepth int }` | Ergo |
 | `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `JSONTake`, `JSONGive` |
+| `With` | `With[U, R](use func(t Text) U needs R) U needs R`: lends `use` a pooled empty Text, taken back when `use` returns (http SendText, GX9) | Ergo over `JSONTake`, `JSONDrop` |
 | `Decode` | `Decode[T wire](c Codec[T], text string) T fails Malformed \| wired[T]` | Ergo over `Open`, `decode[T]` |
 | `Malformed` | `Malformed { Offset int, Reason string }` | `JSONMalformed` |
 | `Text`, `NewText`, `NewHTMLText` | a sealed `Writer` with `Null()` and `Written() string` | `Text`, `NewJSONText`, `NewJSONHTMLText` |
@@ -529,6 +530,26 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    handler. Plug's `send_chunked`/`chunk` and Mist's `chunked` keep the
    connection in the handler's hands; here the request task owns it, so its
    stop is the hang-up.
+10. **A JSON text as the body** (GX9). `SendText(status, header, t json.Text) Response needs Streaming`
+    answers with status, header and the text `t` holds as the whole body,
+    with its `Content-Length`. Serve's provider writes `t`'s bytes to the
+    connection where they are (`Exchange.Send`), so no string of the body
+    is made, and the result's Body is empty; under a Recorder the Body is
+    `t.Written()`. A response that has started (a Stream or a SendText) is a
+    defect, and a later Write fails. `json.With(use)` lends `use` a pooled
+    empty Text and takes it back when `use` returns, so the text is written
+    once, into a buffer that is used again. `SuccessJSON(route, c, v)` is
+    the two together: it answers as `Success(route, json.Encode(c, v))` does
+    (law `SuccessJSONIsSuccess`), 204 and 205 with no body. A handler that
+    encodes its own JSON writes it into a Text from `json.With` and sends it
+    with SendText: the path is the same. `TestHTTPSendWritesTheText` holds
+    the framing (the length declared, never chunked; HEAD gets the length and
+    no body) and that the handler's returned response is not sent. *Prior
+    art:* Go's `json.NewEncoder(w).Encode(v)` writes from a pooled
+    `encodeState` to the writer; Effect's `HttpServerResponse.json` encodes
+    into a `Uint8Array` body; Phoenix's `json/2` hands Plug an iodata body,
+    written without joining it into one binary; Gleam's Mist takes a
+    `BytesTree` body.
 
 10. **Client** (H1, G9; orchestrator contract 2026-11-10).
     `Do(r Request) Response fails RequestFailed needs Net` sends one
@@ -1005,6 +1026,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `http` | `SuccessUsesRoute` | `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 \|\| status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FailureUsesTable` | `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `SuccessJSONIsSuccess` | `SuccessJSONIsSuccess(pick int, items []string) { let statuses = []int{200, 201, 202, 204, 205, 299} let status = statuses[((pick % len(statuses)) + len(statuses)) % len(statuses)] let route = Route{Value: "reply", Method: "GET", Path: "/", Status: status} let c = json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0} let sent = with context { Streaming: NewRecorder() } { SuccessJSON(route, c, items) } let want = Success(route, json.Encode(c, items)) sent.Status == want.Status && sent.Body == want.Body && slices.Equal(sent.Header, want.Header) }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `MatchIsSplitMatch` | `MatchIsSplitMatch(pattern []int, path []int) { let parts = []string{"", "a", "b", ":x", ":"} let pick = func(xs []int) string { let mut text = "" for i, p in xs { let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }] text = if i == 0 { part } else { text + "/" + part } } text } let want = strings.Split(pick(pattern), "/") let got = strings.Split(pick(path), "/") let mut split = len(want) == len(got) for i, part in want { if split && strings.HasPrefix(part, ":") && len(part) > 1 { split = got[i] != "" } else if split { split = part == got[i] } } let found = match Match([]Route[int]{Route{Value: 1, Method: "GET", Path: pick(pattern), Status: 200}}, "GET", pick(path)) { case Found: true case NotFound, MethodNotAllowed: false } found == split }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |

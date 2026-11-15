@@ -764,6 +764,28 @@
       "killers": [
         "runtime/v1:TestHTTPServerMatchesModel"
       ]
+    },
+    {
+      "name": "gx9-send-no-length",
+      "origin": "wf10 GX9",
+      "file": "runtime/v1/http.go",
+      "from": "\th.Set(\"Content-Length\", strconv.Itoa(len(body.B)))\n",
+      "to": "",
+      "rule": "stdlib.md, std http 10 (GX9): SendText declares the text's length; a long body is never chunked.",
+      "killers": [
+        "runtime/v1:TestHTTPSendWritesTheText"
+      ]
+    },
+    {
+      "name": "gx9-send-unended",
+      "origin": "wf10 GX9",
+      "file": "runtime/v1/http.go",
+      "from": "\tx.started, x.ended = true, true\n",
+      "to": "\tx.started = true\n",
+      "rule": "stdlib.md, std http 10 (GX9): a Write after SendText fails WriteFailed.",
+      "killers": [
+        "runtime/v1:TestHTTPSendWritesTheText"
+      ]
     }
   ]
 }

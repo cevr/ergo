@@ -4236,6 +4236,39 @@
       "killers": [
         "internal/sketch/lower:TestStdHTTPLawsRun"
       ]
+    },
+    {
+      "name": "gx9-recorder-empty",
+      "origin": "wf10 GX9",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "\tr.state.Set(2)\n\tt.Written()\n",
+      "to": "\tr.state.Set(2)\n\t\"\"\n",
+      "rule": "stdlib.md, std http 10 (GX9): under a Recorder SendText's Body is the text.",
+      "killers": [
+        "internal/sketch/lower:TestStdHTTPLawsRun"
+      ]
+    },
+    {
+      "name": "gx9-json-204-body",
+      "origin": "wf10 GX9",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "\tif route.Status == 204 || route.Status == 205 { return Success(route, \"\") }\n\tjson.With(",
+      "to": "\tjson.With(",
+      "rule": "stdlib.md, std http 10 (GX9): SuccessJSON of a 204 or a 205 has no body, as Success has none.",
+      "killers": [
+        "internal/sketch/lower:TestStdHTTPLawsRun"
+      ]
+    },
+    {
+      "name": "gx9-json-type-dropped",
+      "origin": "wf10 GX9",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "\t\tSendText(route.Status, []Field{Field{Name: \"Content-Type\", Value: \"application/json\"}}, t)",
+      "to": "\t\tSendText(route.Status, []Field{}, t)",
+      "rule": "stdlib.md, std http 10 (GX9): SuccessJSON's body is application/json, as Success's is.",
+      "killers": [
+        "internal/sketch/lower:TestStdHTTPLawsRun"
+      ]
     }
   ]
 }

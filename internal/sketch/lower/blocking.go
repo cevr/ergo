@@ -283,6 +283,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Exchange.Begin": {},
 	"Exchange.Write": {wait: callerWait},
 	"Exchange.End":   {},
+	// SendText (GX9): Send checks the caller's stop, then waits on the
+	// network write of the whole response.
+	"Exchange.Send": {wait: callerWait},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.
@@ -412,6 +415,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"NewJSONHTMLText":    {},
 	"Text.Null":          {task: true},
 	"JSONGive":           {},
+	"JSONDrop":           {},
 	"Cursor.Wrong":       {},
 	"Cursor.TakeNull":    {},
 	"Cursor.Kind":        {},

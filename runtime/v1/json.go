@@ -975,9 +975,16 @@ func JSONTake() *Text { return jsonPool.Get().(*Text) }
 // holds no large buffer.
 func JSONGive(t *Text) string {
 	s := string(t.B)
+	JSONDrop(t)
+	return s
+}
+
+// JSONDrop puts t back in the pool with no copy of its text (std json
+// With: the text's reader has taken it); nothing may use t after. A
+// buffer that grew past 64 KiB is dropped, as JSONGive drops it.
+func JSONDrop(t *Text) {
 	if cap(t.B) <= 64<<10 {
 		t.B, t.Comma = t.B[:0], false
 		jsonPool.Put(t)
 	}
-	return s
 }
