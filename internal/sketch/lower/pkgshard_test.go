@@ -27,6 +27,21 @@ import (
 // returns the errors, nil when the module type-checks.
 func typecheckModule(t *testing.T, base string, files []File) []string {
 	t.Helper()
+	errs, _ := typecheckModuleInfo(t, base, files)
+	return errs
+}
+
+// checkedPkg is one Go package typecheckModuleInfo checked: its files and
+// their type information.
+type checkedPkg struct {
+	files []*ast.File
+	info  *types.Info
+}
+
+// typecheckModuleInfo is typecheckModule with each package's files and
+// type information, by folder.
+func typecheckModuleInfo(t *testing.T, base string, files []File) ([]string, map[string]checkedPkg) {
+	t.Helper()
 	fset := token.NewFileSet()
 	byDir := map[string][]*ast.File{}
 	var imports []string
@@ -36,7 +51,7 @@ func typecheckModule(t *testing.T, base string, files []File) []string {
 		}
 		af, err := parser.ParseFile(fset, f.Path, f.Data, parser.SkipObjectResolution)
 		if err != nil {
-			return []string{err.Error()}
+			return []string{err.Error()}, nil
 		}
 		d := path.Dir(f.Path)
 		byDir[d] = append(byDir[d], af)
@@ -72,6 +87,7 @@ func typecheckModule(t *testing.T, base string, files []File) []string {
 		return os.Open(file)
 	})
 	var errs []string
+	checked := map[string]checkedPkg{}
 	done := map[string]*types.Package{}
 	checking := map[string]bool{}
 	var check func(dir string) (*types.Package, error)
@@ -100,7 +116,9 @@ func typecheckModule(t *testing.T, base string, files []File) []string {
 		if dir != "." {
 			p = base + "/" + dir
 		}
-		pkg, _ := conf.Check(p, fset, byDir[dir], nil)
+		info := &types.Info{Instances: map[*ast.Ident]types.Instance{}, Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
+		checked[dir] = checkedPkg{byDir[dir], info}
+		pkg, _ := conf.Check(p, fset, byDir[dir], info)
 		done[dir] = pkg
 		return pkg, nil
 	}
@@ -109,7 +127,7 @@ func typecheckModule(t *testing.T, base string, files []File) []string {
 			errs = append(errs, err.Error())
 		}
 	}
-	return errs
+	return errs, checked
 }
 
 type importerFunc func(path string) (*types.Package, error)
