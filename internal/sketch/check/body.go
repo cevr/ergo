@@ -60,6 +60,9 @@ type Body struct {
 	// the result, any other index a parameter.
 	Keeps  bool
 	Keeper int
+	// FrameRelease: the body registers its callback as an exit action of
+	// the caller's frame (v1.Body.Release "frame"; scope.OnExit).
+	FrameRelease bool
 }
 
 // BodyOf returns the body contract of the extern f, the zero Body for
@@ -82,6 +85,7 @@ func BodyOf(f *Func) Body {
 	if body, err := v1.BodyOf(name); err == nil {
 		b.Known = true
 		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
+		b.FrameRelease = body.Release == "frame"
 		b.Value = valueBody(body)
 	}
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)
@@ -285,4 +289,23 @@ func GoTypeOf(n *Named) (string, bool) {
 	}
 	path, name := n.origin().Obj.Decl.Extern.Split()
 	return name, path == runtimeModule+"/v1"
+}
+
+// embedTreeBody is the runtime's embedded-tree constructor, which the
+// lowering calls for embedded[T] of a tree (lower/embed.go).
+const embedTreeBody = "EmbeddedFS"
+
+// embedTree reports a type embedded[T] builds as a tree of assets: its
+// declaration names the Go type the runtime's embedded-tree constructor
+// returns (embed.FS is `extern go …/runtime/v1.FS type FS`). It reads the
+// declaration and the constructor's body, never a std name, so a trusted
+// package's type that names the same Go type is a tree too (STD-NOPRIV
+// NP3d; docs/spec/stdlib.md, The body contract).
+func embedTree(n *Named) bool {
+	goName, ok := GoTypeOf(n)
+	if !ok {
+		return false
+	}
+	body, err := v1.BodyOf(embedTreeBody)
+	return err == nil && len(body.Results) == 1 && body.Results[0] == "*"+goName
 }

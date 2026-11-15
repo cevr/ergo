@@ -49,7 +49,7 @@ sync	differs	lower: no exported function a caller can take as a value	follow-up 
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 term	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-testing	differs	check: S108 a record with no fields is written bare: Script[probe] (script.go derives Script for testing.Script only)	NP3d
+testing	differs	check: S108 a record with no fields is written bare: Script[probe] (testing.Script is a predeclared derivation of the language, so a copy's Script is an ordinary record)	language (NP3d decision)
 time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 toml	same

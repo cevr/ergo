@@ -451,10 +451,13 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With, taskHeld map[*syntax.C
 	})
 }
 
-// isOnExit reports a call of std scope.OnExit.
+// isOnExit reports a call whose body registers its callback as an exit
+// action of the caller's frame (`//ergo:release frame`, as scope.OnExit's
+// does; docs/spec/stdlib.md, The body contract): a body fact, so a copy of
+// scope, or any trusted package that binds the same body, gets the rule,
+// and a package named scope with an OnExit of its own does not.
 func isOnExit(call *Call) bool {
-	return call != nil && call.Kind == CallFunc && call.Func != nil && call.Func.Name == "OnExit" &&
-		call.Func.Pkg != nil && call.Func.Pkg.Path == "scope"
+	return call != nil && call.Kind == CallFunc && BodyOf(call.Func).FrameRelease
 }
 
 // exitAction reports the exit action registered by the call n inside the

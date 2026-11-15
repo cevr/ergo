@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestContextValueDiagnostics: the text and line of each refusal of a
@@ -13,19 +14,32 @@ import (
 // missing-capability check dropped (value-missing-cap-unchecked), the
 // row-parameter refusal dropped (value-row-param-built), a Context made
 // by a composite literal (context-literal-admitted), and a provider with
-// a Close admitted (value-owns-close). What a value installs is
-// TestContextValuesAgree's (lower).
+// a Close admitted (value-owns-close). A std package is refused the
+// literal too: only the prelude, Context's declaring package, writes it
+// (construction authority; STD-NOPRIV NP3d, context-literal-std-only).
+// What a value installs is TestContextValuesAgree's (lower).
 func TestContextValueDiagnostics(t *testing.T) {
 	const head = "type A { Get() int }\ntype B { Get() int }\ntype Box { n int }\nfunc Get(b Box) int { b.n }\n"
-	rows := []struct{ name, src, want string }{
-		{"missing capability", head + "func f() {\n\tlet v Context[A | B] = context { A: Box{n: 1} }\n\t_ = v\n}\n", "S102:6 this context binds no B, a capability of Context[A | B]"},
-		{"row parameter", head + "func f[R]() Context[R] {\n\tcontext { A: Box{n: 1} }\n}\n", "S108:6 a context converts only to a Context of concrete capabilities, and Context[R] names the row parameter R"},
-		{"composite literal", head + "func f() {\n\tlet v = Context[A]{}\n\t_ = v\n}\n", "S108:6 a Context value is made from a context"},
-		{"provider with a Close", head + "type Conn { n int }\nfunc Get(c Conn) int { c.n }\nfunc Close(c Conn) {}\nfunc open() Conn { Conn{n: 1} }\nfunc f() {\n\tlet v Context[A] = context { A: open() }\n\t_ = v\n}\n", "S109:10 a Context value cannot hold a provider with a Close"},
+	rows := []struct {
+		name, src, want string
+		std             bool
+	}{
+		{"missing capability", head + "func f() {\n\tlet v Context[A | B] = context { A: Box{n: 1} }\n\t_ = v\n}\n", "S102:6 this context binds no B, a capability of Context[A | B]", false},
+		{"row parameter", head + "func f[R]() Context[R] {\n\tcontext { A: Box{n: 1} }\n}\n", "S108:6 a context converts only to a Context of concrete capabilities, and Context[R] names the row parameter R", false},
+		{"composite literal", head + "func f() {\n\tlet v = Context[A]{}\n\t_ = v\n}\n", "S108:6 a Context value is made from a context", false},
+		{"composite literal in std", head + "func f() {\n\tlet v = Context[A]{}\n\t_ = v\n}\n", "S108:6 a Context value is made from a context", true},
+		{"provider with a Close", head + "type Conn { n int }\nfunc Get(c Conn) int { c.n }\nfunc Close(c Conn) {}\nfunc open() Conn { Conn{n: 1} }\nfunc f() {\n\tlet v Context[A] = context { A: open() }\n\t_ = v\n}\n", "S109:10 a Context value cannot hold a provider with a Close", false},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
 			_, d := check.CheckSource(r.src)
+			if r.std {
+				file, err := syntax.Parse(r.src)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, d = check.StdFixture("ctxfixture", []*syntax.File{file})
+			}
 			head, msg, _ := strings.Cut(r.want, " ")
 			for _, x := range d {
 				if x.Code+":"+strconv.Itoa(x.Line) == head && strings.Contains(x.Message, msg) {
