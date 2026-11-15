@@ -72,6 +72,24 @@
       "to": "if err := error(nil); err != nil {",
       "rule": "The runner puts a checked-in ergo.laws back as it was: a run leaves the tree unchanged.",
       "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
+    },
+    {
+      "name": "ex-other-binary-unbuilt",
+      "origin": "wf10/sync RP3 (orchestrator: one example holds several binaries)",
+      "file": "scripts/examples/main.go",
+      "from": "\tfor _, other := range p.others {\n",
+      "to": "\tfor _, other := range p.others[:0] {\n",
+      "rule": "The build leg builds every binary of a program, cmd/OTHER beside cmd/NAME.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "ex-other-binary-without-main",
+      "origin": "wf10/sync RP3",
+      "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, fmt.Sprintf(\"no cmd/%s/main.ergo\", name))\n\t\t\tcontinue\n",
+      "to": "\t\t\tcontinue\n",
+      "rule": "Each folder of cmd is a binary with its main.ergo; another one is a layout problem.",
+      "killers": ["scripts/examples:TestModuleProgramLayout"]
     }
   ]
 }

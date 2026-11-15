@@ -8,7 +8,8 @@ import (
 )
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
-// formats every .ergo file of its packages, builds cmd/NAME (a folder), runs
+// formats every .ergo file of its packages, builds cmd/NAME (a folder) and
+// each other binary cmd/OTHER, runs
 // ergo test on each package folder that declares a test, and runs its cases.
 func TestModuleProgram(t *testing.T) {
 	t.Parallel()
@@ -18,6 +19,7 @@ func TestModuleProgram(t *testing.T) {
 	f.write(dir+"/README.md", "# walker\n")
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/cmd/walkd/main.ergo", "#!/bin/sh\necho served\n")
 	f.write(dir+"/walk/game.ergo", "func f() {}\n")
 	f.write(dir+"/walk/tests.ergo", "test Walks {\n}\n")
 	f.write(dir+"/walk/deep/more.ergo", "test Deep {\n}\n")
@@ -35,7 +37,7 @@ func TestModuleProgram(t *testing.T) {
 	root := filepath.Join(f.root, dir)
 	calls := readCalls(t, f)
 	wantFmt := "fmt --check " + strings.Join([]string{
-		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
+		filepath.Join(root, "cmd/walkd/main.ergo"), filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
 	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "walk"), "test " + filepath.Join(root, "walk/deep")} {
@@ -43,18 +45,20 @@ func TestModuleProgram(t *testing.T) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 	}
-	build := false
-	for _, call := range calls {
-		build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", "walker")+" -o ")
-	}
-	if !build {
-		t.Errorf("no build of cmd/walker in\n%q", calls)
+	for _, binary := range []string{"walker", "walkd"} {
+		build := false
+		for _, call := range calls {
+			build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", binary)+" -o ")
+		}
+		if !build {
+			t.Errorf("no build of cmd/%s in\n%q", binary, calls)
+		}
 	}
 }
 
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
-// cmd holds nothing else, and a package folder holds .ergo files and
-// package folders only.
+// cmd holds only binaries' folders, each with its main.ergo, and a package
+// folder holds .ergo files and package folders only.
 func TestModuleProgramLayout(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -62,7 +66,9 @@ func TestModuleProgramLayout(t *testing.T) {
 		want  string
 	}{
 		{map[string]string{"walk/a.ergo": "func f() {}\n"}, "a program of packages has no cmd/walker/main.ergo"},
-		{map[string]string{"cmd/other/main.ergo": "#!/bin/sh\n"}, "cmd holds one folder, cmd/walker, the program's binary"},
+		{map[string]string{"cmd/other/main.ergo": "#!/bin/sh\n"}, "cmd holds the program's binary, cmd/walker"},
+		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "cmd/other/lib.ergo": "#!/bin/sh\n"}, "no cmd/other/main.ergo"},
+		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "cmd/notes.txt": "x\n"}, "cmd/notes.txt is not a folder"},
 		{map[string]string{"cmd/walker/lib.ergo": "#!/bin/sh\n"}, "no cmd/walker/main.ergo"},
 		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "walk/notes.txt": "x\n"}, "unexpected walk/notes.txt; a package folder holds .ergo files and package folders"},
 		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "stray.txt": "x\n"}, "unexpected stray.txt; a program of packages holds"},

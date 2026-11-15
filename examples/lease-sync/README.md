@@ -1,6 +1,6 @@
 # lease-sync
 
-Two users share a pool of named leases (capacity 2) through a sync replica each, and one authority decides. A press shows on the user's own screen at once; the authority runs the same `Decide` again on its own state and may refuse it with a typed reason, which the user's screen then shows. It is the sync engine of the wf10 SYNC plan, stage a: the replica's library lives in this program's packages until a second program needs it.
+Two users share a pool of named leases (capacity 2) through a sync replica each, and one authority decides. A press shows on the user's own screen at once; the authority runs the same `Decide` again on its own state and may refuse it with a typed reason, which the user's screen then shows. It is the sync engine of the wf10 SYNC plan, stage a, with the authority served over std `rpc` (`lease-server`): the replica's library lives in this program's packages until a second program needs it.
 
 Tag: `default`. It is an original program; its goldens were made by running it and checked line by line against the rules below.
 
@@ -21,10 +21,12 @@ Tag: `default`. It is an original program; its goldens were made by running it a
 | --- | --- |
 | `lease/` | The domain, pure: `Pool`, `Cmd`, `Event`, the refusal `Refusal{Reason}`, `Decide` (no needs row) and the total `Evolve`, with the laws `NeverOverCap` and `NamesAreUnique` beside them. |
 | `domain/` | The event log's types and the memory log: copies of the module `domain` (wf10 DK2) with its names, fields and laws, until that module lands and the replica moves to a module (wf10 RP2). |
-| `replica/` | The client: `Source`, `Fact`, `Frame` (`Snapshot` carries the caller's refusals), the `Authority` operation type with its laws, `State`, `Signal` and the pure `Step`, with the laws `ViewIsCommittedPlusPending`, `ReadyIsStable` and `RefusalIsTold`. |
-| `replica/server/` | The authority: the order rule, the resend rule, `Decide` on its state, the log of facts, delta and snapshot frames; laws `StateIsLogReplay`, `SnapshotIsReplay`, `DeltaIsTheTail`. |
+| `replica/` | The client: `Source`, `Fact`, `Frame` (`Snapshot` carries the caller's refusals), the `Authority` operation type with its laws, `State`, `Signal` and the pure `Step`, with the laws `ViewIsCommittedPlusPending`, `ReadyIsStable` and `RefusalIsTold`. Its loops (`loop.ergo`): `Send`, a round of the push loop (each command retried on `Unavailable` by a `Schedule`, the same envelope every time), `Fetch` and `Follow`, the pull loop, and `ConnOf`, the one rule from a provider's failure to the connection shown. |
+| `replica/server/` | The authority: the order rule, the resend rule, `Decide` on its state, the log of facts, delta and snapshot frames; `Await`, the long poll (a pull with nothing new waits for the next kept record or its time limit); `Handle`, its std `rpc` handler, with the authorization seam run before `Push` and `Pull`. Laws `StateIsLogReplay`, `SnapshotIsReplay`, `DeltaIsTheTail`; test `LongPollHolds`. |
+| `replica/rpc/` | The `Authority` over the wire: `Push` is one call and `Pull` one call the authority may hold; a failure of the wire is `Unavailable`. `Leases` (`Dial`, or `NewLeases` through `rpc.Loopback`, where the Authority laws run); the property `AgreesWithMemory` (the same answers and frames as the memory provider); `RetryResendsTheSameID`, `RefusedClientNeedsSignIn`, `IdleCostsOneCallPerWait`. |
 | `replica/memory/` | `Leases`, the in-process `Authority`; the Authority laws run here. |
 | `replica/replicatest/` | The scripted network: commands and frames in flight that a schedule delivers, duplicates, drops and reorders, with links and dropped caches; the model-based laws `ProtocolHolds` (the design model's invariants on the implementation after every op) and `SettledIsServerState` (after any faults, a drain converges on the authority's state). |
 | `cmd/lease-sync/` | The binary: it chooses the memory authority and plays the script. |
+| `cmd/lease-server/` | The authority over HTTP: `lease-server ADDRESS [CLIENT...]` prints `listening HOST:PORT` and serves Effect RPC at `/rpc`; with client ids, it serves only those. A pull with nothing new is held up to 25s. |
 
 The protocol's design model is `models/replica` (`ergo test models/replica`).

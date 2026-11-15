@@ -81,10 +81,12 @@ type program struct {
 	port    bool     // holds record.sh and origin
 	// module marks a program of packages (196b): ergo.mod, the binary's
 	// package cmd/NAME/main.ergo and package folders. main is what the
-	// build leg builds, and tests are the targets of the test leg: every
-	// package, sorted.
+	// build leg builds and the cases run; others are the program's other
+	// binaries, cmd/OTHER, which the build leg builds too; tests are the
+	// targets of the test leg: every package, sorted.
 	module bool
 	main   string
+	others []string
 	tests  []string
 	cases  []*testCase
 	// explored are the lines of its explored file (explored.go).
@@ -373,7 +375,8 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 
 // loadModuleProgram reads the layout of a program of packages (196b; the
 // Go layout of AGENTS.md): ergo.mod, the binary's package cmd/NAME (NAME
-// being the program folder's name) with its main.ergo, and package
+// being the program folder's name) with its main.ergo, any other binary
+// as cmd/OTHER with its main.ergo, and package
 // folders of .ergo files, beside the files every program holds. Top-level
 // .ergo files are the module root's package.
 func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
@@ -422,20 +425,38 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 	return finishProgram(p, present, problems, record)
 }
 
-// checkCommands checks that cmd holds the one binary of the program,
-// cmd/NAME with its main.ergo.
+// checkCommands checks that cmd holds a folder per binary, each with its
+// main.ergo (AGENTS.md: each binary's cmd/<name>/main.ergo): the
+// program's own, cmd/NAME, whose binary the cases run, and any others,
+// which the build leg builds (p.others, sorted).
 func checkCommands(p *program, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	if len(entries) != 1 || entries[0].Name() != p.name || !entries[0].IsDir() {
-		return []string{fmt.Sprintf("cmd holds one folder, cmd/%s, the program's binary", p.name)}
+	var problems []string
+	own := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() {
+			problems = append(problems, fmt.Sprintf("cmd/%s is not a folder; cmd holds a folder per binary, cmd/%s first", name, p.name))
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(dir, name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
+			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", name))
+			continue
+		}
+		if name == p.name {
+			own = true
+		} else {
+			p.others = append(p.others, filepath.Join(dir, name))
+		}
 	}
-	if info, err := os.Stat(filepath.Join(dir, p.name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
-		return []string{fmt.Sprintf("no cmd/%s/main.ergo", p.name)}
+	if !own && len(problems) == 0 {
+		problems = append(problems, fmt.Sprintf("cmd holds the program's binary, cmd/%s", p.name))
 	}
-	return nil
+	slices.Sort(p.others)
+	return problems
 }
 
 // packageSources adds the .ergo files of the package folder dir, and of
@@ -763,6 +784,13 @@ func (r *runner) runProgram(p *program) {
 	if o, err := r.tool(0, "build", p.main, "-o", binary); err != nil || !o.passed() {
 		r.toolFailed(p, "build", o, err)
 		return
+	}
+	for _, other := range p.others {
+		leg := "build cmd/" + filepath.Base(other)
+		if o, err := r.tool(0, "build", other, "-o", filepath.Join(dir, filepath.Base(other))); err != nil || !o.passed() {
+			r.toolFailed(p, leg, o, err)
+			return
+		}
 	}
 	r.testProgram(p)
 	r.exploreProgram(p)
