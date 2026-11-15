@@ -131,8 +131,8 @@
       "name": "g16fix2-store-refilled",
       "origin": "wf10 batch-16 16b gate-fix-2 r3",
       "file": "internal/closure/stdcache_test.go",
-      "from": "if _, err := os.Stat(filepath.Join(store, stdStoreComplete)); err == nil {",
-      "to": "if false {",
+      "from": "\t\t_, err := os.Stat(filepath.Join(store, stdStoreComplete))\n\t\treturn err == nil",
+      "to": "\t\t_, err := os.Stat(filepath.Join(store, stdStoreComplete))\n\t\treturn err == nil && false",
       "rule": "The code is in a test file, which the cover tool does not instrument. A complete store is reused, not built again.",
       "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
       "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
