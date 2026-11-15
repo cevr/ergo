@@ -8,28 +8,28 @@ import (
 )
 
 // workProgram is the program `ergo work` runs: the binary of module work
-// (modules/work), built from examples/ergo-work. It is found on PATH, as
+// (modules/work), built from examples/work. It is found on PATH, as
 // git finds git-NAME: the module is Ergo, and until the mixed binary links
 // an Ergo module into this Go one (capstone S1) the tool is its own binary.
-const workProgram = "ergo-work"
+const workProgram = "work"
 
 const workHelp = `usage: ergo work COMMAND [ARGS...]
 
 ergo work manages copy-on-write workspaces of one base checkout. It runs
-ergo-work from PATH with the arguments; build it with
-  ergo build examples/ergo-work/cmd/ergo-work -o DIR/ergo-work
-for DIR on PATH. ergo-work --help lists its commands (init, new, adopt,
+work from PATH with the arguments; build it with
+  ergo build examples/work/cmd/work -o DIR/work
+for DIR on PATH. work --help lists its commands (init, new, adopt,
 list, rm, gc, du).
 
-Exit status: ergo-work's own; 1 when ergo-work is not on PATH.
+Exit status: work's own; 1 when work is not on PATH.
 `
 
-// workCommand runs ergo-work with args, its standard streams this
+// workCommand runs work with args, its standard streams this
 // process's, and exits with its status.
 func workCommand(args []string) error {
 	path, err := exec.LookPath(workProgram)
 	if err != nil {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo work: %s is not on PATH; build it with ergo build examples/ergo-work/cmd/ergo-work -o DIR/%s", workProgram, workProgram)}
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo work: %s is not on PATH; build it with ergo build examples/work/cmd/work -o DIR/%s", workProgram, workProgram)}
 	}
 	child := exec.Command(path, args...)
 	child.Stdin = os.Stdin

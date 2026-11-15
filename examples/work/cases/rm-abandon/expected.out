@@ -1,1 +1,1 @@
-{"name":"a","path":".ergo-work/base/.ergo-trash/a.1000","parent":"base","branch":"main","cloner":"reflink","state":{"_tag":"Trashed"},"since":1000,"base":"","latest":""}
+{"name":"a","id":"","path":".work/base/.work-trash/a.1000","parent":"base","branch":"main","cloner":"reflink","state":{"_tag":"Trashed"},"since":1000,"base":"","latest":"","deps":""}

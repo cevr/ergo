@@ -1,1 +1,1 @@
-ergo work: BadConfig: {"_tag":"BadConfig","line":2,"why":"unknown word frob; ergo.work knows module, leave-out, warm, copy and env"}
+work: BadConfig: {"_tag":"BadConfig","line":0,"why":"a value of work.toml has the wrong type"}

@@ -1,4 +1,4 @@
-module ergowork
+module work
 
 go 1.27
 

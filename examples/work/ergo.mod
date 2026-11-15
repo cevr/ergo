@@ -1,1 +1,1 @@
-module ergowork
+module work

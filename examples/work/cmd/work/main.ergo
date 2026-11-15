@@ -1,22 +1,25 @@
-// ergo-work is `ergo work`: copy-on-write workspaces of one base checkout
-// (module work, modules/work). `ergo work ARGS` runs it as ergo-work from
-// PATH. Its commands are the generated command line of work.Api
-// (work/workcli): init, new, adopt, list, rm, gc, du; --json prints every
-// answer as JSON.
+// work: copy-on-write workspaces of any Git repository (module work,
+// modules/work). `ergo work ARGS` runs it from PATH; it needs no Ergo
+// module. Its commands are the generated command line of work.Api
+// (work/workcli): init, new, adopt, list, rm, gc, du, ready, sync, env,
+// merge-file, deps, trust, doctor, refresh, bases, shell-init and
+// import-rift; --json prints every answer as JSON.
 //
 // This binary is the only place that chooses the providers: the Cloners
 // that share blocks in the order the file system is tried (a btrfs
 // snapshot, a reflink per file, clonefile), the plain copy (made only
-// when asked), the journal registry beside the base, git, and the host's
-// files, commands and clock.
+// when asked), the journal registry and its lock in the base's storage,
+// the hooks by sh, git, and the host's files, commands and clock.
 //
-// The base is ERGO_WORK_BASE when it is set; else, from the working
-// folder up, the base of the workspace it is in (a folder of
-// .ergo-work/REPO/ is a workspace of the base REPO beside .ergo-work),
-// or the first folder with a .git; else the working folder. A relative
-// ERGO_WORK_BASE stays relative, so every path the tool prints is relative
-// to the working folder (the cases print the same lines on every host).
-// ERGO_WORK_NOW, a Unix second, fixes the clock for the same reason.
+// The base is WORK_BASE when it is set; else, from the working folder
+// up, the base of the workspace it is in (its folder in a .work/REPO/
+// beside the base, the default storage), or the first
+// folder with a .git; else the working folder. A relative WORK_BASE
+// stays relative, so every path the tool prints is relative to the
+// working folder (the cases print the same lines on every host), and "."
+// is the working folder itself. WORK_NOW, a Unix second, fixes the clock
+// for the same reason. The list of bases is in XDG_DATA_HOME/work (by
+// default ~/.local/share/work).
 
 import exec
 import filepath
@@ -27,6 +30,7 @@ import github.com/cevr/ergo/modules/work/copy
 import github.com/cevr/ergo/modules/work/git
 import github.com/cevr/ergo/modules/work/journal
 import github.com/cevr/ergo/modules/work/reflink
+import github.com/cevr/ergo/modules/work/sh
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 import os
@@ -39,7 +43,7 @@ func baseOf(files fs.Files, cwd string) string {
 	let mut dir = filepath.Clean(cwd)
 	for {
 		let home = filepath.Dir(dir)
-		if filepath.Base(filepath.Dir(home)) == ".ergo-work" {
+		if filepath.Base(filepath.Dir(home)) == ".work" {
 			return filepath.Join([]string{filepath.Dir(filepath.Dir(home)), filepath.Base(home)})
 		}
 		let found = files.Stat(filepath.Join([]string{dir, ".git"})) catch {
@@ -63,7 +67,7 @@ func clockOf(now Option[string]) time.Clock fails os.Exit needs Ambient {
 	case Some[string] as text:
 		let sec = strconv.ParseInt(text.Value, 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return os.Exit{Code: 2, Message: "ergo work: ERGO_WORK_NOW is a Unix second, not \(text.Value)"}
+			return os.Exit{Code: 2, Message: "work: WORK_NOW is a Unix second, not \(text.Value)"}
 		}
 		time.NewManual(sec)
 	case None:
@@ -75,18 +79,43 @@ func main() fails os.Exit needs Ambient | Console {
 	let process = os.NewHost()
 	let cwd = process.Getwd() catch {
 	case os.NoWorkdir as n:
-		return os.Exit{Code: 1, Message: "ergo work: \(n.Message)"}
+		return os.Exit{Code: 1, Message: "work: \(n.Message)"}
 	}
 	let files = fs.NewHost()
-	let base = match process.Getenv("ERGO_WORK_BASE") {
+	let base = match process.Getenv("WORK_BASE") {
 	case Some[string] as b:
-		filepath.Clean(b.Value)
+		// "." is the working folder: its storage beside it must not be
+		// inside it.
+		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
 	case None:
 		baseOf(files, cwd)
 	}
+	let home = work.Home(base, work.StorageOf(files, base))
+	let data = match process.Getenv("XDG_DATA_HOME") {
+	case Some[string] as x:
+		filepath.Join([]string{x.Value, "work"})
+	case None:
+		match process.Getenv("HOME") {
+		case Some[string] as h:
+			filepath.Join([]string{h.Value, ".local", "share", "work"})
+		case None:
+			filepath.Join([]string{home, ".data"})
+		}
+	}
 	let run = exec.NewHost()
-	let sharing = []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)}
-	let tool = work.NewTool(base, sharing, copy.New(run), journal.Open(files, files, work.RegistryFile(base)), git.New(run), files, files, run, try clockOf(process.Getenv("ERGO_WORK_NOW")), cwd)
+	let p = work.Providers{
+		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
+		Copier:   copy.New(run),
+		Registry: journal.Open(files, files, work.RegistryFile(home)),
+		Lock:     journal.NewLock(),
+		Hooks:    sh.NewHooks(run),
+		Vcs:      git.New(run),
+		Files:    files,
+		Writes:   files,
+		Runner:   run,
+		Clock:    try clockOf(process.Getenv("WORK_NOW")),
+	}
+	let tool = work.NewTool(base, home, data, p, cwd)
 	let o = with context { work.Api: tool } { workcli.Run(process.Args()) }
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))
@@ -103,8 +132,8 @@ func main() fails os.Exit needs Ambient | Console {
 		// With --json the failure's JSON is the answer on standard output;
 		// an Exit always writes a line, so it says where the answer went.
 		if o.Err == "" {
-			return os.Exit{Code: code, Message: "ergo work: failed; the JSON on standard output says why"}
+			return os.Exit{Code: code, Message: "work: failed; the JSON on standard output says why"}
 		}
-		return os.Exit{Code: code, Message: "ergo work: " + strings.TrimSuffix(o.Err, "\n")}
+		return os.Exit{Code: code, Message: "work: " + strings.TrimSuffix(o.Err, "\n")}
 	}
 }

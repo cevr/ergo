@@ -1,1 +1,1 @@
-ergo work: MergeConflict: {"_tag":"MergeConflict","path":"ledger.json","class":"rows","units":["mutants/a","mutants/b"],"why":"both sides changed these units apart"}
+work: MergeConflict: {"_tag":"MergeConflict","path":"ledger.json","class":"rows","units":["mutants/a","mutants/b"],"why":"both sides changed these units apart"}
