@@ -381,7 +381,7 @@ func (l *lowerer) constFold(v *check.Var) bool {
 // divisor that is a constant other than zero under a variable dividend,
 // a shifted constant under a variable count, a constant count in range
 // under a variable shifted value, a constant string indexed by a
-// variable, an assigned, bound, returned or yielded value, a composite
+// variable, an interpolated value, an assigned, bound, returned or yielded value, a composite
 // literal's element value and an argument of a call that is not a
 // conversion. An operand that is a larger constant expression is a safe
 // place for its lets only when no fold inside it can fail (markSafe).
@@ -418,6 +418,10 @@ func (l *lowerer) constUses(n syntax.Node) []syntax.Expr {
 				return []syntax.Expr{n.Y}
 			}
 		}
+	case *syntax.InterpolatedString:
+		// A value's text: FormatInt of it, or the string itself joined
+		// by + (funcCtx.text), neither of which a constant can fail.
+		return n.Exprs
 	case *syntax.IndexExpr:
 		// A constant string indexed by a variable: only a constant index
 		// out of range fails a fold.

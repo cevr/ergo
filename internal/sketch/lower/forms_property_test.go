@@ -95,7 +95,7 @@ let scanShift = 70
 // scanned reads the scan lets where no Go fold over them can fail: a
 // constant string indexed by a variable, a constant shifted by a
 // variable, a bitwise operator over constants, conversions that fit, a
-// divisor other than zero, a sum with a variable.
+// divisor other than zero, a sum with a variable, an interpolated value.
 func scanned(i int, k uint64, n int) string {
 	let c = scanClasses[i]
 	let bit = (scanMask >> k) & uint64(1)
@@ -104,7 +104,7 @@ func scanned(i int, k uint64, n int) string {
 	let narrow = int64(n) < int64(scanWide)
 	let slot = n % scanRoom
 	let z = n + scanZero
-	"\(c) \(bit) \(both) \(fits) \(narrow) \(slot) \(z)"
+	"\(c) \(bit) \(both) \(fits) \(narrow) \(slot) \(z) \(scanRoom)"
 }
 
 func at[T](b *Box[T], i int) T fails Missing {
@@ -509,7 +509,7 @@ func (g *formGen) scanConsts(seed uint64) map[string]bool {
 	i, k, n := g.r.IntN(6), uint64(g.r.IntN(16)), g.r.IntN(1000)-500
 	g.line(fmt.Sprintf("Console.Println(scanned(%d, uint64(%d), %d))", i, k, n))
 	classes := "\x00\x09\x0a\x04\x00\x10"
-	g.out("%d %d %v %v %v %d %d", classes[i], (uint64(0xff00)>>k)&1, true, false, n < 300, n%64, n)
+	g.out("%d %d %v %v %v %d %d 64", classes[i], (uint64(0xff00)>>k)&1, true, false, n < 300, n%64, n)
 	edges := map[string]bool{}
 	var never []string
 	for j, name := range scanLets {
