@@ -157,7 +157,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			case _:
 				[]work.Removed{}
 			}
-			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name)
+			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name, if len(out) == 1 { out[0].Id } else { "" })
 		case EditOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
@@ -246,8 +246,8 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				for name in found {
-					let trashed = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed }) >= 0
-					want = removed(want, name, false, at, trashed)
+					let i = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed })
+					want = removed(want, name, false, at, i >= 0, if i >= 0 { out.Idle[i].Id } else { "" })
 				}
 			}
 			let (kept, dropped) = collected(want, int64(older), at)
@@ -554,7 +554,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 // kept or abandoned, goes to the trash; any other stays. Where the
 // reference is not sure of the kept flag, trashed (the Tool's answer)
 // decides.
-func removed(want []Expected, name string, abandon bool, at int64, trashed bool) []Expected {
+func removed(want []Expected, name string, abandon bool, at int64, trashed bool, id string) []Expected {
 	match find(want, name) {
 	case Some[Expected] as e:
 		if slices.IndexFunc(want, func(c Expected) bool { c.Parent == e.Value.Path && c.State != "trashed" }) >= 0 {
@@ -563,7 +563,7 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool)
 		let keptNow = if e.Value.Sure && parentLive(want, e.Value) { e.Value.Kept } else { trashed }
 		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (keptNow || abandon))
 		if goes {
-			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at)})
+			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at, id)})
 		}
 		want
 	case None:
@@ -727,4 +727,48 @@ func freedIn(want []Expected) []string {
 		}
 	}
 	slices.Sort(out)
+}
+
+// RemovedAgainInOneSecond: new, rm, new, rm of one name in the same
+// second each trash their own folder: every rm succeeds, every trash is
+// listed with its id, and gc purges them all (the Mac's T3).
+law RemovedAgainInOneSecond(name int, times int) {
+	let w = world(true)
+	let n = pick(name)
+	let k = 2 + small(times, 3)
+	let mut ids = []string{}
+	for _ in 0..k {
+		let made = w.tool.New(n, fresh(false)) catch {
+		case _:
+			return false
+		}
+		let out = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+		case _:
+			return false
+		}
+		if len(out) != 1 || out[0].Id != made.Id || out[0].Already {
+			return false
+		}
+		ids = ids.Append(made.Id)
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let mut trashes = []string{}
+	for r in listed {
+		if work.StateName(r.State) != "trashed" || r.Moving != "" || !w.trees.Has(r.Path) || slices.Contains(trashes, r.Path) {
+			return false
+		}
+		trashes = trashes.Append(r.Path)
+	}
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	len(listed) == k && len(trashes) == k && len(out.Purged) == k && len(after) == 0
 }

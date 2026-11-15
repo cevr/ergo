@@ -369,11 +369,14 @@ func StorageOf(files fs.Files, base string) string {
 // RegistryFile is the registry's journal in a base's storage home.
 func RegistryFile(home string) string { filepath.Join([]string{home, ".registry"}) }
 
-// TrashOf is where rm moves the workspace at path, removed at the Unix
-// second at: a .work-trash folder beside it, so the move is a rename on
-// one file system (an adopted Rift's trash is beside the Rift).
-func TrashOf(path string, at int64) string {
-	filepath.Join([]string{filepath.Dir(path), ".work-trash", filepath.Base(path) + "." + strconv.FormatInt(at, 10)})
+// TrashOf is where rm moves the workspace id at path, removed at the
+// Unix second at: a .work-trash folder beside it, so the move is a
+// rename on one file system (an adopted Rift's trash is beside the
+// Rift). The id is in the name: a name made and removed again in the
+// same second has a trash of its own (the Mac's T3).
+func TrashOf(path string, at int64, id string) string {
+	let stamp = filepath.Base(path) + "." + strconv.FormatInt(at, 10)
+	filepath.Join([]string{filepath.Dir(path), ".work-trash", if id == "" { stamp } else { stamp + "." + id }})
 }
 
 // InTrash reports whether path is a folder of a trash that rm made.

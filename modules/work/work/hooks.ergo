@@ -203,7 +203,12 @@ func finish(t Tool) fails Unkept {
 		if w.Moving == "" {
 			continue
 		}
-		if t.copier.Has(w.Moving) && !t.copier.Has(w.Path) {
+		if t.copier.Has(w.Moving) && t.copier.Has(w.Path) {
+			// Another folder holds the trash's place: dropping the intent
+			// would leave the workspace with no record.
+			return Unkept{Reason: "\(w.Path) is taken: the move of \(w.Moving) to the trash did not end"}
+		}
+		if t.copier.Has(w.Moving) {
 			t.copier.Move(w.Moving, w.Path) catch {
 			case Missing:
 			case Exists:

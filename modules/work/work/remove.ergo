@@ -157,7 +157,7 @@ func intend(t Tool, name string, expect Option[string], abandon bool, until int6
 	case Landing, Trashed:
 		return Busy{Name: name, State: StateName(w.State)}
 	}
-	let gone = try moved(Workspace{..ready, Path: TrashOf(w.Path, at), Moving: w.Path, Until: until}, Remove, at)
+	let gone = try moved(Workspace{..ready, Path: TrashOf(w.Path, at, w.Id), Moving: w.Path, Until: until}, Remove, at)
 	try t.registry.Put(gone)
 	gone
 }
