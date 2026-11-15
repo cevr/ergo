@@ -55,10 +55,12 @@ type TestAnswer struct {
 //
 // With a store (lawcache), a test or law run whose verdict it holds under
 // an unchanged reach digest is not run and prints StoredMark; a pass is
-// stored. An obligation the evaluator leaves incomplete gets a route note
-// under its key, and while any obligation of the package has one the
-// package goes to the test binary with no evaluation (TESTSPEED FT2).
-func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string, store *lawcache.Store) (TestAnswer, bool) {
+// stored. native is EvalVerdicts': the toolchain whose test binary's law
+// verdicts it reads too. An obligation the evaluator leaves incomplete
+// gets a route note under its key, and while any obligation of the
+// package has one the package goes to the test binary with no evaluation
+// (TESTSPEED FT2).
+func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string, store *lawcache.Store, native string) (TestAnswer, bool) {
 	unit, err := analysisUnit(a, admitted)
 	if err != nil {
 		return TestAnswer{}, false
@@ -88,7 +90,7 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 				return TestAnswer{}, false
 			}
 		}
-		b.Verdicts = a.EvalVerdicts(store, seed, states)
+		b.Verdicts = a.EvalVerdicts(store, seed, states, native)
 		b.Tests = &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}}
 	}
 	rep, err := a.Evaluate(b)

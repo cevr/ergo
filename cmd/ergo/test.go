@@ -242,7 +242,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		if opts.states != "" {
 			states, _ = strconv.Atoi(opts.states)
 		}
-		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states, toolchainIdentity(tc))
+		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states, nativeToolchain(opts, tc))
 		// --native (the gate, CI) runs every law: it reads no stored
 		// verdict, so its pass is a run's, never a replay. It still
 		// stores what held, for the next default run (FT2).

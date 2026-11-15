@@ -14,8 +14,10 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The test result cache (g-b2), go test's cache of a passing result: the
@@ -80,6 +82,35 @@ func toolchainIdentity(tc build.Toolchain) string {
 		fmt.Fprintf(&b, "%d:%s\x00", len(p), p)
 	}
 	return b.String()
+}
+
+// pinnedToolchain is the toolchain key part of a law verdict a test binary
+// linked by the pinned managed release (internal/toolchain) for platform
+// wrote: the release, the platform and GOFLAGS; "" when ERGO_GO chooses
+// another Go. It starts no process and installs nothing, so ergo check
+// and the evaluator can name it too, and read the verdicts such a binary
+// wrote: a native run under the pin is exactly what the key names (FT2
+// r3). The release's patch is a constant of this ergo, which the store's
+// compiler identity already keys.
+func pinnedToolchain(platform gobind.Platform) string {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return ""
+	}
+	if t, _ := toolchain.Status(os.Getenv, root); t.Mode != "managed" {
+		return ""
+	}
+	return "pinned " + toolchain.Version + " " + platform.GOOS + "/" + platform.GOARCH + " GOFLAGS=" + os.Getenv("GOFLAGS")
+}
+
+// nativeToolchain is the toolchain key part of the law verdicts tc's test
+// binary writes: the pin's when the build runs the pinned release, else
+// the go command's identity (toolchainIdentity), which no evaluator reads.
+func nativeToolchain(opts fileOptions, tc build.Toolchain) string {
+	if p := pinnedToolchain(opts.platform); p != "" {
+		return p
+	}
+	return toolchainIdentity(tc)
 }
 
 func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {

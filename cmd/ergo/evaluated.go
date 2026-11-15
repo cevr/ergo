@@ -31,7 +31,7 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 	}
 	store := lawStore()
 	defer boundLaws(store)
-	answer, ok := l.analysis.EvaluateTests(seed, states, l.source.Admitted(), opts.file, store)
+	answer, ok := l.analysis.EvaluateTests(seed, states, l.source.Admitted(), opts.file, store, pinnedToolchain(opts.platform))
 	if !ok {
 		return false, nil
 	}

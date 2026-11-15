@@ -620,7 +620,7 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	if compiler, err := build.IdentityOf(id); err == nil {
 		store = lawStoreOf(compiler)
 	}
-	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
+	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States, pinnedToolchain(opts.platform))
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {
