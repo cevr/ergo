@@ -158,6 +158,10 @@ func (p *Package) Std() bool { return p != nil && p.std }
 // (GoTrust): its externs may bind the Ergo runtime under the body contract.
 func (p *Package) Trusted() bool { return p != nil && p.trusted }
 
+// Prelude reports the prelude, the std package whose exported names every
+// package sees without an import.
+func (p *Package) Prelude() bool { return p != nil && p == prelude().pkg }
+
 // Host reports whether p is a Go package read from its binding (import go;
 // docs/spec/interop.md).
 func (p *Package) Host() bool { return p != nil && p.host != nil }
