@@ -536,7 +536,8 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 // (L4, generic capabilities: a capability name takes type arguments) and
 // Implements (audit CSX, declared implementation, owner q167). #197's
 // TakesClause left the grammar for the mode word own (EXM1, q168).
-var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "Implements"}
+// AltPattern is FK7a's nested alternatives (orpattern.go).
+var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "Implements", "AltPattern"}
 
 // TestGrammarStatesTheSketch: the syntactic productions of
 // docs/spec/grammar.md are the 62 of the preview's decided sketch plus

@@ -78,6 +78,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"ContextLit", "func f() {\n\twith context provides Clock needs Console { Clock: Fixed{} } { run() }\n}\n"},
 	{"Pattern", "func f(p Payment) string {\n\tmatch p {\n\tcase Declined{Reason: Fraud{Rule: r} as f}:\n\t\tr\n\tcase Authorized as a:\n\t\ta.ID\n\tcase _:\n\t\t\"\"\n\t}\n}\n"},
 	{"PatternCore", "func f(x Value) string {\n\tmatch x {\n\tcase Pending:\n\t\t\"p\"\n\tcase result.Ok[int64]{v}:\n\t\t\"ok\"\n\tcase (Box{1}):\n\t\t\"one\"\n\tcase other:\n\t\t\"other\"\n\t}\n}\n"},
+	{"AltPattern", "func f(s Step, e Signal) Step {\n\tmatch (s, e) {\n\tcase (Plan | Supplies, Cancel):\n\t\tDone\n\tcase (Done, _), (_, Next | Cancel):\n\t\ts\n\t}\n}\n"},
 	{"FieldPattern", "func f(o Order) int64 {\n\tlet Order{Total: t, Lines: ls} = o\n\tlet Some{v} = lookup()\n\tt + v + len(ls)\n}\n"},
 	// Lexical additions (#196, D1.3, D1.7).
 	{"interpolation", "func greet(name string, n int64) string {\n\t\"hello \\(name), \\(n + 1) tries, \\(label(\"x \\(name)\")) \\\\(not interpolated)\"\n}\n"},

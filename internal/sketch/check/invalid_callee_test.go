@@ -147,6 +147,7 @@ var cannotCarry = map[string]string{
 	"MachineType":        "a type, not a value",
 	"AsPattern":          "an as binding takes its case's type: an error type or a variant, a record (a defined function type is S109, 196p), never a function value",
 	"VariantSpec":        "a variant written in place in a union declaration: a type, not a value",
+	"OrPattern":          "nested alternatives of a case's pattern, which the parser expands (syntax/orpattern.go): never a value",
 }
 
 // TestInvalidCalleeDomain (round 8 review M2): a callee typing finds
