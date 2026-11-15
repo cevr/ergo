@@ -29,7 +29,11 @@ package v1
 type Redacted[T any] struct{ v *T }
 
 // NewRedacted is config.NewRedacted: a secret that holds v.
+//
+//ergo:wait none
 func NewRedacted[T any](v T) *Redacted[T] { return &Redacted[T]{v: &v} }
 
 // Reveal is the value the secret holds: the one read of it.
+//
+//ergo:wait none
 func (r *Redacted[T]) Reveal() T { return *r.v }

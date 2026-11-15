@@ -49,6 +49,7 @@ const (
 // feed still starts a new line.
 //
 //ergo:host
+//ergo:wait none
 func TermEnterRaw() error {
 	return termEnter(0, termRaw)
 }
@@ -57,6 +58,7 @@ func TermEnterRaw() error {
 // keeps its line editing and stops echoing what is typed.
 //
 //ergo:host
+//ergo:wait none
 func TermEnterNoEcho() error {
 	return termEnter(0, termNoEcho)
 }
@@ -66,6 +68,7 @@ func TermEnterNoEcho() error {
 // nothing.
 //
 //ergo:host
+//ergo:wait none
 func TermLeave() {
 	termLeave(0)
 }
@@ -74,6 +77,7 @@ func TermLeave() {
 // standard output, or of standard input when standard output is not one.
 //
 //ergo:host
+//ergo:wait none
 func TermGetSize() (TermWindow, error) {
 	for _, fd := range []int{1, 0} {
 		if cols, rows, ok := termSize(fd); ok {
@@ -90,6 +94,7 @@ func TermGetSize() (TermWindow, error) {
 // and raises rt.Interrupted; the bytes read stay for the next read.
 //
 //ergo:host
+//ergo:wait caller
 func TermReadKey(t *rt.Task) (string, error) {
 	t.Check()
 	b, err, ok := stdinReader().take(t, keyLen)

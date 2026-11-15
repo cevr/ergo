@@ -13,9 +13,13 @@ type GroupArgs struct {
 }
 
 // NewUIArgs is ui.newArgs: an empty memo.
+//
+//ergo:wait none
 func NewUIArgs() *GroupArgs { return &GroupArgs{} }
 
 // UIArgsPut is ui.argsPut: a in a new slot, and the slot.
+//
+//ergo:wait none
 func UIArgsPut[A comparable](m *GroupArgs, a A) int {
 	if n := len(m.free); n > 0 {
 		slot := m.free[n-1]
@@ -29,6 +33,8 @@ func UIArgsPut[A comparable](m *GroupArgs, a A) int {
 
 // UIArgsSame is ui.argsSame: slot holds a value of a's type equal to a.
 // NaN is never equal to itself, so a group called with one always runs.
+//
+//ergo:wait none
 func UIArgsSame[A comparable](m *GroupArgs, slot int, a A) bool {
 	if slot < 0 || slot >= len(m.slots) {
 		return false
@@ -38,9 +44,13 @@ func UIArgsSame[A comparable](m *GroupArgs, slot int, a A) bool {
 }
 
 // UIArgsSet is ui.argsSet: slot holds a from now on.
+//
+//ergo:wait none
 func UIArgsSet[A comparable](m *GroupArgs, slot int, a A) { m.slots[slot] = a }
 
 // UIArgsFree is ui.argsFree: slot is given back and holds nothing.
+//
+//ergo:wait none
 func UIArgsFree(m *GroupArgs, slot int) {
 	m.slots[slot] = nil
 	m.free = append(m.free, slot)
@@ -48,4 +58,6 @@ func UIArgsFree(m *GroupArgs, slot int) {
 
 // UIArgsHeld is ui.argsHeld: how many slots hold arguments, the memo's
 // size, which a growth guard counts.
+//
+//ergo:wait none
 func UIArgsHeld(m *GroupArgs) int { return len(m.slots) - len(m.free) }

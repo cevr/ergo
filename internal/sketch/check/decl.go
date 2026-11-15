@@ -28,6 +28,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
 	n.opts, n.derive = c.opts, c.derive
+	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
 	n.withSeeds, n.withHit = withs, map[withNeedKey]bool{}
@@ -286,7 +287,7 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
-			if syntax.IsBindingDecl(d) {
+			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
 				// checker reads bindings with #202's import checking.

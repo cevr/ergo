@@ -8,7 +8,7 @@ import fs
 
 // InvalidClient is an origin that is not scheme://authority (http or
 // https), or a budget that is not positive.
-type InvalidClient { Origin string, Reason string }
+extern go ergo.local/prototype/runtime/v1.HTTPInvalidClient type InvalidClient { Origin string, Reason string }
 
 // The causes of a failed request. Refused: nothing accepted the
 // connection. Transport: the exchange broke after it started, or the
@@ -45,11 +45,11 @@ func Accepts(a Accept, status int) bool {
 // accept: no part of its body reached the sink (and no file was made or
 // replaced). Prefix is the first bytes of the body, at most 1024, for a
 // message.
-type StatusRefused { Status int, Prefix string }
+extern go ergo.local/prototype/runtime/v1.HTTPStatusRefused type StatusRefused { Status int, Prefix string }
 
 // SinkFailed is a sink that refused a part of a body: the fetch stops
 // there, lets its connection go, and fails with it.
-type SinkFailed { Reason string }
+extern go ergo.local/prototype/runtime/v1.HTTPSinkFailed type SinkFailed { Reason string }
 
 // Net sends one request to its origin. A stop of the caller ends a call
 // with the stop, after the exchange let go.
@@ -135,7 +135,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPDoInto func sendInto(origin string
 // SendFailed is the host's form of a RequestFailed: one record for the four
 // causes (a Go type cannot be a union variant), which Send turns into the
 // Cause; no other function fails with it. causeOf names: Kind 0 Refused, 1 Transport, 2 TooLarge, 3 Malformed.
-type SendFailed { Kind int, Reason string, Limit int }
+extern go ergo.local/prototype/runtime/v1.HTTPSendFailed type SendFailed { Kind int, Reason string, Limit int }
 
 func causeOf(kind int, reason string, limit int) Cause {
 	if kind == 0 {

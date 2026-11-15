@@ -44,6 +44,7 @@ func (e Exit) Error() string {
 // name, in a fresh slice. A process started with no argv at all has none.
 //
 //ergo:host
+//ergo:wait none
 func OSArgs() []string {
 	if len(os.Args) < 2 {
 		return []string{}
@@ -55,6 +56,7 @@ func OSArgs() []string {
 // the empty string.
 //
 //ergo:host
+//ergo:wait none
 func OSHasEnv(key string) bool {
 	_, ok := os.LookupEnv(key)
 	return ok
@@ -64,6 +66,7 @@ func OSHasEnv(key string) bool {
 // key is unset, so os.Host's Getenv asks OSHasEnv first.
 //
 //ergo:host
+//ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
 // OSEnviron is the body of config.Host's Environ: each variable of the
@@ -72,6 +75,7 @@ func OSGetenv(key string) string { return os.Getenv(key) }
 // value Go's os.Getenv reads.
 //
 //ergo:host
+//ergo:wait none
 func OSEnviron(prefix string) []string {
 	names := []string{}
 	seen := map[string]bool{}
@@ -114,6 +118,7 @@ func (e NoWorkdir) Error() string { return "os.NoWorkdir{Message:" + e.Message +
 // stat.
 //
 //ergo:host
+//ergo:wait none
 func OSGetwd() (string, error) {
 	dot, err := os.Stat(".")
 	if err != nil {
@@ -208,6 +213,7 @@ func fsReason(err error) string {
 // text.
 //
 //ergo:host
+//ergo:wait none
 func FSReadFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -243,11 +249,15 @@ type Mapped struct {
 }
 
 // Text is the mapped text.
+//
+//ergo:wait none
 func (m *Mapped) Text() string { return m.text }
 
 // Close unmaps the mapping, once: a second Close does nothing.
 //
 //ergo:host
+//
+//ergo:wait none
 func (m *Mapped) Close() {
 	if m.data == nil {
 		return
@@ -268,6 +278,7 @@ func (m *Mapped) Close() {
 // pipe, a device) is read as FSReadFile reads it, into memory.
 //
 //ergo:host
+//ergo:wait none
 func FSMapFile(path string) (*Mapped, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -305,6 +316,7 @@ func FSMapFile(path string) (*Mapped, error) {
 // the directory at path, sorted by name (Go's os.ReadDir sorts them).
 //
 //ergo:host
+//ergo:wait none
 func FSReadDir(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -321,6 +333,7 @@ func FSReadDir(path string) ([]string, error) {
 // links.
 //
 //ergo:host
+//ergo:wait none
 func FSStat(path string) (Info, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -349,6 +362,7 @@ type HostRoot struct{ root *os.Root }
 // (#197), the handle may be used only while this frame is alive.
 //
 //ergo:host
+//ergo:wait none
 func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 	s = s.current()
 	if s.ended {
@@ -369,6 +383,8 @@ func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 func (r *HostRoot) hostRooted() {}
 
 // Name is the directory given to FSOpenRoot (os.Root.Name).
+//
+//ergo:wait none
 func (r *HostRoot) Name(_ *rt.Task) string { return r.root.Name() }
 
 // rootErrEscapes is the text of os.Root's unexported errPathEscapes; the
@@ -396,6 +412,7 @@ func (r *HostRoot) in(path string, f func(*os.Root) error) error {
 // ReadFile is the whole file at path below the root.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
@@ -410,6 +427,7 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 // root, sorted by name.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 	var names []string
 	err := r.in(path, func(root *os.Root) error {
@@ -436,6 +454,7 @@ func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 // is the last element of path as given.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) Stat(_ *rt.Task, path string) (Info, error) {
 	var info Info
 	err := r.in(path, func(root *os.Root) error {
@@ -469,6 +488,7 @@ var beforeRename func(tmp string) error
 // the link names, so the rename replaces that file, not the link.
 //
 //ergo:host
+//ergo:wait none
 func FSWriteFile(path string, text string) error {
 	return writeFile(path, text, 0, false)
 }
@@ -480,6 +500,7 @@ func FSWriteFile(path string, text string) error {
 // no reader outside perm can open it at any point.
 //
 //ergo:host
+//ergo:wait none
 func FSWriteFileMode(path string, text string, perm int) error {
 	return writeFile(path, text, fs.FileMode(perm)&fs.ModePerm, true)
 }
@@ -606,6 +627,7 @@ func fillSibling(f *os.File, text string, mode fs.FileMode, keep bool) error {
 // host's reason.
 //
 //ergo:host
+//ergo:wait none
 func FSMkdirAll(path string) error {
 	err := os.MkdirAll(path, 0o777)
 	switch {
@@ -623,6 +645,7 @@ func FSMkdirAll(path string) error {
 // mode. Its row is FSMkdirAll's.
 //
 //ergo:host
+//ergo:wait none
 func FSMkdirAllMode(path string, perm int) error {
 	err := mkdirAllExact(path, fs.FileMode(perm)&fs.ModePerm)
 	switch {
@@ -666,6 +689,7 @@ func mkdirAllExact(path string, perm fs.FileMode) error {
 // O_CREATE makes it. The file is not synced.
 //
 //ergo:host
+//ergo:wait none
 func FSAppendFile(path string, text string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -685,6 +709,7 @@ func FSAppendFile(path string, text string) error {
 // bits perm. A symbolic link is followed.
 //
 //ergo:host
+//ergo:wait none
 func FSChmod(path string, perm int) error {
 	if err := os.Chmod(path, fs.FileMode(perm)&fs.ModePerm); err != nil {
 		return fsErr(path, err)
@@ -698,6 +723,7 @@ func FSChmod(path string, perm int) error {
 // other failure names from.
 //
 //ergo:host
+//ergo:wait none
 func FSRename(from string, to string) error {
 	err := os.Rename(from, to)
 	switch {
@@ -716,6 +742,7 @@ func FSRename(from string, to string) error {
 // file, a symbolic link (not what it names) or an empty directory.
 //
 //ergo:host
+//ergo:wait none
 func FSRemove(path string) error {
 	if err := os.Remove(path); err != nil {
 		return fsErr(path, err)
@@ -745,6 +772,7 @@ func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason +
 // (writeStdout).
 //
 //ergo:host
+//ergo:wait none
 func IOPrint(text string) {
 	writeStdout(text)
 }
@@ -753,6 +781,7 @@ func IOPrint(text string) {
 // is, in one write, after what standard output holds (stderrSink).
 //
 //ergo:host
+//ergo:wait none
 func IOEprint(text string) {
 	_, _ = io.WriteString(stderrSink{}, text)
 }
@@ -761,6 +790,7 @@ func IOEprint(text string) {
 // output is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOIsTerminal() bool {
 	return fileIsTerminal(os.Stdout)
 }
@@ -769,6 +799,7 @@ func IOIsTerminal() bool {
 // input is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOStdinIsTerminal() bool {
 	return fileIsTerminal(os.Stdin)
 }
@@ -777,6 +808,7 @@ func IOStdinIsTerminal() bool {
 // standard error is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOStderrIsTerminal() bool {
 	return fileIsTerminal(os.Stderr)
 }
@@ -787,6 +819,7 @@ func IOStderrIsTerminal() bool {
 // the next read (stdlib.md, io 3).
 //
 //ergo:host
+//ergo:wait caller
 func IOReadAll(t *rt.Task) (string, error) {
 	return stdinReader().readAll(t)
 }
@@ -802,6 +835,7 @@ func IOReadAll(t *rt.Task) (string, error) {
 // line read after the stop stays for the next read.
 //
 //ergo:host
+//ergo:wait caller
 func IOLines(t *rt.Task) iter.Seq[string] {
 	return stdinReader().lines(t)
 }
@@ -814,6 +848,8 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 // raises rt.Interrupted; the bytes read meanwhile stay for the next read.
 //
 //ergo:host
+//
+//ergo:wait caller
 func IORead(t *rt.Task, max int) (string, error) {
 	if max <= 0 {
 		max = ioDefaultChunk

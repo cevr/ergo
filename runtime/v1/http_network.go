@@ -60,6 +60,7 @@ func (p *BodyFile) open() error {
 // file that cannot be made, is SinkFailed, which ends the fetch.
 //
 //ergo:host
+//ergo:wait none
 func (p *BodyFile) Put(_ *rt.Task, text string) error {
 	if err := p.open(); err != nil {
 		return HTTPSinkFailed{Reason: fsReason(err)}
@@ -84,6 +85,7 @@ func (p *BodyFile) partOnly() {}
 // failure.
 //
 //ergo:host
+//ergo:wait none
 func HTTPIntoFile(t *rt.Task, root *HostRoot, name string, fetch func(*rt.Task, *BodyFile) (HTTPResponse, error)) (HTTPResponse, error) {
 	t.Check()
 	if name == "" {
@@ -389,6 +391,7 @@ func webScheme(s string) bool {
 	return s != ""
 }
 
+//ergo:wait none
 func HTTPCheckNetwork(origins []string, limits HTTPLimits) ([]string, error) {
 	if !limits.valid() {
 		return nil, HTTPInvalidLimits(limits)
@@ -426,6 +429,7 @@ func originAllowed(origin string, origins []string, anyOrigin bool) bool {
 // NoRedirects is -1; Follow(0) refuses the first hop. Limits apply per response.
 //
 //ergo:host
+//ergo:wait caller
 func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
 		return httpDoURL(t, u, limits, method, fields, body)
@@ -441,6 +445,7 @@ func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, 
 // put is given, not memory: at most two parts are held at once.
 //
 //ergo:host
+//ergo:wait caller
 func HTTPFetchInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	follow := func(r HTTPResponse) bool { return hops != -1 && httpLocation(r) != "" }
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {

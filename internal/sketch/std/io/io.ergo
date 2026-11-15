@@ -28,7 +28,7 @@ import sync
 
 // ReadFailed is the failure of a read of standard input. Reason is the
 // host's text for it.
-type ReadFailed { Reason string }
+extern go ergo.local/prototype/runtime/v1.ReadFailed type ReadFailed { Reason string }
 
 // Stdout writes the host's standard output.
 // law-exempt: Stdout has no read operation, so no law over its own operations can observe a write; the recording provider Recorder carries the law (PrintsConcatenate).

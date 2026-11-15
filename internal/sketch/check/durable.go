@@ -471,20 +471,15 @@ func impureCall(role string, step *Func, fp Footprint) string {
 // the checker sees.
 func PureParams(f *Func) []int { return pureParams(f) }
 
-// MakesHost reports std actor.NewHost, the one host function a pure step
-// may call (wf10 DH1; runtime.md, Machines and actors 17): it makes an
-// empty cell and acts on nothing outside. A host is entry data, not durable
-// data: one made in a replay is unbound until the recovered actor's first
-// entry binds it, so a replay that makes it again acts twice on nothing.
-// Every other host function stays S108. It reads a name until NP4b gives
-// the fact to the body's declaration (std-privileges.txt).
-// actorPath names std actor, which declares NewHost.
-const actorPath = "actor"
-
-func MakesHost(f *Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == actorPath && f.Name == "NewHost" &&
-		f.Decl != nil && f.Decl.Extern != nil
-}
+// MakesHost reports an extern whose bound body is inert (Body.Inert), such
+// as actor.NewHost's, the one host function a pure step may call (wf10
+// DH1; runtime.md, Machines and actors 17): it makes an empty cell and
+// acts on nothing outside. A host is entry data, not durable data: one
+// made in a replay is unbound until the recovered actor's first entry
+// binds it, so a replay that makes it again acts twice on nothing. Every
+// other host function stays S108. The fact is the body's, for an extern of
+// any package (NP4b).
+func MakesHost(f *Func) bool { return BodyOf(f).Inert }
 
 // impureWhy is the reason the call x adds to its frame's footprint, or ""
 // when it adds nothing (footprinter.call is the rule it follows).

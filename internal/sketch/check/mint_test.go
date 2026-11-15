@@ -250,7 +250,7 @@ func Get(_ H) int { 1 }
 		pkg, ds := Check("fixture", []*syntax.File{f}, nil)
 		var real []Diagnostic
 		for _, d := range ds {
-			if d.Code != CodeUnused && !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if d.Code != CodeUnused && !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				real = append(real, d)
 			}
 		}

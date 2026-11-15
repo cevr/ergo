@@ -197,14 +197,11 @@ func sameExpr(a, b ast.Expr) bool {
 	return sa.String() == sb.String()
 }
 
-// appenderExtern reports a std extern bound to a runtime/v1 appender
-// (goBodyAppends).
+// appenderExtern reports an extern, of any package, bound to a runtime/v1
+// appender (goBodyAppends).
 func appenderExtern(f *check.Func) bool {
-	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.Std() {
-		return false
-	}
-	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyAppends(name)
+	name := check.BodyOf(f).Runtime
+	return name != "" && goBodyAppends(name)
 }
 
 // pureV1 reports a std extern bound to a pure runtime/v1 body (stdlib.md,

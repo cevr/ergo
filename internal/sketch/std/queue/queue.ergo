@@ -5,10 +5,10 @@
 
 // Closed is the failure of Push on a closed queue and of Pop on a closed,
 // empty one. A closed queue is a normal end of the protocol, not a stop.
-type Closed {}
+extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
 
 // Queue is a queue of T with a fixed capacity.
-type Queue[T] {
+extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It

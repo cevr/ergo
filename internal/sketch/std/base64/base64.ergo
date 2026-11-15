@@ -19,7 +19,7 @@ type Encoding = StdEncoding | URLEncoding
 // Malformed is the failure of a text that is not base64 in its alphabet:
 // Offset is the index of the first byte that breaks it (Go's
 // CorruptInputError).
-type Malformed { Offset int }
+extern go ergo.local/prototype/runtime/v1.Base64Malformed type Malformed { Offset int }
 
 // Encode is the base64 text of the bytes of s in the alphabet e, padded
 // to a multiple of four with =, as Go's EncodeToString.

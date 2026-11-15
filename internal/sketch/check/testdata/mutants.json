@@ -1,6 +1,19 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"runtime-type-std-only","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","to":"\tif !c.pkg.trusted || !c.pkg.std {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","rule":"stdlib.md The body contract: any package the root trusts names its runtime Go type as std does.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-untrusted","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","to":"\tif false {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","rule":"interop.md Trusted Go: a type names a runtime Go type only in a package the root trusts.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-arity","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif gt.Arity != arity {","to":"\tif false {","rule":"stdlib.md The body contract: the declaration has the Go type's type parameters.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-fields","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\t\tif st == nil || !gt.Struct || !slices.Equal(fields, gt.Fields) {","to":"\t\tif st == nil || !gt.Struct || !slices.Equal(fields, fields) {","rule":"stdlib.md The body contract: a record that names a Go struct has its fields in order.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-open","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\t\tif len(spec.Union) > 0 || !Sealed(n) {","to":"\t\tif len(spec.Union) > 0 {","rule":"stdlib.md The body contract: an operation type that names a Go type is sealed, so only the runtime's value implements it.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"door-open-without-trust","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","to":"\tif false && !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","rule":"interop.md Trusted Go: a package binds the runtime only when the root module trusts its Go.","killers":["check:TestExternTargetDomain","internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]},
+    {"name":"door-trusted-unknown-body","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !BodyOf(f).Known {","to":"\tif false && !BodyOf(f).Known {","rule":"interop.md Trusted Go: a trusted package binds a runtime/v1 body the body table has.","killers":["check:TestTrustedDoorRefusals"]},
+    {"name":"door-trusted-rt","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif path != runtimeModule+\"/v1\" {\n\t\treturn fmt.Sprintf(\"extern go %s: a trusted package","to":"\tif false && path != runtimeModule+\"/v1\" {\n\t\treturn fmt.Sprintf(\"extern go %s: a trusted package","rule":"interop.md Trusted Go: runtime/rt is the prelude's; a trusted package binds runtime/v1 bodies.","killers":["check:TestTrustedDoorRefusals"]},
+    {"name":"door-closed-for-trusted","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","to":"\tif !c.pkg.std {\n\t\tif c.pkg.module == \"\" {","rule":"STD-NOPRIV Q2: one trust rule for every module, std's by the same rule.","killers":["std:TestStdCopyAgrees","internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]},
+    {"name":"capture-without-charge","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/expr.go","from":"\tif captured {\n\t\tc.chargeAs(at, goForeign()","to":"\tif false && captured {\n\t\tc.chargeAs(at, goForeign()","rule":"types.md Capabilities 4: the site that builds a Go-backed provider holds go.Foreign (README Gap 17).","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {"name":"capture-in-constraint","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/typeops.go","from":"\tif why := c.implements(t, it, true); why != \"\" {\n\t\tif c.clauseUnmet(t, it) {","to":"\tif why := c.implementsCapturing(t, it, true, new(bool)); why != \"\" {\n\t\tif c.clauseUnmet(t, it) {","rule":"types.md Capabilities 4: a constraint is no build and captures nothing.","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {"name":"body-fact-std-only","origin":"wf10 STD-NOPRIV NP4b","file":"internal/sketch/check/body.go","from":"\tif f == nil || f.Decl == nil || f.Decl.Extern == nil {\n\t\treturn Body{}","to":"\tif f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || f.Pkg.Path == \"main\" {\n\t\treturn Body{}","rule":"GLOSSARY Body contract: an extern's facts follow the body its declaration binds, for an extern of any package.","killers":["check:TestBodyFactsFollowTheBody"]},
+    {"name":"opbody-fact-std-only","origin":"wf10 STD-NOPRIV NP4b","file":"internal/sketch/check/body.go","from":"\tif _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) {","to":"\tif _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) || o.Pkg.Path == \"main\" {","rule":"GLOSSARY Body contract: an operation's facts follow the runtime method it binds, for a type of any package that binds the runtime.","killers":["check:TestBodyFactsFollowTheBody"]},
     {"name":"entry-assign-unchecked","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/typeops.go","from":"\tif ts.Entry && !vs.Entry {","to":"\tif false && ts.Entry && !vs.Entry {","rule":"types.md Function values 6: no value but an entry's send is assignable to an entry func type.","killers":["check:TestChildTakesAnEntrySend"]},
     {"name":"entry-not-in-identity","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/intern.go","from":"\t\tif t.Entry {\n\t\t\ts += \"e\"","to":"\t\tif false && t.Entry {\n\t\t\ts += \"e\"","rule":"entry is part of a function type's identity: a function that takes an entry send is not a plain one.","killers":["check:TestChildTakesAnEntrySend"]},
     {"name":"entry-from-written-type","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/decl.go","from":"\t\t\tne.Entry = ft.Entry","to":"\t\t\tne.Entry = false","rule":"A parameter written entry func(…) has the entry type: Start's send reaches actor.Child.","killers":["check:TestChildTakesAnEntrySend"]},
@@ -1960,8 +1973,8 @@
       "name": "L8-A3 a bodiless generic outside the table treated as moving",
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
-      "from": "\t\tif path, name := f.Decl.Extern.Split(); path == runtimeModule+\"/v1\" && v1.MovesOnly(name) {",
-      "to": "\t\tif path, name := f.Decl.Extern.Split(); path != \"\" || name != \"\" || v1.MovesOnly(name) {",
+      "from": "\t\tif BodyOf(f).MovesOnly {\n\t\t\treturn nil",
+      "to": "\t\tif true {\n\t\t\treturn nil",
       "rule": "plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -2945,8 +2958,8 @@
       "name": "fixts-sealed-user-as-std",
       "origin": "wf10 batch-17 round 2 TS-1",
       "file": "internal/sketch/check/authority.go",
-      "from": "if !ok || n.Obj == nil || !n.Obj.Pkg.Std() || !Sealed(n) {",
-      "to": "if !ok || n.Obj == nil || !Sealed(n) {",
+      "from": "if _, runtime := GoTypeOf(n); !runtime || !Sealed(n) {",
+      "to": "if _, runtime := GoTypeOf(n); !(runtime || true) || !Sealed(n) {",
       "rule": "Sealing is the visibility rule: a sealed operation type the program declares has no runtime Go type, so its value converts to another operation type as a plain interface; only a std sealed type takes the runtime adapter (sealedStd).",
       "killers": [
         "check:TestImportGoUses"

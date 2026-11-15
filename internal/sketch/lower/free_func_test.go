@@ -8,7 +8,7 @@ import (
 // TestRuntimeRecordFunctionIsFree is the smallest repro of the rpc.Malformed
 // bug (STD-NOPRIV inbox, 2026-11-13, from FK's FD1-g2): a std function
 // whose first parameter is a std record bound to a runtime struct
-// (rpc.Malformed is v1.RPCMalformed, v1.StdRecord) lowered as a Go method
+// (rpc.Malformed is v1.RPCMalformed) lowered as a Go method
 // on that record. The program then declared a struct of its own for the
 // record, and called the method on the runtime's Go type, which has no such
 // method and is not that struct, so the Go did not compile. A Go method
@@ -18,22 +18,14 @@ import (
 // method-on-runtime-record (methodReceiver does not ask runtimeType)
 // lowers the method again, and go/types refuses the program.
 func TestRuntimeRecordFunctionIsFree(t *testing.T) {
-	const fixture = `type Malformed { Reason string }
+	// The fixture std package's record names its runtime struct, as
+	// rpc.Malformed does (v1.RPCMalformed, a struct with Reason).
+	const fixture = `extern go ergo.local/prototype/runtime/v1.RPCMalformed type Malformed { Reason string }
 
 func Describe(m Malformed) string {
 	"malformed: " + m.Reason
 }
 `
-	// The fixture std package binds its record through rpc.Malformed's row
-	// of the binding table, v1.RPCMalformed (a struct with Reason).
-	old := stdRecord
-	defer func() { stdRecord = old }()
-	stdRecord = func(pkg, name string) (string, bool) {
-		if pkg == "fixturerpc" && name == "Malformed" {
-			return "RPCMalformed", true
-		}
-		return old(pkg, name)
-	}
 	imp := pkgImporter{"fixturerpc": stdFixture(t, "fixturerpc", fixture)}
 	prog := lowerSourceWith("runtime_record_free", `import fixturerpc
 
