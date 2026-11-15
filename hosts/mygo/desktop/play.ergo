@@ -11,9 +11,8 @@ import utf8
 
 // Drain feeds the window's queued input to d. After each frame it takes
 // what the session posted (Pump), as the window's own loop does after
-// every input: the session's watcher posts a Committed at each state the
-// actor commits, and a post into a full queue would hold the watcher, and
-// with it every state the actor commits from then on (F-GP4c-1).
+// every input and as ui.Advance does on ui.TestHost, so both hosts take a
+// work's reply at the same frame (F-GP4c-1).
 func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		let (next, ok) = d.w.Poll()

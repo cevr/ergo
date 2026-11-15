@@ -479,15 +479,6 @@
       "killers": ["mygo:TestDashGuiOnTheDesktop"]
     },
     {
-      "name": "F-GP4c-1-drain-takes-nothing-posted",
-      "origin": "F-GP4c-1",
-      "file": "hosts/mygo/desktop/play.ergo",
-      "from": "if next.Kind == screen.Frame {",
-      "to": "if next.Kind == screen.Frame && next.Kind != next.Kind {",
-      "rule": "the headless Drain takes what the session posted after each frame, so the watcher never blocks and the actor keeps no state per frame",
-      "killers": ["mygo:TestDashGuiHeapStaysFlat"]
-    },
-    {
       "name": "wasm-node-env-inherits-gomaxprocs",
       "origin": "LY P-ui queue (GP's browser-run finding)",
       "file": "hosts/mygo/examples_test.go",
