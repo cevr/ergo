@@ -1531,10 +1531,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..efa852a
+index 0000000..ec3e834
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,304 @@
+@@ -0,0 +1,309 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1793,6 +1793,11 @@ index 0000000..efa852a
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
++		if s.Key == nil && s.Val == nil {
++			// for range x: no left-hand side, as Go parses the printed
++			// text (the text view prints no blank names).
++			rc.Lhs, rc.Def = nil, false
++		}
 +		rc.SetPos(pos)
 +		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)
