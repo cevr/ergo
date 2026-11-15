@@ -128,3 +128,143 @@ func slows(s Stats, b Budget) []Slow {
 	}
 	out
 }
+
+// StepCounts is the work of a step, counted (NS3): the patch's ops by kind;
+// Ran, the nodes its passes wrote and committed; Kept, the nodes under the
+// Sames they kept without running; GroupsRan and GroupsKept, the Sames
+// that ran and that were kept; and Visits, the nodes Commit visited. No
+// time: a count is the same on every run and every host. The counts of a
+// pass are PassCounts; a test host sums its passes over a step (Counts).
+type StepCounts {
+	Inserted   int,
+	Moved      int,
+	Removed    int,
+	Set        int,
+	Ran        int,
+	Kept       int,
+	GroupsRan  int,
+	GroupsKept int,
+	Visits     int,
+}
+
+// NoCounts is a step that did nothing.
+func NoCounts() StepCounts {
+	StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 0, Ran: 0, Kept: 0, GroupsRan: 0, GroupsKept: 0, Visits: 0}
+}
+
+// PassCounts is the last pass of f, counted. Kept walks the subtrees the
+// pass kept, only when it is asked for; the pass itself adds one to a
+// counter per node Commit visits.
+func PassCounts[E](f *Frame[E]) StepCounts {
+	let mut c = NoCounts()
+	for op in f.ops {
+		match op {
+		case Insert[E]:
+			c.Inserted = c.Inserted + 1
+		case Move[E]:
+			c.Moved = c.Moved + 1
+		case Remove[E]:
+			c.Removed = c.Removed + 1
+		case Set[E]:
+			c.Set = c.Set + 1
+		}
+	}
+	c.Ran = f.nspecs
+	for i in 0..f.nspecs {
+		let sp = f.specs[i]
+		if sp.skip {
+			c.Kept = c.Kept + treeSize(f, sp.ref) - 1
+		} else {
+			match sp.same {
+			case Some[memoRun[E]]:
+				c.GroupsRan = c.GroupsRan + 1
+			case None:
+			}
+		}
+	}
+	c.GroupsKept = f.skips
+	c.Visits = f.visits
+	c
+}
+
+// AddCounts is the counts of a and b together.
+func AddCounts(a StepCounts, b StepCounts) StepCounts {
+	StepCounts{Inserted: a.Inserted + b.Inserted, Moved: a.Moved + b.Moved, Removed: a.Removed + b.Removed, Set: a.Set + b.Set, Ran: a.Ran + b.Ran, Kept: a.Kept + b.Kept, GroupsRan: a.GroupsRan + b.GroupsRan, GroupsKept: a.GroupsKept + b.GroupsKept, Visits: a.Visits + b.Visits}
+}
+
+// CountsLine is c as the trace's line: the ops by kind (or "no ops"),
+// then "ran R nodes, kept K; groups ran G, kept H; visits V", as in
+// `1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3`.
+func CountsLine(c StepCounts) string {
+	let mut head = ""
+	let kinds = [](int, string){(c.Inserted, "insert"), (c.Moved, "move"), (c.Removed, "remove"), (c.Set, "set")}
+	for k in kinds {
+		let (n, name) = k
+		if n > 0 && head != "" {
+			head = head + ", "
+		}
+		if n > 0 {
+			head = head + "\(n) \(name)"
+		}
+	}
+	if head == "" {
+		head = "no ops"
+	}
+	"\(head); ran \(c.Ran) nodes, kept \(c.Kept); groups ran \(c.GroupsRan), kept \(c.GroupsKept); visits \(c.Visits)"
+}
+
+// CountsSumToPatch (NS3): over generated view programs (Sames included,
+// with a Same in a Box that a pass keeps whenever its key stays) and
+// generated states, each pass's counts are its patch's: the ops by kind
+// are the patch's ops of that kind, and they sum to the patch's length;
+// the nodes run and the nodes kept are the tree's nodes below the root;
+// Commit visits each node it did not keep, the root included; and over
+// the run some pass keeps a node, so the kept count is reached.
+law CountsSumToPatch(seed int, steps int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r).Append(pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}, pText{slot: 3}}, memo: true}}})
+	let mut f = NewFrame[int]()
+	let mut kept = 0
+	for _ in 0..(steps%8+8)%8+2 {
+		// The kept Same reads slots 2 and 3, which stay.
+		let mut s = genState(&r)
+		s[2] = 7
+		s[3] = 9
+		let ops = pass(&f, ps, s)
+		let c = PassCounts(&f)
+		let mut ins = 0
+		let mut mov = 0
+		let mut rem = 0
+		let mut set = 0
+		for op in ops {
+			match op {
+			case Insert[int]:
+				ins = ins + 1
+			case Move[int]:
+				mov = mov + 1
+			case Remove[int]:
+				rem = rem + 1
+			case Set[int]:
+				set = set + 1
+			}
+		}
+		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) {
+			return false
+		}
+		if c.Ran+c.Kept != Len(&f)-1 || c.Visits != Len(&f)-c.Kept-c.GroupsKept || c.GroupsKept != Skips(&f) {
+			return false
+		}
+		kept = kept + c.Kept
+	}
+	kept > 0
+}
+
+// The trace line's text (NS3): the plan's example, and a step of two
+// kinds and one of none.
+test CountsLineText {
+	let c = StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 1, Ran: 3, Kept: 801, GroupsRan: 0, GroupsKept: 200, Visits: 3}
+	assert CountsLine(c) == "1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3"
+	let d = StepCounts{Inserted: 2, Moved: 0, Removed: 1, Set: 0, Ran: 2, Kept: 0, GroupsRan: 1, GroupsKept: 0, Visits: 4}
+	assert CountsLine(d) == "2 insert, 1 remove; ran 2 nodes, kept 0; groups ran 1, kept 0; visits 4"
+	assert CountsLine(NoCounts()) == "no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+}

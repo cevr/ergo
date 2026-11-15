@@ -13,7 +13,7 @@ import arena
 // which Ergo has no type for.
 
 // Cell is one piece of view-local state.
-type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length, Follow int}
+type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length, Follow int} | PresenceCell{Items []presenceItem, Fresh bool}
 
 // cellAt names a cell in a pass: the identity of the call that read it,
 // under parent spec parent (-1 the root).
@@ -66,6 +66,8 @@ func cellKind(c Cell) int {
 		1
 	case ViewCell:
 		2
+	case PresenceCell:
+		3
 	}
 }
 
@@ -450,6 +452,10 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			}
 		case CheckNode[E] as x:
 			out.Signal = Some{Value: x.On}
+		case SemanticNode[E] as x:
+			if !x.Access.Disabled {
+				out.Signal = x.On
+			}
 		case ToggleNode as x:
 			match n.binds {
 			case Some[bound[E]] as d:
@@ -487,7 +493,14 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: a.Signal}
 		}
 	case Point[E] as p:
-		out.Signal = pointed(f, p.Id, p.Pointer)
+		let mut pe = p.Pointer
+		pe.Zone = None
+		match p.Over {
+		case Some[ZoneBox[E]] as o:
+			pe.Zone = zoneHit(f, p.Id, o.Value, p.Pointer)
+		case None:
+		}
+		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
 	case URLChanged as u:
