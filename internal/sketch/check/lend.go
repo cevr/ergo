@@ -152,12 +152,13 @@ func (w *ownWalk) placePoint(x syntax.Expr) lendPoint {
 }
 
 func (w *ownWalk) argument(x *syntax.CallExpr, index int) syntax.Expr {
-	c := w.info.Calls[x]
-	if c != nil && c.Kind == CallFunc && c.Recv != nil {
-		if index == 0 {
+	// index is a parameter's; the written arguments start where argParam
+	// puts argument 0, after a receiver that binds a parameter.
+	if c := w.info.Calls[x]; c != nil {
+		if index >= 0 && index == argParam(c, -1) {
 			return c.Recv
 		}
-		index--
+		index -= argParam(c, 0)
 	}
 	if index >= 0 && index < len(x.Args) {
 		return x.Args[index]
