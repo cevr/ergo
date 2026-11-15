@@ -19,3 +19,21 @@ law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
 	}
 	true
 }
+
+// IgnoredIsAStay: a signal the permit ignores is a Stay of the desk, so
+// the stage's timer runs on through it. The screen never offers one (law
+// ScreenOffersOnlyTransitions), so no case sends one; another host of the
+// desk may.
+law IgnoredIsAStay(s permit.Stage, sig permit.Signal) {
+	match permit.Step(s, sig) {
+	case Ignore, Reject:
+		match Track(Desk{..Blank, Stage: s}, Do{Signal: sig}) {
+		case Stay[Desk]:
+			true
+		case Enter[Desk], Ignore, Reject:
+			false
+		}
+	case Enter[permit.Stage], Stay[permit.Stage]:
+		true
+	}
+}

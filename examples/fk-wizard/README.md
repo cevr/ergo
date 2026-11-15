@@ -74,6 +74,7 @@ How the port differs from upstream:
   - `FilingTakesASecond` (on a virtual clock): the permit is confirmed a second after the filing, not before.
 - `desk`:
   - `LogKeepsTheNewest`: the log keeps the newest 20, newest first.
+  - `IgnoredIsAStay`: a signal the permit ignores is a Stay of the desk, so a timer runs on. The screen never sends one, so this law, not a case, holds it.
 - `script`, over generated walks on the screen:
   - `ScreenOffersOnlyTransitions`: every enabled control the screen offers is a step of the permit, never a signal the machine ignores.
 
