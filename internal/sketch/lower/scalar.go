@@ -421,11 +421,14 @@ func (fc *funcCtx) scalarLet(v *check.Var, sl *scalarLocal, x syntax.Expr, mut b
 func (fc *funcCtx) scatter(sl *scalarLocal, val string) { fc.scatterKept(sl, val, false) }
 
 // settled reports a union value x that is a box already on the heap
-// whatever its local does: a field or an element read, a plain local or
-// parameter, or the result of a call that was not inlined (before is the
-// inlined count when x's lowering began). Keeping such a box (scatterKept)
-// sends nothing to the heap that was not there; a box an inlined body or
-// a conversion made here could have stayed on the stack.
+// whatever its local does: a plain local or parameter, a part of a Map
+// entry (heapVars), or the result of a call that was not inlined (before
+// is the inlined count when x's lowering began). Keeping such a box
+// (scatterKept) sends nothing to the heap that was not there. Go's escape
+// analysis does not tell a variable's values apart, so a part of a value
+// built here (a machine step's decision's Next) could have stayed on the
+// stack, and once it flows into the kept box that a gather returns it
+// would not (TestMachineFlatRunAllocates).
 func (fc *funcCtx) settled(x syntax.Expr, before int) bool {
 	if slotLowering == "off" {
 		return false
@@ -439,7 +442,24 @@ func (fc *funcCtx) settled(x syntax.Expr, before int) bool {
 	}
 	switch x := x.(type) {
 	case *syntax.SelectorExpr, *syntax.IndexExpr:
-		return true
+		// A part of a Map's entry (heapVars): a part of a value built
+		// here could have stayed on the stack (a machine step's decision).
+		root := syntax.Expr(x)
+		for {
+			if s, ok := root.(*syntax.SelectorExpr); ok {
+				root = unparen(s.X)
+			} else if ix, ok := root.(*syntax.IndexExpr); ok {
+				root = unparen(ix.X)
+			} else {
+				break
+			}
+		}
+		id, ok := root.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		v, _ := fc.l.info.Uses[id].(*check.Var)
+		return v != nil && fc.heapVars[v]
 	case *syntax.Ident:
 		return fc.scalarIdent(x) == nil
 	case *syntax.CallExpr:

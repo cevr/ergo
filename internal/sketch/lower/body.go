@@ -206,6 +206,9 @@ type funcCtx struct {
 	// (slot.go).
 	slotAt    map[*syntax.CallExpr]*slotSite
 	slotTemps []*scalarLocal
+	// heapVars are the bindings of a Map entry (getmatch.go): their parts
+	// are boxes already on the heap (scalar.go, settled).
+	heapVars map[*check.Var]bool
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
