@@ -75,6 +75,8 @@
   sliders: Turbulence 0.25, Noise scale 2.40
 > strength 1.62
   sliders: Turbulence 1.60, Noise scale 2.40
+> scale 1.05
+  sliders: Turbulence 1.60, Noise scale 1.05
 > click Clear
   ? no node: role button "Clear"
 > stop

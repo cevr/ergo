@@ -6,7 +6,7 @@
       "file": "examples/fk-flow/balls/balls.ergo",
       "from": "VX: if bounceX { -b.VX } else { b.VX }",
       "to": "VX: if bounceX { b.VX } else { b.VX }",
-      "rule": "A bounce turns the ball's velocity round (case tour: ball 1 off the left edge; the law only sees the size).",
+      "rule": "A bounce turns the ball's velocity round (case tour: dot 2 off the left edge; the law only sees the size).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
     {
@@ -159,6 +159,110 @@
       "from": "Flow{Field: flow.New(b.Field.Seed)}",
       "to": "Flow{Field: flow.New(seed.Of(1))}",
       "rule": "The stream passes on through a switch (law SeedReplays).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-frame-is-time-since-start", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/app/app.ergo",
+      "from": "scene.Ticked{Ms: f.At - l.Value}",
+      "to": "scene.Ticked{Ms: f.At + 0.0*l.Value}",
+      "rule": "A frame steps the scene by the time since the frame before, not since the host began (law FramesAreTheTimeBetween; cases).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-paused-frames-count", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/app/app.ergo",
+      "from": "\t\tif !Running(p.Scene) {\n\t\t\treturn Ignore\n",
+      "to": "\t\tif Running(p.Scene) && !Running(p.Scene) {\n\t\t\treturn Ignore\n",
+      "rule": "A paused scene ignores frames (law APauseStopsTheCount).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-pause-keeps-the-count", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/app/app.ergo",
+      "from": "if Running(next) { Program{Scene: next, Last: p.Last} } else { Program{Scene: next, Last: None} }",
+      "to": "if Running(next) { Program{Scene: next, Last: p.Last} } else { Program{Scene: next, Last: p.Last} }",
+      "rule": "A pause stops the count, so the first frame after play moves nothing (law APauseStopsTheCount; case tour: frame 16 x2 after play).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-no-frames-asked", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "\tif app.Running(p.Scene) {\n\t\tui.Animate(",
+      "to": "\tif !app.Running(p.Scene) {\n\t\tui.Animate(",
+      "rule": "The screen asks for frames while its scene runs, and only then (cases: frames wanted, none).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-pause-never-plays", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "button(f, if b.Running { \"Pause\" } else { \"Play\" }, scene.Toggled)",
+      "to": "button(f, if b.Running { \"Pause\" } else { \"Pause\" }, scene.Toggled)",
+      "rule": "Pause turns to Play while the balls stop (case scenes: click Pause, then click Play).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-pointer-moves-nothing", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "\t\tcase ui.Moved:\n\t\t\tSome[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}\n",
+      "to": "\t\tcase ui.Moved:\n\t\t\tNone\n",
+      "rule": "A move over the flow's canvas points the field (case tour: move 480 300, the pointer ring).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-slider-half-track", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "set(lo + (hi-lo)*e.X/SliderWidth)",
+      "to": "set(lo + (hi-lo)*e.X/SliderWidth/2.0)",
+      "rule": "A press on a slider's track asks for the value where it was pressed (case scenes: strength 1.62 reads 1.60).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-fixed-drops-a-zero", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "if cents < 10 { \"0\" } else { \"\" }",
+      "to": "if cents < 1 { \"0\" } else { \"\" }",
+      "rule": "A slider shows its value to two places, as toFixed(2) (case scenes: scale 1.05).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-balls-one-colour", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "ui.Fill(pt, Circle(x.X, x.Y, x.Radius), hex(x.Color))",
+      "to": "ui.Fill(pt, Circle(x.X, x.Y, x.Radius), hex(\"#ff2d55\"))",
+      "rule": "A ball is painted in its own colour (cases: dot colours).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-head-never-fades", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "hsla(Hue(p, fl.Elapsed), 90.0, 92.0, 0.95*Fade(p))",
+      "to": "hsla(Hue(p, fl.Elapsed), 90.0, 92.0, 0.95)",
+      "rule": "A particle's head fades in and out with its life (case tour: heads at alpha 0 on the first screen).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-hsla-green-is-blue", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "let g = channel(8.0, h, lig, c)",
+      "to": "let g = channel(4.0, h, lig, c)",
+      "rule": "A colour is CSS's hsla worked out to bytes (cases: dot colours).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-trail-stroked-once", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "\t\tui.Stroke(pt, path, hsla(hue, 90.0, 60.0, 0.18*fade), glowWidth)\n",
+      "to": "\t\tif glowWidth < 0.0 {\n\t\t\tui.Stroke(pt, path, hsla(hue, 90.0, 60.0, 0.18*fade), glowWidth)\n\t\t}\n",
+      "rule": "A trail is stroked twice, its glow then its core (case tour: strokes twice the trails).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12b-vignette-three-strips", "origin": "wf10/fk12b",
+      "file": "examples/fk-flow/screen/screen.ergo",
+      "from": "for step in 0..4 {",
+      "to": "for step in 0..3 {",
+      "rule": "The vignette is four steps of four strips (cases: 20 fills on an empty flow).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     }
   ]

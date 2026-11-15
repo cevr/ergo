@@ -27,5 +27,6 @@ click Pause
 strength 0.25
 scale 2.4
 strength 1.62
+scale 1.05
 # A click on a button the screen does not show is no node.
 click Clear

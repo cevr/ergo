@@ -129,10 +129,16 @@ law FramesAreTheTimeBetween(start int where 0 <= start && start <= 1000, gaps []
 }
 
 // APauseStopsTheCount: a paused scene ignores frames, and the first frame
-// after play moves nothing, however long the pause was.
+// after play moves nothing, however long the pause was. It runs on the
+// flow, whose time moves with every step.
 law APauseStopsTheCount(pause int where 1 <= pause && pause <= 100000) {
-	let mut p = Open(3)
-	p = Program{..p, Last: Some[float64]{Value: 100.0}}
+	let flowing = match Step(Open(3), On{Signal: scene.ShowFlow}) {
+	case Enter[Program] as e:
+		e.Next
+	case Stay[Program], Ignore, Reject:
+		return false
+	}
+	let p = Program{..flowing, Last: Some[float64]{Value: 100.0}}
 	let paused = match Step(p, On{Signal: scene.Toggled}) {
 	case Stay[Program] as s:
 		s.Next
