@@ -251,11 +251,11 @@ func mergeSet(base string, ours string, theirs string) string fails Unreadable {
 	listText(ours, o, out)
 }
 
-// manifest is units as a package manifest in JSONC: a comment, a name in
-// a layout of its own, the keys 0 to 2 at the top, 3 to 5 in an object
+// manifest is units as a package manifest in JSONC: a comment, a name and
+// an object "meta" in a layout of their own, the keys 0 to 2 at the top, 3 to 5 in an object
 // "deps", and "files", the set of "f<key>" for each key.
 func manifest(units Map[int, int]) string {
-	let mut top = []string{"\"name\":   \"app\""}
+	let mut top = []string{"\"name\":   \"app\"", "\"meta\": { \"x\":  [1,  2] }"}
 	let mut deps = []string{}
 	let mut files = []string{}
 	for key in 0..6 {
@@ -352,7 +352,7 @@ law JsonIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) 
 	}
 	match manifestRead(got.Text) {
 	case Some[Read] as r:
-		r.Value.Units == want.Units && sameStrings(r.Value.Files, files) && strings.Contains(got.Text, "// a comment no merge touches") && strings.Contains(got.Text, "\"name\":   \"app\"")
+		r.Value.Units == want.Units && sameStrings(r.Value.Files, files) && strings.Contains(got.Text, "// a comment no merge touches") && strings.Contains(got.Text, "\"name\":   \"app\"") && strings.Contains(got.Text, "\"meta\": { \"x\":  [1,  2] }")
 	case None:
 		false
 	}

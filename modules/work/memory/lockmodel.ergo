@@ -1,0 +1,169 @@
+// The model package manager (SEMWS WG2): an exec.Runner whose every
+// command writes the lock of the folder's package.json, a pure function
+// of the manifest, so a law can say what lock a merge must end with.
+
+import exec
+import filepath
+import fs
+import fstest
+import github.com/cevr/ergo/modules/work/classes
+import github.com/cevr/ergo/modules/work/work
+import slices
+import strings
+import sync
+import time
+
+// PackageManager is an exec.Runner over a memory disk: each command it
+// runs, in the command's folder, reads package.json and writes bun.lock
+// as LockOf it (status 1 when the manifest does not read).
+type PackageManager { disk fstest.Memory, runs sync.Ref[int] } implements exec.Runner
+
+func NewPackageManager(disk fstest.Memory) PackageManager { PackageManager{disk: disk, runs: sync.NewRef(0)} }
+
+func Run(p PackageManager, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	p.runs.Set(p.runs.Get() + 1)
+	let text = p.disk.ReadFile(filepath.Join([]string{c.Dir, "package.json"})) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return exec.Result{Status: 1, Stdout: "", Stderr: "no package.json"}
+	}
+	let lock = match LockOf(text) {
+	case Some[string] as l:
+		l.Value
+	case None:
+		return exec.Result{Status: 1, Stdout: "", Stderr: "package.json does not read"}
+	}
+	p.disk.WriteFile(filepath.Join([]string{c.Dir, "bun.lock"}), lock) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return exec.Result{Status: 1, Stdout: "", Stderr: "bun.lock not written"}
+	}
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func Start(p PackageManager, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	let r = try p.Run(c)
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): r}}.Start(c, s)
+}
+
+// LockOf is the lock of a manifest: one line "name@version" for each
+// dependency, sorted.
+func LockOf(manifest string) Option[string] {
+	match depsOf(manifest) {
+	case Some[Map[string, string]] as d:
+		let mut lines = []string{}
+		for k, v in d.Value {
+			lines = lines.Append(k + "@" + v)
+		}
+		Some[string]{Value: strings.Join(slices.Sort(lines), "\n") + "\n"}
+	case None:
+		None
+	}
+}
+
+// depsOf is the dependencies of a manifest, by name.
+func depsOf(manifest string) Option[Map[string, string]] {
+	let top = classes.Members(manifest, "manifest") catch {
+	case classes.Unreadable:
+		return None
+	}
+	let mut out = Map[string, string]{}
+	for m in top {
+		if m.Key != "dependencies" {
+			continue
+		}
+		let deps = classes.Members(m.Raw, "manifest") catch {
+		case classes.Unreadable:
+			return None
+		}
+		for d in deps {
+			out[d.Key] = strings.TrimSuffix(strings.TrimPrefix(d.Raw, "\""), "\"")
+		}
+	}
+	Some[Map[string, string]]{Value: out}
+}
+
+// packageJson is a manifest with the dependency k<key> at version
+// "v<value>" for each unit.
+func packageJson(units Map[int, int]) string {
+	let mut deps = []string{}
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			deps = deps.Append("    \"k\(key)\": \"v\(v.Value)\"")
+		case None:
+		}
+	}
+	let inner = if len(deps) == 0 { "{}" } else { "{\n" + strings.Join(deps, ",\n") + "\n  }" }
+	"{\n  \"name\": \"app\",\n  \"dependencies\": " + inner + "\n}\n"
+}
+
+// folded is units with each key folded into 0 to 5, so the three sides
+// meet on some keys.
+func folded(units Map[int, int]) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in units {
+		out[((k % 6) + 6) % 6] = v
+	}
+	out
+}
+
+// LockIsTheManifests: a merge of three trees of a manifest and its lock
+// (each side's lock written by the package manager from its own
+// manifest), by the lock preset's classes, either conflicts on the
+// manifest, where both sides changed a dependency apart, or ends with
+// the lock the package manager makes from the merged manifest, whose
+// dependencies are the reference merge of the three, whatever the two
+// sides' locks were.
+law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, int]) {
+	let (b, o, t) = (folded(base), folded(ours), folded(theirs))
+	let disk = fstest.NewMemory()
+	let pm = NewPackageManager(disk)
+	let trees = NewCloner()
+	let lock = NewLock()
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: disk, Writes: disk, Runner: pm, Clock: time.NewManual(1000)}
+	let home = work.Home(theBase, "")
+	let tool = work.NewTool(theBase, home, "/data", p, "/")
+	let c = work.Config{..work.EmptyConfig(), Classes: work.PresetLines([]work.ClassLine{}, []string{"bun.lock"})}
+	let tree = func(units Map[int, int]) Map[string, string] {
+		let manifest = packageJson(units)
+		match LockOf(manifest) {
+		case Some[string] as l:
+			Map[string, string]{"package.json": manifest, "bun.lock": l.Value}
+		case None:
+			Map[string, string]{"package.json": manifest}
+		}
+	}
+	disk.MkdirAll(home) catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	disk.WriteFile(work.TrustFile(home), work.Digest(c) + "\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let merged = work.MergeTree(tool, c, "/m", tree(b), tree(o), tree(t)) catch {
+	case _:
+		return false
+	}
+	let mut clash = false
+	let mut want = Map[int, int]{}
+	for key in 0..6 {
+		let (x, y, z) = (b.Get(key), o.Get(key), t.Get(key))
+		let picked = if y == x { z } else if z == x || y == z { y } else {
+			clash = true
+			None
+		}
+		match picked {
+		case Some[int] as v:
+			want[key] = v.Value
+		case None:
+		}
+	}
+	if clash {
+		return merged.Conflicts == []string{"package.json"} && merged.Ran == []string{}
+	}
+	let got = disk.ReadFile("/m/bun.lock") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	len(merged.Conflicts) == 0 && LockOf(packageJson(want)) == Some[string]{Value: got}
+}

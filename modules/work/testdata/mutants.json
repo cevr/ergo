@@ -1,5 +1,5 @@
 {
-  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
+  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a, WG2); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
       "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
@@ -276,14 +276,14 @@
     {
       "name": "ws5e-derived-merged", "origin": "wf10/semws WS5a-early (compounding #6)",
       "file": "modules/work/classes/classes.ergo",
-      "from": "\tif c == Derived {\n\t\treturn ByUnits(c, base, ours, theirs)\n\t}\n",
-      "to": "",
+      "from": "\tcase Derived, Json:\n\t\treturn ByUnits(c, base, ours, theirs)\n",
+      "to": "\tcase Json:\n\t\treturn ByUnits(c, base, ours, theirs)\n\tcase Derived:\n",
       "rule": "A derived file is never merged by lines (the plan: regenerate, never merge): classes' DerivedIsNeverMerged.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
       "name": "ws5e-merge-file-writes-nothing", "origin": "wf10/semws WS5a-early (compounding #6)",
-      "file": "modules/work/work/api.ergo",
+      "file": "modules/work/work/merge.ergo",
       "from": "\ttry t.writes.WriteFile(ours, merged.Text)\n",
       "to": "",
       "rule": "merge-file leaves the merge in ours, the file Git keeps: memory's MergeFileWritesTheMerge.",
@@ -291,7 +291,7 @@
     },
     {
       "name": "ws5e-merge-file-conflict-clean", "origin": "wf10/semws WS5a-early (compounding #6)",
-      "file": "modules/work/work/api.ergo",
+      "file": "modules/work/work/merge.ergo",
       "from": "\tif len(merged.Conflicts) > 0 {",
       "to": "\tif false {",
       "rule": "A merge with conflicts ends with status 1, so Git keeps the file conflicted: the merge-clash case.",
@@ -728,6 +728,94 @@
       "to": "\tlet synced = Workspace{..w, Base: theirs}",
       "rule": "A sync is a use: a just-synced workspace is not idle (memory's UseKeepsAWorkspace(true)).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-json-clash-takes-ours", "origin": "wf10/semws WG2",
+      "file": "modules/work/classes/jsonmerge.ergo",
+      "from": "\t\t\t\tconflicts = conflicts.Append(p)\n\t\t\t\tvalues = values.Append(if tv == None",
+      "to": "\t\t\t\tvalues = values.Append(if tv == None",
+      "rule": "One key changed to two values is a conflict named by its key path, never one side (classes' JsonIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-json-set-by-position", "origin": "wf10/semws WG2",
+      "file": "modules/work/classes/jsonmerge.ergo",
+      "from": "\t\tif slices.Contains(sets, p) && isListText(bv)",
+      "to": "\t\tif false && isListText(bv)",
+      "rule": "A list whose key path the class line names as a set merges as a set, not by lines (classes' JsonIsTheReference: both sides add a file).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-jsonc-comment-unread", "origin": "wf10/semws WG2",
+      "file": "modules/work/classes/json.ergo",
+      "from": "\t\tif c == '/' && at+1 < len(s) && s[at+1] == '/' {",
+      "to": "\t\tif false {",
+      "rule": "A JSONC comment is white space to the reader, so the file merges and the comment stays (classes' JsonIsTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-json-untouched-bytes", "origin": "wf10/semws WG2",
+      "file": "modules/work/classes/jsonmerge.ergo",
+      "from": "\t\t\tif v.Value != m.Raw {\n\t\t\t\tspans = spans.Append(Span{Raw: v.Value, Start: m.Start, End: m.End})",
+      "to": "\t\t\tif true {\n\t\t\t\tspans = spans.Append(Span{Raw: Bare(v.Value), Start: m.Start, End: m.End})",
+      "rule": "A member no side changed keeps its bytes (classes' JsonIsTheReference: meta's own layout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-lock-kept-not-derived", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tTreeMerged{Conflicts: []string{}, Ran: (try deriveIn(t, c, folder)).Ran}",
+      "to": "\tTreeMerged{Conflicts: []string{}, Ran: []string{}}",
+      "rule": "After a merge the lock is the package manager's from the merged manifests, not a side's lock kept (memory's LockIsTheManifests).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-lock-preset-by-lines", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"derived\", Sets: []string{}, By: p.By, Driver: \"\"})",
+      "to": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"lines\", Sets: []string{}, By: \"\", Driver: \"\"})",
+      "rule": "A lock file is derived by its package manager, never merged by its lines (memory's LockIsTheManifests, PresetPicksTheLockThatExists).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-preset-any-lock", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !slices.Contains(present, p.Lock) {",
+      "to": "\t\tif false {",
+      "rule": "The preset is the lock file that exists, not every package manager's (work's PresetPicksTheLockThatExists).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-glob-root-only", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "if strings.Contains(pattern, \"/\") { strings.TrimPrefix(pattern, \"/\") } else { \"**/\" + pattern }",
+      "to": "strings.TrimPrefix(pattern, \"/\")",
+      "rule": "A pattern with no slash takes the name at any depth, as in .gitattributes (work's GlobTakesAnyDepth).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-attributes-drop-others", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif l != \"\" {\n\t\t\tkept = kept.Append(l)\n\t\t}",
+      "to": "\t\tlet _ = l",
+      "rule": "init replaces only its own lines of .git/info/attributes (work's AttributesKeepOtherLines).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg2-driver-status-ignored", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\t\tif r.Status != 0 {\n\t\t\t\treturn MergeConflict{Path: path, Class: \"driver\"",
+      "to": "\t\t\tif false {\n\t\t\t\treturn MergeConflict{Path: path, Class: \"driver\"",
+      "rule": "A driver that fails is a conflict, so Git keeps the file conflicted (the merge-driver case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg2-derive-untrusted-runs", "origin": "wf10/semws WG2",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !trusted(t, c) {\n\t\t\treturn untrusted(c)\n\t\t}",
+      "to": "\t\tlet _ = trusted(t, c)",
+      "rule": "A derived command runs only after work trust (the derive-untrusted case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     }
   ]
 }
