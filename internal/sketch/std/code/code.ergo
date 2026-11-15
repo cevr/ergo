@@ -77,6 +77,7 @@ type Package {
 	Contracts   []Contract,
 	Calls       []Call,
 	Needs       []Need,
+	Machines    []MachineGraph,
 }
 
 // Tables are a workspace's fact tables at one revision. Root is the path
@@ -162,6 +163,9 @@ type Reader {
 	// Reach is a page of the functions whose row holds a capability, each
 	// with a chain of calls that brings it, and where withs discharge it.
 	Reach(q ReachQuery) ReachPage fails NoSymbol | Ambiguous,
+	// MachineOf is the graph of the machine declaration at a, and the pairs
+	// a run of it can step.
+	MachineOf(a string) MachineView fails NoSymbol | Ambiguous | NotMachine,
 
 	// HandleRoundTrips: the declaration at a declaration's handle is that
 	// declaration, so a handle printed by one answer addresses it in the
@@ -184,6 +188,9 @@ type Reader {
 	// that each bring the capability, from the function to a declaration
 	// that brings it no further; a discharge does not bring it.
 	law ReachChainsAreCalls(pick int) { reachChainsAreCalls(pick) },
+	// MachineArmsStopAtAWholeArm: the arms of each reachable pair take
+	// it, in match order, and each but the last is partial.
+	law MachineArmsStopAtAWholeArm(pick int) { machineArmsStopAtAWholeArm(pick) },
 }
 
 // DefaultLimit is a page's size when a query sets none; MaxLimit is the

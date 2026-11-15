@@ -27,6 +27,8 @@ type Index {
 	needers    Map[string, []string],
 	brings     Map[string, Map[string, []Call]],
 	discharges Map[string, []Call],
+	// machines is the machine graphs by handle.
+	machines Map[string, MachineGraph],
 }
 
 // IndexOf is the indexed reader of t.
@@ -79,7 +81,7 @@ func IndexOf(t Tables) Index {
 			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
 		}
 	}
-	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges}
+	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges, machines: machinesOf(t)}
 }
 
 // NewIndex is the indexed reader of the tables Generated(seed) makes: the
@@ -89,6 +91,11 @@ func NewIndex(seed int) Index { IndexOf(Generated(seed)) }
 func Describe(x Index) Summary { x.summary }
 
 func Api(x Index, q ApiQuery) ApiView fails NoPackage { apiOf(x.tables, q) }
+
+func MachineOf(x Index, a string) MachineView fails NoSymbol | Ambiguous | NotMachine {
+	let g = try machineTarget(a, try x.Symbol(a), x.machines)
+	MachineView{Revision: x.tables.Revision, Complete: x.summary.Complete, Graph: g, Reachable: reachableBySteps(g)}
+}
 
 func Reach(x Index, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
 	let capability = try with context { Reader: x } { capabilityOf(q, x.tables) }
@@ -165,7 +172,8 @@ func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
 // and Calls (in and out, to depth 3) at every handle, every short name (an
 // Ambiguous one included), every position of a site, and addresses that
 // name nothing; Api of every package, of the root and of none; Reach of
-// every address and of Console, which no package declares.
+// every address and of Console, which no package declares; Machine of
+// every address.
 law IndexIsScan(seed int, size int) { indexIsScan(seed, size) }
 
 func indexIsScan(seed int, size int) bool {
@@ -187,13 +195,14 @@ type Outcome {
 	Calls      Option[CallPage],
 	Api        Option[ApiView],
 	Reach      Option[ReachPage],
+	Machine    Option[MachineView],
 	Failure    string,
 	Candidates []string,
 }
 
 // asked is the outcome of question with no answer yet.
 func asked(question string) Outcome {
-	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Reach: None, Failure: "", Candidates: []string{}}
+	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Reach: None, Machine: None, Failure: "", Candidates: []string{}}
 }
 
 // answers is the reader's answer to each question about the tables t,
@@ -231,9 +240,24 @@ func answers(t Tables, size int) []Outcome needs Reader {
 	out = out.Append(apiAt(Some[string]{Value: "gen/none"}))
 	for a in addresses {
 		out = out.Append(reachAt(a, step))
+		out = out.Append(machineAt(a))
 	}
 	out = out.Append(reachAt("Console", step))
 	out
+}
+
+// machineAt is the machine answer at a.
+func machineAt(a string) Outcome needs Reader {
+	let q = "machine " + a
+	let v = Reader.MachineOf(a) catch {
+	case NoSymbol:
+		return Outcome{..asked(q), Failure: "NoSymbol"}
+	case Ambiguous as m:
+		return Outcome{..asked(q), Failure: "Ambiguous", Candidates: m.Candidates}
+	case NotMachine as n:
+		return Outcome{..asked(q), Failure: "NotMachine " + n.Kind}
+	}
+	Outcome{..asked(q), Machine: Some[MachineView]{Value: v}}
 }
 
 // reachAt is the reach answer for the capability at a, read a page of

@@ -18,9 +18,10 @@ import (
 // whose values are Decision literals, if/else and helpers; an after
 // function per state) are written as Ergo source and checked, and the
 // graph read from them must be the model's: the arms in order with their
-// variants, each arm's edges (kind, target, line), the timers, and the
-// pairs Reachable lists with their arms. ERGO_GRAPH_SEED replays a seed; a
-// failure prints the source.
+// variants, each arm's edges (kind, target, line), and the timers. (The
+// pairs a run can reach are std code's MachineOf, held by the law
+// IndexIsScan.) ERGO_GRAPH_SEED replays a seed; a failure prints the
+// source.
 
 // garm is one generated arm: its state and signal (-1 for any), and its
 // edges as the model expects them, with lines filled in when written.
@@ -229,54 +230,6 @@ func (m *gmachine) want() *Graph {
 	return g
 }
 
-// reachable is the model's coverage: a breadth-first walk of its edges.
-func (m *gmachine) reachable() []Pair {
-	reached := map[int]bool{0: true}
-	queue := []int{0}
-	armOf := func(i, j int) int {
-		for k, a := range m.arms {
-			if (a.state < 0 || a.state == i) && (a.sig < 0 || a.sig == j) {
-				return k
-			}
-		}
-		return -1
-	}
-	for len(queue) > 0 {
-		i := queue[0]
-		queue = queue[1:]
-		for j := range m.ne {
-			for _, e := range m.arms[armOf(i, j)].edges {
-				var next []int
-				switch {
-				case e.To == Any:
-					for k := range m.ns {
-						next = append(next, k)
-					}
-				case e.To != "":
-					k, _ := strconv.Atoi(strings.TrimPrefix(e.To, "S"))
-					next = append(next, k)
-				}
-				for _, k := range next {
-					if !reached[k] {
-						reached[k] = true
-						queue = append(queue, k)
-					}
-				}
-			}
-		}
-	}
-	var out []Pair
-	for i := range m.ns {
-		if !reached[i] {
-			continue
-		}
-		for j := range m.ne {
-			out = append(out, Pair{State: sv(i), Signal: ev(j), Arms: []Site{{"gen.ergo", m.arms[armOf(i, j)].line}}})
-		}
-	}
-	return out
-}
-
 // read checks src and reads its machine's graph.
 func read(src string) (*Graph, error) {
 	file, err := syntax.Parse(src)
@@ -314,12 +267,7 @@ func TestGraphMatchesTheModel(t *testing.T) {
 		}
 		want := m.want()
 		if diff := compare(g, want); diff != "" {
-			t.Fatalf("seed %d, case %d: %s\ngot:\n%s\nwant:\n%s\nsource:\n%s", seed, n, diff, g.Text(), want.Text(), m.src)
-		}
-		if got, want := g.Reachable(), m.reachable(); !slices.EqualFunc(got, want, func(a, b Pair) bool {
-			return a.State == b.State && a.Signal == b.Signal && slices.Equal(a.Arms, b.Arms)
-		}) {
-			t.Fatalf("seed %d, case %d: reachable\n got %v\nwant %v\nsource:\n%s", seed, n, got, want, m.src)
+			t.Fatalf("seed %d, case %d: %s\ngot:\n%+v\nwant:\n%+v\nsource:\n%s", seed, n, diff, *g, *want, m.src)
 		}
 		seen["nested match"] = seen["nested match"] || strings.Contains(m.src, "match e {")
 		for _, a := range g.Arms {

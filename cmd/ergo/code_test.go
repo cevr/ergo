@@ -15,6 +15,7 @@ import (
 	"ergo.local/prototype/internal/linked/code"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/facts"
+	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -291,6 +292,135 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 		}
 	}
 	reachAgrees(t, a, text, r, fail)
+	machinesAgree(t, a, text, fail)
+}
+
+// machinesAgree holds `ergo code machine-of` and `ergo inspect machine`'s
+// text to the graph machinegraph reads from the checked program, for every
+// machine of the program: its states, signals and initial state, each arm
+// (place, variants, partial, edges), the timers, the work and the unsure
+// states; and the text of each package's machines (`ergo inspect
+// machine` with the package as root) names each arm, edge, timer and work
+// at its place.
+//
+// Mutants machine-timer-dropped, machine-text-timer-dropped
+// (cmd/ergo/testdata/mutants.json).
+func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(string, ...any)) {
+	t.Helper()
+	pkgs := a.Packages()
+	for _, p := range pkgs {
+		if p.Package == nil {
+			continue
+		}
+		fileOf := map[syntax.Node]sketchfront.CheckedFile{}
+		for _, cf := range p.Files {
+			if cf.Syntax == nil {
+				continue
+			}
+			for _, d := range cf.Syntax.Decls {
+				fileOf[d] = cf
+			}
+		}
+		at := func(decl syntax.Node, pos syntax.Pos) machinegraph.Site {
+			cf, ok := fileOf[decl]
+			if !ok {
+				return machinegraph.Site{}
+			}
+			return machinegraph.Site{File: cf.Rel, Line: cf.Syntax.Line(pos)}
+		}
+		var lines []string
+		for _, g := range machinegraph.Machines(p.Package, at) {
+			h := p.Path + "." + g.Machine
+			status, out, errText := codeRunOn(t, text, "machine-of", h)
+			type place struct {
+				What, File string
+				Line       int
+			}
+			var v struct {
+				Graph struct {
+					Name, Initial           string
+					States, Signals, Unsure []string
+					Arms                    []struct {
+						At                  place
+						States, Signals     []string
+						AnyState, AnySignal bool
+						Partial             bool
+						Edges               []struct {
+							Decision, To string
+							At           place
+						}
+					}
+					Timers []struct {
+						State, Signal string
+						At            place
+					}
+					Work []place
+				}
+			}
+			if status != 0 || json.Unmarshal([]byte(out), &v) != nil {
+				fail("machine-of %s: status %d %q %q", h, status, out, errText)
+			}
+			m := v.Graph
+			names := func(vs []machinegraph.Variant) []string {
+				out := []string{}
+				for _, x := range vs {
+					out = append(out, x.Name)
+				}
+				return out
+			}
+			site := func(p place) machinegraph.Site { return machinegraph.Site{File: p.File, Line: p.Line} }
+			ok := m.Name == g.Machine && m.Initial == g.Initial && slices.Equal(m.States, names(g.States)) && slices.Equal(m.Signals, names(g.Signals)) &&
+				slices.Equal(m.Unsure, append([]string{}, g.Unsure...)) && len(m.Arms) == len(g.Arms) && len(m.Timers) == len(g.Timers) && len(m.Work) == len(g.Work)
+			for k := 0; ok && k < len(g.Arms); k++ {
+				x, y := m.Arms[k], g.Arms[k]
+				ok = site(x.At) == y.Site && x.AnyState == (y.States == nil) && x.AnySignal == (y.Signals == nil) &&
+					slices.Equal(x.States, append([]string{}, y.States...)) && slices.Equal(x.Signals, append([]string{}, y.Signals...)) && x.Partial == y.Partial && len(x.Edges) == len(y.Edges)
+				for e := 0; ok && e < len(y.Edges); e++ {
+					ok = x.Edges[e].Decision == y.Edges[e].Decision && x.Edges[e].To == y.Edges[e].To && site(x.Edges[e].At) == y.Edges[e].Site
+				}
+			}
+			for _, tm := range m.Timers {
+				ok = ok && g.Timers[tm.State] == machinegraph.Timer{Signal: tm.Signal, Site: site(tm.At)}
+			}
+			for _, w := range m.Work {
+				ok = ok && g.Work[w.What] == site(w)
+			}
+			if !ok {
+				fail("machine-of %s:\n got %+v\nwant %+v", h, m, *g)
+			}
+			for _, y := range g.Arms {
+				lines = append(lines, fmt.Sprintf("  arm %s (", y.Site))
+				for _, e := range y.Edges {
+					lines = append(lines, fmt.Sprintf("    %s", e.Decision), fmt.Sprintf(" at %s\n", e.Site))
+				}
+			}
+			for k, tm := range g.Timers {
+				lines = append(lines, fmt.Sprintf("  timer %s -> %s at %s\n", k, tm.Signal, tm.Site))
+			}
+			for k, w := range g.Work {
+				lines = append(lines, fmt.Sprintf("  work %s at %s\n", k, w))
+			}
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		// The text of this package's machines: the tables with it as root.
+		ct := codeTablesOf(a)
+		ct.Root = p.Path
+		tables, err := json.Marshal(ct)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := code.Machines(context.Background(), string(tables), false)
+		if err != nil || len(out) != 3 || out[0] != "0" {
+			fail("inspect machine: %v %q", err, out)
+		}
+		for _, l := range lines {
+			if !strings.Contains(out[1], l) {
+				fail("inspect machine: no %q in\n%s", l, out[1])
+			}
+		}
+	}
 }
 
 // reachAgrees holds `ergo code reach` to the checker on the program a,

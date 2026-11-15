@@ -10,8 +10,6 @@ import (
 	"ergo.local/prototype/internal/linked/code"
 
 	"ergo.local/prototype/internal/sketch/api"
-	"ergo.local/prototype/internal/sketch/machinegraph"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 const inspectMachineHelp = `usage: ergo inspect machine FILE|DIR [--json]
@@ -153,7 +151,9 @@ func inspectAPICommand(args []string) error {
 	return printJSON(list)
 }
 
-// inspectMachineCommand prints the machine graphs of the root package.
+// inspectMachineCommand prints the machine graphs of the root package:
+// a view of std code's MachineOf and MachineText, linked from
+// internal/linked/code.
 func inspectMachineCommand(args []string) error {
 	opts, err := parseFileOptions("inspect machine", args)
 	if err != nil {
@@ -163,57 +163,47 @@ func inspectMachineCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	root := l.analysis.Root()
-	if root.Package == nil {
+	if l.analysis.Root().Package == nil {
 		return fmt.Errorf("inspect machine: %s does not check; run ergo check", opts.file)
 	}
-	at := func(decl syntax.Node, pos syntax.Pos) machinegraph.Site {
-		for _, f := range root.Files {
-			if f.Syntax == nil {
-				continue
-			}
-			for _, d := range f.Syntax.Decls {
-				if d == decl {
-					name := f.Rel
-					if name == "" {
-						name = l.source.String()
-					}
-					return machinegraph.Site{File: name, Line: f.Syntax.Line(pos)}
+	t := codeTablesOf(l.analysis)
+	// A single-file check has no file name in the syntax snapshot.
+	name := l.source.String()
+	fix := func(p *codePlace) {
+		if p.File == "" {
+			p.File = name
+		}
+	}
+	for i := range t.Packages {
+		for j := range t.Packages[i].Machines {
+			m := &t.Packages[i].Machines[j]
+			for k := range m.Arms {
+				fix(&m.Arms[k].At)
+				for e := range m.Arms[k].Edges {
+					fix(&m.Arms[k].Edges[e].At)
 				}
 			}
-		}
-		return machinegraph.Site{File: "?", Line: 0}
-	}
-	graphs := machinegraph.Machines(root.Package, at)
-	if opts.json {
-		type out struct {
-			*machinegraph.Graph
-			Reachable []machinegraph.Pair
-		}
-		list := make([]out, len(graphs))
-		for i, g := range graphs {
-			list[i] = out{g, g.Reachable()}
-		}
-		return printJSON(list)
-	}
-	var b strings.Builder
-	for _, g := range graphs {
-		b.WriteString(g.Text())
-		for _, p := range g.Reachable() {
-			sites := make([]string, len(p.Arms))
-			for i, s := range p.Arms {
-				sites[i] = s.String()
+			for k := range m.Timers {
+				fix(&m.Timers[k].At)
 			}
-			arms := strings.Join(sites, " or ")
-			if arms == "" {
-				arms = "no arm"
+			for k := range m.Work {
+				fix(&m.Work[k])
 			}
-			fmt.Fprintf(&b, "  reach (%s, %s) by %s\n", p.State, p.Signal, arms)
 		}
 	}
-	if len(graphs) == 0 {
-		b.WriteString("no machine\n")
+	tables, err := json.Marshal(t)
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect machine: " + err.Error()}
 	}
-	_, err = os.Stdout.WriteString(b.String())
+	out, err := code.Machines(context.Background(), string(tables), opts.json)
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect machine: " + err.Error()}
+	}
+	if len(out) != 3 || out[0] != "0" {
+		return exitStatusError{code: 1, message: "inspect machine: " + strings.Join(out, " ")}
+	}
+	// With --json the answer is std code's []MachineView. (parseFileOptions
+	// refuses --json for inspect today, so only the text is reached.)
+	_, err = os.Stdout.WriteString(out[1])
 	return err
 }

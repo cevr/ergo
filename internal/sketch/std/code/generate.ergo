@@ -9,11 +9,13 @@ import strings
 // calls between functions, laws and locals (cycles and calls to self
 // included), each charging capabilities (types of the tables, and Console,
 // which none declares) that it brings or a with discharges, and rows that
-// hold what the calls bring and sometimes more.
+// hold what the calls bring and sometimes more; and machine graphs with
+// arms of any pair, partial arms, edges of every decision (to any state,
+// or of unknown kind), timers, work and unsure states.
 // The same seed gives the same tables.
 func Generated(seed int) Tables {
-	let names = []string{"Run", "Parse", "Token", "Token.Kind", "Token.Text", "Load", "Check#law"}
-	let kinds = []string{"func", "func", "type", "field", "field", "func", "law"}
+	let names = []string{"Run", "Parse", "Token", "Token.Kind", "Token.Text", "Load", "Check#law", "Light"}
+	let kinds = []string{"func", "func", "type", "field", "field", "func", "law", "machine"}
 	let siteKinds = []string{"def", "read", "write", "call", "typeuse", "construct", "match", "import", "needs", "fails", "provides", "binds", "handles"}
 	let packages = 1 + roll(seed, 1, 3)
 	let mut out = []Package{}
@@ -33,7 +35,7 @@ func Generated(seed int) Tables {
 		decls = decls.Append(local)
 		handles = handles.Append(local.Handle)
 		let complete = roll(seed, 300 + i, 5) != 0
-		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}, Needs: []Need{}})
+		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}, Needs: []Need{}, Machines: []MachineGraph{}})
 	}
 	let mut capabilities = []string{"Console"}
 	for p in out {
@@ -67,7 +69,7 @@ func Generated(seed int) Tables {
 				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged})
 			}
 		}
-		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities)})
+		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities), Machines: machinesIn(seed, i, p)})
 	}
 	Tables{Revision: "gen-\(seed)", Root: "gen/p\(packages - 1)", Packages: filled}
 }
@@ -159,6 +161,57 @@ func needsIn(calls []Call, callers []string, seed int, i int, caps []string) []N
 		for k in row {
 			out = out.Append(Need{Of: f, Capability: k})
 		}
+	}
+	out
+}
+
+// machinesIn is the graph of each machine declaration of p.
+func machinesIn(seed int, i int, p Package) []MachineGraph {
+	let decisions = []string{"Enter", "Stay", "Emit", "Ignore", "Reject", "Done", "?"}
+	let mut out = []MachineGraph{}
+	for d in p.Decls {
+		if d.Kind != "machine" {
+			continue
+		}
+		let salt = 3000 + i*200
+		let mut states = []string{}
+		for k in 0..1 + roll(seed, salt, 4) {
+			states = states.Append("S\(k)")
+		}
+		let mut signals = []string{}
+		for k in 0..1 + roll(seed, salt + 1, 3) {
+			signals = signals.Append("E\(k)")
+		}
+		let at = func(line int) Place { Place{What: "", File: p.Path + "/m.ergo", Line: line} }
+		let mut arms = []Arm{}
+		for a in 0..roll(seed, salt + 2, 6) {
+			let r = salt + 10 + a*10
+			let anyState = roll(seed, r, 4) == 0
+			let anySignal = roll(seed, r + 1, 3) == 0
+			let mut edges = []Transition{}
+			for e in 0..roll(seed, r + 2, 3) {
+				let kind = decisions[roll(seed, r + 3 + e, len(decisions))]
+				let to = if kind == "Ignore" || kind == "Reject" || kind == "Done" { "" } else if roll(seed, r + 6 + e, 5) == 0 { "*" } else { states[roll(seed, r + 8 + e, len(states))] }
+				edges = edges.Append(Transition{Decision: kind, To: to, At: at(100 + a*10 + e)})
+			}
+			arms = arms.Append(Arm{At: at(100 + a*10), States: if anyState { []string{} } else { []string{states[roll(seed, r + 4, len(states))]} }, AnyState: anyState, Signals: if anySignal { []string{} } else { []string{signals[roll(seed, r + 5, len(signals))]} }, AnySignal: anySignal, Partial: roll(seed, r + 7, 3) == 0, Edges: edges})
+		}
+		let mut timers = []Timer{}
+		let mut work = []Place{}
+		let mut unsure = []string{}
+		for k, s in states {
+			match roll(seed, salt + 100 + k, 5) {
+			case 0:
+				timers = timers.Append(Timer{State: s, Signal: signals[roll(seed, salt + 120 + k, len(signals))], At: at(200 + k)})
+			case 1:
+				work = work.Append(Place{What: s, File: p.Path + "/m.ergo", Line: 220 + k})
+			case 2:
+				unsure = unsure.Append(s)
+			case _:
+			}
+		}
+		let initial = if roll(seed, salt + 3, 5) == 0 { "*" } else { states[roll(seed, salt + 4, len(states))] }
+		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Unsure: unsure})
 	}
 	out
 }

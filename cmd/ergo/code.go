@@ -106,6 +106,7 @@ type (
 		Contracts   []codeContract `json:"contracts"`
 		Calls       []codeCall     `json:"calls"`
 		Needs       []codeNeed     `json:"needs"`
+		Machines    []codeMachine  `json:"machines"`
 	}
 	// codeContract is api.Function with code.Contract's keys; an answer's
 	// JSON decodes back into api.Function, whose field names match them
@@ -159,6 +160,43 @@ type (
 		Brings     []string `json:"brings"`
 		Discharged []string `json:"discharged"`
 	}
+	// codeMachine is a machine graph of the tables (facts.MachineGraph):
+	// code.MachineGraph.
+	codeMachine struct {
+		Handle  string      `json:"handle"`
+		Name    string      `json:"name"`
+		States  []string    `json:"states"`
+		Signals []string    `json:"signals"`
+		Initial string      `json:"initial"`
+		Arms    []codeArm   `json:"arms"`
+		Timers  []codeTimer `json:"timers"`
+		Work    []codePlace `json:"work"`
+		Unsure  []string    `json:"unsure"`
+	}
+	codeArm struct {
+		At        codePlace        `json:"at"`
+		States    []string         `json:"states"`
+		AnyState  bool             `json:"anyState"`
+		Signals   []string         `json:"signals"`
+		AnySignal bool             `json:"anySignal"`
+		Partial   bool             `json:"partial"`
+		Edges     []codeTransition `json:"edges"`
+	}
+	codeTransition struct {
+		Decision string    `json:"decision"`
+		To       string    `json:"to"`
+		At       codePlace `json:"at"`
+	}
+	codeTimer struct {
+		State  string    `json:"state"`
+		Signal string    `json:"signal"`
+		At     codePlace `json:"at"`
+	}
+	codePlace struct {
+		What string `json:"what"`
+		File string `json:"file"`
+		Line int    `json:"line"`
+	}
 	// codeNeed is a needs edge of the tables (facts.Table.Needs): code.Need.
 	codeNeed struct {
 		Of         string `json:"of"`
@@ -185,7 +223,7 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 	}
 	for _, p := range pkgs {
 		out.Root = p.Path
-		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}, Needs: []codeNeed{}}
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}, Needs: []codeNeed{}, Machines: []codeMachine{}}
 		syn := map[string]*syntax.File{}
 		var files []facts.File
 		for _, f := range p.Files {
@@ -298,6 +336,36 @@ func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*s
 			cp.Needs = append(cp.Needs, codeNeed{Of: handles[e.From], Capability: handles[e.To]})
 		}
 	}
+	for _, m := range t.Machines {
+		cp.Machines = append(cp.Machines, codeMachineOf(m, handles[m.Sym], t.Symbols[m.Sym].Name))
+	}
+}
+
+// codeMachineOf is the machine graph m with its handle and name; every
+// list is empty rather than nil, and an arm's nil variants are any.
+func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
+	list := func(vs []string) []string {
+		if vs == nil {
+			return []string{}
+		}
+		return vs
+	}
+	place := func(p facts.Place) codePlace { return codePlace(p) }
+	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Unsure: list(m.Unsure)}
+	for _, a := range m.Arms {
+		arm := codeArm{At: place(a.At), States: list(a.States), AnyState: a.States == nil, Signals: list(a.Signals), AnySignal: a.Signals == nil, Partial: a.Partial, Edges: []codeTransition{}}
+		for _, e := range a.Edges {
+			arm.Edges = append(arm.Edges, codeTransition{Decision: e.Decision, To: e.To, At: place(e.At)})
+		}
+		out.Arms = append(out.Arms, arm)
+	}
+	for _, tm := range m.Timers {
+		out.Timers = append(out.Timers, codeTimer{State: tm.State, Signal: tm.Signal, At: place(tm.At)})
+	}
+	for _, w := range m.Work {
+		out.Work = append(out.Work, place(w))
+	}
+	return out
 }
 
 // srcOf is the text of a parsed file, or "" when it did not parse.
