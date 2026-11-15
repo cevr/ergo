@@ -115,8 +115,8 @@
       "name": "budget-shared",
       "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
       "file": "internal/sketch/eval/interp.go",
-      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }",
-      "to": "func (in *interp) begin() {}",
+      "from": "\tin.stepsAt, in.bytesAt = in.steps, in.bytes\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
+      "to": "\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
       "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"
@@ -126,8 +126,8 @@
       "name": "fuel-ignored",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif n < 0 || n > in.stepsLeft() {",
-      "to": "\tif n < 0 {",
+      "from": "\tif n >= 0 && n <= in.stepsEnd-in.steps {",
+      "to": "\tif n >= 0 {",
       "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"

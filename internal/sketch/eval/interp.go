@@ -19,6 +19,9 @@ type interp struct {
 	// obligation has the whole budget, so one that runs no longer leaves
 	// less to the obligations after it.
 	stepsAt, bytesAt int64
+	// stepsEnd caches stepsAt + budget.Steps for charge; it is never past
+	// the true end (steps only grow), so a stale one only takes chargeSlow.
+	stepsEnd int64
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
@@ -231,12 +234,26 @@ func (fr *frame) unsupported(at syntax.Node, format string, args ...any) *abrupt
 // charge spends n steps before the work they pay for; it returns the
 // exhaustion when the obligation's budget cannot pay.
 func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || n > in.stepsLeft() {
-		in.steps = in.stepsAt + in.budget.Steps
-		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
+	// One unsigned compare against the cached end: a negative n is past
+	// every budget. A stale end (a new obligation, a fresh interp) takes
+	// chargeSlow, which reads the budget itself.
+	if uint64(n) <= uint64(in.stepsEnd-in.steps) {
+		in.steps += n
+		return nil
 	}
-	in.steps += n
-	return nil
+	return in.chargeSlow(fr, at, n)
+}
+
+// chargeSlow is charge out of line, so that charge inlines: it renews the
+// cached end of the budget, then charges or stops the obligation.
+func (in *interp) chargeSlow(fr *frame, at syntax.Node, n int64) *abrupt {
+	in.stepsEnd = in.stepsAt + in.budget.Steps
+	if n >= 0 && n <= in.stepsEnd-in.steps {
+		in.steps += n
+		return nil
+	}
+	in.steps = in.stepsEnd
+	return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 }
 
 // allocate spends n bytes of the byte budget before the allocation they
@@ -255,7 +272,10 @@ func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
 func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
 
 // begin gives the obligation that starts now the whole budget.
-func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }
+func (in *interp) begin() {
+	in.stepsAt, in.bytesAt = in.steps, in.bytes
+	in.stepsEnd = in.stepsAt + in.budget.Steps
+}
 
 // build charges both budgets of an allocation of slots collection slots
 // and raw bytes: steps for the work, bytes for the values.
