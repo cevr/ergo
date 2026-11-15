@@ -33,7 +33,8 @@ import (
 // never reads is a group too (readFields). With NS2c a compared value
 // may also be a slice, a Map or a record holding one (eqArg): the call
 // goes through groupBy with the generated structural equality and a copy
-// the group keeps, made only when the call runs (sameLit, keepLit).
+// the group keeps, made only when the call runs (sameLit, keepLit), and
+// only after a pass whose ==-compared values stayed (cheapLit, P-ui-flow).
 //
 // SetUISkipForTest(false) selects the reference: every call runs
 // (TestUISkipAgrees); so does a compiler built with
@@ -449,7 +450,7 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 		if g == nil {
 			ice(x, "std ui declares no groupBy over its frame")
 		}
-		operands = append(operands, fc.sameLit(env, argType, ctypes, x), fc.keepLit(env, argType, ctypes, x))
+		operands = append(operands, fc.sameLit(env, argType, ctypes, x), fc.cheapLit(env, argType, ctypes, x), fc.keepLit(env, argType, ctypes, x))
 	}
 	gd := fc.l.useFunc(g, x)
 	if gd.method != nil {
@@ -485,6 +486,31 @@ func (fc *funcCtx) sameLit(env, argType string, ctypes []check.Type, x syntax.No
 	return "func(_ " + env + ", " + a + ", " + b + " " + argType + ") (bool, error) {\nreturn " + strings.Join(conj, " && ") + ", nil\n}"
 }
 
+// cheapLit is the Go text of groupBy's cheap: the values among the
+// arguments that Go's == compares (groupArg), each by ==, and true when
+// there are none. groupBy keeps its own copy of the arguments only after a
+// pass whose cheap values were equal to the last ones (P-ui-flow).
+func (fc *funcCtx) cheapLit(env, argType string, ctypes []check.Type, x syntax.Node) string {
+	a, b := fc.temp("ga"), fc.temp("gb")
+	var conj []string
+	if len(ctypes) == 1 {
+		if groupArg(ctypes[0]) {
+			conj = append(conj, a+" == "+b)
+		}
+	} else {
+		for i, t := range ctypes {
+			if groupArg(t) {
+				n := ".F" + strconv.Itoa(i)
+				conj = append(conj, a+n+" == "+b+n)
+			}
+		}
+	}
+	if len(conj) == 0 {
+		conj = []string{"true"}
+	}
+	return "func(_ " + env + ", " + a + ", " + b + " " + argType + ") (bool, error) {\n_, _ = " + a + ", " + b + "\nreturn " + strings.Join(conj, " && ") + ", nil\n}"
+}
+
 // keepLit is the Go text of groupBy's keep: a copy of the arguments that
 // shares no slice or Map with them (the value rule's copy, values.go).
 func (fc *funcCtx) keepLit(env, argType string, ctypes []check.Type, x syntax.Node) string {
@@ -505,11 +531,11 @@ func (fc *funcCtx) keepLit(env, argType string, ctypes []check.Type, x syntax.No
 // groupByOf is the group function over frame for arguments Go's == cannot
 // compare, found by its checked shape as groupFrame finds group:
 //
-//	func g[E, A](f *T[E], args A, same func(a A, b A) bool, keep func(a A) A, body func(), at CallSite)
+//	func g[E, A](f *T[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite)
 func groupByOf(frame *check.Named) *check.Func {
 	for _, g := range frame.Obj.Pkg.Funcs {
 		sig := g.Sig
-		if g.Decl == nil || g.Decl.Extern != nil || sig == nil || len(sig.TParams) != 2 || len(sig.Params) != 6 || len(sig.Results) != 0 {
+		if g.Decl == nil || g.Decl.Extern != nil || sig == nil || len(sig.TParams) != 2 || len(sig.Params) != 7 || len(sig.Results) != 0 {
 			continue
 		}
 		p, ok := sig.Params[0].Type.(*check.Pointer)
@@ -522,12 +548,13 @@ func groupByOf(frame *check.Named) *check.Func {
 			continue
 		}
 		same, ok1 := sig.Params[2].Type.(*check.Signature)
-		keep, ok2 := sig.Params[3].Type.(*check.Signature)
-		body, ok3 := sig.Params[4].Type.(*check.Signature)
-		if !ok1 || !ok2 || !ok3 || len(same.Params) != 2 || len(same.Results) != 1 || len(keep.Params) != 1 || len(keep.Results) != 1 || keep.Results[0] != a || len(body.Params) != 0 || len(body.Results) != 0 {
+		cheap, ok4 := sig.Params[3].Type.(*check.Signature)
+		keep, ok2 := sig.Params[4].Type.(*check.Signature)
+		body, ok3 := sig.Params[5].Type.(*check.Signature)
+		if !ok1 || !ok2 || !ok3 || !ok4 || len(same.Params) != 2 || len(same.Results) != 1 || len(cheap.Params) != 2 || len(cheap.Results) != 1 || len(keep.Params) != 1 || len(keep.Results) != 1 || keep.Results[0] != a || len(body.Params) != 0 || len(body.Results) != 0 {
 			continue
 		}
-		if _, ok := sig.Params[5].Type.(*check.Named); ok {
+		if _, ok := sig.Params[6].Type.(*check.Named); ok {
 			return g
 		}
 	}

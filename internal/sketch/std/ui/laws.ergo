@@ -1047,6 +1047,82 @@ func toggles(f *Frame[int], id Id[int], out []Id[int]) []Id[int] {
 // trees, and send equal signals on every node and on a key; a pass at the
 // state of the pass before, with no press between, keeps every outermost
 // Same outside a failing group without running it (Skips).
+// gbArgs are a group's arguments for GroupByKeepsAfterCheapEqual: a value
+// Go's == compares (n) and a slice it cannot (xs).
+type gbArgs { n int, xs []int }
+
+func gbSame(a gbArgs, b gbArgs) bool {
+	if a.n != b.n || len(a.xs) != len(b.xs) {
+		return false
+	}
+	for i, x in a.xs {
+		if b.xs[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+func gbCheap(a gbArgs, b gbArgs) bool { a.n == b.n }
+
+func gbKeep(a gbArgs) gbArgs {
+	let mut ys = []int{}
+	for x in a.xs {
+		ys = ys.Append(x)
+	}
+	gbArgs{n: a.n, xs: ys}
+}
+
+func gbBody(f *Frame[int], a gbArgs) {
+	Text(f, "n \(a.n)")
+	for x in a.xs {
+		Text(f, "x \(x)")
+	}
+}
+
+func gbGrouped(f *Frame[int], a gbArgs) {
+	groupBy(f, a, gbSame, gbCheap, gbKeep, func() { gbBody(f, a) })
+}
+
+// GroupByKeepsAfterCheapEqual (P-ui-flow): over passes whose arguments
+// stay, change their compared value, change their slice or both, a
+// groupBy group writes what running its body writes, and it runs exactly
+// when the model says: on its first pass, after a pass that held its
+// arguments shallow (whose compared value changed), and when they differ;
+// it is skipped only when the last memo was its own copy (the first
+// pass's, or one after a pass whose compared value stayed) and equal.
+law GroupByKeepsAfterCheapEqual(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut prev = gbArgs{n: 0, xs: []int{}}
+	let mut deep = true
+	for i in 0..(steps%10+10)%10+2 {
+		let pick = draw(&r, 4)
+		let a = if i == 0 || pick == 3 {
+			gbArgs{n: prev.n + draw(&r, 2), xs: []int{draw(&r, 3), draw(&r, 3)}}
+		} else if pick == 0 {
+			prev
+		} else if pick == 1 {
+			gbArgs{n: prev.n + 1, xs: prev.xs}
+		} else {
+			gbArgs{n: prev.n, xs: prev.xs.Append(draw(&r, 3))}
+		}
+		if !opsEqual(Render(&f, gbGrouped, a), Render(&g, gbBody, a)) {
+			return false
+		}
+		let ran = i == 0 || !deep || !gbSame(prev, a)
+		if (GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		if ran {
+			deep = i == 0 || gbCheap(prev, a)
+		}
+		prev = a
+	}
+	true
+}
+
 law SameEqualsRecompute(seed int, steps int) {
 	let mut r = seeded(seed)
 	// revived: a Same in a Box in a boundary whose read, of a slot the
