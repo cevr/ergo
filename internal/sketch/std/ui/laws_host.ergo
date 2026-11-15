@@ -2406,8 +2406,8 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // it was. The region is a Status to a locator. The text shown is the
 // state's plus a shift the view reads from a cell outside the actor; a
 // step is a key, a signal sent to the actor and a Settle, or a new shift
-// and a Settle, which no event announces, so only Settle's last pass
-// writes it (FK11-g5).
+// and a Redraw, which no event announces, so only Redraw's pass writes it
+// (FK11-g5; FK2-g2: Settle draws only a state the actor committed).
 law AnnounceSaysEachNewText(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2465,7 +2465,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			}
 		} else {
 			shift.Set(draw(&r, 6))
-			Settle(&h) catch {
+			Redraw(&h) catch {
 			case _:
 				return false
 			}
