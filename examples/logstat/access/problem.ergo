@@ -28,7 +28,7 @@ func Describe(p Problem) string {
 	case BadNumber as b:
 		"the \(b.Field) \(strconv.Quote(b.Text)) is not a number"
 	case BadTime as t:
-		"the time \(strconv.Quote(t.Text)) is not in the layout \(Layout.Text)"
+		"the time \(strconv.Quote(t.Text)) is not in the layout \(LayoutText)"
 	case BadRequest as q:
 		"the request \(strconv.Quote(q.Text)) is not a method, a target and a protocol"
 	case Trailing as t:
