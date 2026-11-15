@@ -1472,6 +1472,14 @@
       "to": "",
       "rule": "Freeing a name forgets the trash under it, so the new record is the one name finds (memory's RmThenNewTakesTheName).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "b5-whole-cp-error", "origin": "wf10/semws verify r1 B5",
+      "file": "modules/work/system/trees.ergo",
+      "from": "Why: FirstLine(text)}",
+      "to": "Why: text}",
+      "rule": "An Unsupported refusal is the first line of cp's error and a count, not a line for every file of the tree (row UnsupportedSaysOneLine).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
