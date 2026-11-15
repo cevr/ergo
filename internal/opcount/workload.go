@@ -211,8 +211,12 @@ func (w Workload) FromStdin() bool {
 // Check reads the workload file of the program folder dir (a module
 // program, with cmd/NAME folders) in the repository root, and returns its
 // problems, the folders it names that do not exist included. A folder with
-// no workload file has none.
+// no workload file has none; a folder named workload is a package (the
+// DOD programs' document writers), not the file.
 func Check(root, dir string) (Workload, []Problem, bool) {
+	if st, err := os.Stat(filepath.Join(dir, WorkloadFile)); err == nil && st.IsDir() {
+		return Workload{}, nil, false
+	}
 	data, err := os.ReadFile(filepath.Join(dir, WorkloadFile))
 	if os.IsNotExist(err) {
 		return Workload{}, nil, false
