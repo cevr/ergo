@@ -536,7 +536,7 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 		true
 	}
 	if !tracked {
-		t.vcs.Exclude(t.base, "/" + ConfigFile) catch {
+		t.vcs.Exclude(t.base, "/"+ConfigFile) catch {
 		case VcsFailed:
 		}
 	}

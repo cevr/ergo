@@ -181,7 +181,7 @@ func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
 }
 
 func Tracked(v Vcs, root string, path string) bool fails work.VcsFailed {
-	(try checkout(v, root)).Get(".git/index/" + path) != None
+	(try checkout(v, root)).Get(".git/index/"+path) != None
 }
 
 // Exclude adds the line to .git/info/exclude, once.

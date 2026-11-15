@@ -50,7 +50,6 @@ func RiftRegistry(t Tool, o RiftOptions) string {
 	if exists(t, mac) { mac } else { own }
 }
 
-
 // RiftQuery is the one query work runs on Rift's registry.
 let RiftQuery = "select id, coalesce(parent_id, '') as parent_id, path from rift order by created_at, id"
 
