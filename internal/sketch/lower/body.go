@@ -435,6 +435,9 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
 	if op == "" {
+		if fc.updateSelf(s, target) {
+			return
+		}
 		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {

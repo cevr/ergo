@@ -234,6 +234,11 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 			// no other use runs after it (GP2b's Make).
 			continue
 		}
+		if w.baseMoved(o) {
+			// T{..d, f: …} returned: d's other fields move into the
+			// result (consume by parts, parts.go).
+			continue
+		}
 		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
 		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
 			return false
@@ -272,10 +277,17 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
 	parent, child := w.unparenParent(x)
 	if call := w.dotCall(x); call != nil {
-		return w.appendSite(call), false
+		if w.consumedAt(call, x) != nil {
+			return true, w.partsTaken()
+		}
+		return w.appendSite(call), w.appendSite(call) && w.partsTaken()
 	}
 	if call, ok := parent.(*syntax.CallExpr); ok {
-		return w.appendSite(call) && w.recvOf(call) == child, false
+		if cx, ok := child.(syntax.Expr); ok && w.consumedAt(call, cx) != nil {
+			return true, w.partsTaken()
+		}
+		taken := w.appendSite(call) && w.recvOf(call) == child
+		return taken, taken && w.partsTaken()
 	}
 	for _, o := range w.owns {
 		if o.value == child && o.root.local && o.root.mut {

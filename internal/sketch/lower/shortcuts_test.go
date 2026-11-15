@@ -157,10 +157,116 @@ test Fill {
 	assert fill(3) == 3
 }
 `,
+	"own-return": `type Set { xs []int }
+
+func insertNew(s Set, x int) Set {
+	if len(s.xs) > 0 && s.xs[len(s.xs)-1] == x {
+		return s
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func fill(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = insertNew(a, i)
+	}
+	len(a.xs)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 3
+}
+`,
+	"own-parts": `type Set { xs []int }
+
+type St { set Set, n int }
+
+func insert(s Set, x int) Set {
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func lit(s St, x int) St { St{set: insert(s.set, x), n: s.n + 1} }
+
+func fill(n int) int {
+	let mut s = St{set: Set{xs: []int{}}, n: 0}
+	for i in 0..n {
+		s = lit(s, i)
+	}
+	len(s.set.xs) + s.n
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 6
+}
+`,
+	"own-move": `type Set { xs []int }
+
+type St { set Set, n int }
+
+func insert(s Set, x int) Set {
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func upd(s St, x int) St { St{..s, set: insert(s.set, x)} }
+
+func fill(n int) int {
+	let mut s = St{set: Set{xs: []int{}}, n: 1}
+	for i in 0..n {
+		s = upd(s, i)
+	}
+	len(s.set.xs) + s.n
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 4
+}
+`,
+	"own-update-self": `type Pos { x int, y int, path []int }
+
+func walk(n int) int {
+	let mut p = Pos{x: 0, y: 1, path: []int{}}
+	for _ in 0..n {
+		p = Pos{..p, x: p.y, y: p.x + p.y}
+	}
+	p.y
+}
+
+func main() needs Console {
+	Console.Println("\(walk(5))")
+}
+
+test Walk {
+	assert walk(5) == 8
+}
+`,
 	"own-lineage": `type Bag { Items []int, N int }
 
+func count(b Bag) int { b.N }
+
+// step reads b whole (count), so b is not owned by parts (own-parts):
+// the Append is the one-extender site's.
 func step(b Bag, x int) Bag {
-	Bag{Items: b.Items.Append(x), N: b.N + 1}
+	let n = count(b)
+	Bag{Items: b.Items.Append(x), N: n + 1}
 }
 
 func main() needs Console {

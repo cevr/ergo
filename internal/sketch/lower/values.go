@@ -185,6 +185,7 @@ type valueFacts struct {
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
+	self     map[syntax.Expr]bool       // bases of an update stored back into its own let mut (parts.go, selfBases)
 	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	fromAll  map[*check.Func]int8       // freshAll (handover.go): 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
@@ -227,6 +228,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
+			self:     map[syntax.Expr]bool{},
 			from:     map[freshKey]int8{},
 			fromAll:  map[*check.Func]int8{},
 			consumes: map[*syntax.CallExpr]bool{},
@@ -810,6 +812,7 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	w.selfBases()
 	for _, vv := range w.order {
 		for _, o := range vv.occs {
 			w.classify(vv, o)
@@ -1516,6 +1519,9 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if o == bind {
 			continue
 		}
+		if w.returnsBefore(o, bind) {
+			continue
+		}
 		if o.frame != w.root || o.pre > bind.pre && valueMutant != "own-live" {
 			return nil
 		}
@@ -2158,6 +2164,9 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	case *syntax.ParenExpr:
 		return w.fresh(x.X)
 	case *syntax.Ident:
+		if w.vf.self[x] {
+			return true
+		}
 		if v, ok := w.info.Uses[x].(*check.Var); ok {
 			return w.copiedOnce(v) || w.freshIdent(w.varOf(v), x, false)
 		}
@@ -2476,6 +2485,10 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 	}
 	for _, o := range vv.occs {
 		if o == use || path != nil && valueOwned() && w.disjointRead(o.id, path) {
+			continue
+		}
+		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) {
+			// An update's base and a path under a field it names (parts.go).
 			continue
 		}
 		if o.frame != frame {

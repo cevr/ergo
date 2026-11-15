@@ -27,7 +27,16 @@ import (
 //     and written; a let that keeps a window of the root while the root
 //     is cut back to the window's start and grows, so an Append in place
 //     would write the window's first row; and a let mut local taken from
-//     a live let, cut from both ends, grown and written.
+//     a live let, cut from both ends, grown and written;
+//   - consume by parts (REUSE RU1; parts.go): a literal and an update
+//     that move b.Items through a user operation (lit, upd) or the
+//     prelude's Append (updRaw), a read of the consumed path after and
+//     before the consuming call (after, before), one path consumed twice
+//     (two), a whole return beside a consuming route (keep) and after the
+//     bind (late), a path consumed under a field the update keeps (side),
+//     each on the root and on a let that stays live; and the root's
+//     update stored back into it (own-update-self), whose values read the
+//     old fields.
 //
 // The generator is also the model: it runs each statement on Go values
 // with value semantics (every bind copies) and computes the line the
@@ -122,7 +131,73 @@ func (g *handoverGen) stmt() {
 		}
 		return hbag{items: append(append([]int(nil), b.items...), v), n: b.n}
 	}
-	switch k := g.r.IntN(28); k {
+	ins := func(xs []int, v int) []int { return append(append([]int(nil), xs...), v) }
+	ow := func(xs []int, v int) []int {
+		t := append([]int(nil), xs...)
+		if len(t) > 0 {
+			t[0] = v
+		}
+		return append(t, v)
+	}
+	first := func(xs []int) int {
+		if len(xs) > 0 {
+			return xs[0]
+		}
+		return 0
+	}
+	// The parts functions (consume by parts, REUSE RU1; parts.go) on the
+	// model.
+	parts := map[string]func(b hbag, v int) hbag{
+		"lit":    func(b hbag, v int) hbag { return hbag{items: ins(b.items, v), n: b.n + 1} },
+		"upd":    func(b hbag, v int) hbag { return hbag{items: ins(b.items, v), n: b.n} },
+		"updRaw": func(b hbag, v int) hbag { return hbag{items: ins(b.items, v), n: b.n} },
+		"after":  func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: first(b.items)} },
+		"before": func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: first(b.items)} },
+		"two":    func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: len(b.items) + 1} },
+		"keep": func(b hbag, v int) hbag {
+			if v%3 == 0 {
+				return b.copy()
+			}
+			return hbag{items: ow(b.items, v), n: b.n}
+		},
+		"side": func(b hbag, v int) hbag { return hbag{items: append([]int(nil), b.items...), n: len(b.items) + 1} },
+		"late": func(b hbag, v int) hbag {
+			if v%2 == 0 {
+				return b.copy()
+			}
+			return hbag{items: ow(b.items, v), n: b.n}
+		},
+	}
+	partNames := []string{"lit", "upd", "updRaw", "after", "before", "two", "keep", "side", "late"}
+	switch k := g.r.IntN(34); k {
+	case 28, 29:
+		// A parts function rebinding the root, then a write through it.
+		f := partNames[g.r.IntN(len(partNames))]
+		g.reached["root "+f] = true
+		g.line(fmt.Sprintf("m = %s(m, %d)", f, v))
+		g.m = parts[f](g.m, v)
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v+9))
+			g.m.items[0] = v + 9
+		}
+	case 30, 32, 33:
+		// A parts function on a live let, which stays readable.
+		f := partNames[g.r.IntN(len(partNames))]
+		g.reached[f+" on a live let"] = true
+		g.bind(fmt.Sprintf("%s(b%d, %d)", f, i, v), parts[f](src, v))
+	case 31:
+		// An update of the root stored back (own-update-self): the
+		// values read the old fields.
+		g.reached["root updates itself"] = true
+		g.line(fmt.Sprintf("m = Bag{..m, N: m.N + %d, Items: m.Items.Append(m.N)}", v))
+		g.m = hbag{items: ins(g.m.items, g.m.n), n: g.m.n + v}
+		if g.r.IntN(2) == 0 {
+			// The mirror order: the later value reads the field the
+			// earlier one names.
+			g.reached["root updates itself, mirror"] = true
+			g.line("m = Bag{..m, Items: m.Items.Append(m.N), N: len(m.Items)}")
+			g.m = hbag{items: ins(g.m.items, g.m.n), n: len(g.m.items)}
+		}
 	case 25:
 		// A one-extender site on a parameter the hand-over does not own:
 		// m takes both's result fresh only if c's array is not extended in
@@ -464,6 +539,70 @@ func mk(b Bag, v int) Bag {
 	Bag{Items: items, N: b.N}
 }
 
+// Consume by parts (REUSE RU1; parts.go). ins and ow own their slice; ow
+// writes its first element, so a read of the path it consumed that ran
+// after it in place would see the write.
+func ins(xs []int, v int) []int {
+	let mut t = xs
+	t = t.Append(v)
+	t
+}
+
+func ow(xs []int, v int) []int {
+	let mut t = xs
+	if len(t) > 0 {
+		t[0] = v
+	}
+	t.Append(v)
+}
+
+func first(xs []int) int {
+	if len(xs) > 0 {
+		return xs[0]
+	}
+	0
+}
+
+// lit moves a part into a literal through a user operation.
+func lit(b Bag, v int) Bag { Bag{Items: ins(b.Items, v), N: b.N + 1} }
+
+// upd moves a part into an update through a user operation.
+func upd(b Bag, v int) Bag { Bag{..b, Items: ins(b.Items, v)} }
+
+// updRaw extends a part with the prelude's Append in an update.
+func updRaw(b Bag, v int) Bag { Bag{..b, Items: b.Items.Append(v)} }
+
+// after reads the consumed path after the consuming call; before, ahead.
+func after(b Bag, v int) Bag { Bag{Items: ow(b.Items, v), N: first(b.Items)} }
+
+func before(b Bag, v int) Bag { Bag{N: first(b.Items), Items: ow(b.Items, v)} }
+
+// two consumes one path twice: the second must see the first's source.
+func two(b Bag, v int) Bag { Bag{Items: ow(b.Items, v), N: len(ow(b.Items, v + 1))} }
+
+// keep returns its parameter whole beside a consuming route.
+func keep(b Bag, v int) Bag {
+	if v % 3 == 0 {
+		return b
+	}
+	Bag{..b, Items: ow(b.Items, v)}
+}
+
+// side consumes a path under a field the update keeps from its base: the
+// base's Items must not see ow's write.
+func side(b Bag, v int) Bag { Bag{..b, N: len(ow(b.Items, v))} }
+
+// late returns its parameter whole after the bind that took it: that
+// route reads the value the bind's writes would change.
+func late(b Bag, v int) Bag {
+	let mut t = b
+	t.Items = ow(t.Items, v)
+	if v % 2 == 0 {
+		return b
+	}
+	t
+}
+
 // trim reslices a borrowed field into itself: no copy (own-reslice).
 func trim(b *Bag) {
 	if len(b.Items) > 0 {
@@ -477,16 +616,20 @@ func run() string {
 	let mut m = Bag{Items: []int{}, N: 0}
 	let mut doc = []int{}
 	let b0 = Bag{Items: []int{}, N: 0}
+	doc = slices.Concat(doc, b0.Items)
 `)
 	g.bags = []hbag{{items: []int{}}}
 	g.m = hbag{items: []int{}}
-	for range 140 {
+	for range 170 {
 		g.stmt()
 	}
 	for i, b := range g.bags {
 		g.print(fmt.Sprintf("b%d.Items", i), b.items)
 	}
 	g.print("m.Items", g.m.items)
+	// The root's count: an update stored back into m writes it.
+	g.line(`out = out + "\(m.N) "`)
+	g.out.WriteString(fmt.Sprintf("%d ", g.m.n))
 	g.print("doc", g.doc)
 	want := g.out.String()
 	g.b.WriteString("\tout\n}\n\nfunc main() needs Console {\n\tConsole.Println(run())\n}\n\n")
@@ -585,7 +728,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows", "root lit", "root upd", "root updRaw", "root after", "root before", "root two", "root keep", "lit on a live let", "upd on a live let", "updRaw on a live let", "after on a live let", "before on a live let", "two on a live let", "keep on a live let", "root side", "side on a live let", "root late", "late on a live let", "root updates itself", "root updates itself, mirror"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

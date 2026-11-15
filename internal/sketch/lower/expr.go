@@ -788,6 +788,96 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 	return u
 }
 
+// updateSelf is own-update-self's admission (LWR-SPREAD-SELF): it lowers
+// `r = T{..r, F: v, G: w}`, an update of a let mut r stored back into r,
+// to the field values, evaluated in source order, then one store per
+// named field:
+//
+//	v1 := v
+//	v2 := w
+//	r.F = v1
+//	r.G = v2
+//
+// with no copy of r into a temporary and none back. A Go record is a
+// value, so storing into r's fields writes nothing another binding holds,
+// and every value is evaluated before the first store, so a value that
+// reads a named field (`r = T{..r, n: r.n + 1, xs: r.xs.Append(r.n)}`)
+// reads the old one, as the update does. It reports false, writing
+// nothing, for an update that owns or hands over resources (R43), copies
+// its base or result (the value rule), spreads another type or converts.
+func (fc *funcCtx) updateSelf(s *syntax.AssignStmt, target string) bool {
+	lit, ok := unparen(s.Rhs[0]).(*syntax.CompositeLit)
+	if !ok || lit.Base == nil {
+		return false
+	}
+	lhs, ok := unparen(s.Lhs[0]).(*syntax.Ident)
+	base, ok2 := unparen(lit.Base).(*syntax.Ident)
+	if !ok || !ok2 {
+		return false
+	}
+	v, ok := fc.l.info.Uses[lhs].(*check.Var)
+	if !ok || !v.Mut() || fc.l.info.Uses[base] != check.Object(v) || !isGoPath(target) {
+		return false
+	}
+	n, ok := v.Type.(*check.Named)
+	if !ok || fc.typeOf(lit) != v.Type {
+		return false
+	}
+	td := fc.l.typeDecl(n.Obj, lit)
+	if td.kind != kindRecord || td.goError {
+		return false
+	}
+	info := fc.l.info
+	if _, ok := info.Spreads[lit]; ok {
+		return false
+	}
+	if _, ok := info.Implicit[lit]; ok {
+		return false
+	}
+	if len(info.Replaced[lit]) > 0 || info.PartHands[lit.Base] || info.PartHands[base] || info.OwnedVars[v] != nil || info.OwnedTemps[lit] != nil || info.OwnedTemps[base] != nil || info.Handoffs[base] != nil {
+		return false
+	}
+	if fc.l.vals != nil && (fc.l.vals.clone[lit] || fc.l.vals.clone[lit.Base] || fc.l.vals.clone[base]) {
+		return false
+	}
+	var keys []string
+	var values []syntax.Expr
+	for _, e := range lit.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			return false
+		}
+		id, ok := kv.Key.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		name, ok := td.fieldName[id.Name]
+		if !ok {
+			return false
+		}
+		keys = append(keys, name)
+		values = append(values, kv.Value)
+	}
+	if !fc.l.takes("own-update-self") {
+		return false
+	}
+	fc.l.took("own-update-self")
+	vals := fc.operands(values, true)
+	if len(vals) > 1 {
+		// Every value before the first store: a later value may read a
+		// field an earlier store names.
+		for i := range vals {
+			if !isGoPath(vals[i]) || strings.Contains(vals[i], ".") || vals[i] == target {
+				vals[i] = fc.spill(vals[i])
+			}
+		}
+	}
+	for i := range keys {
+		fc.line(target + "." + keys[i] + " = " + vals[i])
+	}
+	return true
+}
+
 // spread lowers a spread `T{..s, F: v}` whose base s has another record
 // type (types.md, Structs 3) to its desugaring: the base bound once,
 // first, then one literal of T with the named values, in source order, and
