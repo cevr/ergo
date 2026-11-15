@@ -31,12 +31,25 @@ func New(t Tool, name string, o NewOptions) Created fails NoBase | BadConfig | B
 	}
 }
 
-// Reserve is new's first step. It checks the names and the parent, runs
-// the precreate hooks, and then, under the lock, checks again and writes
-// the reservation (a Creating record): from then on the registry knows
-// the folder before a byte of it is copied. The maker takes its
+// Reserve is new's first step, in three: Look checks the names and finds
+// the parent, Begin reads the parent's branch and runs the precreate
+// hooks, and Claim, under the lock, checks again and writes the
+// reservation (a Creating record): from then on the registry knows the
+// folder before a byte of it is copied. The maker takes its
 // reservation's lock in the same step and holds it while it copies.
 func Reserve(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | Unkept | VcsFailed | HookFailed | Locked | Busy {
+	match try Look(t, name, o) {
+	case Created as done:
+		done
+	case Making as m:
+		try Claim(t, try Begin(t, m, o), o.On)
+	}
+}
+
+// Look is Reserve's first part, with no lock: the names, the token, and
+// the parent (the base, or the active workspace -on names). It is the
+// workspace to make, with no start yet, or an earlier new's answer.
+func Look(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | Unkept | Busy {
 	try initialized(t)
 	try CheckName(name)
 	let branch = match o.Branch {
@@ -72,9 +85,17 @@ func Reserve(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfi
 	case None:
 		(t.base, "")
 	}
-	// The parent is read with no lock: an rm may take it meanwhile, and
-	// then the failure is that it is gone, not Git's.
-	let start = startOf(t, parent, branch, o.From) catch {
+	let path = filepath.Join([]string{t.home, FolderOf(name)})
+	let id = idOf(t, name, path)
+	Making{Name: name, Id: id, Path: path, Parent: parent, ParentId: parentId, Branch: branch, Start: "", Token: token, Config: c, Copy: o.Copy || c.Copy, Cloner: ""}
+}
+
+// Begin is Reserve's second part, with no lock: the commit the branch
+// starts at, read from the parent, and the precreate hooks. An rm may
+// take the parent meanwhile; then the failure is that it is gone
+// (NoWorkspace), not Git's.
+func Begin(t Tool, m Making, o NewOptions) Making fails NoRevision | Diverged | VcsFailed | NoWorkspace | Unkept | HookFailed {
+	let start = startOf(t, m.Parent, m.Branch, o.From) catch {
 	case NoRevision as e:
 		return e
 	case Diverged as e:
@@ -89,16 +110,20 @@ func Reserve(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfi
 		}
 		return e
 	}
-	let path = filepath.Join([]string{t.home, FolderOf(name)})
-	let id = idOf(t, name, path)
-	let m = Making{Name: name, Id: id, Path: path, Parent: parent, ParentId: parentId, Branch: branch, Start: start, Token: token, Config: c, Copy: o.Copy || c.Copy, Cloner: ""}
-	match runHook(t, c, "precreate", parent, hookEnv(parent, path, id, parentId)) {
+	match runHook(t, m.Config, "precreate", m.Parent, hookEnv(m.Parent, m.Path, m.Id, m.ParentId)) {
 	case HookFailed as f:
 		return f
 	case HooksRan, Untrusted:
 	}
+	Making{..m, Start: start}
+}
+
+// Claim is Reserve's last part, under the lock: the token, the name and
+// the parent read again (an rm may have taken it since Look), then the
+// reservation and its lock.
+func Claim(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept | Locked {
 	try hold(t)
-	let r = reserve(t, m, o.On) catch {
+	let r = reserve(t, m, on) catch {
 	case NameTaken as e:
 		t.lock.Release("")
 		return e
@@ -131,7 +156,7 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 	case Some[string] as p:
 		match try cloneable(t, p.Value) {
 		case Some[Workspace] as w:
-			if w.Value.Path != m.Parent {
+			if w.Value.Path != m.Parent || w.Value.Id != m.ParentId {
 				return NoWorkspace{Name: p.Value}
 			}
 		case None:

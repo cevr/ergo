@@ -154,6 +154,60 @@ law PurgingTouchesOneEntry() {
 	purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
 }
 
+// ClaimReadsTheParentAgain: a new -on x that looked at x and read its
+// branch, and then lost x to an rm (and, when replaced, to a gc and a new
+// x at the same folder), claims nothing: its claim under the lock is
+// NoWorkspace, and no reservation names the x it looked at (rift#56).
+law ClaimReadsTheParentAgain(replaced bool) {
+	let w = world(true)
+	let x = w.tool.New("x", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let o = on("x")
+	let looked = match (w.tool.Look("y", o) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let begun = w.tool.Begin(looked, o) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("x", expecting(None)) catch {
+	case _:
+		return false
+	}
+	if replaced {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Id: None}) catch {
+		case _:
+			return false
+		}
+		let again = w.tool.New("x", fresh(false)) catch {
+		case _:
+			return false
+		}
+		if again.Path != x.Path || again.Id == x.Id {
+			return false
+		}
+	}
+	let _ = w.tool.Claim(begun, o.On) catch {
+	case work.NoWorkspace as n:
+		let all = w.tool.List() catch {
+		case _:
+			return false
+		}
+		return n.Name == "x" && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "y" }) < 0
+	case _:
+		return false
+	}
+	false
+}
+
 // Watching is a Cloner that records whether the registry's lock was held
 // at any clone: the copy runs with no lock but its reservation's.
 type Watching { c Cloner, lock Lock, locked sync.Ref[bool] } implements work.Cloner
@@ -212,7 +266,8 @@ type Call =
 // rm and its new); parts are where each starts, and decides the step of
 // each whose lock orders it (its linear point). stamps are the times its
 // deciding steps ran (-1 for one it never reached), answers the Removed
-// its rm answered, and expects whether that rm expected x's first id.
+// its rm answered, wrong the failures its new must never give (newSteps),
+// and expects whether that rm expected x's first id.
 type Caller {
 	steps   []func() bool,
 	parts   []int,
@@ -222,6 +277,7 @@ type Caller {
 	dead    sync.Ref[bool],
 	stamps  sync.Ref[[]int],
 	answers sync.Ref[[]work.Removed],
+	wrong   sync.Ref[[]string],
 	expects bool,
 }
 
@@ -253,13 +309,16 @@ func step(c Caller, stamp int) {
 	}
 }
 
-// newSteps are the steps of a new by t: the reservation, the clone, the
-// activation.
-func newSteps(t work.Tool, name string, o work.NewOptions) []func() bool {
+// newSteps are the steps of a new by t: the look and the start (no
+// lock), the claim (the lock), the clone (none) and the activation (the
+// lock). wrong keeps each failure the protocol never gives: Git's on a
+// parent an rm took (it is NoWorkspace), and any failed clone (a claimed
+// parent cannot be taken while its child is made).
+func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]string]) []func() bool {
 	let made = sync.NewRef(work.Making{Name: "", Id: "", Path: "", Parent: "", ParentId: "", Branch: "", Start: "", Token: "", Config: work.EmptyConfig(), Copy: false, Cloner: ""})
 	[]func() bool{
 		func() bool {
-			match (t.Reserve(name, o) catch {
+			match (t.Look(name, o) catch {
 			case _:
 				return false
 			}) {
@@ -271,8 +330,42 @@ func newSteps(t work.Tool, name string, o work.NewOptions) []func() bool {
 			}
 		},
 		func() bool {
+			made.Set(t.Begin(made.Get(), o) catch {
+			case work.VcsFailed as e:
+				wrong.Set(wrong.Get().Append("Begin: VcsFailed: " + e.Reason))
+				return false
+			case _:
+				return false
+			})
+			true
+		},
+		func() bool {
+			match (t.Claim(made.Get(), o.On) catch {
+			case _:
+				return false
+			}) {
+			case work.Making as m:
+				made.Set(m)
+				// The claim is the new's linear point: its parent is, at
+				// that moment, the base or the live workspace Look found.
+				if m.ParentId != "" {
+					let all = t.List() catch {
+					case _:
+						[]work.Workspace{}
+					}
+					if slices.IndexFunc(all, func(x work.Workspace) bool { x.Path == m.Parent && x.Id == m.ParentId && work.StateName(x.State) == "active" }) < 0 {
+						wrong.Set(wrong.Get().Append("Claim of " + m.Name + " on a parent that is gone"))
+					}
+				}
+				true
+			case work.Created:
+				false
+			}
+		},
+		func() bool {
 			made.Set(t.Fill(made.Get()) catch {
 			case _:
+				wrong.Set(wrong.Get().Append("Fill of " + made.Get().Name + " failed"))
 				return false
 			})
 			true

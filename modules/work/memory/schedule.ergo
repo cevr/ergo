@@ -12,22 +12,23 @@ func callerOf(w World, c Call, owner int, first string) Caller {
 	let lock = Sharing(w.lock, owner)
 	let t = toolOf(w, lock, []work.Cloner{w.trees})
 	let answers = sync.NewRef([]work.Removed{})
+	let wrong = sync.NewRef([]string{})
 	let mut expects = false
 	let (steps, parts, decides) = match c {
 	case NewCall as n:
 		let name = if small(n.Name, 2) == 0 { "y" } else { "z" }
 		let base = if n.OnX { on("x") } else { fresh(false) }
 		let o = if n.Token { work.NewOptions{..base, Token: some("t-" + name)} } else { base }
-		(newSteps(t, name, o), []int{0}, []int{0})
+		(newSteps(t, name, o, wrong), []int{0}, []int{2})
 	case RmCall as r:
 		expects = r.Expect
 		(rmSteps(t, "x", if r.Expect { some(first) } else { None }, answers), []int{0}, []int{1})
 	case GcCall:
 		(gcSteps(t), []int{0}, []int{0})
 	case ReplaceCall:
-		(slices.Concat(rmSteps(t, "x", None, answers), newSteps(t, "x", fresh(false))), []int{0, 4}, []int{1, 4})
+		(slices.Concat(rmSteps(t, "x", None, answers), newSteps(t, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
 	}
-	Caller{steps: steps, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, expects: expects}
+	Caller{steps: steps, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
 }
 
 // scheduled is a world with x made, and the callers of calls; and x's id.
@@ -45,10 +46,13 @@ func scheduled(calls []Call) (World, string, []Caller) {
 }
 
 // SchedulesKeepTheInvariants: the steps of two or three callers are
-// interleaved by choices: each picks a caller that may step (the one
-// holding the registry's lock if one does), and one choice in six stops
-// that caller instead (a process that dies holds no lock). The callers
-// left run to their end, and a gc of another process recovers. Then no
+// interleaved by choices drawn from seed until every caller ends: each
+// picks a caller that may step (the one holding the registry's lock if
+// one does), and, when dies, one choice in eight stops that caller
+// instead (a process that dies holds no lock). Then a gc of another
+// process recovers. No new failed in a way the protocol never fails (a
+// Git failure on a parent an rm took, a failed clone), and each new's
+// claim found its parent live. Then no
 // intent and no reservation is left; the trees under the storage are
 // exactly the live records' folders (no orphan, no record without its
 // tree); every live record's parent is the base or a live record (no
@@ -56,7 +60,7 @@ func scheduled(calls []Call) (World, string, []Caller) {
 // x's first id trashed only that id. With no caller stopped, the records
 // are those of the same calls run one by one in the order their deciding
 // steps ran.
-law SchedulesKeepTheInvariants(calls []Call, choices []int) {
+law SchedulesKeepTheInvariants(calls []Call, seed int, dies bool) {
 	if len(calls) < 2 {
 		return true
 	}
@@ -66,17 +70,32 @@ law SchedulesKeepTheInvariants(calls []Call, choices []int) {
 			mine = mine.Append(c)
 		}
 	}
+	// Eight schedules of the same calls, each from its own seed.
+	for k in []int{0, 1, 2, 3, 4, 5, 6, 7} {
+		if !scheduleHolds(mine, seed*8+k, dies) {
+			return false
+		}
+	}
+	true
+}
+
+// scheduleHolds runs one schedule of mine drawn from seed and holds the
+// invariants on it.
+func scheduleHolds(mine []Call, seed int, dies bool) bool {
 	let (w, first, callers) = scheduled(mine)
 	let mut clock = 0
 	let mut stopped = false
-	for ch in choices {
+	let mut s = small(seed, 2147483647)
+	for {
 		let live = slices.Filter(callers, func(c Caller) bool { running(c) })
 		if len(live) == 0 {
 			break
 		}
+		s = (s*1103515245 + 12345) % 2147483648
+		let ch = s / 65536
 		let holding = slices.Filter(live, func(c Caller) bool { c.lock.Held("") })
 		let c = if len(holding) > 0 { holding[0] } else { live[small(ch, len(live))] }
-		if small(ch/3, 6) == 0 {
+		if dies && small(ch/3, 8) == 0 {
 			Die(c.lock)
 			c.dead.Set(true)
 			stopped = true
@@ -85,13 +104,6 @@ law SchedulesKeepTheInvariants(calls []Call, choices []int) {
 		step(c, clock)
 		clock = clock + 1
 		w.clock.Advance(1s)
-	}
-	for c in callers {
-		for running(c) {
-			step(c, clock)
-			clock = clock + 1
-			w.clock.Advance(1s)
-		}
 	}
 	let all = recovered(w) catch {
 	case _:
@@ -105,6 +117,11 @@ law SchedulesKeepTheInvariants(calls []Call, choices []int) {
 					expected = false
 				}
 			}
+		}
+	}
+	for c in callers {
+		if len(c.wrong.Get()) > 0 {
+			expected = false
 		}
 	}
 	let held = expected && invariants(w, all)

@@ -608,6 +608,30 @@
       "to": "\t\t\tout = out.Append(w)\n\t\t\tout = slices.Concat(out, below(all, w.Path))\n",
       "rule": "rm -tree removes the leaves first, so no workspace leaves the registry under a child: the rm-tree case.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg1-claim-skips-the-parent", "origin": "wf10/semws WG1 r2",
+      "file": "modules/work/work/new.ergo",
+      "from": "\t\tmatch try cloneable(t, p.Value) {\n\t\tcase Some[Workspace] as w:\n\t\t\tif w.Value.Path != m.Parent || w.Value.Id != m.ParentId {\n\t\t\t\treturn NoWorkspace{Name: p.Value}\n\t\t\t}\n\t\tcase None:\n\t\t\treturn NoWorkspace{Name: p.Value}\n\t\t}\n",
+      "to": "\t\tlet _ = p.Value\n",
+      "rule": "Claim reads the -on parent again under the lock: a new whose parent an rm took after Look claims nothing (rift#56): ClaimReadsTheParentAgain, SchedulesKeepTheInvariants (the claim's parent is live).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-claim-ignores-the-id", "origin": "wf10/semws WG1 r2",
+      "file": "modules/work/work/new.ergo",
+      "from": "if w.Value.Path != m.Parent || w.Value.Id != m.ParentId {",
+      "to": "if w.Value.Path != m.Parent {",
+      "rule": "Claim checks the parent's id, so a parent replaced at the same folder after Look is not the one claimed: ClaimReadsTheParentAgain (replaced).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-begin-says-git", "origin": "wf10/semws WG1 r2",
+      "file": "modules/work/work/new.ergo",
+      "from": "\t\t\tif try cloneable(t, on.Value) == None {\n\t\t\t\treturn NoWorkspace{Name: on.Value}\n\t\t\t}\n",
+      "to": "\t\t\tlet _ = on.Value\n",
+      "rule": "A new -on whose parent an rm took while it read the parent's branch answers NoWorkspace, not Git's failure: SchedulesKeepTheInvariants (no Begin answers VcsFailed).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
