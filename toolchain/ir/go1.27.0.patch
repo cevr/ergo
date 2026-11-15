@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..41af35f
+index 0000000..6d89d9f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,255 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -39,6 +39,7 @@ index 0000000..41af35f
 +
 +import (
 +	"encoding/json"
++	"internal/types/errors"
 +	"os"
 +
 +	"cmd/compile/internal/base"
@@ -129,6 +130,9 @@ index 0000000..41af35f
 +	nerr   int
 +	loops  []*syntax.ForStmt // the loops around the statement being decoded
 +	ctxt   *types2.Context   // shares the instances of generic types (ergoir_types.go)
++	// tparams are the type parameters of the function being decoded, its
++	// receiver's then its own (F1): a type spelling names them first.
++	tparams []*types2.TypeParam
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -176,6 +180,15 @@ index 0000000..41af35f
 +		c.function(fd, fn)
 +		delete(decls, fn.Name) // a second IR body for the same name finds it gone
 +	}
++	// types2's "missing function body" of a generic function waits for
++	// the IR (irgen.go): a generic function the IR gave no body keeps it.
++	for _, p := range noders {
++		for _, d := range p.file.DeclList {
++			if fd, ok := d.(*syntax.FuncDecl); ok && len(fd.TParamList) > 0 && fd.Body == nil {
++				base.ErrorfAt(m.makeXPos(fd.Pos()), errors.BadDecl, "generic function is missing function body")
++			}
++		}
++	}
 +	base.ExitIfErrors()
 +}
 +
@@ -222,9 +235,17 @@ index 0000000..41af35f
 +	for i := 0; i < c.sig.Params().Len(); i++ {
 +		c.locals = append(c.locals, c.sig.Params().At(i))
 +	}
-+	if !ergoSigOK(c.sig) || c.sig.Variadic() || c.sig.TypeParams().Len() > 0 || c.sig.RecvTypeParams().Len() > 0 {
++	if !ergoSigOK(c.sig) || c.sig.Variadic() {
 +		c.errorf(fn.Pos, "ergoir: %s: only plain signatures with at most one result take an IR body", fn.Name)
 +		return
++	}
++	// A generic function's body names its type parameters (F1): the
++	// receiver's, then its own, as the Go declaration lists them.
++	c.tparams = nil
++	for _, l := range []*types2.TypeParamList{c.sig.RecvTypeParams(), c.sig.TypeParams()} {
++		for i := 0; i < l.Len(); i++ {
++			c.tparams = append(c.tparams, l.At(i))
++		}
 +	}
 +	for _, l := range fn.Locals {
 +		t := c.typ(l.Pos, l.Type)
@@ -2382,10 +2403,10 @@ index 0000000..db6d70e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..9e14766
+index 0000000..1163d27
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,347 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2406,7 +2427,8 @@ index 0000000..9e14766
 +	"cmd/compile/internal/types2"
 +)
 +
-+// typ resolves a type spelling: NAME (package scope or universe),
++// typ resolves a type spelling: NAME (a type parameter of the function,
++// then package scope or universe),
 +// PATH.NAME (an exported type of the imported package PATH), []T, *T,
 +// map[K]V and a generic type's instance NAME[T1, T2].
 +func (c *ergoChecker) typ(p ergoPos, s string) types2.Type {
@@ -2459,6 +2481,11 @@ index 0000000..9e14766
 +			}
 +		}
 +	} else {
++		for _, tp := range c.tparams {
++			if tp.Obj().Name() == s {
++				return tp
++			}
++		}
 +		obj = c.pkg.Scope().Lookup(s)
 +		if obj == nil {
 +			obj = types2.Universe.Lookup(s)
@@ -2873,6 +2900,32 @@ index 0000000..9a3cbd3
 +	}
 +	return nil, nil, false
 +}
+diff --git a/src/cmd/compile/internal/noder/irgen.go b/src/cmd/compile/internal/noder/irgen.go
+index e8b177f..b243208 100644
+--- a/src/cmd/compile/internal/noder/irgen.go
++++ b/src/cmd/compile/internal/noder/irgen.go
+@@ -80,6 +80,11 @@ recheck:
+ 	conf.Error = func(err error) {
+ 		terr := err.(types2.Error)
+ 		msg := terr.Msg
++		if base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && msg == "generic function is missing function body" {
++			// Its body may come from the IR file; ergoAttach reports
++			// the generic functions still without one (F1).
++			return
++		}
+ 		if versionErrorRx.MatchString(msg) {
+ 			fileBase := terr.Pos.FileBase()
+ 			fileVersion := info.FileVersions[fileBase]
+@@ -99,6 +104,9 @@ recheck:
+ 
+ 	pkg, err := conf.Check(base.Ctxt.Pkgpath, files, info)
+ 	base.ExitIfErrors()
++	if terr, ok := err.(types2.Error); ok && base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && terr.Msg == "generic function is missing function body" {
++		err = nil // the IR's (conf.Error above); no other error was reported
++	}
+ 	if err != nil {
+ 		base.FatalfAt(src.NoXPos, "conf.Check error: %v", err)
+ 	}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
 index 9ec2e40..e04cee0 100644
 --- a/src/cmd/compile/internal/noder/unified.go

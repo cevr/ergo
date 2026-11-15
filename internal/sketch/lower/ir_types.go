@@ -36,6 +36,15 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Pointer:
 		b.admit(t.Elem, depth+1) // a *T receiver (IRG4b r2)
 		return
+	case *check.TypeParam:
+		// A type parameter of the generic body (F1): the decoder resolves
+		// its Go name among the function's (and its receiver's) type
+		// parameters. Values of it are moved, never operated on: an
+		// operator admits only basic types (operator).
+		if _, ok := b.fc.params[t]; !ok {
+			irNo("type parameter outside its declaration")
+		}
+		return
 	case *check.Named:
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")

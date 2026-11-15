@@ -1165,7 +1165,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
