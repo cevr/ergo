@@ -100,6 +100,48 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //ergo:owned StringsBuilderTextOwned
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
+// StringsBuilderAppendBytes is buf with the bytes of bs added, as Go's
+// append(buf, bs...).
+//
+//ergo:pure
+func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf, bs...) }
+
+// StringsBuilderAppendFrom is buf with n bytes added, copied from buf at
+// start on, as an LZ77 decoder copies a match: byte k of the n is the byte
+// at start+k of the result, so a run whose source reaches past buf's
+// length repeats the bytes this call wrote (start = len(buf)-1 repeats the
+// last byte n times). A negative n, a start outside buf, or a start at its
+// end with n > 0 panics with Go's slice or index error, a defect: a
+// negative n makes end < start, or a start past the end. The loop runs
+// only while start is inside buf, so no input loops for ever. A run that buf holds already is one compare and one
+// append, as hand Go copies it; one that
+// overlaps its own output copies whole runs, each pass all that is written
+// from start on, which doubles each time: about log2(n/d)+1 appends for a
+// run of n bytes at distance d. The body stays small enough for gc to
+// inline it.
+//
+//ergo:pure
+func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
+	if end := start + n; end <= len(buf) {
+		return append(buf, buf[start:end]...)
+	}
+	_ = buf[start]
+	for n > 0 && start < len(buf) {
+		// buf[start:] repeats with period len0-start, and what this call
+		// wrote is a whole number of periods until the last pass, so the
+		// next byte to copy is buf[start] again (see the doc comment).
+		k := min(n, len(buf)-start)
+		buf = append(buf, buf[start:start+k]...)
+		n -= k
+	}
+	return buf
+}
+
+// StringsBytes is the bytes of s, a copy, as Go's []byte(s).
+//
+//ergo:pure
+func StringsBytes(s string) []byte { return []byte(s) }
+
 // StringsFields is strings.Fields.
 //
 //ergo:pure

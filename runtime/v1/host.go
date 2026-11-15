@@ -741,19 +741,20 @@ type ReadFailed struct {
 func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason + "}" }
 
 // IOPrint is the body of io.Host's Print: text on standard output, as it
-// is, in one write.
+// is, in one write; buffered when standard output is not a terminal
+// (writeStdout).
 //
 //ergo:host
 func IOPrint(text string) {
-	_, _ = os.Stdout.WriteString(text)
+	writeStdout(text)
 }
 
 // IOEprint is the body of io.Errors' Eprint: text on standard error, as it
-// is, in one write.
+// is, in one write, after what standard output holds (stderrSink).
 //
 //ergo:host
 func IOEprint(text string) {
-	_, _ = os.Stderr.WriteString(text)
+	_, _ = io.WriteString(stderrSink{}, text)
 }
 
 // IOIsTerminal is the body of io.Host's IsTerminal: whether standard
@@ -818,7 +819,7 @@ func IORead(t *rt.Task, max int) (string, error) {
 		max = ioDefaultChunk
 	}
 	t.Check()
-	chunk, err, ok := stdinReader().take(t.Done(), func(b []byte, _ bool) int { return min(len(b), max) })
+	chunk, err, ok := stdinReader().take(t, func(b []byte, _ bool) int { return min(len(b), max) })
 	switch {
 	case !ok:
 		panic(rt.Interrupted)
@@ -864,11 +865,16 @@ func newLineReader(r io.Reader) *lineReader {
 // the read error once the bytes before it are taken (io.EOF at the end).
 // cut(b, end) is the length of the item at the front of b, or -1 when b
 // holds only its start and more input may come; when end is true no more
-// comes, and cut takes what b holds. ok is false when stop closes first:
-// then nothing is taken.
-func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int) (item []byte, err error, ok bool) {
+// comes, and cut takes what b holds. ok is false when a stop of t comes
+// first: then nothing is taken. t is nil for a take no stop ends. t's stop
+// is asked for only when take must wait on the host: Done is a wait of the
+// runtime, where held standard output is flushed (stdlib.md io 11), so a
+// prompt shows before the read, and a line already read flushes nothing.
+func (l *lineReader) take(t *rt.Task, cut func(b []byte, end bool) int) (item []byte, err error, ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	var stop <-chan struct{}
+	asked := false
 	for {
 		if len(l.buf) > 0 {
 			if n := cut(l.buf, l.err != nil); n > 0 {
@@ -883,6 +889,9 @@ func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int
 		if l.err != nil {
 			err, l.err = l.err, nil
 			return nil, err, true
+		}
+		if !asked && t != nil {
+			stop, asked = t.Done(), true
 		}
 		if !l.reading {
 			l.reading = true
@@ -958,7 +967,7 @@ func stdinReader() *lineReader {
 // read in the buffer and raises rt.Interrupted.
 func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	t.Check()
-	rest, err, ok := l.take(t.Done(), restLen)
+	rest, err, ok := l.take(t, restLen)
 	switch {
 	case !ok:
 		panic(rt.Interrupted)
@@ -980,7 +989,7 @@ func (l *lineReader) lines(t *rt.Task) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
 			t.Check()
-			line, err, ok := l.take(t.Done(), lineLen)
+			line, err, ok := l.take(t, lineLen)
 			switch {
 			case !ok:
 				panic(rt.Interrupted)

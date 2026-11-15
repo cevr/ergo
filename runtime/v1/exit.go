@@ -454,11 +454,15 @@ func Main(body func(*rt.Task) error) {
 // it, so the test process keeps its own collector settings.
 var startPace = rt.Pace
 
-// mainStatus paces the heap, runs body as Main does and returns the exit
-// status Main exits with.
+// mainStatus paces the heap, runs body as Main does and returns its exit status, with
+// standard output flushed: each reason goes to standard error after what
+// standard output holds (stderrSink), and the rest of standard output is
+// written before the status is returned (stdlib.md io 11).
 func mainStatus(body func(*rt.Task) error) int {
 	startPace()
-	return report(os.Stderr, runMain(body))
+	status := report(stderrSink{}, runMain(body))
+	flushStdout()
+	return status
 }
 
 // runMain runs body as the root task and returns its canonical exit.

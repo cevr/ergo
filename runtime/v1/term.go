@@ -90,7 +90,7 @@ func TermGetSize() (TermWindow, error) {
 //ergo:host
 func TermReadKey(t *rt.Task) (string, error) {
 	t.Check()
-	b, err, ok := stdinReader().take(t.Done(), keyLen)
+	b, err, ok := stdinReader().take(t, keyLen)
 	switch {
 	case !ok:
 		panic(rt.Interrupted)

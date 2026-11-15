@@ -41,11 +41,12 @@ import (
 type Console struct{}
 
 // Println writes line and a line feed to standard output in one write, so
-// lines from concurrent writers do not interleave within a line.
+// lines from concurrent writers do not interleave within a line; buffered
+// when standard output is not a terminal (writeStdout).
 //
 //ergo:host
 func (Console) Println(line string) {
-	_, _ = os.Stdout.WriteString(line + "\n")
+	writeStdout(line + "\n")
 }
 
 // Sleep is the Go body of the prelude's `extern go
@@ -64,7 +65,7 @@ func Sleep(t *rt.Task, d time.Duration) {
 //
 //ergo:host
 func Fail(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	fmt.Fprintf(stderrSink{}, "error: %v\n", err)
 	os.Exit(1)
 }
 
