@@ -123,6 +123,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				// Its gather writes statements: a value (ir_scalar.go).
 				irNo("scalar-form local inside an expression")
 			}
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				// A package let lowered as a Go constant (constLet): its
+				// value, an IR constant, which Go does not fold either
+				// (the emitter's v1.Let read).
+				return b.constant(o.Type, val, x, p)
+			}
 			if name, ok := b.l.vars[o]; ok {
 				// A package let: its Go variable.
 				b.goType(o.Type, x)

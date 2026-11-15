@@ -495,16 +495,28 @@ func (fc *funcCtx) handoverAppend(x *syntax.CallExpr, c *check.Call, vals []stri
 		if !fc.lineageOK(x) {
 			form = "LineageAppendCheck"
 		}
-		return fc.l.rt() + "." + form + "(&" + fc.l.lineageToken(x) + ", " + vals[0] + ", " + vals[1] + ")"
+		return fc.l.rt() + "." + form + fc.appendElem(x, c) + "(&" + fc.l.lineageToken(x) + ", " + vals[0] + ", " + vals[1] + ")"
 	case vf.field[x]:
 		if fc.ownFieldOK(x) {
 			return ""
 		}
-		return fc.l.rt() + ".AppendPoison(" + vals[0] + ", " + vals[1] + ")"
+		return fc.l.rt() + ".AppendPoison" + fc.appendElem(x, c) + "(" + vals[0] + ", " + vals[1] + ")"
 	case vf.inPlace[x] && valueRule():
 		fc.copySite(x, "in place", "a rebinding p = p.Append(x) of a let mut or a borrow root, or a dead unshared local (V3)")
 	default:
 		fc.copySite(x, "copy", "the source may be read again and is no field path that one site extends")
+	}
+	return ""
+}
+
+// appendElem is the explicit type argument of a hand-over Append's
+// runtime helper: the slice's element type. Go's append converts a
+// variant to the union's interface; the generic helper infers T from both
+// operands, and a variant literal (json.Str into []json.Value) is not
+// the slice's element type.
+func (fc *funcCtx) appendElem(x *syntax.CallExpr, c *check.Call) string {
+	if s, ok := underOf(fc.typeOf(callOperands(x, c)[0])).(*check.Slice); ok {
+		return "[" + fc.goType(s.Elem) + "]"
 	}
 	return ""
 }
