@@ -51,6 +51,7 @@ internal/sketch/std/ui/session.ergo	needs R, post escaping
 internal/sketch/std/ui/state.ergo	needs R, at CallSite
 internal/sketch/std/ui/testhost.ergo	needs R, clock time.Manual
 internal/sketch/std/ui/zone.ergo	needs R, at CallSite
+internal/sketch/std/ui/presence.ergo	needs R, at CallSite
 internal/sketch/lower/testdata/mutants.json	needs R, s S
 internal/sketch/lower/testdata/mutants.json	needs R, clock time.Manual
 internal/sketch/lower/testdata/mutants.json	needs R, at CallSite
