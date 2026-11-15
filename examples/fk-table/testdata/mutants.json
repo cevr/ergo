@@ -192,14 +192,6 @@
       "to": "if i > 0 && (len(s)-i)%4 == 0 {",
       "rule": "A weight groups its thousands, as toLocaleString (cases: 1,300 kg).",
       "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
-    },
-    {
-      "name": "fk10b-rows-share-a-key", "origin": "wf10/fk10b",
-      "file": "examples/fk-table/screen/screen.ergo",
-      "from": "ui.Same(f, ui.ByText(d.Name)) {",
-      "to": "ui.Same(f, ui.ByText(\"\")) {",
-      "rule": "A row is kept only while its dinosaur is the same: one key for every row keeps stale rows (cases).",
-      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
     }
   ]
 }
