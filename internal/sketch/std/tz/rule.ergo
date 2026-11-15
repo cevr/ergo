@@ -239,19 +239,34 @@ func ruleOffsetAt(r rule, sec int64) Option[Offset] {
 	}
 }
 
-// ruleBounds is the UTC instants, in Unix seconds, of the two changes of
-// r in year y and the start of y: the only instants at which ruleOffsetAt
-// can change within y.
-func ruleBounds(r rule, y int64) []int64 {
+// ruleBound is the k-th of the UTC instants, in Unix seconds, at which
+// ruleOffsetAt can change within year y: the start of y (k = 0) and, for
+// a seasonal rule, its two changes (k = 1, 2). ruleBoundCount is how many
+// there are.
+func ruleBound(r rule, y int64, k int) int64 {
 	let ystart = daysFromCivil(y, 1, 1) * 86400
 	match r {
 	case seasonal as s:
-		[]int64{ystart, ystart + ruleTime(y, s.Start, s.Std.Seconds), ystart + ruleTime(y, s.End, s.Dst.Seconds)}
+		if k == 1 {
+			ystart + ruleTime(y, s.Start, s.Std.Seconds)
+		} else if k == 2 {
+			ystart + ruleTime(y, s.End, s.Dst.Seconds)
+		} else {
+			ystart
+		}
 	case noRule, always:
-		[]int64{ystart}
+		ystart
 	}
 }
 
+func ruleBoundCount(r rule) int {
+	match r {
+	case seasonal:
+		3
+	case noRule, always:
+		1
+	}
+}
 // ruleTime is the seconds from the start of year y, in UTC, to the change
 // w, whose time of day is in the offset off: Go's tzruleTime.
 func ruleTime(y int64, w when, off int) int64 {

@@ -2,7 +2,6 @@
 // the transitions of a zone.
 
 import civil
-import slices
 import time
 
 // Resolved is what a wall time is in a zone: one instant; a Gap, a wall
@@ -26,8 +25,10 @@ type Overlap { Earlier time.Time, Later time.Time }
 
 // Resolve is the instants at which z shows the wall time dt. Every offset
 // of z is between z's least and most, so an instant that shows dt is
-// within them of dt read as UTC; Resolve reads z's changes in that window,
-// and each stretch between two changes holds dt at most once.
+// within them of dt read as UTC; Resolve walks z's changes in that window
+// one at a time (changeAfter), and each stretch between two changes holds
+// dt at most once. It keeps the first and last instant found, not a list,
+// so it allocates nothing but its result.
 func Resolve(z Zone, dt civil.DateTime) Resolved {
 	let wall = civil.UnixDays(dt.Date) * 86400
 	let inDay = int64(civil.SinceMidnight(dt.Time))
@@ -35,28 +36,40 @@ func Resolve(z Zone, dt civil.DateTime) Resolved {
 	let ns = inDay % 1000000000
 	let lo = u - z.most - 1
 	let hi = u - z.least + 1
-	let bounds = changes(z, lo, hi, true)
-	let mut found = []int64{}
-	for i in 0..len(bounds) + 1 {
-		let from = if i == 0 { lo } else { bounds[i - 1] }
-		let to = if i == len(bounds) { hi + 1 } else { bounds[i] }
+	let mut found = 0
+	let mut first = int64(0)
+	let mut last = int64(0)
+	let mut from = lo
+	let mut more = true
+	for more {
+		let b = changeAfter(z, from, hi, true)
+		more = b > from
+		let to = if more { b } else { hi + 1 }
 		let t = u - int64(lookup(z, from).Seconds)
 		if t >= from && t < to {
-			found = found.Append(t)
+			if found == 0 {
+				first = t
+			}
+			last = t
+			found += 1
 		}
+		from = b
 	}
-	if len(found) == 1 {
-		return Unique{At: time.Unix(found[0], ns)}
+	if found == 1 {
+		return Unique{At: time.Unix(first, ns)}
 	}
-	if len(found) > 1 {
-		return Overlap{Earlier: time.Unix(found[0], ns), Later: time.Unix(found[len(found) - 1], ns)}
+	if found > 1 {
+		return Overlap{Earlier: time.Unix(first, ns), Later: time.Unix(last, ns)}
 	}
-	for b in bounds {
+	let mut b = changeAfter(z, lo, hi, true)
+	for b > lo {
 		let before = int64(lookup(z, b - 1).Seconds)
 		let after = int64(lookup(z, b).Seconds)
 		if after > before && u >= b + before && u < b + after {
 			return Gap{Before: time.Unix(u - after, ns), After: time.Unix(u - before, ns), Start: time.Unix(b, 0)}
 		}
+		let next = changeAfter(z, b, hi, true)
+		b = if next > b { next } else { lo }
 	}
 	Unreachable("a wall time no stretch of the zone shows is in a gap")
 }
@@ -246,50 +259,66 @@ func Transitions(z Zone, from time.Time, to time.Time) Seq[Transition] {
 
 // changes is each Unix second b with lo < b <= hi at which lookup(z, b)
 // differs from lookup(z, b - 1), in its seconds alone when secondsOnly,
-// ascending. The candidates are the table's instants and, after its last,
-// the rule's: the start of each UTC year and its two changes.
+// ascending.
 func changes(z Zone, lo int64, hi int64, secondsOnly bool) []int64 {
-	let mut candidates = []int64{}
+	let mut out = []int64{}
+	let mut b = changeAfter(z, lo, hi, secondsOnly)
+	let mut from = lo
+	for b > from {
+		out = out.Append(b)
+		from = b
+		b = changeAfter(z, b, hi, secondsOnly)
+	}
+	out
+}
+
+// changeAfter is the first Unix second b with x < b <= hi at which
+// lookup(z, b) differs from lookup(z, b - 1), in its seconds alone when
+// secondsOnly; x itself when there is none. It reads the candidates in
+// order (candidateAfter) and allocates nothing.
+func changeAfter(z Zone, x int64, hi int64, secondsOnly bool) int64 {
+	let mut c = candidateAfter(z, x, hi)
+	let mut from = x
+	for c > from {
+		let a = lookup(z, c - 1)
+		let d = lookup(z, c)
+		if a.Seconds != d.Seconds || !secondsOnly && a != d {
+			return c
+		}
+		from = c
+		c = candidateAfter(z, c, hi)
+	}
+	x
+}
+
+// candidateAfter is the least candidate b with x < b <= hi, or x when
+// there is none. The candidates are the table's instants and, after its
+// last, the rule's: the start of each UTC year and its two changes.
+func candidateAfter(z Zone, x int64, hi int64) int64 {
 	let n = len(z.at)
-	if n > 0 && hi >= z.at[0] {
-		let mut i = if lo < z.at[0] { 0 } else { lastAtOrBefore(z.at, lo) }
-		for i < n && z.at[i] <= hi {
-			if z.at[i] > lo {
-				candidates = candidates.Append(z.at[i])
-			}
-			i += 1
+	let mut best = x
+	if n > 0 {
+		let i = if x < z.at[0] { 0 } else { lastAtOrBefore(z.at, x) + 1 }
+		if i < n && z.at[i] <= hi {
+			best = z.at[i]
 		}
 	}
-	let ruleFrom = if n == 0 { lo } else if z.at[n - 1] > lo { z.at[n - 1] } else { lo }
-	if hi > ruleFrom {
+	let low = if n > 0 && z.at[n - 1] > x { z.at[n - 1] } else { x }
+	if hi > low {
 		match z.rule {
 		case noRule:
 		case always, seasonal:
-			let y0, _ = yearAndDay(floorDiv(ruleFrom, 86400))
+			let y0, _ = yearAndDay(floorDiv(low, 86400))
 			let y1, _ = yearAndDay(floorDiv(hi, 86400))
 			for y in y0..y1 + 1 {
-				for b in ruleBounds(z.rule, y) {
-					if b > ruleFrom && b > lo && b <= hi {
-						candidates = candidates.Append(b)
+				for k in 0..ruleBoundCount(z.rule) {
+					let b = ruleBound(z.rule, y, k)
+					if b > low && b <= hi && (best == x || b < best) {
+						best = b
 					}
 				}
 			}
 		}
 	}
-	let mut out = []int64{}
-	let mut seen = false
-	let mut prev = int64(0)
-	for b in slices.Sort(candidates) {
-		if seen && prev == b {
-			continue
-		}
-		seen = true
-		prev = b
-		let a = lookup(z, b - 1)
-		let c = lookup(z, b)
-		if a.Seconds != c.Seconds || !secondsOnly && a != c {
-			out = out.Append(b)
-		}
-	}
-	out
+	best
 }
