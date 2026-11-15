@@ -38,8 +38,13 @@ import (
 // enters the root), so a stack's pop lost its room and the next push
 // allocated. The old value is overwritten by the store, and the root held
 // its array alone (Bindings 1), so the new value shares storage with
-// nothing but the place it is stored in: no copy. The bounds are integers;
-// a bound that writes the root (a call given &s) refuses it.
+// nothing but the place it is stored in: no copy. A bound may write the
+// root (a call given &s): the reslice's operand is read into a temporary
+// before the bound runs, and a write the bound makes either replaces the
+// place (an assignment copies its value) or writes an element (which the
+// slice shows as hand Go's would); no binding keeps the old array, so the
+// store still leaves it to no one (SL3 round 1: the check that refused
+// such a bound changed no output; /tmp/opencode/mapcopy/sl3/bound).
 
 // reslices reports whether the value e is the right side of a rebinding
 // place = place[a:b] (any depth of slicing) of one place rooted at vv
@@ -80,11 +85,6 @@ func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
 	}
 	if v, ok := w.info.Uses[id].(*check.Var); !ok || w.vars[v] != vv {
 		return false
-	}
-	for _, o := range vv.occs {
-		if o.kind == occWrite && w.pre[s] <= o.pre && o.pre < w.post[s] {
-			return false
-		}
 	}
 	if !w.l.takes("own-reslice") {
 		return false
