@@ -1,0 +1,77 @@
+import fktable/dino
+import fktable/query
+
+func indexOf(d dino.Dinosaur) int {
+	for i, x in dino.All {
+		if x == d {
+			return i
+		}
+	}
+	-1
+}
+
+// RowsAreTheMatches: the rows are exactly the dinosaurs that match the
+// query, each once, in the sorting's order, and rows that tie keep the
+// listed order.
+law RowsAreTheMatches(drawn query.Query, part int) {
+	// The search is a part of a listed name, or none, so rows show.
+	let parts = []string{"", "", "saurus", "RAPTOR", "o", "x"}
+	let q = query.Query{..drawn, Search: parts[((part%len(parts))+len(parts))%len(parts)]}
+	let rows = Rows(q)
+	let mut want = 0
+	for d in dino.All {
+		if Matches(q, d) {
+			want = want + 1
+		}
+	}
+	if len(rows) != want {
+		return false
+	}
+	for i, d in rows {
+		if !Matches(q, d) {
+			return false
+		}
+		if i == 0 {
+			continue
+		}
+		let prev = rows[i-1]
+		let c = match q.Sorting {
+		case query.Unsorted:
+			0
+		case query.Ascending as a:
+			Compare(a.Column, prev, d)
+		case query.Descending as s:
+			Compare(s.Column, d, prev)
+		}
+		if c > 0 || (c == 0 && indexOf(prev) >= indexOf(d)) {
+			return false
+		}
+	}
+	true
+}
+
+// UrlIsAFunctionOfTheControls: a control changes nothing itself and asks
+// for the address of the controls with that one changed, from the table
+// or from a path it is not at; a new address is the state.
+law UrlIsAFunctionOfTheControls(q query.Query, lost bool, sig Signal) {
+	let r = if lost { query.NotFound{Path: "/elsewhere"} } else { query.Browse{Query: q} }
+	let shown = if lost { query.Default } else { q }
+	let want = match sig {
+	case Navigated as n:
+		return Step(r, sig) == Enter[query.Route]{Next: query.Decode(n.Path)}
+	case Searched as s:
+		query.Query{..shown, Search: s.Text}
+	case Clicked as c:
+		query.Query{..shown, Sorting: query.Next(shown.Sorting, c.Column)}
+	case ChoseDiet as d:
+		query.Query{..shown, Diet: d.Diet}
+	case ChosePeriod as p:
+		query.Query{..shown, Period: p.Period}
+	}
+	match Step(r, sig) {
+	case Emit[query.Route, Replace] as e:
+		e.Next == r && query.Decode(e.Output.Path) == query.Browse{Query: want}
+	case Enter[query.Route], Stay[query.Route], Ignore, Reject, Done[Replace]:
+		false
+	}
+}

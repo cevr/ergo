@@ -1,0 +1,186 @@
+// Package script is the host of stage a: it steps the table over a script
+// of the user's acts, replaces the address when the table asks, and shows
+// after each act the address, the controls and the rows. The table has no
+// timer and no work, so the host steps it directly (machines.Next). A
+// line is one of:
+//
+//	start PATH            open the table at PATH (the first line only)
+//	visit PATH            type PATH in the address bar
+//	search TEXT           the search box's text (the rest of the line; none clears it)
+//	sort COLUMN           click a column header: Name, Period, Diet, Length or Weight
+//	diet NAME|all         choose a diet filter
+//	period NAME|all       choose a period filter
+//
+// A blank line or one that starts with # is skipped.
+
+import fktable/dino
+import fktable/query
+import fktable/table
+import io
+import machines
+import strconv
+import strings
+
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Run plays the script on standard input and prints what the table
+// shows. It returns the exit status: 0, or 1 for a line it cannot read.
+func Run() int needs Console | io.Stdin {
+	let mut lines = []string{}
+	for raw in io.Stdin.Lines() {
+		lines = lines.Append(raw)
+	}
+	let mut address = "/"
+	let mut first = 0
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "start ") {
+			address = strings.TrimSpace(strings.TrimPrefix(line, "start "))
+			first = i + 1
+		}
+		break
+	}
+	let mut r = table.Open(address)
+	let mut shown = []string{}
+	Console.Println("> start \(address)")
+	shown = show(shown, view(address, r))
+	for i in first..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		let sig = signalOf(line) catch {
+		case Bad as b:
+			Console.Println("? line \(i + 1): \(b.Why)")
+			return 1
+		}
+		let d = table.Step(r, sig)
+		r = machines.Next(r, d)
+		match sig {
+		case table.Navigated as n:
+			address = n.Path
+		case table.Searched, table.Clicked, table.ChoseDiet, table.ChosePeriod:
+		}
+		match d {
+		case Emit[query.Route, table.Replace] as e:
+			address = e.Output.Path
+			r = machines.Next(r, table.Step(r, table.Navigated{Path: address}))
+		case Enter[query.Route], Stay[query.Route], Ignore, Reject, Done[table.Replace]:
+		}
+		shown = show(shown, view(address, r))
+	}
+	Console.Println("> stop")
+	0
+}
+
+func signalOf(line string) table.Signal fails Bad {
+	let words = strings.Fields(line)
+	let arg = if len(words) > 1 { words[1] } else { "" }
+	match words[0] {
+	case "visit":
+		table.Navigated{Path: arg}
+	case "search":
+		table.Searched{Text: strings.TrimSpace(strings.TrimPrefix(line, "search"))}
+	case "sort":
+		for c in query.Columns {
+			if query.ColumnName(c) == arg {
+				return table.Clicked{Column: c}
+			}
+		}
+		Bad{Why: "a column is Name, Period, Diet, Length or Weight"}
+	case "diet":
+		if arg == "all" {
+			return table.ChoseDiet{Diet: None}
+		}
+		for d in dino.Diets {
+			if dino.DietName(d) == arg {
+				return table.ChoseDiet{Diet: Some[dino.Diet]{Value: d}}
+			}
+		}
+		Bad{Why: "a diet is Carnivore, Herbivore, Omnivore or all"}
+	case "period":
+		if arg == "all" {
+			return table.ChosePeriod{Period: None}
+		}
+		for p in dino.Periods {
+			if dino.PeriodName(p) == arg {
+				return table.ChosePeriod{Period: Some[dino.Period]{Value: p}}
+			}
+		}
+		Bad{Why: "a period is Triassic, Jurassic, Cretaceous or all"}
+	case "start":
+		Bad{Why: "start is the first line only"}
+	case _:
+		Bad{Why: "unknown word \(words[0])"}
+	}
+}
+
+// show prints the lines of now that differ from shown, and is now.
+func show(shown []string, now []string) []string {
+	for k, l in now {
+		if k >= len(shown) || shown[k] != l {
+			Console.Println("  " + l)
+		}
+	}
+	now
+}
+
+func sortingText(s query.Sorting) string {
+	match s {
+	case query.Unsorted:
+		"unsorted"
+	case query.Ascending as a:
+		"\(query.ColumnName(a.Column)) ascending"
+	case query.Descending as d:
+		"\(query.ColumnName(d.Column)) descending"
+	}
+}
+
+func dietText(d Option[dino.Diet]) string {
+	match d {
+	case Some[dino.Diet] as v:
+		dino.DietName(v.Value)
+	case None:
+		"all"
+	}
+}
+
+func periodText(p Option[dino.Period]) string {
+	match p {
+	case Some[dino.Period] as v:
+		dino.PeriodName(v.Value)
+	case None:
+		"all"
+	}
+}
+
+func metres(tenths int) string {
+	let whole = strconv.Itoa(tenths / 10)
+	if tenths%10 == 0 { whole } else { whole + "." + strconv.Itoa(tenths%10) }
+}
+
+// view is what the page shows, a line per part: the address, the
+// controls, the count and the rows, or the not-found page.
+func view(address string, r query.Route) []string {
+	match r {
+	case query.NotFound as n:
+		[]string{"address: \(address)", "page: not found: \(n.Path)"}
+	case query.Browse as b:
+		let q = b.Query
+		let rows = table.Rows(q)
+		let out = []string{"address: \(address)", "controls: search \"\(q.Search)\", \(sortingText(q.Sorting)), diet \(dietText(q.Diet)), period \(periodText(q.Period))", "showing \(len(rows)) of \(len(dino.All))"}
+		if len(rows) == 0 {
+			return out.Append("no dinosaur matches")
+		}
+		let mut names = []string{}
+		for d in rows {
+			names = names.Append("\(d.Name) (\(dino.PeriodName(d.Period)), \(dino.DietName(d.Diet)), \(metres(d.Length)) m, \(d.Weight) kg)")
+		}
+		out.Append("rows: " + strings.Join(names, "; "))
+	}
+}
