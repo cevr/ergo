@@ -416,6 +416,33 @@
       "killers": ["mygo:TestEditorGuiOnTheDesktop"]
     },
     {
+      "name": "GP3c-moves-not-captured",
+      "origin": "GP3c",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\tspotOf(d, p.Value)\n\t\tcase None:\n\t\t\tNone",
+      "to": "\t\t\tif p.Value == p.Value { hitAt(d, x, y) } else { spotOf(d, p.Value) }\n\t\tcase None:\n\t\t\tNone",
+      "rule": "a pressed pointer's moves go to the node it went down on, over any other node or none (pointer capture)",
+      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP3c-outputs-unreported",
+      "origin": "GP3c",
+      "file": "hosts/mygo/cmd/draw-gui/main.ergo",
+      "from": "outputs.Set([]canvas.Output{})\n",
+      "to": "\n",
+      "rule": "the window binary reports each of the tool's outputs once, after the line that made it",
+      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP3c-control-buttons-everywhere",
+      "origin": "GP3c",
+      "file": "hosts/mygo/controls/draw-gui/main.go",
+      "from": "\tif label == \"\" {\n\t\treturn false\n\t}",
+      "to": "\tif true {\n\t\treturn false\n\t}",
+      "rule": "the control's toolbar has no button for a layer, zoom or pan the Ergo view has none for, and says so as the scene does",
+      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+    },
+    {
       "name": "wasm-node-env-inherits-gomaxprocs",
       "origin": "LY P-ui queue (GP's browser-run finding)",
       "file": "hosts/mygo/examples_test.go",

@@ -198,6 +198,25 @@ and `ui.Tester` lays out and paints the window after it.
 `editor-gui scene` on 60 seeded documents and scripts, output and saved
 file (`-editor.seed=N` replays one).
 
+## The drawing app's window: `cmd/draw-gui` (GP3c)
+
+`examples/draw-gui` (module `ergo.local/prototype/examples/drawgui`) is
+required the same way. `cmd/draw-gui [-headless [-check]] FILE` shows its
+tool machine and view on the desktop driver, saving pictures to the
+host's files. Headless, it plays the example's script as a person gives
+it: the pointer pressed on the picture and moved and released anywhere,
+past the picture's edge too; the toolbar's buttons clicked; Escape
+pressed. A pressed pointer's moves go to the node it went down on, as its
+release does (pointer capture; before, a move over another node or none
+was lost, so a stroke dragged past the picture's edge missed points).
+
+`controls/draw-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/draw-gui/control`, copied, with the window on MyGo's
+widgets and the picture a box whose `Draw` strokes the shapes with
+MyGo's `Painter`. `TestDrawGuiOnTheDesktop` holds both to the example's
+`draw-gui scene` on 40 seeded pictures and scripts, output and saved file
+(`-draw.seed=N` replays one).
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.

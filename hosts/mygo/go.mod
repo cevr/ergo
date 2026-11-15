@@ -20,12 +20,13 @@ require (
 // path, so it needs no fork. It goes when MyGo takes the package upstream.
 replace github.com/egoist/mygo/drawing => ./drawing
 
-// The Ergo examples whose window binaries are cmd/counter-gui and
-// cmd/todo-gui: Ergo modules this one requires (grammar.md, Required
+// The Ergo examples whose window binaries are the cmd/*-gui folders:
+// Ergo modules this one requires (grammar.md, Required
 // modules), from their folders in this repository.
 require (
 	ergo.local/prototype/examples/countergui v0.0.0
 	ergo.local/prototype/examples/editorgui v0.0.0
+	ergo.local/prototype/examples/drawgui v0.0.0
 	ergo.local/prototype/examples/starsgui v0.0.0
 	ergo.local/prototype/examples/todogui v0.0.0
 )
@@ -37,3 +38,5 @@ replace ergo.local/prototype/examples/todogui => ../../examples/todo-gui
 replace ergo.local/prototype/examples/starsgui => ../../examples/stars-gui
 
 replace ergo.local/prototype/examples/editorgui => ../../examples/editor-gui
+
+replace ergo.local/prototype/examples/drawgui => ../../examples/draw-gui
