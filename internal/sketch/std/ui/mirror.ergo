@@ -339,3 +339,128 @@ law MirrorWorkIsLinear(n int, seed int) {
 	}
 	reads[2]-reads[1] == 2*(reads[1]-reads[0])
 }
+
+// badPatchView is the law's view: two columns of keyed text rows, keys
+// from cols. (a law's helper)
+func badPatchView(f *Frame[int], cols [][]int) {
+	for c in cols {
+		Column(f, Plain()) {
+			Each(f, c, func(x int) Key { ByInt(x) }) func(x int) {
+				Text(f, "row \(x)")
+			}
+		}
+	}
+}
+
+// badPatchRejected is whether bad, applied after good on a fresh mirror
+// of root, fails with BadPatch, while good alone applies. (a law's helper)
+func badPatchRejected(root Id[int], good []Op[int], bad Op[int]) bool {
+	let mut m = NewMirror[int](root)
+	Apply(&m, good) catch {
+	case BadPatch:
+		return false
+	}
+	let mut failed = false
+	Apply(&m, []Op[int]{bad}) catch {
+	case BadPatch:
+		failed = true
+	}
+	failed
+}
+
+// insertsUnder is the Inserts of ops whose parent is p. (a law's helper)
+func insertsUnder(ops []Op[int], p Id[int]) []Insert[int] {
+	let mut out = []Insert[int]{}
+	for op in ops {
+		match op {
+		case Insert[int] as o:
+			if o.Parent == p {
+				out = out.Append(o)
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// MirrorRejectsBadPatches (FK11-g8 follow-up): over drawn screens of two
+// columns of rows and a second pass that adds rows, each op that does
+// not fit the mirror the first pass built fails with BadPatch: an Insert
+// of an Id it holds, an Insert under or a Set, Move or Remove of an Id it
+// does not hold, an Insert or Move whose Before is itself, a node it does not
+// hold or a child of the other column, a Move to the other column, a
+// Remove of the root, and a Set that changes a node's kind.
+law MirrorRejectsBadPatches(a int, b int) {
+	let na = (a%5+5)%5 + 1
+	let nb = (b%5+5)%5 + 1
+	let mut xs = []int{}
+	let mut ys = []int{}
+	let mut more = []int{}
+	for i in 0..na {
+		xs = xs.Append(i)
+	}
+	for i in 0..nb {
+		ys = ys.Append(100 + i)
+	}
+	for x in xs {
+		more = more.Append(x)
+	}
+	more = more.Append(50)
+	let mut f = NewFrame[int]()
+	let root = Root(&f)
+	let first = Render(&f, badPatchView, [][]int{xs, ys})
+	let second = Render(&f, badPatchView, [][]int{more, ys})
+	let cols = insertsUnder(first, root)
+	if len(cols) != 2 {
+		return false
+	}
+	// The composer emits a parent's Inserts right to left: the column
+	// the second pass adds to is the left one.
+	let mut lc = cols[0].Id
+	let mut rc = cols[1].Id
+	if len(insertsUnder(second, rc)) == 1 {
+		lc = cols[1].Id
+		rc = cols[0].Id
+	}
+	let left = insertsUnder(first, lc)
+	let right = insertsUnder(first, rc)
+	let added = insertsUnder(second, lc)
+	if len(left) != na || len(right) != nb || len(added) != 1 {
+		return false
+	}
+	let row = left[0]
+	let other = right[0]
+	let fresh = added[0]
+	let text = TextNode{Value: "x", Style: Plain()}
+	let box = BoxNode{Style: Plain()}
+	let bad = []Op[int]{
+		row,
+		Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text},
+		Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text},
+		Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text},
+		Move[int]{Id: row.Id, Parent: rc, Before: None},
+		Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}},
+		Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}},
+		Move[int]{Id: fresh.Id, Parent: lc, Before: None},
+		Remove[int]{Id: root},
+		Remove[int]{Id: fresh.Id},
+		Set[int]{Id: fresh.Id, Node: text},
+		Set[int]{Id: row.Id, Node: box},
+	}
+	for op in bad {
+		if !badPatchRejected(root, first, op) {
+			return false
+		}
+	}
+	// The second pass's own Insert fits.
+	let mut m = NewMirror[int](root)
+	Apply(&m, first) catch {
+	case BadPatch:
+		return false
+	}
+	Apply(&m, []Op[int]{fresh}) catch {
+	case BadPatch:
+		return false
+	}
+	true
+}
