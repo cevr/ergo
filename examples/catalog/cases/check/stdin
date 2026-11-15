@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- A feed written by hand: indented, with comments, a CDATA section,
-     character references and an empty element. -->
+     character references, an empty element, an sku as an attribute (with
+     an attribute the catalog does not have) and as an element. -->
 <catalog>
   <shop>Corner Shop &#x2014; Knowlton</shop>
   <products>
-    <item>
-      <sku>SKU-1</sku>
+    <item sku="SKU-1" lang='en'>
       <title><![CDATA[Mug & saucer <set of 2>]]></title>
       <cents> 1250 </cents>
       <status><_tag>Listed</_tag></status>

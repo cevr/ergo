@@ -3793,519 +3793,522 @@ func (e *encoder) encT156(v interface{}) {
 	case *WirePair:
 		e.uint(79)
 		e.encPtrWirePair(x)
-	case *Wired:
+	case *WireWrite:
 		e.uint(80)
+		e.encPtrWireWrite(x)
+	case *Wired:
+		e.uint(81)
 		e.encPtrWired(x)
 	case *With:
-		e.uint(81)
+		e.uint(82)
 		e.encPtrWith(x)
 	case *Witness:
-		e.uint(82)
+		e.uint(83)
 		e.encPtrWitness(x)
 	case *WitnessOp:
-		e.uint(83)
+		e.uint(84)
 		e.encPtrWitnessOp(x)
 	case *Work:
-		e.uint(84)
+		e.uint(85)
 		e.encPtrWork(x)
 	case *argList:
-		e.uint(85)
+		e.uint(86)
 		e.encPtrargList(x)
 	case *armVar:
-		e.uint(86)
+		e.uint(87)
 		e.encPtrarmVar(x)
 	case *asBinding:
-		e.uint(87)
+		e.uint(88)
 		e.encPtrasBinding(x)
 	case *assignment:
-		e.uint(88)
+		e.uint(89)
 		e.encPtrassignment(x)
 	case *at:
-		e.uint(89)
+		e.uint(90)
 		e.encPtrat(x)
 	case *binderKey:
-		e.uint(90)
+		e.uint(91)
 		e.encPtrbinderKey(x)
 	case *bodyNode:
-		e.uint(91)
+		e.uint(92)
 		e.encPtrbodyNode(x)
 	case *bodySum:
-		e.uint(92)
+		e.uint(93)
 		e.encPtrbodySum(x)
 	case *borrowWalk:
-		e.uint(93)
+		e.uint(94)
 		e.encPtrborrowWalk(x)
 	case *branch:
-		e.uint(94)
+		e.uint(95)
 		e.encPtrbranch(x)
 	case *capBinding:
-		e.uint(95)
+		e.uint(96)
 		e.encPtrcapBinding(x)
 	case *capCall:
-		e.uint(96)
+		e.uint(97)
 		e.encPtrcapCall(x)
 	case *capKey:
-		e.uint(97)
+		e.uint(98)
 		e.encPtrcapKey(x)
 	case *capNode:
-		e.uint(98)
+		e.uint(99)
 		e.encPtrcapNode(x)
 	case *capSet:
-		e.uint(99)
+		e.uint(100)
 		e.encPtrcapSet(x)
 	case *catchItem:
-		e.uint(100)
+		e.uint(101)
 		e.encPtrcatchItem(x)
 	case *catchMatrix:
-		e.uint(101)
+		e.uint(102)
 		e.encPtrcatchMatrix(x)
 	case *catchSpace:
-		e.uint(102)
+		e.uint(103)
 		e.encPtrcatchSpace(x)
 	case *caughtCall:
-		e.uint(103)
+		e.uint(104)
 		e.encPtrcaughtCall(x)
 	case *cell:
-		e.uint(104)
+		e.uint(105)
 		e.encPtrcell(x)
 	case *cellSite:
-		e.uint(105)
+		e.uint(106)
 		e.encPtrcellSite(x)
 	case *checker:
-		e.uint(106)
+		e.uint(107)
 		e.encPtrchecker(x)
 	case *colInfo:
-		e.uint(107)
+		e.uint(108)
 		e.encPtrcolInfo(x)
 	case *collKey:
-		e.uint(108)
+		e.uint(109)
 		e.encPtrcollKey(x)
 	case *collision:
-		e.uint(109)
+		e.uint(110)
 		e.encPtrcollision(x)
 	case *column:
-		e.uint(110)
+		e.uint(111)
 		e.encPtrcolumn(x)
 	case *contextComp:
-		e.uint(111)
+		e.uint(112)
 		e.encPtrcontextComp(x)
 	case *contextDeps:
-		e.uint(112)
+		e.uint(113)
 		e.encPtrcontextDeps(x)
 	case *contextFinding:
-		e.uint(113)
+		e.uint(114)
 		e.encPtrcontextFinding(x)
 	case *contextGroup:
-		e.uint(114)
+		e.uint(115)
 		e.encPtrcontextGroup(x)
 	case *contextMeter:
-		e.uint(115)
+		e.uint(116)
 		e.encPtrcontextMeter(x)
 	case *contextNode:
-		e.uint(116)
+		e.uint(117)
 		e.encPtrcontextNode(x)
 	case *contextOwners:
-		e.uint(117)
+		e.uint(118)
 		e.encPtrcontextOwners(x)
 	case *contextPass:
-		e.uint(118)
+		e.uint(119)
 		e.encPtrcontextPass(x)
 	case *contextValueSite:
-		e.uint(119)
+		e.uint(120)
 		e.encPtrcontextValueSite(x)
 	case *declKinds:
-		e.uint(120)
+		e.uint(121)
 		e.encPtrdeclKinds(x)
 	case *decoder:
-		e.uint(121)
+		e.uint(122)
 		e.encPtrdecoder(x)
 	case *dropWalk:
-		e.uint(122)
+		e.uint(123)
 		e.encPtrdropWalk(x)
 	case *encoder:
-		e.uint(123)
+		e.uint(124)
 		e.encPtrencoder(x)
 	case *escWalk:
-		e.uint(124)
+		e.uint(125)
 		e.encPtrescWalk(x)
 	case *explicitArgs:
-		e.uint(125)
+		e.uint(126)
 		e.encPtrexplicitArgs(x)
 	case *exportError:
-		e.uint(126)
+		e.uint(127)
 		e.encPtrexportError(x)
 	case *fileInfo:
-		e.uint(127)
+		e.uint(128)
 		e.encPtrfileInfo(x)
 	case *footprinter:
-		e.uint(128)
+		e.uint(129)
 		e.encPtrfootprinter(x)
 	case *fpNode:
-		e.uint(129)
+		e.uint(130)
 		e.encPtrfpNode(x)
 	case *frameVerdict:
-		e.uint(130)
+		e.uint(131)
 		e.encPtrframeVerdict(x)
 	case *funcCtx:
-		e.uint(131)
+		e.uint(132)
 		e.encPtrfuncCtx(x)
 	case *goImp:
-		e.uint(132)
+		e.uint(133)
 		e.encPtrgoImp(x)
 	case *groupSite:
-		e.uint(133)
+		e.uint(134)
 		e.encPtrgroupSite(x)
 	case *guardNode:
-		e.uint(134)
+		e.uint(135)
 		e.encPtrguardNode(x)
 	case *guardedUse:
-		e.uint(135)
+		e.uint(136)
 		e.encPtrguardedUse(x)
 	case *hand:
-		e.uint(136)
+		e.uint(137)
 		e.encPtrhand(x)
 	case *headerReader:
-		e.uint(137)
+		e.uint(138)
 		e.encPtrheaderReader(x)
 	case *hostPkg:
-		e.uint(138)
+		e.uint(139)
 		e.encPtrhostPkg(x)
 	case *importAlias:
-		e.uint(139)
+		e.uint(140)
 		e.encPtrimportAlias(x)
 	case *include:
-		e.uint(140)
+		e.uint(141)
 		e.encPtrinclude(x)
 	case *inferer:
-		e.uint(141)
+		e.uint(142)
 		e.encPtrinferer(x)
 	case *initDeps:
-		e.uint(142)
+		e.uint(143)
 		e.encPtrinitDeps(x)
 	case *keepWalk:
-		e.uint(143)
+		e.uint(144)
 		e.encPtrkeepWalk(x)
 	case *keyShape:
-		e.uint(144)
+		e.uint(145)
 		e.encPtrkeyShape(x)
 	case *kindVar:
-		e.uint(145)
+		e.uint(146)
 		e.encPtrkindVar(x)
 	case *lendPoint:
-		e.uint(146)
+		e.uint(147)
 		e.encPtrlendPoint(x)
 	case *lendWalk:
-		e.uint(147)
+		e.uint(148)
 		e.encPtrlendWalk(x)
 	case *litFrame:
-		e.uint(148)
+		e.uint(149)
 		e.encPtrlitFrame(x)
 	case *litParams:
-		e.uint(149)
+		e.uint(150)
 		e.encPtrlitParams(x)
 	case *litType:
-		e.uint(150)
+		e.uint(151)
 		e.encPtrlitType(x)
 	case *litUse:
-		e.uint(151)
+		e.uint(152)
 		e.encPtrlitUse(x)
 	case *localBinding:
-		e.uint(152)
+		e.uint(153)
 		e.encPtrlocalBinding(x)
 	case *lookupSteps:
-		e.uint(153)
+		e.uint(154)
 		e.encPtrlookupSteps(x)
 	case *matrixSolver:
-		e.uint(154)
+		e.uint(155)
 		e.encPtrmatrixSolver(x)
 	case *mentioner:
-		e.uint(155)
+		e.uint(156)
 		e.encPtrmentioner(x)
 	case *minter:
-		e.uint(156)
+		e.uint(157)
 		e.encPtrminter(x)
 	case *missingResult:
-		e.uint(157)
+		e.uint(158)
 		e.encPtrmissingResult(x)
 	case *moduleImporter:
-		e.uint(158)
+		e.uint(159)
 		e.encPtrmoduleImporter(x)
 	case *monoEdge:
-		e.uint(159)
+		e.uint(160)
 		e.encPtrmonoEdge(x)
 	case *monoState:
-		e.uint(160)
+		e.uint(161)
 		e.encPtrmonoState(x)
 	case *mutEvent:
-		e.uint(161)
+		e.uint(162)
 		e.encPtrmutEvent(x)
 	case *noValue:
-		e.uint(162)
+		e.uint(163)
 		e.encPtrnoValue(x)
 	case *nodeKey:
-		e.uint(163)
+		e.uint(164)
 		e.encPtrnodeKey(x)
 	case *objTable:
-		e.uint(164)
+		e.uint(165)
 		e.encPtrobjTable(x)
 	case *operand:
-		e.uint(165)
+		e.uint(166)
 		e.encPtroperand(x)
 	case *ownCatch:
-		e.uint(166)
+		e.uint(167)
 		e.encPtrownCatch(x)
 	case *ownDiag:
-		e.uint(167)
+		e.uint(168)
 		e.encPtrownDiag(x)
 	case *ownFrameSave:
-		e.uint(168)
+		e.uint(169)
 		e.encPtrownFrameSave(x)
 	case *ownLoan:
-		e.uint(169)
+		e.uint(170)
 		e.encPtrownLoan(x)
 	case *ownLoanCall:
-		e.uint(170)
+		e.uint(171)
 		e.encPtrownLoanCall(x)
 	case *ownLocal:
-		e.uint(171)
+		e.uint(172)
 		e.encPtrownLocal(x)
 	case *ownLoop:
-		e.uint(172)
+		e.uint(173)
 		e.encPtrownLoop(x)
 	case *ownLoopMemo:
-		e.uint(173)
+		e.uint(174)
 		e.encPtrownLoopMemo(x)
 	case *ownScope:
-		e.uint(174)
+		e.uint(175)
 		e.encPtrownScope(x)
 	case *ownSlot:
-		e.uint(175)
+		e.uint(176)
 		e.encPtrownSlot(x)
 	case *ownState:
-		e.uint(176)
+		e.uint(177)
 		e.encPtrownState(x)
 	case *ownTail:
-		e.uint(177)
+		e.uint(178)
 		e.encPtrownTail(x)
 	case *ownWalk:
-		e.uint(178)
+		e.uint(179)
 		e.encPtrownWalk(x)
 	case *ownershipKey:
-		e.uint(179)
+		e.uint(180)
 		e.encPtrownershipKey(x)
 	case *ownershipSite:
-		e.uint(180)
+		e.uint(181)
 		e.encPtrownershipSite(x)
 	case *patBinding:
-		e.uint(181)
+		e.uint(182)
 		e.encPtrpatBinding(x)
 	case *patNode:
-		e.uint(182)
+		e.uint(183)
 		e.encPtrpatNode(x)
 	case *patResolver:
-		e.uint(183)
+		e.uint(184)
 		e.encPtrpatResolver(x)
 	case *patSpace:
-		e.uint(184)
+		e.uint(185)
 		e.encPtrpatSpace(x)
 	case *patternCost:
-		e.uint(185)
+		e.uint(186)
 		e.encPtrpatternCost(x)
 	case *patternMeter:
-		e.uint(186)
+		e.uint(187)
 		e.encPtrpatternMeter(x)
 	case *patternPart:
-		e.uint(187)
+		e.uint(188)
 		e.encPtrpatternPart(x)
 	case *pendingSelf:
-		e.uint(188)
+		e.uint(189)
 		e.encPtrpendingSelf(x)
 	case *pkgPattern:
-		e.uint(189)
+		e.uint(190)
 		e.encPtrpkgPattern(x)
 	case *pkgVar:
-		e.uint(190)
+		e.uint(191)
 		e.encPtrpkgVar(x)
 	case *place:
-		e.uint(191)
+		e.uint(192)
 		e.encPtrplace(x)
 	case *placeStep:
-		e.uint(192)
+		e.uint(193)
 		e.encPtrplaceStep(x)
 	case *preludeResult:
-		e.uint(193)
+		e.uint(194)
 		e.encPtrpreludeResult(x)
 	case *preludeState:
-		e.uint(194)
+		e.uint(195)
 		e.encPtrpreludeState(x)
 	case *pureArg:
-		e.uint(195)
+		e.uint(196)
 		e.encPtrpureArg(x)
 	case *pureBinding:
-		e.uint(196)
+		e.uint(197)
 		e.encPtrpureBinding(x)
 	case *pureSeer:
-		e.uint(197)
+		e.uint(198)
 		e.encPtrpureSeer(x)
 	case *reachNode:
-		e.uint(198)
+		e.uint(199)
 		e.encPtrreachNode(x)
 	case *refWalker:
-		e.uint(199)
+		e.uint(200)
 		e.encPtrrefWalker(x)
 	case *refiner:
-		e.uint(200)
+		e.uint(201)
 		e.encPtrrefiner(x)
 	case *relNeed:
-		e.uint(201)
+		e.uint(202)
 		e.encPtrrelNeed(x)
 	case *relSeed:
-		e.uint(202)
+		e.uint(203)
 		e.encPtrrelSeed(x)
 	case *resWalk:
-		e.uint(203)
+		e.uint(204)
 		e.encPtrresWalk(x)
 	case *resolved:
-		e.uint(204)
+		e.uint(205)
 		e.encPtrresolved(x)
 	case *resourceLoan:
-		e.uint(205)
+		e.uint(206)
 		e.encPtrresourceLoan(x)
 	case *resourceSite:
-		e.uint(206)
+		e.uint(207)
 		e.encPtrresourceSite(x)
 	case *rowRef:
-		e.uint(207)
+		e.uint(208)
 		e.encPtrrowRef(x)
 	case *rowSet:
-		e.uint(208)
+		e.uint(209)
 		e.encPtrrowSet(x)
 	case *scopeNode:
-		e.uint(209)
+		e.uint(210)
 		e.encPtrscopeNode(x)
 	case *segment:
-		e.uint(210)
+		e.uint(211)
 		e.encPtrsegment(x)
 	case *sink:
-		e.uint(211)
+		e.uint(212)
 		e.encPtrsink(x)
 	case *snapshot:
-		e.uint(212)
+		e.uint(213)
 		e.encPtrsnapshot(x)
 	case *stdBase:
-		e.uint(213)
+		e.uint(214)
 		e.encPtrstdBase(x)
 	case *stdEntry:
-		e.uint(214)
+		e.uint(215)
 		e.encPtrstdEntry(x)
 	case *stdImporter:
-		e.uint(215)
+		e.uint(216)
 		e.encPtrstdImporter(x)
 	case *stdSnapshot:
-		e.uint(216)
+		e.uint(217)
 		e.encPtrstdSnapshot(x)
 	case *switchGroup:
-		e.uint(217)
+		e.uint(218)
 		e.encPtrswitchGroup(x)
 	case *switchUnion:
-		e.uint(218)
+		e.uint(219)
 		e.encPtrswitchUnion(x)
 	case *target:
-		e.uint(219)
+		e.uint(220)
 		e.encPtrtarget(x)
 	case *taskNode:
-		e.uint(220)
+		e.uint(221)
 		e.encPtrtaskNode(x)
 	case *testState:
-		e.uint(221)
+		e.uint(222)
 		e.encPtrtestState(x)
 	case *trimmedNode:
-		e.uint(222)
+		e.uint(223)
 		e.encPtrtrimmedNode(x)
 	case *tryCover:
-		e.uint(223)
+		e.uint(224)
 		e.encPtrtryCover(x)
 	case *typeCtx:
-		e.uint(224)
+		e.uint(225)
 		e.encPtrtypeCtx(x)
 	case *typeEnv:
-		e.uint(225)
+		e.uint(226)
 		e.encPtrtypeEnv(x)
 	case *typeTable:
-		e.uint(226)
+		e.uint(227)
 		e.encPtrtypeTable(x)
 	case *typeWalker:
-		e.uint(227)
+		e.uint(228)
 		e.encPtrtypeWalker(x)
 	case *universeState:
-		e.uint(228)
+		e.uint(229)
 		e.encPtruniverseState(x)
 	case *useAt:
-		e.uint(229)
+		e.uint(230)
 		e.encPtruseAt(x)
 	case *useSite:
-		e.uint(230)
+		e.uint(231)
 		e.encPtruseSite(x)
 	case *valueFrame:
-		e.uint(231)
+		e.uint(232)
 		e.encPtrvalueFrame(x)
 	case *variantIndex:
-		e.uint(232)
+		e.uint(233)
 		e.encPtrvariantIndex(x)
 	case *vcand:
-		e.uint(233)
+		e.uint(234)
 		e.encPtrvcand(x)
 	case *vnode:
-		e.uint(234)
+		e.uint(235)
 		e.encPtrvnode(x)
 	case *vrow:
-		e.uint(235)
+		e.uint(236)
 		e.encPtrvrow(x)
 	case *vsym:
-		e.uint(236)
+		e.uint(237)
 		e.encPtrvsym(x)
 	case *vterms:
-		e.uint(237)
+		e.uint(238)
 		e.encPtrvterms(x)
 	case *wireFault:
-		e.uint(238)
+		e.uint(239)
 		e.encPtrwireFault(x)
 	case *wireNeed:
-		e.uint(239)
+		e.uint(240)
 		e.encPtrwireNeed(x)
 	case *withFrame:
-		e.uint(240)
+		e.uint(241)
 		e.encPtrwithFrame(x)
 	case *withRefusal:
-		e.uint(241)
+		e.uint(242)
 		e.encPtrwithRefusal(x)
 	case *withScope:
-		e.uint(242)
+		e.uint(243)
 		e.encPtrwithScope(x)
 	case *withSite:
-		e.uint(243)
+		e.uint(244)
 		e.encPtrwithSite(x)
 	case *worklist:
-		e.uint(244)
+		e.uint(245)
 		e.encPtrworklist(x)
 	case bool:
-		e.uint(245)
+		e.uint(246)
 		e.encT11(x)
 	case int:
-		e.uint(246)
+		e.uint(247)
 		e.encT1(x)
 	case int32:
-		e.uint(247)
+		e.uint(248)
 		e.encT155(x)
 	case int64:
-		e.uint(248)
+		e.uint(249)
 		e.encT138(x)
 	case string:
-		e.uint(249)
+		e.uint(250)
 		e.encT2(x)
 	default:
 		if id, ok := e.nodes.Lookup(x); ok {
-			e.uint(250)
+			e.uint(251)
 			e.uint(id)
 			return
 		}
@@ -5564,6 +5567,21 @@ func (e *encoder) encPtrSpread(v *Spread) {
 		return
 	}
 	e.encFieldsSpread(v)
+}
+
+func (e *encoder) encFieldsWireWrite(v *WireWrite) {
+	e.encPtrFunc(v.Func)
+	e.encPtrNamed(v.Op)
+	e.encPtrNamed(v.Provider)
+}
+
+func (e *encoder) encWireWrite(v WireWrite) { e.encFieldsWireWrite(&v) }
+
+func (e *encoder) encPtrWireWrite(v *WireWrite) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldsWireWrite(v)
 }
 
 func (e *encoder) encFieldsWitness(v *Witness) {
@@ -13387,346 +13405,348 @@ func (d *decoder) decT156() interface{} {
 	case 79:
 		return d.decPtrWirePair()
 	case 80:
-		return d.decPtrWired()
+		return d.decPtrWireWrite()
 	case 81:
-		return d.decPtrWith()
+		return d.decPtrWired()
 	case 82:
-		return d.decPtrWitness()
+		return d.decPtrWith()
 	case 83:
-		return d.decPtrWitnessOp()
+		return d.decPtrWitness()
 	case 84:
-		return d.decPtrWork()
+		return d.decPtrWitnessOp()
 	case 85:
-		return d.decPtrargList()
+		return d.decPtrWork()
 	case 86:
-		return d.decPtrarmVar()
+		return d.decPtrargList()
 	case 87:
-		return d.decPtrasBinding()
+		return d.decPtrarmVar()
 	case 88:
-		return d.decPtrassignment()
+		return d.decPtrasBinding()
 	case 89:
-		return d.decPtrat()
+		return d.decPtrassignment()
 	case 90:
-		return d.decPtrbinderKey()
+		return d.decPtrat()
 	case 91:
-		return d.decPtrbodyNode()
+		return d.decPtrbinderKey()
 	case 92:
-		return d.decPtrbodySum()
+		return d.decPtrbodyNode()
 	case 93:
-		return d.decPtrborrowWalk()
+		return d.decPtrbodySum()
 	case 94:
-		return d.decPtrbranch()
+		return d.decPtrborrowWalk()
 	case 95:
-		return d.decPtrcapBinding()
+		return d.decPtrbranch()
 	case 96:
-		return d.decPtrcapCall()
+		return d.decPtrcapBinding()
 	case 97:
-		return d.decPtrcapKey()
+		return d.decPtrcapCall()
 	case 98:
-		return d.decPtrcapNode()
+		return d.decPtrcapKey()
 	case 99:
-		return d.decPtrcapSet()
+		return d.decPtrcapNode()
 	case 100:
-		return d.decPtrcatchItem()
+		return d.decPtrcapSet()
 	case 101:
-		return d.decPtrcatchMatrix()
+		return d.decPtrcatchItem()
 	case 102:
-		return d.decPtrcatchSpace()
+		return d.decPtrcatchMatrix()
 	case 103:
-		return d.decPtrcaughtCall()
+		return d.decPtrcatchSpace()
 	case 104:
-		return d.decPtrcell()
+		return d.decPtrcaughtCall()
 	case 105:
-		return d.decPtrcellSite()
+		return d.decPtrcell()
 	case 106:
-		return d.decPtrchecker()
+		return d.decPtrcellSite()
 	case 107:
-		return d.decPtrcolInfo()
+		return d.decPtrchecker()
 	case 108:
-		return d.decPtrcollKey()
+		return d.decPtrcolInfo()
 	case 109:
-		return d.decPtrcollision()
+		return d.decPtrcollKey()
 	case 110:
-		return d.decPtrcolumn()
+		return d.decPtrcollision()
 	case 111:
-		return d.decPtrcontextComp()
+		return d.decPtrcolumn()
 	case 112:
-		return d.decPtrcontextDeps()
+		return d.decPtrcontextComp()
 	case 113:
-		return d.decPtrcontextFinding()
+		return d.decPtrcontextDeps()
 	case 114:
-		return d.decPtrcontextGroup()
+		return d.decPtrcontextFinding()
 	case 115:
-		return d.decPtrcontextMeter()
+		return d.decPtrcontextGroup()
 	case 116:
-		return d.decPtrcontextNode()
+		return d.decPtrcontextMeter()
 	case 117:
-		return d.decPtrcontextOwners()
+		return d.decPtrcontextNode()
 	case 118:
-		return d.decPtrcontextPass()
+		return d.decPtrcontextOwners()
 	case 119:
-		return d.decPtrcontextValueSite()
+		return d.decPtrcontextPass()
 	case 120:
-		return d.decPtrdeclKinds()
+		return d.decPtrcontextValueSite()
 	case 121:
-		return d.decPtrdecoder()
+		return d.decPtrdeclKinds()
 	case 122:
-		return d.decPtrdropWalk()
+		return d.decPtrdecoder()
 	case 123:
-		return d.decPtrencoder()
+		return d.decPtrdropWalk()
 	case 124:
-		return d.decPtrescWalk()
+		return d.decPtrencoder()
 	case 125:
-		return d.decPtrexplicitArgs()
+		return d.decPtrescWalk()
 	case 126:
-		return d.decPtrexportError()
+		return d.decPtrexplicitArgs()
 	case 127:
-		return d.decPtrfileInfo()
+		return d.decPtrexportError()
 	case 128:
-		return d.decPtrfootprinter()
+		return d.decPtrfileInfo()
 	case 129:
-		return d.decPtrfpNode()
+		return d.decPtrfootprinter()
 	case 130:
-		return d.decPtrframeVerdict()
+		return d.decPtrfpNode()
 	case 131:
-		return d.decPtrfuncCtx()
+		return d.decPtrframeVerdict()
 	case 132:
-		return d.decPtrgoImp()
+		return d.decPtrfuncCtx()
 	case 133:
-		return d.decPtrgroupSite()
+		return d.decPtrgoImp()
 	case 134:
-		return d.decPtrguardNode()
+		return d.decPtrgroupSite()
 	case 135:
-		return d.decPtrguardedUse()
+		return d.decPtrguardNode()
 	case 136:
-		return d.decPtrhand()
+		return d.decPtrguardedUse()
 	case 137:
-		return d.decPtrheaderReader()
+		return d.decPtrhand()
 	case 138:
-		return d.decPtrhostPkg()
+		return d.decPtrheaderReader()
 	case 139:
-		return d.decPtrimportAlias()
+		return d.decPtrhostPkg()
 	case 140:
-		return d.decPtrinclude()
+		return d.decPtrimportAlias()
 	case 141:
-		return d.decPtrinferer()
+		return d.decPtrinclude()
 	case 142:
-		return d.decPtrinitDeps()
+		return d.decPtrinferer()
 	case 143:
-		return d.decPtrkeepWalk()
+		return d.decPtrinitDeps()
 	case 144:
-		return d.decPtrkeyShape()
+		return d.decPtrkeepWalk()
 	case 145:
-		return d.decPtrkindVar()
+		return d.decPtrkeyShape()
 	case 146:
-		return d.decPtrlendPoint()
+		return d.decPtrkindVar()
 	case 147:
-		return d.decPtrlendWalk()
+		return d.decPtrlendPoint()
 	case 148:
-		return d.decPtrlitFrame()
+		return d.decPtrlendWalk()
 	case 149:
-		return d.decPtrlitParams()
+		return d.decPtrlitFrame()
 	case 150:
-		return d.decPtrlitType()
+		return d.decPtrlitParams()
 	case 151:
-		return d.decPtrlitUse()
+		return d.decPtrlitType()
 	case 152:
-		return d.decPtrlocalBinding()
+		return d.decPtrlitUse()
 	case 153:
-		return d.decPtrlookupSteps()
+		return d.decPtrlocalBinding()
 	case 154:
-		return d.decPtrmatrixSolver()
+		return d.decPtrlookupSteps()
 	case 155:
-		return d.decPtrmentioner()
+		return d.decPtrmatrixSolver()
 	case 156:
-		return d.decPtrminter()
+		return d.decPtrmentioner()
 	case 157:
-		return d.decPtrmissingResult()
+		return d.decPtrminter()
 	case 158:
-		return d.decPtrmoduleImporter()
+		return d.decPtrmissingResult()
 	case 159:
-		return d.decPtrmonoEdge()
+		return d.decPtrmoduleImporter()
 	case 160:
-		return d.decPtrmonoState()
+		return d.decPtrmonoEdge()
 	case 161:
-		return d.decPtrmutEvent()
+		return d.decPtrmonoState()
 	case 162:
-		return d.decPtrnoValue()
+		return d.decPtrmutEvent()
 	case 163:
-		return d.decPtrnodeKey()
+		return d.decPtrnoValue()
 	case 164:
-		return d.decPtrobjTable()
+		return d.decPtrnodeKey()
 	case 165:
-		return d.decPtroperand()
+		return d.decPtrobjTable()
 	case 166:
-		return d.decPtrownCatch()
+		return d.decPtroperand()
 	case 167:
-		return d.decPtrownDiag()
+		return d.decPtrownCatch()
 	case 168:
-		return d.decPtrownFrameSave()
+		return d.decPtrownDiag()
 	case 169:
-		return d.decPtrownLoan()
+		return d.decPtrownFrameSave()
 	case 170:
-		return d.decPtrownLoanCall()
+		return d.decPtrownLoan()
 	case 171:
-		return d.decPtrownLocal()
+		return d.decPtrownLoanCall()
 	case 172:
-		return d.decPtrownLoop()
+		return d.decPtrownLocal()
 	case 173:
-		return d.decPtrownLoopMemo()
+		return d.decPtrownLoop()
 	case 174:
-		return d.decPtrownScope()
+		return d.decPtrownLoopMemo()
 	case 175:
-		return d.decPtrownSlot()
+		return d.decPtrownScope()
 	case 176:
-		return d.decPtrownState()
+		return d.decPtrownSlot()
 	case 177:
-		return d.decPtrownTail()
+		return d.decPtrownState()
 	case 178:
-		return d.decPtrownWalk()
+		return d.decPtrownTail()
 	case 179:
-		return d.decPtrownershipKey()
+		return d.decPtrownWalk()
 	case 180:
-		return d.decPtrownershipSite()
+		return d.decPtrownershipKey()
 	case 181:
-		return d.decPtrpatBinding()
+		return d.decPtrownershipSite()
 	case 182:
-		return d.decPtrpatNode()
+		return d.decPtrpatBinding()
 	case 183:
-		return d.decPtrpatResolver()
+		return d.decPtrpatNode()
 	case 184:
-		return d.decPtrpatSpace()
+		return d.decPtrpatResolver()
 	case 185:
-		return d.decPtrpatternCost()
+		return d.decPtrpatSpace()
 	case 186:
-		return d.decPtrpatternMeter()
+		return d.decPtrpatternCost()
 	case 187:
-		return d.decPtrpatternPart()
+		return d.decPtrpatternMeter()
 	case 188:
-		return d.decPtrpendingSelf()
+		return d.decPtrpatternPart()
 	case 189:
-		return d.decPtrpkgPattern()
+		return d.decPtrpendingSelf()
 	case 190:
-		return d.decPtrpkgVar()
+		return d.decPtrpkgPattern()
 	case 191:
-		return d.decPtrplace()
+		return d.decPtrpkgVar()
 	case 192:
-		return d.decPtrplaceStep()
+		return d.decPtrplace()
 	case 193:
-		return d.decPtrpreludeResult()
+		return d.decPtrplaceStep()
 	case 194:
-		return d.decPtrpreludeState()
+		return d.decPtrpreludeResult()
 	case 195:
-		return d.decPtrpureArg()
+		return d.decPtrpreludeState()
 	case 196:
-		return d.decPtrpureBinding()
+		return d.decPtrpureArg()
 	case 197:
-		return d.decPtrpureSeer()
+		return d.decPtrpureBinding()
 	case 198:
-		return d.decPtrreachNode()
+		return d.decPtrpureSeer()
 	case 199:
-		return d.decPtrrefWalker()
+		return d.decPtrreachNode()
 	case 200:
-		return d.decPtrrefiner()
+		return d.decPtrrefWalker()
 	case 201:
-		return d.decPtrrelNeed()
+		return d.decPtrrefiner()
 	case 202:
-		return d.decPtrrelSeed()
+		return d.decPtrrelNeed()
 	case 203:
-		return d.decPtrresWalk()
+		return d.decPtrrelSeed()
 	case 204:
-		return d.decPtrresolved()
+		return d.decPtrresWalk()
 	case 205:
-		return d.decPtrresourceLoan()
+		return d.decPtrresolved()
 	case 206:
-		return d.decPtrresourceSite()
+		return d.decPtrresourceLoan()
 	case 207:
-		return d.decPtrrowRef()
+		return d.decPtrresourceSite()
 	case 208:
-		return d.decPtrrowSet()
+		return d.decPtrrowRef()
 	case 209:
-		return d.decPtrscopeNode()
+		return d.decPtrrowSet()
 	case 210:
-		return d.decPtrsegment()
+		return d.decPtrscopeNode()
 	case 211:
-		return d.decPtrsink()
+		return d.decPtrsegment()
 	case 212:
-		return d.decPtrsnapshot()
+		return d.decPtrsink()
 	case 213:
-		return d.decPtrstdBase()
+		return d.decPtrsnapshot()
 	case 214:
-		return d.decPtrstdEntry()
+		return d.decPtrstdBase()
 	case 215:
-		return d.decPtrstdImporter()
+		return d.decPtrstdEntry()
 	case 216:
-		return d.decPtrstdSnapshot()
+		return d.decPtrstdImporter()
 	case 217:
-		return d.decPtrswitchGroup()
+		return d.decPtrstdSnapshot()
 	case 218:
-		return d.decPtrswitchUnion()
+		return d.decPtrswitchGroup()
 	case 219:
-		return d.decPtrtarget()
+		return d.decPtrswitchUnion()
 	case 220:
-		return d.decPtrtaskNode()
+		return d.decPtrtarget()
 	case 221:
-		return d.decPtrtestState()
+		return d.decPtrtaskNode()
 	case 222:
-		return d.decPtrtrimmedNode()
+		return d.decPtrtestState()
 	case 223:
-		return d.decPtrtryCover()
+		return d.decPtrtrimmedNode()
 	case 224:
-		return d.decPtrtypeCtx()
+		return d.decPtrtryCover()
 	case 225:
-		return d.decPtrtypeEnv()
+		return d.decPtrtypeCtx()
 	case 226:
-		return d.decPtrtypeTable()
+		return d.decPtrtypeEnv()
 	case 227:
-		return d.decPtrtypeWalker()
+		return d.decPtrtypeTable()
 	case 228:
-		return d.decPtruniverseState()
+		return d.decPtrtypeWalker()
 	case 229:
-		return d.decPtruseAt()
+		return d.decPtruniverseState()
 	case 230:
-		return d.decPtruseSite()
+		return d.decPtruseAt()
 	case 231:
-		return d.decPtrvalueFrame()
+		return d.decPtruseSite()
 	case 232:
-		return d.decPtrvariantIndex()
+		return d.decPtrvalueFrame()
 	case 233:
-		return d.decPtrvcand()
+		return d.decPtrvariantIndex()
 	case 234:
-		return d.decPtrvnode()
+		return d.decPtrvcand()
 	case 235:
-		return d.decPtrvrow()
+		return d.decPtrvnode()
 	case 236:
-		return d.decPtrvsym()
+		return d.decPtrvrow()
 	case 237:
-		return d.decPtrvterms()
+		return d.decPtrvsym()
 	case 238:
-		return d.decPtrwireFault()
+		return d.decPtrvterms()
 	case 239:
-		return d.decPtrwireNeed()
+		return d.decPtrwireFault()
 	case 240:
-		return d.decPtrwithFrame()
+		return d.decPtrwireNeed()
 	case 241:
-		return d.decPtrwithRefusal()
+		return d.decPtrwithFrame()
 	case 242:
-		return d.decPtrwithScope()
+		return d.decPtrwithRefusal()
 	case 243:
-		return d.decPtrwithSite()
+		return d.decPtrwithScope()
 	case 244:
-		return d.decPtrworklist()
+		return d.decPtrwithSite()
 	case 245:
-		return d.decT11()
+		return d.decPtrworklist()
 	case 246:
-		return d.decT1()
+		return d.decT11()
 	case 247:
-		return d.decT155()
+		return d.decT1()
 	case 248:
-		return d.decT138()
+		return d.decT155()
 	case 249:
-		return d.decT2()
+		return d.decT138()
 	case 250:
+		return d.decT2()
+	case 251:
 		return d.node().(interface{})
 	}
 	d.failf("bad tag in interface{}")
@@ -15477,6 +15497,31 @@ func (d *decoder) decPtrSpread() *Spread {
 	v := new(Spread)
 	d.add(v)
 	d.decFieldsSpread(v)
+	return v
+}
+
+func (d *decoder) decFieldsWireWrite(v *WireWrite) {
+	v.Func = d.decPtrFunc()
+	v.Op = d.decPtrNamed()
+	v.Provider = d.decPtrNamed()
+}
+
+func (d *decoder) decWireWrite() (v WireWrite) {
+	d.decFieldsWireWrite(&v)
+	return v
+}
+
+func (d *decoder) decPtrWireWrite() *WireWrite {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*WireWrite)
+	}
+	v := new(WireWrite)
+	d.add(v)
+	d.decFieldsWireWrite(v)
 	return v
 }
 

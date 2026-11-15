@@ -117,6 +117,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkUnusedImports,
 		// After every body, test and law: the inferred rows are final.
 		c.checkWireNeeds,
+		c.checkWireWrites,
 		c.finishInfo,
 		c.closeFacts,
 		c.recordLegacyReleases,

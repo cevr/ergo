@@ -116,4 +116,46 @@ law TruncationIsRejectedInsideTheText(v fleet, cut int) {
 	}
 }
 
+// entry holds Attributes where they are attributes (ID, Lang: the
+// record's first fields), and where they are element text: a list's
+// items (Parts), a union's field after its tag (Note), and a field after
+// the record's content (Late).
+type entry { ID Attribute, Lang Attribute, Title string, Parts []Attribute, Note Option[Attribute], Late Attribute }
+
+func entryOf(id string, lang string, title string, parts []string, note Option[string]) entry {
+	let mut ps = []Attribute{}
+	for x in parts {
+		ps = ps.Append(Attribute{Value: held(x)})
+	}
+	let n = match note {
+	case None:
+		None
+	case Some[string] as s:
+		Some[Attribute]{Value: Attribute{Value: held(s.Value)}}
+	}
+	entry{ID: Attribute{Value: held(id)}, Lang: Attribute{Value: held(lang)}, Title: held(title), Parts: ps, Note: n, Late: Attribute{Value: held(lang)}}
+}
+
+func entryCodec() Codec[entry] { Codec[entry]{Root: "entry", MaxBytes: 0, MaxDepth: 0} }
+
+// AttributesRoundTrip: an Attribute reads back what it wrote, as an
+// attribute and as an element's text.
+law AttributesRoundTrip(id string, lang string, title string, parts []string, note Option[string]) {
+	let e = entryOf(id, lang, title, parts, note)
+	let back = Decode(entryCodec(), Encode(entryCodec(), e)) catch {
+	case _:
+		return false
+	}
+	back == e
+}
+
+// AttributesAreInTheStartTag: the record's leading Attribute fields are
+// attributes of its element, in field order, and not child elements.
+law AttributesAreInTheStartTag(id string, lang string) {
+	let e = entryOf(id, lang, "", []string{}, None)
+	let text = Encode(entryCodec(), e)
+	let head = strings.Slice(text, 0, strings.Index(text, ">"))
+	strings.HasPrefix(head, "<entry id=\"") && strings.Contains(head, "\" lang=\"") && !strings.Contains(text, "<id>")
+}
+
 // Text's own law RawJoins is checked where it is declared (text.ergo).

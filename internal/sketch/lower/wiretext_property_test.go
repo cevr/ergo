@@ -24,10 +24,14 @@ import (
 // writes it. Record types hold the drawn fields: scalars, Option, json's
 // Optional and Nullable, lists and the records before them, so a codec
 // function is entered in several states (keys) and runs end before arms.
-// The program is lowered three ways: the default lowering with every law
-// admitted (the engine under test; the laws are true), the reference
-// (rewriteLowering "reference") and the Writer path (wireLowering
-// "writer"). All three must print the same.
+// tapeProgram adds own, a type the program's tape writes itself
+// (WireWrite, types.md Codecs 10; wirewrite.go), and own0, a record of an
+// own and a list of them; main encodes it on Tape, and some values on
+// json's Text too, which writes own by its structure. The program is
+// lowered three ways: the default lowering with every law admitted (the
+// engine under test; the laws are true), the reference (rewriteLowering
+// "reference") and the Writer path (wireLowering "writer"). All three
+// must print the same.
 
 // tapeEvents are the drawn event bodies: each Writer event's name, its
 // parameter and the bodies it may take ({} is the parameter's name, $ a
@@ -199,11 +203,27 @@ func tapeProgram(seed int64) string {
 	rng := rand.New(rand.NewSource(seed))
 	src := tapeSource(rng)
 	records, kinds := tapeRecords(rng)
+	own := func(rng *rand.Rand) string { return "own{V: " + strconv.Itoa(rng.Intn(9)) + "}" }
+	own0 := tapeField{"own0", func(rng *rand.Rand, _ int) string {
+		var xs []string
+		for range rng.Intn(3) {
+			xs = append(xs, own(rng))
+		}
+		return "own0{F0: " + own(rng) + ", F1: []own{" + strings.Join(xs, ", ") + "}, F2: " + []string{"true", "false"}[rng.Intn(2)] + "}"
+	}}
+	kinds = append(kinds, own0)
+	records += "type own { V int }\nfunc WireWrite(o own, t *tape) { t.raw(\"<own \\(o.V)>\") }\ntype own0 { F0 own, F1 []own, F2 bool }\n"
 	var b strings.Builder
 	b.WriteString(src + "\n" + records + "\nfunc main() needs Console {\n")
 	for i := range 12 {
 		k := kinds[i%len(kinds)]
 		fmt.Fprintf(&b, "\tlet t%d = NewTape()\n\tencode(%s, t%d)\n\tConsole.Println(\"%d \\(t%d.Written())\")\n", i, k.value(rng, 0), i, i, i)
+	}
+	// own0 on its Tape, and on json's Text, which writes own by its
+	// structure.
+	fmt.Fprintf(&b, "\tlet o = NewTape()\n\tencode(%s, o)\n\tConsole.Println(\"o \\(o.Written())\")\n", own0.value(rng, 0))
+	for i := range 2 {
+		fmt.Fprintf(&b, "\tlet j%d = json.NewText()\n\tencode(%s, j%d)\n\tConsole.Println(\"j%d \\(j%d.Written())\")\n", i, own0.value(rng, 0), i, i, i)
 	}
 	b.WriteString("}\n")
 	return b.String()
