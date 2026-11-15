@@ -57,6 +57,10 @@ func Doctor(w Workspaces, o work.DoctorOptions) work.Report fails work.NoBase | 
 
 func PluginTest(w Workspaces, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.NoBase | work.BadConfig | work.Untrusted | work.VcsFailed | work.PluginRefused { try w.tool.PluginTest(command, o) }
 
+func MergeFolders(w Workspaces, base string, ours string, theirs string, out string) work.TreeMerged fails work.BadConfig | work.Untrusted | work.DeriveFailed | fs.NotFound | fs.Denied | fs.Failed {
+	try w.tool.MergeFolders(base, ours, theirs, out)
+}
+
 func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed { try w.tool.Refresh() }
 
 func Bases(w Workspaces) []string fails work.Unkept { try w.tool.Bases() }

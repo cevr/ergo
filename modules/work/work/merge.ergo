@@ -497,6 +497,32 @@ func unitMerges(t Tool, c Config, paths []string, base Map[string, string], ours
 	out
 }
 
+// MergeFolders merges the trees of the folders base, ours and theirs into
+// out (MergeTree).
+func MergeFolders(t Tool, base string, ours string, theirs string, out string) TreeMerged fails BadConfig | Untrusted | DeriveFailed | fs.NotFound | fs.Denied | fs.Failed {
+	let c = try config(t)
+	try MergeTree(t, c, out, try folderTree(t, base), try folderTree(t, ours), try folderTree(t, theirs))
+}
+
+// folderTree is each file under root, by its path from root, to its text.
+func folderTree(t Tool, root string) Map[string, string] fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut out = Map[string, string]{}
+	let mut todo = []string{""}
+	for len(todo) > 0 {
+		let rel = todo[len(todo)-1]
+		todo = todo[0:len(todo)-1]
+		for name in try t.files.ReadDir(if rel == "" { root } else { root + "/" + rel }) {
+			let path = if rel == "" { name } else { rel + "/" + name }
+			if (try t.files.Stat(root + "/" + path)).Dir {
+				todo = todo.Append(path)
+			} else {
+				out[path] = try t.files.ReadFile(root + "/" + path)
+			}
+		}
+	}
+	out
+}
+
 func keysOf(m Map[string, string]) []string {
 	let mut out = []string{}
 	for k, _ in m {

@@ -999,3 +999,57 @@ law TreeMergeStartsThePluginTwice(units Map[int, int], ourEdits []classes.Edit, 
 	}
 	tree <= 2 && sv.Started()-tree <= 2
 }
+
+// FoldersAreTheirTrees: merge-folders merges the files under three
+// folders, in folders of their own too, as the merge of three trees of
+// them: each file of out, and the conflicts.
+law FoldersAreTheirTrees(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let b = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
+	let o = Map[string, string]{"f.lines": unitFile(scripted(base, ourEdits)), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
+	let th = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(scripted(base, theirEdits)), "d/x.txt": "a\nc\n", "d/new.txt": "n\n"}
+	let (tool, disk) = configuredWith(serving(NewLines()), Map[string, string]{}, languageConfig, true)
+	let put = func(side string, tree Map[string, string]) bool {
+		for path, text in tree {
+			let file = theBase + "/in/" + side + "/" + path
+			disk.MkdirAll(filepath.Dir(file)) catch {
+			case fs.Denied, fs.Failed:
+				return false
+			}
+			disk.WriteFile(file, text) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return false
+			}
+		}
+		true
+	}
+	if !put("b", b) || !put("o", o) || !put("t", th) {
+		return false
+	}
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let want = work.MergeTree(tool, c, theBase+"/want", b, o, th) catch {
+	case _:
+		return false
+	}
+	let got = tool.MergeFolders(theBase+"/in/b", theBase+"/in/o", theBase+"/in/t", theBase+"/got") catch {
+	case _:
+		return false
+	}
+	for path in []string{"f.lines", "d/e/g.lines", "d/x.txt", "d/new.txt"} {
+		let w = disk.ReadFile(theBase + "/want/" + path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let g = disk.ReadFile(theBase + "/got/" + path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if g != w {
+			return false
+		}
+	}
+	got == want
+}

@@ -219,6 +219,13 @@ type Api {
 	// ours. A conflict fails, so the driver ends with status 1 and Git
 	// keeps the file conflicted.
 	MergeFile(class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | BadConfig | MergeConflict | fs.NotFound | fs.Denied | fs.Failed,
+	// MergeFolders merges the files under ours and theirs against those
+	// under base (three folders, each a tree) into the folder out, each
+	// path by its class as merge-file auto takes it, a [language.NAME]'s
+	// files with one start of its plugin for all their sides and one for
+	// the merges cut again; then, when nothing conflicts, makes the derived
+	// files again there.
+	MergeFolders(base string, ours string, theirs string, out string) TreeMerged fails BadConfig | Untrusted | DeriveFailed | fs.NotFound | fs.Denied | fs.Failed,
 	// Derive makes the derived files again (each derived class line's
 	// command, a lock by its package manager) in the workspace, or the
 	// base, after a merge.

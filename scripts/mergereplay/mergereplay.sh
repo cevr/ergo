@@ -19,15 +19,29 @@
 #            to count the instructions of each side's merges
 #   MAX      optional: the most merges read (default: all)
 #
+# work merges each case twice: a file at a time (merge-file, as Git's
+# driver runs it), and each merge's files at once (merge-folders over the
+# three trees of its cases), which starts the plugin twice a merge. The
+# two must agree; the totals say how many cases do not.
+#
 # It reads REPO with git show and writes only under S. The rows go to
 # S/rows.txt (merge, path, git's conflicts, work's status, git's clean
 # result is the committed file, work's is); the totals to stdout.
 set -eu
 
-# mergereplay.sh --loop git|work: one side's merges of every case in
-# S/cases.txt (what CNT counts), its statuses in S/git.txt or S/work.txt.
+# mergereplay.sh --loop git|work|tree: one side's merges of every case in
+# S/cases.txt (what CNT counts), its statuses in S/git.txt or S/work.txt;
+# tree: a merge-folders of each merge's trees, its answer in
+# S/trees/MERGE/answer.
 if [ "${1:-}" = --loop ]; then
 	: "${S:?}"
+	if [ "$2" = tree ]; then
+		for m in $(awk '{ print $2 }' "$S/cases.txt" | uniq); do
+			x="$S/trees/$m"
+			WORK_BASE="$S/base" "$WORK" merge-folders "$x/base" "$x/ours" "$x/theirs" "$x/out" > "$x/answer" 2>&1 || true
+		done
+		exit 0
+	fi
 	while read -r k m f ext; do
 		d="$S/cases/$k"
 		if [ "$2" = git ]; then
@@ -83,6 +97,10 @@ for m in $(git -C "$REPO" rev-list --merges HEAD); do
 		git -C "$REPO" show "$m^2:$f" > "$d/theirs.$ext" 2>/dev/null || continue
 		git -C "$REPO" show "$m:$f" > "$d/merged.$ext" 2>/dev/null || continue
 		printf '%s %s %s %s\n' "$k" "$m" "$f" "$ext" >> "$S/cases.txt"
+		for side in base ours theirs; do
+			mkdir -p "$(dirname "$S/trees/$m/$side/$f")"
+			cp "$d/$side.$ext" "$S/trees/$m/$side/$f"
+		done
 	done
 done
 
@@ -91,10 +109,27 @@ export S WORK
 if [ -n "${CNT:-}" ]; then
 	"$CNT" -l git -- sh "$HERE/mergereplay.sh" --loop git | tail -1
 	"$CNT" -l work -- sh "$HERE/mergereplay.sh" --loop work | tail -1
+	"$CNT" -l work-folders -- sh "$HERE/mergereplay.sh" --loop tree | tail -1
 else
 	sh "$HERE/mergereplay.sh" --loop git
 	sh "$HERE/mergereplay.sh" --loop work
+	sh "$HERE/mergereplay.sh" --loop tree
 fi
+
+# merge-folders against merge-file: the same text, and a conflict in its
+# answer exactly when merge-file conflicted.
+apart=0
+while read -r k m f ext; do
+	d="$S/cases/$k"
+	w=$(awk -v k="$k" '$1 == k { print $2 }' "$S/work.txt")
+	c=0
+	grep -F "\"$f\"" "$S/trees/$m/answer" >/dev/null && c=1
+	if ! cmp -s "$S/trees/$m/out/$f" "$d/work.$ext" || { [ "$w" = 0 ] && [ "$c" = 1 ]; } || { [ "$w" != 0 ] && [ "$c" = 0 ]; }; then
+		apart=$((apart + 1))
+		echo "$k $m $f" >> "$S/apart.txt"
+	fi
+done < "$S/cases.txt"
+echo "merge-folders and merge-file apart: $apart"
 
 # The rows and the totals.
 : > "$S/rows.txt"
