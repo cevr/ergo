@@ -1290,6 +1290,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 		switch {
 		case c.Kind == check.CallLen:
 			o.kind = occRead
+		case c.Kind == check.CallFunc && (check.GoBuiltin(c.Func) == "len" || check.GoBuiltin(c.Func) == "cap"):
+			// A binding of Go's len or cap reads only the slice header
+			// (SL2b: a copy would change cap's answer).
+			o.kind = occRead
 		case c.Kind == check.CallFunc && preludeGet(c.Func):
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead

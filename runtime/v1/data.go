@@ -25,6 +25,8 @@ import "slices"
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+//
+//ergo:pure
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
 // ArenaValue is the physical storage of arena's private stored[T]. It is
