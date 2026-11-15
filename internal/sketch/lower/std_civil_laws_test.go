@@ -8,6 +8,7 @@ package lower
 // TestStdCivilLawsRun as Ergo tests over std civil.
 const stdCivilLawsProbe = `import civil
 import slices
+import strconv
 import strings
 import time
 
@@ -496,6 +497,36 @@ test CivilPatternAgreesWithLayout(seed int64, n int64, ns int64) {
 	assert civil.FormatDateTime(dt, p) == civil.FormatDateTime(dt, l)
 }
 
+test CivilDurationWordsReadsBack(d int64) {
+	let text = civil.DurationWords(duration(d), civil.EnglishWords())
+	let n = d / 1000000000
+	let want = if n < 0 { -n } else { n }
+	let body = if n < 0 { strings.TrimPrefix(text, "-") } else { text }
+	if want == 0 {
+		assert text == "0 seconds"
+		return
+	}
+	let words = strings.Fields(body)
+	let mut total = int64(0)
+	let mut last = int64(4000)
+	for i in 0..len(words)/2 {
+		let count = strconv.ParseInt(words[2*i], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			assert false
+			return
+		}
+		let unit = words[2*i+1]
+		let size = if unit == "hour" || unit == "hours" { int64(3600) } else if unit == "minute" || unit == "minutes" { int64(60) } else if unit == "second" || unit == "seconds" { int64(1) } else { int64(0) }
+		if size == 0 || size >= last || count == 0 || size < 3600 && count >= 60 || (count == 1) != (unit == "hour" || unit == "minute" || unit == "second") {
+			assert false
+			return
+		}
+		last = size
+		total = total + count*size
+	}
+	assert len(words)%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-")
+}
+
 test CivilDistanceIsMonotone(sec int64, a int64, b int64) {
 	let from = time.NewTime(within(sec, -62135596800, 253402300799), 0)
 	let x = within(a, 0, 4000000000000000000)
@@ -639,6 +670,7 @@ var stdCivilLawStatements = map[string]string{
 	"civil ParseIsStrict":               `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s)-1))) }`,
 	"civil TextIsISO":                   `TextIsISO(n int64) { let d = anyDay(n) let back = ParseDate(ISODate(), Text(d)) catch { case ParseError: return false } FormatDate(d, ISODate()) == Text(d) && back == d }`,
 	"civil PatternAgreesWithLayout":     `PatternAgreesWithLayout(seed int64, n int64, ns int64) { let k = pick(draw(seed), len(ldmlPairs())) let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch { case BadPattern: return false } let l = FromLayout("2006-01-02 " + goPairs()[k]) catch { case BadPattern: return false } let dt = anyHeld(p, n, ns) FormatDateTime(dt, p) == FormatDateTime(dt, l) }`,
+	"civil DurationWordsReadsBack":      `DurationWordsReadsBack(d int64) { let text = DurationWords(duration(d), EnglishWords()) let n = d / 1000000000 let want = if n < 0 { -n } else { n } let body = if n < 0 { strings.TrimPrefix(text, "-") } else { text } if want == 0 { return text == "0 seconds" } let words = strings.Fields(body) let mut total = int64(0) let mut last = int64(4000) for i in 0..len(words)/2 { let count = strconv.ParseInt(words[2*i], 10, 64) catch { case strconv.Malformed, strconv.OutOfRange: return false } let unit = words[2*i+1] let size = if unit == "hour" || unit == "hours" { int64(3600) } else if unit == "minute" || unit == "minutes" { int64(60) } else if unit == "second" || unit == "seconds" { int64(1) } else { int64(0) } if size == 0 || size >= last || count == 0 || size < 3600 && count >= 60 || (count == 1) != (unit == "hour" || unit == "minute" || unit == "second") { return false } last = size total = total + count*size } len(words)%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-") }`,
 	"civil DistanceIsMonotone":          `DistanceIsMonotone(sec int64, a int64, b int64) { let from = time.NewTime(within(sec, -62135596800, 253402300799), 0) let x = within(a, 0, 4000000000000000000) let y = within(b, 0, 4000000000000000000) let near = Distance(from, time.Add(from, duration(if x < y { x } else { y }))) let far = Distance(from, time.Add(from, duration(if x < y { y } else { x }))) rank(near.Unit) < rank(far.Unit) || rank(near.Unit) == rank(far.Unit) && near.Count <= far.Count }`,
 	"civil DistanceMirrors":             `DistanceMirrors(s1 int64, n1 int64, s2 int64, n2 int64) { let a = time.NewTime(within(s1, -62135596800, 253402300799), within(n1, 0, 999999999)) let b = time.NewTime(within(s2 / 1000000 + s1, -62135596800, 253402300799), within(n2, 0, 999999999)) let there = Distance(a, b) let back = Distance(b, a) there.Count == back.Count && rank(there.Unit) == rank(back.Unit) && (if rank(there.Unit) == 0 { !there.Past && !back.Past } else { there.Past != back.Past }) }`,
 	"civil DistanceDatesCountsDates":    `DistanceDatesCountsDates(x int64, k int64) { let a = anyDay(x) let b = anyDay(x + within(k, -800000, 800000)) let d = DistanceDates(a, b) if a == b { return d.Count == 0 && rank(d.Unit) == 4 && !d.Past } d == Distance(Instant(DateTime{Date: a, Time: Midnight()}), Instant(DateTime{Date: b, Time: Midnight()})) }`,

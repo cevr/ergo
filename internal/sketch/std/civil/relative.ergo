@@ -3,6 +3,8 @@
 // the words, so a UI matches the Approx for its own text and a locale is a
 // Words value.
 
+import strconv
+import strings
 import time
 
 // Now, Seconds, Minutes and Hours are units of an Approx; Days, Months and
@@ -151,6 +153,62 @@ func Phrase(a Approx, w Words) string {
 		return w.Ago.Before + text + w.Ago.After
 	}
 	w.In.Before + text + w.In.After
+}
+
+// DurationWords is d in w's words, exactly: its hours, minutes and seconds
+// that are not zero, largest first, each with its count and its unit's
+// word, separated by spaces ("1 hour 25 minutes", "2 hours 5 seconds"),
+// as date-fns's formatDuration writes a duration. A part of a second is
+// dropped, so a duration under a second is "0 seconds"; a negative one is
+// "-" and the words of its size. Phrase is a distance, rounded to one unit
+// and placed in time; DurationWords is a length, whole.
+func DurationWords(d duration, w Words) string {
+	let n = int64(d) / 1000000000
+	let s = if n < 0 { -n } else { n }
+	let mut text = ""
+	for p in []part{part{Count: s / 3600, Word: w.Hour}, part{Count: s % 3600 / 60, Word: w.Minute}, part{Count: s % 60, Word: w.Second}} {
+		if p.Count != 0 {
+			let word = if p.Count == 1 { p.Word.One } else { p.Word.Other }
+			text = if text == "" { "\(p.Count) \(word)" } else { "\(text) \(p.Count) \(word)" }
+		}
+	}
+	if text == "" {
+		return "0 \(w.Second.Other)"
+	}
+	if n < 0 { "-" + text } else { text }
+}
+
+// part is one count of DurationWords and its unit's words.
+type part { Count int64, Word Plural }
+
+// DurationWordsReadsBack: the counts and units DurationWords writes add
+// up to the whole seconds of d, each unit at most once, largest first,
+// and each under its next unit's size.
+law DurationWordsReadsBack(d int64) {
+	let text = DurationWords(duration(d), EnglishWords())
+	let n = d / 1000000000
+	let want = if n < 0 { -n } else { n }
+	let body = if n < 0 { strings.TrimPrefix(text, "-") } else { text }
+	if want == 0 {
+		return text == "0 seconds"
+	}
+	let words = strings.Fields(body)
+	let mut total = int64(0)
+	let mut last = int64(4000)
+	for i in 0..len(words)/2 {
+		let count = strconv.ParseInt(words[2*i], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let unit = words[2*i+1]
+		let size = if unit == "hour" || unit == "hours" { int64(3600) } else if unit == "minute" || unit == "minutes" { int64(60) } else if unit == "second" || unit == "seconds" { int64(1) } else { int64(0) }
+		if size == 0 || size >= last || count == 0 || size < 3600 && count >= 60 || (count == 1) != (unit == "hour" || unit == "minute" || unit == "second") {
+			return false
+		}
+		last = size
+		total = total + count*size
+	}
+	len(words)%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-")
 }
 
 // rank is u's place from Now (0) to Years (6).

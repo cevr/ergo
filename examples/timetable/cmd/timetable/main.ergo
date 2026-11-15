@@ -208,7 +208,7 @@ func notice(r timetable.Route, now time.Time, n timetable.Notice) string {
 	case timetable.Reached as x:
 		"arrived at " + at(last, x.At)
 	case timetable.Late as x:
-		"running \(time.DurationText(x.By)) late"
+		"running \(civil.DurationWords(x.By, civil.EnglishWords())) late"
 	case timetable.Withdrawn as x:
 		"cancelled: \(x.Reason)"
 	}

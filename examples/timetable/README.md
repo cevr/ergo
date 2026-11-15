@@ -56,4 +56,3 @@ go run ./scripts/examples timetable
 ## Limits found
 
 - **No hours-and-minutes duration literal.** `1h25m` is not a literal; the running times are written `1h + 25m`.
-- **A delay prints as Go's duration text.** `time.DurationText(25m)` is `25m0s`; std has no duration in words beside `civil.Phrase`, which reads a distance between instants.
