@@ -2,9 +2,9 @@
 // modules/work). `ergo work ARGS` runs it from PATH; it needs no Ergo
 // module. Its commands are the generated command line of work.Api
 // (work/workcli): init, new, adopt, adopt-rift, list, rm, gc, du,
-// plugin-test, ready, sync, env, merge-file, derive, deps, trust, doctor,
-// refresh, bases, shell-init and import-rift; --json prints every answer
-// as JSON.
+// plugin-test, ready, sync, env, merge-file, merge-folders, derive, deps,
+// trust, doctor, refresh, bases, shell-init and import-rift; --json,
+// before the command or after it, prints every answer as JSON.
 //
 // This binary is the only place that chooses the providers: the Cloners
 // that share blocks in the order the file system is tried (a btrfs
@@ -37,6 +37,7 @@ import github.com/cevr/ergo/modules/work/sh
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 import os
+import slices
 import strconv
 import strings
 import time
@@ -61,6 +62,22 @@ func baseOf(files fs.Files, cwd string) string {
 		}
 		dir = home
 	}
+}
+
+// jsonFirst is args with a --json written after the command moved before
+// it, where the command line reads it (workcli.Run takes [--json] COMMAND
+// ARGS...), so `work list --json` is `work --json list`. An argument
+// after "--" is an operand and stays.
+func jsonFirst(args []string) []string {
+	for i, a in args {
+		if a == "--" {
+			return args
+		}
+		if i > 0 && (a == "--json" || a == "-json") {
+			return slices.Concat([]string{a}, slices.Concat(args[0:i], args[i+1:]))
+		}
+	}
+	args
 }
 
 // clockOf is the clock: the host's, or a clock fixed at the Unix second
@@ -119,7 +136,7 @@ func main() fails os.Exit needs Ambient | Console {
 		Clock:    try clockOf(process.Getenv("WORK_NOW")),
 	}
 	let tool = work.NewTool(base, home, data, p, cwd)
-	let o = with context { work.Api: tool } { workcli.Run(process.Args()) }
+	let o = with context { work.Api: tool } { workcli.Run(jsonFirst(process.Args())) }
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
