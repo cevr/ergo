@@ -158,13 +158,6 @@ func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
 //ergo:wait none
 func StringsBytes(s string) []byte { return []byte(s) }
 
-// StringsFromBytes is the text of b, a copy: a writer's buffer goes back
-// to a pool after (StringsGive), so the text never shares its bytes.
-//
-//ergo:pure
-//ergo:wait none
-func StringsFromBytes(b []byte) string { return string(b) }
-
 // StringsFields is strings.Fields.
 //
 //ergo:pure

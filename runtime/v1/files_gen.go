@@ -475,7 +475,6 @@ var bodyTable = []bodyRow{
 	{"StringsCount", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"int"}, Pure: true, Wait: "none", Package: Path}}},
 	{"StringsEqualFold", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"StringsFields", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"[]string"}, Pure: true, Wait: "none", Package: Path}}},
-	{"StringsFromBytes", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path}}},
 	{"StringsGive", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}, {Type: "int"}}, Results: []string{"[]byte"}, Wait: "none", Package: Path}}},
 	{"StringsHasPrefix", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"StringsHasSuffix", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},

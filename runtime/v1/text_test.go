@@ -180,7 +180,7 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		n, u, f := r.Int64()>>r.IntN(64), r.Uint64()>>r.IntN(64), randomFloat(r)
 		base := 2 + r.IntN(35)
 		out := StrconvAppendInt(StrconvAppendFloat(StrconvAppendUint(StrconvAppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base)
-		return StringsFromBytes(out) == StrconvFormatInt(n, base)+StrconvFormatInt(int64(u>>1), base)+StrconvFormatFloat(f, 'g', -1)+StrconvFormatInt(n, base), []any{n, u, f, base}
+		return string(out) == StrconvFormatInt(n, base)+StrconvFormatInt(int64(u>>1), base)+StrconvFormatFloat(f, 'g', -1)+StrconvFormatInt(n, base), []any{n, u, f, base}
 	},
 	"strconv ParseIntInvertsFormat": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
