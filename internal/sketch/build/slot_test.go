@@ -3,6 +3,8 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -10,7 +12,8 @@ import (
 // chooses, from the processors and the compiles in flight. Another
 // process's compile is a slot file this test holds a lock on through its
 // own open file (flock locks one open file against every other, in one
-// process too); a dead process's is a slot file nobody locks.
+// process too); a dead process's is a slot file nobody locks. The direct
+// driver's compile arguments (compileArgs) carry the -c chosen.
 func TestCompileSlotConcurrency(t *testing.T) {
 	if !leasesSupported {
 		t.Skip("no flock(2): only this process's compiles are counted")
@@ -64,6 +67,25 @@ func TestCompileSlotConcurrency(t *testing.T) {
 	if _, err := os.Stat(dead); !os.IsNotExist(err) {
 		t.Errorf("the dead slot is still there: %v", err)
 	}
+
+	// The direct driver's compile passes its slot's -c.
+	d := &direct{c: Cache{Root: root}, plan: planFile{Version: "go1.27"}}
+	pkg := &goPackage{ImportPath: "p", Dir: "/nonexistent/p", Trim: "p", Lang: "1.27"}
+	compileC := func(scenario, want string) {
+		t.Helper()
+		args, release, err := d.compileArgs(pkg, "p", strings.Repeat("0", 64), t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		release()
+		if !slices.Contains(args, want) {
+			t.Errorf("%s: compile args %q, want %s", scenario, args, want)
+		}
+	}
+	compileC("a direct compile alone", "-c=4")
+	free = other()
+	compileC("a direct compile beside another", "-c=2")
+	free()
 
 	procs(16)
 	check("one compile on 16 processors", 4)

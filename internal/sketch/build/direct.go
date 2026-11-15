@@ -600,31 +600,11 @@ func (d *direct) compile(p *goPackage) error {
 		return err
 	}
 	out := filepath.Join(objdir, "_pkg_.a")
-	args := []string{"-o", out, "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
-		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
-		"-goversion", d.plan.Version}
-	c, release := compileSlot(d.c.Root) // slot.go
+	args, release, err := d.compileArgs(p, pkgPath, key, objdir)
+	if err != nil {
+		return err
+	}
 	defer release()
-	if c > 1 {
-		args = append(args, "-c="+strconv.Itoa(c))
-	}
-	if d.plan.pie() {
-		args = append(args, "-shared")
-	}
-	args = append(args, d.compileFlags(p)...)
-	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
-	if p.Embed != nil {
-		cfg, err := embedConfig(p)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644); err != nil {
-			return err
-		}
-		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
-	}
-	args = append(args, "-pack")
-	args = append(args, p.Files...)
 	cmd := exec.Command(d.plan.Compile.Path, args...)
 	cmd.Dir = d.module.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
@@ -640,6 +620,38 @@ func (d *direct) compile(p *goPackage) error {
 	d.digests[p.ImportPath] = a
 	d.report.Compiled++
 	return d.record(key, a.Digest, a.Export)
+}
+
+// compileArgs is the argument list of p's compile into objdir (which holds
+// its import config), as package pkgPath of action key, with the
+// back-end concurrency of a compile slot (slot.go) that the caller
+// releases when the compile ends.
+func (d *direct) compileArgs(p *goPackage, pkgPath, key, objdir string) (args []string, release func(), err error) {
+	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
+		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
+		"-goversion", d.plan.Version}
+	c, release := compileSlot(d.c.Root)
+	if c > 1 {
+		args = append(args, "-c="+strconv.Itoa(c))
+	}
+	if d.plan.pie() {
+		args = append(args, "-shared")
+	}
+	args = append(args, d.compileFlags(p)...)
+	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
+	if p.Embed != nil {
+		cfg, err := embedConfig(p)
+		if err == nil {
+			err = os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644)
+		}
+		if err != nil {
+			release()
+			return nil, nil, err
+		}
+		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
+	}
+	args = append(args, "-pack")
+	return append(args, p.Files...), release, nil
 }
 
 // storeArchive moves a package archive into the blob store.
