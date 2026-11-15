@@ -13,7 +13,7 @@ The script's words are listed in `script/script.ergo`:
 - pointer acts: `press`, `move`, `release`, `escape`;
 - keyboard acts: `lift`, the arrows, `next`, `previous`, `drop`;
 - form acts: `add`, `type`, `submit`, `cancel`;
-- `show` (the columns as the screen shows them), `screen` (every node of the screen) and `stats` (what the last pass did).
+- `show` (the columns as the screen shows them), `screen` (every node of the screen) and `stats` (what the pass of the last line's own input did, not the empty pass `Settle` ends with).
 
 A pointer act names a card or a column, not a point. The test host lays nothing out, so the script lays out the board itself and hit-tests it: column c is 300 pixels wide at x = 300c, and its card i is 40 pixels high at y = 60 + 50i.
 
@@ -80,7 +80,7 @@ The 7 scene tests are the case `scenes`, on upstream's test board: the first scr
 - `file`: `AForeignLineIsNamed`.
 - `script`, on the test host:
   - `PointerDropLandsWhereShown`: a drawn card is pressed, moved over a drawn half of a drawn card or below a column's cards, and released. The placeholder shows where the reference says the card will drop, and after the release the screen shows the reference board, which was saved once. The live region says where the card was dropped.
-  - `AMoveRunsNoCard`: during a pointer drag, a move from one drawn spot to another keeps every card's `Same` without running its body.
+  - `AMoveRunsNoCard`: during a pointer drag, a move from one drawn spot to another keeps every card's `Same` without running its body, counted on the move's own pass.
 
 The mutants these laws and the cases kill are in `testdata/mutants.json`.
 

@@ -20,7 +20,7 @@
 //	submit | cancel           the form's Add and Cancel
 //	show                      the board as the screen shows it
 //	screen                    the whole screen, one node a line
-//	stats                     what the last pass did (ui.StatsOf)
+//	stats                     what the pass of the last line's input did
 //
 // A blank line or one that starts with # is skipped.
 
@@ -40,7 +40,8 @@ import ui
 
 // Host is the program on the test host, the commands its actor asked
 // for and the host has not answered yet, the ids the host gave, where the
-// pointer is, and what the live region last said.
+// pointer is, what the live region last said, and what the pass of the
+// last line's own input did (not the pass Settle ends with).
 type Host {
 	view  ui.TestHost[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
 	app   actor.Actor[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
@@ -49,6 +50,7 @@ type Host {
 	X     float64,
 	Y     float64,
 	said  string,
+	acted ui.Stats,
 }
 
 // Unread is a line the host cannot read or play.
@@ -72,7 +74,7 @@ func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Sch
 	case ui.BadPatch:
 		return Unread{Why: "the first screen's patch is refused"}
 	}
-	Host{view: view, app: app, asked: asked, Made: 0, X: 0.0, Y: 0.0, said: ""}
+	Host{view: view, app: app, asked: asked, Made: 0, X: 0.0, Y: 0.0, said: "", acted: ui.Stats{Signals: 0, Written: 0, Rows: 0, Skipped: 0, Stopped: 0, Committed: 0, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}}
 }
 
 // Close stops the program.
@@ -142,8 +144,8 @@ func Play(h *Host, line string, raw string) []string fails Unread needs board.St
 		return Show(h)
 	}
 	if w[0] == "stats" {
-		let s = ui.StatsOf(&h.view)
-		return []string{"the last pass wrote \(s.Written) nodes, kept \(s.Skipped) cards without running them, and patched \(s.Inserted + s.Moved + s.Removed + s.Set)"}
+		let s = h.acted
+		return []string{"the pass wrote \(s.Written) nodes, kept \(s.Skipped) cards without running them, and patched \(s.Inserted + s.Moved + s.Removed + s.Set)"}
 	}
 	if w[0] == "screen" {
 		return strings.Split(strings.TrimSuffix(ui.Screenshot(&h.view), "\n"), "\n")
@@ -156,6 +158,7 @@ func Play(h *Host, line string, raw string) []string fails Unread needs board.St
 	case ui.BadPatch as p:
 		return Unread{Why: "a patch is refused: \(p.Why)"}
 	}
+	h.acted = ui.StatsOf(&h.view)
 	out = slices.Concat(out, try answer(h))
 	let after = Board(h)
 	let mut head = []string{}
@@ -520,7 +523,8 @@ law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int wh
 // AMoveRunsNoCard: during a pointer drag of a drawn card on the default
 // board, a move from one drawn spot to another runs the body of no card:
 // the pass keeps every card (its Same) and writes only the columns and
-// the placeholder, however many cards there are.
+// the placeholder, however many cards there are. The count is of the
+// move's own pass (Host.acted), not of the pass Settle ends with.
 law AMoveRunsNoCard(card int where 1 <= card && card <= 17, a int where 0 <= a && a <= 2, b int where 0 <= b && b <= 2) {
 	let m = time.NewManual(0)
 	with context { board.Store: memory.NewShelf(), Scheduler: m } {
@@ -541,7 +545,7 @@ func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs b
 			[]string{}
 		}
 	}
-	let s = ui.StatsOf(&h.view)
+	let s = h.acted
 	Close(&h)
 	ok && s.Skipped == 17
 }
