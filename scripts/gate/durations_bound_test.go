@@ -23,7 +23,6 @@ var overShardTarget = map[string]string{
 	// gate's budget; a part's time is about one target's.
 	"internal/experimental/irspike TestIRCoverage":                "follow-up: split TestIRCoverage (irspike); recorded 41.93 s",
 	"internal/experimental/irspike TestIRFailuresMatchSource":     "follow-up: split TestIRFailuresMatchSource by seed (irspike); recorded 356.86 s",
-	"internal/experimental/irspike TestIRMatchesSource":           "follow-up: split TestIRMatchesSource by seed (irspike); recorded 41.52 s",
 	"internal/experimental/irspike TestIRAgreesOnExamplesPart7":   irspikeLaneShare,
 	"internal/experimental/irspike TestIRAgreesOnExamplesPart10":  irspikeLaneShare,
 	"internal/experimental/irspike TestIRAgreesOnExamplesPart11":  irspikeLaneShare,
