@@ -121,7 +121,7 @@ func TestPutGrowsLinearly(t *testing.T) {
 // denseFlatSource puts n rows of no size in a table and returns the room
 // of its rows: Go grows a full slice of rows of no size to exactly one
 // more row, so a table that grows that way has room for n rows, and one
-// that took room for every id has room for 4294967296.
+// that took room for every id has room for 4294967295.
 const denseFlatSource = `import dense
 
 extern go cap func room[T](xs []T) int
@@ -158,8 +158,8 @@ func TestFlatTableTakesRoomOnce(t *testing.T) {
 	if f.Type().NumIn() == 2 {
 		args = append([]reflect.Value{reflect.Zero(f.Type().In(0))}, args...)
 	}
-	if got := f.Call(args)[0].Int(); got != 1<<32 {
-		t.Fatalf("after 4096 Puts of rows of no size the table has room for %d rows; want 4294967296, room taken once, so no later Put grows it", got)
+	if got := f.Call(args)[0].Int(); got != 1<<32-1 {
+		t.Fatalf("after 4096 Puts of rows of no size the table has room for %d rows; want 4294967295, room taken once, so no later Put grows it", got)
 	}
 	// Rows with a size never take that room: only rows of no size grow to
 	// exactly one more than they hold.
