@@ -664,14 +664,15 @@ func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 }
 
 // KeyedIdentity: a permutation of keyed rows keeps each row's nodes, and
-// the node after the Each, with their Ids, and the patch only moves them.
+// the node after the Each, with their Ids, and the patch only moves them;
+// so does a second permutation after it, which finds the children the
+// first moved (a pass after one that looked them up by index).
 law KeyedIdentity(seed int, count int) {
 	let mut r = seeded(seed)
 	let mut xs = []int{}
 	for i in 0..(count%12+12)%12+1 {
 		xs = xs.Append(i * 7)
 	}
-	let ys = shuffled(xs, &r)
 	let mut f = NewFrame[int]()
 	let mut m = NewMirror[int](Root(&f))
 	Apply(&m, Render(&f, keyedRows, xs)) catch {
@@ -679,25 +680,28 @@ law KeyedIdentity(seed int, count int) {
 		return false
 	}
 	let before = rowIds(&f, xs)
-	let ops = Render(&f, keyedRows, ys)
-	Apply(&m, ops) catch {
-	case BadPatch:
-		return false
-	}
-	for op in ops {
-		match op {
-		case Move[int]:
-		case _:
+	for _ in 0..2 {
+		let ys = shuffled(xs, &r)
+		let ops = Render(&f, keyedRows, ys)
+		Apply(&m, ops) catch {
+		case BadPatch:
 			return false
 		}
-	}
-	let after = rowIds(&f, ys)
-	if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
-		return false
-	}
-	for x, ids in before {
-		if after.Get(x) != (Some{Value: ids}) {
+		for op in ops {
+			match op {
+			case Move[int]:
+			case _:
+				return false
+			}
+		}
+		let after = rowIds(&f, ys)
+		if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
 			return false
+		}
+		for x, ids in before {
+			if after.Get(x) != (Some{Value: ids}) {
+				return false
+			}
 		}
 	}
 	true
