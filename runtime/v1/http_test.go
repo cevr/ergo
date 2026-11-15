@@ -393,15 +393,26 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			defer stop()
 			r := bufio.NewReader(conn)
 			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1 -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
-			armed := func(want time.Duration, step string) {
+			// armed takes the next sleep the server armed, which must be want's.
+			// A phase that one send enters and leaves at once (the header of
+			// a request sent whole) may be armed before its timer sees the
+			// change, or not at all: passing names its budget, skipped once.
+			armed := func(want time.Duration, step string, passing ...time.Duration) {
 				t.Helper()
-				select {
-				case d := <-sl.armed:
-					if d != want {
-						t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
+				for {
+					select {
+					case d := <-sl.armed:
+						if d != want && len(passing) > 0 && d == passing[0] {
+							passing = passing[1:]
+							continue
+						}
+						if d != want {
+							t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
+						}
+					case <-testwait.After(t):
+						t.Fatalf("%s armed no timer; %s", step, replay)
 					}
-				case <-testwait.After(t):
-					t.Fatalf("%s armed no timer; %s", step, replay)
+					return
 				}
 			}
 			send := func(text string) {
@@ -444,7 +455,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 				sl.Advance(limits.ReadHeaderTimeout)
 			case 2:
 				send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
-				armed(limits.ReadBodyTimeout, "the second body")
+				armed(limits.ReadBodyTimeout, "the second body", limits.ReadHeaderTimeout)
 				sl.Advance(limits.ReadBodyTimeout)
 				if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
 					t.Fatalf("the expired body: %d %q; %s", status, body, replay)
@@ -539,11 +550,19 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 // Scheduler that never moves, so Serve ends only if its defect path stops
 // that timer too (mutant http-stop-leaves-timers).
 func TestHTTPDisconnectAndDefects(t *testing.T) {
-	started, ended := make(chan struct{}), make(chan struct{})
+	started, ended, refused := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	sl := newStepSleeper()
-	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, readError string) HTTPResponse {
 		s := NewScope(ct)
 		defer s.End(nil)
+		if path == "/refused" && readError != "" {
+			// A half-closed peer's request is no disconnect: it runs
+			// until the server stops (GX4: gx4-shutdown-leaves-requests).
+			close(refused)
+			<-ct.Done()
+			ct.Check()
+			return HTTPResponse{Status: 400}
+		}
 		if path == "/defect" {
 			OnExit(&s, func() { panic("cleanup-http") })
 			panic("body-http")
@@ -570,6 +589,18 @@ func TestHTTPDisconnectAndDefects(t *testing.T) {
 	<-started
 	conn.Close()
 	<-ended
+	half, err := net.Dial("tcp", l.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer half.Close()
+	if _, err := io.WriteString(half, "POST /refused HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nx"); err != nil {
+		t.Fatal(err)
+	}
+	if err := half.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	<-refused
 	client := httpClient(t)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
