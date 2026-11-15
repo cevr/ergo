@@ -2,6 +2,10 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-14
+
+- **The warm compiler server is `ergo dev` (2026-11-14, compile-speed CS9, #203).** The compile-speed plan (§4.6) called the daemon that holds a workspace's warm state `ergo serve`; the owner named it `ergo dev`. Decided: the command is `ergo dev [DIR] [--idle DURATION]`, its client switch is `ERGO_DEV=off`, its socket and lock live under `dev/` in the cache root, and its lifecycle model is `models/dev`. There is no `serve` alias: pre-release, a renamed command has one spelling (no compatibility while pre-release). Rules: [tooling.md](tooling.md#ergo-dev). Prior art: `gleam dev`, `mix phx.server`, and `next dev` each name the long-running development process by what the developer is doing, not by its transport.
+
 ## Decided by principle, 2026-11-14
 
 - **One trust line: `trust go MODULE` (orchestrator ruling, 2026-11-14).** Two accepted features defined the `ergo.mod` trust line. MD3 (required modules' Go, [grammar](spec/grammar.md#source-files) rule 1, Trusted Go) wrote `trust go MODULE`; STD-NOPRIV NP4e (the runtime door and a module's own Go bodies, [interop](spec/interop.md#trusted-go), Trusted Go) wrote `trust MODULE`. They met in the merge of wf10/ia2b into wf10/domain. The ruling keeps MD3's form, `trust go MODULE`, for two reasons:

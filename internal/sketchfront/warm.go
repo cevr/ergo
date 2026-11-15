@@ -302,29 +302,7 @@ func WarmLookup(c build.Cache, key string, valid func(WarmAnswer) bool) (answer 
 			}
 		}()
 	}
-	fresh := true
-	for dir, digest := range m.Inputs.Dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil || listingDigest(entries) != digest {
-			fresh = false
-		}
-	}
-	for name, kind := range m.Inputs.Stats {
-		stat, prefix := os.Stat, ""
-		if strings.HasPrefix(kind, "l") {
-			stat, prefix = os.Lstat, "l"
-		}
-		info, err := stat(name)
-		got := prefix + "missing"
-		if err == nil {
-			got = prefix + kindOf(info)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			got = "error"
-		}
-		if got != kind {
-			fresh = false
-		}
-	}
+	fresh := m.Inputs.listingsFresh(hostListing)
 	wg.Wait()
 	prefill := map[string]read{}
 	for k, name := range names {

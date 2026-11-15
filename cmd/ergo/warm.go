@@ -31,29 +31,40 @@ type warm struct {
 // startWarm looks the request up; nil when the warm answer does not apply.
 // tc is the toolchain a build (build or run) links with; check passes none.
 func startWarm(opts fileOptions, tc *build.Toolchain) *warm {
+	w, valid := prepareWarm(opts, tc)
+	if w == nil {
+		return nil
+	}
+	w.answer, w.rec, w.hit = sketchfront.WarmLookup(w.cache, w.key, valid)
+	return w
+}
+
+// prepareWarm is the request's key and store, and the check its stored
+// answer must pass; nil when the warm answer does not apply.
+func prepareWarm(opts fileOptions, tc *build.Toolchain) (*warm, func(sketchfront.WarmAnswer) bool) {
 	building := opts.command != "check"
 	if !sketchfront.WarmEnabled() || opts.work || !isPackageFolder(opts.file) || building && tc == nil {
-		return nil
+		return nil, nil
 	}
 	source, err := receipt.LocateSource(opts.file)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	root, err := build.DefaultRoot()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	parts := []string{opts.command, source.Admitted(), warmOptions(opts)}
 	if building {
 		stamp, ok := goStamp(tc.Go)
 		if !ok {
-			return nil
+			return nil, nil
 		}
 		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
 	}
 	key := sketchfront.WarmKey(parts...)
 	if key == "" {
-		return nil
+		return nil, nil
 	}
 	w := &warm{cache: build.Cache{Root: root}, key: key}
 	valid := func(a sketchfront.WarmAnswer) bool {
@@ -62,8 +73,7 @@ func startWarm(opts fileOptions, tc *build.Toolchain) *warm {
 		}
 		return a.Executable != "" && w.cache.HasExecutable(a.Executable)
 	}
-	w.answer, w.rec, w.hit = sketchfront.WarmLookup(w.cache, key, valid)
-	return w
+	return w, valid
 }
 
 // warmToolchain is the toolchain buildAction will choose, read without

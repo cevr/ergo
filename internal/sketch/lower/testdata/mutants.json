@@ -4727,6 +4727,7 @@
         "lower:TestInlinedCallEndsAnArm"
       ]
     },
-    {"name":"runtime-record-method","origin":"wf10 STD-NOPRIV FD1-g2","file":"internal/sketch/lower/decls.go","from":"\tif _, bound := check.GoTypeOf(n); bound {\n","to":"\tif _, bound := check.GoTypeOf(n); bound && false {\n","rule":"types.md Methods 3: a function on a record whose declaration names a runtime Go type lowers as a Go function, never a method on the runtime's type (FD1-g2).","killers":["lower:TestRuntimeRecordFunctionIsFree"]}
+    {"name":"runtime-record-method","origin":"wf10 STD-NOPRIV FD1-g2","file":"internal/sketch/lower/decls.go","from":"\tif _, bound := check.GoTypeOf(n); bound {\n","to":"\tif _, bound := check.GoTypeOf(n); bound && false {\n","rule":"types.md Methods 3: a function on a record whose declaration names a runtime Go type lowers as a Go function, never a method on the runtime's type (FD1-g2).","killers":["lower:TestRuntimeRecordFunctionIsFree"]},
+    {"name":"cs-split-ir-embed-moves","origin":"wf10 compile-speed CS9 (fix of CS10's IR split)","file":"internal/sketch/lower/pkgsplit.go","from":" || strings.Contains(string(src[before:off(d.Pos())]), \"//go:embed\") {","to":" || false && strings.Contains(string(src[before:off(d.Pos())]), \"//go:embed\") {","rule":"A //go:embed declaration stays in the root package beside the assets, on the IR path too, where a /*line*/ comment on its line leaves it no Doc.","killers":["cmd/ergo:TestWarmRequestDoesNoWork"]}
   ]
 }

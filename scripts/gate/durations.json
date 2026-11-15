@@ -1,4 +1,7 @@
 {
+  "cmd/ergo": {
+    "TestDevClientAnswersInProcessWhenTheConnectionEnds": 0.01
+  },
   "ergo.local/prototype/cmd/ergo": {
     "TestALargeSourceChecksAndFmtRefusesIt": 0.09,
     "TestAManifestSelectsNothing": 1.49,
@@ -2427,5 +2430,8 @@
   },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
+  },
+  "internal/sketchfront": {
+    "TestStatSumsReadOnlyWhatChanged": 0.01
   }
 }

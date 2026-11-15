@@ -500,6 +500,14 @@ func checkCommand(args []string) error {
 	if recursivePattern(opts.file) {
 		return recursiveCommand(opts, checkPackage)
 	}
+	// A daemon of this release serving the working directory answers a
+	// warm check with no work here (ergo dev).
+	if wd, err := os.Getwd(); err == nil && isPackageFolder(opts.file) {
+		if stdout, ok := askDev(wd, opts.file, append([]string{"check"}, args...)); ok {
+			_, err := os.Stdout.Write(stdout)
+			return err
+		}
+	}
 	return checkPackage(opts)
 }
 
