@@ -604,8 +604,8 @@
       "name": "existing-13-defect-continues",
       "origin": "lower-v1/verify-s4a/mutants-s4a.json",
       "file": "internal/sketch/lower/tests.go",
-      "from": "\t\t$Runtime.Raise(exit)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
-      "to": "\t\t_ = exit\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
+      "from": "\t\t$Runtime.Raise(exit)\n\tcase 4:\n\t\t$Skipping(name, msg)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
+      "to": "\t\t_ = exit\n\tcase 4:\n\t\t$Skipping(name, msg)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
       "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
       "killers": [
         "lower:TestE3Sweep",
@@ -5814,6 +5814,13 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"tskip-not-recovered","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"if why, skipped := $SkipOf(exit); skipped {","to":"if why, skipped := $SkipOf(exit); skipped && why == \"\" {","rule":"A case that testing.Skip ended is a skip, not a defect.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-no-unwind","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\t$Skipped++\n\tpanic($SkipRun{})","to":"\t$Skipped++","rule":"A skip ends its run: no more cases, no ok or FAIL line.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-counted-as-test","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\" = \" + total + \" - \" + l.helper(\"Skipped\")","to":"\" = \" + total + \" - 0*\" + l.helper(\"Skipped\")","rule":"A skipped run counts as a skip, not as a test.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-receipt-dropped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\tif $strings.HasPrefix(name, \"law \") {\n\t\t$Record(name, nil, why)\n\t}\n","to":"","rule":"A skipped law run's receipt entry is skipped with the reason.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-target-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"l.skippable(b, func() { l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at) })","to":"l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at)","rule":"A skip in a law run for a provider ends that run alone.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-test-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"l.skippable(&b, func() { l.testRun(&b, t, scope, env, seed, failed) })","to":"l.testRun(&b, t, scope, env, seed, failed)","rule":"A skip in a test ends that test alone.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-context-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/lawcontexts.go","from":"b.WriteString(\"\\t\" + l.helper(\"Skippable\") + \"(func() {\\n\")","to":"b.WriteString(\"\\tfunc(run func()) { run() }(func() {\\n\")","rule":"A skip in a law run under a named context ends that run alone.","killers":["lower:TestSkipEndsTheRun"]}
   ]
 }

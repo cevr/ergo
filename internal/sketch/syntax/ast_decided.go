@@ -1,5 +1,7 @@
 package syntax
 
+import "strconv"
+
 // ---------------------------------------------------------------- decided-grammar nodes (#196)
 
 // ExternSpec is the binding of an extern declaration: `extern go
@@ -205,6 +207,30 @@ type AssertStmt struct {
 func (s *AssertStmt) Pos() Pos { return s.Assert }
 func (s *AssertStmt) End() Pos { return s.X.End() }
 func (*AssertStmt) stmtNode()  {}
+
+// SkipStmt is `skip "reason"` (runtime.md, Tests 4): it ends the test or
+// law run it stands in as skipped, with the reason, a string literal.
+// Reason is the literal's source text, quoted, from ReasonPos to
+// ReasonEnd: a literal, not an expression, so no name or value stands in
+// it.
+type SkipStmt struct {
+	Skip      Pos
+	ReasonPos Pos
+	Reason    string
+	ReasonEnd Pos
+}
+
+func (s *SkipStmt) Pos() Pos { return s.Skip }
+func (s *SkipStmt) End() Pos { return s.ReasonEnd }
+
+func (*SkipStmt) stmtNode() {}
+
+// Text is the skip's reason, unquoted; false when the literal does not
+// unquote.
+func (s *SkipStmt) Text() (string, bool) {
+	text, err := strconv.Unquote(s.Reason)
+	return text, err == nil
+}
 
 // VariantSpec is a union variant declared in place: `Authorized{AuthID
 // string}` or `Pending{}`. A variant without members is a bare type name
