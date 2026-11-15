@@ -1119,11 +1119,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	let mut left = 0
-	for h.posted.Poll() != None {
-		left = left + 1
-	}
-	left <= 1 && ui.Frames(&h) == frames
+	ui.Posted(&h) <= 1 && ui.Frames(&h) == frames
 }
 
 type pad { open bool, last int, n int }

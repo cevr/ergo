@@ -370,11 +370,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	let mut left = 0
-	for h.posted.Poll() != None {
-		left = left + 1
-	}
-	left <= 1 && Frames(&h) == frames
+	Posted(&h) <= 1 && Frames(&h) == frames
 }
 
 // pad is the state of the input app: whether its dialog is open, the

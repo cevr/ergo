@@ -153,6 +153,10 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 	}
 }
 
+// Posted is how many posted events (fetch results, Committed, Ended)
+// wait for the host to take them, by Pump, Settle or an Advance's frame.
+func Posted[S, E, D, F](h *TestHost[S, E, D, F]) int { h.posted.Len() }
+
 // Settle waits until nothing is left to run at this instant: no fetch in
 // flight, every posted result taken, and every task of the clock's domain
 // waiting again, so each work a signal started has run to its end or its
