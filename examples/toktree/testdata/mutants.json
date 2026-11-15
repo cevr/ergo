@@ -18,10 +18,10 @@
       "killers": ["examples:toktree"]
     },
     {
-      "name": "toktree-group-keeps-stack", "origin": "wf10 SL1",
+      "name": "toktree-group-keeps-stack", "origin": "wf10 SL1, SL2",
       "file": "examples/toktree/tree/tree.ergo",
-      "from": "\t\t\tlet g = add(&tr, Group, opens[open], stack[mark:top])\n\t\t\ttop = mark\n",
-      "to": "\t\t\tlet g = add(&tr, Group, opens[open], stack[mark:top])\n",
+      "from": "\t\t\tadd(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))\n",
+      "to": "\t\t\tadd(&tr, Group, opens[open], dense.PutList(&tr.pool, dense.Since(stack, marks[open])))\n",
       "rule": "A closed group takes its children off the stack, so each row has one parent (law tree.OneParentRootLast).",
       "killers": ["examples:toktree"]
     },
