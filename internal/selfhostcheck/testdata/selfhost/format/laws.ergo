@@ -91,23 +91,23 @@ func BoundHolds[R](src string, parse func(src string) tree.Tree fails tree.Synta
 // CheckLaws is "ok\n", or the names of the source laws src breaks, one per
 // line.
 func CheckLaws[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) string needs R {
-	let mut broken = []string{}
+	let mut broken = strings.NewBuilder()
 	if !IdempotentHolds(src, parse) {
-		broken = broken.Append("Idempotent\n")
+		broken.WriteString("Idempotent\n")
 	}
 	if !ShapeHolds(src, parse) {
-		broken = broken.Append("ShapeKept\n")
+		broken.WriteString("ShapeKept\n")
 	}
 	if !CommentsHold(src, parse) {
-		broken = broken.Append("CommentsKept\n")
+		broken.WriteString("CommentsKept\n")
 	}
 	if !BoundHolds(src, parse) {
-		broken = broken.Append("Bounded\n")
+		broken.WriteString("Bounded\n")
 	}
-	if len(broken) == 0 {
+	if broken.Len() == 0 {
 		return "ok\n"
 	}
-	strings.Join(broken, "")
+	broken.String()
 }
 
 // Shape is the text of t without positions and comments: node families,
@@ -115,46 +115,49 @@ func CheckLaws[R](src string, parse func(src string) tree.Tree fails tree.Syntax
 // Formatting must not change it (go/printer's tests compare go/ast trees
 // the same way).
 func Shape(t tree.Tree) string {
-	strings.Join(shape(t, tree.Ref{Id: t.Root}, []string{}), "")
+	let mut out = strings.NewBuilder()
+	shape(t, tree.Ref{Id: t.Root}, &out)
+	out.String()
 }
 
-func shape(t tree.Tree, it tree.Item, out []string) []string {
-	let mut o = out
+func shape(t tree.Tree, it tree.Item, o *strings.Builder) {
 	match it {
 	case tree.Number as n:
-		o = o.Append("\(n.V)")
+		o.WriteString("\(n.V)")
 	case tree.Position:
 	case tree.Bytes as b:
-		o = o.Append("\(len(b.V)):" + b.V)
+		o.WriteString("\(len(b.V)):")
+		o.WriteString(b.V)
 	case tree.Flag as f:
-		o = o.Append(if f.V { "true" } else { "false" })
+		o.WriteString(if f.V { "true" } else { "false" })
 	case tree.Missing:
-		o = o.Append("nil")
+		o.WriteString("nil")
 	case tree.Ref as r:
 		let nd = t.Nodes[r.Id]
-		o = o.Append(nd.Family + "{")
+		o.WriteString(nd.Family)
+		o.WriteByte('{')
 		for f in nd.Fields {
 			let skip = f.Name == "Doc" || nd.Family == "File" && (f.Name == "Src" || f.Name == "Comments")
 			match f.Value {
 			case tree.Position:
 			case _:
 				if !skip {
-					o = o.Append(f.Name + ":")
-					o = shape(t, f.Value, o)
-					o = o.Append(" ")
+					o.WriteString(f.Name)
+					o.WriteByte(':')
+					shape(t, f.Value, o)
+					o.WriteByte(' ')
 				}
 			}
 		}
-		o = o.Append("}")
+		o.WriteByte('}')
 	case tree.List as l:
-		o = o.Append("[")
+		o.WriteByte('[')
 		for x in l.Items {
-			o = shape(t, x, o)
-			o = o.Append(",")
+			shape(t, x, o)
+			o.WriteByte(',')
 		}
-		o = o.Append("]")
+		o.WriteByte(']')
 	}
-	o
 }
 
 // Comments are the texts of t's comments in order, a line comment's
@@ -164,7 +167,7 @@ func Comments(t tree.Tree) []string {
 	for g in kids(t, t.Root, "Comments") {
 		for c in kids(t, g, "List") {
 			let text = str(t, c, "Text")
-			out = out.Append(if strings.HasPrefix(text, "//") { trimRightOf(text, " \t\r") } else { text })
+			out = out.Append(if strings.HasPrefix(text, "//") { strings.TrimRight(text, " \t\r") } else { text })
 		}
 	}
 	out

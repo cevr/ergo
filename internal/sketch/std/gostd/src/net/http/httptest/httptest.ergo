@@ -67,7 +67,7 @@ extern go net/http/httptest.Server type Server {
 	EnableHTTP2 bool,
 	TLS         Option[go.Ref[tls.Config]],
 	Config      Option[go.Ref[http.Server]],
-}
+} implements Closer
 
 // ergo:go func (*Server).Certificate() *x509.Certificate
 extern go net/http/httptest.Server.Certificate func (s *Server) Certificate() Option[go.Ref[x509.Certificate]] needs go.Foreign takes s

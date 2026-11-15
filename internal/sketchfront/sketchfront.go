@@ -62,7 +62,7 @@ func Check(source string) Analysis {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
-	prepareStd()
+	prepareStd(nil)
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {

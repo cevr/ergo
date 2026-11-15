@@ -911,6 +911,18 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				members = append(members, Member{f.Name(), goText, err.Error()})
 				continue
 			}
+			if f.Name() == "Close" && !isGoCloser(obj) && releaseShape(f) && fails {
+				// The release: Go's io.Closer, included as Go embeds it
+				// (resources R1; interop.md, Resources 1). io's own
+				// Closer is the contract's Go form.
+				m.refs = []string{"io.Closer"}
+				include := ".." + m.q(types.NewPackage("io", "io")) + ".Closer"
+				if m.pkg.Path() == "io" {
+					include = "..Closer"
+				}
+				lines = append(lines, Line{f.Name(), goText, include, m.refs})
+				continue
+			}
 			line := f.Name() + paramList(params)
 			if results != "" {
 				line += " " + results
@@ -943,10 +955,41 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		return "type " + obj.Name() + " " + t, nil, nil, nil
+		return "type " + obj.Name() + " " + t + m.releaseClause(n), nil, nil, nil
 	}
 	m.refs = nil
-	return typeText(obj.Name(), lines), members, lines, nil
+	if _, iface := n.Underlying().(*types.Interface); iface {
+		return typeText(obj.Name(), lines), members, lines, nil
+	}
+	return typeText(obj.Name(), lines) + m.releaseClause(n), members, lines, nil
+}
+
+// releaseClause is ` implements Closer` for a Go type whose method set
+// has Close() or Close() error, the release (resources R1; interop.md,
+// Resources 1): the binder reads the name once, and the binding states
+// the contract. In package io, Closer is io.Closer, the contract's Go
+// form; a package that declares another Closer of its own names
+// io.Closer, which stands for the contract in a binding.
+func (m *mapper) releaseClause(n *types.Named) string {
+	if !resourceType(types.NewPointer(n)) {
+		return ""
+	}
+	if m.pkg.Path() != "io" && m.pkg.Scope().Lookup("Closer") != nil {
+		return " implements " + m.q(types.NewPackage("io", "io")) + ".Closer"
+	}
+	return " implements Closer"
+}
+
+// isGoCloser reports Go's io.Closer, whose own Close stays listed.
+func isGoCloser(obj *types.TypeName) bool {
+	return obj.Pkg() != nil && obj.Pkg().Path() == "io" && obj.Name() == "Closer"
+}
+
+// releaseShape reports Close() or Close() error.
+func releaseShape(f *types.Func) bool {
+	sig := f.Type().(*types.Signature)
+	n := sig.Results().Len()
+	return sig.Params().Len() == 0 && !sig.Variadic() && (n == 0 || n == 1 && isError(sig.Results().At(0).Type()))
 }
 
 // typeText is the declaration of a struct or interface type with lines.

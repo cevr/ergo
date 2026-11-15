@@ -1,0 +1,61 @@
+// The board as a follower of the log (PX-log): a projection that keeps
+// the view and its cursor together in memory, so a view lost with the
+// process is rebuilt from the start of the stream, never from a cursor
+// that outlived it.
+
+import github.com/cevr/ergo/modules/domain
+import pipeline/board
+import sync
+
+// Spot is a follower's place in a stream.
+type Spot { Follower string, Stream string }
+
+// Shown is the view and the position of the last record it took.
+type Shown { View board.View, At int }
+
+// Projection is the board's follower: the view and each follower's
+// cursor. Its values are copies of one projection.
+type Projection { shown sync.Ref[Shown], at sync.Ref[Map[Spot, int]] } implements domain.Cursor
+
+// NewProjection is the empty board, before any record.
+func NewProjection() Projection {
+	Projection{shown: sync.NewRef(Shown{View: board.Empty, At: 0}), at: sync.NewRef(Map[Spot, int]{})}
+}
+
+func At(p Projection, follower string, stream string) int {
+	match p.at.Get().Get(Spot{Follower: follower, Stream: stream}) {
+	case Some[int] as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+func Save(p Projection, follower string, stream string, at int) fails domain.Unkept {
+	p.at.Update(func(m Map[Spot, int]) Map[Spot, int] { m.Put(Spot{Follower: follower, Stream: stream}, at) })
+}
+
+// take folds the record d brings into the view, once: two callers that
+// follow at once may both deliver it, and the second finds it taken.
+func take(p Projection, d domain.Delivery[Entry]) {
+	p.shown.Update(func(s Shown) Shown {
+		if d.Record.Position <= s.At {
+			return s
+		}
+		let mut v = s.View
+		for e in d.Record.Events {
+			v = board.Apply(v, e.Run, e.Event)
+		}
+		Shown{View: v, At: d.Record.Position}
+	})
+}
+
+// Follow takes the records of the stream that p has not seen, and is
+// the view after them.
+func Follow(p Projection, log domain.Log[Entry]) board.View {
+	let _ = domain.Follow(log, p, "board", Stream, func(d domain.Delivery[Entry]) fails domain.Unkept { take(p, d) }) catch {
+	case domain.Unkept:
+		0
+	}
+	p.shown.Get().View
+}

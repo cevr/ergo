@@ -34,7 +34,7 @@ func Word(d Decision[Game, string]) string {
 		return "enter"
 	case Stay[Game]:
 		return "stay"
-	case Emit[Game, string]:
+	case Emit[Game, string], Tell[Game, string]:
 		return "emit"
 	case Ignore:
 		return "ignore"

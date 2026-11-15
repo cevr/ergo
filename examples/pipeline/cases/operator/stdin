@@ -1,0 +1,13 @@
+# While build waits for its backoff, the operator cancels the queued
+# docs and retries build's stage now. Every refusal is typed.
+submit build 2
+submit docs 1
+board
+cancel docs no longer needed
+retry build 2
+retry build 1
+board
+cancel ghost x
+submit huge 12
+submit build 1
+show docs

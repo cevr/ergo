@@ -82,7 +82,7 @@ test JournalJournalSnapshotDropsSignals(pre []int, snapAt int, s int) {
 	assert snapshotDropsSignals(filled(pre, snapAt), s)
 }
 
-type Ints {}
+type Ints {} implements journal.Codec[int]
 
 func Encode(_ Ints, v int) string { strconv.Itoa(v) }
 
@@ -157,7 +157,7 @@ type Crashing {
 	append escaping func(e int) fails journal.Failed,
 	arm    escaping func(mode int),
 	all    escaping func() []int,
-}
+} implements journal.Journal[int, int]
 
 func Append(c Crashing, e int) fails journal.Failed { try c.append(e) }
 
@@ -397,7 +397,7 @@ type Counter machine[State, Signal] {
 	step: step,
 }
 
-type States {}
+type States {} implements journal.Codec[State]
 
 func Encode(_ States, s State) string {
 	match s {
@@ -419,7 +419,7 @@ func Decode(_ States, text string) State fails journal.Failed {
 	Busy{N: n}
 }
 
-type Signals {}
+type Signals {} implements journal.Codec[Signal]
 
 func Encode(_ Signals, e Signal) string {
 	match e {

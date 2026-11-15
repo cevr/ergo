@@ -72,7 +72,7 @@ func TestTakesInferenceModel(t *testing.T) {
 	tkTwoPackages(t)
 }
 
-const tkPrelude = `type Res { id int }
+const tkPrelude = `type Res { id int } implements Closer
 
 func Close(r Res) {}
 
@@ -433,7 +433,7 @@ func tkInferred(c *checker) []string {
 // resource (refused) and with an int (admitted); std slices.Clone, an extern
 // generic outside runtime/v1's moving table, copies its T.
 func tkTwoPackages(t *testing.T) {
-	lib := `type Res { id int }
+	lib := `type Res { id int } implements Closer
 
 func Close(r Res) {}
 

@@ -19,7 +19,7 @@ extern go compress/lzw.NewWriter func NewWriter(w io.Writer, order Order, litWid
 extern go compress/lzw.Order type Order int
 
 // ergo:go type Reader struct
-extern go compress/lzw.Reader type Reader {}
+extern go compress/lzw.Reader type Reader {} implements Closer
 
 // ergo:go func (*Reader).Close() error
 extern go compress/lzw.Reader.Close func (r *Reader) Close() fails go.Error needs go.Foreign takes r
@@ -31,7 +31,7 @@ extern go compress/lzw.Reader.Read func (r *Reader) Read(b []byte) int fails go.
 extern go compress/lzw.Reader.Reset func (r *Reader) Reset(src io.Reader, order Order, litWidth int) needs go.Foreign takes r, src
 
 // ergo:go type Writer struct
-extern go compress/lzw.Writer type Writer {}
+extern go compress/lzw.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).Close() error
 extern go compress/lzw.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w

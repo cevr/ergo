@@ -85,7 +85,7 @@ type Config {
 // Host is the host's Config provider: its environment and its files. Its
 // fields give this package the construction authority (S114), as os.Host's
 // does; it reads through os's and fs's own hosts, which own those bodies.
-type Host { env os.Host, files fs.Host }
+type Host { env os.Host, files fs.Host } implements Config
 
 // NewHost is the host's Config provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one.
@@ -126,7 +126,7 @@ extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron(prefix stri
 // Memory is a Config provider for tests: Env is the environment and Files
 // the files by path. It reaches nothing of the host, and a file it has is
 // never Unreadable.
-type Memory { Env Map[string, string], Files Map[string, string] }
+type Memory { Env Map[string, string], Files Map[string, string] } implements Config
 
 // NewMemory is a Memory over env and files: Config's builder, so a law
 // over a generated Config reads a generated Memory.

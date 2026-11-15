@@ -2,7 +2,7 @@
 type Fault {}
 func unused() fails Fault { return Fault{} }
 type Store { Get() string }
-type Mem {}
+type Mem {} implements Store
 func Get(_ Mem) string { return "value" }
 func f() string needs Console {
 	with context { Store: Mem{} } {

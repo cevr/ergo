@@ -15,7 +15,7 @@ type Sized {
 	},
 }
 
-type Fixed {}
+type Fixed {} implements Sized
 
 func Size(_ Fixed) int {
 	3

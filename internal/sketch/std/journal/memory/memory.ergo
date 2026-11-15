@@ -13,7 +13,7 @@ type Journal[S, E] {
 	append   escaping func(e E) fails journal.Failed,
 	snapshot escaping func(s S),
 	load     escaping func() journal.Log[S, E],
-}
+} implements journal.Journal[S, E]
 
 // New is an empty journal: no snapshot and no signals. Its closures share
 // one sync.Ref of the log: a slice is a value (types.md, Values 1), so a

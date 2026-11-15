@@ -42,11 +42,11 @@ func TestAssignabilityClauses(t *testing.T) {
 		{"two-named-in-multi-let", "type A []int\ntype B []int\nfunc two() (A, A) { (A{1}, A{2}) }\nfunc f() int { let x, y B = two(); len(x) + len(y) }\n", []string{"S108:4"}},
 		{"conversion-through-base", "type Mem { N int }\ntype A Mem\ntype B Mem\nfunc f(x A) B { B(Mem(x)) }\n", nil},
 		// Clause 3: whatever the source's namedness.
-		{"defined-basic-provider", "type Store { Get() int }\ntype Count int\nfunc Get(c Count) int { int(c) }\nfunc f() Store { Count(3) }\n", nil},
-		{"defined-record-provider", "type Store { Get() int }\ntype Mem { N int }\ntype Mem2 Mem\nfunc Get(m Mem2) int { m.N }\nfunc f(m Mem2) Store { m }\n", nil},
-		{"defined-slice-provider", "type Sized { Size() int }\ntype Ints []int\nfunc Size(xs Ints) int { len(xs) }\nfunc f(xs Ints) Sized { xs }\n", nil},
-		{"provider-multi-let", "type Store { Get() int }\ntype Count int\nfunc Get(c Count) int { int(c) }\nfunc two() (Count, Count) { (Count(1), Count(2)) }\nfunc f() int { let a, b Store = two(); a.Get() + b.Get() }\n", nil},
-		{"provider-compare", "type Store { Get() int }\ntype Count int\nfunc Get(c Count) int { int(c) }\nfunc f(s Store) bool { s == Count(1) }\n", []string{"S108:4"}},
+		{"defined-basic-provider", "type Store { Get() int }\ntype Count int implements Store\nfunc Get(c Count) int { int(c) }\nfunc f() Store { Count(3) }\n", nil},
+		{"defined-record-provider", "type Store { Get() int }\ntype Mem { N int }\ntype Mem2 Mem implements Store\nfunc Get(m Mem2) int { m.N }\nfunc f(m Mem2) Store { m }\n", nil},
+		{"defined-slice-provider", "type Sized { Size() int }\ntype Ints []int implements Sized\nfunc Size(xs Ints) int { len(xs) }\nfunc f(xs Ints) Sized { xs }\n", nil},
+		{"provider-multi-let", "type Store { Get() int }\ntype Count int implements Store\nfunc Get(c Count) int { int(c) }\nfunc two() (Count, Count) { (Count(1), Count(2)) }\nfunc f() int { let a, b Store = two(); a.Get() + b.Get() }\n", nil},
+		{"provider-compare", "type Store { Get() int }\ntype Count int implements Store\nfunc Get(c Count) int { int(c) }\nfunc f(s Store) bool { s == Count(1) }\n", []string{"S108:4"}},
 		// Clause 4.
 		{"variant-to-union", "func f() Option[int] { Some{1} }\n", nil},
 		{"defined-variant-not-member", "type Other Some[int]\nfunc f(x Other) Option[int] { x }\n", []string{"S108:2"}},

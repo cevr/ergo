@@ -97,7 +97,7 @@ func Apply(id string, e Event) Deploy fails NotFound | Conflict needs Store {
 		return o
 	case Reject:
 		return Conflict{ID: id, Status: Name(o.Status), Event: EventName(e)}
-	case Enter[Status], Stay[Status], Emit[Status, Status], Done[Status]:
+	case Enter[Status], Stay[Status], Emit[Status, Status], Tell[Status, Status], Done[Status]:
 	}
 	let changed = Deploy{..o, Status: machines.Next(o.Status, d)}
 	try Store.Replace(changed)

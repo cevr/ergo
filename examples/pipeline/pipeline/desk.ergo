@@ -1,0 +1,271 @@
+// The context's machine. One actor holds every run of the context (an
+// actor per run has no direct form yet: children live in one entry of
+// their parent). It takes the operators' commands at any time, and runs
+// one stage at a time, in the order the runs were submitted: the stage's
+// try is the work of the Busy state; a failed try waits in Waiting for
+// the retry saga's timer. The actor's state is the desk in a
+// domain.Ledger (DK5): Hosted takes each command once and commits the
+// entries of each step as one record of the stream, with Keep while the
+// desk keeps its entry, so a command in Busy or Waiting does not restart
+// the try or the wait. The step only chooses the run commands and whether
+// the entry opens: its next desk is the fold of the commands' events with
+// Evolve (apply), the fold a recovery runs.
+
+import github.com/cevr/ergo/modules/domain
+import machines
+import pipeline/retry
+import pipeline/run
+import slices
+
+// Envelope is a command for the run Run, named ID. The command's context
+// travels in it as data, so Decide needs nothing.
+type Envelope { ID string, Run string, Command run.Command }
+
+// Entry is one event of the context's log: the run and the event.
+type Entry { Run string, Event run.Event }
+
+// Book is what every state of the desk holds: each run by name, the runs
+// that wait for the runner (in submission order), and the log. The
+// receipt of each command taken is in the ledger (domain.Ledger), and the
+// board is a follower of the log (board.Projection), not part of the
+// desk.
+type Book {
+	Runs  Map[string, run.Run],
+	Queue []string,
+	Log   []Entry,
+}
+
+// Job is the stage the desk runs: the run, the stage, and the retry
+// saga's attempt at it.
+type Job { Run string, Stage int, Attempt retry.Attempt }
+
+// Desk is the context's state:
+//
+//	Idle     no stage runs; no run waits
+//	Busy     the runner runs the job's try (the state's work)
+//	Waiting  the job's try failed; the saga's timer runs
+type Desk = Idle{Book Book} | Busy{Book Book, Job Job} | Waiting{Book Book, Job Job}
+
+// Signal is what the desk reads: a command, the end of the runner's try,
+// or the end of a wait.
+type Signal = Ask{Env Envelope} | Ran{OK bool} | Due{}
+
+// Fresh is the desk with no run.
+let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}}}
+
+// BookOf is d's book.
+func BookOf(d Desk) Book {
+	match d {
+	case Idle as i:
+		i.Book
+	case Busy as b:
+		b.Book
+	case Waiting as w:
+		w.Book
+	}
+}
+
+// Busy reports whether the runner runs a try in d.
+func IsBusy(d Desk) bool {
+	match d {
+	case Busy:
+		true
+	case Idle, Waiting:
+		false
+	}
+}
+
+// RunIn is the state of the run id in b.
+func RunIn(b Book, id string) run.Run {
+	match b.Runs.Get(id) {
+	case Some[run.Run] as r:
+		r.Value
+	case None:
+		run.Unsubmitted
+	}
+}
+
+// apply is d after the command c of the run id: each event the run's
+// step gives, folded into d with Evolve, the fold a recovery runs. So the
+// desk a step commits is the desk its record recovers to, by
+// construction: the step only chooses the commands and whether the entry
+// opens.
+func apply(d Desk, id string, c run.Command) Desk fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	let x = try run.Handle(RunIn(BookOf(d), id), c)
+	match x {
+	case Emit[run.Run, []run.Event] as e:
+		let mut next = d
+		for ev in e.Output {
+			next = Evolve(next, Entry{Run: id, Event: ev})
+		}
+		next
+	case Enter[run.Run], Stay[run.Run], Tell[run.Run, []run.Event], Ignore, Reject, Done[[]run.Event]:
+		d
+	}
+}
+
+// settle is d with no job to go on with: it starts the first run of the
+// queue (Evolve keeps only queued runs there), or is idle.
+func settle(d Desk) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	let b = BookOf(d)
+	if len(b.Queue) > 0 {
+		return Enter[Desk]{Next: try apply(d, b.Queue[0], run.Start)}
+	}
+	Enter[Desk]{Next: Idle{Book: b}}
+}
+
+// ask is the desk after the command env. A command for a run that does
+// not exist (other than a submit) is NoSuchRun; a command the run refuses
+// fails with its rejection, and the desk does not change. (Hosted answers
+// a command whose ID was taken before it asks.) A command keeps the
+// current try or wait unless it ends the job's run (settle) or retries
+// the waiting job (a new try).
+func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	match (RunIn(BookOf(d), env.Run), env.Command) {
+	case (run.Unsubmitted, run.Submit):
+	case (run.Unsubmitted, _):
+		return NoSuchRun{Run: env.Run}
+	case (_, _):
+	}
+	let next = try apply(d, env.Run, env.Command)
+	let now = RunIn(BookOf(next), env.Run)
+	match d {
+	case Idle:
+		try settle(next)
+	case Busy as w:
+		if w.Job.Run == env.Run && run.IsDone(now) {
+			return try settle(next)
+		}
+		Stay[Desk]{Next: next}
+	case Waiting as w:
+		if w.Job.Run != env.Run {
+			return Stay[Desk]{Next: next}
+		}
+		match now {
+		case run.Running:
+			Enter[Desk]{Next: next}
+		case run.Done:
+			try settle(next)
+		case run.Unsubmitted, run.Queued, run.Failing:
+			Stay[Desk]{Next: next}
+		}
+	}
+}
+
+// ran is the desk d after its job's try ended: passed (ok) or failed. A
+// failure the saga gives up on abandons the run.
+func ran(d Desk, j Job, ok bool) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	let next = try apply(d, j.Run, run.Finish{Stage: j.Stage, OK: ok})
+	match RunIn(BookOf(next), j.Run) {
+	case run.Running:
+		Enter[Desk]{Next: next}
+	case run.Failing:
+		match retry.Step(j.Attempt, retry.Failed) {
+		case Enter[retry.Attempt]:
+			Enter[Desk]{Next: next}
+		case Done[retry.Order]:
+			try settle(try apply(next, j.Run, run.GiveUp{Stage: j.Stage}))
+		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Tell[retry.Attempt, retry.Order], Ignore, Reject:
+			Unreachable("a failed try either waits or gives up")
+		}
+	case run.Unsubmitted, run.Queued, run.Done:
+		try settle(next)
+	}
+}
+
+// due is the desk d after its job's wait ended: the saga orders the next
+// try, and the run retries the stage.
+func due(d Desk, j Job) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	match retry.Step(j.Attempt, retry.Due) {
+	case Emit[retry.Attempt, retry.Order]:
+		Enter[Desk]{Next: try apply(d, j.Run, run.Retry{Stage: j.Stage})}
+	case Enter[retry.Attempt], Stay[retry.Attempt], Tell[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
+		Ignore
+	}
+}
+
+// Step is the desk's transition. A try's end or a wait's end in a state
+// that has none is Ignore (the runner drops a signal of an ended entry
+// anyway).
+func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	match (d, s) {
+	case (_, Ask as a):
+		try ask(d, a.Env)
+	case (Busy as b, Ran as r):
+		try ran(d, b.Job, r.OK)
+	case (Waiting as w, Due):
+		try due(d, w.Job)
+	case (_, _):
+		Ignore
+	}
+}
+
+// Work is the work of a state: Busy asks the runner for its try. An
+// Offline runner is a failed try.
+func Work(l Ledger) Option[machines.Work[Signal, Runner]] {
+	match l.State {
+	case Busy as b:
+		let j = b.Job
+		Some{machines.Work{Run: func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, OnSuccess: func(ok bool) Signal { Ran{OK: ok} }, OnFailure: func(u Offline) Signal { Ran{OK: false} }}}
+	case Idle, Waiting:
+		None
+	}
+}
+
+// Timer is the timer of a state: Waiting's is the saga's.
+func Timer(l Ledger) Option[Timeout[Signal]] {
+	match l.State {
+	case Waiting as w:
+		match retry.Timer(w.Job.Attempt) {
+		case Some[Timeout[retry.Signal]] as t:
+			Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.Value.In, Signal: Due}}
+		case None:
+			None
+		}
+	case Idle, Busy:
+		None
+	}
+}
+
+// Ledger is the actor's state: the desk, the position of the stream
+// Stream, and the receipt of each command the stream kept.
+type Ledger = domain.Ledger[Desk, Entry]
+
+// Hosted is the actor's step: Step on the ledger's desk, whose entries
+// go to the stream as one record. A command whose ID the stream kept is
+// Ignore, and its sender reads the first receipt. A record of a command
+// takes its ID; the record of a try's end or a wait's end takes
+// domain.StepID. A step that enters commits with domain.Commit (a new
+// entry: a new try, a new wait); a step that stays commits with
+// domain.Keep, so the try or the wait goes on.
+func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	let id = match s {
+	case Ask as a:
+		domain.CommandID(a.Env.ID)
+	case Ran, Due:
+		domain.StepID(l, "desk")
+	}
+	if domain.Taken(l, id) {
+		return Ignore
+	}
+	let before = len(BookOf(l.State).Log)
+	let d = try Step(l.State, s)
+	match d {
+	case Enter[Desk] as e:
+		domain.Commit(l, id, e.Next, slices.Slice(BookOf(e.Next).Log, before, len(BookOf(e.Next).Log)))
+	case Stay[Desk] as k:
+		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, len(BookOf(k.Next).Log)))
+	case Ignore:
+		Ignore
+	case Emit[Desk, []Entry], Tell[Desk, []Entry], Reject, Done[[]Entry]:
+		Unreachable("the desk enters, stays or ignores")
+	}
+}
+
+// Dispatch is the context as a machine.
+type Dispatch machine[Ledger, Signal] {
+	initial: domain.Begin[Desk, Entry](Stream, Fresh),
+	step:    Hosted,
+	after:   Timer,
+	work:    Work,
+}

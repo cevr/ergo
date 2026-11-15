@@ -30,6 +30,14 @@ extern go ergo.local/prototype/runtime/v1.MathPow func Pow(x float64, y float64)
 // Mod is the remainder of x / y, with the sign of x, as Go's math.Mod.
 extern go ergo.local/prototype/runtime/v1.MathMod func Mod(x float64, y float64) float64
 
+// Log is the natural logarithm of f, with Go's special cases: Log(+Inf)
+// is +Inf, Log(0) is -Inf, and Log of a negative f or NaN is NaN.
+extern go ergo.local/prototype/runtime/v1.MathLog func Log(f float64) float64
+
+// Exp is e to the power f, with Go's special cases: Exp(+Inf) is +Inf,
+// Exp(NaN) is NaN, and a very large f gives +Inf and a very small one 0.
+extern go ergo.local/prototype/runtime/v1.MathExp func Exp(f float64) float64
+
 // Inf is +Inf when sign is 0 or more, and -Inf otherwise.
 extern go ergo.local/prototype/runtime/v1.MathInf func Inf(sign int) float64
 

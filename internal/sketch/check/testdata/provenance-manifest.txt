@@ -30,6 +30,11 @@ import math/big
 # import no ergo.local package (go list -deps), so they cannot name, receive
 # or build a syntax node.
 import bytes crypto/sha256
+# CHK1c: export.go reads a snapshot's segments on demand through an
+# io.ReaderAt (bytes only) and counts the bytes read in a sync/atomic
+# Int64. Neither imports an ergo.local package (go list -deps), so they
+# cannot name, receive or build a syntax node.
+import io sync/atomic
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
@@ -41,12 +46,6 @@ import ergo.local/prototype/runtime/v1
 # of one binding. gostd imports embed and no ergo.local package (go list
 # -deps), so it cannot name, receive or build a syntax node.
 import ergo.local/prototype/internal/sketch/std/gostd
-# crypto/sha256 (S-embed, embed.go): checkEmbed hashes the text
-# "<package>/<file>:<pos>" with sha256.Sum256 to name the asset prefix of
-# one embed call. It reads only those bytes and returns a [32]byte; it
-# imports no ergo.local package, so it cannot name, receive or build a
-# syntax node.
-import crypto/sha256
 
 # derive (patterns.md Derivation; check/derive.go, check.go, info.go):
 # expandDerives calls derive.Expand on a package's files before the checker

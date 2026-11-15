@@ -34,7 +34,7 @@ type Scheduler {
 // sleeps on the host's clock, so it is a host provider (docs/spec/
 // stdlib.md, Host packages): its field gives the prelude the construction
 // authority, and only NewLiveScheduler makes one (std-align S2b).
-type LiveScheduler { live liveOnly }
+type LiveScheduler { live liveOnly } implements Scheduler
 
 // liveOnly is the zero-size type of LiveScheduler's field.
 type liveOnly {}
@@ -272,16 +272,21 @@ type Emit[S, O] { Next S, Output O }
 type Ignore {}
 type Reject {}
 type Done[O] { Output O }
+type Tell[S, O] { Next S, Output O }
 
 // Enter moves to Next and opens a new entry; Stay moves to Next and keeps
 // the entry; Emit moves to Next, opens a new entry, as Enter does, and
-// gives Output while the machine keeps running; Ignore and Reject keep the
-// state; Done ends the machine with Output.
-type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O]
+// gives Output while the machine keeps running; Tell moves to Next and
+// keeps the entry, as Stay does, and gives Output, as Emit does; Ignore
+// and Reject keep the state; Done ends the machine with Output. Only the
+// first state, an Enter and an Emit open an entry: a Stay and a Tell keep
+// the entry's timer and work (docs/spec/runtime.md, Machines and actors
+// 2 and 9).
+type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O] | Tell[S, O]
 
 // Timeout is a state's timer: when an entry of the state lasts In, the
 // runner gives the machine Signal. The runner owns the timer: it starts
-// when the entry opens, a Stay keeps it, and it never fires after its
+// when the entry opens, a Stay or a Tell keeps it, and it never fires after its
 // entry ended (docs/spec/runtime.md, Machines and actors 9).
 type Timeout[E] { In duration, Signal E }
 
@@ -317,6 +322,17 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
+// Closer is the release contract (resources R1): a type that implements
+// it is a resource, and its owner's scope calls Close where the value
+// dies, on every exit. Close takes the value it is called on (R19). It is
+// an ordinary operation type: a type declares it with `implements
+// Closer`, and an operation type includes it with `..Closer` (types.md,
+// Interface assignability 1).
+// law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
+type Closer {
+	Close() takes,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
@@ -325,11 +341,11 @@ type Task[T, E] {
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,
 	Stop(),
-	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end when no Wait took the task. It
-	// stops the task and waits until it has ended, as Stop does, and drops
-	// its typed failure; a Task is a resource.
-	Close(),
+	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
+	// its owner's scope calls it at the scope's end when no Wait took the
+	// task. It stops the task and waits until it has ended, as Stop does,
+	// and drops its typed failure; a Task is a resource.
+	..Closer,
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

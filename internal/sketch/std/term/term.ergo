@@ -70,7 +70,7 @@ func NoEcho[T, E, R](body func() T fails E needs R) T fails E | NotTerminal need
 
 // Host is the host's Terminal provider. Its field gives this package the
 // construction authority (types.md, Zero values 6).
-type Host { live hostOnly }
+type Host { live hostOnly } implements Terminal
 
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}
@@ -133,7 +133,7 @@ func Decode(token string) Key {
 // then EndOfInput; Size is Window; SetMode and Restore keep the modes set
 // and not restored, for Modes. Its state is in sync.Refs, so every copy of
 // a Script (the one a context binds, the one the test reads) shares it.
-type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] }
+type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] } implements Terminal
 
 // NewScript is the Script that plays keys and has the size window.
 func NewScript(keys []Key, window Window) Script {

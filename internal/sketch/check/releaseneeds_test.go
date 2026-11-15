@@ -27,7 +27,7 @@ import (
 // an inferred capability row; a decode in a package let that reaches an inferred ParseX
 // admitted.
 func TestReleaseNeedRows(t *testing.T) {
-	const res = "type Res { id int }\n\nfunc Close(r Res) needs Console {\n\tConsole.Println(\"close \\(r.id)\")\n}\n\n"
+	const res = "type Res { id int } implements Closer\n\nfunc Close(r Res) needs Console {\n\tConsole.Println(\"close \\(r.id)\")\n}\n\n"
 	for _, c := range []struct{ name, src, want string }{
 		{
 			"exported taker",
@@ -41,12 +41,12 @@ func TestReleaseNeedRows(t *testing.T) {
 		},
 		{
 			"released result",
-			"import timeout\n\ntype A { Use() }\ntype RA { id int }\nfunc Close(r RA) needs A { A.Use() }\n\nfunc G() RA fails timeout.Expired needs Scheduler {\n\ttry timeout.After(1s) { RA{id: 1} }\n}\n\nfunc main() {}\n",
+			"import timeout\n\ntype A { Use() }\ntype RA { id int } implements Closer\nfunc Close(r RA) needs A { A.Use() }\n\nfunc G() RA fails timeout.Expired needs Scheduler {\n\ttry timeout.After(1s) { RA{id: 1} }\n}\n\nfunc main() {}\n",
 			"8:6: S102 RA.Close, run by the release of RA here, requires A, which is not in the capability row of function G and no with provides it",
 		},
 		{
 			"replaced field",
-			"type B { Use() }\ntype RB { id int }\nfunc Close(r RB) needs B { B.Use() }\ntype Box { r RB, n int }\n\nfunc G() {\n\tlet b = Box{r: RB{id: 1}, n: 1}\n\tlet c = Box{..b, r: RB{id: 2}}\n}\n\nfunc main() {}\n",
+			"type B { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) needs B { B.Use() }\ntype Box { r RB, n int }\n\nfunc G() {\n\tlet b = Box{r: RB{id: 1}, n: 1}\n\tlet c = Box{..b, r: RB{id: 2}}\n}\n\nfunc main() {}\n",
 			"7:6: S102 RB.Close, run by the release of Box here, requires B, which is not in the capability row of function G and no with provides it\n" +
 				"8:6: S102 RB.Close, run by the release of Box here, requires B, which is not in the capability row of function G and no with provides it\n" +
 				"8:16: S102 RB.Close, run by the release of RB here, requires B, which is not in the capability row of function G and no with provides it",

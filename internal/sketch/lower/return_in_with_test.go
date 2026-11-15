@@ -14,7 +14,7 @@ func TestErgoRunReturnInWith(t *testing.T) {
 	wantRun(t, `import scope
 
 type Store { Get() int }
-type Mem { N int }
+type Mem { N int } implements Store, Closer
 func Get(m Mem) int { m.N }
 func Close(m Mem) needs Console { Console.Println("close \(m.N)") }
 

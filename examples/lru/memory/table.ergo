@@ -8,7 +8,7 @@ import sync
 // Table is a Registry over a fixed port list. It also counts its lookups
 // in a sync.Ref, which every copy shares, so a test sees how many lookups
 // a Memo saved.
-type Table { ports Map[string, int], lookups sync.Ref[int] }
+type Table { ports Map[string, int], lookups sync.Ref[int] } implements registry.Registry
 
 // BadRow is a line of a port list that is not "NAME PORT".
 type BadRow { Line string }

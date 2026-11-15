@@ -266,6 +266,7 @@
     "TestUTF16RangeCountsCodeUnitsAndNormalizesCRLF": 0
   },
   "ergo.local/prototype/internal/residue": {
+    "TestCompilerReadsNoStdMembership": 0.9,
     "TestContextResidue": 0.07,
     "TestGitCallRule": 0,
     "TestGitCallsTakeNoOptionalLocks": 0.36,
@@ -278,6 +279,7 @@
     "TestWallClockStaleRow": 0
   },
   "ergo.local/prototype/internal/rpcgen": {
+    "TestCliArgsRoundTrip": 5.03,
     "TestRpcLoopbackAgrees": 5.05
   },
   "ergo.local/prototype/internal/selfhostcheck": {
@@ -847,6 +849,7 @@
     "TestCatchCostModule": 0.67,
     "TestCatchTreeAgrees": 3.22,
     "TestCatchTreeShape": 0.01,
+    "TestCellEvidenceFollowsTheDeclaringModule": 1.5,
     "TestCheckCorpusBuildsDomain": 0.05,
     "TestCheckCorpusBuildsPart0": 4.77,
     "TestCheckCorpusBuildsPart1": 4.37,
@@ -1220,6 +1223,7 @@
     "TestProgramPackagesHaveNoHostProvider": 0,
     "TestSeqStopRuleFixtures": 0.01,
     "TestStdBindsNoForeignBody": 0.01,
+    "TestStdCopyAgrees": 4.5,
     "TestStdExternCallersHoldAuthority": 0.09,
     "TestStdHostGuardAgreesWithOracle": 1.03,
     "TestStdHostHandOutChains": 4.86,

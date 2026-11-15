@@ -168,7 +168,7 @@ func toLight(b Both, c light.Cue) (Both, []Line) {
 		(next, []Line{Line{At: at, Who: "light", Text: lightText(s.Next)}})
 	case Emit[light.Light, string] as m:
 		(next, []Line{Line{At: at, Who: "light", Text: m.Output}})
-	case Ignore:
+	case Ignore, Tell[light.Light, string]:
 		(next, []Line{Line{At: at, Who: "light", Text: "ignored, still \(light.Colour(b.Light))"}})
 	case Reject:
 		(next, []Line{})

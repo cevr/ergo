@@ -41,7 +41,7 @@ extern go debug/pe.File type File {
 	FileHeader  FileHeader,
 	COFFSymbols []COFFSymbol,
 	StringTable StringTable,
-}
+} implements Closer
 
 // ergo:go OptionalHeader any
 // ergo:refused File.OptionalHeader: Ergo has no any; an interface{} parameter or result hides the host type

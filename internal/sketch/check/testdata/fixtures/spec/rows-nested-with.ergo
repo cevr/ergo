@@ -1,6 +1,6 @@
 type Store { Get() string }
 type Box { Get() string }
-type Holder { Value string }
+type Holder { Value string } implements Store, Box
 
 func Get(h Holder) string { return h.Value }
 

@@ -5,7 +5,7 @@
 
 // refusing is a target that refuses every write: the Targets laws run
 // against it.
-type refusing {}
+type refusing {} implements Targets
 
 func Write(_ refusing, t Share) Ref fails Refused { Refused{Why: "no"} }
 
@@ -104,7 +104,7 @@ func moved(d Decision[Job, Result]) Option[Job] {
 		Some{x.Next}
 	case Emit[Job, Result] as x:
 		Some{x.Next}
-	case Ignore:
+	case Ignore, Tell[Job, Result]:
 		None
 	case Reject:
 		None

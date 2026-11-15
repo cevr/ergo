@@ -97,6 +97,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		for _, mt := range t.byName {
 			it.byName = append(it.byName, newOf[mt])
 		}
+		for _, inc := range t.includes {
+			if n, ok := c.subst(inc, m).(*Named); ok {
+				it.includes = append(it.includes, n)
+			}
+		}
 		return it
 	case *Union:
 		if t.Row != nil {
@@ -355,6 +360,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			// A cell stays where its confinement rules see it.
 			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
+		c.recordLegacy(v, t, "conversion")
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
@@ -373,7 +379,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// representation (lower/std.go runtimeType).
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
 			}
-			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {
 				// An Ergo operation type's operations take Ergo's calling
 				// convention (the task they run on), not the Go method
 				// shapes of a Go interface, so Go would refuse the
@@ -1016,7 +1022,11 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	return c.implements(t, it, true)
+	if why := c.implements(t, it, true); why != "" {
+		return why
+	}
+	c.recordLegacy(t, constraint, "constraint")
+	return ""
 }
 
 // letZero checks `let name T` with no value (types.md, Zero values 3): T

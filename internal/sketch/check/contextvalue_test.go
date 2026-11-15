@@ -11,7 +11,7 @@ import (
 )
 
 const contextShadowPrelude = `type A { Use() }
-type Quiet {}
+type Quiet {} implements A
 func Use(_ Quiet) {}
 let W = context { A: Quiet }
 type Tag { Text string }

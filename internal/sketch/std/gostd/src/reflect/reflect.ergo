@@ -319,7 +319,7 @@ extern go reflect.Uintptr let Uintptr Kind
 extern go reflect.UnsafePointer let UnsafePointer Kind
 
 // ergo:go type Value struct
-extern go reflect.Value type Value {}
+extern go reflect.Value type Value {} implements Closer
 
 // ergo:go func (Value).Addr() Value
 extern go reflect.Value.Addr func (v Value) Addr() Value needs go.Foreign takes v

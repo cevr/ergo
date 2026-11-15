@@ -1,0 +1,103 @@
+import arena
+
+// Pointer, key and frame events (H5a). Each reaches the program as a
+// signal of its own type E, which a view's function makes from the event's
+// data, so the program's machine steps it like a press. The host finds the
+// node under a pointer (it has the boxes); the composer finds the
+// function.
+
+// Phase is what a pointer did: pressed, moved, released, or a wheel turned
+// by DX and DY.
+type Phase = Down | Moved | Up | Wheel{DX float64, DY float64}
+
+// Down is a pointer pressed.
+type Down {}
+
+// Moved is a pointer moved, pressed or not.
+type Moved {}
+
+// Up is a pointer released.
+type Up {}
+
+// PointerEvent is a pointer's phase and its position in the node's box,
+// in device-independent pixels from the box's top left corner.
+type PointerEvent { Phase Phase, X float64, Y float64 }
+
+// Mods are the modifier keys held with a key.
+type Mods { Shift bool, Ctrl bool, Alt bool, Meta bool }
+
+// KeyPress is a key pressed: its name ("a", "Enter", "ArrowUp", as the
+// web's KeyboardEvent.key names it) and the modifiers held.
+type KeyPress { Name string, Mods Mods }
+
+// Area is a container whose box takes pointer events: on makes the signal
+// of each, None for an event the program ignores (a move with no button
+// down). label names it to a test host and to assistive technology; body
+// is what it shows.
+func Area[E](f *Frame[E], label string, style Style, on escaping func(p PointerEvent) Option[E], body func(), at CallSite) {
+	let outer = f.parent
+	let i = put(f, AreaNode{Label: label, Style: style}, None, None, at)
+	f.specs[i].onPoint = Some{Value: on}
+	f.parent = i
+	body()
+	f.parent = outer
+}
+
+// OnKey takes the key presses of this pass: a press goes to the OnKey
+// calls in the order the pass made them, and the first that gives a signal
+// takes it, so a dialog written before the page it covers takes its keys
+// first.
+func OnKey[E](f *Frame[E], on escaping func(k KeyPress) Option[E]) {
+	f.keys = f.keys.Append(on)
+}
+
+// Animate asks for frames while a pass makes it: the host sends a Tick per
+// frame, and on makes the signal of each from the frame's time (since the
+// host started). A pass that makes no Animate asks for no frame, so a
+// settled screen costs nothing.
+func Animate[E](f *Frame[E], on escaping func(at duration) E) {
+	f.anims = f.anims.Append(on)
+}
+
+// Animating is whether the last pass made an Animate: whether the host
+// should send frames.
+func Animating[E](f *Frame[E]) bool { len(f.anims) > 0 }
+
+// ticked is the signals of a frame at time at: one per Animate of the last
+// pass, in pass order.
+func ticked[E](f *Frame[E], at duration) []E {
+	let mut out = []E{}
+	for on in f.anims {
+		out = out.Append(on(at))
+	}
+	out
+}
+
+// pointed is the signal of a pointer event on the node id: None for a
+// node with no Area function, one the tree no longer holds, or an event
+// the function ignores.
+func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
+	let n = f.nodes.Get(id.ref) catch {
+	case arena.Stale:
+		return None
+	}
+	match n.onPoint {
+	case Some[func(p PointerEvent) Option[E]] as on:
+		on.Value(p)
+	case None:
+		None
+	}
+}
+
+// keyed is the signal of a key press: the first OnKey of the last pass
+// that gives one.
+func keyed[E](f *Frame[E], k KeyPress) Option[E] {
+	for on in f.keys {
+		match on(k) {
+		case Some[E] as e:
+			return Some{Value: e.Value}
+		case None:
+		}
+	}
+	None
+}

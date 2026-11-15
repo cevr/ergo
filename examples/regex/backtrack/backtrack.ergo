@@ -9,7 +9,7 @@ import regex/syntax
 
 // Engine is the backtracking engine. It compiles nothing: its Matcher
 // keeps the tree.
-type Engine {}
+type Engine {} implements engine.Engine
 
 // Compile is the Matcher of pattern.
 func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: pattern} }
@@ -18,7 +18,7 @@ func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: patte
 func Search(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: syntax.Search(pattern)} }
 
 // Tree is a pattern that backtrack matches by walking it.
-type Tree { pattern syntax.Node }
+type Tree { pattern syntax.Node } implements engine.Matcher
 
 // Matches reports whether t's pattern matches the whole text.
 func Matches(t Tree, text string) bool {

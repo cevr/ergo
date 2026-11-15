@@ -1,0 +1,76 @@
+// Followers (DK3): a policy or a projection reads a stream of the log
+// from where it last stopped. Follow delivers each record after the
+// follower's saved cursor to its handle, in order, and saves the cursor
+// once the handle returned: a crash between the two delivers the record
+// again (at least once). A command the handle sends takes the id SentID
+// gives, from the follower, the stream, the record's position and the
+// command's index, so the log answers the second delivery's command as a
+// resend and keeps it once.
+//
+// Effect: @effect/cluster's and Commanded's event handlers keep a
+// subscription cursor per handler; the id from the event's position is
+// Commanded's causation id.
+
+// Cursor keeps where each follower is in each stream: the position of the
+// last record it handled, 0 before the first.
+type Cursor {
+	// At is the position follower last saved in stream, 0 for none.
+	At(follower string, stream string) int,
+	// Save keeps at as follower's position in stream. It fails Unkept
+	// when the provider could not keep it (a crash).
+	Save(follower string, stream string, at int) fails Unkept,
+
+	// LastSaveWins: At gives what the last Save kept, ahead of the one
+	// before or behind it (a projection rebuilt from the start saves 0).
+	law LastSaveWins(follower string, stream string, first int, at int) {
+		Save(follower, stream, first) catch {
+		case Unkept:
+			return true
+		}
+		Save(follower, stream, at) catch {
+		case Unkept:
+			return true
+		}
+		At(follower, stream) == at
+	},
+	// CursorsAreApart: a Save of one follower in one stream moves no
+	// other follower's cursor, and no other stream's.
+	law CursorsAreApart(follower string, other string, stream string, at int) {
+		if follower == other {
+			return true
+		}
+		let before = At(other, stream)
+		let elsewhere = At(follower, stream+"+")
+		Save(follower, stream, at) catch {
+		case Unkept:
+			return true
+		}
+		At(other, stream) == before && At(follower, stream+"+") == elsewhere
+	},
+}
+
+// Delivery is one record as a follower gets it.
+type Delivery[E] { Follower string, Stream string, Record Recorded[E] }
+
+// SentID is the id of the index-th command that d's handle sends: the
+// same for every delivery of the record, and another for any other
+// record, follower or index.
+func SentID[E](d Delivery[E], index int) CommandID {
+	CommandID("\(d.Follower)|\(d.Stream)@\(d.Record.Position)#\(index)")
+}
+
+// Follow delivers to handle each record of stream after follower's
+// cursor, in order, and saves the cursor after each handle returned. It
+// is the number of records delivered. It stops at the first failure of
+// handle or of the cursor's Save; the next Follow delivers again from the
+// saved cursor, so a record whose handle ran and whose cursor was not
+// saved comes twice.
+func Follow[E comparable](log Log[E], cursor Cursor, follower string, stream string, handle func(d Delivery[E]) fails Unkept) int fails Unkept {
+	let mut n = 0
+	for r in log.Read(stream, cursor.At(follower, stream)) {
+		try handle(Delivery[E]{Follower: follower, Stream: stream, Record: r})
+		try cursor.Save(follower, stream, r.Position)
+		n = n + 1
+	}
+	n
+}

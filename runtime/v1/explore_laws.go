@@ -125,7 +125,7 @@ func (l *childLaws) Event(e rt.Event) {
 		}
 	case rt.MachineDecide:
 		switch m.Decision {
-		case "Emit", "Done":
+		case "Emit", "Tell", "Done":
 			if a.owner != nil {
 				l.out[*a.owner]++
 			}

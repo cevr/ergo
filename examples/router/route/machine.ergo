@@ -11,11 +11,12 @@ type Board { Table Table, Queue []Request, Answers []Answered }
 //
 //	Idle        no request is served; the queue is empty. Its lanes
 //	            carry messages: a courier per route of the table, each
-//	            named by a host before it runs (its work), and Log is
-//	            what they carried in this entry
+//	            named by a host before it runs (its work); what they
+//	            carry is told (a Tell), so the entry and its couriers
+//	            go on
 //	Confirming  the operator is asked about Current (it replaces a route)
 //	Applying    the registry checks Current (its work)
-type Router = Idle{Board Board, Lanes []Lane, Log []Delivered} | Confirming{Board Board, Current Request} | Applying{Board Board, Current Request}
+type Router = Idle{Board Board, Lanes []Lane} | Confirming{Board Board, Current Request} | Applying{Board Board, Current Request}
 
 // Signal is what the router reads. Submit and Abort come from clients,
 // Reply from the operator; Checked and Unknown are the results of
@@ -24,19 +25,20 @@ type Router = Idle{Board Board, Lanes []Lane, Log []Delivered} | Confirming{Boar
 // entry that started it.
 type Signal = Submit{Request Request} | Reply{Yes bool} | Abort{ID int} | Checked{Table Table} | Unknown | Told{Delivered Delivered}
 
-// Output is what the router tells the operator: a question about a
-// request. Answers are not outputs: they are in the state, where a
-// client waits for its own (actor.WaitFor).
-type Output { ID int, Text string }
+// Output is what the router tells: a Question about a request, to the
+// operator, and each message a courier Delivered. Answers are not
+// outputs: they are in the state, where a client waits for its own
+// (actor.WaitFor).
+type Output = Question{ID int, Text string} | Delivered
 
 // Initial is the router with no routes.
-let Initial = Idle{Board: Board{Table: Table{Routes: []Route{}}, Queue: []Request{}, Answers: []Answered{}}, Lanes: []Lane{}, Log: []Delivered{}}
+let Initial = Idle{Board: Board{Table: Table{Routes: []Route{}}, Queue: []Request{}, Answers: []Answered{}}, Lanes: []Lane{}}
 
 // idle is the router idle with the board b: a lane with a new host for
 // each route of b's table, and an empty log. The step that enters it
 // makes the hosts, so the entry owns them; in a recovery, the replay
 // makes them, and the recovered first entry binds them.
-func idle(b Board) Router { Idle{Board: b, Lanes: lanes(b.Table), Log: []Delivered{}} }
+func idle(b Board) Router { Idle{Board: b, Lanes: lanes(b.Table)} }
 
 // work is the work of each state. Applying checks its request with the
 // registry: the runner interrupts it when the entry ends, so an abort
@@ -145,7 +147,7 @@ func question(t Table, r Request) Option[Output] {
 		match DestOf(t, a.Topic) {
 		case Some[string] as d:
 			if d.Value != a.Dest {
-				Some[Output]{Value: Output{ID: r.ID, Text: "\(a.Topic) goes to \(d.Value): send it to \(a.Dest)?"}}
+				Some[Output]{Value: Question{ID: r.ID, Text: "\(a.Topic) goes to \(d.Value): send it to \(a.Dest)?"}}
 			} else {
 				None
 			}
@@ -281,12 +283,13 @@ func Step(s Router, sig Signal) Decision[Router, Output] {
 			Ignore
 		}
 	case Told as t:
-		// A message a courier of this Idle entry carried: kept in the
-		// entry's log. A courier's signal of an ended entry never gets
-		// here (the runner drops it).
+		// A message a courier of this Idle entry carried: told, in the
+		// same entry, so its couriers and its hosts go on (an Emit would
+		// end the entry and stop them). A courier's signal of an ended
+		// entry never gets here (the runner drops it).
 		match s {
-		case Idle as i:
-			Stay[Router]{Next: Idle{..i, Log: i.Log.Append(t.Delivered)}}
+		case Idle:
+			Tell[Router, Output]{Next: s, Output: t.Delivered}
 		case Confirming:
 			Ignore
 		case Applying:

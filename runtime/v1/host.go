@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -213,6 +214,54 @@ func FSReadFile(path string) (string, error) {
 		return "", fsErr(path, err)
 	}
 	return string(data), nil
+}
+
+// FSMapFile is the body of fs.Host's MapFile: the whole file at path as
+// text, read through a read-only shared mapping of the file, not copied.
+// A large file costs no read and no heap: the text is the page cache's
+// bytes, faulted in as they are first read.
+//
+// Safety invariant (unsafe.String): the bytes the string points at never
+// change and stay mapped while the program runs. The mapping is
+// PROT_READ, so no store through it is possible, and it is never
+// unmapped: no Munmap is called and the slice that names it is dropped
+// here, so nothing can unmap it. So the string is immutable for as long
+// as anything reads it, as Go requires of a string. The host keeps one
+// fact out of the program's reach: a file truncated by another process
+// while it is mapped faults on the next read of a missing page (SIGBUS),
+// which Go reports as a fatal fault. TestFSMapFileKeepsItsInvariant checks
+// the protection and that the text outlives a collection.
+//
+// An empty file maps nothing and is "". A directory fails as FSReadFile
+// fails for it, and any other file that is not regular (a pipe, a
+// device) is read as FSReadFile reads it.
+//
+//ergo:host
+func FSMapFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fsErr(path, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", fsErr(path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return FSReadFile(path)
+	}
+	size := info.Size()
+	if size == 0 {
+		return "", nil
+	}
+	if int64(int(size)) != size {
+		return "", Failed{Path: path, Reason: "file too large"}
+	}
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return "", Failed{Path: path, Reason: err.Error()}
+	}
+	return unsafe.String(&data[0], len(data)), nil
 }
 
 // FSReadDir is the body of fs.Host's ReadDir: the names of the entries of

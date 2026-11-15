@@ -1,0 +1,179 @@
+// The subset of JSON Schema that a tool's input schema uses (AP3): what
+// ergo gen mcp writes, and what a client may check arguments against.
+// Conforms reads the keywords type, properties, required,
+// additionalProperties (a schema), items, prefixItems, anyOf and const (a
+// string); it ignores every other keyword, as JSON Schema does an unknown
+// one, so a schema that uses more is read as looser than it is.
+
+import json
+import strings
+
+// Conforms is whether v is an instance of schema.
+func Conforms(schema json.Value, v json.Value) bool {
+	match schema {
+	case json.Boolean as b:
+		return b.Value
+	case json.Object:
+	case json.Null, json.Num, json.Str, json.Array:
+		return true
+	}
+	match text(Field(schema, "type")) {
+	case Some[string] as t:
+		if !isType(t.Value, v) {
+			return false
+		}
+	case None:
+	}
+	match text(Field(schema, "const")) {
+	case Some[string] as c:
+		match v {
+		case json.Str as s:
+			if s.Value != c.Value {
+				return false
+			}
+		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+			return false
+		}
+	case None:
+	}
+	match Field(schema, "anyOf") {
+	case Some[json.Value] as any:
+		if !anyFits(any.Value, v) {
+			return false
+		}
+	case None:
+	}
+	match v {
+	case json.Object as o:
+		objectFits(schema, o)
+	case json.Array as a:
+		arrayFits(schema, a)
+	case json.Null, json.Boolean, json.Num, json.Str:
+		true
+	}
+}
+
+// isType is whether v is of the JSON Schema type t.
+func isType(t string, v json.Value) bool {
+	match v {
+	case json.Null:
+		t == "null"
+	case json.Boolean:
+		t == "boolean"
+	case json.Num as n:
+		let s = json.Wire(n)
+		t == "number" || t == "integer" && !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E")
+	case json.Str:
+		t == "string"
+	case json.Array:
+		t == "array"
+	case json.Object:
+		t == "object"
+	}
+}
+
+// anyFits is whether v is an instance of one schema of the list any.
+func anyFits(any json.Value, v json.Value) bool {
+	match any {
+	case json.Array as a:
+		for s in a.Items {
+			if Conforms(s, v) {
+				return true
+			}
+		}
+		false
+	case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+		true
+	}
+}
+
+// member is the value of the member key of o.
+func member(o json.Object, key string) Option[json.Value] {
+	for m in o.Members {
+		if m.Key == key {
+			return Some[json.Value]{Value: m.Value}
+		}
+	}
+	None
+}
+
+// objectFits is whether o has every required key, and each member fits
+// its property's schema (or additionalProperties, for a key with none).
+func objectFits(schema json.Value, o json.Object) bool {
+	match Field(schema, "required") {
+	case Some[json.Value] as r:
+		match r.Value {
+		case json.Array as keys:
+			for k in keys.Items {
+				match k {
+				case json.Str as s:
+					match member(o, s.Value) {
+					case Some[json.Value]:
+					case None:
+						return false
+					}
+				case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+				}
+			}
+		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+		}
+	case None:
+	}
+	let properties = match Field(schema, "properties") {
+	case Some[json.Value] as p:
+		p.Value
+	case None:
+		json.Object{Members: []json.Member{}}
+	}
+	for m in o.Members {
+		match Field(properties, m.Key) {
+		case Some[json.Value] as s:
+			if !Conforms(s.Value, m.Value) {
+				return false
+			}
+		case None:
+			match Field(schema, "additionalProperties") {
+			case Some[json.Value] as s:
+				if !Conforms(s.Value, m.Value) {
+					return false
+				}
+			case None:
+			}
+		}
+	}
+	true
+}
+
+// arrayFits is whether each item of a fits: the item at i fits
+// prefixItems[i] when there is one, else items. A prefixItems array also
+// fixes the length.
+func arrayFits(schema json.Value, a json.Array) bool {
+	match Field(schema, "prefixItems") {
+	case Some[json.Value] as p:
+		match p.Value {
+		case json.Array as ps:
+			if len(ps.Items) != len(a.Items) {
+				return false
+			}
+			for i, s in ps.Items {
+				if !Conforms(s, a.Items[i]) {
+					return false
+				}
+			}
+			return true
+		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+		}
+	case None:
+	}
+	match Field(schema, "items") {
+	case Some[json.Value] as s:
+		for e in a.Items {
+			if !Conforms(s.Value, e) {
+				return false
+			}
+		}
+		true
+	case None:
+		true
+	}
+}

@@ -134,10 +134,12 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
+	// each std package and its copy), so lower's files, its test files
+	// among them, are in the package's closure: TestStdLawLedger's read of
+	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
-		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
-		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
@@ -217,6 +219,7 @@ var declared = map[string][]allowance{
 	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
