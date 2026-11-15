@@ -1,0 +1,297 @@
+import maps
+import slices
+import strings
+import vt/width
+
+// Unhandled counts the events a screen was not given: a control, a
+// sequence or a mode this terminal does not take, named by its kind and
+// final byte. It is data, not a failure.
+type Unhandled { counts Map[string, int] }
+
+// NewUnhandled is an empty count.
+func NewUnhandled() Unhandled { Unhandled{counts: Map[string, int]{}} }
+
+// note counts one more of what.
+func note(u *Unhandled, what string) { u.counts = u.counts.Put(what, maps.GetOr(u.counts, what, 0)+1) }
+
+// Lines is the counts as lines, by name.
+func Lines(u Unhandled) []string {
+	let mut lines = []string{}
+	for k in slices.Sorted(maps.Keys(u.counts)) {
+		lines = lines.Append("unhandled \(k) \(maps.GetOr(u.counts, k, 0))")
+	}
+	lines
+}
+
+// TitleLimit is the most bytes of a title kept.
+let TitleLimit = 256
+
+// Apply gives the screen s each event, and counts in u those it does not
+// take.
+func Apply(s Screen, events []Event, u *Unhandled) {
+	for e in events {
+		match e {
+		case Text as t:
+			s.Print(t.Run)
+		case Glyph as g:
+			s.PrintRune(g.C, width.Of(g.C))
+		case Control as c:
+			control(s, c.C, u)
+		case Esc as x:
+			escape(s, x, u)
+		case Csi as c:
+			csi(s, c, u)
+		case Osc as o:
+			if strings.HasPrefix(o.Data, "0;") || strings.HasPrefix(o.Data, "2;") {
+				let t = o.Data[2:len(o.Data)]
+				s.SetTitle(if len(t) > TitleLimit { t[0:TitleLimit] } else { t })
+			} else {
+				u.note("osc")
+			}
+		case Hook:
+			u.note("dcs")
+		case Unhook:
+		case Apc:
+			u.note("apc")
+		}
+	}
+}
+
+// control gives s the C0 control c.
+func control(s Screen, c byte, u *Unhandled) {
+	match c {
+	case 0x07:
+	case 0x08:
+		s.Backspace()
+	case 0x09:
+		s.Tab()
+	case 0x0a, 0x0b, 0x0c:
+		s.LineFeed()
+	case 0x0d:
+		s.CarriageReturn()
+	case _:
+		u.note("control \(int(c))")
+	}
+}
+
+// escape gives s the ESC sequence x.
+func escape(s Screen, x Esc, u *Unhandled) {
+	if x.Inter != "" {
+		u.note("esc \(x.Inter)\(ByteText(x.Final))")
+		return
+	}
+	match x.Final {
+	case 'D':
+		s.LineFeed()
+	case 'E':
+		s.CarriageReturn()
+		s.LineFeed()
+	case 'M':
+		s.ReverseIndex()
+	case '7':
+		s.Save()
+	case '8':
+		s.Restore()
+	case 'c':
+		s.Reset()
+	case '\\':
+		// ST: the end of a string, which the parser has already ended.
+	case _:
+		u.note("esc \(ByteText(x.Final))")
+	}
+}
+
+// arg is parameter i of ps, or def when it is missing or 0.
+func arg(ps []int, i int, def int) int {
+	if i < len(ps) && ps[i] != 0 { ps[i] } else { def }
+}
+
+// csi gives s the CSI sequence c.
+func csi(s Screen, c Csi, u *Unhandled) {
+	let ps = c.Params
+	if c.Inter == "?" && (c.Final == 'h' || c.Final == 'l') {
+		for m in ps {
+			match m {
+			case 6, 7, 25, 1049:
+				s.SetMode(m, c.Final == 'h')
+			case _:
+				u.note("mode \(m)")
+			}
+		}
+		return
+	}
+	if c.Inter != "" {
+		u.note("csi \(c.Inter)\(ByteText(c.Final))")
+		return
+	}
+	match c.Final {
+	case 'A':
+		s.Up(arg(ps, 0, 1))
+	case 'B':
+		s.Down(arg(ps, 0, 1))
+	case 'C':
+		s.Forward(arg(ps, 0, 1))
+	case 'D':
+		s.Back(arg(ps, 0, 1))
+	case 'H', 'f':
+		s.MoveTo(arg(ps, 0, 1), arg(ps, 1, 1))
+	case 'G':
+		s.Column(arg(ps, 0, 1))
+	case 'd':
+		s.Row(arg(ps, 0, 1))
+	case 'J':
+		let m = arg(ps, 0, 0)
+		if m <= 2 {
+			s.EraseDisplay(m)
+		} else {
+			u.note("erase display \(m)")
+		}
+	case 'K':
+		let m = arg(ps, 0, 0)
+		if m <= 2 {
+			s.EraseLine(m)
+		} else {
+			u.note("erase line \(m)")
+		}
+	case 'L':
+		s.InsertLines(arg(ps, 0, 1))
+	case 'M':
+		s.DeleteLines(arg(ps, 0, 1))
+	case '@':
+		s.InsertBlanks(arg(ps, 0, 1))
+	case 'P':
+		s.DeleteChars(arg(ps, 0, 1))
+	case 'X':
+		s.EraseChars(arg(ps, 0, 1))
+	case 'S':
+		s.ScrollUp(arg(ps, 0, 1))
+	case 'T':
+		s.ScrollDown(arg(ps, 0, 1))
+	case 'r':
+		s.SetRegion(arg(ps, 0, 0), arg(ps, 1, 0))
+	case 'm':
+		s.SetPen(Sgr(s.Pen(), ps, c.Colons, u))
+	case _:
+		u.note("csi \(ByteText(c.Final))")
+	}
+}
+
+// Sgr is the pen after the SGR sequence of params; colons has bit i set
+// when parameter i is followed by a colon, so that parameter and the
+// next are one group (38:2::r:g:b).
+func Sgr(pen Style, params []int, colons int, u *Unhandled) Style {
+	if len(params) == 0 {
+		return Default
+	}
+	let mut st = pen
+	let mut i = 0
+	for i < len(params) {
+		// The group of parameter i: i to end-1.
+		let mut end = i + 1
+		for end < len(params) && (colons>>(end-1))&1 == 1 {
+			end += 1
+		}
+		let p = params[i]
+		if end > i+1 {
+			// A colon group: 4:n is an underline style, 38:5:n and
+			// 38:2:[cs:]r:g:b are colours.
+			let g = params[i:end]
+			match p {
+			case 4:
+				st = flag(st, Underline, g[1] != 0)
+			case 38, 48, 58:
+				let col = groupColor(g)
+				if p == 38 {
+					st = Style{Fg: col, Bg: st.Bg, Flags: st.Flags}
+				} else if p == 48 {
+					st = Style{Fg: st.Fg, Bg: col, Flags: st.Flags}
+				} else {
+					u.note("sgr 58")
+				}
+			case _:
+				u.note("sgr \(p):")
+			}
+			i = end
+			continue
+		}
+		if (p == 38 || p == 48) && i+2 < len(params) && params[i+1] == 5 {
+			let col = Color(params[i+2]%256 + 1)
+			st = if p == 38 { Style{Fg: col, Bg: st.Bg, Flags: st.Flags} } else { Style{Fg: st.Fg, Bg: col, Flags: st.Flags} }
+			i += 3
+			continue
+		}
+		if (p == 38 || p == 48) && i+4 < len(params) && params[i+1] == 2 {
+			let col = rgb(params[i+2], params[i+3], params[i+4])
+			st = if p == 38 { Style{Fg: col, Bg: st.Bg, Flags: st.Flags} } else { Style{Fg: st.Fg, Bg: col, Flags: st.Flags} }
+			i += 5
+			continue
+		}
+		st = attribute(st, p, u)
+		i += 1
+	}
+	st
+}
+
+// attribute is st with the one-number SGR attribute p.
+func attribute(st Style, p int, u *Unhandled) Style {
+	if p >= 30 && p <= 37 {
+		return Style{Fg: Color(p - 30 + 1), Bg: st.Bg, Flags: st.Flags}
+	}
+	if p >= 90 && p <= 97 {
+		return Style{Fg: Color(p - 90 + 9), Bg: st.Bg, Flags: st.Flags}
+	}
+	if p >= 40 && p <= 47 {
+		return Style{Fg: st.Fg, Bg: Color(p - 40 + 1), Flags: st.Flags}
+	}
+	if p >= 100 && p <= 107 {
+		return Style{Fg: st.Fg, Bg: Color(p - 100 + 9), Flags: st.Flags}
+	}
+	match p {
+	case 0:
+		Default
+	case 1:
+		flag(st, Bold, true)
+	case 3:
+		flag(st, Italic, true)
+	case 4:
+		flag(st, Underline, true)
+	case 7:
+		flag(st, Inverse, true)
+	case 22:
+		flag(st, Bold, false)
+	case 23:
+		flag(st, Italic, false)
+	case 24:
+		flag(st, Underline, false)
+	case 27:
+		flag(st, Inverse, false)
+	case 39:
+		Style{Fg: Color(0), Bg: st.Bg, Flags: st.Flags}
+	case 49:
+		Style{Fg: st.Fg, Bg: Color(0), Flags: st.Flags}
+	case _:
+		u.note("sgr \(p)")
+		st
+	}
+}
+
+// flag is st with the flag f set or cleared.
+func flag(st Style, f int, on bool) Style {
+	Style{Fg: st.Fg, Bg: st.Bg, Flags: if on { st.Flags | f } else { st.Flags & ^f }}
+}
+
+// groupColor is the colour of a colon group 38:5:n, 38:2:r:g:b or
+// 38:2:cs:r:g:b; any other group is the default.
+func groupColor(g []int) Color {
+	if len(g) == 3 && g[1] == 5 {
+		return Color(g[2]%256 + 1)
+	}
+	if len(g) >= 5 && g[1] == 2 {
+		let n = len(g)
+		return rgb(g[n-3], g[n-2], g[n-1])
+	}
+	Color(0)
+}
+
+// rgb is the RGB colour of r, g and b, each taken modulo 256.
+func rgb(r int, g int, b int) Color { Rgb + Color((r%256)<<16|(g%256)<<8|b%256) }

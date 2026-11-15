@@ -1,0 +1,53 @@
+// Sparse is a set of ids of K with constant-time Insert, Contains, Remove
+// and Clear, whose members are a dense list (Briggs and Torczon's sparse
+// set; Go's cmd/compile ssa.sparseSet; an ECS system's membership). The
+// members lie in insertion order until a Remove moves the last member into
+// the removed one's place. It is as long as the largest id inserted.
+type Sparse[K] { members []ID[K], at []uint32 }
+
+// NewSparse is an empty set.
+func NewSparse[K]() Sparse[K] { Sparse[K]{members: []ID[K]{}, at: []uint32{}} }
+
+// Contains reports whether id is a member.
+func Contains[K](s Sparse[K], id ID[K]) bool {
+	let i = int(id.n)
+	if i >= len(s.at) {
+		return false
+	}
+	let k = int(s.at[i])
+	k < len(s.members) && s.members[k] == id
+}
+
+// Insert makes id a member; a member stays as it is.
+func Insert[K](s *Sparse[K], id ID[K]) {
+	if Contains(*s, id) {
+		return
+	}
+	let i = int(id.n)
+	for len(s.at) <= i {
+		s.at = s.at.Append(uint32(0))
+	}
+	s.at[i] = uint32(len(s.members))
+	s.members = s.members.Append(id)
+}
+
+// Remove makes id no member; an id that is none stays none.
+func Remove[K](s *Sparse[K], id ID[K]) {
+	if !Contains(*s, id) {
+		return
+	}
+	let k = int(s.at[int(id.n)])
+	let last = s.members[len(s.members)-1]
+	s.members[k] = last
+	s.at[int(last.n)] = uint32(k)
+	s.members = s.members[0 : len(s.members)-1]
+}
+
+// Clear removes every member, in constant time.
+func Clear[K](s *Sparse[K]) { s.members = s.members[0:0] }
+
+// Members is the members, in the order above: a window, no copy.
+func Members[K](s Sparse[K]) []ID[K] { s.members }
+
+// Size is the count of members.
+func Size[K](s Sparse[K]) int { len(s.members) }

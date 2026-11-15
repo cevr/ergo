@@ -30,7 +30,7 @@ import (
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo
 //go:embed atomic/*.ergo
-//go:embed arena/*.ergo
+//go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
 //go:embed text/*.ergo
 //go:embed filepath/*.ergo

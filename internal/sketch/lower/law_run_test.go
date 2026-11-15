@@ -653,11 +653,15 @@ func main() {}
 // type (the b13 binding); each program also has a top-level law, true or
 // false. Half the providers are also bound by a named context, under
 // which the law runs too (L5), and fails exactly when the provider is the
-// broken one. want are the lines the test binary prints, in order, and exit its
-// status.
+// broken one. Half the providers of a non-generic Op are borrow providers,
+// whose F takes *P (Laws 10), and half the programs add Gate, whose one
+// borrow provider G is listed: proved, or refuted by a broken Set. want
+// are the lines the test binary prints, in order, and exit its status.
 type lawRunProgram struct {
 	name, src string
-	generic   bool // Op[T], run at each provider's instance
+	generic   bool   // Op[T], run at each provider's instance
+	borrowed  bool   // a borrow provider of Op is the broken one
+	gate      string // "ok" or "FAIL" for Gate's listed borrow provider, "" for none
 	want      []string
 	exit      int
 }
@@ -691,6 +695,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	var ctxs strings.Builder
 	var under []string
 	failed := 0
+	borrowed, gate := false, ""
 	for p := 0; p < providers; p++ {
 		name := fmt.Sprintf("P%d", p)
 		body := fmt.Sprintf("n * %d + %d", k, c)
@@ -701,18 +706,26 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		if generic && r.Intn(2) == 0 {
 			elem = "int64"
 		}
+		// A borrow provider (Laws 10): F takes *P and writes it, so only
+		// *P implements Op; the run binds the case's P by its address.
 		impl := "Op"
 		if generic {
 			impl = "Op[" + elem + "]"
 		}
-		fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, impl, name, elem, elem, body)
+		borrow := !generic && r.Intn(2) == 0
+		if borrow {
+			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(p *%s, n int) int {\n\tp.tag = p.tag + 1\n\t%s\n}\n\n", name, impl, name, body)
+		} else {
+			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, impl, name, elem, elem, body)
+		}
 		line := "ok law Op.Linear for " + name + " (100 cases)"
 		if p == broken {
 			line = "FAIL law Op.Linear for " + name + " (case "
+			borrowed = borrow
 			failed++
 		}
 		want = append(want, line)
-		if r.Intn(2) == 0 {
+		if !borrow && r.Intn(2) == 0 {
 			// A named context that binds the provider: the law also runs
 			// under it (L5), after the provider runs.
 			key := "Op"
@@ -731,6 +744,23 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	b.WriteString(ctxs.String())
 	want = append(want, under...)
 	providers += len(under)
+	if r.Intn(2) == 0 {
+		// A borrow provider whose values can be listed: Gate's law over
+		// a bool runs every value of G and of on, and is proved, or fails
+		// at its first case when G's Set is broken.
+		set := "g.on = on"
+		if r.Intn(2) == 0 {
+			set = "g.on = true"
+			want = append(want, "FAIL law Gate.Keeps for G (case ")
+			gate = "FAIL"
+			failed++
+		} else {
+			want = append(want, "ok law Gate.Keeps for G (proved: all 4 cases)")
+			gate = "ok"
+		}
+		fmt.Fprintf(&b, "type Gate {\n\tSet(on bool),\n\tOn() bool,\n\tlaw Keeps(on bool) {\n\t\tSet(on)\n\t\tOn() == on\n\t},\n}\n\ntype G { on bool }\n\nfunc Set(g *G, on bool) { %s }\n\nfunc On(g *G) bool { g.on }\n\n", set)
+		providers++
+	}
 	top := r.Intn(2) == 0
 	if top {
 		b.WriteString("law Top(a int, b int) { a + b == b + a }\n\n")
@@ -749,7 +779,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	} else {
 		want = append(want, fmt.Sprintf("PASS (%d tests)", total))
 	}
-	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic}
+	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic, borrowed: borrowed, gate: gate}
 }
 
 // TestLawRunFindsTheBrokenProvider is the property: over generated
@@ -771,10 +801,13 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	var progs []lawRunProgram
 	var builds []*lowered
 	brokenAt := map[int]bool{}
-	genericBroken := false
+	genericBroken, borrowBroken := false, false
+	gates := map[string]bool{}
 	for i := 0; i < 32; i++ {
 		p := genLawRunProgram(r, i)
 		progs = append(progs, p)
+		borrowBroken = borrowBroken || p.borrowed
+		gates[p.gate] = true
 		builds = append(builds, lowerTestBuild(t, p.name, p.src))
 		for k, w := range p.want {
 			if strings.HasPrefix(w, "FAIL law Op.") {
@@ -793,6 +826,11 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	if !genericBroken {
 		t.Fatalf("seed %d: no program has a broken provider of a generic Op", seed)
 	}
+	// It reaches a broken borrow provider of Op, and Gate's listed borrow
+	// provider both proved and refuted (Laws 10).
+	if !borrowBroken || !gates["ok"] || !gates["FAIL"] {
+		t.Fatalf("seed %d: the generator reaches no broken borrow provider (%v) or no proved and refuted Gate (%v)", seed, borrowBroken, gates)
+	}
 	exes := buildAll(t, builds, true)
 	if exes == nil {
 		return
@@ -804,6 +842,8 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 		for k := 0; ok && k < len(got); k++ {
 			w := p.want[k]
 			switch {
+			case strings.HasPrefix(w, "FAIL law Gate."):
+				ok = strings.HasPrefix(got[k], w) && strings.Contains(got[k], ", every value: provider = G{") && strings.HasSuffix(got[k], ": the law is false")
 			case strings.HasSuffix(w, "(case "):
 				ok = strings.HasPrefix(got[k], w) && strings.Contains(got[k], ", seed 1, ") && strings.HasSuffix(got[k], ": the law is false")
 			default:

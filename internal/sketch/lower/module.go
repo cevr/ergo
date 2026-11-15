@@ -241,6 +241,7 @@ type lowerer struct {
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
+	kept   map[*check.Func][]bool     // kept-argument summaries (keeps.go)
 	stats  knownStats                 // what known.go and alias.go did (tests only)
 	vars   map[*check.Var]string      // package-level lets
 	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
@@ -324,6 +325,9 @@ type lowerer struct {
 	specs     map[specKey]*specCopy
 	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
 	monoCount map[*check.Func]int   // copies made per function (mono.go)
+	// provParams memoizes each function's operation-type parameter a copy
+	// for a known provider is made for (provider.go).
+	provParams map[*check.Func]int
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
