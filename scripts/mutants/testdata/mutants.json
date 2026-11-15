@@ -560,7 +560,7 @@
       "origin": "wf10 GATE2 GT-COMPILE",
       "file": "scripts/mutants/compiles.go",
       "from": "\tif base != \"\" {\n",
-      "to": "\tif false {\n",
+      "to": "\tif base != \"\" && false {\n",
       "rule": "A file that fails to compile unmutated (a fixture) makes no row of it invalid.",
       "gap": "No fixture of the fake module fails to compile unmutated; the sweep over every ledger would list such rows invalid.",
       "killers": []

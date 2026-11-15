@@ -153,7 +153,9 @@ func (w *worker) compileErgo(ctx context.Context, file string) string {
 
 // firstDiagnostic is the first diagnostic of ergo check's JSON report in
 // out, as FILE:LINE:COL: CODE MESSAGE (FILE as ergo check names it), or
-// out's first line.
+// "" when it names none: ergo check also fails when the checker's
+// evaluation refutes a law or an assertion of a program that checks
+// (x2-cancel-ended), which is a test's verdict, not a compile error.
 func firstDiagnostic(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		var report struct {
@@ -172,7 +174,7 @@ func firstDiagnostic(out string) string {
 	if d := ergoDiagnostic.FindStringSubmatch(out); d != nil {
 		return fmt.Sprintf("%s: %s %s", d[2], d[1], d[3])
 	}
-	return firstLine(strings.TrimSpace(out))
+	return ""
 }
 
 // ergoDiagnostic is the start of one diagnostic in ergo check's JSON.
