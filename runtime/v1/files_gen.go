@@ -482,6 +482,8 @@ var bodyTable = map[string]bodyFact{
 	"Timeline.Read":             {body: Body{Results: []string{"Reading"}}},
 	"Timeline.Sleepers":         {body: Body{Results: []string{"int"}}},
 	"Timeline.Wait":             {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "time.Duration"}}}},
+	"UITraceStep":               {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}}},
+	"UITraced":                  {body: Body{Hidden: []Hidden{"task"}, Results: []string{"bool"}}},
 	"UTF8AppendRune":            {body: Body{Params: []Param{{Type: "[]byte"}, {Type: "rune"}}, Results: []string{"[]byte"}, Pure: true}},
 	"UTF8DecodeRuneInString":    {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"Decoded"}, Pure: true}},
 	"UTF8RuneCount":             {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"int"}, Pure: true}},
