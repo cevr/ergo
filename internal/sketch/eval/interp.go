@@ -523,21 +523,20 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // returnsError reports that x, a returned expression, gives a value of an
 // error type the declared result does not make the success value. Outside
-// a generic body the answer is the same at every return of x by a frame of
-// one owner, so x's facts keep it (ORACLE O34): the checker's IsErrorType
-// ranges over a map of sets.
+// a generic body the answer is the same at every return of x: the frame
+// that returns x runs the body that holds x, whose fact owner is x's, so
+// x's facts keep it (ORACLE O34): the checker's IsErrorType ranges over a
+// map of sets.
 func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
-	if fr.env != nil || fr.owner >= 8 || fr.tab == nil {
+	if fr.env != nil || fr.tab == nil {
 		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
 	}
-	f, bit := in.fx(fr, x), uint8(1)<<fr.owner
-	if f.errSeen&bit == 0 {
-		if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
-			f.errIs |= bit
-		}
-		f.errSeen |= bit
+	f := in.fx(fr, x)
+	if !f.errSeen {
+		f.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+		f.errSeen = true
 	}
-	return f.errIs&bit != 0
+	return f.errIs
 }
 
 // resultExpr retains the chosen tail of a result-position control

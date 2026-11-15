@@ -54,10 +54,11 @@ type facts struct {
 	// call is the prelude's Unreachable (ORACLE O34).
 	plan        *funcPlan
 	unreachable bool
-	// errSeen and errIs hold, by fact owner, whether a returned value of
-	// the expression's type is an error value (retValue), read outside a
-	// generic body (ORACLE O34).
-	errSeen, errIs uint8
+	// errSeen and errIs hold whether a returned value of the expression's
+	// type is an error value (retValue), read outside a generic body
+	// (ORACLE O34). Every frame that returns the expression has the fact
+	// owner of the body that holds it, so one answer serves them all.
+	errSeen, errIs bool
 	// fast and sfast are the node's compiled forms as an expression and
 	// as a statement of a list, and form and sform their states
 	// (compile.go).
