@@ -260,13 +260,8 @@ test Walk {
 `,
 	"own-lineage": `type Bag { Items []int, N int }
 
-func count(b Bag) int { b.N }
-
-// step reads b whole (count), so b is not owned by parts (own-parts):
-// the Append is the one-extender site's.
 func step(b Bag, x int) Bag {
-	let n = count(b)
-	Bag{Items: b.Items.Append(x), N: n + 1}
+	Bag{Items: b.Items.Append(x), N: b.N + 1}
 }
 
 func main() needs Console {

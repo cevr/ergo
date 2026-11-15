@@ -273,21 +273,24 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 }
 
 // takenField reports a field path that is the source of an Append
-// (taken) or the whole value of a let mut (taken and bound).
+// (taken), or the whole value of a let mut or an operand at a position a
+// call consumes, an owned parameter or an owned form (taken and bound,
+// own-parts). An Append alone stays the one-extender site's: owning its
+// parameter would move a copy to every caller that cannot hand it over
+// (GP2b's apply, whose match arms each pass b on: ownedit grew x4.0).
 func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
 	parent, child := w.unparenParent(x)
 	if call := w.dotCall(x); call != nil {
 		if w.consumedAt(call, x) != nil {
 			return true, w.partsTaken()
 		}
-		return w.appendSite(call), w.appendSite(call) && w.partsTaken()
+		return w.appendSite(call), false
 	}
 	if call, ok := parent.(*syntax.CallExpr); ok {
 		if cx, ok := child.(syntax.Expr); ok && w.consumedAt(call, cx) != nil {
 			return true, w.partsTaken()
 		}
-		taken := w.appendSite(call) && w.recvOf(call) == child
-		return taken, taken && w.partsTaken()
+		return w.appendSite(call) && w.recvOf(call) == child, false
 	}
 	for _, o := range w.owns {
 		if o.value == child && o.root.local && o.root.mut {
