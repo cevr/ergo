@@ -40,7 +40,7 @@ type canonChunk struct {
 // several files.
 var canonChunks = []string{
 	"type Read {\n\tGet() int,\n\n\tlaw Same(v int) { v == v },\n}",
-	"type Q { N int }",
+	"type Q { N int } implements Read",
 	"func Get(q Q) int { q.N }",
 	"func Make() Read { Q{N: 1} }",
 	"type Box[T] { V T }",

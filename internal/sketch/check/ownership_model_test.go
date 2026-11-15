@@ -602,7 +602,7 @@ func TestOwnershipMessages(t *testing.T) {
 
 const ofPrelude = `import queue
 
-type Res { id int } implements Closer, Closes
+type Res { id int } implements Closer, Closes, Store
 
 type Bad {}
 

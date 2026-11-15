@@ -29,9 +29,9 @@ type Timer {
 }
 
 type Plain {} implements Greeter
-type Loud {}
+type Loud {} implements Greeter
 type Holder { v string } implements Store
-type Fixed {}
+type Fixed {} implements Timer
 type Tag { s string }
 type Box { w int }
 
@@ -260,7 +260,7 @@ var chargeErrors = []string{"E0", "E1"}
 func chargePrelude() string {
 	var b strings.Builder
 	b.WriteString(severalPrelude())
-	b.WriteString("type Out { O() int }\ntype Po { v int }\nfunc O(p Po) int { p.v }\n")
+	b.WriteString("type Out { O() int }\ntype Po { v int } implements Out\nfunc O(p Po) int { p.v }\n")
 	for _, e := range chargeErrors {
 		fmt.Fprintf(&b, "type %s {}\nfunc fail%s(b bool) int fails %s {\n\tif b {\n\t\treturn %s\n\t}\n\t0\n}\n", e, e, e, e)
 	}
@@ -539,7 +539,7 @@ func TestLocalContextLawNine(t *testing.T) {
 	Greet(name string) string,
 }
 
-type Plain {}
+type Plain {} implements Greeter
 
 func Greet(_ Plain, name string) string {
 	name

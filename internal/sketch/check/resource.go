@@ -161,10 +161,6 @@ func (w *resWalk) visit(t Type) (bool, int) {
 	// operations reads an operation type's body; sub maps a generic
 	// declaration's type parameters to the instance's arguments.
 	operations := func(it *Interface, sub map[*TypeParam]Type) {
-		if m := it.method("Close"); closeShape(m) && !m.Sig.Fallible {
-			n.holds = true
-			return
-		}
 		for _, m := range it.Methods {
 			if m.Sig == nil {
 				continue
@@ -186,7 +182,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 		switch {
 		case o.state != 2:
 			n.final = false
-		case c.closeMethod(t) != nil:
+		case c.implementsCloser(t):
 			n.holds = true
 		default:
 			switch ou := o.underlying().(type) {
@@ -268,8 +264,19 @@ func (w *resWalk) visit(t Type) (bool, int) {
 // closeMethod returns n's checked Close (R1): a function Close whose one
 // parameter is the receiver, with no result, no written failure row and no
 // type parameter of its own; nil when n has none. A Close with a failure
-// row is closeFacts' R2 error and makes no resource.
+// row is closeFacts' R2 error and makes no resource. Only a type that
+// implements Closer has one: a function named Close on any other type is
+// an ordinary function (R1).
 func (c *checker) closeMethod(n *Named) *Func {
+	if !c.implementsCloser(n) {
+		return nil
+	}
+	return c.closeFunc(n)
+}
+
+// closeFunc is n's function Close of the release shape, declared or not:
+// the release a Closer clause names (checkImplementsClauses).
+func (c *checker) closeFunc(n *Named) *Func {
 	f := n.method("Close")
 	if f == nil || f.owner == nil {
 		return nil

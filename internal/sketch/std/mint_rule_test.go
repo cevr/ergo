@@ -85,7 +85,7 @@ func TestStdHostMintRule(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatalf("outside: %v", ds)
 	}
-	const base = `type Host { root string }
+	const base = `type Host { root string } implements Reader
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
 

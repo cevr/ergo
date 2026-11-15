@@ -15,7 +15,7 @@ import (
 // both.
 const contextInfoPrelude = `type Store { Get() string }
 type Log { Put(s string) }
-type Mem { V string }
+type Mem { V string } implements Store, Log
 func Get(m Mem) string { return m.V }
 func Put(m Mem, s string) {}
 func Run() string needs Store | Log {
@@ -298,7 +298,12 @@ func withChain(n int) string {
 // per context runs with Wi a body that needs Store.
 func ownedChain(n int) string {
 	var b strings.Builder
-	b.WriteString("type Store { Get() string }\ntype Mem { V string }\nfunc Get(m Mem) string { return m.V }\nfunc Run() string needs Store {\n\treturn Store.Get()\n}\n")
+	// Mem provides every capability, so it declares each one.
+	b.WriteString("type Store { Get() string }\ntype Mem { V string } implements Store")
+	for i := range n {
+		fmt.Fprintf(&b, ", C%d", i)
+	}
+	b.WriteString("\nfunc Get(m Mem) string { return m.V }\nfunc Run() string needs Store {\n\treturn Store.Get()\n}\n")
 	for i := range n {
 		fmt.Fprintf(&b, "type C%d { Get() string }\n", i)
 	}

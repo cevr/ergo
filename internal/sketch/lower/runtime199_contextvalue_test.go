@@ -215,7 +215,11 @@ func (s *cxSeq) src() string {
 	var b strings.Builder
 	for _, w := range s.contexts {
 		c, t := fmt.Sprintf("C%d_%d", s.k, w.id), fmt.Sprintf("T%d_%d", s.k, w.id)
-		fmt.Fprintf(&b, "type %s { Name() string }\ntype %s {}\nfunc Name(_ %s) string { %q }\n", c, t, t, t)
+		clause := c
+		if w.res {
+			clause += ", Closer"
+		}
+		fmt.Fprintf(&b, "type %s { Name() string }\ntype %s {} implements %s\nfunc Name(_ %s) string { %q }\n", c, t, clause, t, t)
 		if w.res {
 			fmt.Fprintf(&b, "func Close(_ %s) needs Probe { let _ = Probe.Step(\"w%d \" + show()) }\n", t, w.id)
 		}

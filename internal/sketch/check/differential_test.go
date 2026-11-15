@@ -620,6 +620,13 @@ func isRefusal(d string) bool {
 	if strings.Contains(d, "S108") && (strings.Contains(d, "keeps the borrow's lifetime") || strings.Contains(d, "cannot take a borrow as its")) {
 		return true // Borrows 6 and 7: Go keeps a pointer anywhere; Ergo's borrow may not
 	}
+	if strings.Contains(d, "S108") && strings.Contains(d, ": write ..") && strings.Contains(d, " does not include ") {
+		// An operation type's value is used as another only through an
+		// include (EXC1, q170), where Go matches method sets. Every
+		// generated concrete type declares what its functions fit, so a
+		// concrete type's refusal is still a disagreement.
+		return true
+	}
 	return strings.Contains(d, "S108") && strings.Contains(d, "cannot infer") && strings.Contains(d, "write the type arguments")
 }
 
@@ -989,13 +996,28 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 	var values, types []string
 	for k := range nS {
 		r := results[rng.Intn(2)]
-		b.each(fmt.Sprintf("type S%d struct{}\n\n", k), fmt.Sprintf("type S%d {}\n\n", k))
 		recv := fmt.Sprintf("S%d", k)
 		if rng.Intn(3) == 0 {
 			recv = "*" + recv
 		}
+		withN := rng.Intn(2) == 0
+		// The Ergo type declares every operation type its functions fit,
+		// the set Go's method sets admit (EXC1: the relation is written).
+		decl := []string{"I0[" + r + "]", "A0[" + r + "]"}
+		if r == "int" {
+			decl = append(decl, "J0")
+		} else {
+			decl = append(decl, "K0")
+		}
+		if withN {
+			decl = append(decl, "V0["+r+"]")
+			if r == "int" {
+				decl = append(decl, "W0")
+			}
+		}
+		b.each(fmt.Sprintf("type S%d struct{}\n\n", k), fmt.Sprintf("type S%d {} implements %s\n\n", k, strings.Join(decl, ", ")))
 		b.each(fmt.Sprintf("func (%s) M(v %s) %s { return v }\n\n", recv, r, r), fmt.Sprintf("func M(_ %s, v %s) %s { return v }\n\n", recv, r, r))
-		if rng.Intn(2) == 0 {
+		if withN {
 			b.each(fmt.Sprintf("func (%s) N() {}\n\n", recv), fmt.Sprintf("func N(_ %s) {}\n\n", recv))
 		}
 		values = append(values, fmt.Sprintf("s%d S%d", k, k), fmt.Sprintf("p%d *S%d", k, k))
