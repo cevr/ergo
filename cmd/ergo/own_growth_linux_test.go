@@ -53,7 +53,9 @@ import (
 //     report must name; uc (std ui's old mirror, UC's g8): a Get on a Map of
 //     records that hold a slice, through a pointer, which main e02194103
 //     copied whole at each read (ergoCloneMap(m.nodes)[id]), quadratic in
-//     n, and which MAPCOPY's entry rule (V8) reads in place.
+//     n, and which MAPCOPY's entry rule (V8) reads in place; x1 (OWN1
+//     st-x1's X1b): a plain Get of a let mut Map written later, which
+//     main e02194103 also copied whole and V8 copies as the element read.
 //
 // A row marked red names the unit that turns it green: the test skips its
 // count (the build and the report's site still run) until that unit
@@ -156,6 +158,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"reuse-fv", reuse, 2000, "", shape("fv"), "RU4 (a known callback takes the owning form; plan §2, Indirect calls)"},
 		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
 		{"reuse-uc", reuse, 5000, "", shape("uc"), ""},
+		{"reuse-x1", reuse, 5000, "reuse.ergo:207:16 copy deep: ", shape("x1"), ""},
 	}
 	knownRed := os.Getenv("OWN_GROWTH_KNOWN_RED") == "1"
 	built := map[string]string{}

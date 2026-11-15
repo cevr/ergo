@@ -196,6 +196,24 @@ func uc(n int) int {
 	total
 }
 
+// X1b (OWN1 st-x1 round 1, follow-ups): a plain Get of a let mut Map that
+// is written later; main e02194103 copied the whole Map before the Get
+// (ergoCloneMap_1(next)[key]) where the element read is enough.
+func x1(n int) int {
+	let mut m = Map[int, Node]{}
+	for i in 0..n {
+		match m.Get(i - 1) {
+		case Some[Node] as v:
+			let mut k = v.Value
+			k.kids[0] = k.kids[0] + i
+			m[i] = k
+		case None:
+			m[i] = Node{kids: []int{i}}
+		}
+	}
+	len(m)
+}
+
 func main() fails os.Exit needs Console | Ambient {
 	let args = os.NewHost().Args()
 	if len(args) != 2 {
@@ -217,7 +235,12 @@ func main() fails os.Exit needs Console | Ambient {
 	if shape == "u1" { out = u1(n) }
 	if shape == "fv" { out = fv(n) }
 	if shape == "st" { out = st(n) }
-	if shape == "uc" { out = uc(n) }
+	if shape == "uc" {
+		out = uc(n)
+	}
+	if shape == "x1" {
+		out = x1(n)
+	}
 	if out < 0 {
 		return os.Exit{Code: 2, Message: "unknown shape " + shape}
 	}
