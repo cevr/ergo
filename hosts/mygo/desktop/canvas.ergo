@@ -1,8 +1,10 @@
 // A canvas's paint list (ui.Canvas, H5c) replayed on the window. The
 // list's paths are flattened to straight lines under the transforms in
 // effect: a fill is one rectangle when its path is a rectangle on the
-// axes, else spans of one DIP's height under the nonzero rule; a stroke
-// is one Window.Line a segment, with round caps; a clip is the box around
+// axes, else spans of one DIP's height under the nonzero rule; a stroke's
+// contour is one Window stroke (StrokeBegin, StrokeTo, StrokeEnd), with
+// round caps and joins, which the window rasterizes once into a mask it
+// keeps while the points do not change; a clip is the box around
 // its transformed rectangle. The window has no path of its own to fill,
 // so a fill's edges are not smoothed.
 
@@ -32,9 +34,11 @@ func paintCanvas[S, E, D, F](d *Driver[S, E, D, F], ops []ui.PaintOp, b layout.B
 		case ui.StrokeOp as x:
 			let width = x.Width * scaleOf(m)
 			for c in flatten(x.Path, m) {
-				for i in 1..len(c) {
-					d.w.Line(c[i-1].X, c[i-1].Y, c[i].X, c[i].Y, width, colorOf(x.Color))
+				d.w.StrokeBegin(width, colorOf(x.Color))
+				for p in c {
+					d.w.StrokeTo(p.X, p.Y)
 				}
+				d.w.StrokeEnd()
 			}
 		case ui.PushTransform as x:
 			stack = stack.Append(pushed{was: m, clip: false})

@@ -488,6 +488,24 @@
       "killers": ["mygo:TestWasmRunsUnderAnInheritedGOMAXPROCS"]
     },
     {
+      "name": "GPs-mask-every-frame",
+      "origin": "GPs (path-stroke op)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "binary.LittleEndian.PutUint32(buf[4:], uint32(n))",
+      "to": "binary.LittleEndian.PutUint32(buf[4:], uint32(n+w.painted))",
+      "rule": "a stroke's mask is keyed by its points and width alone, so the atlas keeps it while they do not change",
+      "killers": ["mygo/screen:TestStrokeMaskIsKept"]
+    },
+    {
+      "name": "GPs-no-discs",
+      "origin": "GPs (path-stroke op)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\t\tpoly(disc)\n",
+      "to": "\t\tdisc[0] = disc[0]\n",
+      "rule": "a stroke's mask has a disc at each point, as each Line's rounded ends: caps and the outer side of turns",
+      "killers": ["mygo/screen:TestStrokePaintsWhatLinesPaint"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",

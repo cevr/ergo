@@ -13,8 +13,10 @@ package screen
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"math"
 	"reflect"
 	"sync"
@@ -27,6 +29,7 @@ import (
 	"github.com/egoist/mygo/drawing/scene"
 	"github.com/egoist/mygo/drawing/surface"
 	"github.com/egoist/mygo/drawing/text"
+	"github.com/egoist/mygo/drawing/vec"
 )
 
 // The kinds of an Input.
@@ -88,11 +91,19 @@ type Window struct {
 	access  []platform.AccessNode
 	focus   uint64
 	field   platform.TextInputState
-	frames  bool
-	start   time.Time
-	width   float64
-	height  float64
-	painted int
+
+	// The strokes of the list being made and of the shown one (a stroke's
+	// op is a placeholder that draw turns into its mask), the one
+	// StrokeBegin opened, and how many masks draw rasterized.
+	strokes, shownStrokes, refStrokes []stroke
+	drawing                           *stroke
+	masks                             int
+	z                                 vec.Rasterizer
+	frames                            bool
+	start                             time.Time
+	width                             float64
+	height                            float64
+	painted                           int
 
 	// The damage paint (Mark, Seal, Again): the parts of the list being
 	// made and of the shown one each key drew, the parts still open, and
@@ -133,8 +144,21 @@ type glyphText struct {
 type seg struct {
 	key                int
 	op0, op1, gl0, gl1 int
-	ac0, ac1           int
+	ac0, ac1, st0, st1 int
 }
+
+// stroke is a polyline Present draws as one mask, at op index at of the
+// list (its placeholder): its points in DIPs, x then y, its width and
+// its color.
+type stroke struct {
+	at    int
+	pts   []float32
+	width float32
+	color scene.Color
+}
+
+// maskSeed keys the masks of strokes: one process, one seed.
+var maskSeed = maphash.MakeSeed()
 
 func newWindow(width, height float64) *Window {
 	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}}
@@ -411,6 +435,7 @@ func (w *Window) Begin() {
 // begin is Begin with w.mu held.
 func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
+	w.strokes, w.drawing = nil, nil
 	w.focus, w.field = 0, platform.TextInputState{}
 	clear(w.segs)
 	w.open = w.open[:0]
@@ -420,7 +445,7 @@ func (w *Window) begin() {
 // nest as the tree does. The next list may take the part again (Again).
 func (w *Window) Mark(key int) {
 	w.mu.Lock()
-	w.open = append(w.open, seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access)})
+	w.open = append(w.open, seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access), st0: len(w.strokes)})
 	w.mu.Unlock()
 }
 
@@ -434,7 +459,7 @@ func (w *Window) Seal(key int) {
 	}
 	s := w.open[n]
 	w.open = w.open[:n]
-	s.op1, s.gl1, s.ac1 = len(w.pending), len(w.glyphs), len(w.access)
+	s.op1, s.gl1, s.ac1, s.st1 = len(w.pending), len(w.glyphs), len(w.access), len(w.strokes)
 	w.segs[key] = s
 }
 
@@ -448,14 +473,18 @@ func (w *Window) Again(key int) bool {
 	if !ok {
 		return false
 	}
-	t := seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access)}
+	t := seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access), st0: len(w.strokes)}
 	w.pending = append(w.pending, w.shown[s.op0:s.op1]...)
 	for _, g := range w.texts[s.gl0:s.gl1] {
 		g.at += t.op0 - s.op0
 		w.glyphs = append(w.glyphs, g)
 	}
+	for _, k := range w.shownStrokes[s.st0:s.st1] {
+		k.at += t.op0 - s.op0
+		w.strokes = append(w.strokes, k)
+	}
 	w.access = append(w.access, w.shownAccess[s.ac0:s.ac1]...)
-	t.op1, t.gl1, t.ac1 = len(w.pending), len(w.glyphs), len(w.access)
+	t.op1, t.gl1, t.ac1, t.st1 = len(w.pending), len(w.glyphs), len(w.access), len(w.strokes)
 	w.segs[key] = t
 	return true
 }
@@ -467,6 +496,7 @@ func (w *Window) Hold() {
 	w.refOps = append(w.refOps[:0], w.pending...)
 	w.refGlyphs = append(w.refGlyphs[:0], w.glyphs...)
 	w.refAccess = append(w.refAccess[:0], w.access...)
+	w.refStrokes = append(w.refStrokes[:0], w.strokes...)
 	w.begin()
 	w.mu.Unlock()
 }
@@ -491,6 +521,9 @@ func (w *Window) Differs() string {
 		if w.glyphs[i] != w.refGlyphs[i] {
 			return fmt.Sprintf("text %d is %+v, the reference's %+v", i, w.glyphs[i], w.refGlyphs[i])
 		}
+	}
+	if !reflect.DeepEqual(w.strokes, w.refStrokes) && (len(w.strokes) > 0 || len(w.refStrokes) > 0) {
+		return fmt.Sprintf("strokes %+v, the reference's %+v", w.strokes, w.refStrokes)
 	}
 	if len(w.access) != len(w.refAccess) {
 		return fmt.Sprintf("%d accessibility nodes, the reference %d", len(w.access), len(w.refAccess))
@@ -530,15 +563,68 @@ func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
 	if math.IsNaN(length) || math.IsInf(length, 0) {
 		return
 	}
+	w.mu.Lock()
+	w.pending = append(w.pending, lineOp(x0, y0, x1, y1, width, rgba(color)))
+	w.mu.Unlock()
+}
+
+// lineOp is Line's op: the segment's rounded rectangle, turned onto it.
+func lineOp(x0, y0, x1, y1, width float64, color scene.Color) scene.Op {
+	dx, dy := x1-x0, y1-y0
+	length := math.Hypot(dx, dy)
 	m := scene.Translation(float32(x0), float32(y0))
 	if length > 0 {
 		dx, dy = dx/length, dy/length
 		m = scene.Matrix(float32(dx), float32(dy), float32(-dy), float32(dx), float32(x0), float32(y0))
 	}
 	hw := width / 2
+	return scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: color}
+}
+
+// StrokeBegin opens a polyline width wide, with round caps and joins, in
+// color 0xRRGGBBAA; StrokeTo adds its points and StrokeEnd draws it. It
+// paints what a Line a segment paints, but the frame rasterizes the whole
+// polyline once into a mask the text system's atlas keeps, keyed by its
+// points relative to the pixel grid, so a stroke whose points do not
+// change is not rasterized again (MasksDrawn), as MyGo's
+// Painter.StrokePath draws.
+func (w *Window) StrokeBegin(width float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
+	w.drawing = &stroke{width: float32(width), color: rgba(color)}
 	w.mu.Unlock()
+}
+
+// StrokeTo adds the point x, y to the polyline StrokeBegin opened.
+func (w *Window) StrokeTo(x, y float64) {
+	w.mu.Lock()
+	if w.drawing != nil {
+		w.drawing.pts = append(w.drawing.pts, float32(x), float32(y))
+	}
+	w.mu.Unlock()
+}
+
+// StrokeEnd ends the polyline and puts it in the list, where an empty
+// fill holds its place; one of no point, or of no width, draws nothing.
+func (w *Window) StrokeEnd() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	k := w.drawing
+	w.drawing = nil
+	if k == nil || len(k.pts) == 0 || !(k.width > 0) {
+		return
+	}
+	k.at = len(w.pending)
+	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Transform: scene.Translation(0, 0)})
+	w.strokes = append(w.strokes, *k)
+}
+
+// MasksDrawn is how many stroke masks the frames drawn so far
+// rasterized: a stroke drawn again with the same points takes its mask
+// from the atlas.
+func (w *Window) MasksDrawn() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.masks
 }
 
 // Clip clips what follows to a rectangle, within the clip in effect,
@@ -608,6 +694,7 @@ func (w *Window) Present() {
 	}
 	w.shown = append(w.shown[:0], w.pending...)
 	w.texts = w.glyphs
+	w.shownStrokes = w.strokes
 	w.shownAccess = w.access
 	w.segs, w.prev = w.prev, w.segs
 	clear(w.segs)
@@ -664,10 +751,16 @@ func (w *Window) draw() {
 	w.mu.Lock()
 	ops := w.shown
 	texts := w.texts
-	k := 0
+	strokes := w.shownStrokes
+	k, j := 0, 0
 	for i, op := range ops {
 		for ; k < len(texts) && texts[k].at == i; k++ {
 			w.glyphLine(s, texts[k], float32(scale))
+		}
+		if j < len(strokes) && strokes[j].at == i {
+			w.strokeMask(s, strokes[j], float32(scale))
+			j++
+			continue
 		}
 		s.Ops = append(s.Ops, op)
 	}
@@ -678,6 +771,122 @@ func (w *Window) draw() {
 	w.r.Render(s)
 	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
 	w.sys.EndFrame()
+}
+
+// strokeMask adds stroke t to s as one glyph of the mask atlas, as MyGo's
+// Painter.StrokePath does (ui/path.go): its points, in device pixels, are
+// moved to quarters of a pixel from the mask's corner, and the mask is
+// keyed by them and the width, so the atlas keeps it while they do not
+// change. The mask covers each segment's rectangle and a disc at each
+// point, as Line's rounded rectangles do. When the atlas cannot hold it,
+// the stroke is a Line a segment.
+func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
+	hw := t.width * scale / 2
+	n := len(t.pts) / 2
+	minX, minY := float32(math.MaxFloat32), float32(math.MaxFloat32)
+	maxX, maxY := float32(-math.MaxFloat32), float32(-math.MaxFloat32)
+	for i := 0; i < n; i++ {
+		x, y := t.pts[2*i]*scale, t.pts[2*i+1]*scale
+		minX, maxX = min(minX, x), max(maxX, x)
+		minY, maxY = min(minY, y), max(maxY, y)
+	}
+	x0 := float32(math.Floor(float64(minX-hw))) - 1
+	y0 := float32(math.Floor(float64(minY-hw))) - 1
+	mw := int(math.Ceil(float64(maxX+hw-x0))) + 2
+	mh := int(math.Ceil(float64(maxY+hw-y0))) + 2
+	if mw <= 0 || mh <= 0 || mw > maskMax || mh > maskMax || math.IsNaN(float64(x0+y0)) {
+		w.strokeLines(s, t)
+		return
+	}
+	q := make([]float32, 2*n)
+	var hs maphash.Hash
+	hs.SetSeed(maskSeed)
+	var buf [8]byte
+	binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(hw))
+	binary.LittleEndian.PutUint32(buf[4:], uint32(n))
+	hs.Write(buf[:])
+	for i := 0; i < n; i++ {
+		q[2*i] = float32(math.Round(float64((t.pts[2*i]*scale-x0)*4))) / 4
+		q[2*i+1] = float32(math.Round(float64((t.pts[2*i+1]*scale-y0)*4))) / 4
+		binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(q[2*i]))
+		binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(q[2*i+1]))
+		hs.Write(buf[:])
+	}
+	gi := w.sys.Mask(hs.Sum64(), func() (int, int, []byte) {
+		w.masks++
+		return mw, mh, w.rasterize(q, hw, mw, mh)
+	})
+	if !gi.OK {
+		w.strokeLines(s, t)
+		return
+	}
+	start := int32(len(s.Glyphs))
+	s.Glyphs = append(s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: t.color})
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1, Transform: scene.Translation(0, 0)})
+}
+
+// maskMax is the widest and tallest mask of a stroke, in pixels.
+const maskMax = 2048
+
+// strokeLines adds t to s as a Line a segment (a point, a dot).
+func (w *Window) strokeLines(s *scene.Scene, t stroke) {
+	n := len(t.pts) / 2
+	if n == 1 {
+		s.Ops = append(s.Ops, lineOp(float64(t.pts[0]), float64(t.pts[1]), float64(t.pts[0]), float64(t.pts[1]), float64(t.width), t.color))
+	}
+	for i := 1; i < n; i++ {
+		s.Ops = append(s.Ops, lineOp(float64(t.pts[2*i-2]), float64(t.pts[2*i-1]), float64(t.pts[2*i]), float64(t.pts[2*i+1]), float64(t.width), t.color))
+	}
+}
+
+// rasterize is the coverage, w by h, of the polyline q (pixels from the
+// mask's corner) hw to each side: each segment's rectangle and a disc at
+// each point, all wound one way, so where they overlap they cover once.
+func (w *Window) rasterize(q []float32, hw float32, mw, mh int) []byte {
+	z := &w.z
+	z.Reset(mw, mh)
+	poly := func(p [][2]float32) {
+		area := float32(0)
+		for i := range p {
+			a, b := p[i], p[(i+1)%len(p)]
+			area += a[0]*b[1] - b[0]*a[1]
+		}
+		if area < 0 {
+			for i, j := 0, len(p)-1; i < j; i, j = i+1, j-1 {
+				p[i], p[j] = p[j], p[i]
+			}
+		}
+		z.MoveTo(p[0][0], p[0][1])
+		for _, v := range p[1:] {
+			z.LineTo(v[0], v[1])
+		}
+		z.ClosePath()
+	}
+	sides := max(8, int(math.Ceil(float64(2*math.Pi*hw/1.5))))
+	disc := make([][2]float32, sides)
+	n := len(q) / 2
+	for i := 0; i < n; i++ {
+		cx, cy := q[2*i], q[2*i+1]
+		for k := range disc {
+			a := 2 * math.Pi * float64(k) / float64(sides)
+			disc[k] = [2]float32{cx + hw*float32(math.Cos(a)), cy + hw*float32(math.Sin(a))}
+		}
+		poly(disc)
+		if i == 0 {
+			continue
+		}
+		ax, ay := q[2*i-2], q[2*i-1]
+		dx, dy := cx-ax, cy-ay
+		l := float32(math.Hypot(float64(dx), float64(dy)))
+		if l == 0 {
+			continue
+		}
+		nx, ny := -dy/l*hw, dx/l*hw
+		poly([][2]float32{{ax + nx, ay + ny}, {cx + nx, cy + ny}, {cx - nx, cy - ny}, {ax - nx, ay - ny}})
+	}
+	pix := make([]byte, mw*mh)
+	z.Mask(pix, mw)
+	return pix
 }
 
 // glyphLine adds the glyphs of one line of text to s, as MyGo's own
