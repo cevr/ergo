@@ -556,8 +556,8 @@ type tok = tword{Text string}
 	| tkey{Symbol string}
 
 // Program is a workspace drawn from seed: a dependency `dep/lib` with an
-// operation type; package gen/p0 with an operation type, a type that
-// provides it, record types with fields and, when seed picks it, a type
+// operation type; package gen/p0 with an operation type and its
+// provider, record types with fields and, when seed picks it, a type
 // that provides the dependency's operation type; package gen/p1 with a
 // type that provides gen/p0's, imported under an alias when seed picks
 // it; and functions whose bodies name functions, fields (read and in
