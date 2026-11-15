@@ -105,6 +105,12 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 	match n {
 	case ui.BoxNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.ZoneNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.SemanticNode[E] as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.LiveNode, ui.TransitionNode:
+		plainStyle()
 	case ui.RowNode as x:
 		boxStyle(x.Style, layout.Row)
 	case ui.ColumnNode as x:
@@ -488,7 +494,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	let focus = d.focus == (Some{Value: id})
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
 		drawKids(d, id, dy, clip, line, soiled, again)
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)

@@ -77,6 +77,77 @@ func inOrder(signals []int) bool needs Scheduler {
 	s == want && (done || !refused)
 }
 
+func dropped(room int, n int) bool needs Scheduler {
+	let r = (room%4+4)%4 + 1
+	let k = (n%10+10)%10 + 1
+	let a = actor.StartMachine(tally(), 1, func(o int) {})
+	let mut got = []actor.Change[int]{}
+	for c in actor.Changes(a, r) {
+		if len(got) == 0 {
+			for _ in 0..k {
+				a.Send(1) catch {
+				case actor.Stopped:
+				}
+			}
+			let _ = a.State()
+			a.Stop()
+		}
+		got = got.Append(c)
+	}
+	let mut kept = []int{}
+	let mut missed = 0
+	for i in 1..k+1 {
+		if len(kept) >= r {
+			missed = missed + len(kept)
+			kept = []int{}
+		}
+		kept = kept.Append(i)
+	}
+	let mut want = []actor.Change[int]{actor.Changed[int]{State: 0}}
+	if missed > 0 {
+		want = want.Append(actor.Overflowed{Missed: missed})
+	}
+	for s in kept {
+		want = want.Append(actor.Changed[int]{State: s})
+	}
+	if len(got) != len(want) {
+		return false
+	}
+	for i in 0..len(got) {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	true
+}
+
+func ChangesCountsWhatItDrops(room int, n int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		dropped(room, n)
+	}
+}
+
+func changesStop(k int) bool needs Scheduler {
+	if k < 1 {
+		return true
+	}
+	let a = actor.StartMachine(tally(), 1, func(o int) {})
+	a.Stop()
+	let mut calls = 0
+	let s = actor.Changes(a, 2)
+	s(func(c actor.Change[int]) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls == 1
+}
+
+func ActorChangesStops(k int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		changesStop(k)
+	}
+}
+
 func rejectKeeps(signals []int, n int) bool needs Scheduler {
 	let a = sent(signals)
 	let before = a.State()
@@ -151,7 +222,7 @@ test ActorActorStopIsFinal(signals []int, e int) {
 	}
 }
 
-test ActorActorChangesStops(signals []int) {
+test ActorActorLatestChangesStops(signals []int) {
 	with context { Scheduler: time.NewManual(0) } {
 		for k in 1..4 {
 			let a = sent(signals)
@@ -159,7 +230,7 @@ test ActorActorChangesStops(signals []int) {
 			a.Stop()
 			let mut calls = 0
 			let mut got = 0 - 1
-			let s = a.Changes()
+			let s = a.LatestChanges()
 			s(func(v int) bool {
 				calls = calls + 1
 				got = v
@@ -171,6 +242,10 @@ test ActorActorChangesStops(signals []int) {
 }
 
 test ActorSendsStepInOrder(signals []int) { assert SendsStepInOrder(signals) }
+
+test ActorActorChangesStops(k int) { assert ActorChangesStops(k) }
+
+test ActorChangesCountsWhatItDrops(room int, n int) { assert ChangesCountsWhatItDrops(room, n) }
 
 test ActorRejectKeepsState(signals []int, n int) { assert RejectKeepsState(signals, n) }
 
@@ -458,20 +533,22 @@ test ActorRestartRecovers(signals []int, n int) { assert RestartRecovers(signals
 // actorLawStatements is the statement of each actor law, as the ledger
 // writes it.
 var actorLawStatements = map[string]string{
-	"actor Actor.ChangesStops":  `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
-	"actor Actor.StopIsFinal":   `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
-	"actor CanIsTheStep":        `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
-	"actor FeedStepsInOrder":    `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
-	"actor DoneIsFinal":         `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
-	"actor ExitIsShared":        `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
-	"actor FailedIsExit":        `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }`,
-	"actor SelectStops":         `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
-	"actor SelectByStops":       `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
-	"actor SelectOncePerChange": `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
-	"actor RejectKeepsState":    `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
-	"actor RestartIsFresh":      `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
-	"actor RestartRecovers":     `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
-	"actor SendsStepInOrder":    `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
+	"actor Actor.LatestChangesStops": `LatestChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = LatestChanges() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
+	"actor Actor.StopIsFinal":        `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
+	"actor CanIsTheStep":             `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
+	"actor FeedStepsInOrder":         `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
+	"actor DoneIsFinal":              `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
+	"actor ExitIsShared":             `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
+	"actor FailedIsExit":             `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }`,
+	"actor SelectStops":              `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
+	"actor SelectByStops":            `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
+	"actor SelectOncePerChange":      `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
+	"actor RejectKeepsState":         `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
+	"actor RestartIsFresh":           `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
+	"actor RestartRecovers":          `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
+	"actor ChangesCountsWhatItDrops": `ChangesCountsWhatItDrops(room int, n int) { with context { Scheduler: time.NewManual(0) } { dropped(room, n) } }`,
+	"actor ActorChangesStops":        `ActorChangesStops(k int) { with context { Scheduler: time.NewManual(0) } { changesStop(k) } }`,
+	"actor SendsStepInOrder":         `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 }
 
 // TestStdActorLawsRun runs the probe's tests with --seed 1; lawledger.Run

@@ -41,8 +41,8 @@ func shelfMachine() Machine[shelf, int, int] {
 }
 
 // shelfView shows the count, an add button, and each row with a delete
-// button: every row's button has the label "del", so a press by label
-// takes the first row on the screen.
+// button: every row's button has the label "del", so a press of the
+// first row's names it by First (NS7).
 func shelfView(f *Frame[int], s shelf) {
 	Column(f, Plain()) {
 		Text(f, "\(len(s.rows)) rows")
@@ -67,11 +67,11 @@ func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
 	FrameShape(&g)
 }
 
-// ScriptShowsTheView: after each step of a drawn script of presses by
-// label ("add", or "del", the first row's), the test host's screen is the
-// view of the actor's state, and that state is the model's: a press of
-// "del" removes the first row on the screen. The clock never moves. Half
-// the presses are by locator, and the expectations of a scene hold.
+// ScriptShowsTheView: after each step of a drawn script of presses ("add"
+// by label or by locator, or the first "del" by First of a locator), the
+// test host's screen is the view of the actor's state, and that state is
+// the model's: a press of the first "del" removes the first row on the
+// screen. The clock never moves, and the expectations of a scene hold.
 law ScriptShowsTheView(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -99,7 +99,12 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		// Half the presses go by locator, and each step expects the count
 		// the model shows and the number of delete buttons (H4r).
 		let mut tap Act = TapOn{Label: label}
-		if draw(&r, 2) == 0 {
+		let byRole = draw(&r, 2) == 0
+		if label == "del" && byRole {
+			tap = ClickOn{At: First{At: WithRole{Role: Button, Name: label}}}
+		} else if label == "del" {
+			tap = ClickOn{At: First{At: WithLabel{Label: label}}}
+		} else if byRole {
 			tap = ClickOn{At: WithRole{Role: Button, Name: label}}
 		}
 		let expect = []Act{ExpectOn{At: WithText{Text: "\(len(model.rows)) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows)}}}
@@ -331,6 +336,43 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+// AdvanceTakesThePosted (F-GP4c-1): while the view animates for a drawn
+// number of frames more than the host's queue holds, Advance takes the
+// events posted after each frame, as the live loop does: at most the one
+// Committed of the last frame's commit is left, so the session's watcher
+// never blocks on a full queue, which kept every state the actor committed
+// and grew the heap with the frame count.
+law AdvanceTakesThePosted(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		advanceTakes(n, m)
+	}
+}
+
+func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+	let frames = (n%8+8)%8 + 3
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, spinView, m, 2) catch {
+	case BadPatch:
+		return false
+	}
+	a.Send(frames + 1) catch {
+	case actor.Stopped:
+		return false
+	}
+	Settle(&h) catch {
+	case _:
+		return false
+	}
+	for _ in 0..frames {
+		Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+	}
+	Posted(&h) <= 1 && Frames(&h) == frames
+}
+
 // pad is the state of the input app: whether its dialog is open, the
 // last signal the pad gave, and how many it gave.
 type pad { open bool, last int, n int }
@@ -456,7 +498,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = PointerEvent{Phase: phase, X: x, Y: y}
+			let ev = PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
 			act = PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
@@ -1342,6 +1384,44 @@ func replyShown(n int, m time.Manual) bool needs Scheduler {
 // reply's text (a Committed of a state a pass showed already writes
 // nothing, and the law takes the next). The law waits for each post; a session that never posts hangs the law, which
 // the test's deadline names.
+// WatcherHoldsOneState (F-GP4c-1): a host that never takes its events
+// blocks the session's watcher in its first post; while it stays blocked,
+// the actor commits a drawn number of states, and the watcher's
+// subscription holds at most one of them (actor.Held), not each: the
+// host's heap does not grow with the commits.
+law WatcherHoldsOneState(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watcherHolds(n, m)
+	}
+}
+
+func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+	let commits = (n%8+8)%8 + 3
+	let gate = queue.New[int](1)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let (s, _) = Start(a, spinView, func(ev Event[int]) {
+		let _ = gate.Pop() catch {
+		case queue.Closed:
+			return
+		}
+	})
+	let _ = s
+	// The watcher has subscribed and is blocked in its first post.
+	m.Advance(0ns)
+	for i in 0..commits {
+		a.Send(i) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(0ns)
+	let held = a.Held()
+	gate.End()
+	a.Stop()
+	held <= 1
+}
+
 law WatcherShowsWorkReplies(n int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1459,8 +1539,8 @@ func crashAppView(f *Frame[int], s int) {
 }
 
 // crashText is the crash view's line for c.
-func crashText(c Crash[Boom]) string {
-	match c {
+func crashText(c Crash[int, int, Boom]) string {
+	match c.Cause {
 	case DefectCrash:
 		"crashed: defect"
 	case FailureCrash[Boom] as x:
@@ -1472,7 +1552,7 @@ func crashText(c Crash[Boom]) string {
 }
 
 // crashOwnView is the crash app's crash view: what crashed, and a reload.
-func crashOwnView(f *Frame[int], c Crash[Boom]) {
+func crashOwnView(f *Frame[int], c Crash[int, int, Boom]) {
 	Text(f, crashText(c))
 	Pressable(f, "reload", 3) {
 		Text(f, "reload")
@@ -1494,7 +1574,9 @@ func crashAppShapes(n int, on bool) []Shape[int] {
 // screen is the app's view of the model's count while the actor runs; once
 // it crashed, the crash view of the model's crash, which only a reload
 // leaves; the report ran once per crash, before the crash view showed; and
-// the test host's crash is the model's.
+// the test host's crash is the model's: its cause (a defect's reason is
+// the Unreachable's text), the count it crashed at and the signal it
+// crashed on (FK13-g1).
 law CrashShowsTheCrashView(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1505,7 +1587,7 @@ law CrashShowsTheCrashView(seed int, steps int) {
 func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let reports = sync.NewRef(0)
-	let crashes = Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {
+	let crashes = Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(n int) int { n + 1 })
 	}}
 	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
@@ -1514,13 +1596,13 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	let mut count = 0
 	let mut on = false
-	let mut crash Option[Crash[Boom]] = None
+	let mut crash Option[Crash[int, int, Boom]] = None
 	let mut crashed = 0
 	for _ in 0..(steps%24+24)%24+1 {
 		let pick = draw(&r, 4)
 		let mut label = "reload"
 		match crash {
-		case Some[Crash[Boom]]:
+		case Some[Crash[int, int, Boom]]:
 			crash = None
 			count = 0
 			on = false
@@ -1530,11 +1612,11 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 				count = count + 1
 			} else if pick == 1 {
 				label = "defect"
-				crash = Some{Value: DefectCrash}
+				crash = Some{Value: Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: Some{Value: 1}}}
 				crashed = crashed + 1
 			} else if pick == 2 {
 				label = "fail"
-				crash = Some{Value: FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crash = Some{Value: Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: Some{Value: 2}}}
 				crashed = crashed + 1
 			} else {
 				label = "keep"
@@ -1546,16 +1628,50 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let want = match crash {
-		case Some[Crash[Boom]] as c:
+		case Some[Crash[int, int, Boom]] as c:
 			[]Shape[int]{leaf(TextNode{Value: crashText(c.Value), Style: Plain()}), pressShape("reload", 3, "reload")}
 		case None:
 			crashAppShapes(count, on)
 		}
-		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || CrashOf(&h) != crash {
+		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || !sameCrash(CrashOf(&h), crash) {
 			return false
 		}
 	}
 	true
+}
+
+// PlainCrashSaysWhatItKnows (FK13-g1): the plain crash view names the
+// defect's reason, and of the signal says only what the session knows: a
+// crash after the window's signal may be a timer's or a work's around it,
+// and one with no signal is a timer's or a work's.
+law PlainCrashSaysWhatItKnows(reason string, e int) {
+	let mut f = NewFrame[int]()
+	let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}})
+	let mut g = NewFrame[int]()
+	let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None})
+	writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)")
+}
+
+// sameCrash is whether got is the model's crash want, whose defect's
+// Reason is the end of got's: the runtime's text starts with the
+// Unreachable's position.
+func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Boom]]) bool {
+	match (got, want) {
+	case (Some[Crash[int, int, Boom]] as g, Some[Crash[int, int, Boom]] as w):
+		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
+		match (g.Value.Cause, w.Value.Cause) {
+		case (DefectCrash as x, DefectCrash as y):
+			same && strings.HasPrefix(x.Reason, "unreachable at ") && strings.HasSuffix(x.Reason, ": "+y.Reason)
+		case (FailureCrash[Boom] as x, FailureCrash[Boom] as y):
+			same && x.Failure == y.Failure
+		case _:
+			false
+		}
+	case (None, None):
+		true
+	case _:
+		false
+	}
 }
 
 // ReloadIsInitial (H6a): after drawn adds and presses of the check box, a
@@ -1571,7 +1687,7 @@ law ReloadIsInitial(seed int, defect bool) {
 
 func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -1585,7 +1701,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -1635,7 +1751,7 @@ func keyView(f *Frame[int], s int) {
 }
 
 // keyCrashView is its crash view: any key reloads.
-func keyCrashView(f *Frame[int], c Crash[Boom]) {
+func keyCrashView(f *Frame[int], c Crash[int, int, Boom]) {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
 	Text(f, "crashed")
 }
@@ -1672,7 +1788,9 @@ func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.
 // nothing); a reload's patch shows the fresh actor, and the Ended of an
 // actor a reload replaced changes nothing either; a defect of the fresh
 // actor's work, which no signal of the loop caused, reaches the loop as
-// Ended and shows the crash view. Each crash is reported once.
+// Ended and shows the crash view. Each crash is reported once, the step's
+// on its signal and the work's on none, each with its defect's reason and
+// the state it crashed in (FK13-g1).
 law SessionCrashFollowsTheEnd(n int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1685,8 +1803,10 @@ func crashFollows() bool needs Scheduler {
 	let posted = queue.New[Event[int]](64)
 	let reports = sync.NewRef(0)
 	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
-	let crashes = Crashes[int, Boom]{View: keyCrashView, Report: func(c Crash[Boom]) {
+	let reported = sync.NewRef([]Crash[int, int, Boom]{})
+	let crashes = Crashes[int, int, Boom]{View: keyCrashView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(k int) int { k + 1 })
+		reported.Update(func(cs []Crash[int, int, Boom]) []Crash[int, int, Boom] { cs.Append(c) })
 	}}
 	let (s, first) = StartApp(mach, 1, keyView, crashes, func(ev Event[int]) {
 		posted.Push(ev) catch {
@@ -1733,12 +1853,16 @@ func crashFollows() bool needs Scheduler {
 	case queue.Closed:
 		return false
 	}
-	match endedOf(&session, posted, 2) {
+	let shown = match endedOf(&session, posted, 2) {
 	case Some[[]Op[int]] as ops:
 		writesText(ops.Value, "crashed") && reports.Get() == 3
 	case None:
 		false
 	}
+	let cs = reported.Get()
+	let step = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
+	let work = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
+	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
 }
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
@@ -1968,11 +2092,18 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		// The pass wrote the log's line and the texts.
 		let texts = a.State().texts
 		if texts%3 != 0 && texts+1 > bound {
-			want = want.Append(Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			want = want.Append(Slow{Counter: WrittenCounter, Count: texts + 1, Bound: bound})
 			// The pass that shows the Slow, a Committed's, is not judged:
 			// the law takes the posted events until it shows it.
+			// A Slow is one commit, so it shows within a few posted
+			// events; a loop that judges its own passes never settles.
 			let mut shown = false
+			let mut taken = 0
 			for !shown {
+				taken = taken + 1
+				if taken > 16 {
+					return false
+				}
 				let ev = posted.Pop() catch {
 				case queue.Closed:
 					return false
@@ -2001,4 +2132,397 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	true
+}
+
+// sameHit is whether two zone hits are equal, path by path.
+func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
+	match a {
+	case Some[ZoneHit] as x:
+		match b {
+		case Some[ZoneHit] as y:
+			if len(x.Value.Path) != len(y.Value.Path) || x.Value.Box != y.Value.Box || x.Value.X != y.Value.X || x.Value.Y != y.Value.Y {
+				return false
+			}
+			for i, k in x.Value.Path {
+				if k != y.Value.Path[i] {
+					return false
+				}
+			}
+			true
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[ZoneHit]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+// foundId is the node label finds; the laws name only nodes on the screen.
+func foundId[S, D, F](h *TestHost[S, int, D, F], label string) Id[int] {
+	match Find(h, label) {
+	case Some[Id[int]] as id:
+		id.Value
+	case None:
+		Unreachable("ui laws: no node \(label)")
+	}
+}
+
+func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func zoneTimer(s int) Option[Timeout[int]] { None }
+
+func zoneWork(s int) Option[func(send func(e int))] { None }
+
+func zoneMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork}
+}
+
+// ZoneHitNamesItsPath (H5g): an Area over drawn columns of drawn cards,
+// each column and each card a Zone (a card's inside a Box that is not
+// one), and a Zone outside the Area. A pointer event the host sends over
+// a drawn zone, with a drawn box and position, reaches the Area's function
+// with the keys of the zones from the Area down to that zone, its box and
+// the pointer's offset in it; over no zone, over a node that is not a
+// zone, over the Zone outside the Area, or over a card a pass removed, it
+// carries none.
+law ZoneHitNamesItsPath(seed int, n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		zoneFollows(seed, n, m)
+	}
+}
+
+func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let ncols = draw(&r, 3) + 1
+	let mut cards = []int{}
+	for _ in 0..ncols {
+		cards = cards.Append(draw(&r, 3) + 1)
+	}
+	let got = sync.NewRef[Option[ZoneHit]](None)
+	let view = func(f *Frame[int], s int) {
+		Pressable(f, "drop", 1) {
+			Text(f, "drop")
+		}
+		Area(f, "board", Plain(), func(p PointerEvent) Option[int] {
+			got.Set(p.Zone)
+			None
+		}) {
+			for c in 0..ncols {
+				Zone(f, ByInt(c), Plain()) {
+					Text(f, "col \(c)")
+					// A pass at state 1 drops column 0's cards.
+					let shown = if s == 1 && c == 0 { 0 } else { cards[c] }
+					for k in 0..shown {
+						Box(f, Plain()) {
+							Zone(f, ByText("\(c)-\(k)"), Plain()) {
+								Text(f, "card \(c)-\(k)")
+							}
+						}
+					}
+				}
+			}
+		}
+		Zone(f, ByInt(99), Plain()) {
+			Text(f, "outside")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let board = foundId(&h, "board")
+	let gone = Locate(&h, WithZone{Key: ByText("0-0")})[0]
+	for i in 0..(n%16+16)%16+1 {
+		if i == 1 {
+			Play(&h, []Act{TapOn{Label: "drop"}}) catch {
+			case _:
+				return false
+			}
+		}
+		let box = Rect{X: Length(float64(draw(&r, 50))), Y: Length(float64(draw(&r, 50))), W: 40, H: 20}
+		// A host sends a Zone of its own, which the composer replaces.
+		let p = PointerEvent{Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let c = draw(&r, ncols)
+		let k = draw(&r, cards[c])
+		let hit = Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
+		let mut want Option[ZoneHit] = None
+		let mut over Option[Id[int]] = None
+		match draw(&r, 6) {
+		case 0:
+			over = Some{Value: Locate(&h, WithZone{Key: ByInt(c)})[0]}
+			want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c)}}}
+		case 1:
+			if c == 0 && StateOf(&h) == 1 {
+				over = Some{Value: gone}
+			} else {
+				over = Some{Value: Locate(&h, WithZone{Key: ByText("\(c)-\(k)")})[0]}
+				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c), ByText("\(c)-\(k)")}}}
+			}
+		case 2:
+			over = Some{Value: Locate(&h, WithZone{Key: ByInt(99)})[0]}
+		case 3:
+			over = Some{Value: foundId(&h, "col \(c)")}
+		case 4:
+			// Card 0-0, which the drop at the second event removes.
+			over = Some{Value: gone}
+			if StateOf(&h) != 1 {
+				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(0), ByText("0-0")}}}
+			}
+		case _:
+		}
+		got.Set(Some{Value: ZoneHit{Path: []Key{ByInt(-1)}, Box: box, X: 0.0, Y: 0.0}})
+		match over {
+		case Some[Id[int]] as o:
+			PointOver(&h, board, o.Value, box, p) catch {
+			case _:
+				return false
+			}
+		case None:
+			PointAt(&h, board, p) catch {
+			case _:
+				return false
+			}
+		}
+		if !sameHit(got.Get(), want) {
+			return false
+		}
+	}
+	true
+}
+
+// CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
+// Text outside them, and a press that removes the first Area, each event
+// goes where a model of capture says: to the Area that took the last Down
+// with no Up since, while the tree still holds it, else to the node
+// named. Each Area's signal names it and the phase, so the actor's state
+// is the model's after each event, and the host's Captured is the
+// model's.
+law CaptureKeepsThePointer(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		captureFollows(seed, steps, m)
+	}
+}
+
+func phaseCode(p Phase) int {
+	match p {
+	case Down:
+		1
+	case Moved:
+		2
+	case Up:
+		3
+	case Wheel:
+		4
+	}
+}
+
+func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f *Frame[int], s int) {
+		Pressable(f, "hide", 99) {
+			Text(f, "hide")
+		}
+		Text(f, "top")
+		if s != 99 {
+			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { Some{Value: 10 + phaseCode(p.Phase)} }) {
+				Text(f, "in a")
+			}
+		}
+		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { Some{Value: 20 + phaseCode(p.Phase)} }) {
+			Text(f, "in b")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	// The model: the Area holding the pointer (0 none, 10 a, 20 b) and the
+	// actor's state.
+	let mut held = 0
+	let mut state = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let shownA = state != 99
+		if draw(&r, 8) == 0 {
+			Play(&h, []Act{TapOn{Label: "hide"}}) catch {
+			case _:
+				return false
+			}
+			state = 99
+			if held == 10 {
+				held = 0
+			}
+		} else {
+			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}}
+			let phase = phases[draw(&r, 4)]
+			// The node under the pointer: a (when shown), b or the Text.
+			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			if at == 10 && !shownA {
+				at = 0
+			}
+			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
+			let id = foundId(&h, label)
+			PointAt(&h, id, PointerEvent{Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			case _:
+				return false
+			}
+			let to = if held != 0 { held } else { at }
+			match phase {
+			case Down:
+				if to != 0 {
+					held = to
+				}
+			case Up:
+				held = 0
+			case _:
+			}
+			if to != 0 {
+				state = to + phaseCode(phase)
+			}
+		}
+		if StateOf(&h) != state {
+			return false
+		}
+		let want = if held == 10 { Find(&h, "a") } else if held == 20 { Find(&h, "b") } else { None }
+		if Captured(&h) != want {
+			return false
+		}
+	}
+	true
+}
+
+// AnnounceSaysEachNewText (H5g): a view whose live region shows a drawn
+// text of the state (none at one state), over drawn states: the host says
+// the text of each pass after the first that changed it or wrote the
+// region anew, unless it is empty, and nothing for a pass that left it as
+// it was. The region is a Status to a locator. The text shown is the
+// state's plus a shift the view reads from a cell outside the actor; a
+// step is a key, a signal sent to the actor and a Settle, or a new shift
+// and a Settle, which no event announces, so only Settle's last pass
+// writes it (FK11-g5).
+law AnnounceSaysEachNewText(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		announceFollows(seed, steps, m)
+	}
+}
+
+func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let words = []string{"", "moved", "dropped", "cancelled"}
+	let mut texts = []string{}
+	for _ in 0..6 {
+		texts = texts.Append(words[draw(&r, 4)])
+	}
+	let shift = sync.NewRef(0)
+	let view = func(f *Frame[int], s int) {
+		let shown = (s + shift.Get()) % 6
+		OnKey(f, func(k KeyPress) Option[int] {
+			for i in 0..6 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		Text(f, "at \(s)")
+		// At text 5 there is no live region, so the next text's is new.
+		if shown != 5 {
+			Announce(f, texts[shown])
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut want = []string{}
+	let mut prev Option[string] = Some{Value: texts[0]}
+	for _ in 0..(steps%12+12)%12+1 {
+		let s = draw(&r, 6)
+		let by = draw(&r, 3)
+		if by == 0 {
+			PressKey(&h, KeyPress{Name: "\(s)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+		} else if by == 1 {
+			a.Send(s) catch {
+			case _:
+				return false
+			}
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+		} else {
+			shift.Set(draw(&r, 6))
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+		}
+		let k = (StateOf(&h) + shift.Get()) % 6
+		// prev is the region's text, None while there is no region.
+		if k == 5 {
+			prev = None
+		} else {
+			if prev != (Some{Value: texts[k]}) && texts[k] != "" {
+				want = want.Append(texts[k])
+			}
+			prev = Some{Value: texts[k]}
+		}
+		let regions = if k == 5 { 0 } else { 1 }
+		if len(Locate(&h, WithRole{Role: Status, Name: texts[k]})) != regions {
+			return false
+		}
+	}
+	let said = Announced(&h)
+	if len(said) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if said[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+// posMod is x in [0, m), for any int x.
+func posMod(x int, m int) int { (x%m + m) % m }
+
+// EdgeScrollStaysInRange (H5g): for drawn offsets, viewports, contents,
+// pointer positions (inside and outside the viewport), edges and steps,
+// EdgeScroll stays inside [0, content - height]; within edge of the top
+// it moves up (or stays at 0), within edge of the bottom down (or stays
+// at the end), and in the middle it only clamps.
+law EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
+	let height = Length(float64(posMod(hh, 500) + 1))
+	let content = Length(float64(posMod(c, 2000)))
+	let offset = Length(float64(posMod(o, 2500)))
+	let y = Length(float64(posMod(yy, 700) - 100))
+	let edge = Length(float64(posMod(e, 60)))
+	let step = Length(float64(posMod(st, 40) + 1))
+	let most = if content > height { content - height } else { Length(0.0) }
+	let at = if offset > most { most } else { offset }
+	let next = EdgeScroll(offset, height, content, y, edge, step)
+	if next < Length(0.0) || next > most {
+		return false
+	}
+	if edge > Length(0.0) && y < edge {
+		return next < at || at == Length(0.0)
+	}
+	if edge > Length(0.0) && y > height-edge {
+		return next > at || at == most
+	}
+	next == at
 }

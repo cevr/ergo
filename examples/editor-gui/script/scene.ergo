@@ -63,6 +63,8 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 			io.Stdout.Println("? no node " + x.Label)
 		case ui.Mismatch as miss:
 			io.Stdout.Println("? want " + miss.Want + ", got " + miss.Got)
+		case ui.Ambiguous as amb:
+			io.Stdout.Println("? " + amb.At + " finds \(amb.Count) nodes")
 		case actor.Stopped as s:
 			return s
 		case ui.BadPatch as b:
@@ -85,7 +87,7 @@ func PressAt(s edit.State, row int, col int) ui.Act {
 	let (from, to) = screen.Shown(d)
 	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
 	let k = ui.CaretAt(screen.Mono, l, edit.PointAt(s, row, col)-from)
-	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0)}}
+	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
 }
 
 // Acts is the window's steps of an editor signal.
@@ -163,7 +165,7 @@ func Texts(shapes []ui.Shape[screen.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
 		}
 		for t in Texts(s.Kids) {
 			out = out.Append(t)

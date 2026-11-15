@@ -181,17 +181,25 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 	// follow runs act, which says whether a state commits, and shows each
 	// state the router commits after it until one that runs no work, then
 	// the questions and the new answers. Changes begins before act, so no
-	// state is missed. Changes goes on across a restart: the recovered
-	// incarnation's first state is one more change, after the restart
-	// line.
+	// state is missed; it holds 64 at most, and says how many it dropped
+	// if the script fell further behind. Changes goes on across a restart:
+	// the recovered incarnation's first state is one more change, after
+	// the restart line.
 	let follow = func(act func() bool) {
 		let mut first = true
-		for st in a.Changes() {
+		for c in actor.Changes(a, 64) {
 			if first {
 				first = false
 				if !act() {
 					break
 				}
+				continue
+			}
+			let st = match c {
+			case actor.Changed[route.Router] as x:
+				x.State
+			case actor.Overflowed as o:
+				lines = lines.Append("  ?? \(o.Missed) states dropped")
 				continue
 			}
 			if actor.Restarts(a) > restarts {

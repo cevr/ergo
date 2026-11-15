@@ -540,18 +540,25 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Actor.Ask":        {wait: callerWait},
 	"Actor.State":      {wait: callerWait},
 	"Actor.Changes":    {wait: callerWait},
-	"Actor.Stop":       {wait: endWait},
-	"Actor.Dropped":    {},
-	"ActorNoTimer":     {},
+	// F-GP4c-1: the conflated subscription waits as Changes does.
+	"Actor.LatestChanges": {wait: callerWait},
+	"Actor.Held":          {},
+	// F-GP4c-1: std actor's Changes(a, room) loop waits as Changes does.
+	"ActorChanges":  {wait: callerWait},
+	"Actor.Stop":    {wait: endWait},
+	"Actor.Dropped": {},
+	"ActorNoTimer":  {},
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
-	"Actor.Drain":    {wait: endWait},
-	"ActorExitKind":  {wait: callerWait},
-	"ActorFinal":     {},
-	"ActorFailure":   {},
-	"ActorHasLatest": {},
-	"ActorLatest":    {},
+	"Actor.Drain":   {wait: endWait},
+	"ActorExitKind": {wait: callerWait},
+	"ActorFinal":    {},
+	"ActorFailure":  {},
+	// FK13-g1: the defect's text, read under the actor's lock once it ended.
+	"ActorDefectReason": {},
+	"ActorHasLatest":    {},
+	"ActorLatest":       {},
 	// MU5: MachineChild starts the child's task as a child of the caller's
 	// task, shielded from its stop (the owner entry stops it), and waits
 	// for nothing but the child's start, as MachineStart does.
@@ -574,6 +581,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	// task's host binding set; it never waits by itself.
 	"ActorRecovering": {task: true},
 	"Host.Get":        {wait: callerWait},
+	// std ui's trace (NS3's `ergo test --trace`): traced reads whether the
+	// running task's tree records a trace, and traceStep records a step
+	// event in it; neither waits nor releases.
+	"UITraced":    {task: true},
+	"UITraceStep": {task: true},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

@@ -294,6 +294,12 @@
       "to": "",
       "rule": "windows/amd64 is a build platform.",
       "killers": ["cmd/ergo:TestPlatformOfABuild"]
-    }
+    },
+    {"name":"trace-first-step-dropped","origin":"wf10 nsh NS3 trace","file":"internal/sketch/std/ui/testhost.ergo","from":"\t\t\tif on {\n\t\t\t\ttraceStep(line)","to":"\t\t\tif on && i > 0 {\n\t\t\t\ttraceStep(line)","rule":"Play records every act it runs as a step event.","killers":["cmd/ergo:TestTestTrace"]},
+    {"name":"trace-play-silent","origin":"wf10 nsh NS3 trace","file":"internal/sketch/std/ui/testhost.ergo","from":"\tlet on = traced()","to":"\tlet on = lines && traced()","rule":"Play, not only PlayTrace, records its acts.","killers":["cmd/ergo:TestTestTrace"]},
+    {"name":"trace-step-not-raised","origin":"wf10 nsh NS3 trace","file":"runtime/rt/trace.go","from":"\t\tt.trace.raise(t, nil, Event{Kind: TraceStep, Def: t.span, Defect: stepLine{line}})","to":"\t\t_ = line","rule":"A traced task records each step event.","killers":["cmd/ergo:TestTestTrace"]},
+    {"name":"trace-step-line-lost","origin":"wf10 nsh NS3 trace","file":"runtime/rt/rttrace/jsonl.go","from":"\t\t\tl.Step = r.Event.Step()","to":"\t\t\tl.Step = r.Event.Def","rule":"A step event's JSON line holds its line.","killers":["cmd/ergo:TestTestTrace"]},
+    {"name":"trace-steps-reordered","origin":"wf10 nsh NS3 trace","file":"cmd/ergo/test.go","from":"\t\t\tsteps = append(steps, l.Step)","to":"\t\t\tsteps = append([]string{l.Step}, steps...)","rule":"ergo test --trace prints the steps in the order the runtime raised them.","killers":["cmd/ergo:TestTestTrace"]},
+    {"name":"trace-env-not-passed","origin":"wf10 nsh NS3 trace","file":"cmd/ergo/test.go","from":"\t\tchild.Env = append(child.Env, v1.TraceEnv+\"=\"+tracePath)","to":"\t\t_ = v1.TraceEnv","rule":"ergo test --trace binds the test binary's trace sink.","killers":["cmd/ergo:TestTestTrace"]}
   ]
 }
