@@ -60,15 +60,19 @@ type Ed = Idle{set Set} | Busy{set Set, n int}
 // step consumes a union's payload: u1.
 func step(e Ed, x int) Ed {
 	match e {
-	case Idle as i: Busy{set: Insert(i.set, x), n: 1}
-	case Busy as b: Busy{..b, set: Insert(b.set, x)}
+	case Idle as i:
+		Busy{set: Insert(i.set, x), n: 1}
+	case Busy as b:
+		Busy{..b, set: Insert(b.set, x)}
 	}
 }
 
 func size(e Ed) int {
 	match e {
-	case Idle as i: len(i.set.xs)
-	case Busy as b: len(b.set.xs)
+	case Idle as i:
+		len(i.set.xs)
+	case Busy as b:
+		len(b.set.xs)
 	}
 }
 
@@ -82,7 +86,8 @@ func f2(n int) int {
 	let mut a = NewSet()
 	for i in 0..n {
 		a = InsertCapped(a, i, 100000000) catch {
-		case Full: NewSet()
+		case Full:
+			NewSet()
 		}
 	}
 	len(a.xs)
@@ -92,7 +97,8 @@ func f3(n int) int {
 	let mut a = NewSet()
 	for i in 0..n {
 		a = InsertCapped(a, i, 100000000) catch {
-		case Full: a
+		case Full:
+			a
 		}
 	}
 	len(a.xs)
@@ -175,8 +181,10 @@ type Mirror { nodes Map[int, Node] }
 
 func kidsOf(m *Mirror, id int) int {
 	match m.nodes.Get(id) {
-	case Some[Node] as v: len(v.Value.kids)
-	case None: 0
+	case Some[Node] as v:
+		len(v.Value.kids)
+	case None:
+		0
 	}
 }
 

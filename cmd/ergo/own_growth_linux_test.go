@@ -145,7 +145,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"ownshrink", filepath.Join(ws, "cmd", "ergo", "testdata", "ownshrink", "shrink.ergo"), 10000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}, ""},
-		{"reuse-g1", reuse, 20000, "reuse.ergo:77:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
+		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
 		{"reuse-g4", reuse, 2000, "", shape("g4"), "RU1"},
 		{"reuse-f2", reuse, 2000, "", shape("f2"), "RU2"},
 		{"reuse-f3", reuse, 2000, "", shape("f3"), "RU2"},
@@ -154,7 +154,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"reuse-r3", reuse, 2000, "", shape("r3"), "RU1"},
 		{"reuse-u1", reuse, 2000, "", shape("u1"), "RU3"},
 		{"reuse-fv", reuse, 2000, "", shape("fv"), "RU4 (a known callback takes the owning form; plan §2, Indirect calls)"},
-		{"reuse-st", reuse, 20000, "reuse.ergo:155:16 copy slice: ", shape("st"), ""},
+		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
 		{"reuse-uc", reuse, 5000, "", shape("uc"), ""},
 	}
 	knownRed := os.Getenv("OWN_GROWTH_KNOWN_RED") == "1"
