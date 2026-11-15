@@ -654,7 +654,7 @@
       "file": "modules/work/git/git.ergo",
       "from": "[]string{\"branch\", \"--contains\", commit,",
       "to": "[]string{\"branch\", \"--no-contains\", commit,",
-      "rule": "A commit is held by the branches that contain it: Vcs.OwnBranchHoldsItsHead under git's onHost (a real checkout).",
+      "rule": "A commit is held by the branches that contain it: git's OwnBranchHoldsItsHeadInARepository (TestAmbient).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
@@ -662,7 +662,7 @@
       "file": "modules/work/git/git.ergo",
       "from": "[]string{\"update-ref\", ref, value, old}",
       "to": "[]string{\"update-ref\", ref, value}",
-      "rule": "A ref is set only from the value its writer read: Vcs.CompareAndSetIsAtomic under git's onHost (a real checkout).",
+      "rule": "A ref is set only from the value its writer read: git's StaleSetIsMoved (TestAmbient).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {

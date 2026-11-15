@@ -1,37 +1,20 @@
-// The work.Vcs laws on the host, in a folder of each case's own
-// (TestAmbient): git runs for real, confined to the folder, with
-// GIT_CEILING_DIRECTORIES above it. Under onHost the folder is a checkout
-// with a commit (Checkout), so each law reads a real repository. The
-// tests run under onShell, which also holds the folder's exec.Runner and
-// os.Process; its build makes no checkout, so the laws of exec.Runner and
-// os.Process that run under it start no git.
+// git on the host, in a folder of each case's own (TestAmbient): git
+// runs for real, confined to the folder, with GIT_CEILING_DIRECTORIES
+// above it. The tests make the repositories they read. The work.Vcs laws
+// run under onShell too, on its empty folder, where each holds by its
+// failure case: a real checkout in each of a law's 100 cases started
+// about twenty git processes a case, past the examples runner's deadline
+// under load (WG1 r4), so the tests below hold each law's host fact
+// instead, and the laws run against memory.Vcs.
 
 import exec
 import os
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Vcs: Checkout(exec.NewTestHost()) }
-
 let onShell = context needs TestAmbient {
 	work.Vcs:    New(exec.NewTestHost()),
 	exec.Runner: exec.NewTestHost(),
 	os.Process:  os.NewTestHost(),
-}
-
-// CheckoutScript makes the working folder a checkout of branch main with
-// one commit and an untracked file. It starts three processes, as each
-// case of each law under onHost runs it.
-let CheckoutScript = "git init -q -b main . && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m one && printf 'new\\n' > new.txt"
-
-// Checkout is the git Vcs over run, after it made run's folder a
-// checkout (CheckoutScript). A failure leaves the folder as it is, and
-// the laws then hold by their failure cases.
-func Checkout(run exec.Runner) Vcs {
-	let _ = run.Run(exec.New("sh", []string{"-c", CheckoutScript})) catch {
-	case exec.NotFound, exec.Denied, exec.Failed:
-		exec.Result{Stdout: "", Stderr: "", Status: 1}
-	}
-	New(run)
 }
 
 // StateScript makes the working folder a checkout of branch main with one
@@ -124,6 +107,32 @@ test NonFastForwardIsRefused {
 		case work.NotFastForward as n:
 			assert n.Ref == "refs/heads/side"
 			assert try work.Vcs.Ref("parent", "refs/heads/side") == moved
+			return
+		case work.VcsFailed:
+			assert false
+			return
+		}
+		assert false
+	}
+}
+
+// StaleSetIsMoved: of two writers that read a ref as missing, the first
+// set wins and the second is Moved, naming what the ref holds; the ref
+// keeps the first value (CompareAndSetIsAtomic's race, on git).
+test StaleSetIsMoved {
+	with onShell {
+		assert try run([]string{"init", "-q", "-b", "main", "."}) == 0
+		assert try run([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one"}) == 0
+		let one = try work.Vcs.Head(".")
+		assert try run([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two"}) == 0
+		let two = try work.Vcs.Head(".")
+		let ref = "refs/work/law"
+		assert try work.Vcs.Ref(".", ref) == ""
+		try work.Vcs.SetRef(".", ref, "", one)
+		work.Vcs.SetRef(".", ref, "", two) catch {
+		case work.Moved as m:
+			assert m.Want == "" && m.Have == one
+			assert try work.Vcs.Ref(".", ref) == one
 			return
 		case work.VcsFailed:
 			assert false
