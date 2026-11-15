@@ -1226,7 +1226,10 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 
 // executeArmed is execute whose timeout starts at an event, not at the
 // start: when arm is not "", the deadline starts once the command's stderr
-// holds arm (ergo test -work prints "WORK=" when its build ends). The
+// holds arm (ergo test -work prints "WORK=" when its build ends), and it
+// starts again at each output the command writes after that (a test or
+// law's line): so it measures silence, and stops only a run that stopped
+// making progress, whatever load does to a run that makes it. The
 // build before it has no deadline, as the runner's own builds have none
 // (r.tool(0, "build", ...)): a deadline only stops a hung program, and a
 // build that load makes slow is not one.
@@ -1269,6 +1272,8 @@ func (l *live) executeArmed(argv []string, dir string, env []string, stdin strin
 	stdout, stderr := newCapture(), newCapture()
 	if arm != "" {
 		stderr.mark, stderr.seen = []byte(arm), make(chan struct{})
+		progress := make(chan struct{}, 1)
+		stdout.progress, stderr.progress = progress, progress
 	}
 	overCap := func() { l.stop(command.Process) }
 	go stdout.fill(outRead, overCap)
@@ -1306,6 +1311,11 @@ run:
 		case <-armed:
 			armed = nil
 			startDeadline()
+		case <-stdout.progress:
+			// Output after the build restarts the deadline (silence only).
+			if timer != nil {
+				timer.Reset(timeout)
+			}
 		case <-expired:
 			o.timedOut = true
 			l.stop(command.Process)

@@ -27,6 +27,9 @@ type capture struct {
 	mark   []byte
 	seen   chan struct{}
 	closed bool // seen is closed; fill's own
+	// progress, when set, gets a token (dropped when one waits) for each
+	// read that brought bytes: executeArmed restarts its deadline on it.
+	progress chan struct{}
 }
 
 // see closes seen once the stream holds mark, or when final is true (the
@@ -64,6 +67,12 @@ func (c *capture) fill(pipe *os.File, overCap func()) {
 			}
 		}
 		c.see(c.over || err != nil)
+		if n > 0 && c.progress != nil {
+			select {
+			case c.progress <- struct{}{}:
+			default:
+			}
+		}
 		if err != nil {
 			return
 		}
