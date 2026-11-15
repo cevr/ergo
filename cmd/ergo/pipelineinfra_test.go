@@ -109,6 +109,9 @@ func TestPipelineInfraDeploysTheServer(t *testing.T) {
 	if _, err := os.Stat(outputs.Data); !os.IsNotExist(err) {
 		t.Fatalf("the server's folder %s is still there after destroy (%v)", outputs.Data, err)
 	}
+	if _, err := os.Stat(filepath.Join(home, "dev.outputs.json")); !os.IsNotExist(err) {
+		t.Fatalf("the outputs are still there after destroy (%v)", err)
+	}
 	if out, code := infra("state"); code != 0 || out != "no objects\nlock: free\n" {
 		t.Fatalf("pipeline-infra state after destroy: exit %d\n%s", code, out)
 	}

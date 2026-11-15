@@ -111,7 +111,7 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `ServerListensOnTheOutputsPort` | deploy | the server is told (`-addr`) the port its outputs name | the stack tells the server port 0 |
 | `ArgsRoundTrip` | pipeline/pipelinecli (generated) | `Parse` reads what `Print` writes as the same request | `Print` drops `-stage` |
 
-On the host, `cmd/ergo`'s `TestPipelineInfraDeploysTheServer` (full tier) builds `pipeline-infra` and `pipeline-server`, applies a stage in a temporary folder, gets `ok` from `/health` at the outputs' URL, plans no change, and destroys it: the server no longer answers and its folder is gone.
+On the host, `cmd/ergo`'s `TestPipelineInfraDeploysTheServer` (full tier) builds `pipeline-infra` and `pipeline-server`, applies a stage in a temporary folder, gets `ok` from `/health` at the outputs' URL, plans no change, and destroys it: the server no longer answers, and its folder and the outputs are gone.
 
 The mutants are in `testdata/mutants.json`.
 
@@ -123,7 +123,6 @@ The mutants are in `testdata/mutants.json`.
 - **`Model` has no generator.** `ergo test` skips the member law of `Pipeline` for it (`expected-skips`); `ModelTakesEachCommandOnce` opens one and runs the same body. The generated `Client` has none either (an `rpc.Conn` comes only from `rpc.Dial` or `rpc.Loopback`); `LoopbackTakesEachCommandOnce` runs the body against it.
 - **A screen's signal must compare.** `ui`'s signal type is `comparable`, and a board's columns are slices, so the board's load gives `screen.Lines` (each column joined by `, `), not a `board.View`.
 - **A screen's call is a load, not the machine's work.** A `ui` session renders after its own events only; a signal that an actor's work sends would change the state with no new pass. So the view asks for each call (`ui.Load`), and its answer arrives through the session.
-- **Destroy keeps the outputs.** infra's `Destroy` ends the objects and the rows; the stage's `outputs.json` stays and names a server that no longer runs.
 - **The file lock is not exclusive.** std `fs` has no exclusive create, so two `pipeline-infra` runs that start at the same instant can both take a stage's lock; one that starts while another is on is kept out.
 - **The server's providers.** `pipeline-server` has no `-fail` flag: its runner passes every stage. A case of `--server` would need a server running beside it; `SurfacesAgree` holds the client to the model over `rpc.Loopback` instead.
 
