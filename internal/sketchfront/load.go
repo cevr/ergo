@@ -631,8 +631,8 @@ func (l *loader) checkAll() {
 				stage.Add(stage.PackagesReused, 1)
 				l.fingerprintAfter(p, path, pkg.Files())
 				l.cache.store(l, p, key, pkg)
-				if checkedHook != nil {
-					checkedHook(l, path, pkg)
+				if hook := checkedHook; hook != nil {
+					hook(l, path, pkg) // the census sees a reused package too
 				}
 				continue
 			}
