@@ -13,8 +13,8 @@ func MergeText(base string, ours string, theirs string) Hunks {
 	let b = strings.Split(base, "\n")
 	let o = strings.Split(ours, "\n")
 	let t = strings.Split(theirs, "\n")
-	let mo = matches(b, o)
-	let mt = matches(b, t)
+	let mo = slid(matches(b, o), o)
+	let mt = slid(matches(b, t), t)
 	let mut out = []string{}
 	let mut clashes = 0
 	let mut i = 0
@@ -151,6 +151,49 @@ func matches(a []string, b []string) []int {
 	m
 }
 
+// slid is the pairing m of base lines to the lines of side with each run
+// of side lines no base line pairs (an insertion) moved up as far as it
+// goes: while the line before the run is the run's last line, the base
+// line paired with the one before is paired with the last instead. An
+// insertion has many places when the lines around it repeat (a block
+// that ends as the one before it does); Git's diff (xdiff's change
+// compaction) picks one, and both sides of a merge must pick the same, or
+// one block both sides added is written twice.
+func slid(m []int, side []string) []int {
+	let mut out = m
+	let mut owner = []int{}
+	for _ in side {
+		owner = owner.Append(-1)
+	}
+	for i, j in out {
+		if j >= 0 {
+			owner[j] = i
+		}
+	}
+	let mut e = len(side)
+	for e > 0 {
+		// The run of unpaired lines that ends at e.
+		let mut s = e
+		for s > 0 && owner[s-1] < 0 {
+			s = s - 1
+		}
+		if s == e {
+			e = e - 1
+			continue
+		}
+		for s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] {
+			let i = owner[s-1]
+			out[i] = e - 1
+			owner[e-1] = i
+			owner[s-1] = -1
+			s = s - 1
+			e = e - 1
+		}
+		e = s
+	}
+	out
+}
+
 // plain is units as one "k<key> <value>" line each, in key order.
 func plain(units Map[int, int]) string {
 	let mut lines = []string{}
@@ -197,4 +240,27 @@ law TextIsDiff3(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
 	}
 	let got = MergeText(plain(base), plain(ours), plain(theirs))
 	near || (got.Clashes == 0 && Text(got) == plain(both))
+}
+
+// OneBlockBothAddedIsOnce: both sides add one block ("f(" and ")")
+// after the line a, before r lines ")" that end as the block does, and
+// theirs also changes the last line (extra): the merge is clean, the
+// block once, and the text theirs'. Paired without the slide, theirs' ")"
+// lines pair other base lines than ours' (the changed last line ends
+// their common end early), and the block clashes or is written twice.
+law OneBlockBothAddedIsOnce(n int, extra bool) {
+	let r = ((n%3)+3)%3 + 1
+	let mut base = []string{"a"}
+	for _ in 0..r {
+		base = base.Append(")")
+	}
+	base = base.Append("b")
+	base = base.Append("c")
+	let ours = slicesAppend(slicesAppend([]string{"a"}, []string{"f(", ")"}), part(base, 1, len(base)))
+	let mut theirs = slicesAppend([]string{}, ours)
+	if extra {
+		theirs[len(theirs)-1] = "c2"
+	}
+	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
+	got.Clashes == 0 && Text(got) == strings.Join(theirs, "\n")
 }
