@@ -65,6 +65,46 @@
       "rule": "Minutes are whole minutes, not wrapped at an hour, as upstream's formatTime.",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
-    {"name":"fkg1-tick-reads-start", "origin":"wf10 FKG1", "file":"examples/fk-stopwatch/watch/watch.ergo", "from":"func tickedAt(at time.Time) Signal { Ticked{At: at} }", "to":"func tickedAt(at time.Time) Signal { Ticked{At: time.Unix(0, 0)} }", "rule":"A tick carries the reading it fired at (machines.Every), so a running watch shows the clock's time at its last tick.", "anchor":{"tests":["examples:fk-stopwatch"]},"killers":["examples:fk-stopwatch"]}
+    {"name":"fkg1-tick-reads-start", "origin":"wf10 FKG1", "file":"examples/fk-stopwatch/watch/watch.ergo", "from":"func tickedAt(at time.Time) Signal { Ticked{At: at} }", "to":"func tickedAt(at time.Time) Signal { Ticked{At: time.Unix(0, 0)} }", "rule":"A tick carries the reading it fired at (machines.Every), so a running watch shows the clock's time at its last tick.", "anchor":{"tests":["examples:fk-stopwatch"]},"killers":["examples:fk-stopwatch"]},
+    {
+      "name": "fkg1g5-start-click-forgets-the-time", "origin": "wf10/fkg1-g5",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\t\tEnter[Watch]{Next: Starting{Elapsed: st.Elapsed}}\n",
+      "to": "\t\tEnter[Watch]{Next: Starting{Elapsed: 0s}}\n",
+      "rule": "A click of Start waits from the time the watch shows (law ClickThenWorkIsThePress).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fkg1g5-starting-reads-a-stop", "origin": "wf10/fkg1-g5",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\t\tSome{pressNow(Start)}\n",
+      "to": "\t\tSome{pressNow(Stop)}\n",
+      "rule": "The work of a Start click sends the press of Start (law ClickThenWorkIsThePress).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fkg1g5-stopping-has-no-work", "origin": "wf10/fkg1-g5",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\t\tSome{pressNow(Stop)}\n",
+      "to": "\t\tNone\n",
+      "rule": "A click of Stop is answered by a work that reads the clock (law ClickThenWorkIsThePress).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fkg1g5-stop-keeps-the-last-tick", "origin": "wf10/fkg1-g5",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\tcase (Stopping as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
+      "to": "\tcase (Stopping as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
+      "rule": "A stop's reading, from the work, sets the time, not the last tick (law ClickThenWorkIsThePress).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fkg1g5-work-sends-twice", "origin": "wf10/fkg1-g5",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n",
+      "to": "\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n",
+      "rule": "A click's work sends one press (law ClickThenWorkIsThePress).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    }
   ]
 }
