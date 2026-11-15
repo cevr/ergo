@@ -23,6 +23,35 @@ law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int wh
 	}
 }
 
+// AMoveRunsNoCard: during a pointer drag of a drawn card on the default
+// board, a move from one drawn spot to another runs the body of no card:
+// the pass keeps every card (its Same) and writes only the columns and
+// the placeholder, however many cards there are.
+law AMoveRunsNoCard(card int where 1 <= card && card <= 17, a int where 0 <= a && a <= 2, b int where 0 <= b && b <= 2) {
+	let m = time.NewManual(0)
+	with context { board.Store: memory.NewShelf(), Scheduler: m } {
+		movesRunNoCard("card-\(card)", board.Defaults[a].ID, board.Defaults[b].ID, m)
+	}
+}
+
+func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs board.Store | Scheduler {
+	let mut h = Open(board.Defaults, m) catch {
+	case Unread:
+		return false
+	}
+	let mut ok = true
+	for line in []string{"press \(item)", "move \(a)", "move \(b)"} {
+		let _ = Play(&h, line, line) catch {
+		case Unread:
+			ok = false
+			[]string{}
+		}
+	}
+	let s = ui.StatsOf(&h.view)
+	Close(&h)
+	ok && s.Skipped == 17
+}
+
 func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Manual) bool needs board.Store | Scheduler {
 	let item = "card-\(card)"
 	let from = match board.Where(board.Defaults, item) {

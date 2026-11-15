@@ -136,6 +136,86 @@
       "to": "Key string }",
       "rule": "The file is upstream's saved board: a card's order key is the JSON key sortKey (case persisted reads upstream's JSON).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-lower-half-ignored", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "hit.Y >= float64(hit.Box.H)/2.0 { 1 }",
+      "to": "hit.Y >= float64(hit.Box.H)/2.0 { 0 }",
+      "rule": "A pointer over a card's lower half drops after it (law PointerDropLandsWhereShown).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-no-placeholder", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\t\t\t\treturn Some{Value: t.Value.Index}\n",
+      "to": "\t\t\t\treturn None\n",
+      "rule": "While a pointer drag is over a spot, the column shows the drop placeholder there (law PointerDropLandsWhereShown).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-placeholder-counts-the-held-card", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\t\t\tif !held(b.Drag.State, card.ID) {\n\t\t\t\tshown = shown + 1\n",
+      "to": "\t\t\tif true {\n\t\t\t\tshown = shown + 1\n",
+      "rule": "The placeholder's place counts the column's cards other than the dragged one (law PointerDropLandsWhereShown).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-release-ignored", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\t\t\t\tSome{Value: kanban.Dragging{Signal: drag.Released}}\n",
+      "to": "\t\t\t\tNone\n",
+      "rule": "The pointer's release ends a pressed or dragged card's drag (law PointerDropLandsWhereShown; case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-shift-tab-forward", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "if k.Mods.Shift { drag.PreviousContainer } else { drag.NextContainer }",
+      "to": "if k.Mods.Shift { drag.NextContainer } else { drag.NextContainer }",
+      "rule": "Shift+Tab moves a lifted card to the previous column (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-escape-leaves-the-form", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "if b.Adding != None && k.Name == \"Escape\" {",
+      "to": "if b.Adding != None && k.Name == \"Esc\" {",
+      "rule": "Escape shuts the add-card form (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-silent-live-region", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\tui.Announce(f, b.Said)\n",
+      "to": "\tui.Announce(f, \"\")\n",
+      "rule": "The live region says what the program last said (law PointerDropLandsWhereShown; case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-form-on-every-other-column", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\t\t\tif at.Value == c.ID {\n",
+      "to": "\t\t\tif at.Value != c.ID {\n",
+      "rule": "The add-card form shows in the column it was opened on, and the others keep their add button (case scenes).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-card-runs-every-pass", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "\t\tui.Same(f, ui.ByText(\"\\(c.ID)\\n\\(at)\\n\\(card.Title)\\n\\(card.Description)\\n\\(mark)\")) {\n",
+      "to": "\t\tui.Box(f, ui.Plain()) {\n",
+      "rule": "A pass runs the body of only the cards that changed; a pointer move runs none (law AMoveRunsNoCard).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11b-same-key-forgets-position", "origin": "wf10/fk11b",
+      "file": "examples/fk-board/screen/screen.ergo",
+      "from": "ui.ByText(\"\\(c.ID)\\n\\(at)\\n",
+      "to": "ui.ByText(\"\\(c.ID)\\n",
+      "rule": "A card's kept body is redone when its position changes, so its button lifts it from where it is (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     }
   ]
 }

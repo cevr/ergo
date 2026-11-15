@@ -72,25 +72,37 @@ func column(f *ui.Frame[kanban.Signal], b kanban.Board, c board.Column) {
 // cardView is a card's zone: a button, named by the card's title, whose
 // press lifts the card for a keyboard drag, with the title, the
 // description, and how the drag holds it.
+//
+// The card's body is a Same keyed by all it shows and sends (its column,
+// its position, its text and its mark), so a pass runs the bodies of only
+// the cards that changed: a pointer move over a long column runs none.
 func cardView(f *ui.Frame[kanban.Signal], b kanban.Board, c board.Column, card board.Card, at int) {
+	let mark = markOf(b.Drag.State, card.ID)
 	ui.Zone(f, ui.ByText(card.ID), ui.Plain()) {
-		ui.Pressable(f, card.Title, kanban.Dragging{Signal: drag.Activated{Item: card.ID, Container: c.ID, Index: at}}) {
-			ui.Text(f, card.Title)
-			if card.Description != "" {
-				ui.Text(f, card.Description)
-			}
-			match b.Drag.State {
-			case drag.Dragging as g:
-				if g.Item == card.ID {
-					ui.Text(f, "(dragging)")
+		ui.Same(f, ui.ByText("\(c.ID)\n\(at)\n\(card.Title)\n\(card.Description)\n\(mark)")) {
+			ui.Pressable(f, card.Title, kanban.Dragging{Signal: drag.Activated{Item: card.ID, Container: c.ID, Index: at}}) {
+				ui.Text(f, card.Title)
+				if card.Description != "" {
+					ui.Text(f, card.Description)
 				}
-			case drag.Lifted as l:
-				if l.Item == card.ID {
-					ui.Text(f, "(lifted to \(l.To) \(l.ToIndex + 1))")
+				if mark != "" {
+					ui.Text(f, mark)
 				}
-			case drag.Idle, drag.Pending:
 			}
 		}
+	}
+}
+
+// markOf is how a drag holds the card id: "(dragging)" under a pointer,
+// "(lifted to COLUMN N)" on the keyboard, "" when it does not hold it.
+func markOf(s drag.State, id string) string {
+	match s {
+	case drag.Dragging as g:
+		if g.Item == id { "(dragging)" } else { "" }
+	case drag.Lifted as l:
+		if l.Item == id { "(lifted to \(l.To) \(l.ToIndex + 1))" } else { "" }
+	case drag.Idle, drag.Pending:
+		""
 	}
 }
 

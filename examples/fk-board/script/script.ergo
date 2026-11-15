@@ -20,6 +20,7 @@
 //	submit | cancel           the form's Add and Cancel
 //	show                      the board as the screen shows it
 //	screen                    the whole screen, one node a line
+//	stats                     what the last pass did (ui.StatsOf)
 //
 // A blank line or one that starts with # is skipped.
 
@@ -138,6 +139,10 @@ func Play(h *Host, line string, raw string) []string fails Unread needs board.St
 	let mut out = []string{}
 	if w[0] == "show" {
 		return Show(h)
+	}
+	if w[0] == "stats" {
+		let s = ui.StatsOf(&h.view)
+		return []string{"the last pass wrote \(s.Written) nodes, kept \(s.Skipped) cards without running them, and patched \(s.Inserted + s.Moved + s.Removed + s.Set)"}
 	}
 	if w[0] == "screen" {
 		return strings.Split(strings.TrimSuffix(ui.Screenshot(&h.view), "\n"), "\n")
