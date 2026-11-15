@@ -289,11 +289,11 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 		var err error
 		switch {
 		case !stored:
-			err = runTestBinary(r.one, r.l, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
+			err = runTestBinary(r.one, r.l, tc, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
 		case own[i] == "":
 			err = emptyTestRun(r.one, r.l.result.Revision, os.Stdout, os.Stderr)
 		default:
-			err = runTestBinary(r.one, r.l, own[i], nil, nil)
+			err = runTestBinary(r.one, r.l, tc, own[i], nil, nil)
 		}
 		stop, fail := packageOutcome(packages[i].Path, err)
 		if stop != nil {

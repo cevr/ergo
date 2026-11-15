@@ -199,7 +199,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 			}
 		}
 	}
-	return runTestBinary(opts, l, binary, nil, store)
+	return runTestBinary(opts, l, tc, binary, nil, store)
 }
 
 // runTestBinary runs the tests of the package l in the test binary, its
@@ -207,7 +207,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 // index for a module's one binary (sharedTestCommand). store, when not
 // nil, is given the output of a passing run, after the run wrote the law
 // ledger (testcache.go).
-func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, store func(testResult)) error {
+func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string, prefix []string, store func(testResult)) error {
 	args, err := testChildArgs(opts, l.result.Revision)
 	if err != nil {
 		return err
@@ -242,8 +242,11 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		if opts.states != "" {
 			states, _ = strconv.Atoi(opts.states)
 		}
-		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states)
-		if text := verdicts.CachedFile(); text != "" {
+		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states, toolchainIdentity(tc))
+		// --native (the gate, CI) runs every law: it reads no stored
+		// verdict, so its pass is a run's, never a replay. It still
+		// stores what held, for the next default run (FT2).
+		if text := verdicts.CachedFile(); text != "" && !opts.native {
 			// A file of this run's own: a module's one test binary runs
 			// once per package (sharedTestCommand).
 			dir, err := os.MkdirTemp("", "ergo-cached-")
