@@ -161,5 +161,21 @@ func (w *valueWalk) resliceOf(vv *vvar, o *vocc) bool {
 	if !ok || stmt.Tok != syntax.ASSIGN || len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || syntax.Node(stmt.Rhs[0]) != child {
 		return false
 	}
-	return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)
+	if !w.placeOf(stmt.Lhs[0], vv.v) || !samePlace(stmt.Lhs[0], base) {
+		return false
+	}
+	// A bound that writes the root (a call given &s) keeps the copy, and
+	// the move is the own-reslice shortcut, so the reference lowering and
+	// a test build copy (storeread.go reslices; one rule, batch-21
+	// integration).
+	for _, x := range vv.occs {
+		if x.kind == occWrite && w.pre[s] <= x.pre && x.pre < w.post[s] {
+			return false
+		}
+	}
+	if !w.l.takes("own-reslice") {
+		return false
+	}
+	w.l.took("own-reslice")
+	return true
 }
