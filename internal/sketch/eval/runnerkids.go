@@ -112,6 +112,12 @@ func init() {
 			t.runs.newHosts = append(t.runs.newHosts, h)
 			return h, nil
 		}
+		if rec := recovering(in.cur); rec != nil {
+			// Made while a durable recover runs: unbound, for the
+			// recovered actor's first entry (runnerdurable.go).
+			rec.hosts = append(rec.hosts, h)
+			return h, nil
+		}
 		h.state = hostClosed // no entry owns it
 		return h, nil
 	}

@@ -33,6 +33,21 @@ type Process struct {
 	// Dir is the working directory and $HOME's default, an empty
 	// directory of the simulated file system; "" is /work.
 	Dir string
+	// Files seed the simulated file system before main runs: each path
+	// is relative to Dir (a case's setup.sh output), its parents are
+	// directories.
+	Files []File
+}
+
+// File is one seeded entry of Process.Files: a directory, or a file of
+// Data, with Perm's permission bits.
+type File struct {
+	Path string
+	Dir  bool
+	Data string
+	Perm int
+	// Link, when it is not "", makes the entry a symbolic link to it.
+	Link string
 }
 
 // Exit is the outcome of a RunMain run: the streams it wrote and its exit
@@ -60,13 +75,18 @@ type host struct {
 	cwd            string
 	files          map[string]*hostFile // by absolute clean path
 	clock          *timelineV
+	listeners      map[int][]*listenerV // the bound ports (nativesnet.go)
 }
+
+// now is the simulated host clock's time.
+func (h *host) now() time.Time { return h.clock.start.Add(h.clock.now) }
 
 // hostFile is a file or a directory of the simulated file system.
 type hostFile struct {
 	dir  bool
 	data string
 	perm int
+	link string // a symbolic link's target (links.go)
 }
 
 // RunMain runs pkg's main against p. An error is an internal error, or a
@@ -75,6 +95,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	if b.Steps <= 0 || b.Depth <= 0 || b.States < 0 || b.Bytes < 0 {
 		return Exit{}, ErrBudget
 	}
+	defer raiseGC()()
 	if pkg == nil || pkg.Info == nil {
 		return Exit{}, errors.New("eval: no checked package")
 	}
@@ -93,9 +114,29 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	if main == nil {
 		return Exit{}, errors.New("eval: the package has no main")
 	}
+	out, ranged, err := runMainOrdered(pkg, main, b, p, mapAscending)
+	if err != nil || !ranged {
+		return out, err
+	}
+	// A for over a Map ran: the outcome counts only when the other order
+	// reaches it too (maporder.go).
+	other, _, err := runMainOrdered(pkg, main, b, p, mapDescending)
+	if err != nil {
+		return out, err
+	}
+	if !sameExit(out, other) && out.Skipped == "" && out.Incomplete == "" {
+		out.Skipped = orderNote
+	}
+	return out, nil
+}
+
+// runMainOrdered is RunMain with every Map visited in order; it says
+// whether a for over a Map ran.
+func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, order mapOrder) (out Exit, ranged bool, err error) {
 	h := newHost(p)
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order}
 	defer func() {
+		ranged = in.mapRanged
 		if r := recover(); r != nil {
 			ie, ok := r.(internalError)
 			if !ok {
@@ -115,14 +156,14 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 			fmt.Fprintf(&h.stderr, "panic: %s\n", f.reason)
 			out.Status = 2
 		}
-		return out, nil
+		return out, false, nil
 	}
 	fr := in.newFrame(pkg, main.Decl)
 	for _, c := range main.Sig.Uses.Elems() {
 		n, ok := c.(*check.Named)
 		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" && n.Obj.Name != "Ambient" {
 			out.Skipped, out.Site = fmt.Sprintf("main needs %s, which the host does not provide", c), in.site(pkg, main.Decl, main.Decl.Pos())
-			return out, nil
+			return out, false, nil
 		}
 		fr.caps = &capEnv{key: typeKey(rtype{t: n}), op: &hostCap{name: n.Obj.Name, h: h}, next: fr.caps}
 	}
@@ -131,7 +172,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 		return ab
 	})
 	if ab == nil || ab.kind == ctlReturn {
-		return out, nil
+		return out, false, nil
 	}
 	out.Site = in.site(ab.pkg, ab.decl, ab.at)
 	switch ab.kind {
@@ -139,7 +180,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 		r, ok := ab.val.(*record)
 		if !ok || r.t.Obj.Pkg == nil || r.t.Obj.Pkg.Path != "os" || r.t.Obj.Name != "Exit" {
 			out.Skipped = "the text of a failure that leaves main, " + describe(ab.val)
-			return out, nil
+			return out, false, nil
 		}
 		code, msg := r.fields[fieldIndex(r.t, "Code")].(int64), r.fields[fieldIndex(r.t, "Message")].(string)
 		h.stderr.WriteString(msg + "\n")
@@ -164,7 +205,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	default:
 		ice("the control %d left main", ab.kind)
 	}
-	return out, nil
+	return out, false, nil
 }
 
 func newHost(p Process) *host {
@@ -187,6 +228,13 @@ func newHost(p Process) *host {
 		if d == "/" {
 			break
 		}
+	}
+	for _, f := range p.Files {
+		p := path.Join(h.cwd, f.Path)
+		for d := path.Dir(p); h.files[d] == nil; d = path.Dir(d) {
+			h.files[d] = &hostFile{dir: true, perm: 0o755}
+		}
+		h.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm, link: f.Link}
 	}
 	// The host clock reads a fixed instant and moves only when every task
 	// waits, as a virtual clock does: no output may depend on when it ran.
@@ -243,20 +291,21 @@ func (h *host) abs(p string) string {
 	return path.Clean(p)
 }
 
-func init() {
-	// hostNative wraps a host extern: under Run there is no process, and
-	// the call is a skip at its site.
-	hostNative := func(name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
-		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-			if in.host == nil {
-				return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-			}
-			if ab := in.charge(fr, at, 1); ab != nil {
-				return nil, ab
-			}
-			return f(in, in.host, fr, at, fn, args)
+// hostNative registers a host extern: under Run there is no process, and
+// the call is a skip at its site.
+func hostNative(name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
+	natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if in.host == nil {
+			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return f(in, in.host, fr, at, fn, args)
 	}
+}
+
+func init() {
 	hostNative("io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stdout.WriteString(args[0].(string))
 		return unit{}, nil
@@ -297,14 +346,31 @@ func init() {
 	})
 	hostNative("config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
-		var out []string
-		for k, v := range h.env {
+		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
+		var names []string
+		for k := range h.env {
 			if strings.HasPrefix(k, prefix) {
-				out = append(out, k+"="+v)
+				names = append(names, k)
 			}
 		}
-		sort.Strings(out)
+		sort.Strings(names)
+		out := make([]string, len(names))
+		for i, k := range names {
+			out[i] = k + "=" + h.env[k]
+		}
 		return stringSlice(out), nil
+	})
+	// The terminal: the simulated process's standard input is no
+	// terminal, so a mode or a size fails NotTerminal, and there is no
+	// mode to restore.
+	notTerminal := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "NotTerminal", nil), "")
+	}
+	hostNative("term.hostEnterRaw", notTerminal)
+	hostNative("term.hostEnterNoEcho", notTerminal)
+	hostNative("term.hostSize", notTerminal)
+	hostNative("term.hostLeave", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return unit{}, nil
 	})
 	hostNative("time.hostNow", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Read", nil)
@@ -336,10 +402,10 @@ func init() {
 	}
 	hostNative("fs.hostReadFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		f := h.files[h.abs(given)]
+		_, f, kind, reason := h.resolve(given)
 		switch {
-		case f == nil:
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
 		case f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "is a directory")
 		}
@@ -350,11 +416,10 @@ func init() {
 	})
 	hostNative("fs.hostReadDir", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		p := h.abs(given)
-		f := h.files[p]
+		p, f, kind, reason := h.resolve(given)
 		switch {
-		case f == nil:
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
 		case !f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
 		}
@@ -362,15 +427,14 @@ func init() {
 	})
 	hostNative("fs.hostStat", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		p := h.abs(given)
-		f := h.files[p]
-		if f == nil {
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		_, f, kind, reason := h.resolve(given)
+		if kind != "" {
+			return nil, fail(fn, fr, at, kind, given, reason)
 		}
 		if f.dir {
 			return nil, fr.unsupported(at, "the size of a directory, which the host's file system decides")
 		}
-		return stdRecord(fn, "Info", map[string]Value{"Name": path.Base(p), "Size": int64(len(f.data)), "Dir": false, "Perm": int64(f.perm)}), nil
+		return stdRecord(fn, "Info", map[string]Value{"Name": path.Base(h.abs(given)), "Size": int64(len(f.data)), "Dir": false, "Perm": int64(f.perm)}), nil
 	})
 	write := func(appendTo bool, exact bool) func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -470,6 +534,57 @@ func init() {
 		h.files[pt] = f
 		return unit{}, nil
 	})
+	// OpenRoot's failures: a missing directory, a file. An opened root
+	// names its directory; its reads (Go's os.Root rules for its paths)
+	// are not run yet.
+	hostNative("fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		given := args[0].(string)
+		p, f, kind, reason := h.resolve(given)
+		switch {
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
+		case !f.dir:
+			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
+		}
+		return &hostRootV{name: given, dir: p, fn: fn}, nil
+	})
+	// A change whose path reaches a symbolic link is not run (links.go).
+	for _, name := range []string{"fs.hostWriteFile", "fs.hostWriteFileMode", "fs.hostAppendFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostChmod", "fs.hostRemove", "fs.hostRename"} {
+		run := natives[name]
+		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			if h := in.host; h != nil {
+				paths := args[:1] // a rename's two paths
+				if name == "fs.hostRename" {
+					paths = args[:2]
+				}
+				for _, p := range paths {
+					if h.linked(h.abs(p.(string))) {
+						return nil, fr.unsupported(at, "a change through a symbolic link (%s)", fn.Name)
+					}
+				}
+			}
+			return run(in, fr, at, fn, args)
+		}
+	}
+}
+
+// hostRootV is an opened fs.HostRoot of the simulated file system.
+type hostRootV struct {
+	name string      // as OpenRoot was given it
+	dir  string      // the directory it holds
+	fn   *check.Func // OpenRoot: its package makes the failures
+}
+
+func (r *hostRootV) describe() string { return "an fs.HostRoot" }
+
+func (r *hostRootV) opCall(in *interp, fr *frame, at syntax.Node, name string, args []Value) (Value, *abrupt) {
+	if name == "Name" {
+		return r.name, in.charge(fr, at, 1)
+	}
+	if ab := in.charge(fr, at, 1); ab != nil {
+		return nil, ab
+	}
+	return r.read(in, fr, at, name, args[0].(string))
 }
 
 // children are the names of the entries of the directory p, sorted.

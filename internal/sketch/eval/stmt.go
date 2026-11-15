@@ -133,22 +133,18 @@ func loopBody(ab *abrupt) (bool, *abrupt) {
 // rangeStmt runs a for-in over the domain the checker recorded (types.md,
 // Loops and len 1, 7): a slice's initial header with live element writes,
 // an array's initial value, a string's runes as Go decodes them, or a Range counting
-// up from Start, End excluded. A Map's order is unspecified, so a for over
-// one has no verdict the Go target is sure to share: a skip (plan section
-// 4). A Seq calls a function value, which a pure frame never does.
+// up from Start, End excluded. A Map's order is unspecified: maporder.go
+// runs it in each of two orders. A Seq calls a function value.
 func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	l := fr.info.Loops[s]
 	if l == nil {
 		ice("a for-in with no Loops entry")
 	}
-	if l.Domain == check.LoopMap {
-		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
-	}
 	var root *slot
 	var path []step
 	var dom Value
 	var ab *abrupt
-	if l.Domain == check.LoopSlice {
+	if l.Domain == check.LoopSlice || l.Domain == check.LoopMap {
 		dom, root, ab = in.peekPath(fr, s.X, &path)
 		if root != nil {
 			root.lend()
@@ -161,6 +157,9 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	}
 	if ab != nil {
 		return ab
+	}
+	if l.Domain == check.LoopMap {
+		return in.rangeMap(fr, s, dom.(mapV), root, path) // maporder.go
 	}
 	if l.Domain == check.LoopSeq {
 		// A Seq a native made: a queue's Values, each step a Pop, ending
@@ -265,13 +264,13 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 		if id.Name == "_" {
 			return nil
 		}
-		if w, ok := fr.info.Defs[id].(*check.Var); ok {
+		if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 			fr.bind(w, v)
 			in.ownVar(fr, w, p)
 			return nil
 		}
 	}
-	pat := fr.info.Patterns[p]
+	pat := in.fx(fr, p).pattern
 	if pat == nil {
 		ice("a for binding with neither a Defs nor a Patterns entry")
 	}
@@ -312,7 +311,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		if len(spec.Values) != 1 {
 			ice("a let pattern with %d values", len(spec.Values))
 		}
-		p := fr.info.Patterns[spec.Pattern]
+		p := in.fx(fr, spec.Pattern).pattern
 		if p == nil {
 			ice("a let pattern with no Patterns entry")
 		}
@@ -339,7 +338,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 			ice("a let of %d names over %T", len(spec.Names), v)
 		}
 		for i, id := range spec.Names {
-			if w, ok := fr.info.Defs[id].(*check.Var); ok {
+			if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 				fr.bind(w, tup.elems[i])
 				in.ownVar(fr, w, id)
 			}
@@ -358,7 +357,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 			vals[i] = v
 		}
 		for i, id := range spec.Names {
-			if w, ok := fr.info.Defs[id].(*check.Var); ok {
+			if w, ok := in.fx(fr, id).def.(*check.Var); ok {
 				fr.bind(w, vals[i])
 				in.ownVar(fr, w, id)
 			}
@@ -366,13 +365,13 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return nil
 	}
 	id := spec.Names[0]
-	if p := fr.info.Patterns[id]; p != nil && p.Kind != check.PatBind {
+	if p := in.fx(fr, id).pattern; p != nil && p.Kind != check.PatBind {
 		// A known single name tests a type or constant the checker proved
 		// irrefutable; the value runs for its effect.
 		_, ab := in.expr(fr, spec.Values[0])
 		return ab
 	}
-	if c, ok := fr.info.Defs[id].(*check.Context); ok && c.Local {
+	if c, ok := in.fx(fr, id).def.(*check.Context); ok && c.Local {
 		// A local context is a recipe with no value: each with that names
 		// it builds its providers in place (rows.md, Context 9; effects.go).
 		return nil
@@ -384,7 +383,7 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 		}
 		return nil
 	}
-	v, ok := fr.info.Defs[id].(*check.Var)
+	v, ok := in.fx(fr, id).def.(*check.Var)
 	if !ok {
 		ice("the let %s has no Defs entry", id.Name)
 	}
@@ -507,7 +506,7 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 		return nil, nil
 	}
 	v, ok := fr.info.Uses[id].(*check.Var)
-	if !ok || fr.vars[v] != root {
+	if s, _ := fr.vars.get(v); !ok || s != root {
 		return nil, nil
 	}
 	if _, conv := fr.info.Implicit[c.Recv]; conv {
@@ -522,11 +521,11 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
-		v, ok := fr.info.Uses[x].(*check.Var)
+		v, ok := in.fx(fr, x).use.(*check.Var)
 		if !ok {
 			ice("an assignment to %s, which is no variable", x.Name)
 		}
-		s, local := fr.vars[v]
+		s, local := fr.vars.get(v)
 		if !local {
 			return nil, nil, "a package let", nil
 		}
@@ -570,9 +569,6 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		iv, ab := in.expr(fr, x.Indices[0])
 		if ab != nil {
 			return nil, nil, "", ab
-		}
-		if !basicValue(iv) {
-			return nil, nil, "an entry of a Map whose key holds parts", nil
 		}
 		return root, append(steps, step{at: x, index: iv}), "", nil
 	case *syntax.StarExpr:
@@ -627,7 +623,8 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int
 		if ab != nil {
 			return nil, ab
 		}
-		next := &record{t: c.t, key: c.key, fields: append([]Value(nil), c.fields...)}
+		next := newRecord(c.t, c.key, len(c.fields))
+		copy(next.fields, c.fields)
 		next.fields[i] = inner
 		return next, nil
 	case sliceV:
@@ -681,7 +678,7 @@ func fieldIndex(t *check.Named, name string) int {
 // constant equals the subject, else its `_` or default case (Go's switch;
 // lower/body.go valueMatch).
 func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, *abrupt) {
-	if fr.info.Matches[s] == nil {
+	if in.sx(fr, s).match == nil {
 		ice("a value match with no Matches entry")
 	}
 	tag, ab := in.expr(fr, s.Tag)
@@ -697,7 +694,7 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 			def = cl
 		}
 		for _, item := range cl.List {
-			p := fr.info.Patterns[item]
+			p := in.fx(fr, item).pattern
 			if p == nil {
 				ice("a value case with no Patterns entry")
 			}
@@ -740,10 +737,14 @@ func (in *interp) arm(fr *frame, cl *syntax.CaseClause, ret bool) (Value, *abrup
 // typeMatch runs any other match: the first clause one of whose patterns
 // matches the subjects, its bindings bound; a default clause last.
 func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Value, *abrupt) {
-	if fr.info.Matches[s] == nil {
+	if in.sx(fr, s).match == nil {
 		ice("a match with no Matches entry")
 	}
-	subjects := make([]Value, len(s.Subjects))
+	var one Value // the one subject, with no slice made for it
+	var subjects []Value
+	if len(s.Subjects) != 1 {
+		subjects = make([]Value, len(s.Subjects))
+	}
 	for i, g := range s.Subjects {
 		v, ab := in.expr(fr, g.X)
 		if ab == nil {
@@ -755,20 +756,26 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 		if ab != nil {
 			return nil, ab
 		}
-		subjects[i] = v
+		if subjects == nil {
+			one = v
+		} else {
+			subjects[i] = v
+		}
 	}
-	v, ab := in.typeArms(fr, s, subjects, ret)
+	subject := one
+	if subjects != nil {
+		subject = tuple{elems: subjects}
+	}
+	v, ab := in.typeArms(fr, s, subject, ret)
 	if ab == nil {
 		ab = in.releaseAt(fr, s)
 	}
 	return v, ab
 }
 
-func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value, ret bool) (Value, *abrupt) {
-	var subject Value = tuple{elems: subjects}
-	if len(subjects) == 1 {
-		subject = subjects[0]
-	}
+// typeArms runs the clause of s that takes subject: the one subject's
+// value, or the tuple of them all.
+func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subject Value, ret bool) (Value, *abrupt) {
 	var def *syntax.CaseClause
 	for _, cl := range s.Clauses {
 		if len(cl.List) == 0 {
@@ -776,7 +783,7 @@ func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value
 			continue
 		}
 		for _, item := range cl.List {
-			p := fr.info.Patterns[item]
+			p := in.fx(fr, item).pattern
 			if p == nil {
 				ice("a case with no Patterns entry")
 			}

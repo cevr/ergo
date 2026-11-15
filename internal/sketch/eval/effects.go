@@ -83,16 +83,13 @@ func (in *interp) dispatch(fr *frame, at *syntax.CallExpr, recv Value, name stri
 			}
 			ice("no checked method for operation %s", name)
 		}
-		if fn.Ptr {
-			return nil, fr.unsupported(at, "a call that borrows its receiver yet")
-		}
 		var targs []rtype
 		if inst := r.conv.Instances[name]; inst != nil {
 			for _, t := range inst.TypeArgs {
 				targs = append(targs, r.env.resolve(t))
 			}
 		}
-		return in.callResolved(fr, at, fn, targs, append([]Value{r.value}, args...))
+		return in.callResolved(fr, at, fn, targs, append([]Value{r.recv(fn)}, args...))
 	}
 	return nil, fr.unsupported(at, "an operation of %s, a provider the evaluator did not build", describe(recv))
 }

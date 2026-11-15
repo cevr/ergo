@@ -181,10 +181,11 @@ func modelSummary(statuses []string) string {
 // goes on; a defect stops the run; a skip is never passed; every
 // obligation has one record, in ergo test's order. It then cuts each
 // program's run short at a random point of either budget, the steps or the
-// value bytes, the initializer included: the records before the cut are
-// the full run's, the one at the cut is incomplete, the rest not run, and
-// the summary is never passed. A run below the model's least byte count
-// must stop. Mutants: eval-bytes-unmetered (allocations never charge the
+// value bytes, which bound the initializer and each obligation apart: an
+// initializer that needs more stops every obligation (incomplete, then not
+// run); otherwise each obligation that needs more is incomplete, each
+// other one keeps the full run's record, and the summary is never passed.
+// An obligation below the model's least byte count must stop. Mutants: eval-bytes-unmetered (allocations never charge the
 // byte budget), report-incomplete-as-passed (an incomplete record sums
 // up as passed). A failing seed prints its source, both outputs and
 // ERGO_EVAL_RUNNER_SEED=<seed> to replay it.
@@ -240,35 +241,81 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 			}
 		}
 
-		// A cut of either budget.
+		// A cut of either budget, which bounds the initializer and each
+		// obligation apart: an obligation that needs more is incomplete,
+		// the others keep the full run's records. need is each record's
+		// least need of the cut axis, -1 when it does not run; init is
+		// the initializer's.
+		padBytes := func(n int) int64 { return int64(n) * int64(n+1) / 2 }
 		b := eval.DefaultBudget()
 		axis := "steps"
-		switch {
-		case r.IntN(2) == 0 && minBytes > 1:
-			axis, b.Bytes = "bytes", 1+r.Int64N(minBytes-1)
-		case full.Steps > 1:
-			b.Steps = 1 + r.Int64N(full.Steps-1)
-		default:
+		var need []int64
+		init := full.Steps
+		for _, o := range full.Obligations {
+			init -= o.Steps
+		}
+		if r.IntN(2) == 0 {
+			axis, init = "bytes", padBytes(p.init)
+			for _, o := range append(append([]runnerObligation(nil), p.tests...), p.laws...) {
+				need = append(need, padBytes(o.work))
+			}
+		} else {
+			for _, o := range full.Obligations {
+				need = append(need, o.Steps)
+			}
+		}
+		most := init
+		for i := range need {
+			if want[i] == "not run" || want[i] == "skipped" {
+				need[i] = -1
+			}
+			most = max(most, need[i])
+		}
+		if most <= 1 {
 			continue
+		}
+		limit := 1 + r.Int64N(most-1)
+		if axis == "bytes" {
+			b.Bytes = limit
+		} else {
+			b.Steps = limit
 		}
 		cut, err := a.Evaluation(b, "p.ergo")
 		if err != nil {
 			fail("%v", err)
 		}
 		cs, _ := statusesOf(cut)
-		k := slices.Index(cs, "incomplete")
-		if k < 0 || len(cs) != len(want) {
-			fail("a %s cut (%+v) left no incomplete record: %v (full %v)", axis, b, cs, want)
+		ok := len(cs) == len(want) && slices.Contains(cs, "incomplete")
+		// The initializer did not finish: the first record is incomplete
+		// and the rest not run. It must not when it needs more; pad's
+		// bytes are a least count, so a bytes cut may stop it anyway.
+		initStopped := ok
+		for i, s := range cs {
+			initStopped = initStopped && s == map[bool]string{true: "incomplete", false: "not run"}[i == 0]
 		}
-		ok := slices.Equal(cs[:k], want[:k])
-		for _, s := range cs[k+1:] {
-			ok = ok && s == "not run"
+		if init > limit {
+			ok = ok && initStopped
+		}
+		for i := 0; ok && init <= limit && !(axis == "bytes" && initStopped) && i < len(cs); i++ {
+			switch {
+			case need[i] > limit:
+				ok = cs[i] == "incomplete"
+			case cs[i] == "incomplete" && axis == "bytes":
+				// pad's bytes are a least count: the cut may stop it.
+			default:
+				ok = cs[i] == want[i]
+			}
+			if ok && cs[i] != want[i] && want[i] == "defect" {
+				break // a stopped defect lets the records after it run
+			}
 		}
 		if !ok || cut.Status != modelSummary(cs) || cut.Status == "passed" {
-			fail("a %s cut (%+v): runner %v (%s), want the full run's %v up to one incomplete record, then not run", axis, b, cs, cut.Status, want)
+			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d", axis, b, cs, cut.Status, want, limit)
 		}
-		if cut.Steps > cut.StepsLimit || cut.Bytes > cut.BytesLimit {
-			fail("a %s cut used %d of %d steps, %d of %d bytes", axis, cut.Steps, cut.StepsLimit, cut.Bytes, cut.BytesLimit)
+		for _, o := range cut.Obligations {
+			if o.Steps > cut.StepsLimit {
+				fail("a %s cut: %s used %d of %d steps", axis, o.Name, o.Steps, cut.StepsLimit)
+			}
 		}
 	}
 }

@@ -67,6 +67,25 @@ type operation struct {
 	value Value
 	conv  check.Conversion
 	env   *tenv
+	// cell holds value once an operation borrows its receiver: the Go
+	// target's operation value holds a pointer to its provider's copy, so
+	// a write through one call is seen by the next (std json's Text, LR3).
+	cell *slot
+}
+
+// recv is the provider as fn, one of its operations, takes it: a borrow
+// of the operation's own cell when fn borrows its receiver.
+func (r *operation) recv(fn *check.Func) Value {
+	if fn.Ptr {
+		if r.cell == nil {
+			r.cell = &slot{v: r.value}
+		}
+		return &ptrV{root: r.cell}
+	}
+	if r.cell != nil {
+		return r.cell.v
+	}
+	return r.value
 }
 
 // operationCall runs an operation of an operation-type value (CallOp) or
@@ -151,9 +170,9 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	}
 	fr := in.newFrame(law.Pkg, law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
-		fr.env = &tenv{m: map[*check.TypeParam]rtype{}}
+		fr.env = &tenv{}
 		for i, tp := range own.TParams {
-			fr.env.m[tp] = rtype{t: tg.binding[0].Slot.TArgs[i]}
+			fr.env.bind(tp, rtype{t: tg.binding[0].Slot.TArgs[i]})
 		}
 	}
 	return in.cases(fr, law.Decl.Body, true, law.Params, testplan.Law(law, tg.binding), res)
@@ -224,30 +243,43 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		if p.Listed {
 			listed = p.At(k)
 		}
-		args := make([]Argument, 0, len(p.Inputs))
+		// A case's arguments are written only when the case is reported:
+		// a passing case's text was work no one read (ORACLE O31). The
+		// values are the generated ones, which the body cannot change: a
+		// write copies a store its slot does not own.
+		shows := make([]func() Argument, 0, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
-			text := ""
 			if p.Listed {
 				v = in.listValue(cf, listed[i])
 			} else if input.Provider != nil && input.Provider.Ctor != nil {
 				ctor := input.Provider.Ctor
 				var vs []Value
-				var shown []string
 				for _, param := range ctor.Sig.Params {
-					a := in.generate(cf, r, param.Type, testplan.Depth, nil)
-					vs = append(vs, a)
-					shown = append(shown, in.argument(cf, param.Type, a))
+					vs = append(vs, in.generate(cf, r, param.Type, testplan.Depth, nil))
 				}
 				v = mustValue(in.call(cf, nil, ctor, nil, vs))
-				text = ctor.Name + "(" + strings.Join(shown, ", ") + ")"
+				shows = append(shows, func() Argument {
+					shown := make([]string, len(vs))
+					for j, param := range ctor.Sig.Params {
+						shown[j] = in.argument(cf, param.Type, vs[j])
+					}
+					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+				})
 			} else {
 				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
 			}
-			if text == "" {
-				text = in.argument(cf, input.Type, v)
+			switch {
+			case len(shows) > i:
+			case input.Provider != nil:
+				// A provider's state may change as its operations run:
+				// its text is the one it had before the case.
+				a := Argument{Name: input.Name, Value: in.argument(cf, input.Type, v)}
+				shows = append(shows, func() Argument { return a })
+			default:
+				gv := v
+				shows = append(shows, func() Argument { return Argument{Name: input.Name, Value: in.argument(cf, input.Type, gv)} })
 			}
-			args = append(args, Argument{Name: input.Name, Value: text})
 			if input.Provider != nil {
 				v = &operation{value: v, conv: input.Provider.Conv, env: cf.env}
 			}
@@ -271,12 +303,21 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, args
+			out.Case, out.Arguments = k+1, shown(shows)
 			return
 		}
 	}
 	out.Case = 0
 	return
+}
+
+// shown is the arguments of a reported case, written now.
+func shown(shows []func() Argument) []Argument {
+	args := make([]Argument, len(shows))
+	for i, show := range shows {
+		args[i] = show()
+	}
+	return args
 }
 
 func statusOf(ab *abrupt) Status {
@@ -384,7 +425,7 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		for n := r.Intn(r.Limit(d) + 1); n > 0; n-- {
 			k := in.generate(fr, r, u.Key, d-1, nil)
 			v := in.generate(fr, r, u.Elem, d-1, nil)
-			m.b.m[k] = v
+			m.b.put(k, v)
 		}
 		return m
 	case *check.Tuple:
@@ -459,7 +500,7 @@ func (in *interp) genRefined(fr *frame, r *testgen.Stream, t check.Type, d int, 
 		}
 		return v
 	}
-	if n < 0 || n > in.budget.Steps-in.steps {
+	if n < 0 || n > in.stepsLeft() {
 		panic(fr.abrupt(ctlExhausted, fr.decl, nil, "refined length exceeds remaining work"))
 	}
 	mustCharge(in, fr, n)

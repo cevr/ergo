@@ -1,15 +1,18 @@
 package eval
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand/v2"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 	v1digest "ergo.local/prototype/runtime/v1/digest"
 	v1rand "ergo.local/prototype/runtime/v1/rand"
@@ -94,6 +97,43 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 	}
 }
 
+// TestNativeWorkIsWhatGoReads is a growth guard over counted work: a
+// substring, a prefix or suffix test and a trim of one spend the same
+// steps, and a substring and a trim the same value bytes, for a text of
+// 8 bytes and of 800, as Go's own functions read only the prefix and
+// share the text (natives.go, readsOf and shares). Charged as the whole
+// text, a parser that slices the rest of its input at each token would
+// pay steps quadratic in its input. Mutants only it kills
+// (testdata/mutants.json): oracle-o22-slice-reads-all,
+// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates.
+func TestNativeWorkIsWhatGoReads(t *testing.T) {
+	pkg := checked(t, "import strings\n\ntest T {\n\tassert strings.Slice(\"ab\", 0, 1) == \"a\"\n}\n")
+	in := &interp{budget: DefaultBudget()}
+	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
+	work := func(name string, s string) (steps, bytes int64) {
+		args := []Value{s, "ab"}
+		if name == "strings.Slice" {
+			args = []Value{s, int64(1), int64(5)}
+		}
+		in.steps, in.bytes = 0, 0
+		if _, ab := natives[name](in, fr, fr.decl, nil, args); ab != nil {
+			t.Fatalf("%s: %s", name, ab.msg)
+		}
+		return in.steps, in.bytes
+	}
+	short, long := "ab"+strings.Repeat("x", 4)+"ab", "ab"+strings.Repeat("x", 796)+"ab"
+	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix"} {
+		s1, b1 := work(name, short)
+		s2, b2 := work(name, long)
+		if s1 != s2 {
+			t.Errorf("%s spends %d steps on %d bytes and %d on %d", name, s1, len(short), s2, len(long))
+		}
+		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && (b1 != 0 || b2 != 0) {
+			t.Errorf("%s allocates %d and %d value bytes for a view of its text", name, b1, b2)
+		}
+	}
+}
+
 type nativeCase struct {
 	name      string
 	args      []Value
@@ -163,6 +203,8 @@ func nativeCases(g nativeGen) []nativeCase {
 		fa, fb = f2[0], f2[1]
 	}
 	x := int64(g.r.IntN(5) - 2)
+	half := []float64{0.5, 2.5, -2.5, -0.5, 3, 4.75, 0, math.Copysign(0, -1), math.Inf(1)}[g.r.IntN(9)]
+	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
 		vs := make([]Value, len(ss))
@@ -192,7 +234,39 @@ func nativeCases(g nativeGen) []nativeCase {
 		sj = int64(g.r.IntN(len(ints)+4) - 3)
 	}
 	si := int64(g.r.IntN(3) - 1)
+	// time text: a seeded instant in a seeded layout, read back in that
+	// layout or another, sometimes cut short.
+	layouts := []string{time.RFC3339, time.RFC3339Nano, time.DateTime, time.DateOnly, time.Kitchen, time.RFC1123Z, time.RFC1123, "Jan 2 15:04", "02/01/2006 15:04:05.000"}
+	lay := layouts[g.r.IntN(len(layouts))]
+	sec, nsec := g.r.Int64N(1<<34)-(1<<33), g.r.Int64N(1e9)
+	text := time.Unix(sec, nsec).UTC().Format(layouts[g.r.IntN(len(layouts))])
+	if g.r.IntN(4) == 0 {
+		text = text[:g.r.IntN(len(text)+1)]
+	}
+	// slices.largest takes a list with an element; a float list mixes
+	// both zeros, which Go's max orders.
+	nonEmpty := append([]int64{x}, ints...)
+	zeros := append([]float64{math.Copysign(0, -1)}, fl...)
+	if g.r.IntN(2) == 0 {
+		zeros = append(zeros, 0)
+	}
+	// SortStableFunc by the remainder mod 3, so equal keys keep their
+	// order only when the sort is stable.
+	byMod3 := &nativeFunc{name: "byMod3", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+		return int64(cmp.Compare(mod3(args[0].(int64)), mod3(args[1].(int64)))), nil
+	}}
 	return []nativeCase{
+		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
+		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
+		{name: "math.Round", args: []Value{half}, v1: func() any { return v1.MathRound(half) }},
+		{name: "math.Sqrt", args: []Value{half}, v1: func() any { return v1.MathSqrt(half) }},
+		{name: "math.Pow", args: []Value{half, f}, v1: func() any { return v1.MathPow(half, f) }},
+		{name: "math.Mod", args: []Value{f, half}, v1: func() any { return v1.MathMod(f, half) }},
+		{name: "math.IsInf", args: []Value{f, x}, v1: func() any { return v1.MathIsInf(f, int(x)) }},
+		{name: "config.flagName", args: []Value{key}, v1: func() any { return v1.ConfigFlagName(key) }},
+		{name: "config.envName", args: []Value{w, key}, v1: func() any { return v1.ConfigEnvName(w, key) }},
+		{name: "config.flagKey", args: []Value{s}, v1: func() any { return v1.ConfigFlagKey(s) }},
+		{name: "config.envKey", args: []Value{u}, v1: func() any { return v1.ConfigEnvKey(u) }},
 		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCompare(s, u)) }},
 		{name: "strings.PadLeft", args: []Value{s, int64(i), rn}, v1: func() any { return v1.StringsPadLeft(s, i, rn) }},
 		{name: "strings.PadRight", args: []Value{s, int64(j), rn}, v1: func() any { return v1.StringsPadRight(s, j, rn) }},
@@ -259,12 +333,21 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Index", args: []Value{li(ints), x}, v1: func() any { return int64(v1.SlicesIndex(ints, x)) }},
 		{name: "slices.Equal", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesEqual(ints, ints2) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
+		{name: "slices.largest", args: []Value{li(nonEmpty)}, v1: func() any { return v1.SlicesMax(nonEmpty) }},
+		{name: "slices.largest", args: []Value{lf(zeros)}, v1: func() any { return v1.SlicesMax(zeros) }},
+		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
+			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
+		}},
+		{name: "math.Trunc", args: []Value{f}, v1: func() any { return v1.MathTrunc(f) }},
+		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
 		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
 	}
 }
 
 func durationOf(d int64) time.Duration { return time.Duration(d) }
+
+func mod3(n int64) int64 { return (n%3 + 3) % 3 }
 
 // takeOf is slices.Take's two results as one outcome.
 func takeOf(v int64, rest []int64) any {
@@ -281,14 +364,6 @@ func result[T any](v T, err error) any {
 		return err
 	}
 	return v
-}
-
-func bytesValue(s string) Value {
-	vs := make([]Value, len(s))
-	for k := 0; k < len(s); k++ {
-		vs[k] = s[k]
-	}
-	return newSlice(vs)
 }
 
 // outcome is a native's result as text: its value, its failure or its
@@ -356,6 +431,8 @@ func toValue(fn *check.Func, v any) Value {
 		return int64(v)
 	case time.Duration:
 		return int64(v)
+	case v1.Reading:
+		return stdRecord(fn, "Reading", map[string]Value{"Sec": v.Sec, "Nsec": v.Nsec, "Mono": v.Mono})
 	case v1.Decoded:
 		return stdRecord(fn, "Decoded", map[string]Value{"Rune": v.Rune, "Size": int64(v.Size)})
 	}

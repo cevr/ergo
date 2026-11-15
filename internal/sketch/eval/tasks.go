@@ -155,11 +155,11 @@ func (in *interp) siteOf(fr *frame, at syntax.Node, name string) string {
 // is the root of a Set member, whose captures outlive its restarts (G4
 // 4); nil makes the root of one run.
 func (in *interp) taskBody(fr *frame, at syntax.Node, c *closure) (run func(root *frame) (Value, *abrupt), newRoot func() *frame) {
-	vars := make(map[*check.Var]*slot, len(c.vars))
-	for v, s := range c.vars {
+	vars := newVars()
+	c.vars.each(func(v *check.Var, s *slot) {
 		s.lend()
-		vars[v] = &slot{v: s.v}
-	}
+		vars.set(v, &slot{v: s.v})
+	})
 	cc := *c
 	cc.vars = vars
 	var moved []*check.Var
@@ -191,7 +191,7 @@ func (in *interp) taskRoot(c *closure, moved []*check.Var) *frame {
 	root := &frame{pkg: home.pkg, info: home.info, decl: home.decl, key: c.key, vars: c.vars, env: c.env, owner: home.owner, caps: c.caps}
 	for _, v := range moved {
 		if d := home.info.OwnedVars[v]; d != nil {
-			if s := c.vars[v]; s != nil {
+			if s, _ := c.vars.get(v); s != nil {
 				in.register(root, v, s.v, d, c.key)
 			}
 		}

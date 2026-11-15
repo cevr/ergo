@@ -17,6 +17,8 @@
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
 internal/sketch/check/wireform.go	*
 internal/sketch/check/wireform_test.go	*
+internal/sketch/eval/codecwalk.go	w.callFunc(w.in.wirePair(r.t).Wire, v)
+internal/sketch/eval/codecwalk.go	w.callFunc(p.Wire, v)
 internal/sketch/lower/wireform_test.go	*
 docs/spec/types.md	8. **Declared wire forms.**
 docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
