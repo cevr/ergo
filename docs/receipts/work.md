@@ -22,9 +22,9 @@ How, on 2026-11-15 at 11:41Z and 11:52Z:
 | `rift list`, `ancestors` | `work list` (`--json`): name, id, path, parent, branch, cloner, state, since | |
 | `rift remove` to `.trash`: the whole subtree, by path, with no check | `work rm NAME -expect ID`: one leaf, the id given, a retry that answers `already`; it refuses work not held in the parent. `lanework.sh remove` checks the push as `lane-rift.sh` did, then runs `work rm -abandon -expect ID` | remove cost and refuse cases below |
 | `rift gc`: the trash of every repository | `work gc [-older AGE] [-id ID]`: this base's trash only, by age or one id; a btrfs workspace is deleted as a subvolume | purge cost below |
-| `workrift prune`: archives and removes after two idle days | `work gc -idle 48h` removes the idle workspaces whose work is held in their parent and reports the others, with the reason | the refuse cases below |
+| `workrift prune`: archives and removes after two idle days | `work gc -idle 48h` removes the idle workspaces whose work is held in their parent and reports the others, with the reason; with `-archive` (WG6a) it keeps an unheld one's work in the base at `refs/work/archive/NAME/ID`, then removes it too: the daily timer is `work gc -idle 48h -archive` | the refuse cases below; WG6a's acceptance check (the kept tree has the untracked file) |
 | `sudo btrfs filesystem du` by hand | `work du` | bytes below |
-| the running Rifts of a wave | `work adopt DIR` and `work import-rift` register them as workspaces | |
+| the running Rifts of a wave | `work adopt DIR` and `work import-rift` register them as workspaces; `work adopt-rift` (WG6a) registers every Rift copy of the base from Rift's registry, a copy made on a copy with its parent, moving no file; `work doctor -rift` lists the copies left | WG6a's acceptance check: two stacked Rift copies adopted, their trees' listings (name, inode, size, time) unchanged, then none left |
 
 ## Clone cost (millions of user-mode instructions, the bounded scope's 3.4 M subtracted)
 
