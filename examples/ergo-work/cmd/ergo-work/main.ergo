@@ -86,7 +86,7 @@ func main() fails os.Exit needs Ambient | Console {
 	}
 	let run = exec.NewHost()
 	let sharing = []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)}
-	let tool = work.NewTool(base, sharing, copy.New(run), journal.Open(files, files, work.RegistryFile(base)), git.New(run), files, files, run, try clockOf(process.Getenv("ERGO_WORK_NOW")))
+	let tool = work.NewTool(base, sharing, copy.New(run), journal.Open(files, files, work.RegistryFile(base)), git.New(run), files, files, run, try clockOf(process.Getenv("ERGO_WORK_NOW")), cwd)
 	let o = with context { work.Api: tool } { workcli.Run(process.Args()) }
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))

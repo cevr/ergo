@@ -1,0 +1,3 @@
+export GOCACHE=.ergo-work/base/w/.git/gocache
+export GOMEMLIMIT=6GiB
+umask 022

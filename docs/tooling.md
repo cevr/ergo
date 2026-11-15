@@ -60,7 +60,7 @@ Building ergo itself from source still needs Go. The gate and the CLI's tests ru
 
 ## ergo work
 
-`ergo work COMMAND [ARGS...]` (SEMWS WS0) runs `ergo-work` from `PATH` with the arguments as they are, with this process's standard streams, and exits with its status; with no `ergo-work` on `PATH` it says how to build one and exits 1 (`TestWorkRunsErgoWorkFromPath`). `ergo-work` is the binary of module `work` (`modules/work`, built from `examples/ergo-work`): copy-on-write workspaces of one base checkout, `init`, `new`, `adopt`, `list`, `rm`, `gc` and `du` ([modules/work](../modules/work/README.md)). It is a binary of its own until the mixed binary links an Ergo module into `ergo` (capstone S1).
+`ergo work COMMAND [ARGS...]` (SEMWS WS0) runs `ergo-work` from `PATH` with the arguments as they are, with this process's standard streams, and exits with its status; with no `ergo-work` on `PATH` it says how to build one and exits 1 (`TestWorkRunsErgoWorkFromPath`). `ergo-work` is the binary of module `work` (`modules/work`, built from `examples/ergo-work`): copy-on-write workspaces of one base checkout, `init`, `new` (with `-from`, `-branch` and `-on`, a stack), `adopt`, `list`, `rm`, `gc`, `du`, `ready` (a snapshot and the branch handed to the parent, never to origin), `sync` (Git's merge of the parent's branch) and `env` ([modules/work](../modules/work/README.md)). It is a binary of its own until the mixed binary links an Ergo module into `ergo` (capstone S1).
 
 ## Source admission
 
