@@ -11,9 +11,11 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/scripts/gate/replay"
@@ -366,7 +368,20 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 	if err := fastExamples(root, steps); err != nil {
 		return nil, nil, err
 	}
-	var tests []*Step
+	// A package's step is planned first and declared after every
+	// selection has returned: each selection reads its package's coverage
+	// record and hashes its compiled inputs, independent of the others, so
+	// they run at once. One after another they took 1.7 of the 6.8 s before
+	// a std edit's gate clock started, at 4 CPUs (gate-speed GS28).
+	type plan struct {
+		p           testPackage
+		relative    string
+		env, needs  []string
+		fast, large []string
+		measured    map[string]float64
+		chosen      *selection
+	}
+	var plans []*plan
 	for _, p := range packages {
 		relative := strings.TrimPrefix(p.importPath, module+"/")
 		// A host package's tests are heavy (classHeavy): they start gates
@@ -391,11 +406,32 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		plans = append(plans, &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured})
+	}
+	if choose != nil {
+		var wg sync.WaitGroup
+		slots := make(chan struct{}, runtime.GOMAXPROCS(0))
+		for _, pl := range plans {
+			if !slices.Contains(selectPackages, pl.relative) {
+				continue
+			}
+			wg.Go(func() {
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				chosen := choose(pl.p, append(stepEnvironment(), pl.env...), pl.fast)
+				pl.chosen = &chosen
+			})
+		}
+		wg.Wait()
+	}
+	var tests []*Step
+	for _, pl := range plans {
+		p, env, needs, fast, large, measured := pl.p, pl.env, pl.needs, pl.fast, pl.large, pl.measured
 		note := ""
 		pkg := "./" + p.dir
 		name := "go test " + pkg + " (fast)"
-		if choose != nil && slices.Contains(selectPackages, relative) {
-			chosen := choose(p, append(stepEnvironment(), env...), fast)
+		if pl.chosen != nil {
+			chosen := *pl.chosen
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
 			large = append(large, chosen.skip...)
 			note = chosen.note

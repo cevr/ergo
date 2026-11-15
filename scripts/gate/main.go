@@ -294,6 +294,11 @@ type gate struct {
 	// whole, when set, keys the whole gate: run replays a recorded pass at
 	// the key, records a passed run and withdraws the record on a failure.
 	whole *wholeGate
+	// startFacts, when set, are the start key main collected for the
+	// whole-gate replay, after the limiter and before the steps were
+	// declared (replayWhole); run keys with them rather than collecting
+	// the same facts again (gate-speed GS28).
+	startFacts *replay.Facts
 	// verdicts are each step's verdict after run, for the merge tier.
 	verdicts map[string]replay.Verdict
 	// programs replaces hostPrograms in a test of the collector.
@@ -350,7 +355,7 @@ func (g *gate) collect() (*replay.Facts, error) {
 }
 
 // collectTier is collectFacts with the gate's tier among the settings
-// (replay.WithTier). The replay before the scope (replayWholeGate), a
+// (replay.WithTier). The replay before the steps (replayWholeGate), a
 // run's record and its package keys all key their facts through it, so
 // they agree on the tier.
 func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
@@ -437,20 +442,26 @@ func main() {
 		}
 		command, reason := scopeProbe(budget, cpus)
 		probed = command != ""
-		if !*noCache && !*merge && !*recordDurations {
-			// The replay path starts no step, so it needs no scope.
-			root, err := repositoryRoot()
-			if err != nil {
-				fatal(err)
-			}
-			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), tier, os.Stdout); replayed {
-				exitGate(code)
-			}
-		}
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
-	g, err := setUpRun(scope, scopeNote, tier, *recordDurations)
+	// The whole-gate replay keys the checkout once the limiter is open and
+	// before the steps are declared: a replay declares none, and a miss
+	// keeps the facts as the run's start key (gate.startFacts). It ran
+	// before the scope, and a miss collected the facts twice, the first
+	// time at the caller's CPU share: 3.1 of the 6.8 s before a std edit's
+	// gate clock started, at 4 CPUs, against 0.8 here (gate-speed GS28).
+	var replayFirst func(*gate)
+	if !*noCache && !*merge {
+		replayFirst = func(g *gate) {
+			code, replayed, facts := g.replayWhole(mechanismFact(scope, probed, scopeNote), os.Stdout)
+			if replayed {
+				exitGate(code)
+			}
+			g.startFacts = facts
+		}
+	}
+	g, err := setUpRun(scope, scopeNote, tier, *recordDurations, replayFirst)
 	if err != nil {
 		fmt.Println("gate:", err)
 		exitGate(2)
@@ -507,26 +518,28 @@ func setUp(scope, scopeNote string, declare bool) (*gate, error) {
 	if declare {
 		tier = fullTier
 	}
-	return setUpTier(scope, scopeNote, tier)
+	return setUpTier(scope, scopeNote, tier, nil)
 }
 
 // setUpRun sets up the gate of a run of tier, the one value main computes
-// (tierFor) and also gives the replay before the scope (replayWholeGate):
-// the gate declares that tier's steps and keys its record with it
-// (gate.tier, collectTier). -record-durations declares no step and records
-// no whole gate, so its gate has no tier. Before, main set gate.tier apart
-// from the steps, and a run that lost it recorded under no tier with every
-// test green (gate-shard round 1, mutant v3).
-func setUpRun(scope, scopeNote, tier string, recordDurations bool) (*gate, error) {
+// (tierFor) and also gives the whole-gate replay (replayWhole): the gate
+// declares that tier's steps and keys its record with it (gate.tier,
+// collectTier). -record-durations declares no step and records no whole
+// gate, so its gate has no tier. Before, main set gate.tier apart from the
+// steps, and a run that lost it recorded under no tier with every test
+// green (gate-shard round 1, mutant v3). beforeSteps, when set, runs on the
+// gate of a tier after its limiter and before its steps are declared (main's
+// replay, which then needs no step).
+func setUpRun(scope, scopeNote, tier string, recordDurations bool, beforeSteps func(*gate)) (*gate, error) {
 	if recordDurations {
 		tier = ""
 	}
-	return setUpTier(scope, scopeNote, tier)
+	return setUpTier(scope, scopeNote, tier, beforeSteps)
 }
 
 // setUpTier is setUp declaring the steps of the tier (stepsFor) and
 // naming it (gate.tier), or no step and no tier when the tier is empty.
-func setUpTier(scope, scopeNote, tier string) (*gate, error) {
+func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, error) {
 	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory(), tier: tier}
 	budget, err := currentBudget()
 	if err == nil {
@@ -540,6 +553,9 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	}
 	if tier == "" {
 		return g, nil
+	}
+	if beforeSteps != nil {
+		beforeSteps(g)
 	}
 	if tier == fastTier {
 		// The fast tier selects the compiler's tests against the coverage
@@ -558,42 +574,51 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 
 // replayWholeGate replays the whole-gate record of the checkout's key, if
 // one replays (replay.Store.TryReplay): the identity line, then the
-// recorded run. It reports whether it replayed, and the exit code. It runs
-// before the gate enters its scope, and starts no step. It replays only a
-// record of the run's tier.
+// recorded run. It reports whether it replayed, and the exit code. It
+// starts no step. It replays only a record of the run's tier.
 func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	g := &gate{root: root, cacheDir: cacheDirectory(), tier: tier}
+	code, replayed, _ := g.replayWhole(mechanism, out)
+	return code, replayed
+}
+
+// replayWhole is replayWholeGate for the gate main sets up (setUpRun's
+// beforeSteps, after the limiter). When
+// it does not replay, it returns the facts it keyed, the run's start key,
+// so the run does not collect them again (gate.startFacts); nil when it
+// could not collect them.
+func (g *gate) replayWhole(mechanism string, out *os.File) (int, bool, *replay.Facts) {
 	if g.cacheDir == "" {
-		return 0, false
+		return 0, false, nil
 	}
 	facts, err := g.collectTier(mechanism)
 	if err != nil {
-		return 0, false
+		return 0, false, nil
 	}
 	spoolDir, err := outputSpoolDir(g.cacheDir)
 	if err != nil {
-		return 0, false
+		return 0, false, facts
 	}
 	recorded, _ := replay.Open(g.cacheDir).TryReplay(facts, func() (*os.File, error) { return newOutputSpool(spoolDir) })
 	if recorded == nil {
 		// The gate runs, and says there why it did not replay.
-		return 0, false
+		return 0, false, facts
 	}
 	defer recorded.Close()
 	if err := outputDestination(out); err != nil {
-		return 0, false
+		return 0, false, facts
 	}
-	state, err := checkoutStateOf(root)
+	state, err := checkoutStateOf(g.root)
 	if err != nil {
-		return 0, false
+		return 0, false, facts
 	}
 	fmt.Fprintln(out, state)
-	fmt.Fprintf(out, "gate: tier: %s\n", tier)
+	fmt.Fprintf(out, "gate: tier: %s\n", g.tier)
 	if err := recorded.Print(out); err != nil {
 		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
-		return 2, true
+		return 2, true, nil
 	}
-	return 0, true
+	return 0, true, nil
 }
 
 // mergeTier runs the merge tier (replay.MergeTier): the inner tier first
@@ -858,7 +883,10 @@ func (g *gate) run(out io.Writer) int {
 	var recording *replay.Run
 	if g.whole != nil {
 		store := replay.Open(g.cacheDir)
-		facts, err := g.collect()
+		facts, err := g.startFacts, error(nil)
+		if facts == nil {
+			facts, err = g.collect()
+		}
 		switch {
 		case err != nil:
 			fmt.Fprintf(out, "gate: no whole-gate key: %v\n", err)

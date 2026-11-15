@@ -111,7 +111,7 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	if code != 0 || countIn(t, counter) != 1 {
 		t.Fatalf("second run exit %d, ran %d times; want a replay:\n%s", code, countIn(t, counter), out)
 	}
-	// The replay before the scope prints the identity line, then the record.
+	// The replay before the steps prints the identity line, then the record.
 	file, err := os.Create(filepath.Join(t.TempDir(), "log"))
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 
 // TestWholeGateRecordNamesItsTier: the tier is a fact of the whole-gate
 // key. A full-tier record replays for a full-tier run, by the run itself
-// and by the replay before the scope (replayWholeGate, which keys every
+// and by the replay before the steps (replayWholeGate, which keys every
 // host program as main does), and for no run of another tier; each run
 // says its tier.
 func TestWholeGateRecordNamesItsTier(t *testing.T) {
@@ -220,10 +220,10 @@ func TestWholeGateRecordNamesItsTier(t *testing.T) {
 		return replayed, string(log)
 	}
 	if replayed, log := replayAs("fast"); replayed {
-		t.Fatalf("the replay before the scope replayed the full tier's record for the fast tier:\n%s", log)
+		t.Fatalf("the replay before the steps replayed the full tier's record for the fast tier:\n%s", log)
 	}
 	if replayed, log := replayAs(fullTier); !replayed || !strings.Contains(log, "gate: tier: full\n") || countIn(t, counter) != 1 {
-		t.Fatalf("the replay before the scope did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
+		t.Fatalf("the replay before the steps did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
 	}
 	// A run of another tier runs its steps (and records under its own key);
 	// the full tier's record still replays for the full tier.

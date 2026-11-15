@@ -10,7 +10,7 @@ import (
 // The tier main computes reaches the gate it sets up (setUpRun): the steps
 // are that tier's, the gate names it, and the facts its record keys
 // (collect, through collectTier) hold it as the tier setting, the value the
-// replay before the scope keys too (replayWholeGate). -record-durations
+// replay before the steps keys too (replayWholeGate). -record-durations
 // sets up a gate with no tier and no step. Before, main set the tier on
 // the gate apart from the steps, and a mutant that dropped it survived
 // every test (gate-shard round 1, mutant v3).
@@ -18,7 +18,7 @@ func TestGateTierReachesReplay(t *testing.T) {
 	root := checkoutRoot(t)
 	t.Setenv("ERGO_GATE_CACHE", t.TempDir())
 	for _, tier := range []string{fastTier, fullTier} {
-		g, err := setUpRun("", "", tier, false)
+		g, err := setUpRun("", "", tier, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestGateTierReachesReplay(t *testing.T) {
 			t.Errorf("a %s run records under the tier %q and replays under %q", tier, recorded, tierOf(replayed))
 		}
 	}
-	g, err := setUpRun("", "", fullTier, true)
+	g, err := setUpRun("", "", fullTier, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
