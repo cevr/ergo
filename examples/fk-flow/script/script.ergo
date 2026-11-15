@@ -38,9 +38,10 @@ type Site = actor.Actor[app.Program, app.Signal, Decision[app.Program, Never]]
 type Host = ui.TestHost[app.Program, app.Signal, Decision[app.Program, Never]]
 
 // Run plays the script on standard input over clock and prints what the
-// screen shows; with stats, the work of each line too. It returns the
+// screen shows; with stats, the work of each line too; with last, only the
+// last screen, once the script has run. It returns the
 // exit status: 0, or 1 for a line it cannot read or a screen that fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual, stats bool, last bool) int needs Console | io.Stdin | Scheduler {
 	let mut lines = []string{}
 	for raw in io.Stdin.Lines() {
 		lines = lines.Append(raw)
@@ -64,7 +65,7 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler
 		break
 	}
 	let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(n)), 16, func(o Never) {})
-	let status = played(site, lines, first, n, clock, stats) catch {
+	let status = played(site, lines, first, n, clock, stats, last) catch {
 	case actor.Stopped:
 		Console.Println("? the program stopped")
 		1
@@ -76,18 +77,22 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler
 	status
 }
 
-func played(site Site, lines []string, first int, n int, clock time.Manual, stats bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+func played(site Site, lines []string, first int, n int, clock time.Manual, stats bool, last bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	try ui.Settle(&h)
 	let mut shown = []string{}
 	Console.Println("> seed \(n)")
-	shown = show(shown, View(&h))
+	if !last {
+		shown = show(shown, View(&h))
+	}
 	for i in first..len(lines) {
 		let line = strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		Console.Println("> " + line)
+		if !last {
+			Console.Println("> " + line)
+		}
 		let acts = actsOf(line) catch {
 		case Bad as b:
 			Console.Println("? line \(i + 1): \(b.Why)")
@@ -126,10 +131,15 @@ func played(site Site, lines []string, first int, n int, clock time.Manual, stat
 		if missing != "" {
 			Console.Println("  ? " + missing)
 		}
-		shown = show(shown, View(&h))
+		if !last {
+			shown = show(shown, View(&h))
+		}
 		if stats {
 			Console.Println("  stats: \(ui.CountsLine(counts)); \(ui.Frames(&h) - framesBefore) frames")
 		}
+	}
+	if last {
+		let _ = show([]string{}, View(&h))
 	}
 	Console.Println("> stop")
 	0
@@ -148,6 +158,22 @@ func input(a ui.Act) bool {
 // less is a with b's counts taken away: the work of a step after b.
 func less(a ui.StepCounts, b ui.StepCounts) ui.StepCounts {
 	ui.StepCounts{Inserted: a.Inserted - b.Inserted, Moved: a.Moved - b.Moved, Removed: a.Removed - b.Removed, Set: a.Set - b.Set, Ran: a.Ran - b.Ran, Kept: a.Kept - b.Kept, GroupsRan: a.GroupsRan - b.GroupsRan, GroupsKept: a.GroupsKept - b.GroupsKept, Visits: a.Visits - b.Visits}
+}
+
+// Receipt is the receipt's script (plan §18.3 FK12: a frame at 600 paths):
+// the flow, 25 bursts of 22 over a 5 by 5 grid on its 55 particles, 40
+// frames so the trails reach their length, then n frames of 16 ms, each
+// one frame of about 600 trails.
+func Receipt(n int) []string {
+	let mut out = []string{"seed 1", "click Flow", "frame 16 x10"}
+	for i in 0..25 {
+		out = out.Append("press \(80 + (i%5)*200) \(80 + (i/5)*110)")
+	}
+	out = out.Append("frame 16 x40")
+	for _ in 0..n {
+		out = out.Append("frame 16")
+	}
+	out
 }
 
 // Step is one step of a line: a frame period for the host's clock, or an

@@ -1,0 +1,13 @@
+# scripts/opcount (plan §18.3 FK12): `fk-flow -last` plays the receipt's
+# script, which `fk-flow -gen N` prints: the flow filled to about 600
+# trails by 25 bursts, 40 frames so the trails reach their length, then N
+# frames of 16 ms. A frame steps the flow and paints the canvas (about 600
+# trails stroked twice, 600 heads, 51,000 path points); the cost of one
+# is the slope between the two sizes, so the filling cancels. The control
+# is the same model, paint and host in hand Go, which prints the same
+# last screen.
+unit frame
+sizes 20 100
+input self -gen {n}
+args -last
+control examples/fk-flow/testdata/control

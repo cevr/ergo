@@ -9,7 +9,9 @@
 // frame times into the time between frames; screen is the view; script
 // plays the script on the test host. This binary is the only place that
 // chooses the clock: a time.Manual that only the script's frames move.
-// With -stats it also prints the work of each line.
+// With -stats it also prints the work of each line; with -last it prints
+// only the last screen; -gen N prints the receipt's script, the flow
+// filled to about 600 trails and N frames on (the workload's input).
 
 import fkflow/script
 import flag
@@ -19,9 +21,13 @@ import time
 
 let statsFlag = flag.Bool("stats", false, "print the work of each line (ui.Counts) and the frames sent")
 
-let set = flag.Set{Name: "fk-flow", Usage: "", Flags: []flag.Flag{statsFlag}, Args: []flag.ArgSpec{}}
+let lastFlag = flag.Bool("last", false, "print only the last screen")
 
-let usage = "usage: fk-flow [-stats] < script"
+let genFlag = flag.Int("gen", -1, "print the receipt's script with N counted frames, and stop")
+
+let set = flag.Set{Name: "fk-flow", Usage: "", Flags: []flag.Flag{statsFlag, lastFlag, genFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: fk-flow [-stats] [-last] < script, or fk-flow -gen N"
 
 func main() fails os.Exit needs Console | Ambient {
 	let v = with context { os.Process: os.NewHost() } {
@@ -33,8 +39,14 @@ func main() fails os.Exit needs Console | Ambient {
 			return
 		}
 	}
+	if genFlag.Get(v) >= 0 {
+		for l in script.Receipt(genFlag.Get(v)) {
+			Console.Println(l)
+		}
+		return
+	}
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v), lastFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "fk-flow: the script did not run"}
 	}
