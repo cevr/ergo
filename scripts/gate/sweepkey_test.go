@@ -267,9 +267,7 @@ func checkSweepSeed(t *testing.T, seed, edits int) int {
 		for _, p := range tested {
 			steps = append(steps, sweepStep(p.dir, 0))
 		}
-		if err := keySweeps(steps, tested, "", stringLiterals([]byte(m.files[modelRule]))); err != nil {
-			t.Fatal(err)
-		}
+		keySweeps(steps, tested, "", stringLiterals([]byte(m.files[modelRule])))
 		facts := m.facts()
 		for _, step := range steps {
 			full := m.sweep(step.Sweep)

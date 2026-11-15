@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"go/scanner"
 	"go/token"
 	"maps"
@@ -45,14 +44,15 @@ var sweeperDir = strings.TrimPrefix(sweepPackage, "./")
 // (sweepTableNames, over names, the string literals of the sweeper's
 // source). A sweep of a directory that is no listed test package keeps no
 // key and always runs.
-func keySweeps(steps []*Step, tested []testPackage, problem string, names []string) error {
+func keySweeps(steps []*Step, tested []testPackage, problem string, names []string) {
 	byDir := map[string]*replay.Closure{}
 	for _, p := range tested {
 		byDir[p.dir] = p.closure
 	}
 	sweeper, ok := byDir[sweeperDir]
 	if !ok {
-		return fmt.Errorf("the closure sweep's package %s is not a test package of the module", sweeperDir)
+		// No sweeper (a module that is not this one): every sweep runs.
+		return
 	}
 	parts := []string{"sweep tables name test packages " + strings.Join(sweepTableNames(names, byDir), " ")}
 	for _, step := range steps {
@@ -67,7 +67,6 @@ func keySweeps(steps []*Step, tested []testPackage, problem string, names []stri
 		step.PackageProblem = problem
 		step.KeyParts = parts
 	}
-	return nil
 }
 
 // sweepClosure is the closure of what the sweep of swept reads: swept's
@@ -156,5 +155,6 @@ func fullSteps(root string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	return steps, keySweeps(steps, tested, problem, names)
+	keySweeps(steps, tested, problem, names)
+	return steps, nil
 }
