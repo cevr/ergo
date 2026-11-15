@@ -1,0 +1,213 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"ergo.local/prototype/internal/linked/code"
+	"ergo.local/prototype/internal/sketch/facts"
+	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketchfront"
+)
+
+const codeHelp = `usage: ergo code [--in DIR] [--json] COMMAND [ARGS...]
+
+ergo code answers questions about the code of the program in DIR (the
+current folder by default) from its fact tables: std code's Reader, as
+` + "`ergo gen cli`" + ` makes its command line (docs/spec/code.md). The commands:
+
+  describe                 the revision, the packages, and whether they check
+  symbols [--name N] [--match exact|prefix|part] [--kind K] [--package P]
+                           declarations by name, kind and package
+  symbol ADDRESS           the declaration at a handle (pkg.Name,
+                           pkg.Type.Member), a position (file:line:column)
+                           or a short name (Name, Type.Member)
+  references --of ADDRESS [--kinds K]...
+                           the sites that name the declaration
+
+Lists are paged with --offset and --limit (100 by default, at most 1000).
+With --json the answer is its JSON; a failure (NoSymbol, Ambiguous) is
+its tagged JSON. A package that does not check gives the rows the checker
+resolved, and the answer says complete: false.
+
+Exit status: 0 answered; 1 a typed failure, or the program cannot be read;
+2 invalid invocation.
+`
+
+// codeCommand is `ergo code`: it checks the program, writes its
+// fact tables as code.Tables, and runs std code's command line over them
+// (internal/linked/code, the Ergo of ergo code, lowered to Go).
+func codeCommand(args []string) error {
+	dir := "."
+	if len(args) > 0 && (args[0] == "--in" || strings.HasPrefix(args[0], "--in=")) {
+		if v, ok := strings.CutPrefix(args[0], "--in="); ok {
+			dir, args = v, args[1:]
+		} else if len(args) < 2 {
+			return invalidInvocation(fmt.Errorf("ergo code: --in takes a folder"))
+		} else {
+			dir, args = args[1], args[2:]
+		}
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo code: " + err.Error()}
+	}
+	a, err := sketchfront.CheckDir(abs)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo code: " + err.Error()}
+	}
+	tables, err := json.Marshal(codeTablesOf(a))
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo code: " + err.Error()}
+	}
+	out, err := code.Run(context.Background(), args, string(tables))
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo code: " + err.Error()}
+	}
+	if len(out) != 3 {
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo code: the command line gave %d parts", len(out))}
+	}
+	os.Stdout.WriteString(out[1])
+	os.Stderr.WriteString(out[2])
+	status, err := strconv.Atoi(out[0])
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo code: status " + out[0]}
+	}
+	if status != 0 {
+		return exitStatusError{code: status, handled: true}
+	}
+	return nil
+}
+
+// The JSON of std code's Tables and its records (docs/spec/code.md): the
+// seam between the Go checker's tables and the Ergo reader, until the
+// mixed binary of capstone S1 passes the tables without text.
+type (
+	codeTables struct {
+		Revision string        `json:"revision"`
+		Packages []codePackage `json:"packages"`
+	}
+	codePackage struct {
+		Path        string     `json:"path"`
+		Complete    bool       `json:"complete"`
+		Diagnostics int        `json:"diagnostics"`
+		Decls       []codeDecl `json:"decls"`
+		Sites       []codeSite `json:"sites"`
+	}
+	codeDecl struct {
+		Handle   string `json:"handle"`
+		Kind     string `json:"kind"`
+		Name     string `json:"name"`
+		Package  string `json:"package"`
+		Exported bool   `json:"exported"`
+		File     string `json:"file"`
+		Line     int    `json:"line"`
+		Column   int    `json:"column"`
+	}
+	codeSite struct {
+		Symbol  string `json:"symbol"`
+		Kind    string `json:"kind"`
+		Package string `json:"package"`
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Column  int    `json:"column"`
+		In      string `json:"in"`
+	}
+)
+
+// codeTablesOf is the fact tables of the program a checked, one package
+// per checked package in dependency order. A package with diagnostics
+// gives the rows the checker resolved and Complete false; a package the
+// loader did not check (it imports a broken one) gives none. The revision
+// is a digest of the files' names and texts.
+func codeTablesOf(a sketchfront.Analysis) codeTables {
+	diags := map[string]int{}
+	for _, d := range a.Diagnostics {
+		diags[d.File]++
+	}
+	h := sha256.New()
+	out := codeTables{Packages: []codePackage{}}
+	for _, p := range a.Packages() {
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}}
+		syn := map[string]*syntax.File{}
+		var files []facts.File
+		for _, f := range p.Files {
+			cp.Diagnostics += diags[f.Rel]
+			fmt.Fprintf(h, "%s\x00%d\x00", f.Rel, len(srcOf(f.Syntax)))
+			h.Write([]byte(srcOf(f.Syntax)))
+			if f.Syntax != nil {
+				syn[f.Rel] = f.Syntax
+				files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
+			}
+		}
+		if cp.Diagnostics > 0 {
+			cp.Complete = false
+		}
+		if pkg := p.Partial; pkg != nil && pkg.Info != nil {
+			t, _ := facts.Build(pkg, files)
+			addCodeRows(&cp, t, p.Path, syn)
+		}
+		out.Packages = append(out.Packages, cp)
+	}
+	out.Revision = hex.EncodeToString(h.Sum(nil))[:16]
+	return out
+}
+
+// addCodeRows adds the declarations and sites of t to cp. The checker
+// names the root package main; its handles take the package's path.
+func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*syntax.File) {
+	pos := func(file uint16, off uint32) (string, int, int) {
+		name := t.Files[file]
+		f := syn[name]
+		if f == nil {
+			return name, 0, 0
+		}
+		line, col := f.Position(syntax.Pos(off))
+		return name, line, col
+	}
+	handles := make([]string, len(t.Symbols))
+	for id, s := range t.Symbols {
+		h := s.Handle
+		if t.Path == "main" && strings.HasPrefix(h, "main.") {
+			h = path + h[len("main"):]
+		}
+		if h == "" && s.Declared {
+			file, line, col := pos(s.File, s.Off)
+			h = fmt.Sprintf("%s:%d:%d", file, line, col)
+		}
+		handles[id] = h
+	}
+	for id, s := range t.Symbols {
+		if !s.Declared || handles[id] == "" {
+			continue
+		}
+		file, line, col := pos(s.File, s.Off)
+		cp.Decls = append(cp.Decls, codeDecl{Handle: handles[id], Kind: s.Kind.String(), Name: s.Name, Package: path, Exported: s.Exported, File: file, Line: line, Column: col})
+	}
+	for _, s := range t.Sites {
+		if handles[s.Sym] == "" {
+			continue
+		}
+		file, line, col := pos(s.File, s.Off)
+		in := ""
+		if s.Encl != facts.NoSym {
+			in = handles[s.Encl]
+		}
+		cp.Sites = append(cp.Sites, codeSite{Symbol: handles[s.Sym], Kind: s.Kind.String(), Package: path, File: file, Line: line, Column: col, In: in})
+	}
+}
+
+// srcOf is the text of a parsed file, or "" when it did not parse.
+func srcOf(f *syntax.File) string {
+	if f == nil {
+		return ""
+	}
+	return f.Src
+}

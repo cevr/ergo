@@ -20,6 +20,11 @@ type CheckedPackage struct {
 	// Package is the checked package; nil when the package, or a package
 	// it imports, has diagnostics, or when it was not checked.
 	Package *check.Package
+	// Partial is the checker's package also when it has diagnostics: its
+	// Info holds what the checker resolved (the fact tables of ergo code
+	// read it, with complete false). Nil when the package was not checked
+	// (it does not parse, or it imports a broken package).
+	Partial *check.Package
 }
 
 // CheckedFile is one source file of a CheckedPackage.
@@ -74,7 +79,7 @@ func (a Analysis) Packages() []CheckedPackage {
 	}
 	var out []CheckedPackage
 	for _, p := range append(append([]*loadedPackage{}, a.program.imports...), a.program.root) {
-		c := CheckedPackage{Path: p.path, Dir: p.dir}
+		c := CheckedPackage{Path: p.path, Dir: p.dir, Partial: p.pkg}
 		if !p.broken {
 			c.Package = p.pkg
 		}
