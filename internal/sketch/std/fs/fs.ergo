@@ -6,7 +6,9 @@
 // prelude's Ambient, which only the entry provides. So code that makes a
 // Host shows Ambient in its row: main lists it and binds
 // `context { fs.Files: fs.NewHost() }`. A test cannot get Ambient and
-// binds Memory instead (memory.ergo), a tree of files in memory. The
+// binds fstest.Memory instead, a tree of files in memory, or the disk in
+// a folder of its case's own through NewTestHost, under the test's
+// ambient (confined.ergo). The
 // externs are unexported, so a program reads or writes the disk only
 // through a Host it was given or made under Ambient. No handle is exposed,
 // so no file stays open after a call returns, except an explicit HostRoot.

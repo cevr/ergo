@@ -1,4 +1,4 @@
-// The test's ambient (docs/spec/rows.md, Entry 5; runtime.md, Tests 10):
+// The test's ambient (docs/spec/rows.md, Test's ambient; runtime.md, Tests 11):
 // the authority a test has to reach the host, confined to a folder of its
 // own. A test never holds the prelude's Ambient. A named context whose
 // header says `needs testing.Ambient` may make the confined host providers

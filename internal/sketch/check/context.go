@@ -640,7 +640,7 @@ func (c *checker) checkContexts() {
 		ambient := c.contextTestAmbient(w)
 		if d.Needs != nil && !ambient {
 			c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
-			c.errorf(d.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs testing.Ambient alone (rows.md, Entry 5)")
+			c.errorf(d.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs testing.Ambient alone (rows.md, Test's ambient)")
 		}
 		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
 		if ambient {

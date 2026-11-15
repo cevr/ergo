@@ -1,7 +1,7 @@
 import testing
 
 // The host file system of a test (testing.Ambient; docs/spec/rows.md,
-// Entry 5): NewTestHost is a Host confined to the case's folder. A
+// Test's ambient): NewTestHost is a Host confined to the case's folder. A
 // relative path is relative to the folder; an absolute path must lie in
 // it. A path that leads out of the folder, by "..", by an absolute path
 // elsewhere or through a symbolic link that points out, is refused with

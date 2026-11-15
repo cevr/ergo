@@ -11,7 +11,7 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// TestFSConfinedLaws runs the laws of fstest.Confined (rows.md, Entry 5)
+// TestFSConfinedLaws runs the laws of fstest.Confined (rows.md, Test's ambient)
 // against the Go bodies the test's ambient lowers to: each case makes its
 // folder with TestFolderOpen, as a with or a law case does, resolves every
 // path through FSConfine, as fs.NewTestHost's Host does, and ends with

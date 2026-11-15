@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The test's ambient (docs/spec/rows.md, Entry 5; runtime.md, Tests 10).
+// The test's ambient (docs/spec/rows.md, Test's ambient; runtime.md, Tests 11).
 // The test runner gives each build of a context that needs
 // testing.Ambient, a with of it in a test or one case of a law run under
 // it, a fresh folder (TestFolderOpen) and removes it when the case ends

@@ -2,7 +2,7 @@ import filepath
 import testing
 
 // The host's commands for a test (testing.Ambient; docs/spec/rows.md,
-// Entry 5): NewTestHost is a Host confined to the case's folder. A command
+// Test's ambient): NewTestHost is a Host confined to the case's folder. A command
 // runs in the folder when its Dir is "", and its Dir must lie in it. Each
 // argument is read as a path relative to that directory and must stay in
 // the folder too: a flag or a word does, and "/", "..", an absolute path

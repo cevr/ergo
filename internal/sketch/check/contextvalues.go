@@ -171,7 +171,7 @@ func (c *checker) contextValueOwnership(owners map[*ContextEntry]*Context) {
 		w := s.w
 		if len(w.Contexts) > 0 && c.contextTestAmbient(w.Contexts[0]) {
 			c.cur = s.file
-			c.errorf(s.x, CodeType, "a Context value cannot hold context %s, which needs testing.Ambient: its folder lives for one with of it; bind it with with in a test (rows.md, Entry 5)", w.Contexts[0].Name)
+			c.errorf(s.x, CodeType, "a Context value cannot hold context %s, which needs testing.Ambient: its folder lives for one with of it; bind it with with in a test (rows.md, Test's ambient)", w.Contexts[0].Name)
 			continue
 		}
 		if len(w.Entries) == 0 {

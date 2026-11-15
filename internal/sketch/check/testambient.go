@@ -4,7 +4,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The test's ambient (rows.md, Entry 5; runtime.md, Tests 10; TH1). A
+// The test's ambient (rows.md, Test's ambient; runtime.md, Tests 11; TH1). A
 // test never holds the prelude's Ambient, so a law over a real host
 // provider could not run under ergo test. std testing's Ambient is the
 // test's ambient instead: a fresh folder per case, which only the test
@@ -28,7 +28,7 @@ import (
 // ExUnit @tag :tmp_dir names it per test. None of them confines the code
 // under test to it; here the providers refuse a path out of the folder.
 
-const testAmbientEntryText = "no context binds testing.Ambient: its one provider is the test runner, for a named context whose header says needs testing.Ambient (rows.md, Entry 5)"
+const testAmbientEntryText = "no context binds testing.Ambient: its one provider is the test runner, for a named context whose header says needs testing.Ambient (rows.md, Test's ambient)"
 
 // isTestAmbient reports whether t is std testing's Ambient.
 func isTestAmbient(t Type) bool {
@@ -66,13 +66,13 @@ func (c *checker) testAmbientWith(at syntax.Node, w *Context) {
 	if !c.contextTestAmbient(w) || c.fn != nil && c.fn.test {
 		return
 	}
-	c.errorf(at, CodeMissingCap, "context %s needs testing.Ambient, which only the test runner provides: with it in a test, or let a law run under it (rows.md, Entry 5)", w.Name)
+	c.errorf(at, CodeMissingCap, "context %s needs testing.Ambient, which only the test runner provides: with it in a test, or let a law run under it (rows.md, Test's ambient)", w.Name)
 }
 
 // testAmbientEmbed refuses an embedding of a context that needs
 // testing.Ambient (rule 3).
 func (c *checker) testAmbientEmbed(at syntax.Node, inner *Context) {
 	if c.contextTestAmbient(inner) {
-		c.errorf(at, CodeType, "context %s needs testing.Ambient and is not embedded: its folder lives for one with of it (rows.md, Entry 5)", inner.Name)
+		c.errorf(at, CodeType, "context %s needs testing.Ambient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)", inner.Name)
 	}
 }

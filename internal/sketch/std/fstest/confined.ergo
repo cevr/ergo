@@ -2,7 +2,7 @@ import fs
 import testing
 
 // Confined is a file system confined to one folder, a fresh one for each
-// case (testing.Ambient; docs/spec/rows.md, Entry 5): what it writes stays
+// case (testing.Ambient; docs/spec/rows.md, Test's ambient): what it writes stays
 // in it, and it starts empty. Its laws state the confinement of
 // fs.NewTestHost; they run under any context that binds Confined, which
 // only NewFolder provides.

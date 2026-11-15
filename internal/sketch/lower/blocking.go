@@ -491,7 +491,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile": {},
-	// The test's ambient (rows.md, Entry 5): path checks of the confined
+	// The test's ambient (rows.md, Test's ambient): path checks of the confined
 	// providers, which resolve links and neither wait nor release.
 	"FSConfine":       {},
 	"ExecConfine":     {},

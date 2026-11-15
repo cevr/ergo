@@ -1,7 +1,7 @@
 import testing
 
 // The host process as a test in the case's folder sees it (testing.Ambient;
-// docs/spec/rows.md, Entry 5): NewTestHost is a Host with no arguments, the
+// docs/spec/rows.md, Test's ambient): NewTestHost is a Host with no arguments, the
 // folder as its working directory, and an environment of HOME, TMPDIR and
 // PWD, each the folder, and PATH, the host's, so a program the test runs
 // is found as on the host. Every other key is unset, so no test reads the

@@ -7,7 +7,9 @@
 // the entry provides. So main lists Ambient and binds
 // `context { exec.Runner: exec.NewHost() }`. A test cannot get Ambient and
 // binds a Script instead, which runs nothing and gives the Result recorded
-// for each command. The extern is unexported, so a program starts a
+// for each command, or runs commands for real in a folder of its case's
+// own through NewTestHost, under the test's ambient (confined.ergo). The
+// extern is unexported, so a program starts a
 // process only through a Host it was given or made under Ambient.
 
 import slices

@@ -75,7 +75,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		open := ""
 		if ta := lc.Context.TestAmbient; ta != nil {
 			// The case's own folder, removed when the case returns
-			// (rows.md, Entry 5).
+			// (rows.md, Test's ambient).
 			open = testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
 		}
 		body := e + " := *" + env + "; " + open + build + "(&" + e + "); " +
