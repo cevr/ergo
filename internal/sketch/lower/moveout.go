@@ -513,14 +513,14 @@ func (w *valueWalk) armHolds(mo moveOut, root *vvar, frame *vframe) bool {
 	lo := w.pre[mo.list[0]]
 	for _, o := range root.occs {
 		if o.pre >= lo && o.pre < w.pre[mo.store] || o.pre >= w.pre[rhs] && o.pre < w.post[rhs] {
-			return false // the root is named between the read and the store
+			return false // the root is named in the arm or the stored value
 		}
 	}
 	leaves := false
 	for _, n := range append(append([]syntax.Node{}, stmtNodes(mo.list[:mo.back])...), rhs) {
 		syntax.Inspect(n, func(n syntax.Node) bool {
 			switch n := n.(type) {
-			case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.TryExpr, *syntax.FuncLit:
+			case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.FuncLit, *syntax.TryExpr:
 				leaves = true
 			case *syntax.CallExpr:
 				if c := w.info.Calls[n]; c == nil || failsHere(c) || n.Trailing != nil {
