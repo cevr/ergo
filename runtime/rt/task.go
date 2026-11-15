@@ -26,6 +26,10 @@ type Task struct {
 	// waker marks a task with an OnInterrupt wake in wakers, guarded by mu;
 	// it fills the same word, so the task keeps its size.
 	waker bool
+	// firing marks a task that runs a machine state's After for a timer
+	// that fires (runtime/v1 MachineFiringOn). Only the owner goroutine
+	// reads or writes it; it fills the same word.
+	firing bool
 	// regions is the stack of open mask regions (regions.go). Only the owner
 	// goroutine reads or writes it, so masking costs no atomic operation.
 	regions regionStack
@@ -194,6 +198,13 @@ func (t *Task) StopRequested() bool { return t.stopped.Load() }
 // Masked reports whether t is inside a masked region. Call it from the task's
 // own goroutine.
 func (t *Task) Masked() bool { return t.regions.top != interruptible }
+
+// SetFiring sets t's firing mark (runtime/v1 MachineFiringOn). Call it
+// from the task's own goroutine.
+func (t *Task) SetFiring(on bool) { t.firing = on }
+
+// Firing reports t's firing mark. Call it from the task's own goroutine.
+func (t *Task) Firing() bool { return t.firing }
 
 // Check is the interruption point for code with no error row: it panics with
 // Interrupted when Stopped would return true. The task boundary recovers it.

@@ -21,10 +21,10 @@ type Script { Lines []Line, End duration }
 // Line is an act at a time.
 type Line { At duration, Act Act }
 
-// Act is a press of the button for a signal, or a count of the pass that
+// Act is a press of a button, or a count of the pass that
 // showed the clock's last tick up to its time, before the line's Settle
 // (stats; with no tick since the line before, the pass before it).
-type Act = Press{Signal watch.Signal} | Count{}
+type Act = Press{Button watch.Button} | Count{}
 
 // Read reads the lines of a script. Each line is `@MS WORD`: MS is the
 // time in milliseconds from the start, never earlier than the line before,
@@ -53,11 +53,11 @@ func Read(lines []string) Script fails BadLine {
 		case "end":
 			return Script{Lines: trace, End: t}
 		case "start":
-			Press{Signal: watch.Start}
+			Press{Button: watch.Start}
 		case "stop":
-			Press{Signal: watch.Stop}
+			Press{Button: watch.Stop}
 		case "reset":
-			Press{Signal: watch.Reset}
+			Press{Button: watch.Reset}
 		case "stats":
 			Count
 		case _:
@@ -131,22 +131,20 @@ func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console
 		try ui.Pump(h)
 		let tick = ui.StatsOf(h)
 		try ui.Settle(h)
-		let sig = match x.Act {
+		let b = match x.Act {
 		case Press as p:
-			p.Signal
+			p.Button
 		case Count:
 			Console.Println("@\(time.Count(now, 1ms)) the last pass wrote \(tick.Written) nodes and patched \(tick.Inserted + tick.Moved + tick.Removed + tick.Set)")
 			continue
 		}
-		let label = match sig {
+		let label = match b {
 		case watch.Start:
 			"Start"
 		case watch.Stop:
 			"Stop"
 		case watch.Reset:
 			"Reset"
-		case watch.Ticked:
-			"Ticked"
 		}
 		let ids = ui.Locate(h, ui.WithRole{Role: ui.Button, Name: label})
 		if len(ids) == 0 {
@@ -154,6 +152,11 @@ func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console
 			continue
 		}
 		try ui.Tap(h, ids[0])
+		// A click of Start or Stop is answered by the entry's work, on a task
+		// of its own: advancing the manual clock by nothing waits until every
+		// task of the clock waits again, so the work has read the clock and the
+		// actor has taken its press.
+		try ui.Advance(h, 0s)
 		try ui.Settle(h)
 		Console.Println("@\(time.Count(now, 1ms)) \(Shown(h))")
 	}
