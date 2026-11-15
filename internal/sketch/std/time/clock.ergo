@@ -4,6 +4,11 @@
 // S2b, owner question 1).
 type Clock {
 	Now() Time,
+	// Elapsed is the time passed since t: Now().Sub(t), read the cheapest
+	// way the clock has. The host reads only its monotonic clock when t
+	// has a monotonic reading, as Go's time.Since does (std-speed-1).
+	// Programs call Since(t), which calls it.
+	Elapsed(t Time) duration,
 
 	// NowNeverFalls: a later read is never before an earlier one. It holds
 	// because a clock's Time carries a monotonic reading, and Before
@@ -13,11 +18,21 @@ type Clock {
 		let second = Now()
 		!second.Before(first)
 	},
+
+	// ElapsedIsNowSub: Elapsed(t) is Now().Sub(t) read at its own moment:
+	// no less than a read before it gives, and no more than a read after.
+	law ElapsedIsNowSub() {
+		let start = Now()
+		let before = Now().Sub(start)
+		let d = Elapsed(start)
+		let after = Now().Sub(start)
+		before <= d && d <= after
+	},
 }
 
 // Since is the time passed since t, by the Clock in the context:
-// Clock.Now().Sub(t).
-func Since(t Time) duration needs Clock { Clock.Now().Sub(t) }
+// Clock.Elapsed(t), which is Clock.Now().Sub(t).
+func Since(t Time) duration needs Clock { Clock.Elapsed(t) }
 
 // Host is the host's Clock provider. Its field gives this package the
 // construction authority, so only NewHost makes one.
@@ -37,7 +52,20 @@ func Now(_ Host) Time {
 	read(r.Sec, r.Nsec, r.Mono)
 }
 
+// Elapsed is the time passed since t on the host's clock. When t has a
+// monotonic reading, it reads the monotonic clock alone and not the wall
+// clock, as Go's time.Since does; otherwise it is h.Now().Sub(t).
+func Elapsed(h Host, t Time) duration {
+	if t.hasMono {
+		subMono(hostMono(), t.mono)
+	} else {
+		h.Now().Sub(t)
+	}
+}
+
 extern go ergo.local/prototype/runtime/v1.TimeHostNow func hostNow() Reading
+
+extern go ergo.local/prototype/runtime/v1.TimeHostMono func hostMono() int64
 
 // Manual is a test provider of both Clock and Scheduler (Effect TestClock,
 // Go testing/synctest): its time moves only when Advance moves it, and a
@@ -85,6 +113,9 @@ func Now(m Manual) Time {
 	let r = m.line.Read()
 	read(r.Sec, r.Nsec, r.Mono)
 }
+
+// Elapsed is the time passed since t on the Manual: m.Now().Sub(t).
+func Elapsed(m Manual, t Time) duration { m.Now().Sub(t) }
 
 // Sleep suspends the calling task until Advance moves the time d past now.
 func Sleep(m Manual, d duration) { m.line.Wait(d) }

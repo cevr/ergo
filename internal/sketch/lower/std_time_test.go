@@ -12,7 +12,9 @@ import (
 // layouts; a ParseError in a catch; a task asleep on the Manual wakes when
 // Advance reaches its deadline and not before; the monotonic reading
 // decides Before, After and Sub when wall and monotonic disagree; Unix and
-// Add carry nanoseconds into seconds; a host clock's two reads never fall.
+// Add carry nanoseconds into seconds; a host clock's two reads never fall;
+// the host's Since by its monotonic reading and, for a time with none, by
+// the wall (std-speed-1: kills a reversed subMono or Sub in Host.Elapsed).
 func TestTimeRuns(t *testing.T) {
 	needsBuild(t)
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
@@ -93,6 +95,12 @@ func main() fails time.ParseError needs Console | Ambient {
 	let a = h.Now()
 	let b = h.Now()
 	Console.Println("\(!b.Before(a)) \(b.Sub(a) >= 0s)")
+	// The host's Elapsed (std-speed-1): read after b, by the monotonic
+	// clock alone, it is no less than b.Sub(a); of a time with no
+	// monotonic reading it is the wall's, here over 45 years.
+	let since = with context { time.Clock: h } { time.Since(a) }
+	let wall = with context { time.Clock: h } { time.Since(time.Unix(0, 0)) }
+	Console.Println("\(since >= b.Sub(a)) \(wall > 400000h)")
 }
 `
 
@@ -109,6 +117,7 @@ const stdTimeOutput = "1.5s\n" +
 	"1970-01-01T00:01:42Z 0\n" +
 	"true false 5s false false\n" +
 	"4 999999999 1 -1\n" +
+	"true true\n" +
 	"true true\n"
 
 // stdTimeLawsProbe restates the time laws whose runner is

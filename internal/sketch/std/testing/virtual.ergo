@@ -35,6 +35,9 @@ func Now(c VirtualClock) time.Time {
 	time.Unix(r.Sec, r.Nsec)
 }
 
+// Elapsed is the time passed since t on the clock: c.Now().Sub(t).
+func Elapsed(c VirtualClock, t time.Time) duration { c.Now().Sub(t) }
+
 // Sleep suspends the calling task until the clock's time is d past now.
 // A d of zero or less returns at once; a stop of the task ends the sleep.
 func Sleep(c VirtualClock, d duration) { c.line.Wait(d) }

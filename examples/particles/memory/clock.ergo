@@ -27,3 +27,6 @@ func Sleep(c Clock, d duration) {
 
 // Now is c's time.
 func Now(c Clock) time.Time { c.m.Now() }
+
+// Elapsed is the time passed since t on c.
+func Elapsed(c Clock, t time.Time) duration { c.m.Elapsed(t) }
