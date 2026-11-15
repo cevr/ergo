@@ -47,6 +47,11 @@ import (
 //     on these legs is the emitted Go;
 //   - for the fmt and check legs, their whole result: the runner runs them
 //     to make the key, and their output and status are in it.
+//
+// A program of packages makes its check and test --emitted calls once
+// over DIR/..., not once per package (gate-speed GS27): about a quarter of
+// the key's CPU, since each call checks the std packages it imports once.
+// On a miss its legs then check each package again.
 // The driver's sources stand for bin/ergo's driver: the runner trusts that
 // -ergo was built from -root, as the gate's `build bin/ergo` step builds it.
 // Where -root has no cmd/ergo to list (a test's fixture), the key holds the
@@ -127,8 +132,19 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		}
 	}
 	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...), {"build", "--emitted", p.main}}
-	for _, target := range targets {
-		calls = append(calls, []string{"check", target}, []string{"test", "--emitted", target})
+	// A program of packages is keyed by one check and one test --emitted
+	// over all its packages (DIR/...): the std packages they import are
+	// checked once per call, not once per package, about a third of the
+	// calls' CPU (gate-speed GS27). Its targets are every package, so the
+	// pattern reaches the same packages, which coveredPackages holds.
+	pattern := ""
+	if p.module && len(targets) > 1 {
+		pattern = filepath.Join(p.dir, "...")
+		calls = append(calls, []string{"check", pattern}, []string{"test", "--emitted", pattern})
+	} else {
+		for _, target := range targets {
+			calls = append(calls, []string{"check", target}, []string{"test", "--emitted", target})
+		}
 	}
 	for _, args := range calls {
 		o, err := r.tool(r.cfg.timeout, args...)
@@ -146,7 +162,54 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if args[0] == "check" {
 			stdout = withoutProducer(stdout)
 		}
+		if pattern != "" && args[0] == "test" {
+			if why := coveredPackages(p, targets, o.stdout); why != "" {
+				return why
+			}
+		}
 		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, stdout, o.stderr)
+	}
+	return ""
+}
+
+// coveredPackages says why the packages a pattern's test --emitted named
+// (its "package PATH" lines) are not the program's targets, or "": a key
+// that missed a target would not change when that target's emitted Go
+// does, so the program is then not cached (fail closed).
+func coveredPackages(p *program, targets []string, stdout []byte) string {
+	module := ""
+	if data, err := os.ReadFile(filepath.Join(p.dir, "ergo.mod")); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+				module = strings.TrimSpace(name)
+				break
+			}
+		}
+	}
+	if module == "" {
+		return "ergo.mod names no module: the key cannot match its packages"
+	}
+	var want, got []string
+	for _, target := range targets {
+		rel, err := filepath.Rel(p.dir, target)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Sprintf("target %s is outside the program", target)
+		}
+		path := module
+		if rel != "." {
+			path += "/" + filepath.ToSlash(rel)
+		}
+		want = append(want, path)
+	}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if path, ok := strings.CutPrefix(line, "package "); ok {
+			got = append(got, path)
+		}
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(slices.Compact(want), got) {
+		return fmt.Sprintf("ergo test --emitted over the program named packages %v, not its targets %v", got, want)
 	}
 	return ""
 }
@@ -161,11 +224,39 @@ func keyedCall(args []string) string { return strings.Join(args, "\x00") }
 // withoutProducer is a check envelope less its producers (its own and its
 // snapshot's), the digest of the compiler's own bytes, which every compiler
 // edit changes and no leg reads (checkTarget reads checked and
-// evaluation). Output that is not a JSON object is kept whole.
+// evaluation). The output of a pattern's check is one envelope per
+// package, each stripped alike (GS27). Output that is not JSON objects is
+// kept whole.
 func withoutProducer(stdout []byte) []byte {
-	var envelope map[string]json.RawMessage
-	if json.Unmarshal(stdout, &envelope) != nil {
+	decoder := json.NewDecoder(bytes.NewReader(stdout))
+	var out [][]byte
+	for {
+		var envelope json.RawMessage
+		err := decoder.Decode(&envelope)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return stdout
+		}
+		stripped, ok := envelopeWithoutProducer(envelope)
+		if !ok {
+			return stdout
+		}
+		out = append(out, stripped)
+	}
+	if len(out) == 0 {
 		return stdout
+	}
+	return bytes.Join(out, []byte("\n"))
+}
+
+// envelopeWithoutProducer is one check envelope less its producers, and
+// whether it is a JSON object.
+func envelopeWithoutProducer(stdout []byte) ([]byte, bool) {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(stdout, &envelope) != nil || envelope == nil {
+		return nil, false
 	}
 	delete(envelope, "producer")
 	var snapshot map[string]json.RawMessage
@@ -177,9 +268,9 @@ func withoutProducer(stdout []byte) []byte {
 	}
 	out, err := json.Marshal(envelope)
 	if err != nil {
-		return stdout
+		return nil, false
 	}
-	return out
+	return out, true
 }
 
 // count adds one program to the hits or the misses.
