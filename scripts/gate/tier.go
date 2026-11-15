@@ -616,6 +616,18 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 			if i < 0 {
 				return fmt.Errorf("no fast-tier step %q", pkg)
 			}
+			// The examples step keeps a verdict cache whose key a
+			// compiler edit reaches only through what the edit changes
+			// in each program's legs (early cutoff, gate-speed GS8): after
+			// a checker edit a program whose emitted Go and check result
+			// are the same replays. So the row is a run over a warm cache,
+			// what that edit costs; the first run, which fills the cache,
+			// is not counted. Counted cold, every program ran: 560.7 CPU-s
+			// at the batch 19+20+21 head, against 120 measured after a
+			// checker edit (GS29).
+			if _, err := measure(steps[i]); err != nil {
+				return err
+			}
 			cpu, err := measure(steps[i])
 			if err != nil {
 				return err

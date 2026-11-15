@@ -54,6 +54,35 @@ tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
 }
+#   check DIR/..., test --emitted DIR/...
+#                        a pattern over a program of packages (GS27): for
+#                        each folder below DIR that holds .ergo files, test
+#                        --emitted prints "package MODULE/REL" (MODULE from
+#                        DIR/ergo.mod) and its emitted line, and check its
+#                        envelope; FAKE_ERGO_PATTERN_EXTRA names one more
+#                        package line, a package the program does not hold.
+packages() {
+  find "$1" -name '*.ergo' -exec dirname {} \; | sort -u
+}
+if [ "$2" = --emitted ] && [ "$1" = test ] && [ "${3%/...}" != "$3" ]; then
+  dir=${3%/...}
+  module=$(sed -n 's/^module //p' "$dir/ergo.mod")
+  for p in $(packages "$dir"); do
+    rel=${p#"$dir"}; rel=${rel#/}
+    if [ -n "$rel" ]; then echo "package $module/$rel"; else echo "package $module"; fi
+    sum=$(cat "$p"/*.ergo | cksum)
+    echo "emitted test ${sum% *}-$FAKE_ERGO_EMIT_TEST fake/fake"
+  done
+  if [ -n "$FAKE_ERGO_PATTERN_EXTRA" ]; then echo "package $module/$FAKE_ERGO_PATTERN_EXTRA"; echo "emitted test 0- fake/fake"; fi
+  exit 0
+fi
+if [ "$1" = check ] && [ "${2%/...}" != "$2" ]; then
+  if [ -n "$FAKE_ERGO_CHECKFAIL" ]; then echo "fake ergo: check refused" >&2; exit 1; fi
+  for p in $(packages "${2%/...}"); do
+    printf '%s\n' '{"checked":true,"producer":{"digest":"'"${FAKE_ERGO_PRODUCER:-}"'"},"snapshot":{"producer":"'"${FAKE_ERGO_PRODUCER:-}"'","revision":"r"},"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
+  done
+  exit 0
+fi
 if [ "$2" = --emitted ]; then
   case "$1" in test|build) ;; *) echo "fake ergo: --emitted is only supported by build and test" >&2; exit 64;; esac
   [ $# -eq 3 ] || { echo "fake ergo: want $1 --emitted SRC, got $*" >&2; exit 64; }

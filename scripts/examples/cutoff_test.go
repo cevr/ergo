@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,39 @@ func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
 		}
 		if n, _ := strconv.Atoi(m[1]); s.replayed >= 0 && n != s.replayed {
 			t.Fatalf("step %d (compiler %s, %s): %d programs replayed, want %d\n%s", i, s.compiler, s.driver, n, s.replayed, out)
+		}
+		if i == 0 {
+			checkKeyCallsRunOnce(t, readCalls(t, f))
+		}
+	}
+}
+
+// checkKeyCallsRunOnce counts the fmt and check calls of the first step: a
+// missed program's key runs them and its fmt leg takes the key's result
+// (runner.keyed, GS20), so the cached run makes that call once, as the
+// fresh run does: twice in all. Its check leg runs its own check with the
+// law-verdict store off (checkTarget, LAWCACHE), so the native leg is
+// compared with a check that evaluated every law, never with the key's:
+// three in all (GS29, the batch 19+20+21 combination). It catches
+// gs20-key-results-dropped.
+func checkKeyCallsRunOnce(t *testing.T, calls []string) {
+	t.Helper()
+	counts := map[string]int{}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "fmt ") || strings.HasPrefix(c, "check ") {
+			counts[c]++
+		}
+	}
+	if len(counts) == 0 {
+		t.Fatalf("no fmt or check call in %q", calls)
+	}
+	for c, n := range counts {
+		want := 2
+		if strings.HasPrefix(c, "check ") {
+			want = 3
+		}
+		if n != want {
+			t.Errorf("ergo %s ran %d times in a cached and a fresh run of a miss; want %d (the fmt leg takes the key's result; the check leg runs its own)", c, n, want)
 		}
 	}
 }
