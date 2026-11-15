@@ -540,19 +540,13 @@ func (fc *funcCtx) joinResult(mark int, val string) string {
 	}
 	all := fc.out.String()
 	emitted := all[mark:]
-	// Cover marks (Unit.CoverMarks) before the statement stay where they
-	// are: the join is the one a build without them makes.
-	marks := 0
-	for strings.HasPrefix(emitted[marks:], coverMarkPrefix) {
-		marks += strings.IndexByte(emitted[marks:], '\n') + 1
-	}
 	prefix := strings.Repeat("\t", fc.depth) + val + " := "
-	call, ok := strings.CutPrefix(emitted[marks:], prefix)
+	call, ok := strings.CutPrefix(emitted, prefix)
 	if !ok || !strings.HasSuffix(call, "\n") || strings.Count(call, "\n") != 1 {
 		return val
 	}
 	fc.out.Reset()
-	fc.out.WriteString(all[:mark+marks])
+	fc.out.WriteString(all[:mark])
 	return strings.TrimSuffix(call, "\n")
 }
 

@@ -329,8 +329,8 @@
       "name": "gt7-any-base",
       "origin": "wf10 GATE2 GT7",
       "file": "scripts/mutants/ergolines.go",
-      "from": "if !own && path.Base(p.file) != base {",
-      "to": "if false && !own && path.Base(p.file) != base {",
+      "from": "if base != goFile && !slices.Contains(lines[lo-1].names, base) {",
+      "to": "if false && base != goFile && !slices.Contains(lines[lo-1].names, base) {",
       "rule": "A block the cover tool names by a directive's base name maps only to lines of files with that name.",
       "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
     },
@@ -360,6 +360,60 @@
       "to": "e.env(append(env, \"GOCOVERDIR=\"+dir)...)",
       "rule": "The coverage pass's children build the programs they lower as coverage builds, so .ergo lines are covered.",
       "gap": "Only an end-to-end coverage pass that builds the ergo CLI with coverage and runs a lowered example sees it (GT7 acceptance, gate2/GT7/accept.ts); no test of the package builds the CLI.",
+      "killers": []
+    },
+    {
+      "name": "gt7b-mark-ignored",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tif rest, ok := strings.CutPrefix(strings.TrimLeft(line, \"\\t \"), coverMark); ok {",
+      "to": "\t\tif rest, ok := strings.CutPrefix(strings.TrimLeft(line, \"\\t \"), coverMark); false && ok {",
+      "rule": "A cover mark gives the next Go line its std .ergo position.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-mark-moves-go",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\t\tif p, ok := parseDirective(rest); ok {\n\t\t\t\tcur = &p\n\t\t\t} else {\n\t\t\t\tcur = nil\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\tif strings.HasPrefix(line, \"func \") {",
+      "to": "\t\t\tif p, ok := parseDirective(rest); ok {\n\t\t\t\tcur = &p\n\t\t\t\tgoName = path.Base(p.file)\n\t\t\t} else {\n\t\t\t\tcur = nil\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\tif strings.HasPrefix(line, \"func \") {",
+      "rule": "A cover mark is a comment: it moves no Go position, so the cover tool's name of a block after it is still the Go file's or the last directive's.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-std-tree",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\treturn stdTree + rest, true",
+      "to": "\t\treturn \"std/\" + rest, true",
+      "rule": "A cover mark's std/… path is the checkout's internal/sketch/std/….",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-sub-dir",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tat := strings.LastIndexByte(rest, '/')",
+      "to": "\tat := strings.IndexByte(rest, '/')",
+      "rule": "A block of a package below the copy's root (KEY/p/NAME) is read from that package's Go files.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-e2e-mode-set",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/runner.go",
+      "from": "const coverMode = \"atomic\"",
+      "to": "const coverMode = \"set\"",
+      "rule": "The tests of the coverage pass count in the mode the programs they build count in: go tool covdata refuses two modes in one directory.",
+      "gap": "Only an end-to-end coverage pass sees it (GT7b acceptance, gate2/GT7b/accept.ts: rpc-mount-exact covered by the rpcgen loopback, cu6-into-hops-lost by lower:TestHTTPNetworkRuns); no test of the package runs the coverage pass.",
       "killers": []
     }
   ]
