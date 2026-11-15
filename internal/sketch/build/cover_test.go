@@ -21,8 +21,8 @@ import (
 // must land in the parent's GOCOVERDIR, and their blocks must be named
 // under the copy's own module path (ergo.local/cover/KEY), with the copy
 // at Cover/KEY. Mutants (testdata/mutants.json): gt7-no-ancestor,
-// gt7-not-unset, gt7-shared-module-path, gt7-replace-relative. It builds
-// Go because the facts are the go command's coverage build and the cover
+// gt7-not-unset, gt7-shared-module-path, gt7-replace-relative.
+// It builds Go because the facts are the go command's coverage build and the cover
 // runtime's counters; no in-process check runs them.
 func TestCoverBuildCountsInTheTestsDir(t *testing.T) {
 	if testing.Short() {
