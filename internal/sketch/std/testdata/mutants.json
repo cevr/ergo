@@ -321,6 +321,8 @@
       "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
       "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
-    }
+    },
+    {"name":"g1-start-drops-exit","origin":"wf10 FK9-g1b","file":"internal/sketch/std/machines/machines.ergo","from":"Work: m.Work, Exit: m.Exit}\n}","to":"Work: m.Work, Exit: func(s S) Option[func() needs W] { None }}\n}","rule":"machines.Start keeps the machine's exit actions (ExitSeesLastState starts its machine from an input).","killers":["lower:TestStdActorLawsRun"]},
+    {"name":"g1-durable-drops-exit","origin":"wf10 FK9-g1b","file":"internal/sketch/std/actor/actor.ergo","from":"}, After: m.After, Work: m.Work, Exit: m.Exit}","to":"}, After: m.After, Work: m.Work, Exit: func(s S) Option[func() needs W] { None }}","rule":"A durable actor keeps the machine's exit actions (ExitRunsOncePerEntry's drained cases start durable).","killers":["lower:TestStdActorLawsRun"]}
   ]
 }
