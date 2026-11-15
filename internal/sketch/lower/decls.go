@@ -1685,6 +1685,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	}
 	b.WriteString("type " + l.envName + " struct {\n")
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
+	if l.envFrom {
+		b.WriteString("\t" + envFrom + " *" + l.envName + "\n") // closures.go, envMemoText
+	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}

@@ -40,6 +40,9 @@ type Task struct {
 	// is in none. It is fixed before t runs, except for the task that
 	// makes an auto clock, which sets its own.
 	member atomic.Pointer[member]
+	// envMemo is the program's environment a host callback last made for t
+	// (EnvMemo), or nil.
+	envMemo atomic.Pointer[any]
 
 	mu sync.Mutex
 	// stop is made on first use under mu, by the task's Done or by its Go
@@ -125,6 +128,22 @@ func (t *Task) ID() uint64 { return t.id }
 
 // Span is the span or definition ID the task was started under (G2).
 func (t *Task) Span() string { return t.span }
+
+// EnvMemo is the value SetEnvMemo last stored on t, or nil. The lowering
+// keeps there the copy of a program environment that a host callback made
+// to run an Ergo body on t (internal/sketch/lower closures.go,
+// envMemoText), so the next callback on t with the same environment
+// reuses it instead of copying it again (ENV-COPY). Any goroutine may read
+// or write it; the value it holds is never written once stored.
+func (t *Task) EnvMemo() any {
+	if p := t.envMemo.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// SetEnvMemo stores e as t's EnvMemo.
+func (t *Task) SetEnvMemo(e any) { t.envMemo.Store(&e) }
 
 // Parent is the task that started t while t runs, and nil for a root or a
 // finished task. It is a live link, not a record: a defect keeps its ancestry

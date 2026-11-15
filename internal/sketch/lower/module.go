@@ -287,6 +287,7 @@ type lowerer struct {
 	envName   string
 	envFields map[string]string // by typeKey
 	envOrder  []envCap
+	envFrom   bool // a host callback reuses a task's copy (closures.go, envMemoText)
 
 	rtName, timeName, taskName string
 	// lineages numbers the one-extender sites, each a Lineage of the
