@@ -101,7 +101,7 @@ func ownerOf(t *etask) *entryRef {
 	return nil
 }
 
-func init() {
+func registerRunnerkids() {
 	stoppedOf := func(fn *check.Func) *check.Named { return stdRecord(fn, "Stopped", nil).t }
 	natives["actor.NewHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 2, 0); ab != nil {
@@ -110,6 +110,12 @@ func init() {
 		h := &hostV{stopped: stoppedOf(fn)}
 		if t := in.cur; t != nil && t.runs != nil && t.runs.cur != nil {
 			t.runs.newHosts = append(t.runs.newHosts, h)
+			return h, nil
+		}
+		if rec := recovering(in.cur); rec != nil {
+			// Made while a durable recover runs: unbound, for the
+			// recovered actor's first entry (runnerdurable.go).
+			rec.hosts = append(rec.hosts, h)
 			return h, nil
 		}
 		h.state = hostClosed // no entry owns it

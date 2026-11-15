@@ -53,10 +53,16 @@ func renameWords(s string, back bool) string {
 		if back {
 			from, to = to, from
 		}
-		s = regexp.MustCompile(`\b`+from+`\b`).ReplaceAllString(s, to)
+		// A generic builder lowers as its monomorphic instance too
+		// (DoMono_i1); the suffix stays.
+		s = regexp.MustCompile(`\b`+from+`((?:Mono_i[0-9]+)?)\b`).ReplaceAllString(s, to+"$1")
 	}
 	return s
 }
+
+// stdSuffix is a work declaration's name with the suffix the flat std
+// program adds when another std package declares the name too.
+var stdSuffix = regexp.MustCompile(`\b(Work|Start|Do|Attempt|outcome)_[0-9]+\b`)
 
 // workProgram is a machine whose one state owns the work of form, written
 // with std machines' names for the work record and its builders, or
@@ -167,7 +173,7 @@ func goDecls(text string) []string {
 	// The source tables (#230) name each call and declaration by its Ergo
 	// name and line, which the copy changes by design.
 	decls = slices.DeleteFunc(decls, func(d string) bool {
-		return strings.HasPrefix(d, "var ergoCalls ") || strings.HasPrefix(d, "var ergoDecls ")
+		return strings.HasPrefix(d, "var ergoCalls ") || strings.HasPrefix(d, "var ergoDecls ") || strings.HasPrefix(d, "var ergoCallNames ")
 	})
 	sort.Strings(decls)
 	return decls
@@ -188,7 +194,10 @@ func TestWorkIsAnOrdinaryRecord(t *testing.T) {
 		t.Run(form, func(t *testing.T) {
 			viaStd := mustLower(t, form+"-std", workProgram(form, true))
 			viaCopy := mustLower(t, form+"-copy", workProgram(form, false)+"\n"+copied+"\n")
-			a, b := goDecls(goMain(t, viaStd)), goDecls(renameWords(goMain(t, viaCopy), true))
+			// The flat std program names a std declaration that another
+			// std package also declares with a suffix (machines.Do is
+			// Do_1 beside actor.Do); the copy's names are unique.
+			a, b := goDecls(stdSuffix.ReplaceAllString(goMain(t, viaStd), "$1")), goDecls(renameWords(goMain(t, viaCopy), true))
 			// Every declaration of the std program is in the copy's; the
 			// copy has more only where it declares a builder the std
 			// program's lowering leaves out because it calls none.

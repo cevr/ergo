@@ -546,8 +546,9 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	// A law's body keeps values as a function's does: its copies are
-	// decided as a test's are (let before = b, then a write through &b).
+	// The value rule decides a law body's copies as it does a function's
+	// or a test's: unanalyzed, `let mut y = x` would share x (the
+	// law-body copy bug, corpus wave HP).
 	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {

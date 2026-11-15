@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"unsafe"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -12,7 +13,23 @@ type interp struct {
 	budget Budget
 	root   *check.Package
 	steps  int64
-	bytes  int64 // value bytes allocated, of budget.Bytes
+	bytes  int64 // value bytes allocated
+	// stepsAt and bytesAt are steps and bytes when the obligation in
+	// progress began (the package's initializers are their own): each
+	// obligation has the whole budget, so one that runs no longer leaves
+	// less to the obligations after it.
+	stepsAt, bytesAt int64
+	// factTables are the facts of each package's expressions (facts.go);
+	// factInfo and facts are the table in use.
+	factTables map[*check.Info]factTable
+	// framePool holds cleared call frames for reuse (freeFrame).
+	framePool []*frame
+	factInfo  *check.Info
+	facts     factTable
+	// params and owners are a function's parameters and a declaration's
+	// fact owner, read once (facts.go).
+	params map[*check.Func][]*check.Var
+	owners map[unsafe.Pointer]check.FactOwner
 	files  map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
@@ -37,6 +54,13 @@ type interp struct {
 	initials map[*check.TypeName]Value
 	// sym is the state of a symbolic run (symbolic.go), nil otherwise.
 	sym *symRun
+	// mapOrder is the order this run visits a Map's keys in, and
+	// mapRanged says a for over a Map ran (maporder.go).
+	mapOrder  mapOrder
+	mapRanged bool
+	// pairs are the by-name codec pairs every package's check recorded
+	// (codecwalk.go), built at the first codec call.
+	pairs map[*check.TypeName]*check.WirePair
 }
 
 // frame is one running body: a test, a law, a function call or a call of
@@ -48,7 +72,11 @@ type frame struct {
 	pkg  *check.Package
 	info *check.Info
 	decl syntax.Decl // the declaration whose body runs, for sites
-	vars map[*check.Var]*slot
+	vars *varTable
+	// ownVars is vars for a frame newFrame makes: one allocation, not two.
+	ownVars varTable
+	// tab is the fact table of the frame's package, once it asked (facts.go).
+	tab factTable
 	// env is a generic call's substitution, nil outside one.
 	env *tenv
 	// owner is the fact owner of the body (test, law or production): an
@@ -83,16 +111,49 @@ type frame struct {
 	returned *syntax.Ident
 	held     map[*syntax.Ident]bool
 	outer    *frame
+	// escaped marks a frame something may still hold once its call
+	// returns: a function literal or a trailing block made in it, or an
+	// actor it started (ORACLE O33). A call's frame that did not escape
+	// goes back to the pool (freeFrame).
+	escaped bool
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
-	return &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, vars: map[*check.Var]*slot{}, owner: pkg.OwnerOf(decl)}
+	var fr *frame
+	if n := len(in.framePool); n > 0 {
+		fr = in.framePool[n-1]
+		in.framePool = in.framePool[:n-1]
+		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, in.ownerOf(pkg, decl), in.table(pkg.Info)
+	} else {
+		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	}
+	fr.vars = &fr.ownVars
+	return fr
 }
+
+// freeFrame gives fr, a call's frame whose call returned, back to the
+// pool, unless it escaped (ORACLE O33). Nothing else holds a frame past
+// its call: a borrow of its slots ends with the call (the checker's
+// Borrows rules), a range ends with its loop, and its owned values were
+// released or handed to the caller when it ended. The frame is cleared,
+// so a use after it is freed reads no stale slot.
+func (in *interp) freeFrame(fr *frame) {
+	if fr.escaped || len(in.framePool) >= maxPooledFrames {
+		return
+	}
+	mk, mv := fr.ownVars.moreKeys[:0], fr.ownVars.moreVals[:0]
+	clear(mv[:cap(mv)])
+	*fr = frame{}
+	fr.ownVars.moreKeys, fr.ownVars.moreVals = mk, mv
+	in.framePool = append(in.framePool, fr)
+}
+
+const maxPooledFrames = 256
 
 // bind binds v to a new slot holding val.
 func (fr *frame) bind(v *check.Var, val Value) {
 	if v != nil {
-		fr.vars[v] = &slot{v: val}
+		fr.vars.bind(v, val)
 	}
 }
 
@@ -155,10 +216,10 @@ func (fr *frame) unsupported(at syntax.Node, format string, args ...any) *abrupt
 }
 
 // charge spends n steps before the work they pay for; it returns the
-// exhaustion when the budget cannot pay.
+// exhaustion when the obligation's budget cannot pay.
 func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || in.steps > in.budget.Steps-n {
-		in.steps = in.budget.Steps
+	if n < 0 || n > in.stepsLeft() {
+		in.steps = in.stepsAt + in.budget.Steps
 		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 	}
 	in.steps += n
@@ -169,13 +230,19 @@ func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
 // pay for; it returns the exhaustion when the budget cannot pay. Like a
 // step stop, a byte stop is incomplete, never passed.
 func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || in.bytes > in.budget.Bytes-n {
-		in.bytes = in.budget.Bytes
+	if n < 0 || in.bytes-in.bytesAt > in.budget.Bytes-n {
+		in.bytes = in.bytesAt + in.budget.Bytes
 		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation allocated its %d bytes", in.budget.Bytes))
 	}
 	in.bytes += n
 	return nil
 }
+
+// stepsLeft is what the obligation in progress may still spend.
+func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
+
+// begin gives the obligation that starts now the whole budget.
+func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }
 
 // build charges both budgets of an allocation of slots collection slots
 // and raw bytes: steps for the work, bytes for the values.
@@ -191,6 +258,11 @@ func (in *interp) build(fr *frame, at syntax.Node, steps, slots, raw int64) *abr
 
 // typeOf is x's checked type; a missing entry is an internal error.
 func (fr *frame) typeOf(x syntax.Expr) check.Type {
+	if fr.tab != nil {
+		if t := fr.tab.of(fr.info, x).typ; t != nil {
+			return t
+		}
+	}
 	t, ok := fr.info.Types[x]
 	if !ok || t == nil {
 		ice("no type for the expression at %d (%T)", x.Pos(), x)
@@ -212,7 +284,10 @@ func unparen(x syntax.Expr) syntax.Expr {
 // function with a body). It returns the result, or a ctlFail with the
 // callee's failure.
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
-	if at != nil && len(fn.Sig.TParams) > 0 && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
+	if len(fn.Sig.TParams) == 0 {
+		return in.callResolved(fr, at, fn, nil, args)
+	}
+	if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
 		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
 	}
 	// Each type argument is read in the caller's substitution.
@@ -249,6 +324,13 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			}
 			return nat(in, fr, site, fn, args)
 		}
+		if nat := goNativeOf(fn); nat != nil {
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			return nat(in, fr, site, fn, args)
+		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)
@@ -265,21 +347,10 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		if len(targs) != len(fn.Sig.TParams) {
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
-		callee.env = &tenv{m: map[*check.TypeParam]rtype{}}
-		for i, tp := range fn.Sig.TParams {
-			callee.env.m[tp] = targs[i]
-		}
+		n := len(targs)
+		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
 	}
-	var params []*check.Var
-	for _, field := range fn.Decl.Type.Params.List {
-		if len(field.Names) == 0 {
-			params = append(params, nil)
-		}
-		for _, id := range field.Names {
-			v, _ := callee.info.Defs[id].(*check.Var)
-			params = append(params, v)
-		}
-	}
+	params := in.paramsOf(fn)
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}
@@ -289,7 +360,9 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 	for _, p := range params {
 		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
 	}
-	return in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	v, ab := in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	in.freeFrame(callee)
+	return v, ab
 }
 
 // runFrame runs the body of a called frame one call deeper, and turns its

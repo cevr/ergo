@@ -31,7 +31,7 @@ func generic[P Pid](p P) int { p.Get() }
 		{"func main() needs Console {\n\tConsole.Println(\"\\(show(Real))\")\n}\n",
 			"S102 14:26 building Real as Pid, whose operations call Go, requires go.Foreign, which is not in the capability row of function main and no with provides it"},
 		{"func main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(generic(Real))\")\n}\n",
-			"S108 14:21 Real does not satisfy the constraint Pid of P: Real.Get requires {go.Foreign}, which the interface's method does not"},
+			"S108 14:21 Real does not satisfy the constraint Pid of generic's P: Real.Get requires {go.Foreign}, which the interface's method does not"},
 	} {
 		src := decls + "\n" + c.main
 		_, diags := CheckSource(src)

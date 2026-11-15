@@ -15,7 +15,7 @@ type S { n int } implements Conn
 func Read(s S) int { s.n }
 func Close(s S) {}
 
-func pair(c Conn) (Conn, int) takes c { (c, 1) }
+func pair(c own Conn) (Conn, int) { (c, 1) }
 
 func main() needs Console {
 	let c, n = pair(S{n: 2})

@@ -516,8 +516,17 @@ type GoType struct {
 // whether there is one. It reads the generated table (typeTable), so no
 // check parses Source (CHK1).
 func TypeOf(name string) (GoType, bool) {
-	t, ok := typeTable[name]
-	return t, ok
+	i, ok := slices.BinarySearchFunc(typeTable, name, func(r typeRow, name string) int { return strings.Compare(r.name, name) })
+	if !ok {
+		return GoType{}, false
+	}
+	return typeTable[i].typ, true
+}
+
+// typeRow is one row of typeTable: a TypeOf name and its shape.
+type typeRow struct {
+	name string
+	typ  GoType
 }
 
 // TypeIn is TypeOf for a declaration that names the type in the package

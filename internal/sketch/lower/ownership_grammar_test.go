@@ -856,7 +856,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 			arg = ", " + g.expr(oRes, d-1)
 			g.pos = pos
 		}
-		param, takes = ", a Res", " takes a"
+		param = ", a own Res"
 	}
 	saved := *g
 	g.scopes = [][]*ogVar{nil}

@@ -855,7 +855,9 @@ func TestRuntime199DefectOwner(t *testing.T) {
 		{"AddDefect", "capture"}:      true,
 		{"reportDefect", "report"}:    true,
 		{`"panic: "`, "reportDefect"}: true,
-		{"report", "Main"}:            true,
+		// Main's exit report, written by mainStatus, which Main exits with
+		// (SB8: standard output flushed after it).
+		{"report", "mainStatus"}: true,
 		// LogFailures writes a member's exit as main's exit report does.
 		{"report", "end"}: true,
 	}

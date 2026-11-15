@@ -156,15 +156,15 @@ func Wire(l lw) string needs B {
 }
 func lendC(c Closer) {}
 type C { Use() }
-type PcA { id int }
+type PcA { id int } implements C, Closer
 func Use(_ PcA) {}
 func Close(_ PcA) needs A { A.Use() }
-type PcB { id int }
+type PcB { id int } implements C, Closer
 func Use(_ PcB) {}
 func Close(_ PcB) needs B { B.Use() }
-type PcBox { r RB, id int }
+type PcBox { r RB, id int } implements C
 func Use(_ PcBox) {}
-type PcCon { id int }
+type PcCon { id int } implements C, Closer
 func Use(_ PcCon) {}
 func Close(_ PcCon) needs Console { Console.Println("closed") }
 `)

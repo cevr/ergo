@@ -17,7 +17,7 @@ type Broke { Why string }
 
 // Line is an open connection. It is a resource: its release (Close) hangs
 // up and frees the line. Read waits for the next frame.
-type Line { ID int, read func() string fails Hangup | Broke, hang func() }
+type Line { ID int, read func() string fails Hangup | Broke, hang func() } implements Closer
 
 // NewLine is the line id whose frames read gives and whose release calls
 // hang.

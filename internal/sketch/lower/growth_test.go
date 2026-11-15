@@ -2,6 +2,7 @@ package lower
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -96,7 +97,10 @@ func main() needs Console {
 		t.Fatalf("premise: mid has %d nodes and wrap %d; want 4 mids and a wrap within %d, 5 mids past it, mid within %d", m, w, inlineGrowth, inlineBudget)
 	}
 	calls := func(body, name string) int {
-		return len(regexp.MustCompile(`\b`+name+`(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllStringIndex(body, -1))
+		// A generic function over a record may lower as its monomorphic
+		// instance named after the record (BoxMidMono_i1).
+		title := strings.ToUpper(name[:1]) + name[1:]
+		return len(regexp.MustCompile(`\b(`+name+`|[A-Z]\w*`+title+`Mono_i[0-9]+)(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllStringIndex(body, -1))
 	}
 	for _, ref := range []bool{false, true} {
 		// The size rule (inline.go, Size; TestInlinePays) is held at its

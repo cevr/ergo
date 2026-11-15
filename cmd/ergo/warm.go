@@ -110,7 +110,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // warmOptions are the options that change a build's, a check's or a
 // test's answer.
 func warmOptions(opts fileOptions) string {
-	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json),
+	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
 		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run})
 }
 

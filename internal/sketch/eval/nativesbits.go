@@ -13,7 +13,7 @@ import (
 // from Go's own packages as each std doc comment names them: bits.X is
 // Go's math/bits.X, sha256.Sum the bytes of Go's sha256.Sum256 as a
 // string, slices.Repeat Go's slices.Repeat, whose panic is the defect.
-func init() {
+func registerNativesbits() {
 	pure := func(name string, f func(args []Value) Value) {
 		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {

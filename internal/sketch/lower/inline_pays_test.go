@@ -246,8 +246,14 @@ func main() needs Console {
 // refuse it. It reads the one promised fact, how many Go calls of each
 // function the lowered program keeps, under the rule and under the
 // reference (inlineCostLowering "budget"), which inlines every site the
-// rule before OPT8 admitted.
+// rule before OPT8 admitted. Tok's variants share flat payload slots
+// (U1), so its values are not boxed; the test lowers unions as interfaces
+// (unionLowering "interface"), where classify's and tiny's results are
+// the boxed results the rule is about.
 func TestInlinePays(t *testing.T) {
+	savedUnion := unionLowering
+	defer func() { unionLowering = savedUnion }()
+	unionLowering = "interface"
 	if n := inlineSizeOf(t, "classify"); n <= goSizeBudget {
 		t.Fatalf("classify has %d nodes, want more than goSizeBudget (%d)", n, goSizeBudget)
 	}
@@ -261,7 +267,7 @@ func TestInlinePays(t *testing.T) {
 		t.Fatalf("huge has %d nodes, want more than inlineBudget (%d)", n, inlineBudget)
 	}
 	calls := func(code, name string) int {
-		return len(regexp.MustCompile(`\b`+name+`(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllString(code, -1))
+		return len(regexp.MustCompile(`\b`+name+`(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllString(code, -1))
 	}
 	// pickAt and Picker.At run in a loop only through a function value
 	// (viaFn) and an operation (viaOp): the loop-path mark reaches them

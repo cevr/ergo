@@ -267,10 +267,12 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 }
 
 // stdCopyBaseline are the packages testdata/std-copy.txt held as differs
-// when the rule landed. A package may leave; none may join.
-// ui joined with the rule: it reached std on another branch while the rule
-// landed, and the two met in the merge of wf10/ia2b into wf10/domain.
+// when the rule landed. A package may leave; none may join, except once:
+// bench, dense, lint, ui and ui/layout joined with the batch-19/20
+// integration, units developed beside the rule (flat-union-std,
+// join-under-directive; lint is LINT4's).
 var stdCopyBaseline = []string{
+	"bench", "dense", "lint", "ui", "ui/layout",
 	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
 	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
 	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",

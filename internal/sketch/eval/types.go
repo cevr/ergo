@@ -3,6 +3,7 @@ package eval
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -13,7 +14,32 @@ import (
 // environment of the frame that holds it (rtype), so the evaluator needs
 // no instantiation of its own and makes no second type semantics.
 type tenv struct {
-	m map[*check.TypeParam]rtype
+	// tps are the parameters and args their arguments, by index: a
+	// generic declaration has few, so a scan finds one (ORACLE O33).
+	tps  []*check.TypeParam
+	args []rtype
+}
+
+// bind makes tp stand for r.
+func (e *tenv) bind(tp *check.TypeParam, r rtype) {
+	for i, p := range e.tps {
+		if p == tp {
+			e.args[i] = r
+			return
+		}
+	}
+	e.tps = append(e.tps, tp)
+	e.args = append(e.args, r)
+}
+
+// lookup is what tp stands for, if e binds it.
+func (e *tenv) lookup(tp *check.TypeParam) (rtype, bool) {
+	for i, p := range e.tps {
+		if p == tp {
+			return e.args[i], true
+		}
+	}
+	return rtype{}, false
 }
 
 // rtype is a checked type read in an environment: what it stands for in
@@ -31,7 +57,7 @@ func (e *tenv) resolve(t check.Type) rtype {
 		if !ok || r.env == nil {
 			return r
 		}
-		b, bound := r.env.m[tp]
+		b, bound := r.env.lookup(tp)
 		if !bound {
 			return r
 		}
@@ -145,6 +171,22 @@ func argsKey(n *check.Named, env *tenv) string {
 	if len(n.TArgs) == 0 {
 		return ""
 	}
+	if env == nil {
+		// Outside a generic body the key is n's alone: made once (O32).
+		if k, ok := plainKeys.Load(n); ok {
+			return k.(string)
+		}
+		k := buildArgsKey(n, nil)
+		plainKeys.Store(n, k)
+		return k
+	}
+	return buildArgsKey(n, env)
+}
+
+// plainKeys are the argsKey of each Named outside a generic body.
+var plainKeys sync.Map
+
+func buildArgsKey(n *check.Named, env *tenv) string {
 	var b strings.Builder
 	for i, a := range n.TArgs {
 		if i > 0 {

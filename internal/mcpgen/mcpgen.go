@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
@@ -60,7 +61,7 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 	if err != nil {
 		return Files{}, err
 	}
-	digest := digestLine.FindString(wire.Files["wire.ergo"])
+	digest := digestLine().FindString(wire.Files["wire.ergo"])
 	if digest == "" {
 		return Files{}, fmt.Errorf("mcpgen: the rpc generator wrote no digest line")
 	}
@@ -98,7 +99,7 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 	return Files{Dir: pkgName + "mcp", Files: map[string]string{"mcp.ergo": out}}, nil
 }
 
-var digestLine = regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`)
+var digestLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
 // reserved are the locals the generated functions use.
 var reserved = map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true}
@@ -592,7 +593,7 @@ func (g *gen) importBlock(text string) string {
 			code.WriteString(line + "\n")
 		}
 	}
-	src := stringLit.ReplaceAllString(code.String(), `""`)
+	src := stringLit().ReplaceAllString(code.String(), `""`)
 	var paths []string
 	for p, name := range g.imports {
 		if regexp.MustCompile(`(^|[^A-Za-z0-9_.])` + regexp.QuoteMeta(name) + `\.`).MatchString(src) {
@@ -613,4 +614,4 @@ func (g *gen) importBlock(text string) string {
 	return b.String()
 }
 
-var stringLit = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+var stringLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"(?:[^"\\]|\\.)*"`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)

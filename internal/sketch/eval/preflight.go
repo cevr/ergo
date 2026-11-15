@@ -21,7 +21,7 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
-		if !fn.Pkg.Host() && nativeOf(fn) != nil {
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {
 			return ""
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
@@ -51,10 +51,6 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false // only a known immediately-called literal is reached
-		case *syntax.RangeStmt:
-			if _, ok := fr.rtypeOf(x.X).under().t.(*check.Map); ok {
-				why = "Map iteration has unspecified order"
-			}
 		case *syntax.CallExpr:
 			c := fr.info.Calls[x]
 			if c == nil {
@@ -64,7 +60,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallPattern:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
 			case check.CallFunc:
 				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
 					why = "a generic call with unresolved operation witnesses"
@@ -77,11 +73,17 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				if x.Trailing != nil {
 					// The block of a native the evaluator runs (task.Go,
 					// scope.OnExit, tasks.Go) is a function of its own.
-					if c.Func.Pkg.Host() || nativeOf(c.Func) == nil {
+					// A function with an Ergo body takes it as its last
+					// argument, a function literal.
+					ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+					if !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 						why = "a call with a CallSite or trailing block"
 						break
 					}
 					why = p.body(fr, x.Trailing, x.Trailing, own, ops)
+					if why == "" && ergoBody && !preludeCollection(c.Func) {
+						why = p.function(fr, c.Func)
+					}
 					break
 				}
 				if !preludeCollection(c.Func) {

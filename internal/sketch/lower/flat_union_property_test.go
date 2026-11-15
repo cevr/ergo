@@ -140,7 +140,7 @@ func openH(name string, ok bool) Handle {
 	Shut
 }
 
-func useH(h Handle) needs Console takes h {
+func useH(h own Handle) needs Console {
 	match h {
 	case Opened as o:
 		Console.Println("use \(o.F.name)")
@@ -350,7 +350,7 @@ func open(name string, ok bool) Option[File] {
 	None
 }
 
-func use(o Option[File]) needs Console takes o {
+func use(o own Option[File]) needs Console {
 	match o {
 	case Some[File] as s:
 		Console.Println("use \(s.Value.name)")

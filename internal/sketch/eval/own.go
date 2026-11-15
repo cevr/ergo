@@ -86,7 +86,7 @@ func (in *interp) ownVar(fr *frame, v *check.Var, at syntax.Node) {
 	if d == nil {
 		return
 	}
-	s := fr.vars[v]
+	s, _ := fr.vars.get(v)
 	if s == nil {
 		ice("the owned local %s has no slot", v.Name)
 	}
@@ -242,7 +242,7 @@ func (in *interp) releaseAt(fr *frame, key syntax.Node) *abrupt {
 	if len(fr.info.Releases) == 0 || key == nil {
 		return nil
 	}
-	for _, r := range fr.info.Releases[key] {
+	for _, r := range in.sx(fr, key).releases {
 		var e *owned
 		if r.Var != nil {
 			e = fr.lookupOwned(r.Var)

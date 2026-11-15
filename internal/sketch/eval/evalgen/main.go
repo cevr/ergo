@@ -30,11 +30,12 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline", "codec", "durable"}
 
 const mainPrelude = `import actor
 import bits
 import io
+import json
 import machines
 import os
 import queue
@@ -45,6 +46,7 @@ import strings
 import sync
 import task
 import testing
+import timeout
 import time
 
 let journal = sync.NewRef[[]string]([]string{})
@@ -60,6 +62,54 @@ func flush() needs Console {
 }
 
 type Res { name string } implements Closer
+
+type Pt { X int8, Label string }
+type Circle { R float64 }
+type Square { Side int }
+type Shape = Circle | Square
+type Doc {
+	Name string,
+	Pts []Pt,
+	Shape Shape,
+	Tags Map[string, uint8],
+	Pair (int, bool),
+	Note json.Optional[string],
+	Level json.Nullable[int],
+	ID int "doc_id",
+	HTTPCode int,
+}
+
+func showDoc(tag string, text string) needs Console {
+	let c = json.Codec[Doc]{MaxBytes: 0, MaxDepth: 0}
+	let d = json.Decode(c, text) catch {
+	case json.Malformed as m:
+		Console.Println(tag + " malformed \(m.Offset) \(m.Reason)")
+		return
+	case WireWrongKind as w:
+		Console.Println(tag + " wrong \(w.Path) \(w.Want)")
+		return
+	case WireMissingField as w:
+		Console.Println(tag + " missing \(w.Path) \(w.Field)")
+		return
+	case WireUnknownTag as w:
+		Console.Println(tag + " tag \(w.Path) \(w.Tag)")
+		return
+	}
+	Console.Println(tag + " " + json.Encode(c, d))
+}
+
+func showValue(tag string, text string) needs Console {
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let v = json.Decode(c, text) catch {
+	case json.Malformed as m:
+		Console.Println(tag + " malformed \(m.Offset) \(m.Reason)")
+		return
+	case _:
+		Console.Println(tag + " shape")
+		return
+	}
+	Console.Println(tag + " " + json.Encode(c, v))
+}
 
 type Box { a []int, b []int }
 
@@ -108,6 +158,32 @@ func both(a *Acc, v int) {
 	push(a, v)
 	if a.size() == 3 {
 		bump(a, 0)
+	}
+}
+
+// Id, Tab and FK are the keyed half of the maps scenario: a record key, as
+// dense's ID[K] is, written through borrows, and a float field whose -0
+// is the key 0.
+type Id { n uint32 }
+
+type FK { x float64 }
+
+type Tab { rows []int }
+
+func tput(t *Tab, v int) Id {
+	let id = Id{n: uint32(len(t.rows))}
+	t.rows = t.rows.Append(v)
+	id
+}
+
+func tset(t *Tab, id Id, v int) { t.rows[int(id.n)] = v }
+
+func count(c *Map[Id, int], id Id, by int) {
+	match (*c).Get(id) {
+	case Some[int] as s:
+		(*c)[id] = s.Value + by
+	case None:
+		(*c)[id] = by
 	}
 }
 
@@ -205,7 +281,7 @@ func hop(c KidActor, k int) {
 func nestWork(s Nest) Option[machines.Work[NestSig, Scheduler]] {
 	match s {
 	case Busy as b:
-		Some{machines.Work{Listen: func(send func(e NestSig)) needs Scheduler {
+		Some{machines.Work[NestSig, Scheduler]{Start: func(send entry func(e NestSig)) needs Scheduler {
 			let c = actor.ChildIn(send, b.kid, machines.Start(Kids{}, b.n), 2, func(o int) NestSig { Got{v: o} })
 			hop(c, b.n + 1)
 		}}}
@@ -215,6 +291,30 @@ func nestWork(s Nest) Option[machines.Work[NestSig, Scheduler]] {
 }
 
 type Nester machine[Nest, NestSig] { initial: nestStart, step: nestStep, work: nestWork }
+
+type Lost {}
+
+// replayNest is the Nester's state after sigs from its start: a durable
+// recover's fold, whose Spawn makes a host no entry owns yet.
+func replayNest(sigs []NestSig) Nest {
+	let mut s = nestStart(0)
+	for e in sigs {
+		match nestStep(s, e) {
+		case Enter[Nest] as en:
+			s = en.Next
+		case Stay[Nest] as st:
+			s = st.Next
+		case Emit[Nest, int] as em:
+			s = em.Next
+		case Tell[Nest, int] as tl:
+			s = tl.Next
+		case Ignore:
+		case Reject:
+		case Done[int]:
+		}
+	}
+	s
+}
 
 func idleAt(s Nest, r int) bool {
 	match s {
@@ -242,6 +342,8 @@ func told(d Decision[Ctr, int]) string {
 		"stay"
 	case Emit[Ctr, int] as e:
 		"emit \(e.Output)"
+	case Tell[Ctr, int] as tl:
+		"tell \(tl.Output)"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -258,7 +360,7 @@ func Close(r Res) { note("close " + r.name) }
 
 func use(r Res) { note("use " + r.name) }
 
-func take(r Res) takes r {
+func take(r own Res) {
 	use(r)
 }
 
@@ -277,6 +379,11 @@ func imports() needs Scheduler | time.Clock {
 	let _ = bits.Len(1)
 	let _ = sha256.Sum("")
 	let _ = slices.Repeat([]int{}, 1)
+	let _ = timeout.After(1s) { 1 } catch {
+	case timeout.Expired:
+		0
+	}
+	let _ = json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, 1)
 }
 
 // recorder uses io and os too.
@@ -316,7 +423,15 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(15) {
+		switch g.r.IntN(19) {
+		case 18:
+			g.durable(k)
+		case 17:
+			g.codec(k)
+		case 16:
+			g.deadline(k)
+		case 15:
+			g.maps(k)
 		case 14:
 			g.bits(k)
 		case 13:
@@ -790,6 +905,155 @@ func (g *mainGen) actor(k int) {
 	}
 }
 
+// deadline: timeout.After on the live Scheduler, a body that ends at once
+// (its value, or its typed failure) against a deadline of an hour, or a
+// body that sleeps an hour against a deadline of a millisecond (Expired,
+// the body stopped: its note never written). No two of them race.
+func (g *mainGen) deadline(k int) {
+	g.kinds["deadline"]++
+	g.line("")
+	g.line("type Late%d { n int }", k)
+	g.line("")
+	g.line("func late%d(n int) int fails Late%d {", k, k)
+	g.line("\treturn Late%d{n: n}", k)
+	g.line("}")
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tdeadline%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	// An Ergo function's trailing block is its last argument.
+	g.line("func both%d(base int, body func() int) int { base + body() + body() }", k)
+	g.line("")
+	g.line("func deadline%d() needs Console | Scheduler {", k)
+	tw := g.r.IntN(9)
+	g.line("\tlet b%d = %d", k, tw)
+	g.line("\tConsole.Println(\"s%d both \\(both%d(1) { b%d * 10 })\")", k, k, k)
+	fmt.Fprintf(&g.out, "s%d both %d\n", k, 1+20*tw)
+	for i := range 1 + g.r.IntN(3) {
+		v := g.r.IntN(50)
+		switch g.r.IntN(3) {
+		case 0:
+			g.line("\tlet v%d = timeout.After(1h) { %d } catch {", i, v)
+			fmt.Fprintf(&g.out, "s%d %d %d\n", k, i, v)
+		case 1:
+			g.line("\tlet v%d = timeout.After(1h) { try late%d(%d) } catch {", i, k, v)
+			g.line("\tcase Late%d as l:", k)
+			g.line("\t\t-l.n")
+			fmt.Fprintf(&g.out, "s%d %d %d\n", k, i, -v)
+		default:
+			g.line("\tlet v%d = timeout.After(1ms) {", i)
+			g.line("\t\tScheduler.Sleep(1h)")
+			g.line("\t\tnote(\"s%d late\")", k)
+			g.line("\t\t%d", v)
+			g.line("\t} catch {")
+			fmt.Fprintf(&g.out, "s%d %d -1\n", k, i)
+		}
+		g.line("\tcase timeout.Expired:")
+		g.line("\t\t-1")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d %d \\(v%d)\")", k, i, i)
+	}
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+}
+
+// maps: fors over a seeded Map whose outcome no order decides: a count
+// and a sum; a loop that deletes every other key at its first entry
+// (Go visits no deleted entry, so one entry is visited in any order); a
+// loop that zeroes every other value at its first entry (each entry's
+// value is read when it is reached, so one value is not zero).
+func (g *mainGen) maps(k int) {
+	g.kinds["maps"]++
+	m := map[int]int{}
+	var lits []string
+	for range g.r.IntN(6) {
+		key, v := g.r.IntN(20)-5, 1+g.r.IntN(9)
+		if _, dup := m[key]; dup {
+			continue
+		}
+		m[key] = v
+		lits = append(lits, fmt.Sprintf("%d: %d", key, v))
+	}
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet m = Map[int, int]{%s}", strings.Join(lits, ", "))
+	g.line("\tlet mut n = 0")
+	g.line("\tlet mut sum = 0")
+	g.line("\tfor key, v in m {")
+	g.line("\t\tn = n + 1")
+	g.line("\t\tsum = sum + key * v")
+	g.line("\t}")
+	g.line("\tlet mut d = m")
+	g.line("\tlet mut seen = 0")
+	g.line("\tfor key, _ in d {")
+	g.line("\t\tseen = seen + 1")
+	g.line("\t\tfor o, _ in m {")
+	g.line("\t\t\tif o != key {")
+	g.line("\t\t\t\td = d.Delete(o)")
+	g.line("\t\t\t}")
+	g.line("\t\t}")
+	g.line("\t}")
+	g.line("\tlet mut z = m")
+	g.line("\tlet mut live = 0")
+	g.line("\tfor key, v in z {")
+	g.line("\t\tif v != 0 {")
+	g.line("\t\t\tlive = live + 1")
+	g.line("\t\t}")
+	g.line("\t\tfor o, _ in m {")
+	g.line("\t\t\tif o != key {")
+	g.line("\t\t\t\tz[o] = 0")
+	g.line("\t\t\t}")
+	g.line("\t\t}")
+	g.line("\t}")
+	// Record keys: each entry's row id counted twice, once by the id
+	// tput returned and once by an equal record built anew, so the two
+	// are one key; the -0 of a float field is the key 0.
+	g.line("\tlet mut t = Tab{rows: []int{}}")
+	g.line("\tlet mut c = Map[Id, int]{}")
+	g.line("\tfor key, v in m {")
+	g.line("\t\tlet id = t.tput(v)")
+	g.line("\t\tcount(&c, id, key)")
+	g.line("\t\tcount(&c, Id{n: id.n}, 1)")
+	g.line("\t\tt.tset(id, v * 2)")
+	g.line("\t}")
+	g.line("\tlet mut total = 0")
+	g.line("\tlet mut ids = 0")
+	g.line("\tfor id, by in c {")
+	g.line("\t\ttotal = total + by")
+	g.line("\t\tids = ids + int(id.n)")
+	g.line("\t}")
+	g.line("\tlet mut rows = 0")
+	g.line("\tfor r in t.rows {")
+	g.line("\t\trows = rows + r")
+	g.line("\t}")
+	g.line("\tlet zero = 0.0")
+	g.line("\tlet mut f = Map[FK, int]{FK{x: zero}: 1}")
+	g.line("\tf[FK{x: -zero}] = 2")
+	g.line("\tlet mut fv = 0")
+	g.line("\tmatch f.Get(FK{x: zero}) {")
+	g.line("\tcase Some[int] as s:")
+	g.line("\t\tfv = s.Value")
+	g.line("\tcase None:")
+	g.line("\t\tfv = -1")
+	g.line("\t}")
+	g.line("\tf = f.Delete(FK{x: -zero})")
+	g.line("\tConsole.Println(\"s%d \\(n) \\(sum) \\(seen) \\(len(d)) \\(live) \\(len(c)) \\(total) \\(ids) \\(rows) \\(fv) \\(len(f))\")", k)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	sum, total, rows := 0, 0, 0
+	for key, v := range m {
+		sum += key * v
+		total += key + 1
+		rows += 2 * v
+	}
+	one := min(len(m), 1)
+	fmt.Fprintf(&g.out, "s%d %d %d %d %d %d %d %d %d %d 2 0\n", k, len(m), sum, one, one, one, len(m), total, len(m)*(len(m)-1)/2, rows)
+}
+
 // bits: std bits of a seeded uint, slices.Repeat of a seeded list.
 func (g *mainGen) bits(k int) {
 	g.kinds["bits"]++
@@ -818,6 +1082,68 @@ func (g *mainGen) bits(k int) {
 			fmt.Fprintf(&g.out, "s%d y %d\n", k, y)
 		}
 	}
+}
+
+// durable: the Nester as a durable actor over a journal (a Ref) that
+// holds one Spawn: the recover replays it, so the first entry is Busy
+// with the host the replay made, which that entry binds and its work
+// fills with a Kids child; save journals every committed signal, so the
+// journal's length at the end counts the commits.
+func (g *mainGen) durable(k int) {
+	g.kinds["durable"]++
+	capacity := g.r.IntN(3)
+	n0 := 1 + g.r.IntN(4)
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tdurable%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	g.line("func durable%d() needs Console | Scheduler {", k)
+	g.line("\tlet j = sync.NewRef[[]NestSig]([]NestSig{Spawn{n: %d}})", n0)
+	g.line("\tlet a = actor.StartDurable(machines.Start(Nester{}, 0), %d, func(o int) { note(\"s%d out \\(o)\") }, func() Option[Nest] fails Lost {", capacity, k)
+	g.line("\t\tlet sigs = j.Get()")
+	g.line("\t\tif len(sigs) == 0 {")
+	g.line("\t\t\treturn Lost")
+	g.line("\t\t}")
+	g.line("\t\tSome[Nest]{Value: replayNest(sigs)}")
+	g.line("\t}, func(prev Nest, next Nest, sig NestSig) fails Lost {")
+	g.line("\t\tif len(j.Get()) > 1000 {")
+	g.line("\t\t\treturn Lost")
+	g.line("\t\t}")
+	g.line("\t\tj.Update(func(xs []NestSig) []NestSig { xs.Append(sig) })")
+	g.line("\t}) catch {")
+	g.line("\tcase Lost:")
+	g.line("\t\treturn")
+	g.line("\t}")
+	commits := 1
+	rounds := 1 + g.r.IntN(3)
+	for r := 1; r <= rounds; r++ {
+		n := n0
+		if r > 1 {
+			n = 1 + g.r.IntN(4)
+			commits++ // the Spawn's Enter
+			g.line("\ta.Send(Spawn{n: %d}) catch {", n)
+			g.line("\tcase actor.Stopped:")
+			g.line("\t\treturn")
+			g.line("\t}")
+		}
+		commits += n // n-1 Stays and the Emit
+		g.line("\tlet w%d = actor.WaitFor(a, func(s Nest) bool { idleAt(s, %d) }) catch {", r, r)
+		g.line("\tcase actor.Stopped:")
+		g.line("\t\treturn")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d round \\(lastOf(w%d))\")", k, r)
+		sum := n * (n + 1) / 2
+		fmt.Fprintf(&g.out, "s%d out %d\ns%d round %d\n", k, sum, k, sum)
+	}
+	g.line("\ta.Stop()")
+	g.line("\tConsole.Println(\"s%d journal \\(len(j.Get()))\")", k)
+	fmt.Fprintf(&g.out, "s%d journal %d\n", k, commits)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
 }
 
 // kids: the Nester actor, each Spawn entering a Busy entry whose host

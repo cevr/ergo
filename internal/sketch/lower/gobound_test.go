@@ -30,17 +30,18 @@ import (
 // refuses at its source, falls back to a plain `let _ =` call and then
 // drops out: only an internal error or Go that does not type-check fails.
 // os.ReadDir must keep its full form, so a broken generator cannot drop
-// every use unseen; and a diagnostic of the generator's own text (a takes
-// clause that names no parameter of the use) fails, so a change of the
+// every use unseen; and a diagnostic of the generator's own text (own on a
+// parameter that is no resource, or a retired form) fails, so a change of the
 // binding format cannot starve the property unseen (goBoundOwnFault).
 //
-// Each use writes its own takes clause in its own names, read from the
-// binding's clause and the checker's conservative Go default, so it holds
-// with and without clause inference (q137), and writes in its needs clause
-// what the release of its result requires, which the checker names
-// (goBoundReleaseNeed: base64.NewEncoder's io.WriteCloser); a Go pointer is passed as a
-// go.Ref, and a method value's literal of a method that takes its receiver
-// takes the receiver as a parameter instead of capturing it.
+// Each use writes own before each parameter it keeps, read from the
+// binding's own and the checker's conservative Go default, so it holds
+// with and without inference (q137), and writes in its needs clause what
+// the release of its result requires, which the checker names
+// (goBoundReleaseNeed: base64.NewEncoder's io.WriteCloser); a Go pointer
+// is passed as a go.Ref,
+// and a method value's literal of a method that keeps its receiver takes
+// the receiver as an own parameter instead of capturing it.
 //
 // A struct method that takes a Go pointer has a captured-receiver use: the
 // call on a let mut that an escaping literal captured. A binding method's
@@ -172,7 +173,7 @@ type goBoundUse struct {
 	// plainImports, when set, are the plain form's import lines: a method
 	// value's literal writes the result type.
 	plainImports []string
-	// crossing are the names of the use's takes clauses whose type the
+	// crossing are the names of the use's own parameters whose type the
 	// checker reports is not a resource (S110, mode crossing): the
 	// program writes its clauses without them (goBoundProgram).
 	crossing map[string]bool
@@ -242,9 +243,10 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 	var out []goBoundUse
 	// add adds the uses of the function or method named fn, of the
 	// signature ft whose text ends at end: its call, and for a method
-	// (recv, its receiver type's text) its method value. recvName is a
-	// struct method's receiver name; an interface operation (op) has none.
-	add := func(target, fn, recv, recvName string, op bool, tps *syntax.FieldList, ft *syntax.FuncType, end syntax.Pos) {
+	// (recv, its receiver type's text) its method value. recvOwn says the
+	// binding keeps the receiver (own before a struct method's receiver
+	// type, or before an interface operation's name, op).
+	add := func(target, fn, recv string, recvOwn, op bool, tps *syntax.FieldList, ft *syntax.FuncType, end syntax.Pos) {
 		tparams := map[string]bool{}
 		tpText := ""
 		if tps != nil {
@@ -266,66 +268,40 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		}
 		// The literal of a method value takes its own parameters, p0…,
 		// since a name of the function's own is not rebound (196v).
-		var params, litParams, litArgs, args, bindNames []string
-		var callback []bool
+		var litArgs, args, types []string
+		var callback, taken []bool
 		pointerArg := false
-		params = append(params, "c bool")
 		callee := name + "." + fn
 		recvType := goBoundOwned(qualify(recv))
 		if recv != "" {
-			params = append(params, "recv "+recvType)
 			callee = "recv." + fn
 		}
+		// What the call keeps: the binding's own (before a parameter's
+		// type, or for the receiver before the receiver's type or the
+		// operation's name), and the conservative Go default the checker
+		// adds to it: a parameter or receiver Go may keep unless
+		// runtime/v1's reviewed table lends it (interop.md Resources 5,
+		// check/hostclauses.go). A callback keeps its own mode.
+		takesRecv := recv != "" && recvOwn
 		if ft.Params != nil {
 			for _, fl := range ft.Params.List {
 				n := max(1, len(fl.Names))
-				for j := range n {
+				for range n {
 					a := fmt.Sprintf("a%d", len(args))
 					p := fmt.Sprintf("p%d", len(args))
 					args, litArgs = append(args, a), append(litArgs, p)
 					pt := goBoundOwned(qualify(text(fl.Type)))
 					pointerArg = pointerArg || strings.HasPrefix(text(fl.Type), "*")
 					_, isFunc := fl.Type.(*syntax.FuncType)
-					if isFunc && v1.GoSyncCallbacks[target] == "" && !strings.HasPrefix(pt, "escaping ") {
+					if isFunc && (fl.Own != nil || v1.GoSyncCallbacks[target] == "") {
 						// Go may keep a callback no review lists
 						// (check/hostclauses.go), so the use's own
-						// callback escapes (types.md, Function values 2).
-						pt = "escaping " + pt
+						// callback is owned (types.md, Function values 2).
+						pt = "own " + pt
 					}
-					params = append(params, a+" "+pt)
-					litParams = append(litParams, p+" "+pt)
-					bn := ""
-					if j < len(fl.Names) {
-						bn = fl.Names[j].Name
-					}
-					bindNames = append(bindNames, bn)
+					types = append(types, pt)
 					callback = append(callback, isFunc)
-				}
-			}
-		}
-		// What the call takes: the binding's clause, read through the
-		// use's names (a parameter by its place, the receiver's name or a
-		// bare takes as recv), and the conservative Go default the checker
-		// adds to it: a parameter or receiver Go may keep unless
-		// runtime/v1's reviewed table lends it (interop.md Resources 5,
-		// check/hostclauses.go). A callback keeps its own clause.
-		taken := make([]bool, len(args))
-		takesRecv := false
-		if m := goBoundTakes.FindString(src[ft.Params.End():end]); m != "" {
-			list := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(m), "takes"))
-			if strings.Trim(list, ", ") == "" {
-				takesRecv = recv != ""
-			}
-			for _, w := range strings.Split(list, ",") {
-				w = strings.TrimSpace(w)
-				if w == "" {
-					continue
-				}
-				if recvName != "" && w == recvName {
-					takesRecv = true
-				}
-				if i := slices.Index(bindNames, w); i >= 0 {
-					taken[i] = true
+					taken = append(taken, !isFunc && fl.Own != nil)
 				}
 			}
 		}
@@ -341,20 +317,21 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 				taken[i] = true
 			}
 		}
-		clause := func(self string, names []string) string {
-			var out []string
-			if takesRecv && self != "" {
-				out = append(out, self)
+		// mode is the mode word a kept parameter's type takes.
+		mode := func(keep bool) string {
+			if keep {
+				return "own "
 			}
-			for i, n := range names {
-				if taken[i] {
-					out = append(out, n)
-				}
-			}
-			if len(out) == 0 {
-				return ""
-			}
-			return " takes " + strings.Join(out, ", ")
+			return ""
+		}
+		params := []string{"c bool"}
+		if recv != "" {
+			params = append(params, "recv "+mode(takesRecv)+recvType)
+		}
+		var litParams []string
+		for i, pt := range types {
+			params = append(params, args[i]+" "+mode(taken[i])+pt)
+			litParams = append(litParams, litArgs[i]+" "+mode(taken[i])+pt)
 		}
 		results := 0
 		resEnd := ft.Params.End()
@@ -369,7 +346,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			}
 		}
 		rows := goBoundRows(qualify(src[resEnd:end]))
-		sig := strings.TrimSpace(qualify(tpText)+"("+strings.Join(params, ", ")+") "+rows) + clause("recv", args)
+		sig := strings.TrimSpace(qualify(tpText) + "(" + strings.Join(params, ", ") + ") " + rows)
 		try := ""
 		if strings.Contains(rows, "fails") {
 			try = "try "
@@ -438,11 +415,11 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		// The literal writes the result type, so it imports what that
 		// names.
 		litRows := goBoundRows(qualify(src[ft.Params.End():end]))
-		lit := strings.TrimSpace("func("+strings.Join(litParams, ", ")+") "+litRows) + clause("", litArgs) + " { " + try + callee + "(" + strings.Join(litArgs, ", ") + ") }"
+		lit := strings.TrimSpace("func("+strings.Join(litParams, ", ")+") "+litRows) + " { " + try + callee + "(" + strings.Join(litArgs, ", ") + ") }"
 		fullV, _ := forms("f", args)
 		plainV := fullV
 		if takesRecv {
-			lit = strings.TrimSpace("func("+strings.Join(append([]string{"rv " + recvType}, litParams...), ", ")+") "+litRows) + clause("rv", litArgs) + " { " + try + "rv." + fn + "(" + strings.Join(litArgs, ", ") + ") }"
+			lit = strings.TrimSpace("func("+strings.Join(append([]string{"rv own " + recvType}, litParams...), ", ")+") "+litRows) + " { " + try + "rv." + fn + "(" + strings.Join(litArgs, ", ") + ") }"
 			plainV, _ = forms("f", append([]string{"recv"}, args...))
 		}
 		litPaths := slices.Clone(paths)
@@ -466,14 +443,12 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			if d.Extern == nil {
 				continue
 			}
-			recv, recvName := "", ""
+			recv, recvOwn := "", false
 			if d.Recv != nil {
 				recv = text(d.Recv.List[0].Type)
-				if ns := d.Recv.List[0].Names; len(ns) > 0 {
-					recvName = ns[0].Name
-				}
+				recvOwn = d.Recv.List[0].Own != nil
 			}
-			add(d.Extern.Target.Value, d.Name.Name, recv, recvName, false, d.TypeParams, d.Type, d.End())
+			add(d.Extern.Target.Value, d.Name.Name, recv, recvOwn, false, d.TypeParams, d.Type, d.End())
 		case *syntax.TypeDecl:
 			// The operations of a Go interface type (io/fs.DirEntry's
 			// Name), each a method of a value of the type.
@@ -487,7 +462,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 					continue
 				}
 				for _, n := range m.Names {
-					add(d.Extern.Target.Value+"."+n.Name, n.Name, d.Name.Name, "", true, nil, ft, m.Type.End())
+					add(d.Extern.Target.Value+"."+n.Name, n.Name, d.Name.Name, m.Own != nil, true, nil, ft, m.Type.End())
 				}
 			}
 		}
@@ -498,16 +473,9 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 	return out
 }
 
-// goBoundTakes is a signature's takes clause, to its end.
-var goBoundTakes = regexp.MustCompile(`(^|\s)takes\b.*$`)
-
-// goBoundRows is the rows text of a binding's signature, trimmed, with its
-// takes clause cut. The clause names the binding's parameters (r) or,
-// bare, an interface operation's receiver; the use renames them (a0…, p0…,
-// recv, rv) and adds c, so it writes its own clause in those names (add's
-// clause), never the binding's text and never one left to inference (q137).
+// goBoundRows is the rows text of a binding's signature, trimmed.
 func goBoundRows(s string) string {
-	return strings.TrimSpace(goBoundTakes.ReplaceAllString(strings.TrimSpace(s), ""))
+	return strings.TrimSpace(s)
 }
 
 // goBoundOwned is the type a use declares for a parameter of the binding's
@@ -523,12 +491,13 @@ func goBoundOwned(t string) string {
 }
 
 // goBoundOwnFault marks a diagnostic that the generator's own text causes:
-// a takes clause that names no parameter of the use, or one the use leaves
-// out (a resource the call takes, or a capture it hands off). Such a use
+// own on a name whose type is no resource after narrowing, a retired
+// form, or an own the use leaves out (a resource the call takes, or a
+// capture it hands off). Such a use
 // steps down on the generator, not on the binding, so it fails the
 // property: a change of the binding format must not starve the property
 // unseen (batch 17 M2).
-var goBoundOwnFault = regexp.MustCompile(`takes \S+ names no parameter|takes names \S+ twice|a bare takes names|takes \S+ has no effect|is lent to this function literal, so it cannot hand|cannot hand \S+ off`)
+var goBoundOwnFault = regexp.MustCompile(`takes \S+ has no effect|is gone: write own|is lent to this function literal, so it cannot hand|cannot hand \S+ off`)
 
 // goBoundFalseWrite is the diagnostic of a write after an escaping capture
 // (check/escaping.go, writeAfterText and captureWriteText). A use writes
@@ -538,9 +507,9 @@ var goBoundFalseWrite = regexp.MustCompile(`is written here after a function lit
 
 // goBoundCrossing is S110 on a name of a use's clause: the name's type
 // crosses (mode crossing, resources R1), a fact of the type the checker
-// decides and the binding's text does not state (a binding's takes of a
-// crossing value is inert). The generator writes the clause without the
-// name and checks the program again; this is not a step down.
+// decides and the binding's text does not state (a binding's own on a
+// crossing value is inert). The generator writes the name without own and
+// checks the program again; this is not a step down.
 var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 
 // goBoundReleaseNeed is S102 on a capability that the release of a value
@@ -549,38 +518,34 @@ var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 // use's needs clause and checks the program again; not a step down.
 var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of function use\d+`)
 
-// goBoundClauseText is a clause the generator writes, before its body.
-var goBoundClauseText = regexp.MustCompile(` takes (\w+(?:, \w+)*) \{`)
+// goBoundOwnText is a kept parameter the generator writes: its name and
+// own before a type that is not a function's (a callback's own is its
+// mode, not a kept resource).
+var goBoundOwnText = regexp.MustCompile(`\b(\w+) own (?:func\b)?`)
 
-// goBoundNames are the names u's clauses write in form f.
+// goBoundNames are the names u's kept parameters write in form f.
 func goBoundNames(u goBoundUse, f goBoundForm) map[string]bool {
 	out := map[string]bool{}
-	for _, m := range goBoundClauseText.FindAllStringSubmatch(goBoundText(u, f), -1) {
-		for _, n := range strings.Split(m[1], ", ") {
-			out[n] = true
+	for _, m := range goBoundOwnText.FindAllStringSubmatch(goBoundText(u, f), -1) {
+		if !strings.HasSuffix(m[0], "func") {
+			out[m[1]] = true
 		}
 	}
 	return out
 }
 
-// goBoundText is u's text in form f, its clauses without u's crossing
-// names.
+// goBoundText is u's text in form f, without own on u's crossing names.
 func goBoundText(u goBoundUse, f goBoundForm) string {
 	text := u.full
 	if f == goBoundPlain {
 		text = u.short
 	}
-	text = goBoundClauseText.ReplaceAllStringFunc(text, func(m string) string {
-		var keep []string
-		for _, n := range strings.Split(goBoundClauseText.FindStringSubmatch(m)[1], ", ") {
-			if !u.crossing[n] {
-				keep = append(keep, n)
-			}
+	text = goBoundOwnText.ReplaceAllStringFunc(text, func(m string) string {
+		sub := goBoundOwnText.FindStringSubmatch(m)
+		if u.crossing[sub[1]] && !strings.HasSuffix(m, "func") {
+			return sub[1] + " "
 		}
-		if len(keep) == 0 {
-			return " {"
-		}
-		return " takes " + strings.Join(keep, ", ") + " {"
+		return m
 	})
 	if len(u.releaseNeeds) == 0 {
 		return text
@@ -591,8 +556,6 @@ func goBoundText(u goBoundUse, f goBoundForm) string {
 	switch {
 	case strings.Contains(sig, " needs "):
 		sig = strings.Replace(sig, " needs ", " needs "+needs+", ", 1)
-	case strings.Contains(sig, " takes "):
-		sig = strings.Replace(sig, " takes ", " needs "+needs+" takes ", 1)
 	default:
 		sig += " needs " + needs
 	}

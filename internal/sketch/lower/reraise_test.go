@@ -23,7 +23,7 @@ func check(n int) fails bad {
 	}
 }
 
-func only[T wire](r Reader) T fails wired[T] {
+func only[T wire](r Reader) T fails wired[T] needs wired[T] {
 	let v = decode[T](r) catch {
 	case err:
 		return err
@@ -31,7 +31,7 @@ func only[T wire](r Reader) T fails wired[T] {
 	v
 }
 
-func mixed[T wire](r Reader, n int) T fails bad | wired[T] {
+func mixed[T wire](r Reader, n int) T fails bad | wired[T] needs wired[T] {
 	let v = decode[T](r) catch {
 	case err:
 		try check(n)

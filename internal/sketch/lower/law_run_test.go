@@ -432,7 +432,7 @@ func Area(_ Fn) int { 1 }
 
 type Fns {} implements Box[func(int) int]
 
-func Put(_ Fns, v escaping func(int) int) {}
+func Put(_ Fns, v own func(int) int) {}
 
 law Calls(f func(int) int) { f(1) == f(1) }
 

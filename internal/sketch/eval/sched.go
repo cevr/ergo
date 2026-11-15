@@ -45,6 +45,9 @@ type taskState struct {
 	ctxv   *ctxBinding
 	ranges []*sliceRange
 	cur    *etask
+	// argStack holds the arguments of the task's Ergo calls in progress
+	// (stackArgs): each task has its own, as its calls nest.
+	argStack []Value
 }
 
 // etask is one task of the obligation.
@@ -75,6 +78,11 @@ type etask struct {
 	// running task and its ancestors, the first that is either.
 	runs  *actorV
 	entry *entryRef
+	// recov collects the hosts a durable recover makes on the task (and
+	// the tasks it starts); handoff holds them for the first actor the
+	// task starts after (runnerdurable.go).
+	recov   *recovery
+	handoff *[]*hostV
 }
 
 type taskRun int

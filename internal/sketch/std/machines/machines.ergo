@@ -252,15 +252,23 @@ func arm[S, E, O, F, R, W](timers own []armed[S], m Machine[S, E, O, F, R, W], s
 	}
 }
 
-// fired is the signal of the timer that an entry opened in s armed, made
-// as it fires: m.After(s) under the firing mark, so an Every timer's
-// signal carries time.Clock's reading now. After is a function of the
-// state alone, so it gives the timer it gave when the entry opened.
-func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
+// AfterFiring is m's After of the state at, as its timer fires: After
+// under the runner's firing mark, so an Every timer's signal carries
+// time.Clock's reading now. A runner calls it when a timer fires (RunTimed,
+// std actor), and plain After when an entry opens, where only In is read.
+// It is the one owner of the firing mark.
+func AfterFiring[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
 	firingOn()
-	let timer = m.After(s)
+	let timer = m.After(at)
 	firingOff()
-	match timer {
+	timer
+}
+
+// fired is the signal of the timer that an entry opened in s armed, made
+// as it fires (AfterFiring). After is a function of the state alone, so it
+// gives the timer it gave when the entry opened.
+func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
+	match AfterFiring(m, s) {
 	case Some[Timeout[E]] as t:
 		t.Value.Signal
 	case None:

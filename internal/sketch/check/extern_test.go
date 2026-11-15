@@ -1076,6 +1076,42 @@ func main() {
 	use(Mine)
 }
 `,
+	"io.Source": `import io
+
+type Mine {} implements io.Source
+
+func Read(_ Mine) Option[string] fails io.ReadFailed { None }
+
+func use(r io.Source) { _ = r.Read() catch { case io.ReadFailed: None } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"bench.Meter": `import bench
+
+type Mine {} implements bench.Meter
+
+func Measure(_ Mine, b bench.Block, series []bench.Series) []bench.Sample { []bench.Sample{} }
+
+func use(m bench.Meter) { _ = len(m.Measure(bench.Block{Side: bench.Base, Number: 0, Warm: false}, []bench.Series{})) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
+	// runtimeOnly, made only by the composer.
+	"ui.GroupArgs": `import ui
+
+type Mine {}
+
+func use(m ui.GroupArgs) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"ui.Location": `import ui
 type Mine {} implements ui.Location
 func Current(_ Mine) ui.URL { ui.ParseURL("/") }
@@ -1137,6 +1173,8 @@ var openStd = map[string]bool{
 	// provides each one, and cmd/<name>/main.ergo binds it.
 	"ui.Location":       true,
 	"ui/layout.Measure": true,
+	"io.Source":         true,
+	"bench.Meter":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

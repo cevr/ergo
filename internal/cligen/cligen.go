@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
@@ -54,7 +55,7 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 	if err != nil {
 		return Files{}, err
 	}
-	digest := digestLine.FindString(wire.Files["wire.ergo"])
+	digest := digestLine().FindString(wire.Files["wire.ergo"])
 	if digest == "" {
 		return Files{}, fmt.Errorf("cligen: the rpc generator wrote no digest line")
 	}
@@ -97,7 +98,7 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 
 // digestLine is the line of an rpc file that names the contract and its
 // digest.
-var digestLine = regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`)
+var digestLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {
@@ -464,13 +465,13 @@ func kebab(s string) string {
 // imported package of one of these names would be shadowed.
 var reserved = map[string]bool{"args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true}
 
-var localName = regexp.MustCompile(`^[fatn][0-9]+$`)
+var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[fatn][0-9]+$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
 // checkNames refuses a contract whose imports the generated locals would
 // shadow.
 func (g *gen) checkNames() error {
 	for _, name := range g.imports {
-		if reserved[name] || localName.MatchString(name) {
+		if reserved[name] || localName().MatchString(name) {
 			return fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", g.op, name)
 		}
 	}
@@ -647,7 +648,7 @@ func (g *gen) importBlock(text string) string {
 		}
 	}
 	// Names in string literals (usage texts) are not uses.
-	src := stringLit.ReplaceAllString(code.String(), `""`)
+	src := stringLit().ReplaceAllString(code.String(), `""`)
 	var paths []string
 	for p, name := range g.imports {
 		if regexp.MustCompile(`(^|[^A-Za-z0-9_.])` + regexp.QuoteMeta(name) + `\.`).MatchString(src) {
@@ -668,4 +669,4 @@ func (g *gen) importBlock(text string) string {
 	return b.String()
 }
 
-var stringLit = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+var stringLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"(?:[^"\\]|\\.)*"`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)

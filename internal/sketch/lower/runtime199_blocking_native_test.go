@@ -260,8 +260,9 @@ func blockingNative(t *testing.T, name, route string) {
 		subjRow, launchRow = " needs Ambient", " needs Ambient"
 	}
 	if body == "try h.Wait()" {
-		// Wait takes the task, and the takes clause is written (q137, EX3).
-		subjRow += " takes h"
+		// Wait takes the task, and its parameter is written own (q137, EX3;
+		// q168).
+		param = strings.Replace(param, "h ", "h own ", 1)
 	}
 	if strings.Contains(maker, "NewLiveScheduler") {
 		makerRow, launchRow = " needs Ambient", " needs Ambient"

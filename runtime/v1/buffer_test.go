@@ -20,7 +20,7 @@ func writeCycle(h, n int) {
 	for range n {
 		b = append(b, 'x')
 	}
-	bufferSink = StringsFromBytes(b)
+	bufferSink = StringsBuilderText(b)
 	b = StringsGive(b, h)
 	_ = b
 }

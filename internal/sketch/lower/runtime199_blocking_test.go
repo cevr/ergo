@@ -45,6 +45,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.envClosure":      "a task callback's Env copy",
 			"funcCtx.operations":      "an operation adapter's copy of the converting frame's Env, on the caller's task (OWGEN round 3)",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
+			"funcCtx.everyTimers":     "a machines.Every After's firing mark (MachineFiringNow, no wait) and the Clock's Now through the Env's provider field, as callText's (FKG1)",
 			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.lawTarget":       "a law case's task of one binding's run, which the case's Capture classifies its unwinding against (#162)",
@@ -61,6 +62,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
+			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
 			"funcCtx.operations":        "an operation table's method values",
 			"funcCtx.witnessCall":       "a call through a witness field",
 			"funcCtx.witnessMethod":     "a witness adapter's method and the field it calls",
@@ -280,7 +282,14 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// owning with has not ended (a panic value, no wait), then calls
 		// the generated copier of its row, a method of the program's own.
 		"HeldLive": true, "copyEnv": true,
+		// FKG1: a machines.Every After reads the task's firing mark, a
+		// field read; no wait.
+		"MachineFiringNow": true,
 	}
+	// capabilityOps are the owners that call a capability operation on
+	// the Env's provider field outside callText, and the operation: FKG1's
+	// Every After reads time.Clock's Now only when its timer fires.
+	capabilityOps := map[string]string{"everyTimers": "Now"}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
 	for name, binding := range runtimeBindings() {
@@ -317,6 +326,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		})
 		for _, text := range literals {
 			for _, m := range call.FindAllStringSubmatch(text, -1) {
+				if capabilityOps[owner] == m[1] {
+					continue
+				}
 				if methods[m[1]] || usesRuntime && !helpers[m[1]] {
 					t.Errorf("%s emits runtime binding %s outside runtimeCall", owner, m[1])
 				}

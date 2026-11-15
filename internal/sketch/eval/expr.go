@@ -16,7 +16,12 @@ import (
 // the caught expression's own failure stays, ownFailure), so a value
 // position and a tail position differ only in name.
 func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
-	return in.tailExpr(fr, x)
+	return in.exprK(fr, x, in.fx(fr, x))
+}
+
+// exprK is expr with x's facts, f: tailK, the one rule (Catch 5).
+func (in *interp) exprK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
+	return in.tailK(fr, x, f)
 }
 
 // tailExpr evaluates x where its own failure is the enclosing
@@ -24,19 +29,27 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 // expression, a block's tail. Each evaluated node costs a step before its
 // work.
 func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
+	return in.tailK(fr, x, in.fx(fr, x))
+}
+
+// tailK is tailExpr with x's facts, f.
+func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
 	}
-	if len(fr.info.ContextValues) > 0 {
-		if w := fr.info.ContextValues[x]; w != nil {
-			return in.makeContextValue(fr, x, w)
-		}
+	// plain: no rule below applies, unless a try is open (ownFailure) or
+	// the run is symbolic (symStop).
+	if f.plain && fr.tries == 0 && in.sym == nil {
+		return in.exprFacts(fr, x, f)
 	}
-	covered := fr.info.TryCovers[x] != nil
+	if f.ctx != nil {
+		return in.makeContextValue(fr, x, f.ctx)
+	}
+	covered := f.covered
 	if covered {
 		fr.tries++
 	}
-	v, ab := in.exprOf(fr, x)
+	v, ab := in.exprFacts(fr, x, f)
 	if covered {
 		fr.tries--
 	}
@@ -57,14 +70,16 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if in.sym != nil && !in.sym.ok[x] && symbolic(v) {
 		return nil, in.symStop(fr, x, v)
 	}
-	in.ownTemp(fr, x, v) // a temporary its statement owns (R43)
+	if f.owned != nil {
+		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
+	}
 	// A variant or a row value goes into its union unchanged: the value
 	// keeps its record type. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
 		return in.toOperation(fr, x, v, conv)
 	}
-	if convs := fr.info.ImplicitElems[x]; len(convs) > 0 {
+	if convs := f.elems; len(convs) > 0 {
 		t, ok := v.(tuple)
 		if !ok || len(t.elems) != len(convs) {
 			ice("element conversions of %T", v)
@@ -91,27 +106,42 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 }
 
 func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
-	if c, ok := fr.info.Values[x]; ok {
-		t := fr.rtypeOf(x)
-		v, ok := fromConstant(t.t, c)
+	return in.exprFacts(fr, x, in.fx(fr, x))
+}
+
+// exprFacts is exprOf with x's facts.
+func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
+	switch f.op {
+	case opConst:
+		if f.cval != nil && fr.env == nil {
+			return f.cval, nil
+		}
+		t := fr.rt(f.typ)
+		v, ok := fromConstant(t.t, f.val)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
 		}
+		if fr.env == nil {
+			f.cval = v // a constant's value, made once outside a generic body
+		}
 		return v, nil
-	}
-	if r, ok := in.bareRecord(fr, x); ok {
-		return r, nil
-	}
-	if fr.info.ContextValues[x] != nil {
+	case opBare:
+		return in.bareValue(fr, x, f), nil
+	case opCtx:
 		return nil, fr.unsupported(x, "a context value, which binds capabilities")
+	case opParen:
+		p := x.(*syntax.ParenExpr)
+		return in.tailK(fr, p.X, in.kid(fr, f, 0, p.X))
+	case opIdent:
+		return in.identUse(fr, x.(*syntax.Ident), f.use)
+	case opBinary:
+		return in.binary(fr, x.(*syntax.BinaryExpr), f)
+	case opCall:
+		return in.callOf(fr, x.(*syntax.CallExpr), f)
+	case opBasicLit:
+		ice("a literal with no Values entry")
 	}
 	switch x := x.(type) {
-	case *syntax.ParenExpr:
-		return in.tailExpr(fr, x.X)
-	case *syntax.Ident:
-		return in.ident(fr, x)
-	case *syntax.BasicLit:
-		ice("a literal with no Values entry")
 	case *syntax.SelectorExpr, *syntax.IndexExpr:
 		if sel, ok := x.(*syntax.SelectorExpr); ok {
 			in.takeField(fr, sel)
@@ -127,14 +157,10 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		return v, nil
 	case *syntax.SliceExpr:
 		return in.sliceExpr(fr, x)
-	case *syntax.BinaryExpr:
-		return in.binary(fr, x)
 	case *syntax.UnaryExpr:
-		return in.unary(fr, x)
+		return in.unary(fr, x, f)
 	case *syntax.CompositeLit:
 		return in.composite(fr, x)
-	case *syntax.CallExpr:
-		return in.callExpr(fr, x)
 	case *syntax.TryExpr:
 		return in.try(fr, x)
 	case *syntax.CatchExpr:
@@ -166,6 +192,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		// the slots it reads and the capabilities bound where it is made.
 		// It runs where it is written, or where a native the evaluator
 		// runs calls it (sync.Ref's Update, natives.go).
+		fr.escaped = true
 		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return in.deref(fr, x.X)
@@ -182,7 +209,7 @@ type closure struct {
 	key    syntax.Node
 	params *syntax.FieldList
 	body   *syntax.BlockStmt
-	vars   map[*check.Var]*slot
+	vars   *varTable
 	env    *tenv
 	home   *frame // the frame that made it: its package, declaration and owner
 	caps   *capEnv
@@ -191,39 +218,24 @@ type closure struct {
 	outer *frame
 }
 
-// bareRecord is the value of a record with no fields named bare,
-// `Pending` or `pkg.Pending`: its Uses entry is the record's TypeName.
-func (in *interp) bareRecord(fr *frame, x syntax.Expr) (Value, bool) {
-	var tn *check.TypeName
-	switch h := x.(type) {
-	case *syntax.Ident:
-		tn, _ = fr.info.Uses[h].(*check.TypeName)
-	case *syntax.SelectorExpr:
-		id, ok := unparen(h.X).(*syntax.Ident)
-		if !ok {
-			return nil, false
-		}
-		pn, ok := fr.info.Uses[id].(*check.PkgName)
-		named, isNamed := fr.info.Types[x].(*check.Named)
-		if !ok || !isNamed || named.Obj.Pkg != pn.Pkg || named.Obj.Name != h.Sel.Name {
-			return nil, false
-		}
-		tn = named.Obj
-	}
-	if tn == nil {
-		return nil, false
-	}
-	t := fr.rtypeOf(x)
+// bareValue is the value of x, a bare record name (facts.bare).
+func (in *interp) bareValue(fr *frame, x syntax.Expr, f *facts) Value {
+	t := fr.rt(f.typ)
 	n, ok := t.t.(*check.Named)
 	if !ok || structOf(n) == nil || len(structOf(n).Fields) != 0 {
-		ice("a bare value of %s is not a record with no fields", tn.Name)
+		ice("a bare value of %s is not a record with no fields", f.bare.Name)
 	}
-	return &record{t: n, key: argsKey(n, t.env)}, true
+	return &record{t: n, key: argsKey(n, t.env)}
 }
 
 // ident reads a name. A local's slot lends: its value may now be shared.
 func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
-	switch o := fr.info.Uses[id].(type) {
+	return in.identUse(fr, id, in.fx(fr, id).use)
+}
+
+// identUse is ident with the name's Uses entry.
+func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value, *abrupt) {
+	switch o := use.(type) {
 	case *check.Var:
 		if s := in.slotOf(fr, o); s != nil {
 			s.lend()
@@ -243,7 +255,7 @@ func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
 
 // slotOf is v's slot: a local of the frame, or a package let.
 func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
-	if s, ok := fr.vars[v]; ok {
+	if s, ok := fr.vars.get(v); ok {
 		return s
 	}
 	return in.globals[v]
@@ -263,7 +275,7 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
-		if v, ok := fr.info.Uses[x].(*check.Var); ok {
+		if v, ok := in.fx(fr, x).use.(*check.Var); ok {
 			if s := in.slotOf(fr, v); s != nil {
 				if ab := in.charge(fr, x, 1); ab != nil {
 					return nil, nil, ab
@@ -272,8 +284,24 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 	case *syntax.SelectorExpr:
+		xf := in.fx(fr, x)
+		if xf.field.t != nil && fr.env == nil {
+			// A record's field, checked at an earlier read (ORACLE O33).
+			base, root, ab := in.peekBase(fr, x.X, path)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			r, ok := base.(*record)
+			if !ok {
+				ice("a field of %T", base)
+			}
+			if path != nil {
+				*path = append(*path, step{at: x, field: x.Sel.Name})
+			}
+			return r.fields[xf.fieldOf(r.t, x.Sel.Name)], root, nil
+		}
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
-			if _, isPkg := fr.info.Uses[id].(*check.PkgName); isPkg {
+			if _, isPkg := in.fx(fr, id).use.(*check.PkgName); isPkg {
 				// A package's let: its slot, which nothing writes.
 				// The checker records no Uses entry for a qualified
 				// name: the member is the imported package's own.
@@ -331,11 +359,14 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if path != nil {
 			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
-		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
+		if fr.env == nil {
+			xf.field.t = n
+		}
+		return r.fields[xf.fieldOf(r.t, x.Sel.Name)], root, nil
 	case *syntax.StarExpr:
 		return in.peekBase(fr, x.X, path)
 	case *syntax.IndexExpr:
-		if inst := fr.info.Instances[x]; inst != nil {
+		if inst := in.fx(fr, x).instance; inst != nil {
 			v, ab := in.funcValue(fr, x, inst.Func)
 			return v, nil, ab
 		}
@@ -463,23 +494,23 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 
 // binary evaluates x op y: && and || evaluate y only when x does not
 // decide; every other operator evaluates x, then y.
-func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
+func (in *interp) binary(fr *frame, x *syntax.BinaryExpr, f *facts) (Value, *abrupt) {
 	switch x.Op {
 	case syntax.LAND, syntax.LOR:
-		a, ab := in.expr(fr, x.X)
+		a, ab := in.exprK(fr, x.X, in.kid(fr, f, 0, x.X))
 		if ab != nil {
 			return nil, ab
 		}
 		if truth(a) == (x.Op == syntax.LOR) {
 			return a, nil
 		}
-		return in.expr(fr, x.Y)
+		return in.exprK(fr, x.Y, in.kid(fr, f, 1, x.Y))
 	}
-	a, ab := in.expr(fr, x.X)
+	a, ab := in.exprK(fr, x.X, in.kid(fr, f, 0, x.X))
 	if ab != nil {
 		return nil, ab
 	}
-	b, ab := in.expr(fr, x.Y)
+	b, ab := in.exprK(fr, x.Y, in.kid(fr, f, 1, x.Y))
 	if ab != nil {
 		return nil, ab
 	}
@@ -499,11 +530,11 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
 	return in.binop(fr, x, x.Op, a, b)
 }
 
-func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
+func (in *interp) unary(fr *frame, x *syntax.UnaryExpr, xf *facts) (Value, *abrupt) {
 	if x.Op == syntax.AND {
 		return in.borrow(fr, x.X) // pointer.go
 	}
-	a, ab := in.expr(fr, x.X)
+	a, ab := in.exprK(fr, x.X, in.kid(fr, xf, 0, x.X))
 	if ab != nil {
 		return nil, ab
 	}
@@ -544,14 +575,11 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 			if ab != nil {
 				return nil, ab
 			}
-			if !basicValue(k) {
-				return nil, fr.unsupported(kv.Key, "a Map key of %s yet", fr.rtypeOf(kv.Key).t)
-			}
 			v, ab := in.expr(fr, kv.Value)
 			if ab != nil {
 				return nil, ab
 			}
-			m.b.m[k] = v
+			m.b.put(k, v)
 		}
 		in.handParts(fr, x.Elts...)
 		return m, nil
@@ -564,8 +592,12 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
 	}
 	s := structOf(n)
-	out := &record{t: n, key: argsKey(n, t.env), fields: make([]Value, len(s.Fields))}
-	set := make([]bool, len(s.Fields))
+	out := newRecord(n, argsKey(n, t.env), len(s.Fields))
+	var setBuf [16]bool // which fields have a value: on the stack for most records
+	set := setBuf[:]
+	if len(s.Fields) > len(setBuf) {
+		set = make([]bool, len(s.Fields))
+	}
 	var base *record
 	if x.Base != nil {
 		b, ab := in.expr(fr, x.Base)
@@ -693,7 +725,7 @@ func (in *interp) try(fr *frame, x *syntax.TryExpr) (Value, *abrupt) {
 // try, and is a defect in a total catch (Catch 6). A defect, an exhausted
 // budget and a failure already leaving the frame are never caught.
 func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *abrupt) {
-	m := fr.info.Matches[x]
+	m := in.fx(fr, x).match
 	if m == nil {
 		ice("a catch with no Matches entry")
 	}
@@ -711,7 +743,7 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	}
 	for _, a := range x.Arms {
 		for _, te := range a.Types {
-			p := fr.info.Patterns[te]
+			p := in.fx(fr, te).pattern
 			if p == nil {
 				ice("a catch arm with no Patterns entry")
 			}
@@ -804,7 +836,12 @@ func tailOf(info *check.Info, s syntax.Stmt, x syntax.Expr) bool {
 // it is written. Every other callee waits for a later unit or never runs
 // at check time.
 func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
-	c := fr.info.Calls[x]
+	return in.callOf(fr, x, in.fx(fr, x))
+}
+
+// callOf is callExpr with the call's checked facts.
+func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abrupt) {
+	c := xf.call
 	if c == nil {
 		ice("a call with no Calls entry")
 	}
@@ -851,7 +888,8 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
-		if x.Trailing != nil && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
+		ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if preludeCollection(c.Func) {
@@ -867,7 +905,18 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 			}
 			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
 		}
-		args, ab := in.args(fr, x, c)
+		if ergoBody && x.Trailing == nil && len(held) == 0 && !c.Func.Pkg.Host() {
+			// An Ergo body binds its arguments to its parameters and
+			// keeps no slice of them.
+			args, mark, ab := in.stackArgs(fr, x, c, xf)
+			if ab != nil {
+				return nil, ab
+			}
+			v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+			in.argStack = in.argStack[:mark]
+			return v, ab
+		}
+		args, ab := in.args(fr, x, c, xf)
 		if ab != nil {
 			for _, id := range held {
 				delete(fr.held, id)
@@ -877,6 +926,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if x.Trailing != nil {
 			// The block is the native's last argument: a function of its
 			// own, run where the native runs it (task.Go, scope.OnExit).
+			fr.escaped = true
 			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
 		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
@@ -896,13 +946,13 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 			if ab != nil {
 				return nil, ab
 			}
-			args, ab := in.args(fr, x, c)
+			args, ab := in.args(fr, x, c, xf)
 			if ab != nil {
 				return nil, ab
 			}
 			return in.callValue(fr, x, f, args)
 		}
-		args, ab := in.args(fr, x, c)
+		args, ab := in.args(fr, x, c, xf)
 		if ab != nil {
 			return nil, ab
 		}
@@ -913,13 +963,17 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		return in.providerCall(fr, x, c)
 	case check.CallOp, check.CallLawOp:
 		return in.operationCall(fr, x, c)
+	case check.CallEmbed:
+		return in.embedValue(fr, x, c) // nativesembed.go
+	case check.CallEncode, check.CallDecode:
+		return in.wireCall(fr, x, c) // codecwalk.go
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }
 
 // args evaluates a call's receiver and arguments, left to right.
-func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *abrupt) {
-	var args []Value
+func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call, xf *facts) ([]Value, *abrupt) {
+	args := make([]Value, 0, len(x.Args)+1)
 	if c.Recv != nil {
 		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
@@ -927,8 +981,8 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 		}
 		args = append(args, v)
 	}
-	for _, a := range x.Args {
-		v, ab := in.expr(fr, a)
+	for i, a := range x.Args {
+		v, ab := in.exprK(fr, a, in.kid(fr, xf, i, a))
 		if ab != nil {
 			return nil, ab
 		}
@@ -939,9 +993,37 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 	return args, nil
 }
 
+// stackArgs is args on the interpreter's argument stack, for a callee
+// that only binds them to its parameters (ORACLE O32): no slice is made
+// per call. The caller pops the stack to mark once the call returns.
+func (in *interp) stackArgs(fr *frame, x *syntax.CallExpr, c *check.Call, xf *facts) (args []Value, mark int, ab *abrupt) {
+	mark = len(in.argStack)
+	if c.Recv != nil {
+		v, ab := in.receiver(fr, c.Recv, c.Func)
+		if ab != nil {
+			in.argStack = in.argStack[:mark]
+			return nil, mark, ab
+		}
+		in.argStack = append(in.argStack, v)
+	}
+	for i, a := range x.Args {
+		v, ab := in.exprK(fr, a, in.kid(fr, xf, i, a))
+		if ab != nil {
+			in.argStack = in.argStack[:mark]
+			return nil, mark, ab
+		}
+		in.argStack = append(in.argStack, v)
+	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
+	n := len(in.argStack)
+	return in.argStack[mark:n:n], mark, nil
+}
+
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
+	fr.escaped = true
 	c := &closure{lit: lit, key: lit, params: lit.Type.Params, body: lit.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}
 	return in.callClosure(fr, at, c, args)
 }
@@ -953,7 +1035,7 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 	if c.outer != nil {
 		outer = c.outer
 	}
-	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}
+	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, tab: c.home.tab, caps: c.callerCaps(fr), outer: outer}
 	var params []*check.Var
 	if c.params != nil {
 		for _, field := range c.params.List {
@@ -976,6 +1058,31 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 		in.ownVar(callee, p, c.key) // a taken parameter (R8)
 	}
 	return in.runFrame(fr, at, callee, "literal", c.body.List)
+}
+
+// callerCaps is the capabilities a call of c from fr runs with: a
+// capability the literal's own type names (`func(...) needs C`) is the
+// caller's, as for a declared function's needs; any other the body uses
+// is the one bound where the literal was made.
+func (c *closure) callerCaps(fr *frame) *capEnv {
+	caps := c.caps
+	if c.lit == nil || c.lit.Type == nil || c.lit.Type.Needs == nil {
+		return caps
+	}
+	sig, ok := c.home.info.Types[c.lit].(*check.Signature)
+	if !ok {
+		return caps
+	}
+	for _, t := range sig.Uses.Elems() {
+		if _, named := t.(*check.Named); !named {
+			continue // a row variable: the capabilities it stands for were bound where the literal was made
+		}
+		key := typeKey(c.home.rt(t))
+		if op, ok := fr.caps.lookup(key); ok {
+			caps = &capEnv{key: key, op: op, next: caps}
+		}
+	}
+	return caps
 }
 
 // preludeCollection reports the prelude's Append, Get, Delete or Put,
@@ -1033,23 +1140,14 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	case "Append":
 		return in.appendTo(fr, x, recv.(sliceV), args[0], tok)
 	case "Get":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		if ab := in.charge(fr, x, 1); ab != nil {
 			return nil, ab
 		}
-		v, found := recv.(mapV).b.m[args[0]]
+		v, found := recv.(mapV).b.get(args[0])
 		return in.option(fr, x, v, found)
 	case "Delete":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
 	case "Put":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
 	}
 	ice("the prelude function %s", c.Func.Name)
