@@ -32,6 +32,13 @@ func TestGateTierReachesReplay(t *testing.T) {
 		if names, wantNames := stepNames(g.steps), stepNames(want); !slices.Equal(names, wantNames) {
 			t.Errorf("a %s run declares %d steps, the tier has %d", tier, len(names), len(wantNames))
 		}
+		// The full tier's sweeps replay while their keys hold (keySweeps;
+		// mutant gt1-full-tier-unkeyed).
+		for _, step := range g.steps {
+			if step.Sweep != "" && step.Package == nil {
+				t.Errorf("a %s run's %s has no package key", tier, step.Name)
+			}
+		}
 		g.whole = &wholeGate{mechanism: "test"}
 		facts, err := g.collect()
 		if err != nil {

@@ -135,6 +135,69 @@
       "to": "case !sub && top == s.running && action != \"=== PAUSE\":",
       "rule": "A paused test's wait is not its CPU.",
       "killers": ["scripts/gate:TestCPUSpansAttributeToTopLevelTests"]
+    },
+    {
+      "name": "gt1-sweep-unkeyed",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "step.Package = sweepClosure(swept, sweeper)",
+      "to": "step.Package = sweepClosure(swept, sweeper); step.Package = nil",
+      "rule": "A sweep whose inputs did not change replays its pass.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-sweeper-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "Deps:   append(slices.Clone(swept.Deps), sweeper.Deps...),",
+      "to": "Deps:   slices.Clone(swept.Deps),",
+      "rule": "A sweep's key holds the sweeper's own sources: its rules and tables.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-declared-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "union.Declared = append(append(slices.Clone(swept.Declared), sweeper.Declared...)",
+      "to": "union.Declared = append(append([]replay.Allowance(nil), sweeper.Declared...)",
+      "rule": "A sweep's key holds the swept package's declared inputs.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-table-names-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "step.KeyParts = parts",
+      "to": "step.KeyParts = parts[:0]",
+      "rule": "A sweep's key holds which packages the sweeper's tables name are test packages.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-table-names-unfiltered",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "if _, ok := tested[name]; ok {",
+      "to": "if _, ok := tested[name]; ok || !ok {",
+      "rule": "A table name that stops being a test package changes every sweep's key.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-literals-none",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "literals = append(literals, value)",
+      "to": "_ = value",
+      "rule": "The sweeper's table names are read from its source.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-full-tier-unkeyed",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/tier.go",
+      "from": "return fullSteps(root)",
+      "to": "return gateSteps(root)",
+      "rule": "The full tier's sweeps are keyed.",
+      "killers": ["scripts/gate:TestGateTierReachesReplay"]
     }
   ]
 }

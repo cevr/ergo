@@ -143,10 +143,16 @@ type Step struct {
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
 	// key (replay.PackageKey) is unchanged, and records a pass under it.
+	// A full-tier closure sweep has the closure of what the sweep reads
+	// for its package (keySweeps).
 	Package *replay.Closure
 	// PackageProblem says why the package's closure is keyed on the whole
 	// checkout (testPackages).
 	PackageProblem string
+	// KeyParts are inputs of the package key beyond the closure and the
+	// step's name, argv and variables (packageIdentity): a sweep's facts
+	// about the sweeper's tables (keySweeps).
+	KeyParts []string
 	// Sweep, on a step of the closure sweep (sweepStep), names what it
 	// sweeps: the directory of the one package it sweeps. Only the full
 	// tier sweeps (classHeavy).
