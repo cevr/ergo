@@ -248,6 +248,16 @@ func PutList[E](p *Pool[E], xs []E) Run[E] {
 	Run[E]{start: uint32(start), n: uint32(len(xs))}
 }
 
+// EmptyRunsKeepTheirPlace: an empty list's run starts at the pool's end,
+// so two empty runs put on either side of a list are different runs.
+law EmptyRunsKeepTheirPlace(xs []int) {
+	let mut p = NewPool[int]()
+	let before = p.PutList([]int{})
+	let _ = p.PutList(xs)
+	let after = p.PutList([]int{})
+	RunLen(before) == 0 && RunLen(after) == 0 && (before == after) == (len(xs) == 0)
+}
+
 // List is the items of r. A run of another pool that ends past this
 // pool's end is a defect.
 func List[E](p Pool[E], r Run[E]) []E { p.items[int(r.start) : int(r.start)+int(r.n)] }
