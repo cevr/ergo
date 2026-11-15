@@ -2,6 +2,36 @@ package irspike
 
 import "fmt"
 
+// conversion is an int converted from another scalar (IRG4b r2): an
+// int64 or a uint8, or a float64, which the runtime's checked helper
+// converts. Some floats are past int's range (1e300), and both paths
+// must fail the same way; the huge control (gen.go) is one that main
+// always reaches.
+func (g *gen) conversion(d int) string {
+	switch g.n(4) {
+	case 0:
+		return "int(" + g.expr(tI64, d-1) + ")"
+	case 1:
+		return "int(" + g.expr(tU8, d-1) + ")"
+	}
+	// A constant float that is not whole does not check: the converted
+	// value has a float variable in it, or an int variable widened.
+	v := g.variable(tF64)
+	if v == "" {
+		if w := g.variable(tInt); w != "" && g.n(2) == 0 {
+			v = "float64(" + w + ")"
+		} else if w != "" {
+			v = "(float64(" + w + ") + 0.5)"
+		} else {
+			return "int(" + g.expr(tI64, d-1) + ")"
+		}
+	}
+	if g.n(10) == 0 {
+		return "int(" + v + " * 1e300)"
+	}
+	return "int(" + v + " * " + g.expr(tF64, d-1) + ")"
+}
+
 // values writes the value-rule form (IRG4b): two Appends to one slice
 // that has room past its length, a Put and a Delete on one Map, then a
 // for-in over a Map and over a string. Ergo's slices and Maps are values
