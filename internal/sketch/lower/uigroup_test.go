@@ -130,6 +130,55 @@ func list(f *ui.Frame[int], xs []Item) {
 	}
 }
 
+// framed is a component around a card: when only its tag changes it runs
+// and the card in it, whose argument stayed, is written again.
+func framed(f *ui.Frame[int], it Item, tag int) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "tag \(tag)")
+		card(f, it)
+	}
+}
+
+func framedView(f *ui.Frame[int], s St) {
+	framed(f, s.It, s.A)
+}
+
+// nested renders framedView at a 0, 0 (framed written again) and 1: the
+// components the last pass ran (the card is kept through the pass that
+// wrote framed again).
+func nested() needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 2, Text: "y", Done: false}
+	let _ = ui.Render(&f, framedView, St{A: 0, It: it, Items: []Item{}})
+	let _ = ui.Render(&f, framedView, St{A: 0, It: it, Items: []Item{}})
+	let _ = ui.Render(&f, framedView, St{A: 1, It: it, Items: []Item{}})
+	Console.Println("nested \(ui.GroupRuns(&f))")
+}
+
+func empty(f *ui.Frame[int], s St) {
+	ui.Text(f, "empty \(s.A)")
+}
+
+// headed is the cards under a header that shows a: a pass that changes
+// a changes no row.
+func headed(f *ui.Frame[int], s St) {
+	ui.Text(f, "tick \(s.A)")
+	ui.Column(f, ui.Plain()) {
+		list(f, s.Items)
+	}
+}
+
+// elsewhere renders n cards under a header, then again with only the
+// header changed: the components run and the nodes Commit compared then.
+func elsewhere(n int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let xs = listed(n, -1)
+	let _ = ui.Render(&f, headed, St{A: 0, It: it, Items: xs})
+	let _ = ui.Render(&f, headed, St{A: 1, It: it, Items: xs})
+	Console.Println("elsewhere \(n) \(ui.GroupRuns(&f)) \(ui.Compared(&f))")
+}
+
 func listed(n int, changed int) []Item {
 	let mut xs = []Item{}
 	for i in 0..n {
@@ -420,7 +469,11 @@ func (g *uiSkipGen) states(n int) []string {
 // returns the same arguments runs fewer components than the first pass,
 // and one changed card of n runs one component and Commit compares its
 // three nodes alone, at n 8 and 64; the groups kept follow the cards when
-// they drop to one (growth).
+// they drop to one (growth); a pass that changes only a header above n
+// cards runs none of them and compares no node of theirs, at n 50 and
+// 200 (elsewhere, NS1); a card inside a component written again is kept
+// with it (nested). After each seed a pass that calls no component holds
+// no argument slot (held 0, as the reference holds none).
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
@@ -429,7 +482,8 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-group-impure-kept, ui-group-count-unchecked, ui-group-again-compared,
 // ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg,
 // ui-group-off-unchecked, ui-group-same-skip-pure, ui-group-cut-kept,
-// ui-group-again-skips.
+// ui-group-again-skips, ui-group-fresh-impure-leak, ui-group-cut-slot-leak,
+// ui-group-inner-unstamped, ui-group-inner-unlisted.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
@@ -448,13 +502,15 @@ func TestUISkipAgrees(t *testing.T) {
 		for _, s := range g.states(10) {
 			fmt.Fprintf(&main, "\tstep(&f%d, s%dview, %s)\n", seed, seed, s)
 		}
+		// A last pass that calls no component frees every slot.
+		fmt.Fprintf(&main, "\tlet _ = ui.Render(&f%d, empty, St{A: 0, It: Item{Id: 0, Text: \"\", Done: false}, Items: []Item{}})\n\tConsole.Println(\"held \\(ui.GroupsKept(&f%d))\")\n", seed, seed)
 		var ns []string
 		for range 4 {
 			ns = append(ns, fmt.Sprint(g.r.IntN(3)))
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -476,7 +532,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") {
 				keep = append(keep, l)
 			}
 		}
@@ -501,7 +557,7 @@ func TestUISkipAgrees(t *testing.T) {
 	}
 	// Counted work: the first pass of each seed against the passes after.
 	var first, later, seeds0 int
-	var growth []string
+	var growth, elsewhere []string
 	for _, l := range strings.Split(out["uiskip_groups"], "\n") {
 		switch {
 		case strings.HasPrefix(l, "seed "):
@@ -517,6 +573,8 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "):
+			elsewhere = append(elsewhere, l)
 		}
 	}
 	if first == 0 || later >= first*9 {
@@ -524,5 +582,12 @@ func TestUISkipAgrees(t *testing.T) {
 	}
 	if want := []string{"growth 8 8 1 3 0 1", "growth 64 64 1 3 0 1"}; strings.Join(growth, "|") != strings.Join(want, "|") {
 		t.Errorf("growth: %q, want %q (n, first runs, runs after one change, nodes compared then, Sames skipped then, groups kept at one card)", growth, want)
+	}
+	// NS1: a change elsewhere than the rows runs no row and compares the
+	// header and its sibling alone, at 50 rows as at 200.
+	// A group written again keeps the groups inside it: the card in framed
+	// is kept through it, so framed alone runs when its tag changes.
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+		t.Errorf("elsewhere: %q, want %q (n, components run, nodes compared; components run in nested)", elsewhere, want)
 	}
 }
