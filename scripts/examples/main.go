@@ -922,7 +922,8 @@ func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 		return o, nil
 	}
 	env := r.toolEnv
-	if len(args) > 0 && args[0] == "check" {
+	// test --emitted --json checks each package too (GS31b).
+	if len(args) > 0 && (args[0] == "check" || args[0] == "test" && slices.Contains(args, "--json")) {
 		env = append(slices.Clip(env), lawCacheOff)
 	}
 	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
