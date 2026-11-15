@@ -108,12 +108,24 @@ func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
 	try answer(v, parent, []string{"branch", "--contains", commit, "--format=%(refname)"}) != ""
 }
 
+// Snapshot writes the tree of the working files through an index of its
+// own (SnapshotIndex), which it keeps: it starts from HEAD read into that
+// index with -m, so an entry whose content HEAD still has keeps the stat
+// data the last snapshot gave it, and add hashes only the files changed
+// since (a first snapshot hashes them all).
 func Snapshot(v Vcs, root string) string fails work.VcsFailed {
 	let dir = try answer(v, root, []string{"rev-parse", "--absolute-git-dir"})
 	let env = []string{"GIT_INDEX_FILE", filepath.Join([]string{dir, SnapshotIndex})}
 	let head = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", "HEAD"})
-	let start = if head.Status == 0 { []string{"read-tree", "HEAD"} } else { []string{"read-tree", "--empty"} }
-	let _ = try ok(try git(v, root, start, env), root, start)
+	let start = if head.Status == 0 { []string{"read-tree", "-m", "HEAD"} } else { []string{"read-tree", "--empty"} }
+	let started = try git(v, root, start, env)
+	if started.Status != 0 && head.Status == 0 {
+		// An index of its own that -m cannot read is read afresh.
+		let fresh = []string{"read-tree", "HEAD"}
+		let _ = try ok(try git(v, root, fresh, env), root, fresh)
+	} else {
+		let _ = try ok(started, root, start)
+	}
 	let add = []string{"add", "--all", "--", "."}
 	let _ = try ok(try git(v, root, add, env), root, add)
 	let tree = []string{"write-tree"}

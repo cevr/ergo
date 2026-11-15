@@ -1280,6 +1280,22 @@
       "to": "\tlet p = Knowing(PluginOf(t.runner, l.Command, t.base), []Request{UnitsOf{File: path, Text: b}, UnitsOf{File: path, Text: a}, UnitsOf{File: path, Text: other}}[0:0])\n",
       "rule": "merge-file asks the plugin for the three sides in one run (memory's TreeMergeStartsThePluginTwice).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-folders-flat", "origin": "wf10/semws WG4b",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\t\t\ttodo = todo.Append(path)\n",
+      "to": "\t\t\t\ttodo = todo[0:len(todo)]\n",
+      "rule": "merge-folders reads the files in folders of their own too (memory's FoldersAreTheirTrees).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4b-snapshot-bad-index", "origin": "wf10/semws WG4b",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tif started.Status != 0 && head.Status == 0 {\n",
+      "to": "\tif started.Status != 0 && head.Status == 0 && false {\n",
+      "rule": "Snapshot reads HEAD afresh into an index of its own that read-tree -m cannot read (git's SnapshotReadsABadIndexAfresh).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

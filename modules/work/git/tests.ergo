@@ -102,6 +102,18 @@ test SnapshotLeavesTheIndex {
 	}
 }
 
+// SnapshotReadsABadIndexAfresh: Snapshot keeps an index of its own
+// between snapshots and reads HEAD into it with -m; an index it cannot read
+// (here garbage) is read afresh, and the snapshot is the same tree.
+test SnapshotReadsABadIndexAfresh {
+	with onShell {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", StateScript})).Status == 0
+		let tree = try work.Vcs.Snapshot(".")
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "printf 'garbage' > .git/" + SnapshotIndex})).Status == 0
+		assert try work.Vcs.Snapshot(".") == tree
+	}
+}
+
 // NonFastForwardIsRefused: a push of a branch onto a parent's branch that
 // moved on (side, not checked out) is NotFastForward, and side stays
 // where it moved. The parent is named by its absolute path: exec confines
