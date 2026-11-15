@@ -73,8 +73,8 @@ func monoBase(f *check.Func) pkgKey { return pkgKey{"mono", f} }
 
 // monoCandidate reports a function whose calls may go to a copy: generic
 // (its own type-kinded parameters, or a method's receiver's), with an Ergo
-// body, no extern, no native body, not a checked Close, not main, and no
-// owned parameter.
+// body, no extern, no native body, not a checked Close, not main, no
+// owned parameter and no Go row (a Slot or held row).
 func (l *lowerer) monoCandidate(f *check.Func) bool {
 	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" {
 		return false
@@ -85,7 +85,11 @@ func (l *lowerer) monoCandidate(f *check.Func) bool {
 			generic = true
 		}
 	}
-	if !generic || isClose(f) || nativeOf(f) != nil || len(l.ownedParams(f)) > 0 {
+	// A Slot or held row is a Go type parameter (rowslot.go) that the
+	// copy would erase: Bad[F] would be Bad[error] in the copy and
+	// Bad[E0] at its caller. The function stays stenciled, as the
+	// inlining and the known-record copies leave it.
+	if !generic || isClose(f) || nativeOf(f) != nil || len(l.ownedParams(f)) > 0 || l.hasGoRow(f.Sig) {
 		return false
 	}
 	return true

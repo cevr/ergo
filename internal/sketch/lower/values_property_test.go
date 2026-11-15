@@ -507,7 +507,7 @@ func viaF(p *[]int, f func()) needs Console {
 }
 
 // holdP prints, so it is not pure, and keeps s in the function it returns.
-func holdP(s []int) func() int needs Console {
+func holdP(s []int) (func() int) needs Console {
 	Console.Println("held")
 	func() int { ds(s) }
 }

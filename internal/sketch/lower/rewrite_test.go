@@ -55,7 +55,7 @@ func (a agreeType) source(values bool) string {
 	if a.other != "" {
 		q := rwType{name: "X", prov: a.other, c: a.c, d: a.od}.source()
 		_, provider, _ := strings.Cut(q, "}\n\n")
-		src += provider
+		src += strings.Replace(provider, "} implements X\n", "} implements "+a.name+"\n", 1)
 	}
 	return a.rename(src)
 }
@@ -259,7 +259,7 @@ func (a agreeType) valueSource() string {
 		p := provider.name
 		// k is 0 in every state New and the operations reach; a value
 		// built outside them (agreeProgram's open sites) may hold another.
-		fmt.Fprintf(&b, "type %s { s Digit, k Digit }\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, p, p, p)
+		fmt.Fprintf(&b, "type %s { s Digit, k Digit } implements %s\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, a.name, p, p, p)
 		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d + int(p.k)) }\n", p, a.c)
 		fmt.Fprintf(&b, "func Inc(p *%s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
 		fmt.Fprintf(&b, "func Halve(p *%s) { p.s = digit(int(p.s)/2) }\n", p)

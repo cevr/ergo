@@ -38,7 +38,11 @@ func inforceProgram(seed uint64) (string, string, map[string]bool) {
 	k := 2 + r.IntN(3)
 	reached := map[string]bool{}
 	var b, body, out strings.Builder
-	b.WriteString("type Box { n int }\n")
+	var impls []string
+	for i := range k {
+		impls = append(impls, fmt.Sprintf("C%d", i))
+	}
+	b.WriteString("type Box { n int } implements " + strings.Join(impls, ", ") + "\n")
 	for i := range k {
 		fmt.Fprintf(&b, "\n// law-exempt: the property's operation types.\ntype C%d {\n\tGet() int,\n}\n", i)
 	}

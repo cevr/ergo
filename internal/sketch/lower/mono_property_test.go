@@ -49,9 +49,9 @@ type Show {
 	Text() string,
 }
 
-type Card { N int }
+type Card { N int } implements Show
 
-type Tag { S string }
+type Tag { S string } implements Show
 
 func Text(c Card) string { "c\(c.N)" }
 

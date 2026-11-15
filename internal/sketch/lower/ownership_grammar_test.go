@@ -135,12 +135,12 @@ const (
 	oPair                 // Pair{R Res, S Res}
 	oTup                  // (Res, Res)
 	oGuard                // Guard{R Res}, with its own Close
-	oBox                  // Box{C Closer, n int}: an operation type stored in a field
+	oBox                  // Box{C Usable, n int}: an operation type stored in a field
 	oSlot                 // Slot = Full{R Res} | Vacant
 	oTypes
 )
 
-var ogTypeName = [oTypes]string{"Res", "Closer", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
+var ogTypeName = [oTypes]string{"Res", "Usable", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
 var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "Slot"}
 
 // ogPrelude declares the types and the fixed functions. Every event goes
@@ -152,10 +152,10 @@ import tasks
 
 type Res { id int, bad bool, log sync.Ref[string] } implements Usable
 type Bad { n int }
-type Closer { Use(), Close() }
+type Usable { ..Closer, Use() }
 type Pair { R Res, S Res }
 type Guard { R Res } implements Closer
-type Box { C Closer, n int }
+type Box { C Usable, n int }
 type Full { R Res }
 type Vacant {}
 type Slot = Full | Vacant
@@ -236,7 +236,7 @@ func twice(f func()) {
 }
 
 func lendRes(r Res) { r.Use() }
-func lendCloser(c Closer) { c.Use() }
+func lendCloser(c Usable) { c.Use() }
 func lendPair(p Pair) {
 	p.R.Use()
 	p.S.Use()
@@ -247,7 +247,7 @@ func lendBox(b Box) { b.C.Use() }
 func lendSlot(s Slot) {}
 
 func keepRes(r Res) takes r {}
-func keepCloser(c Closer) takes c {}
+func keepCloser(c Usable) takes c {}
 func keepPair(p Pair) takes p {}
 func keepTup(t (Res, Res)) takes t {}
 func keepGuard(g Guard) takes g {}
@@ -271,11 +271,11 @@ func keepTwo(a Res, b Res) takes a, b {}
 // ogFilePrelude declares the Go file consumers and fdCount, the number
 // of the process's open files (Linux's /proc; 0 where it has none), for
 // a program that opens Go files (goFile).
-const ogFilePrelude = `func lendFile(f go.Ref[os.File]) {
+const ogFilePrelude = `func lendFile(f go.Ref[os.File]) needs go.Foreign {
 	_ = f.Name()
 }
 
-func keepFile(f go.Ref[os.File]) takes f {}
+func keepFile(f go.Ref[os.File]) needs go.Foreign takes f {}
 
 func fdCount() int needs go.Foreign {
 	let mut n = 0
@@ -293,6 +293,15 @@ func fdCount() int needs go.Foreign {
 
 // ogDevNull opens a Go file that always opens.
 const ogDevNull = `os.Open("/dev/null") catch { case go.Error: Unreachable("/dev/null") }`
+
+// ogHeader is x as a header's expression: a composite literal there is
+// parenthesized, as the parser requires (O1).
+func ogHeader(x string) string {
+	if x != "" && x[0] >= 'A' && x[0] <= 'Z' {
+		return "(" + x + ")"
+	}
+	return x
+}
 
 // ogStmt is a generated statement: a line (it may hold several lines),
 // or a compound whose line is its header and whose arms hold blocks.
@@ -797,7 +806,7 @@ func (g *ogGen) matchExpr(t ogType, d int) string {
 	g.restore(before)
 	b := g.arm(t, d)
 	g.join(then)
-	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", subj, bind, a, b)
+	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", ogHeader(subj), bind, a, b)
 }
 
 // catchExpr is a catch used as a value: its arm gives the resource when
@@ -1396,7 +1405,7 @@ func (g *ogGen) match(d int) *ogStmt {
 		}
 		g.f("match:temp")
 	}
-	s := &ogStmt{line: pre + "match " + subj}
+	s := &ogStmt{line: pre + "match " + ogHeader(subj)}
 	before := g.save()
 	var states []map[*ogVar]uint8
 	arm := func(head string, binds ...string) {
