@@ -53,6 +53,8 @@ SL2 adds `dense.WithCap` (and `ColWithCap`, `PoolWithCap`, `StackWithCap`), `den
 | GC cycles at 32 MB | 4 | 5 | 0.8 |
 | Peak resident set at 32 MB | 143 MB | 153 MB | 0.94 |
 
+With ids from a `dense.Count` and `dense.IDAt` in place of a `Table` of a type with no fields (SL4b's finding: Go grows a slice of zero-size elements on every append), the same receipt gives Ergo 48.45 instructions per byte against hand Go's 32.83: **1.476**, with the same bytes (6.94 per byte) and peak resident set (144 MB against 153 MB).
+
 The plan's SL2 targets hold: bytes allocated are below hand Go's (target: at most 1.2 times), and the allocations at the two sizes differ by as many as hand Go's, 11. Both come from the one scratch stack, whose top level holds every top-level row and so grows with the input, in the program and in the control alike. The instruction ratio, 1.53, is SL3's, SL4's and MONO1's to close (target 1.2 or less).
 
 ### The plan's 11.6% GC share, and its 2.30 ratio: the input path, not the stores
