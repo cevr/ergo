@@ -365,8 +365,8 @@ func TestLawRunLeastPackage(t *testing.T) {
 // one whose parameters can be listed takes every value, and one with an
 // int still draws 100 (types.md, Laws 10; mutants lawctx-noparams-draws,
 // lawctx-listed-draws). Before, each ran 100 cases, so a host law under a
-// test's ambient started its processes 100 times (WG1 r3). It builds Go
-// because the case count is the built test binary's report.
+// test's ambient started its processes 100 times (WG1 r3).
+// It builds Go because the case count is the built test binary's report.
 func TestLawUnderAContextTakesTheOneRule(t *testing.T) {
 	needsBuild(t)
 	src := `type Shape {
