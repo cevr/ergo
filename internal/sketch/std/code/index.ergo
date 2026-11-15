@@ -1,0 +1,116 @@
+import maps
+import strings
+
+// Index is the product reader: the tables, indexed once, so a question
+// reads the rows of its answer and a lookup per address, never every row.
+type Index {
+	tables Tables,
+	// decls is every declaration in table order; byHandle is each one's
+	// place in it.
+	decls    []Decl,
+	byHandle Map[string, int],
+	// sites is each declaration's sites in table order, by handle.
+	sites Map[string, []Site],
+	// at is the handle of the first site at each position.
+	at Map[string, string],
+	// short is the places in decls of the declarations each short name
+	// fits, in table order.
+	short   Map[string, []int],
+	summary Summary,
+}
+
+// IndexOf is the indexed reader of t.
+func IndexOf(t Tables) Index {
+	let mut decls = []Decl{}
+	let mut byHandle = Map[string, int]{}
+	let mut sites = Map[string, []Site]{}
+	let mut at = Map[string, string]{}
+	let mut short = Map[string, []int]{}
+	for p in t.Packages {
+		for d in p.Decls {
+			byHandle[d.Handle] = len(decls)
+			if strings.HasPrefix(d.Handle, d.Package + ".") {
+				let name = strings.TrimPrefix(d.Handle, d.Package + ".")
+				short[name] = maps.GetOr(short, name, []int{}).Append(len(decls))
+			}
+			decls = decls.Append(d)
+		}
+	}
+	for p in t.Packages {
+		for site in p.Sites {
+			sites[site.Symbol] = maps.GetOr(sites, site.Symbol, []Site{}).Append(site)
+			let pos = positionOf(site.File, site.Line, site.Column)
+			match at.Get(pos) {
+			case Some[string]:
+			case None:
+				at[pos] = site.Symbol
+			}
+		}
+	}
+	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t)}
+}
+
+// NewIndex is the indexed reader of the tables Generated(seed) makes: the
+// provider a law run builds.
+func NewIndex(seed int) Index { IndexOf(Generated(seed)) }
+
+func Describe(x Index) Summary { x.summary }
+
+func Symbols(x Index, q SymbolQuery) SymbolPage {
+	let mut fit = []Decl{}
+	for d in x.decls {
+		if fits(q, d) {
+			fit = fit.Append(d)
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SymbolPage{Revision: x.tables.Revision, Decls: fit[start:end], Total: len(fit), Next: next}
+}
+
+func Symbol(x Index, a string) Decl fails NoSymbol | Ambiguous {
+	match x.byHandle.Get(a) {
+	case Some[int] as i:
+		return x.decls[i.Value]
+	case None:
+	}
+	if isPosition(a) {
+		match x.at.Get(a) {
+		case Some[string] as h:
+			match x.byHandle.Get(h.Value) {
+			case Some[int] as i:
+				return x.decls[i.Value]
+			case None:
+			}
+		case None:
+		}
+		return NoSymbol{Address: a}
+	}
+	let places = maps.GetOr(x.short, a, []int{})
+	if len(places) == 0 {
+		return NoSymbol{Address: a}
+	}
+	if len(places) > 1 {
+		let mut handles = []string{}
+		for i in places {
+			handles = handles.Append(x.decls[i].Handle)
+		}
+		return Ambiguous{Address: a, Candidates: handles}
+	}
+	x.decls[places[0]]
+}
+
+func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
+	let d = try x.Symbol(q.Of)
+	let rows = maps.GetOr(x.sites, d.Handle, []Site{})
+	let mut fit = rows
+	if len(q.Kinds) > 0 {
+		fit = []Site{}
+		for site in rows {
+			if has(q.Kinds, site.Kind) {
+				fit = fit.Append(site)
+			}
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SitePage{Revision: x.tables.Revision, Complete: x.summary.Complete, Sites: fit[start:end], Total: len(fit), Next: next}
+}
