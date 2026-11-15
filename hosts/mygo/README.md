@@ -114,7 +114,9 @@ package of this Go module and the Ergo half binds it.
   A list with no height of its own takes the window below its top. After
   each paint the driver reports a list's viewport (its offset and its
   height) as `ui.Scrolled` when it moved, so the next pass writes the rows
-  the window shows; `desktop.Viewport` is the last one reported.
+  the window shows; `desktop.Viewport` is the last one reported. A pass
+  whose list offset is not the window's (`ui.RowsKeeping` brought its row
+  into view) scrolls the window there, and the next report says so.
   `ui.ScrollOn` in a script turns the wheel on the list to its offset; the
   height is the window's.
 - A canvas (`ui.Canvas`, H5c) replays its paint list (`desktop/canvas.ergo`):
@@ -134,9 +136,10 @@ scene scripts of seven apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
 laid it out (a canvas's last opaque fill at its centre). In the `list`
-app TestHost takes the viewport the window reports, and each row the
-window wrote must show at the list's top plus its index's rows, less the
-offset. Taps are a press and a release at the node's centre, so they
+app TestHost takes the viewport the window reports, the window shows the
+list at the offset its pass wrote (a cursor the list keeps in view moves
+with Down and Up), and each row the window wrote must show at the list's
+top plus its index's rows, less the offset. Taps are a press and a release at the node's centre, so they
 pass the layout, the paint list and the hit test. `-agree.seed=N` replays
 one seed. `TestMyGoHostPrimitivesOnly` scans this module's Go with
 `go/types` and refuses any MyGo object but the drawing layer's and

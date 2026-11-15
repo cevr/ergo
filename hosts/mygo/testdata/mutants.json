@@ -488,6 +488,15 @@
       "killers": ["mygo:TestWasmRunsUnderAnInheritedGOMAXPROCS"]
     },
     {
+      "name": "GPo-pass-offset-ignored",
+      "origin": "GPo (RowsKeeping scroll Offset)",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\tif off != scrolledBy(d, id) {",
+      "to": "\t\tif off != scrolledBy(d, id) && off != off {",
+      "rule": "the window scrolls a list to the offset its pass wrote when that is not its own, so a RowsKeeping list shows the row it keeps",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
       "name": "GPd-draws-every-node",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/paint.ergo",
@@ -527,8 +536,8 @@
       "name": "GPd-insert-parent-not-soiled",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\tcase ui.Move[E] as x:",
-      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\tcase ui.Move[E] as x:",
+      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
+      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
       "rule": "a parent a node was inserted under is drawn anew, with the new node",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
     },

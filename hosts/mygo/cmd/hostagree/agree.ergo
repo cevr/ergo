@@ -182,6 +182,9 @@ func placed[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], shapes []ui.Sh
 			if float64(v.Height) != float64(lb.H) || off < 0 || (off > 0 && off > most) {
 				return Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height)) in a box \(lb.H) high over \(x.Count) rows"}
 			}
+			if off != float64(x.Offset) && !(float64(x.Offset) > most && off == most) {
+				return Some{Value: "list \(x.Label) shows at offset \(off); its pass wrote \(float64(x.Offset))"}
+			}
 			for i, k in s.Kids {
 				match k.Node {
 				case ui.PressableNode[E] as p:

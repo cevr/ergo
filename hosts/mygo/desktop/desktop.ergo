@@ -168,6 +168,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 			d.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
 			place(d, x.Id, x.Parent, x.Before)
 			d.soiled[x.Parent] = true
+			scrollTo(d, x.Id, x.Node)
 		case ui.Move[E] as x:
 			unplace(d, x.Parent, x.Id)
 			place(d, x.Id, x.Parent, x.Before)
@@ -181,6 +182,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 			drop(d, x.Id)
 		case ui.Set[E] as x:
 			d.soiled[x.Id] = true
+			scrollTo(d, x.Id, x.Node)
 			match d.nodes.Get(x.Id) {
 			case Some[held[E]] as h:
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
@@ -203,6 +205,22 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 	case actor.Stopped:
 	case ui.BadPatch as b:
 		return b
+	}
+}
+
+// scrollTo scrolls the list id to the offset its pass wrote (RowsNode's
+// Offset) when that is not the window's: a RowsKeeping list brought its
+// row into view. The paint keeps it inside the content, and report tells
+// the session where it went.
+func scrollTo[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) {
+	match node {
+	case ui.RowsNode as x:
+		let off = fmax(float32(float64(x.Offset)), 0)
+		if off != scrolledBy(d, id) {
+			d.scrolled[id] = off
+			d.soiled[id] = true
+		}
+	case _:
 	}
 }
 
