@@ -95,7 +95,7 @@ func caseProgram(carrier, body, cleanup string, exit int) string {
 	}
 	return strings.Join(imports, "") + `
 type Store { Get() int, }
-type Mem {}
+type Mem {} implements Store, Closer
 type Bang { Code int }
 
 func Get(_ Mem) int { 1 }

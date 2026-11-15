@@ -36,7 +36,7 @@ type Tally[T] {
 	Bump(v T),
 }
 
-type Box[T] { n int }
+type Box[T] { n int } implements Store[T], Tally[T]
 
 func Put[T](b *Box[T], v T) { b.n = b.n + 1 }
 

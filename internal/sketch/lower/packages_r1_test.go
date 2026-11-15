@@ -186,7 +186,7 @@ func TestVerifyR1ImportedRefusal(t *testing.T) {
 // record Q with the Get operation of Read, and Make, which converts a Q
 // into a Read.
 func opsLib(n string) string {
-	return "type Read { Get() int }\ntype Q { N int }\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
+	return "type Read { Get() int }\ntype Q { N int } implements Read\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
 }
 
 // The text of an error type's instances over two packages' Q, whose
@@ -234,7 +234,8 @@ func TestImportedOperationTypes(t *testing.T) {
 	paths := []string{"x/lib", "y/lib", "z/lib"}
 	aliases := []string{"a", "b", "c"}
 	src := func(k int) string {
-		return opsLib(fmt.Sprint(k)) + `func Show(r Read) int { r.Get() }
+		lib := strings.Replace(opsLib(fmt.Sprint(k)), "implements Read", "implements Read, Bump", 1)
+		return lib + `func Show(r Read) int { r.Get() }
 func First[T](xs []T, d T) T { d }
 type Bump { Inc() int }
 func Inc(q *Q) int { q.N + 10 }
@@ -288,7 +289,7 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 	needsBuild(t)
 	provider := func(i int) pkgSource {
 		return pkgSource{fmt.Sprintf("/probe/ctx/p%d.ergo", i), fmt.Sprintf(
-			"type C%[1]d { Get() int }\ntype P%[1]d {}\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
+			"type C%[1]d { Get() int }\ntype P%[1]d {} implements C%[1]d\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
 	}
 	subsets := [][]int{{1}, {0}, {2}, {0, 2}, {1, 2}, {0, 1, 2}, {2, 0}}
 	var body, expect strings.Builder

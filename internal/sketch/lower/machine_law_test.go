@@ -525,7 +525,7 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 		ms = append(ms, member{withBool(ts, withX), falsify})
 	}
 	fmt.Fprintf(&g.src, "type LOp {\n\tLGet() bool,\n\n\t%s,\n}\n\n", strings.Join(members, ",\n\t"))
-	g.src.WriteString("type LOne {}\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool }\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int }\n\nfunc LGet(_ LWide) bool { true }\n\n")
+	g.src.WriteString("type LOne {} implements LOp\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool } implements LOp\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int } implements LOp\n\nfunc LGet(_ LWide) bool { true }\n\n")
 	for k, m := range ms {
 		label := fmt.Sprintf("law LOp.LM%d for ", k)
 		report(label+"LOne", refProduct(append([]listedType{{"LOne", 1}}, m.ts...)), false)

@@ -17,7 +17,7 @@ func TestErgoRunE1Witnesses(t *testing.T) {
 }
 
 type Both {
-	Check() bool,
+	..Valid,
 	Name() string,
 }
 

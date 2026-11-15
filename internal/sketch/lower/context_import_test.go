@@ -49,7 +49,7 @@ func TestRunImportedContext(t *testing.T) {
 	imp := pkgImporter{"lib": lib.Package}
 	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/ctx/main.ergo", `import lib
 
-type Mine {}
+type Mine {} implements lib.Store
 
 func Get(_ Mine) string { "mine" }
 
