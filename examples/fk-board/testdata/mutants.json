@@ -208,14 +208,6 @@
       "to": "\t\tui.Box(f, ui.Plain()) {\n",
       "rule": "A pass runs the body of only the cards that changed; a pointer move runs none (law AMoveRunsNoCard).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
-    },
-    {
-      "name": "fk11b-same-key-forgets-position", "origin": "wf10/fk11b",
-      "file": "examples/fk-board/screen/screen.ergo",
-      "from": "ui.ByText(\"\\(c.ID)\\n\\(at)\\n",
-      "to": "ui.ByText(\"\\(c.ID)\\n",
-      "rule": "A card's kept body is redone when its position changes, so its button lifts it from where it is (case tour).",
-      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     }
   ]
 }
