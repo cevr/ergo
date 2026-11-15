@@ -45,7 +45,9 @@ func readStageReport(t *testing.T, path string) map[string]int64 {
 //
 // It kills teq-stored-never (the module binary is built though every
 // package's own is stored) and teq-stored-lowers (the probe of the store
-// lowers each package's module).
+// lowers each package's module), and teqb-shared-text (the module's test
+// binary lowered as Go source text, not through IR, as binaries_ir and
+// binaries_text count it).
 //
 // A run that differs in what it reads (a --run name, a GO* variable) is no
 // hit; a go wrapper of the same release links with the same patched go,
@@ -66,9 +68,9 @@ func TestTestResultCache(t *testing.T) {
 	}
 	smokeWrite(t, root, "q/q.ergo", "test Fails { assert 1 == 2 }\n")
 	type outcome struct {
-		stdout                                      string
-		code, notes                                 int
-		links, reused, compiles, processes, lowered int64
+		stdout                                                string
+		code, notes                                           int
+		links, reused, compiles, processes, lowered, ir, text int64
 	}
 	run := func(env []string, args ...string) outcome {
 		t.Helper()
@@ -84,15 +86,15 @@ func TestTestResultCache(t *testing.T) {
 			stdout: string(out), code: code,
 			notes: strings.Count(string(stderr), cachedNote),
 			links: counts["links"], reused: counts["links_reused"], compiles: counts["go_compiles"], processes: counts["processes"],
-			lowered: counts["modules_lowered"],
+			lowered: counts["modules_lowered"], ir: counts["binaries_ir"], text: counts["binaries_text"],
 		}
 	}
 	// --count 1 before any run: the store holds no package's own binary,
 	// so the module's one test binary is lowered and linked, and no
 	// package's module is lowered to find that out.
 	fresh := run(nil, "./...", "--count", "1")
-	if fresh.links != 1 || fresh.lowered != 1 {
-		t.Fatalf("--count 1 on an empty store: %+v; want one module lowered and one link (the module's test binary)", fresh)
+	if fresh.links != 1 || fresh.lowered != 1 || fresh.ir != 1 || fresh.text != 0 {
+		t.Fatalf("--count 1 on an empty store: %+v; want one module lowered and one link (the module's test binary, lowered through IR)", fresh)
 	}
 	cold := run(nil, "./...")
 	if cold.code != 1 || cold.links != passing+1 || cold.notes != 0 || strings.Count(cold.stdout, "PASS (2 tests)") != passing {

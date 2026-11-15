@@ -60,6 +60,12 @@ const (
 	// SharedFallbacks counts the `ergo test DIR/...` runs whose module test
 	// binary (TEST-one) did not build, so each package was tested alone.
 	SharedFallbacks
+	// BinariesIR and BinariesText count the executables a build placed
+	// (linked, reused from the store, or built by go build), by their
+	// module's lowering: with the IR bodies, as every ergo command builds,
+	// or the Go source text alone, the reference lowering (TEQb).
+	BinariesIR
+	BinariesText
 	numCounters
 )
 
@@ -71,7 +77,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
-	"shared_fallbacks",
+	"shared_fallbacks", "binaries_ir", "binaries_text",
 }
 
 var counts [numCounters]atomic.Int64

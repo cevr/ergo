@@ -274,6 +274,7 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 			Output:    binary,
 			Cache:     build.Cache{Root: root},
 			Toolchain: tc,
+			IR:        true,
 			Stderr:    &held,
 		}); err != nil {
 			return sharedFallback(os.Stderr, os.Getenv(SharedFallbackVariable) == "fail", err, held.String())

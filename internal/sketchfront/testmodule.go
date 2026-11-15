@@ -197,7 +197,8 @@ func (l *loader) closure(root *loadedPackage) []*loadedPackage {
 // shared load (CheckPackages): run with lower.TestPackageFlag K first, it
 // runs the tests of analyses[K] as that package's own test binary does.
 // req.Mode and req.Source are not read; the module is keyed by every
-// source, dependency and selected package. An analysis that did not check
+// source, dependency and selected package. req.IR lowers it with the IR
+// bodies (lower.LowerIRTestModule), as Build lowers a package's own. An analysis that did not check
 // is refused; a lowering's refusal is returned as an error, and the caller
 // builds each package alone to report it where it belongs.
 func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
@@ -209,6 +210,12 @@ func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
 		Language: LanguageRevision,
 		Mode:     build.ModeTest,
 		Flags:    []string{"test-module"},
+	}
+	lowering := lower.LowerTestModule
+	if req.IR {
+		// The IR bodies, as every other build lowers them (TEQb).
+		input.Emitter += "+ir"
+		lowering = lower.LowerIRTestModule
 	}
 	var units []lower.Unit
 	sources := map[string]bool{}
@@ -256,7 +263,7 @@ func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
 		input.Runtime = append(input.Runtime, build.File{Path: f.Path, Data: f.Data})
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lower.LowerTestModule(units)
+		files, err := lowering(units)
 		if err != nil {
 			return nil, err
 		}

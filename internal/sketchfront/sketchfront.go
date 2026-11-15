@@ -401,6 +401,15 @@ func link(module build.Module, req BuildRequest) error {
 	if req.Report != nil {
 		*req.Report = report
 	}
+	if err == nil {
+		// Each executable by its module's lowering (TEQb): every ergo
+		// build lowers through IR, the source text being the reference.
+		if req.IR {
+			stage.Add(stage.BinariesIR, 1)
+		} else {
+			stage.Add(stage.BinariesText, 1)
+		}
+	}
 	return err
 }
 

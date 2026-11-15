@@ -105,7 +105,7 @@ obligations evaluated, it is named `main`, as checking it alone names it. A
 selected test package (its path a package's path with `test` after it) that
 another package imports is checked a second time, as `main`, because the
 builder rule reads its path. `ergo test` links one test binary that
-holds every selected package's test build and runs it once per package, so each
+holds every selected package's test build, lowered through IR as its own build is, and runs it once per package, so each
 package prints what `ergo test` of that package alone prints, with the same
 receipt and the same exit status rule (TEST-one). When the store already holds
 every package's own test binary (an earlier `ergo test DIR/...` linked them),
