@@ -415,6 +415,50 @@
       "rule": "The tests of the coverage pass count in the mode the programs they build count in: go tool covdata refuses two modes in one directory.",
       "gap": "Only an end-to-end coverage pass sees it (GT7b acceptance, gate2/GT7b/accept.ts: rpc-mount-exact covered by the rpcgen loopback, cu6-into-hops-lost by lower:TestHTTPNetworkRuns); no test of the package runs the coverage pass.",
       "killers": []
+    },
+    {
+      "name": "gt8-no-testlog",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\targv = append(argv, \"-test.testlogfile=\"+testLog)\n",
+      "to": "\t\targv = append(argv, \"-test.count=1\")\n",
+      "rule": "Each Go test of the coverage pass writes the go command's test log, so the files it opens are known.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-reads-ignored",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\terr = k.reads(i, f, cwd, root)\n",
+      "to": "\t\t\terr = nil\n",
+      "rule": "A test that opens a file of the checkout covers that file's mutants.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-relative-root",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/reads.go",
+      "from": "\t\t\tname = filepath.Join(cwd, name)\n",
+      "to": "\t\t\tname = filepath.Join(root, name)\n",
+      "rule": "A relative name in the test log is relative to the test's working directory (its package directory), not the checkout root.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-readers-skipped",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/coverage.go",
+      "from": "\t\tif b.Start == readBlock {\n\t\t\t// The tests that read the file (reads.go) cover every line.\n\t\t\tfor _, i := range b.Tests {\n\t\t\t\tout[c.Tests[i].ID] = true\n\t\t\t}\n",
+      "to": "\t\tif b.Start == readBlock {\n",
+      "rule": "The readers of a file cover every line of it.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
     }
   ]
 }
