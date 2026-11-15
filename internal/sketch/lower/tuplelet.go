@@ -14,7 +14,9 @@ import (
 // each field (letPattern). Here the names are Go variables declared first,
 // and each arm's tail writes them: a tuple literal element by element
 // (`a, b, c = x, y, z`, the elements evaluated in order as a struct
-// literal's are), any other tail through its fields. No tuple value is
+// literal's are), a call the inliner writes in place by its returns, which
+// write the names as an arm does (inlineRet.tuple, tupleReturn), and any
+// other tail through its fields. No tuple value is
 // made or copied (T4b: civil's render, 2,207 → 1,494 instructions a call
 // by hand). The reference (formLowering "reference") keeps letPattern.
 //
@@ -105,17 +107,63 @@ func (fc *funcCtx) tupleYield(x syntax.Expr, d dest) {
 		fc.line(strings.Join(lhs, ", ") + " = " + strings.Join(vals, ", "))
 		return
 	}
-	val := fc.assignedTo(x, fc.value(x), d.typ)
+	if call, ok := unparen(x).(*syntax.CallExpr); ok && fc.tupleFits(x, d.typ) {
+		// An inlined body of the call writes the names itself (inline.go,
+		// inlineRet.tuple), with no result variable.
+		ti := &tupleInto{call: call, names: lhs}
+		saved := fc.tupleInto
+		fc.tupleInto = ti
+		val := fc.value(x)
+		fc.tupleInto = saved
+		if ti.taken {
+			return
+		}
+		fc.tupleWrite(lhs, val)
+		return
+	}
+	fc.tupleWrite(lhs, fc.assignedTo(x, fc.value(x), d.typ))
+}
+
+// tupleInto is a tuple let's names, "_" for an element none binds, and the
+// call of an arm's tail whose inlined body may write them; taken is set
+// when it does.
+type tupleInto struct {
+	call  *syntax.CallExpr
+	names []string
+	taken bool
+}
+
+// tupleWrite assigns the elements of val, a tuple value, to names.
+func (fc *funcCtx) tupleWrite(names []string, val string) {
 	if !goName.MatchString(val) {
 		v := fc.temp("p")
 		fc.line(v + " := " + val)
 		val = v
 	}
-	rhs := make([]string, len(d.names))
-	for i := range d.names {
+	rhs := make([]string, len(names))
+	for i := range names {
 		rhs[i] = val + "." + tupleField(i)
 	}
-	fc.line(strings.Join(lhs, ", ") + " = " + strings.Join(rhs, ", "))
+	fc.line(strings.Join(names, ", ") + " = " + strings.Join(rhs, ", "))
+}
+
+// tupleReturn writes the return of x from an inlined body whose site is a
+// tuple let's arm (inlineRet.tuple): a tuple literal of the result's type
+// element by element, any other value through its fields; then the jump
+// past the block.
+func (fc *funcCtx) tupleReturn(names []string, x syntax.Expr, result check.Type) {
+	key := check.ReturnedKey(x)
+	if tl, ok := unparen(x).(*syntax.TupleExpr); ok && len(tl.Elts) == len(names) && !fc.l.info.ReturnedTemps[key] && fc.tupleFits(x, result) {
+		fc.line(strings.Join(names, ", ") + " = " + strings.Join(fc.operands(tl.Elts, true), ", "))
+	} else {
+		if id, ok := unparen(x).(*syntax.Ident); ok {
+			fc.returned = id
+		}
+		val := fc.assigned(x)
+		fc.returned = nil
+		fc.tupleWrite(names, fc.returnedTemp(key, val))
+	}
+	fc.line("goto " + fc.frame.inline.label)
 }
 
 // tupleFits reports whether the tuple literal x is of the type to as Go

@@ -11,7 +11,8 @@ import (
 // The seeded property of the tuple let (tuplelet.go). Each seed writes one
 // program whose loop over 0..11 destructures, at each step, an if or a
 // match over a three-variant union into three names with a tuple pattern,
-// and prints them. An arm yields a tuple literal, a call's tuple, a nested
+// and prints them. An arm yields a tuple literal, a call's tuple (some
+// calls inlined, whose returns then write the names), a nested
 // if of either, a block whose let comes first, or leaves with continue;
 // some patterns bind _ for an element, and some arms read names that an
 // earlier let bound. The program runs under the new lowering and under the
@@ -36,6 +37,22 @@ func parts(n int) (string, int, bool) {
 	}
 	("small", n * 2, false)
 }
+
+func lbl(n int) string {
+	if n > 3 {
+		return "hi"
+	}
+	"lo"
+}
+
+func trio(n int) (string, int, bool) {
+	if n % 4 == 0 {
+		return (lbl(n), n, true)
+	}
+	("t", n + 1, false)
+}
+
+func twice(n int) (string, int, bool) { (lbl(n * 2), n * 2, n > 5) }
 
 func pick(i int) Shape {
 	if i % 3 == 0 {
@@ -79,7 +96,7 @@ func (g *tupleLetGen) arm(ind string, depth int, loop bool) string {
 		return ind + fmt.Sprintf("(%s, n + %d, n > %d)\n", first, g.r.IntN(9), g.r.IntN(12))
 	case 1:
 		g.path("call")
-		return ind + fmt.Sprintf("parts(n + %d)\n", g.r.IntN(5))
+		return ind + fmt.Sprintf("%s(n + %d)\n", []string{"parts", "trio", "twice"}[g.r.IntN(3)], g.r.IntN(5))
 	case 2:
 		g.path("block")
 		return ind + fmt.Sprintf("let q = n * %d\n", 1+g.r.IntN(4)) + ind + "(\"blk\", q, q > 10)\n"
@@ -129,11 +146,12 @@ func tupleLetProgram(seed uint64, reached map[string]bool) string {
 }
 
 // lowerTupleLetMode lowers src under the new lowering or the reference and
-// returns the count of tuple lets the form took.
-func lowerTupleLetMode(t *testing.T, name, src string, ref bool) (*lowered, int) {
+// returns the counts of tuple lets the form took and of inlined calls that
+// wrote a let's names.
+func lowerTupleLetMode(t *testing.T, name, src string, ref bool) (*lowered, int, int) {
 	t.Helper()
 	p, s := lowerFormMode(t, name, src, ref)
-	return p, s.TupleLets
+	return p, s.TupleLets, s.TupleInlines
 }
 
 // TestTupleLetsAgree is the seeded property (see above). It also checks the
@@ -151,7 +169,7 @@ func TestTupleLetsAgree(t *testing.T) {
 	reached := map[string]bool{}
 	srcs := map[uint64]string{}
 	var programs []*lowered
-	newLets, refLets := 0, 0
+	newLets, refLets, newInlines := 0, 0, 0
 	for _, seed := range seeds {
 		src := tupleLetProgram(seed, reached)
 		srcs[seed] = src
@@ -160,11 +178,12 @@ func TestTupleLetsAgree(t *testing.T) {
 			if ref {
 				name += "ref"
 			}
-			p, n := lowerTupleLetMode(t, name, src, ref)
+			p, n, in := lowerTupleLetMode(t, name, src, ref)
 			if ref {
-				refLets += n
+				refLets += n + in
 			} else {
 				newLets += n
+				newInlines += in
 				if main := goFunc(t, p.mainGo(), "main_1"); strings.Contains(main, "struct {") {
 					t.Errorf("seed %d: the new lowering still makes a tuple value:\n%s", seed, main)
 				}
@@ -192,7 +211,7 @@ func TestTupleLetsAgree(t *testing.T) {
 			t.Errorf("the fixed seeds never reach %q: %v", path, reached)
 		}
 	}
-	if newLets == 0 || refLets != 0 {
-		t.Errorf("tuple lets taken: new %d, reference %d; want some and none", newLets, refLets)
+	if newLets == 0 || newInlines == 0 || refLets != 0 {
+		t.Errorf("tuple lets taken: new %d (inlined calls %d), reference %d; want some and none", newLets, newInlines, refLets)
 	}
 }
