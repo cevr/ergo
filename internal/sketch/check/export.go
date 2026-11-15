@@ -519,6 +519,26 @@ type encoder struct {
 	// segment by its object path instead of its id (tag 4), when the
 	// segment's package may be checked again (compile-speed/cs5b.md §2).
 	symbolic func(seg int, v any) (objPath, bool)
+	// symbolicNode, when set (UserExport), names a syntax node of an
+	// earlier user segment by its node path (CS5b-4); every node
+	// reference then carries a tag (encoder.node).
+	symbolicNode func(x any) (seg int, p nodePath, ok bool)
+}
+
+// node writes a reference to the syntax object x, not nil: its id, or,
+// with symbolicNode set, 1 and its id, or 2, the segment and the node
+// path of a node of an earlier user segment. Nil is 0 in both forms.
+func (e *encoder) node(x any) {
+	if e.symbolicNode != nil {
+		if seg, p, ok := e.symbolicNode(x); ok {
+			e.uint(2)
+			e.uint(uint64(seg))
+			e.string(string(p))
+			return
+		}
+		e.uint(1)
+	}
+	e.uint(e.nodes.ID(x))
 }
 
 func newEncoder() *encoder {
@@ -684,6 +704,17 @@ type decoder struct {
 	// caches the resolved paths, so one path is one object.
 	imports func(seg int) *Package
 	paths   map[pathRef]any
+	// userNodes reads node references in encoder.node's tagged form, and
+	// nodePaths resolves their node paths, one walk per file.
+	userNodes bool
+	nodePaths nodeResolver
+	nodeRefs  map[nodeRef]any
+}
+
+// nodeRef is a tagged node reference: a segment and a node path in it.
+type nodeRef struct {
+	seg  int
+	path nodePath
 }
 
 // pathRef is a tag 4 reference: a segment and an object path in it.
@@ -780,6 +811,35 @@ func (d *decoder) node() any {
 	id := d.uint()
 	if id == 0 {
 		return nil
+	}
+	if d.userNodes {
+		switch id {
+		case 1:
+			id = d.uint()
+		case 2:
+			r := nodeRef{seg: int(d.uint()), path: nodePath(d.string())}
+			if x, ok := d.nodeRefs[r]; ok {
+				return x
+			}
+			var pkg *Package
+			if d.imports != nil {
+				pkg = d.imports(r.seg)
+			}
+			if pkg == nil {
+				d.failf("a node path into segment %d, which has no current package", r.seg)
+			}
+			x, ok := d.nodePaths.resolve(pkg, r.path)
+			if !ok {
+				d.failf("a node path names nothing in %s", pkg.Path)
+			}
+			if d.nodeRefs == nil {
+				d.nodeRefs = map[nodeRef]any{}
+			}
+			d.nodeRefs[r] = x
+			return x
+		default:
+			d.failf("bad node reference tag %d", id)
+		}
 	}
 	x, ok := d.nodes.Obj(id)
 	if !ok {

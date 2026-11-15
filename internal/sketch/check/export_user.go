@@ -13,10 +13,12 @@ import (
 type CrossRef struct {
 	// From and To are the paths of the referring and the referred package.
 	From, To string
-	// Obj is the object referred to; nil for a syntax node.
-	Obj any
-	// Path is Obj's object path in To (ResolvePath), taken right after
-	// To's check; HasPath is false when no path reaches it.
+	// Obj is the object referred to; nil for a syntax node, which Node
+	// holds when the segment names it by node path.
+	Obj, Node any
+	// Path is Obj's object path in To (ResolvePath), or Node's node path
+	// (ResolveNodePath), taken right after To's check; HasPath is false
+	// when no path reaches it.
 	Path    string
 	HasPath bool
 }
@@ -33,9 +35,15 @@ type UserExport struct {
 	first int // the index of the first user segment
 	paths []string
 	segs  []segment
-	// nodeCross marks the user segments that name a syntax node of an
-	// earlier user segment, which no path names yet (CS5b-4).
+	// nodeCross marks the user segments whose syntax table names a syntax
+	// node of an earlier user segment: a field of one package's tree that
+	// points into another's, which no node path names.
 	nodeCross map[int]bool
+	// pkgs are the packages of the user segments, and nodeTables their
+	// node paths, by segment index, each taken when a later segment first
+	// names one of its nodes (CS5b-4).
+	pkgs       map[int]*Package
+	nodeTables map[int]map[any]nodePath
 	// stdObjs and stdNodes are std's objects and syntax nodes by id, for
 	// Decode, built on first use.
 	stdObjs *objTable
@@ -68,7 +76,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	for i, imp := range importers {
 		e.ext[imp] = uint64(len(externals()) + i)
 	}
-	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}}
+	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}, pkgs: map[int]*Package{}, nodeTables: map[int]map[any]nodePath{}}
 	u.segs = append(u.segs, e.segment("", func() { e.encPtrstdBase(s.base) }))
 	u.paths = append(u.paths, "")
 	for i, pkg := range s.packages {
@@ -87,6 +95,27 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 		}
 		return p, true
 	}
+	e.symbolicNode = func(x any) (int, nodePath, bool) {
+		id, ok := e.nodes.Known(x)
+		if !ok {
+			return 0, "", false
+		}
+		seg, cur := segmentOf(e.nodeStarts, id), len(e.nodeStarts)-1
+		if seg < u.first || cur < u.first || seg == cur {
+			return 0, "", false
+		}
+		t, ok := u.nodeTables[seg]
+		if !ok {
+			t = nodePaths(u.pkgs[seg])
+			u.nodeTables[seg] = t
+		}
+		p, ok := t[x]
+		if !ok {
+			e.failf("a %T of %s has no node path", x, u.paths[seg])
+		}
+		u.crossNode(seg, x, p)
+		return seg, p, true
+	}
 	below := e.nodes.Below
 	e.nodes.Below = func(id uint64) {
 		below(id)
@@ -97,6 +126,15 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 		u.cross(seg, nil)
 	}
 	return u, nil
+}
+
+func (u *UserExport) crossNode(seg int, x any, p nodePath) {
+	n := len(u.Refs)
+	u.cross(seg, nil)
+	if len(u.Refs) > n {
+		r := &u.Refs[n]
+		r.Node, r.Path, r.HasPath = x, string(p), true
+	}
 }
 
 func (u *UserExport) cross(seg int, v any) {
@@ -122,6 +160,7 @@ func (u *UserExport) Add(pkg *Package) (seg int, err error) {
 	seg = len(u.e.objStarts)
 	u.paths = append(u.paths, pkg.Path)
 	u.tables[seg] = objectPaths(pkg)
+	u.pkgs[seg] = pkg
 	u.segs = append(u.segs, u.e.segment(pkg.Path, func() { u.e.encPtrPackage(pkg) }))
 	return seg, nil
 }
@@ -144,6 +183,8 @@ func (u *UserExport) SetImporter(imp any) {
 // replaces it, and no later segment may name its objects.
 func (u *UserExport) Release(seg int) {
 	delete(u.tables, seg)
+	delete(u.pkgs, seg)
+	delete(u.nodeTables, seg)
 	if seg >= u.first && seg < len(u.segs) {
 		u.segs[seg].data = nil
 	}
@@ -174,7 +215,7 @@ func (u *UserExport) DecodeSegment(i int, current func(path string) *Package, im
 		return nil, fmt.Errorf("check: segment %d of %s is released", i, path)
 	}
 	if u.nodeCross[i] {
-		return nil, fmt.Errorf("check: the segment of %s names a syntax node of another user package (CS5b-4)", path)
+		return nil, fmt.Errorf("check: the syntax table of %s points into another user package's syntax", path)
 	}
 	defer recoverExport(&err)
 	e := u.e
@@ -202,7 +243,7 @@ func (u *UserExport) DecodeSegment(i int, current func(path string) *Package, im
 	}
 	ext := externals()
 	ext = append(ext, importers...)
-	d := &decoder{buf: seg.data[k+int(n):], ext: ext, nodes: nodes, table: u.stdObjs, seg: i, start: seg.objStart}
+	d := &decoder{buf: seg.data[k+int(n):], ext: ext, nodes: nodes, table: u.stdObjs, seg: i, start: seg.objStart, userNodes: true}
 	d.imports = func(s int) *Package {
 		if s < u.first || s >= i {
 			return nil
