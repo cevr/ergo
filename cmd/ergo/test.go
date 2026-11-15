@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +16,9 @@ import (
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/runtime/rt"
+	"ergo.local/prototype/runtime/rt/rttrace"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
@@ -38,18 +46,52 @@ import (
 // and prints no report line; a check, lowering or Go build failure prints
 // its diagnostics and exits 1 with no PASS line. -work prints WORK=DIR on
 // stderr, DIR being the test module in the emission cache.
+//
+// --trace prints, after the run, the trace of every scene script the tests
+// played: one line per act, in the order the acts ran, each the line std
+// ui's PlayTrace returns for it (testTrace). It takes one package, played
+// plainly: with a pattern or --explore it is a usage error.
 func testCommand(args []string) error {
+	args, trace := traceFlag(args)
 	opts, err := parseFileOptions("test", args)
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if trace && (recursivePattern(opts.file) || opts.explore || opts.search.mode != "") {
+		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
+	}
 	if recursivePattern(opts.file) {
 		return recursiveTestCommand(opts)
 	}
-	return testPackage(opts)
+	return testPackage(opts, trace)
 }
 
-func testPackage(opts fileOptions) error {
+// traceFlag removes test's --trace from args, and reports whether it was
+// there. A --trace that is an option's value (--law --trace) stays that
+// option's.
+func traceFlag(args []string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	trace := false
+	for i, a := range args {
+		if a == "--trace" && (i == 0 || !takesValue(args[i-1])) {
+			trace = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, trace
+}
+
+// takesValue reports whether option a reads the next word as its value.
+func takesValue(a string) bool {
+	switch a {
+	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule":
+		return true
+	}
+	return false
+}
+
+func testPackage(opts fileOptions, trace bool) error {
 	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
@@ -57,10 +99,15 @@ func testPackage(opts fileOptions) error {
 	if !l.result.Checked {
 		return refuseUnchecked(l, opts)
 	}
-	return testLoadedPackage(opts, l)
+	return testLoadedTraced(opts, l, trace)
 }
 
 func testLoadedPackage(opts fileOptions, l loaded) error {
+	return testLoadedTraced(opts, l, false)
+}
+
+// testLoadedTraced is testLoadedPackage, with --trace when trace is set.
+func testLoadedTraced(opts fileOptions, l loaded, trace bool) error {
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
 		return err
@@ -141,8 +188,21 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
 	child := testProgramCommand(binary, childArgs, limit)
-	if err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {
-		return err
+	tracePath := ""
+	if trace {
+		// The test binary's root records its trace into this file when
+		// main ends (runtime/v1 TraceEnv), whatever the verdict.
+		tracePath = filepath.Join(dir, "trace.jsonl")
+		child.Env = append(child.Env, v1.TraceEnv+"="+tracePath)
+	}
+	ran := runEntryProcess(child, limit, proclimit.Watch(child))
+	if trace {
+		if err := printSteps(os.Stdout, tracePath); err != nil {
+			return err
+		}
+	}
+	if ran != nil {
+		return ran
 	}
 	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
 		// A partial run checks only some laws: it leaves the ledger.
@@ -163,6 +223,48 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	}
 	if changed > 0 {
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
+	}
+	return nil
+}
+
+// printSteps writes the step events of the trace at path to w: a line
+// "trace: N steps", then each step's line, in the order the runtime raised
+// them. A trace whose recorder dropped events says so on stderr, as a
+// step may be among them. A run that wrote no trace (it stopped before
+// main ended) prints no step.
+func printSteps(w io.Writer, path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintln(w, "trace: no trace was written")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	head, rest, _ := bytes.Cut(data, []byte("\n"))
+	var h rttrace.Header
+	if err := json.Unmarshal(head, &h); err != nil {
+		return fmt.Errorf("ergo test --trace: %s: %w", path, err)
+	}
+	var steps []string
+	for _, line := range bytes.Split(rest, []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var l rttrace.Line
+		if err := json.Unmarshal(line, &l); err != nil {
+			return fmt.Errorf("ergo test --trace: %s: %w", path, err)
+		}
+		if l.Kind == rt.TraceStep.String() {
+			steps = append(steps, l.Step)
+		}
+	}
+	fmt.Fprintf(w, "trace: %d steps\n", len(steps))
+	for _, s := range steps {
+		fmt.Fprintln(w, s)
+	}
+	if h.Dropped > 0 {
+		fmt.Fprintf(os.Stderr, "ergo test --trace: the recorder dropped %d events, so steps may be missing; run one test with --run\n", h.Dropped)
 	}
 	return nil
 }

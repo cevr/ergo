@@ -70,10 +70,17 @@ func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails ac
 	}
 	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
-	try Apply(&h.mirror, ops)
+	try show(h, ops)
 	if h.session.frame.passes != passes {
 		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 	}
+}
+
+// show applies a pass's patch to the screen, and says the text of each
+// live region it writes: every patch the host shows goes through it, so
+// Announced misses none (FK11-g5).
+func show[S, E, D, F](h *TestHost[S, E, D, F], ops []Op[E]) fails BadPatch {
+	try Apply(&h.mirror, ops)
 	for op in ops {
 		match op {
 		case Insert[E] as x:
@@ -173,7 +180,7 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 		// loop as Committed, on the watcher's task, at no time a test can
 		// wait for; so Settle ends with a pass, which shows nothing new when
 		// nothing changed, and settles the loads that pass started.
-		try Apply(&h.mirror, runPass(&h.session))
+		try show(h, runPass(&h.session))
 		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 		if InFlight(&h.session) == 0 {
 			return
@@ -422,36 +429,11 @@ type GoBack {}
 // Play runs a script in order. A step whose label or locator names no
 // node fails NoNode with that label or locator, one that names more than
 // one node fails Ambiguous (a locator in First names the first), and an
-// ExpectOn that does not hold fails Mismatch.
+// ExpectOn that does not hold fails Mismatch. When the running test
+// records a trace (`ergo test --trace`), each act it runs is a step event
+// whose line is PlayTrace's for that act.
 func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
-	for act in script {
-		match act {
-		case TapOn as x:
-			try Tap(h, try found(h, x.Label))
-		case TypeInto as x:
-			try TypeText(h, try found(h, x.Label), x.Text)
-		case SettleAll:
-			try Settle(h)
-		case AdvanceBy as x:
-			try Advance(h, x.By)
-		case KeyIn as x:
-			try PressKey(h, x.Press)
-		case PointOn as x:
-			try PointAt(h, try found(h, x.Label), x.Pointer)
-		case ScrollOn as x:
-			try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
-		case ClickOn as x:
-			try Tap(h, try only(h, x.At))
-		case FillIn as x:
-			try TypeText(h, try only(h, x.At), x.Text)
-		case ExpectOn as x:
-			try Expect(h, x.At, x.Is)
-		case NavigateTo as x:
-			try Navigate(h, x.Href)
-		case GoBack:
-			let _ = try GoBackOn(h)
-		}
-	}
+	let _ = try played(h, script, false)
 }
 
 // PlayTrace runs a script as Play does, and is its trace: a line per
@@ -459,12 +441,57 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 // that is no input (SettleAll, AdvanceBy, ExpectOn) adds to the step
 // before it, and its line shows that step's counts so far.
 func PlayTrace[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) []string fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	try played(h, script, true)
+}
+
+// played runs script in order. Each act's line is a step event when the
+// task records a trace, and with lines it is also the result's.
+func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines bool) []string fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	let on = traced()
 	let mut out = []string{}
 	for i, act in script {
-		try Play(h, []Act{act})
-		out = out.Append("step \(i + 1) \(actText(act)): \(CountsLine(h.step))")
+		try playOne(h, act)
+		if lines || on {
+			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))"
+			if on {
+				traceStep(line)
+			}
+			if lines {
+				out = out.Append(line)
+			}
+		}
 	}
 	out
+}
+
+// playOne runs one act of a script.
+func playOne[E comparable, S, D, F](h *TestHost[S, E, D, F], act Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	match act {
+	case TapOn as x:
+		try Tap(h, try found(h, x.Label))
+	case TypeInto as x:
+		try TypeText(h, try found(h, x.Label), x.Text)
+	case SettleAll:
+		try Settle(h)
+	case AdvanceBy as x:
+		try Advance(h, x.By)
+	case KeyIn as x:
+		try PressKey(h, x.Press)
+	case PointOn as x:
+		try PointAt(h, try found(h, x.Label), x.Pointer)
+	case ScrollOn as x:
+		try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
+	case ClickOn as x:
+		try Tap(h, try only(h, x.At))
+	case FillIn as x:
+		try TypeText(h, try only(h, x.At), x.Text)
+	case ExpectOn as x:
+		try Expect(h, x.At, x.Is)
+	case NavigateTo as x:
+		try Navigate(h, x.Href)
+	case GoBack:
+		let _ = try GoBackOn(h)
+	}
 }
 
 // actText is an act as the trace names it.
