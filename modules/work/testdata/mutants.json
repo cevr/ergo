@@ -516,8 +516,8 @@
     {
       "name": "wg1-finish-skips-the-move", "origin": "wf10/semws WG1",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\t\tif t.copier.Has(w.Moving) && !t.copier.Has(w.Path) {",
-      "to": "\t\tif false {",
+      "from": "\t\tif t.copier.Has(w.Moving) {\n",
+      "to": "\t\tif false {\n",
       "rule": "The next mutation finishes an intent a stopped rm left: the folder moves to the trash its record names (the model's NoIntent): SchedulesKeepTheInvariants.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
