@@ -36,13 +36,13 @@ import tasks
 
 func count(t fs.Text) int { len(t) }
 
-func run(f escaping func() int) int { f() }
+func run(f own func() int) int { f() }
 
 func each(f func() int) int { f() }
 
 func flag() bool { len("a") > 0 }
 
-func consume(m fs.Mapped) takes m { m.Close() }
+func consume(m own fs.Mapped) { m.Close() }
 
 func imports() int { task.Go() { 1 }.Wait() + len(tasks.Transform([]int{1}, 1, func(i int) int { i })) }
 `

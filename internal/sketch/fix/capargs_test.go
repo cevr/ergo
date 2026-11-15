@@ -16,8 +16,8 @@ import (
 // arguments, built from every form a capability's argument takes
 // (types.md, Capabilities 7; check's typExpr): a named type and a generic
 // instance, a slice, an array, a map, a tuple, a borrow, a function type
-// with an escaping or plain function parameter, results, fails and needs
-// rows and a takes clause, and an error row argument. Each seed charges
+// with an own or plain function parameter, results, fails and needs
+// rows and an own resource parameter (q168), and an error row argument. Each seed charges
 // one argument of this package's types four ways: the release of a with's
 // provider (Context ownership 6, which the second check names again,
 // withown.go seedType) and a call; and one argument of two other
@@ -210,8 +210,8 @@ func (g *argGen) atom() string {
 }
 
 // fn is a function type: parameters (a borrow, a function type written
-// escaping or not, or a type), results, rows and, of main's resource, a
-// takes clause, which names every parameter.
+// own or not, or a type), results, rows and, of main's resource, an
+// own parameter r, which names every parameter.
 func (g *argGen) fn(d int) string {
 	g.reached["func"] = true
 	var params []string
@@ -224,21 +224,19 @@ func (g *argGen) fn(d int) string {
 			esc := ""
 			if g.r.IntN(2) == 0 {
 				g.reached["escaping"] = true
-				esc = "escaping "
+				esc = "own "
 			}
 			params = append(params, esc+g.fn(d-1))
 		default:
 			params = append(params, g.typ(d))
 		}
 	}
-	takes := ""
 	if !g.remote && g.r.IntN(5) == 0 {
 		g.reached["takes"] = true
 		for i := range params {
 			params[i] = fmt.Sprintf("p%d %s", i, params[i])
 		}
-		params = append([]string{"r RB"}, params...)
-		takes = " takes r"
+		params = append([]string{"r own RB"}, params...)
 	}
 	s := "func(" + strings.Join(params, ", ") + ")"
 	switch g.r.IntN(3) {
@@ -261,5 +259,5 @@ func (g *argGen) fn(d int) string {
 			s += " needs " + g.pick("A", "C", "A | C")
 		}
 	}
-	return s + takes
+	return s
 }

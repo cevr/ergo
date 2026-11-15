@@ -466,7 +466,7 @@ type Holder { r Res }
 
 func Keep(r own Res) Holder { Holder{r: r} }
 
-func hold(r Res) Holder takes r { Keep(r) }
+func hold(r own Res) Holder { Keep(r) }
 
 func Hold(r own Res) Holder { hold(r) }
 

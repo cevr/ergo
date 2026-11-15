@@ -179,7 +179,7 @@ func Close(r Res) { say("close " + r.name) }
 
 func use(r Res) { say("use " + r.name) }
 
-func take(r Res) takes r {
+func take(r own Res) {
 	use(r)
 }
 

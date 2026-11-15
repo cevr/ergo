@@ -19,8 +19,8 @@ var fixSeed = flag.Int64("fix.seed", 0, "replay one seed of TestFixProperty")
 // TestFixProperty is EXPLICIT §4's property against a least-row model of
 // a generated program: call chains, recursive groups, exported functions,
 // leaves whose written rows stay, operation-type capabilities, methods,
-// two failure kinds per function, results of function type, takes
-// hand-offs, and a generic codec enc[T wire] whose needs row is wired[T]
+// two failure kinds per function, results of function type, own
+// hand-offs (x own Box, q168), and a generic codec enc[T wire] whose needs row is wired[T]
 // and whose instance enc[Lv] is charged Lv's codec needs (q141). A random
 // subset of the clauses is deleted, wholly or in part. Checked: fix then
 // check has no clause diagnostic and the same other diagnostics as the
@@ -31,7 +31,7 @@ var fixSeed = flag.Int64("fix.seed", 0, "replay one seed of TestFixProperty")
 // clause, write needs for fails, skip the re-check loop, insert after
 // takes, skip the import, reorder written elements, leave a
 // function-typed result unparenthesized; and in the checker (ledger in
-// ../check/testdata/mutants.json) a lent hand-off with no takes fix, an
+// ../check/testdata/mutants.json) a lent hand-off with no own fix, an
 // encode of a type parameter not charged wired[T], and an instance whose
 // wired[T] is not replaced by its argument's codec needs.
 func TestFixProperty(t *testing.T) {
@@ -109,8 +109,8 @@ type gfunc struct {
 	takesArg bool               // the function has a parameter x Box, a resource
 	// handoff is what the body does with x: 0 nothing (lent), 1 Close(x),
 	// 2 passes it to the call passAt, whose callee has x too. leastTakes
-	// is the model's least takes clause; writtenTakes whether it is
-	// written after deletion (never beyond the least).
+	// is whether the model's least signature writes x own; writtenTakes
+	// whether it is written after deletion (never beyond the least).
 	handoff                  int
 	passAt                   int
 	leastTakes, writtenTakes bool
@@ -360,7 +360,11 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 			params = append(params, "r R")
 		}
 		if f.takesArg {
-			params = append(params, "x Box")
+			if len(rows(f, 2)) > 0 {
+				params = append(params, "x own Box")
+			} else {
+				params = append(params, "x Box")
+			}
 		}
 		if f.codec {
 			b.WriteString("\nfunc " + f.name + "[T wire](t T) int")
@@ -378,7 +382,7 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 		switch {
 		case !f.funcResult:
 			b.WriteString(" int")
-		case len(rows(f, 0)) > 0 || len(rows(f, 1)) > 0 || len(rows(f, 2)) > 0:
+		case len(rows(f, 0)) > 0 || len(rows(f, 1)) > 0:
 			b.WriteString(" (func() int)")
 		default:
 			b.WriteString(" func() int")
@@ -388,9 +392,6 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 		}
 		if cs := rows(f, 1); len(cs) > 0 {
 			b.WriteString(" needs " + strings.Join(cs, " | "))
-		}
-		if ts := rows(f, 2); len(ts) > 0 {
-			b.WriteString(" takes " + strings.Join(ts, ", "))
 		}
 		b.WriteString(" {\n")
 		if f.handoff == 1 {
@@ -558,7 +559,7 @@ func checkSeed(t *testing.T, seed int64, g *program) (reached []string) {
 		}
 	}
 	for _, f := range g.funcs {
-		if f.funcResult && !f.writtenTakes && len(f.order[0])+len(f.order[1]) == 0 && (len(f.least[0])+len(f.least[1]) > 0 || f.leastTakes) {
+		if f.funcResult && len(f.order[0])+len(f.order[1]) == 0 && len(f.least[0])+len(f.least[1]) > 0 {
 			reached = append(reached, "result opened")
 		}
 		if f.codec && len(f.order[1]) == 0 {
@@ -622,9 +623,11 @@ func writtenRows(src string) (map[string][3][]string, error) {
 		}
 		var rows [3][]string
 		rows[0], rows[1], rows[2] = []string{}, []string{}, []string{}
-		if fd.Type.Takes != nil {
-			for _, id := range fd.Type.Takes.Names {
-				rows[2] = append(rows[2], id.Name)
+		for _, p := range fd.Type.Params.List {
+			if p.Own != nil {
+				for _, id := range p.Names {
+					rows[2] = append(rows[2], id.Name)
+				}
 			}
 		}
 		if fd.Type.Results != nil {
