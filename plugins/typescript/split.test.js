@@ -145,9 +145,10 @@ test("EditStaysInItsUnit on seeded edits", () => {
     const edited = text.slice(0, at) + insert + text.slice(at);
     const after = units(file, edited);
     if (after.unreadable !== undefined || after.length !== before.length) continue;
-    // The one move split.js allows: a rename of a name declared twice
-    // re-keys its later declarations ("I #2" becomes "I").
-    const renamed = (u) => before[i].key !== after[i].key && u.key.startsWith(before[i].key + " #");
+    // The one move split.js allows: an edit of a key taken twice re-keys
+    // its later takers ("I #2" becomes "I", "code f #2" "code f").
+    const root = (k) => k.replace(/ #\d+$/, "");
+    const renamed = (u) => before[i].key !== after[i].key && [root(before[i].key), root(after[i].key)].includes(root(u.key));
     // And a line break before a statement's trailing comment moves the
     // comment to the next unit, whose key stays.
     const broken = (k) => insert.includes("\n") && k === i + 1 && after[k].key === before[k].key;
@@ -172,10 +173,11 @@ test("an overload set is one unit", () => {
 });
 
 // Keys are names, not places: a unit added before another keeps the
-// other's key.
+// other's key; a call is keyed by its callee and the string it names.
 test("a key is the declared names, never the offset", () => {
   expect(keys("k.ts", "export const a = 1, b = 2;\nf();\nclass C {}\nexport default 1;\ng();\n")).toEqual(["a,b", "C", "default"]);
   expect(keys("k.ts", "type Z = 1;\nexport const a = 1, b = 2;\nf();\nclass C {}\nexport default 1;\ng();\n")).toEqual(["Z", "a,b", "C", "default"]);
+  expect(units("t.test.ts", 'test("a", () => {});\ntest("b", () => {});\nawait run();\nif (x) {}\n').map((u) => u.key)).toEqual(['code test "a"', 'code test "b"', "code run", "code IfStatement"]);
 });
 
 // The comment above a statement is its unit's; the comment after a

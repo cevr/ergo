@@ -60,8 +60,8 @@
     {
       "name": "ts-code-after-neighbour",
       "file": "split.js",
-      "from": "      key = `code #${code}`;",
-      "to": "      key = `code #${code} after ${out.length ? out[out.length - 1].key : \"\"}`;",
+      "from": "    key = unique(seen, key === \"\" ? codeKey(g.nodes[0], text) : key);",
+      "to": "    key = unique(seen, key === \"\" ? `${codeKey(g.nodes[0], text)} after ${out.length ? out[out.length - 1].key : \"\"}` : key);",
       "rule": "A statement with no name is not keyed by the unit before it, whose rename would move its key (EditStaysInItsUnit on seeded edits)."
     },
     {
@@ -70,6 +70,13 @@
       "from": "  if (request._tag !== \"UnitsOf\") return { _tag: \"NotProvided\", op: request._tag.replace(/Of$/, \"\") };",
       "to": "  if (request._tag !== \"UnitsOf\") return { _tag: \"SitesAre\", sites: [] };",
       "rule": "A level-1 plugin asked for Sites answers NotProvided, never an empty list (row: the protocol)."
+    },
+    {
+      "name": "ts-code-by-count",
+      "file": "split.js",
+      "from": "  if (a && a.type === \"Literal\" && typeof a.value === \"string\") return `code ${named} ${JSON.stringify(a.value)}`;",
+      "to": "  if (a && a.type === \"Literal\" && typeof a.value === \"string\") return `code ${named}`;",
+      "rule": "A call is keyed by the string it names, so each test of a test file is its own unit and an added test moves no other (row: a key is the declared names; found by mergereplay)."
     }
   ]
 }

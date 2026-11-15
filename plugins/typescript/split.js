@@ -10,12 +10,14 @@
 //     imports merge as a set;
 //   - `declare module "m"`, `namespace N` and `declare global` are one
 //     unit each, their statements its members;
-//   - a statement that declares nothing (a call, an if) is keyed by its
-//     count among such statements ("code #2"), never by its offset nor
-//     by a neighbour's name (a rename of the unit before it would move
-//     its key).
-// A name declared twice (interface merging) keys the later ones "I #2":
-// the one key that a rename of another unit (the first I) can move.
+//   - a statement that declares nothing is keyed by what it is: a call
+//     by its callee and the string it is given first, so each test of a
+//     test file is its own unit (`code test "adds"`), another statement
+//     by its kind ("code IfStatement"); never by its offset nor by a
+//     neighbour's name (a rename of the unit before it would move it).
+// A key taken twice (interface merging, two calls of one callee with no
+// string) keys the later ones "I #2": the one key that an edit of another
+// unit (a rename of the first I) can move.
 // Members are given for classes, interfaces, enums, object literals, a
 // module's statements and an import's or export's specifiers.
 //
@@ -60,23 +62,32 @@ export function units(file, text) {
   const out = [];
   const seen = new Map();
   let start = 0;
-  let code = 0;
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
     const end = i + 1 < groups.length ? cut(text, commentAt, g.end, groups[i + 1].start) : text.length;
     const unitText = text.slice(start, end);
     let { key, kind, exported } = describe(g.nodes[0], text);
-    if (key === "") {
-      code++;
-      key = `code #${code}`;
-    } else {
-      key = unique(seen, key);
-    }
+    key = unique(seen, key === "" ? codeKey(g.nodes[0], text) : key);
     seen.set(key, true);
     out.push({ key, kind, text: unitText, exported, members: members(g.nodes[0], text, start, unitText) });
     start = end;
   }
   return out;
+}
+
+// codeKey is the key of a statement that declares nothing: "code", what
+// it calls (its callee's text, when short) and the string it gives first
+// (`test("adds", …)`, `describe("x", …)`), or its kind.
+function codeKey(node, text) {
+  let e = node.type === "ExpressionStatement" ? node.expression : null;
+  if (e && e.type === "AwaitExpression") e = e.argument;
+  if (!e || e.type !== "CallExpression") return `code ${node.type}`;
+  const callee = text.slice(e.callee.start, e.callee.end).replace(/\s+/g, " ");
+  const named = callee.length <= 60 ? callee : "call";
+  const a = e.arguments[0];
+  if (a && a.type === "Literal" && typeof a.value === "string") return `code ${named} ${JSON.stringify(a.value)}`;
+  if (a && a.type === "TemplateLiteral" && a.expressions.length === 0) return `code ${named} ${JSON.stringify(a.quasis[0].value.cooked)}`;
+  return `code ${named}`;
 }
 
 function unique(seen, key) {
