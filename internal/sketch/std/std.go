@@ -25,7 +25,7 @@ import (
 //go:embed utf8/*.ergo
 //go:embed flag/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo
-//go:embed time/*.ergo civil/*.ergo
+//go:embed time/*.ergo civil/*.ergo tz/*.ergo tz/iana/*.ergo tz/host/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo

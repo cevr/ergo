@@ -309,7 +309,15 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Period**: An amount of calendar units, `civil.Period { Years, Months, Weeks, Days }`. Adding one moves the years and months as one count of months, with the day clamped to the new month's last day, then the weeks and days. A period is not a duration: a month has no fixed length.
 
-**Span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
+**Civil span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
+
+**Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Zone database**: The zones by IANA name, the operation type `tz.Zones` in a function's row. Std's own copy of one IANA release (`tz/iana`) is the default provider; the host's zone files (`tz/host`) are an explicit choice.
+
+**Gap**: A wall time a zone skips, as 02:30 on the day clocks go forward: `tz.Gap`, one variant of what `tz.Resolve` gives. No instant shows it.
+
+**Overlap**: A wall time a zone shows twice, as 01:30 on the day clocks go back: `tz.Overlap`, with the earlier and the later instant.
 
 ## Earlier `.ef` language
 

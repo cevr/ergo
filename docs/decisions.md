@@ -2,6 +2,14 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-15
+
+- **Std carries its own zone database (2026-11-15, std-spike q184).** Told that following the host's zone files, with Go's `time/tzdata` as a fallback, cannot promise the same rules on every host or that the valid names are the database's, the owner answered: "Okay, then just make our own time zone host then."
+  - Std `tz/iana` is std's own copy of one IANA release, written by a checked generator (`go run ./scripts/tzdata`, `-check`) and linked only into a program that uses it. It is the default `tz.Zones` provider.
+  - A reader written in Ergo reads its TZif bytes; Go's reader of the same bytes is the test oracle (`TestStdTzMatchesGo`).
+  - Following the host's zone files is the explicit opt-in provider `tz/host`. Go's `time/tzdata` is not used by `tz`.
+  - It supersedes the same day's earlier answer (host first, Go's `time/tzdata` as the fallback). See [stdlib.md, tz](spec/stdlib.md#tz).
+
 ## Owner direction, 2026-11-12
 
 Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) section, and the entries marked "synced" in the [2026-11-10](#owner-direction-2026-11-10) section, were copied on 2026-11-12 from the run's decision logs (the `decisions.md` files of the orchestration run, and the owner lines of its plan ledger), so that every owner decision q84 to q138 is in this file. A quotation in double quotes is the owner's words; "as assumed" means the owner accepted the recommendation the question stated.

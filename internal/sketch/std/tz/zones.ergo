@@ -1,0 +1,34 @@
+// The zone database: a capability.
+
+import time
+
+// UnknownZone is the failure of a Zones provider's Load: the database has
+// no zone Name.
+type UnknownZone { Name string }
+
+// Zones is a zone database, by IANA name. It is a capability: a function
+// that loads a zone states needs tz.Zones, and its context chooses the
+// database, so no program reads zones it did not choose. Std's provider is
+// tz/iana's, std's own copy of the IANA database; following the host's
+// zone files is an explicit choice of another provider.
+type Zones {
+	Load(name string) Zone fails UnknownZone,
+
+	// LoadIsStable: two loads of one name agree: both fail with the same
+	// failure, or both give zones of that name with the same offset at t.
+	law LoadIsStable(name string, t time.Time) {
+		let a = Load(name) catch {
+		case UnknownZone as e:
+			let _ = Load(name) catch {
+			case UnknownZone as again:
+				return again == e
+			}
+			return false
+		}
+		let b = Load(name) catch {
+		case UnknownZone:
+			return false
+		}
+		Name(a) == name && Name(b) == name && OffsetAt(a, t) == OffsetAt(b, t)
+	},
+}

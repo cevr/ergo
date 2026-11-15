@@ -1,0 +1,41 @@
+// The draws of tz's laws: a zone of std's IANA copy, an instant from 1900
+// to 2100, and the next change of a zone. Only the laws call them, so a
+// program that imports tz and not tz/iana links no zone data.
+
+import time
+
+// within is n moved into lo..hi by whole spans (n itself when it is in
+// range), so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = (n - lo) % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+// anyZone is the zone i names of std's IANA copy.
+func anyZone(i int64) Zone {
+	let names = ianaNames()
+	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	FromTZif(name, ianaZone(name)) catch {
+	case BadData:
+		Unreachable("std's IANA copy holds only zones Go's reader reads")
+	}
+}
+
+// anyInstant is the instant s names from 1900 to 2100, with nanoseconds.
+func anyInstant(s int64, ns int64) time.Time { time.Unix(within(s, -2208988800, 4102444800), within(ns, 0, 999999999)) }
+
+// nextChange is the first change of z's offset in seconds, growing when
+// forward and shrinking otherwise, in the two years after t.
+func nextChange(z Zone, t time.Time, forward bool) Option[Transition] {
+	for c in Transitions(z, t, time.Unix(time.UnixSeconds(t) + 2 * 366 * 86400, 0)) {
+		if forward && c.After.Seconds > c.Before.Seconds || !forward && c.After.Seconds < c.Before.Seconds {
+			return Some{c}
+		}
+	}
+	None
+}
+
+extern go ergo.local/prototype/runtime/v1.TzLawNames func ianaNames() []string
+
+extern go ergo.local/prototype/runtime/v1.TzLawZone func ianaZone(name string) string
