@@ -21,23 +21,7 @@ Deliberate difference from upstream: the count of computes and the last result b
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. (FK0 moves this list to `origin/tests.txt`, which the examples runner checks.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| ClickedStartEngine requests the engine by entering Booting | `engine` test `StartEntersBooting` |
-| StartedEngine marks the engine ready with its id | `engine` test `StartedIsReadyWithItsId` |
-| ClickedStopEngine releases the engine by entering Off | `engine` test `StopEntersOff`; the release is law `ReleasesEqualAcquires` |
-| StoppedEngine is a no-op lifecycle ack | no restatement: there is no StoppedEngine; the end of the entry is the release |
-| FailedStartEngine records the failure reason | `engine` test `RefusedRecordsWhy` |
-| ClickedCompute increments the counter and fires Compute with the next value | `engine` test `ComputeCountsAndSquares` |
-| SkippedCompute leaves the model unchanged | no restatement: a compute without an engine is `Ignore` in the step (law `ComputeNeedsAnEngine`) |
-| initial view shows the engine off with a Start button | not restated: stage a has no view (FK6b, after H4 and H4r) |
-| clicking Start engine enters the booting state and shows Stop | not restated: stage a has no view (FK6b) |
-| a ready engine shows its id and the Stop button | not restated: stage a has no view (FK6b) |
-| clicking Compute fires the Compute command and renders the result | not restated: stage a has no view (FK6b) |
-| the engine lifecycle drives boot, ready, and stop through the resource steps | not restated: stage a has no view (FK6b); case `engine` plays the same lifecycle |
-| a failed engine boot shows the failure reason | not restated: stage a has no view (FK6b); case `engine` shows it |
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 
