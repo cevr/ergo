@@ -6,7 +6,6 @@ import actor
 import fkstopwatch/screen
 import fkstopwatch/watch
 import io
-import machines
 import strconv
 import strings
 import time
@@ -15,17 +14,25 @@ import ui
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
 
-// Script is a read script: the presses at their times, and the time the
-// run ends.
-type Script { Trace []machines.Timed[watch.Signal], End duration }
+// Script is a read script: its acts at their times, and the time the run
+// ends.
+type Script { Lines []Line, End duration }
+
+// Line is an act at a time.
+type Line { At duration, Act Act }
+
+// Act is a press of the button for a signal, or a count of the pass that
+// showed the clock's last tick up to its time, before the line's Settle
+// (stats; with no tick since the line before, the pass before it).
+type Act = Press{Signal watch.Signal} | Count{}
 
 // Read reads the lines of a script. Each line is `@MS WORD`: MS is the
 // time in milliseconds from the start, never earlier than the line before,
-// and WORD is start, stop, reset or end. The line `@MS end` ends the run
-// at MS and must be the last. A blank line or a line that starts with # is
-// skipped.
+// and WORD is start, stop, reset, stats or end. The line `@MS end` ends the
+// run at MS and must be the last. A blank line or a line that starts with
+// # is skipped.
 func Read(lines []string) Script fails BadLine {
-	let mut trace = []machines.Timed[watch.Signal]{}
+	let mut trace = []Line{}
 	let mut last = 0s
 	for i, line in lines {
 		let n = i + 1
@@ -42,19 +49,21 @@ func Read(lines []string) Script fails BadLine {
 			return BadLine{Line: n, Why: "the time goes back"}
 		}
 		last = t
-		let s = match words[1] {
+		let act Act = match words[1] {
 		case "end":
-			return Script{Trace: trace, End: t}
+			return Script{Lines: trace, End: t}
 		case "start":
-			watch.Start
+			Press{Signal: watch.Start}
 		case "stop":
-			watch.Stop
+			Press{Signal: watch.Stop}
 		case "reset":
-			watch.Reset
+			Press{Signal: watch.Reset}
+		case "stats":
+			Count
 		case _:
 			return BadLine{Line: n, Why: "unknown word \(words[1])"}
 		}
-		trace = trace.Append(machines.Timed[watch.Signal]{At: t, Signal: s})
+		trace = trace.Append(Line{At: t, Act: act})
 	}
 	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
 }
@@ -114,11 +123,22 @@ type Host = ui.TestHost[watch.Watch, watch.Signal, Decision[watch.Watch, Never]]
 
 func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console {
 	let mut now = 0s
-	for x in s.Trace {
+	for x in s.Lines {
 		try ui.Advance(h, x.At-now)
 		now = x.At
+		// The pass that showed the clock's last tick is the one Pump
+		// takes; Settle then ends with a pass of its own.
+		try ui.Pump(h)
+		let tick = ui.StatsOf(h)
 		try ui.Settle(h)
-		let label = match x.Signal {
+		let sig = match x.Act {
+		case Press as p:
+			p.Signal
+		case Count:
+			Console.Println("@\(time.Count(now, 1ms)) the last pass wrote \(tick.Written) nodes and patched \(tick.Inserted + tick.Moved + tick.Removed + tick.Set)")
+			continue
+		}
+		let label = match sig {
 		case watch.Start:
 			"Start"
 		case watch.Stop:
