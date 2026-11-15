@@ -81,13 +81,14 @@ func TestStdStrengthsFixtures(t *testing.T) {
 		"| Package | Effect module | Workarounds not copied | Ergo construct | Lowering against hand Go |\n" +
 		"| --- | --- | --- | --- | --- |\n" +
 		"| `prelude` | `Option.ts` | W10 | unions ([types.md, Unions](types.md#unions)) | none: no body |\n" +
-		"| `alpha` | `Array.ts` | W2, W21 | functions ([x](x.md)) | `runtime/v1.BenchmarkSlicesSort`: parity |\n" +
+		"| `alpha` | `Array.ts` | W2, W21 | functions ([x](x.md)) | `runtime/v1.BenchmarkSlicesSort`: parity; `cmd/ergo.BenchmarkBuild`: 1 s |\n" +
 		"| `beta` | `String.ts` | W3 | plain functions | `runtime/v1.BenchmarkNoSuchThing`: 1 ns; `BenchmarkText` |\n" +
 		"| `beta` | `String.ts` | none |  | pending: |\n" +
 		"| `gone` | `Queue.ts` | W5 | rows ([rows.md, Catch](rows.md#catch)) | none: no body |\n" +
 		"\n## Next\n"
 	got := strengthsProblems(t, root, doc)
 	want := []string{
+		"stdlib.md:10: alpha: the benchmark dir cmd/ergo is not in benchmarkPackages: add it there and to this package's grants in internal/closure",
 		"stdlib.md:10: alpha: workaround id W21 is outside W1 to W20",
 		"stdlib.md:11: beta: name each benchmark with its package dir (dir.BenchmarkName)",
 		"stdlib.md:11: beta: no func runtime/v1.BenchmarkNoSuchThing in the _test.go files of runtime/v1",
@@ -315,8 +316,17 @@ func lowerProblems(at, cell string, benches *benchmarkIndex) []string {
 	return out
 }
 
+// benchmarkPackages are the directories, from the module root, whose test
+// files a Lowering cell may name a benchmark of. benchmarkIndex reads only
+// theirs (a glob each, one level), so the closure sweep can grant the read
+// (internal/closure declared): a benchmark in another package is refused
+// until its directory is added here and to the sweep's grants. runtime/v1
+// and runtime/rt are in the std tests' closure; internal/sketch/lower and
+// internal/rpcgen are granted.
+var benchmarkPackages = []string{"internal/rpcgen", "internal/sketch/lower", "runtime/rt", "runtime/v1"}
+
 // benchmarkIndex finds the top-level func Benchmark… declarations of the
-// _test.go files of a package directory of the module, reading each
+// _test.go files of a package directory of benchmarkPackages, reading each
 // directory once.
 type benchmarkIndex struct {
 	root string
@@ -328,6 +338,9 @@ func (b *benchmarkIndex) declares(dir, name string) (bool, error) {
 	if !ok {
 		if strings.Contains(dir, "..") || filepath.IsAbs(dir) {
 			return false, fmt.Errorf("the benchmark dir %q is not a package dir of the module", dir)
+		}
+		if !slices.Contains(benchmarkPackages, dir) {
+			return false, fmt.Errorf("the benchmark dir %s is not in benchmarkPackages: add it there and to this package's grants in internal/closure", dir)
 		}
 		paths, err := filepath.Glob(filepath.Join(b.root, filepath.FromSlash(dir), "*_test.go"))
 		if err != nil {
