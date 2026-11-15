@@ -168,7 +168,13 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stopped caller's Lines, Chunks and Wait end with the stop and leave the
 // program to its owner's release, and TestExecStartStopped that a stopped
 // caller's Start starts nothing.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
+// ExecSpawn and ExecKill (std exec's Spawner.Spawn and Kill, IA2b) wait on
+// a host process: runtime/v1/exec_spawn_test.go
+// TestExecSpawnOutlivesItsStarter states that Spawn returns once the
+// program has started and that Kill returns once no process of its group
+// is left, SIGKILL after the grace; Kill's doc states that a stop of the
+// caller ends the grace early.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "ExecSpawn": true, "ExecKill": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
