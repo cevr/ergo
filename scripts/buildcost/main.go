@@ -8,6 +8,7 @@
 //	go run ./scripts/buildcost [-work DIR] [-ergo PATH] [-sizes 10,50] [-groups 24] [-seed 1] [-examples deps]
 //	go run ./scripts/buildcost gen DIR N [SEED [GROUPS]]
 //	go run ./scripts/buildcost empty [-work DIR]
+//	go run ./scripts/buildcost test [-work DIR] [-ergo PATH] [-packages example/pkg,...]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
 // genprogram) and each named example: first build (Go's std archives are
@@ -17,6 +18,7 @@
 // `empty` counts the thin client (the ergo process with no work, a small
 // Go program, /bin/true) and the empty-package compile (Go's compile of
 // `package p`, the fixed cost of one compile process).
+// `test` is the test cost receipt (test-speed FT0, testcost.go).
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -43,6 +45,9 @@ import (
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "gen" {
 		os.Exit(gen(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "test" {
+		os.Exit(testCost(os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "empty" {
 		os.Exit(run(os.Args[2:], true))
@@ -108,6 +113,44 @@ var shown = []string{
 type runner struct {
 	work, ergo string
 	keep       bool
+	// remove is set when the runner made work and removes it at the end.
+	remove bool
+}
+
+// setUp makes the runner: work (a fresh directory under /tmp/opencode
+// when empty) and ergo (go build ./cmd/ergo into work when empty).
+func setUp(work, ergo string, keep bool) (runner, int) {
+	r := runner{work: work, ergo: ergo, keep: keep}
+	if r.work == "" {
+		if err := os.MkdirAll("/tmp/opencode", 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return r, 1
+		}
+		dir, err := os.MkdirTemp("/tmp/opencode", "buildcost-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return r, 1
+		}
+		r.work, r.remove = dir, !keep
+	}
+	if r.ergo == "" {
+		r.ergo = filepath.Join(r.work, "bin", "ergo")
+		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
+		build.Stdout, build.Stderr = os.Stderr, os.Stderr
+		if err := build.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)
+			r.cleanUp()
+			return r, 1
+		}
+	}
+	return r, 0
+}
+
+// cleanUp removes the work directory the runner made.
+func (r runner) cleanUp() {
+	if r.remove {
+		os.RemoveAll(r.work)
+	}
 }
 
 func run(args []string, empty bool) int {
@@ -122,31 +165,11 @@ func run(args []string, empty bool) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	r := runner{work: *work, ergo: *ergo, keep: *keep}
-	if r.work == "" {
-		if err := os.MkdirAll("/tmp/opencode", 0o755); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		dir, err := os.MkdirTemp("/tmp/opencode", "buildcost-")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		r.work = dir
-		if !r.keep {
-			defer os.RemoveAll(dir)
-		}
+	r, code := setUp(*work, *ergo, *keep)
+	if code != 0 {
+		return code
 	}
-	if r.ergo == "" {
-		r.ergo = filepath.Join(r.work, "bin", "ergo")
-		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
-		build.Stdout, build.Stderr = os.Stderr, os.Stderr
-		if err := build.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)
-			return 1
-		}
-	}
+	defer r.cleanUp()
 	load, _ := os.ReadFile("/proc/loadavg")
 	fmt.Printf("# buildcost %s/%s GOMAXPROCS=%d load %s", runtime.GOOS, runtime.GOARCH, runtime.GOMAXPROCS(0), firstField(string(load)))
 	fmt.Printf("# counted: %v\n", instructionsCounted())

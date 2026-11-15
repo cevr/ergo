@@ -16,6 +16,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 )
 
 // The test result cache (g-b2), go test's cache of a passing result: the
@@ -111,16 +112,21 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 // testResult is the output of a passing run.
 type testResult struct {
 	stdout, stderr bytes.Buffer
+	// obligations is the number of tests and law runs the binary ran.
+	obligations int
 }
 
 // stored is a testResult as the cache keeps it.
 type stored struct {
 	Stdout []byte `json:"stdout"`
 	Stderr []byte `json:"stderr"`
+	// Obligations is the number of obligations the stored run decided; a
+	// replay counts them as stored (stage.ObligationsStored).
+	Obligations int `json:"obligations,omitempty"`
 }
 
 func (r *testResult) encode() []byte {
-	data, _ := json.Marshal(stored{Stdout: r.stdout.Bytes(), Stderr: r.stderr.Bytes()})
+	data, _ := json.Marshal(stored{Stdout: r.stdout.Bytes(), Stderr: r.stderr.Bytes(), Obligations: r.obligations})
 	return data
 }
 
@@ -133,6 +139,7 @@ func replayTestResult(data []byte, stdout, stderr io.Writer) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
 	}
+	stage.Add(stage.ObligationsStored, int64(s.Obligations))
 	stdout.Write(s.Stdout)
 	stderr.Write(s.Stderr)
 	fmt.Fprintln(stderr, cachedNote)

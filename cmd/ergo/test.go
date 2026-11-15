@@ -184,6 +184,9 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	}
 	child := testProgramCommand(binary, childArgs, limit)
 	var result testResult
+	// The binary decides the selected obligations natively (FT0's counter).
+	result.obligations = nativeObligations(l.analysis.Root().Package, opts)
+	stage.Add(stage.ObligationsNative, int64(result.obligations))
 	if key != "" {
 		child.Stdout = io.MultiWriter(os.Stdout, &result.stdout)
 		child.Stderr = io.MultiWriter(os.Stderr, &result.stderr)
