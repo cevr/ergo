@@ -67,7 +67,17 @@ How, on 2026-11-15 at 11:41Z and 11:52Z:
 
 - Create: `work` uses 10.7 M instructions, 7 times Rift native's 1.5 M and 10 times fewer than the wrapper `workrift` runs (108.6 M). The rest is `work`'s subprocesses (`test`, `btrfs`, `git`), as in WG0. The bytes are the same: a new workspace takes no exclusive byte in either tool.
 - Remove: `work rm` checks that the parent holds the workspace's work, with a `git status` and a snapshot (51 to 64 M). Rift checks nothing, and the refuse cases show what that costs: unheld work and a stacked workspace go with the remove.
+- Where rm's cost goes (Bun monorepo, WS9a's question): the held check's `git status` is 51 of rm's 64 M, and its walk of the untracked files about 32 M of that; the floor of a `git status` that is exact is the stat of each tracked file (`status -uno`, 19 M). Rift's 1.3 M is a remove with no check.
+- The untracked cache (WG6a): `work new` turns on `core.untrackedCache` in each workspace, so a `git status` after the first walks only the folders whose time changed. `scripts/workcost/rmcache.sh` (2026-11-15, load 38), `work rm` after one `git status` in the workspace, the cache off (before) and on (after), the scope's 3.4 M not subtracted:
+
+  | | before | after |
+  | --- | --- | --- |
+  | the held check's `git status` | 52.8 M | 31.8 M |
+  | `work rm`, two runs | 66.9 M, 67.1 M | 46.4 M, 46.3 M |
+  | `work rm`, system calls | 22,109 | 17,404 |
+
+  The answer is unchanged: the case `rm-untracked-cached` makes an untracked file in a folder the cache holds, in the same second, and rm still refuses it (`NotHeld`). Going below the tracked-stat floor needs a change journal (fsmonitor or watchman).
 - Purge: WG1's subvolume delete brings `work gc` from 35.4 M and 616,783 system calls (WG0, three workspaces of the Bun monorepo) to 10.3 M and 2,838. That is one `btrfs subvolume delete` a workspace in place of one `unlinkat` a file. Rift's gc is still 10 times fewer instructions: it deletes with no subprocess.
 - Not measured: Rift's default (filtered) create, which `work` does not offer, and the hooks and installs, which neither tool ran.
 
-Raw rows: the unit's run folder (`semws/WS9a/workcost-ergo.txt`, `workcost-bunrepo.txt`, `refuse.txt`). The two scripts rewrite them.
+Raw rows: the unit's run folder (`semws/WS9a/workcost-ergo.txt`, `workcost-bunrepo.txt`, `refuse.txt`; `semws/WG6a/rmcache-bunrepo.txt`). The scripts rewrite them.
