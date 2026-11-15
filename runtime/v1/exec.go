@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -141,31 +142,21 @@ func execRun(t *rt.Task, root string, name string, args []string, env map[string
 		// once: os/exec then needs no pipe and no copying goroutine.
 		cmd.Stdin = strings.NewReader(stdin)
 	}
-	var sandbox execSandboxed
-	if root != "" {
-		var err error
-		if sandbox, err = execSandbox(cmd, root); err != nil {
-			return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
-		}
-	}
 	// Run owns the output pipes, and not os/exec, so that it can read the
 	// output to its end while the program is still unreaped (below).
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		sandbox.abandon()
 		return ExecResult{}, execErr(name, err)
 	}
 	defer outR.Close()
 	errR, errW, err := os.Pipe()
 	if err != nil {
-		sandbox.abandon()
 		outW.Close()
 		return ExecResult{}, execErr(name, err)
 	}
 	defer errR.Close()
 	exit, err := execWatchExit()
 	if err != nil {
-		sandbox.abandon()
 		outW.Close()
 		errW.Close()
 		return ExecResult{}, execErr(name, err)
@@ -173,26 +164,13 @@ func execRun(t *rt.Task, root string, name string, args []string, env map[string
 	defer exit.close()
 	cmd.Stdout, cmd.Stderr = outW, errW
 	cmd.WaitDelay = execWaitDelay // bounds the copy of stdin to a process that holds it open and does not read
-	err = cmd.Start()
+	child, err := execBegin(cmd, root)
 	outW.Close() // the program holds its own copies
 	errW.Close()
 	if err != nil {
-		sandbox.abandon()
-		if sandbox.on() {
-			// The clone into new namespaces failed: the host gives no
-			// user namespace (or a sandbox around this process forbids
-			// one). The command runs nowhere rather than unconfined.
-			return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
-		}
-		return ExecResult{}, execErr(name, err)
+		return ExecResult{}, execStartErr(name, err)
 	}
-	if err := sandbox.started(); err != nil {
-		// The helper could not build the sandbox and exited: reap it.
-		_ = cmd.Wait()
-		execAwaitGroupEnd(cmd.Process.Pid)
-		return ExecResult{}, ExecFailed{Name: name, Reason: sandboxReason(err)}
-	}
-	group := cmd.Process.Pid // the group's id: Setpgid made the program its leader
+	group := child.pid // the group's id: Setpgid made the program its leader
 	var stdout, stderr bytes.Buffer
 	read := make(chan struct{}, 2)
 	go func() { _, _ = stdout.ReadFrom(outR); read <- struct{}{} }()
@@ -261,12 +239,73 @@ func execRun(t *rt.Task, root string, name string, args []string, env map[string
 			<-read
 		}
 	}
-	_ = cmd.Wait() // the reap; the status is in cmd.ProcessState, and an ExitError carries nothing more
+	status := child.reap()
 	execAwaitGroupEnd(group)
 	if stopped {
 		panic(rt.Interrupted)
 	}
-	return ExecResult{Status: execStatus(cmd.ProcessState), Stdout: stdout.String(), Stderr: stderr.String()}, nil
+	return ExecResult{Status: status, Stdout: stdout.String(), Stderr: stderr.String()}, nil
+}
+
+// execChild is a started program, the leader of its own group and a child
+// of this process: one os/exec started (cmd), or one the case's sandbox
+// helper forked for this process (proc; exec_sandbox_linux.go).
+type execChild struct {
+	pid       int
+	cmd       *exec.Cmd
+	proc      *os.Process
+	stdin     *os.File // the sandboxed start's copy of stdin goes into it
+	stdinOnce sync.Once
+}
+
+// execBegin starts cmd: in the sandbox of the test's folder root when root
+// is not "" (exec.NewTestHost's commands), on the host otherwise.
+func execBegin(cmd *exec.Cmd, root string) (*execChild, error) {
+	if root != "" {
+		return execSandboxStart(cmd, root)
+	}
+	return execHostStart(cmd)
+}
+
+// execHostStart starts cmd with os/exec.
+func execHostStart(cmd *exec.Cmd) (*execChild, error) {
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &execChild{pid: cmd.Process.Pid, cmd: cmd}, nil
+}
+
+// reap waits for the program, which has ended or been killed, and returns
+// its status (execStatus).
+func (c *execChild) reap() int {
+	if c.cmd != nil {
+		_ = c.cmd.Wait() // the status is in cmd.ProcessState, and an ExitError carries nothing more
+		return execStatus(c.cmd.ProcessState)
+	}
+	state, err := c.proc.Wait()
+	c.closeStdin() // as os/exec's WaitDelay does for a stdin no one reads
+	if err != nil {
+		panic("exec: reaping the sandboxed program " + strconv.Itoa(c.pid) + ": " + err.Error())
+	}
+	return execStatus(state)
+}
+
+func (c *execChild) closeStdin() {
+	if c.stdin != nil {
+		c.stdinOnce.Do(func() { _ = c.stdin.Close() })
+	}
+}
+
+// execStartErr is the std exec failure of a start that failed: the
+// sandbox's own failure is exec.Failed with its reason, so a command of
+// the test's folder runs nowhere rather than unconfined; any other is
+// execErr's.
+func execStartErr(name string, err error) error {
+	var se execSandboxError
+	if errors.As(err, &se) {
+		return ExecFailed{Name: name, Reason: sandboxReason(se.err)}
+	}
+	return execErr(name, err)
 }
 
 // execKillHook, when set, runs just before Run kills the group, with the
