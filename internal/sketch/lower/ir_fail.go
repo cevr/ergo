@@ -426,6 +426,16 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 // operand is one operand of a call: a try, a catch, a call, or an
 // expression; under a try, a fallible call fails the frame too (the
 // emitter's tries).
+// operandType is the type of operand x's IR value: its implicit
+// conversion's target when it has one (value converts it), else its own
+// type.
+func (b *irBuilder) operandType(x syntax.Expr) check.Type {
+	if conv, ok := b.l.info.Implicit[x]; ok && conv.Kind != 0 && conv.To != nil {
+		return conv.To
+	}
+	return b.l.info.Types[x]
+}
+
 func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 	switch u := unparen(x).(type) {
 	case *syntax.CallExpr:
@@ -471,7 +481,7 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 		}
 		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
 			p := vals[i].Pos
-			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
+			t := b.temp("arg", b.goType(b.operandType(a), a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
 			vals[i] = &irExpr{K: "local", Pos: p, I: t}
 		}
