@@ -471,7 +471,8 @@ func overM(ms []Map[int, int], k int, v int) int {
 
 // Uses split across arms (OWN1 arms, exclusive): a use in one arm of a
 // match or an if never follows one in another arm, unless a loop runs
-// the statement again (armsS, loopCell); the subject runs before every arm (subjS);
+// the statement again (armsS, loopCell); the subject and an if's condition run
+// before every arm (subjS, condS);
 // each arm of splitM moves all past headM's kept part.
 func optS(s []int) Option[[]int] { Some[[]int]{Value: s} }
 
@@ -534,6 +535,23 @@ func loopCell(xs []int, n int) int {
 		c
 	})
 	ds(side.Get()) * 3 + ds(r.Get())
+}
+
+// condS keeps cur in r from an if's condition, then writes cur in its
+// branch: the condition runs before the branch, so the Set must copy.
+func stashS(r sync.Ref[[]int], s []int) bool {
+	r.Set(s)
+	len(s) > 0
+}
+
+func condS(xs []int, k int) int {
+	let r = sync.NewRef[[]int]([]int{})
+	let mut cur = xs
+	cur = cur.Append(k)
+	if stashS(r, cur) {
+		cur[0] = k + 50
+	}
+	ds(r.Get()) * 3 + ds(cur)
 }
 
 func splitM(ms []Map[int, int], k int, v int, deny bool) int {
@@ -1311,6 +1329,12 @@ func (g *valueGen) armsStmt() {
 		}
 		g.printInt(fmt.Sprintf("subjS(%s, %d)", b.name, k), dsModel(h)*3+dsModel(cur))
 		g.reached["arms subject"] = true
+		// And an if's condition, which runs before its branch too.
+		side := append(slices.Clone(b.val.s), k)
+		c := slices.Clone(side)
+		c[0] = k + 50
+		g.printInt(fmt.Sprintf("condS(%s, %d)", b.name, k), dsModel(side)*3+dsModel(c))
+		g.reached["arms condition"] = true
 	case 2:
 		b := last(kSlice)
 		if b == nil {
@@ -1639,7 +1663,7 @@ var valuePaths = []string{
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
-	"move over a kept part", "arms loop", "arms subject", "arms loop return", "arms move",
+	"move over a kept part", "arms loop", "arms subject", "arms condition", "arms loop return", "arms move",
 	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }
