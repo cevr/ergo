@@ -68,6 +68,15 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
+	// The call keeps its Ergo identity in the call table, as the Go text's
+	// identify records it (calls.go, #230): the IR's position of the call
+	// is the Go frame's line that a defect's report looks up.
+	switch c.Kind {
+	case check.CallFunc, check.CallOp, check.CallProviderOp, check.CallLawOp, check.CallFuncValue:
+		if b.fc.directives && x.Pos().IsValid() {
+			b.l.recordCall(x, b.fc.owner, b.fc.callee(x, c))
+		}
+	}
 	switch c.Kind {
 	case check.CallLen:
 		if len(x.Args) != 1 {

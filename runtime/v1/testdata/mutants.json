@@ -9,102 +9,497 @@
     {"name":"atomic-cas-always","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"return c.value.CompareAndSwap(old, value)","to":"c.value.Store(value); return true","rule":"A mismatching integer CAS does not store and returns false.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},
     {"name":"atomic-bool-cas-always","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"return f.value.CompareAndSwap(old, value)","to":"f.value.Store(value); return true","rule":"A mismatching flag CAS does not store and returns false.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},
     {"name":"atomic-add-split","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"package v1\n\nimport (\n\t\"sync/atomic\"\n\n\t\"ergo.local/prototype/runtime/rt\"\n)\n\n// Int64 is atomic.Int64's shared handle. The struct is never copied: Ergo\n// values carry its pointer. Operations use Go's sequentially consistent\n// atomics directly, with no lock, callback, task wait or unsafe code.\ntype Int64 struct{ value atomic.Int64 }\n\n//ergo:wait none\nfunc NewInt64(value int64) *Int64 {\n\tc := &Int64{}\n\tc.value.Store(value)\n\treturn c\n}\n\n// Methods preserve the ordinary operation-type task ABI so the same\n// handle can implement a source operation type. Scalar atomics ignore it.\n//\n//ergo:wait none\nfunc (c *Int64) Load(_ *rt.Task) int64 { return c.value.Load() }\n\n//ergo:wait none\nfunc (c *Int64) Store(_ *rt.Task, value int64) { c.value.Store(value) }\n\n//ergo:wait none\nfunc (c *Int64) Add(_ *rt.Task, delta int64) int64 { return c.value.Add(delta) }","to":"package v1\n\nimport (\n\t\"runtime\"\n\t\"sync/atomic\"\n\n\t\"ergo.local/prototype/runtime/rt\"\n)\n\n// Int64 is atomic.Int64's shared handle. The struct is never copied: Ergo\n// values carry its pointer. Operations use Go's sequentially consistent\n// atomics directly, with no lock, callback, task wait or unsafe code.\ntype Int64 struct{ value atomic.Int64 }\n\n//ergo:wait none\nfunc NewInt64(value int64) *Int64 {\n\tc := &Int64{}\n\tc.value.Store(value)\n\treturn c\n}\n\n// Methods preserve the ordinary operation-type task ABI so the same\n// handle can implement a source operation type. Scalar atomics ignore it.\n//\n//ergo:wait none\nfunc (c *Int64) Load(_ *rt.Task) int64 { return c.value.Load() }\n\n//ergo:wait none\nfunc (c *Int64) Store(_ *rt.Task, value int64) { c.value.Store(value) }\n\n//ergo:wait none\nfunc (c *Int64) Add(_ *rt.Task, delta int64) int64 { old := c.value.Load(); runtime.Gosched(); c.value.Store(old + delta); return old + delta }","rule":"Every increment has one linearization point: a split read/yield/store loses increments under tasks.Set. The broad anchor only introduces runtime.Gosched without a production test hook.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},
-    {"name":"l10b-shrink-no-adjacent","origin":"wf10/L10b round 1","file":"runtime/v1/shrink.go","from":"for best[i] > 0 && tries < budget {","to":"for false && best[i] > 0 && tries < budget {","rule":"After the binary search, adjacent decrements reach a local minimum.","killers":["runtime/v1:TestShrinkTapeKeepsTheFailure"]},
-    {"name":"l10b-shrink-linear-search","origin":"wf10/L10b round 1","file":"runtime/v1/shrink.go","from":"mid := lo + (best[i]-lo)/2","to":"mid := best[i] - 2","rule":"Monotone integer shrinking reaches the boundary with logarithmically bounded replay work.","killers":["runtime/v1:TestShrinkTapeKeepsTheFailure"]},
-    {"name":"l10b-shrink-no-fixpoint","origin":"wf10/L10b round 1","file":"runtime/v1/shrink.go","from":"for improved := true; improved && tries < budget; {","to":"for improved, pass := true, 0; improved && pass == 0 && tries < budget; pass++ {","rule":"Changing a later component can unlock an earlier component; revisit to a fixpoint.","killers":["runtime/v1:TestShrinkTapeKeepsTheFailure"]},
-    {"name":"b13-stop-unparked","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/v1/actor.go","from":"\ta.task.Interrupt()\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n","to":"\ta.task.Interrupt()\n\ta.inbox.Close()\n\t<-a.done\n","rule":"runtime.md Machines and actors 11.16: a member's Stop of an actor waits parked, so a manual clock's Advance settles while it waits.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b13-drain-unparked","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/v1/actor.go","from":"\t}\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n","to":"\t}\n\ta.inbox.Close()\n\t<-a.done\n","rule":"runtime.md Machines and actors 11.16: a member's Drain of an actor waits parked.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b13-await-unparked","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/v1/actor.go","from":"\tif t.InDomain() {\n\t\tp = rt.Park(t, reply,","to":"\tif false && t.InDomain() {\n\t\tp = rt.Park(t, reply,","rule":"runtime.md Machines and actors 11.16: an Ask's or a State's wait for the answer is parked.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b13-exitof-unparked","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/v1/actor.go","from":"func (a *Actor[S, E, D]) waitDone(t *rt.Task) { a.waitEnd(t, t.Done()) }","to":"func (a *Actor[S, E, D]) waitDone(t *rt.Task) { <-a.done }","rule":"runtime.md Machines and actors 11.16: ExitOf's wait for the actor's end is parked.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b13-send-unparked","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/v1/mailbox.go","from":"\t\tif inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)","to":"\t\tif false && inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)","rule":"runtime.md Machines and actors 11.16: a Send's wait for room in a full mailbox is parked.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b13-advancing-check-removed","origin":"wf10/batch-13 fua-b round 2 (B1), verifier r2","file":"runtime/rt/clock.go","from":"\tif v.advancing {\n\t\tv.mu.Unlock()","to":"\tif false && v.advancing {\n\t\tv.mu.Unlock()","rule":"runtime.md 16: one Advance of a clock runs at a time; a second is a defect in its caller, not a wait.","killers":["runtime/v1:TestManualAdvanceOneAtATime"]},
-    {"name":"b14-settle-hostget","origin":"wf10/batch-14 integration apply 6 (verdicts-2 follow-up)","file":"runtime/v1/actor_host.go","from":"\t\tinDomain := t.InDomain()\n","to":"\t\tinDomain := false\n","rule":"stdlib.md actor 7 Hosts, runtime.md 11.16: a Host.Get waiting on an empty host is parked.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"b14-settle-nested-advance","origin":"wf10/batch-14 integration apply 6 (verdicts-2 follow-up)","file":"runtime/rt/handle.go","from":"\t\tm := h.park(owner, stop)\n","to":"\t\tm := (*member)(nil)\n","rule":"runtime.md 11.16: a task's Wait for another task is parked, so the task it waits for may Advance the clock.","killers":["runtime/v1:TestManualAdvanceSettles"]},
-    {"name":"cu7-newline-position","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"p.line--","to":"p.line += 0","rule":"The error location is the invalid newline's line, not the following line.","killers":["runtime/v1:TestTOMLFailuresNameLineAndKey"]},
-    {"name":"cu7-duplicate-key","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"if parent.fields[k] != nil {","to":"if false {","rule":"TOML rejects a key defined twice.","killers":["runtime/v1:TestTOMLCorpus"]},
-    {"name":"cu7-first-array-table","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"child = child.items[len(child.items)-1]","to":"child = child.items[0]","rule":"A nested header belongs to the most recent array-table element.","killers":["runtime/v1:TestTOMLCorpus"]},
-    {"name":"cu7-underscore-anywhere","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"if !tomlDigits(digits, alphabet) {","to":"if !tomlDigits(strings.ReplaceAll(digits, \"_\", \"\"), alphabet) {","rule":"Underscores separate digits and cannot occur at numeric token edges.","killers":["runtime/v1:TestTOMLCorpus"]},
-    {"name":"cu7-multiline-quotes","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"b.WriteString(strings.Repeat(string(q), take-3))","to":"b.WriteString(strings.Repeat(string(q), 0))","rule":"Four/five closing quotes keep one/two quote characters in the value.","killers":["runtime/v1:TestTOMLCorpus"]},
-    {"name":"cu7-error-location","origin":"wf10 CU7","file":"runtime/v1/toml.go","from":"p.err = TOMLMalformed{Line: p.line, Key: p.key, Reason: why}","to":"p.err = TOMLMalformed{Line: 0, Key: \"\", Reason: why}","rule":"A malformed config reports its 1-based source line and dotted key.","killers":["runtime/v1:TestTOMLFailuresNameLineAndKey"]},
-    {"name":"root-reopens-directory","origin":"wf10 G1f r2","file":"runtime/v1/host.go","from":"if err := f(r.root); err != nil {","to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {","rule":"A Root retains the opened directory across a rename and replacement of its name.","killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
-    {"name":"root-release-omitted","origin":"wf10 G1f r2","file":"runtime/v1/host.go","from":"OnExit(s, func() { _ = r.root.Close() })","to":"_ = r","rule":"Every acquired Root closes at frame end, including failure, defect and stop.","killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
+    {
+      "name": "l10b-shrink-no-adjacent",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "for best[i] > 0 && tries < budget {",
+      "to": "for false && best[i] > 0 && tries < budget {",
+      "rule": "After the binary search, adjacent decrements reach a local minimum.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
+      "name": "l10b-shrink-linear-search",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "mid := lo + (best[i]-lo)/2",
+      "to": "mid := best[i] - 2",
+      "rule": "Monotone integer shrinking reaches the boundary with logarithmically bounded replay work.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
+      "name": "l10b-shrink-no-fixpoint",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "for improved := true; improved && tries < budget; {",
+      "to": "for improved, pass := true, 0; improved && pass == 0 && tries < budget; pass++ {",
+      "rule": "Changing a later component can unlock an earlier component; revisit to a fixpoint.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
+      "name": "b13-stop-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n",
+      "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\t<-a.done\n",
+      "rule": "runtime.md Machines and actors 11.16: a member's Stop of an actor waits parked, so a manual clock's Advance settles while it waits.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-drain-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\t}\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n",
+      "to": "\t}\n\ta.inbox.Close()\n\t<-a.done\n",
+      "rule": "runtime.md Machines and actors 11.16: a member's Drain of an actor waits parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-await-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif t.InDomain() {\n\t\tp = rt.Park(t, reply,",
+      "to": "\tif false && t.InDomain() {\n\t\tp = rt.Park(t, reply,",
+      "rule": "runtime.md Machines and actors 11.16: an Ask's or a State's wait for the answer is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-exitof-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "func (a *Actor[S, E, D]) waitDone(t *rt.Task) { a.waitEnd(t, t.Done()) }",
+      "to": "func (a *Actor[S, E, D]) waitDone(t *rt.Task) { <-a.done }",
+      "rule": "runtime.md Machines and actors 11.16: ExitOf's wait for the actor's end is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-send-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/mailbox.go",
+      "from": "\t\tif inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "to": "\t\tif false && inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "rule": "runtime.md Machines and actors 11.16: a Send's wait for room in a full mailbox is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-advancing-check-removed",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif v.advancing {\n\t\tv.mu.Unlock()",
+      "to": "\tif false && v.advancing {\n\t\tv.mu.Unlock()",
+      "rule": "runtime.md 16: one Advance of a clock runs at a time; a second is a defect in its caller, not a wait.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceOneAtATime"
+      ]
+    },
+    {
+      "name": "b14-settle-hostget",
+      "origin": "wf10/batch-14 integration apply 6 (verdicts-2 follow-up)",
+      "file": "runtime/v1/actor_host.go",
+      "from": "\t\tinDomain := t.InDomain()\n",
+      "to": "\t\tinDomain := false\n",
+      "rule": "stdlib.md actor 7 Hosts, runtime.md 11.16: a Host.Get waiting on an empty host is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b14-settle-nested-advance",
+      "origin": "wf10/batch-14 integration apply 6 (verdicts-2 follow-up)",
+      "file": "runtime/rt/handle.go",
+      "from": "\t\tm := h.park(owner, stop)\n",
+      "to": "\t\tm := (*member)(nil)\n",
+      "rule": "runtime.md 11.16: a task's Wait for another task is parked, so the task it waits for may Advance the clock.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {"name":"cu7-newline-position", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"p.line--", "to":"p.line += 0", "rule":"The error location is the invalid newline's line, not the following line.", "killers":["runtime/v1:TestTOMLFailuresNameLineAndKey"]},
+    {"name":"cu7-duplicate-key", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"if parent.fields[k] != nil {", "to":"if false {", "rule":"TOML rejects a key defined twice.", "killers":["runtime/v1:TestTOMLCorpus"]},
+    {"name":"cu7-first-array-table", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"child = child.items[len(child.items)-1]", "to":"child = child.items[0]", "rule":"A nested header belongs to the most recent array-table element.", "killers":["runtime/v1:TestTOMLCorpus"]},
+    {"name":"cu7-underscore-anywhere", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"if !tomlDigits(digits, alphabet) {", "to":"if !tomlDigits(strings.ReplaceAll(digits, \"_\", \"\"), alphabet) {", "rule":"Underscores separate digits and cannot occur at numeric token edges.", "killers":["runtime/v1:TestTOMLCorpus"]},
+    {"name":"cu7-multiline-quotes", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"b.WriteString(strings.Repeat(string(q), take-3))", "to":"b.WriteString(strings.Repeat(string(q), 0))", "rule":"Four/five closing quotes keep one/two quote characters in the value.", "killers":["runtime/v1:TestTOMLCorpus"]},
+    {"name":"cu7-error-location", "origin":"wf10 CU7", "file":"runtime/v1/toml.go", "from":"p.err = TOMLMalformed{Line: p.line, Key: p.key, Reason: why}", "to":"p.err = TOMLMalformed{Line: 0, Key: \"\", Reason: why}", "rule":"A malformed config reports its 1-based source line and dotted key.", "killers":["runtime/v1:TestTOMLFailuresNameLineAndKey"]},
+    {"name":"root-reopens-directory", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"if err := f(r.root); err != nil {", "to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {", "rule":"A Root retains the opened directory across a rename and replacement of its name.", "killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
+    {"name":"root-release-omitted", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"OnExit(s, func() { _ = r.root.Close() })", "to":"_ = r", "rule":"Every acquired Root closes at frame end, including failure, defect and stop.", "killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
     {"name":"cu2-reader-loses-buffered-tail","origin":"wf10 CU2","file":"runtime/v1/host.go","from":"\t\t\t\tl.buf = l.buf[n:]\n\t\t\t\tif len(l.buf) == 0 {","to":"\t\t\t\tl.buf = nil\n\t\t\t\tif len(l.buf) == 0 {","rule":"The one stdin buffer keeps the bytes after a taken item for the next read, of any kind.","killers":["runtime/v1:TestIOLinesSplit"]},
     {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {\n\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\tdir, err := os.Getwd()\n\tif err != nil {\n\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
     {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
-    {"name":"x7-late-output","origin":"wf10/explorer/x7 (MU5 lateOutput; models/children LateOutput)","file":"runtime/v1/actor.go","from":"\ttagged := env.kind == timerSignal || env.kind == workSignal || env.kind == childSignal\n","to":"\ttagged := env.kind == timerSignal || env.kind == workSignal\n","rule":"NoLateChildOutput: a child output of an ended entry is dropped, never stepped.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored","runtime/v1:TestActorChildrenAgreeWithTree"]},
-    {"name":"x7-parent-first","origin":"wf10/explorer/x7 (MU5 parentFirst; models/children ParentFirst)","file":"runtime/v1/actor.go","from":"\ta.task.Interrupt()\n\ta.inbox.Close()\n\tif rt.Exploring {\n\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n","to":"\ta.task.Interrupt()\n\ta.inbox.Close()\n","rule":"ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored","runtime/v1:TestActorChildrenAgreeWithTree"]},
-    {"name":"x7-by-kind","origin":"wf10/explorer/x7 (MU5 byKind; models/children ByKind)","file":"runtime/v1/actor.go","from":"\ta.kids = append(a.kids, &kid{halt: halt})","to":"\tif len(a.kids) > 0 {\n\t\ta.kids = a.kids[:len(a.kids)-1]\n\t}\n\ta.kids = append(a.kids, &kid{halt: halt})","rule":"ChildInsideEntry: an entry keeps every child it started, so its exit stops them all.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored","runtime/v1:TestActorChildrenAgreeWithTree"]},
-    {"name":"x7-unshielded-work","origin":"wf10/explorer/x7 (MU5 unshieldedWork)","file":"runtime/v1/actor.go","from":"\ta.working = rt.GoShielded(&holder,","to":"\ta.working = rt.Go(&holder,","rule":"ChildInsideEntry: a Stop reaches an entry's work only after the entry's children ended.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored","runtime/v1:TestActorChildrenAgreeWithTree"]},
-    {"name":"x7-epoch-wraps","origin":"wf10/explorer/x7 (models/children EpochWraps)","file":"runtime/v1/actor.go","from":"\tif tagged && env.epoch != a.epoch {\n","to":"\tif tagged && env.epoch%4 != a.epoch%4 {\n","rule":"NoLateChildOutput: entries are compared whole; a counter that wraps at 4 steps an output four entries late.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}},
-    {"name":"x7-adopt-unseen","origin":"wf10/explorer/x7","file":"runtime/v1/actor.go","from":"\tif rt.Exploring {\n\t\trt.Await(nil, func() bool { return !a.adopting.Load() })\n\t}\n","to":"","rule":"An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held. Without it the run hangs with the baton held until the test's hung-test deadline.","killers":["runtime/v1[ergoexplore]:TestChildrenLawsExplored"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}},
-    {"name":"x7-law-drops-child-output","origin":"wf10/explorer/x7 (the plan's harness mutant)","file":"runtime/v1/explore_laws.go","from":"\t\tif m.Source == \"child\" {\n","to":"\t\tif m.Source == \"stale\" {\n","rule":"The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
+    {
+      "name": "x7-late-output",
+      "origin": "wf10/explorer/x7 (MU5 lateOutput; models/children LateOutput)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ttagged := env.kind == timerSignal || env.kind == workSignal || env.kind == childSignal\n",
+      "to": "\ttagged := env.kind == timerSignal || env.kind == workSignal\n",
+      "rule": "NoLateChildOutput: a child output of an ended entry is dropped, never stepped.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-parent-first",
+      "origin": "wf10/explorer/x7 (MU5 parentFirst; models/children ParentFirst)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\tif rt.Exploring {\n\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n",
+      "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n",
+      "rule": "ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-by-kind",
+      "origin": "wf10/explorer/x7 (MU5 byKind; models/children ByKind)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.kids = append(a.kids, &kid{halt: halt})",
+      "to": "\tif len(a.kids) > 0 {\n\t\ta.kids = a.kids[:len(a.kids)-1]\n\t}\n\ta.kids = append(a.kids, &kid{halt: halt})",
+      "rule": "ChildInsideEntry: an entry keeps every child it started, so its exit stops them all.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-unshielded-work",
+      "origin": "wf10/explorer/x7 (MU5 unshieldedWork)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.working = rt.GoShielded(&holder,",
+      "to": "\ta.working = rt.Go(&holder,",
+      "rule": "ChildInsideEntry: a Stop reaches an entry's work only after the entry's children ended.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-epoch-wraps",
+      "origin": "wf10/explorer/x7 (models/children EpochWraps)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif tagged && env.epoch != a.epoch {\n",
+      "to": "\tif tagged && env.epoch%4 != a.epoch%4 {\n",
+      "rule": "NoLateChildOutput: entries are compared whole; a counter that wraps at 4 steps an output four entries late.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ],
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
+    },
+    {
+      "name": "x7-adopt-unseen",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif rt.Exploring {\n\t\trt.Await(nil, func() bool { return !a.adopting.Load() })\n\t}\n",
+      "to": "",
+      "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held. Without it the run hangs with the baton held until the test's hung-test deadline.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ],
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
+    },
+    {
+      "name": "x7-law-drops-child-output",
+      "origin": "wf10/explorer/x7 (the plan's harness mutant)",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\tif m.Source == \"child\" {\n",
+      "to": "\t\tif m.Source == \"stale\" {\n",
+      "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
+    },
     {"name":"x7-law-open-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\tl.breaks(\"ChildInsideEntry\", a.name+\" opened entry \"+uintText(epoch)+\" while \"+k.name+\" lives\")\n","to":"\t\t\t_ = k\n","rule":"ChildInsideEntry: the next entry opens only after the old entry's children ended.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
-    {"name":"x7-law-work-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\tif k := l.liveKid(en); k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work","to":"\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work","rule":"ChildInsideEntry: an entry's work is stopped only after the entry's children ended.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
-    {"name":"x7-law-start-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\tif !p.live || p.open != en.epoch {\n","to":"\t\tif !p.live {\n","rule":"ChildInsideEntry: a child starts only while the entry that starts it is open.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
-    {"name":"x7-law-sibling-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\t\tif k := l.actors[s]; k.live {\n","to":"\t\t\t\tif k := l.actors[s]; false && k.live {\n","rule":"ChildrenStopFirst: the last started child stops first.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
+    {
+      "name": "x7-law-work-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tif k := l.liveKid(en); k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
+      "to": "\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
+      "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
+    },
+    {
+      "name": "x7-law-start-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\tif !p.live || p.open != en.epoch {\n",
+      "to": "\t\tif !p.live {\n",
+      "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
+    },
+    {
+      "name": "x7-law-sibling-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\t\tif k := l.actors[s]; k.live {\n",
+      "to": "\t\t\t\tif k := l.actors[s]; false && k.live {\n",
+      "rule": "ChildrenStopFirst: the last started child stops first.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
+    },
     {"name":"x7-law-orphan-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\tl.breaks(\"ChildrenStopFirst\", a.name+\" ended while \"+k.name+\" lives\")\n","to":"\t\t\t_ = k\n","rule":"ChildrenStopFirst: no child lives after its parent ended.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
-    {"name":"x7-law-owner-lost","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\ten, ok := l.works[x]\n\t\tif !ok {\n","to":"\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n","rule":"A child is found from the task tree: the nearest ancestor that is a work names its entry.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
-    {"name":"x8-name-unregistered","origin":"wf10/explorer/x8","file":"runtime/v1/queue.go","from":"\t\tnameHandle([]string{\"queue.New\"}, \"\", q)\n","to":"\t\t_ = q\n","rule":"queue.New names its queue in an explored run.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
-    {"name":"x8-name-any-frame","origin":"wf10/explorer/x8","file":"runtime/v1/explore_on.go","from":"\t\tif files[f.File] {\n","to":"\t\tif true {\n","rule":"A handle's name is the nearest frame at a position of the program's source, not a runtime frame.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
+    {
+      "name": "x7-law-owner-lost",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\ten, ok := l.works[x]\n\t\tif !ok {\n",
+      "to": "\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n",
+      "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
+    },
+    {
+      "name": "x8-name-unregistered",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/queue.go",
+      "from": "\t\tnameHandle([]string{\"queue.New\"}, \"\", q)\n",
+      "to": "\t\t_ = q\n",
+      "rule": "queue.New names its queue in an explored run.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-name-any-frame",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\t\tif files[f.File] {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A handle's name is the nearest frame at a position of the program's source, not a runtime frame.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
+      ]
+    },
     {"name":"x8-name-first-call","origin":"wf10/explorer/x8","file":"runtime/v1/explore_on.go","from":"wanted(callee) || len(on) == 1 {","to":"wanted(callee) || true {","rule":"Among the calls on the frame's line, the name is the constructor's call, with its column.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
-    {"name":"x8-name-base-only","origin":"wf10/explorer/x8","file":"runtime/v1/explore_on.go","from":"\t\t\t\tfile = filepath.ToSlash(rel)\n","to":"\t\t\t\t_ = rel\n","rule":"The file is named relative to the folder of the program's files (its package path), not by its base name.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
-    {"name":"x8-names-not-sent","origin":"wf10/explorer/x8","file":"runtime/v1/explore_on.go","from":"Failure: exploreDefect(res), Handles: res.Handles}","to":"Failure: exploreDefect(res)}","rule":"A worker's outcome carries the run's handle names to the search.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
-    {"name":"x8-set-spawning-unseen","origin":"wf10/explorer/x8","file":"runtime/v1/set.go","from":"\t\trt.Await(nil, func() bool { return !set.spawning.Load() })\n","to":"\t\t_ = set.spawning.Load()\n","rule":"In an explored run a Set member's end waits for the owner's spawn through the scheduler, not on the Set's lock with the baton held (else the run hangs).","killers":["examples:fetchpool"],"anchor":{"tests":["examples:fetchpool"]}},
-    {"name":"mk1-waitkids-unparked","origin":"wf10/MK1 round 1 (the downloads manager's deadlock, wf10 F8 known gap 1)","file":"runtime/v1/actor.go","from":"\tif wt.InDomain() {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n","to":"\tif false {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n","rule":"runtime.md 11.16 and 13: a work that started children waits for their stop parked, so a manual clock's Advance fires the timer whose signal stops them.","killers":["runtime/v1:TestManualTreeSettles"]},
-    {"name":"mk1-halt-unparked","origin":"wf10/MK1 round 1 (inventory of runtime/v1's raw waits)","file":"runtime/v1/actor.go","from":"\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n\tif a.reported.Load() {\n","to":"\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\t<-a.done\n\tif a.reported.Load() {\n","rule":"runtime.md 11.16 and 13: an entry's stop of a child waits for the child's end parked, so a child whose release sleeps on the clock ends under Advance.","killers":["runtime/v1:TestManualTreeSettles"]},
-    {"name":"mk1-stopkids-wakes-unparked","origin":"wf10/MK1 round 1","file":"runtime/v1/actor.go","from":"\t\trt.Wake(w, done, func() { close(done) })\n","to":"\t\t_ = w\n\t\tclose(done)\n","rule":"rt idle.go: a waker clears the parked flag of the wait it ends before the event is visible; a work's waitKids left parked after its children stopped keeps the clock's domain settled while the work runs.","killers":["runtime/v1:TestManualTreeSettles"]},
-    {"name":"dh1-unbound-closed","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\tif r.ended {\n\t\treturn false\n\t}\n","to":"\tif true {\n\t\treturn false\n\t}\n","rule":"runtime.md Machines and actors 17: a host a durable recover makes is unbound, not closed, so the recovered actor's first entry can bind it.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-late-host-kept","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\tif r.ended {\n\t\treturn false\n\t}\n","to":"\tif false && r.ended {\n\t\treturn false\n\t}\n","rule":"runtime.md Machines and actors 17: a host made after the recover returned (by a task it started) is closed at once; no entry will bind it.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-first-entry-binds-none","origin":"wf10/DH1 round 1","file":"runtime/v1/actor.go","from":"\ta.bindRecovered(s)\n\ta.arm(at, s)\n","to":"\ta.arm(at, s)\n","rule":"runtime.md Machines and actors 17: the recovered actor's first entry binds each recovered host its first state holds.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-rest-kept","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\tcloseHosts(rest)\n\ta.newHosts = append(a.newHosts, held...)\n","to":"\t_ = rest\n\ta.newHosts = append(a.newHosts, held...)\n","rule":"runtime.md Machines and actors 17: a recovered host the first state does not hold (only an earlier state of the replay held it) is closed.","killers":["runtime/v1:TestDurableHostsRecover"]},
+    {
+      "name": "x8-name-base-only",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\t\t\t\tfile = filepath.ToSlash(rel)\n",
+      "to": "\t\t\t\t_ = rel\n",
+      "rule": "The file is named relative to the folder of the program's files (its package path), not by its base name.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-names-not-sent",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "Failure: exploreDefect(res), Handles: res.Handles}",
+      "to": "Failure: exploreDefect(res)}",
+      "rule": "A worker's outcome carries the run's handle names to the search.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-set-spawning-unseen",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/set.go",
+      "from": "\t\trt.Await(nil, func() bool { return !set.spawning.Load() })\n",
+      "to": "\t\t_ = set.spawning.Load()\n",
+      "rule": "In an explored run a Set member's end waits for the owner's spawn through the scheduler, not on the Set's lock with the baton held (else the run hangs).",
+      "killers": [
+        "examples:fetchpool"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool"
+        ]
+      }
+    },
+    {
+      "name": "mk1-waitkids-unparked",
+      "origin": "wf10/MK1 round 1 (the downloads manager's deadlock, wf10 F8 known gap 1)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif wt.InDomain() {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "to": "\tif false {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "rule": "runtime.md 11.16 and 13: a work that started children waits for their stop parked, so a manual clock's Advance fires the timer whose signal stops them.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-halt-unparked",
+      "origin": "wf10/MK1 round 1 (inventory of runtime/v1's raw waits)",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n\tif a.reported.Load() {\n",
+      "to": "\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\t<-a.done\n\tif a.reported.Load() {\n",
+      "rule": "runtime.md 11.16 and 13: an entry's stop of a child waits for the child's end parked, so a child whose release sleeps on the clock ends under Advance.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-stopkids-wakes-unparked",
+      "origin": "wf10/MK1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\trt.Wake(w, done, func() { close(done) })\n",
+      "to": "\t\t_ = w\n\t\tclose(done)\n",
+      "rule": "rt idle.go: a waker clears the parked flag of the wait it ends before the event is visible; a work's waitKids left parked after its children stopped keeps the clock's domain settled while the work runs.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "dh1-unbound-closed",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif true {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host a durable recover makes is unbound, not closed, so the recovered actor's first entry can bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-late-host-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && r.ended {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host made after the recover returned (by a task it started) is closed at once; no entry will bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-entry-binds-none",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.bindRecovered(s)\n\ta.arm(at, s)\n",
+      "to": "\ta.arm(at, s)\n",
+      "rule": "runtime.md Machines and actors 17: the recovered actor's first entry binds each recovered host its first state holds.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-rest-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tcloseHosts(rest)\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "to": "\t_ = rest\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host the first state does not hold (only an earlier state of the replay held it) is closed.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
     {"name":"dh1-all-held","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\t\tif in[i] {\n","to":"\t\tif true || in[i] {\n","rule":"runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-renew-unbound","origin":"wf10/DH1 round 1","file":"runtime/v1/actor.go","from":"\ts, err := recoverWith(at, rec, a.fresh)\n","to":"\ts, err := a.fresh(at)\n","rule":"runtime.md Machines and actors 17 and 18: a supervised restart's recover makes unbound hosts, as the first start's does.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-recover-hosts-kept","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\tdefer func() { closeHosts(hosts) }()\n","to":"\tdefer func() {}()\n","rule":"runtime.md Machines and actors 17: every host a failed recover made is closed, and so is every host no entry took when the start returns.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-no-actor-kept","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\thosts = h.take()\n","to":"\thosts = nil\n","rule":"runtime.md Machines and actors 17: a recovered host that no entry binds is closed when the start returns.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"dh1-first-publish-early","origin":"wf10/DH1 round 1","file":"runtime/v1/actor.go","from":"\tif settled := a.startWork(at, s); settled != nil {\n\t\t<-settled\n\t}\n}\n\n// handle steps","to":"\tif settled := a.startWork(at, s); settled != nil {\n\t\t_ = settled\n\t}\n}\n\n// handle steps","rule":"runtime.md Machines and actors 16.4: the first entry with recovered hosts and a work is shown once the work filled them, waited or ended.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"sconv-int64-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func FloatToInt64(f float64) int64 {\n\tif f < 0x1p63 {","to":"func FloatToInt64(f float64) int64 {\n\tif f <= 0x1p63 {","rule":"types.md Conversions 4: 2^63 is past int64's range and saturates to its maximum (Go's conversion of it is the host's).","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int64-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"\t\treturn math.MaxInt64\n","to":"\t\treturn math.MinInt64\n","rule":"types.md Conversions 4: +Inf and a float past int64's range give its maximum, not linux/amd64's minimum.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int64-nan","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"\t\treturn math.MaxInt64\n\t}\n\treturn 0\n","to":"\t\treturn math.MaxInt64\n\t}\n\treturn math.MinInt64\n","rule":"types.md Conversions 4: NaN converts to 0.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int-width","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func FloatToInt(f float64) int { return int(FloatToInt64(f)) }","to":"func FloatToInt(f float64) int { return int(FloatToInt32(f)) }","rule":"types.md Conversions 4: int is 64 bits wide and saturates at int64's bounds.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int8-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8))","to":"return int8(min(max(FloatToInt64(f), math.MinInt8-1), math.MaxInt8))","rule":"types.md Conversions 4: a float whose truncation is below int8's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int8-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8))","to":"return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8+1))","rule":"types.md Conversions 4: a float past int8's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int16-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16))","to":"return int16(min(max(FloatToInt64(f), math.MinInt16-1), math.MaxInt16))","rule":"types.md Conversions 4: a float whose truncation is below int16's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int16-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16))","to":"return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16+1))","rule":"types.md Conversions 4: a float past int16's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int32-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32))","to":"return int32(min(max(FloatToInt64(f), math.MinInt32-1), math.MaxInt32))","rule":"types.md Conversions 4: a float whose truncation is below int32's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-int32-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32))","to":"return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32+1))","rule":"types.md Conversions 4: a float past int32's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint8-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8))","to":"return uint8(min(max(FloatToInt64(f), 0-1), math.MaxUint8))","rule":"types.md Conversions 4: a float whose truncation is below uint8's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint8-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8))","to":"return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8+1))","rule":"types.md Conversions 4: a float past uint8's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint16-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16))","to":"return uint16(min(max(FloatToInt64(f), 0-1), math.MaxUint16))","rule":"types.md Conversions 4: a float whose truncation is below uint16's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint16-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16))","to":"return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16+1))","rule":"types.md Conversions 4: a float past uint16's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint32-min","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32))","to":"return uint32(min(max(FloatToInt64(f), 0-1), math.MaxUint32))","rule":"types.md Conversions 4: a float whose truncation is below uint32's range saturates to its least value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint32-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32))","to":"return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32+1))","rule":"types.md Conversions 4: a float past uint32's range saturates to its greatest value.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint64-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"if f > -1 && f < 0x1p64 {\n\t\treturn uint64(f)\n","to":"if f > -2 && f < 0x1p64 {\n\t\treturn uint64(f)\n","rule":"types.md Conversions 4: a float at or below -1 saturates to 0 for an unsigned type.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint64-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"if f > -1 && f < 0x1p64 {\n\t\treturn uint64(f)\n","to":"if f > -1 && f <= 0x1p64 {\n\t\treturn uint64(f)\n","rule":"types.md Conversions 4: 2^64 is past uint64's range and saturates to its maximum.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint64-max","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return math.MaxUint64\n","to":"return math.MaxUint64 >> 1\n","rule":"types.md Conversions 4: the positive saturation is the type's maximum.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uintptr-width","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uintptr(FloatToUint64(f))","to":"return uintptr(FloatToUint32(f))","rule":"types.md Conversions 4: uintptr is 64 bits wide on every target.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-uint-width","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"return uint(FloatToUint64(f))","to":"return uint(FloatToUint32(f))","rule":"types.md Conversions 4: uint is 64 bits wide on every target.","killers":["runtime/v1:TestFloatToIntegerMatchesModel"]},
-    {"name":"sconv-toint-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {","to":"func MathToInt(f float64) (int, error) {\n\tif f > -0x1p63 && f < 0x1p63 {","rule":"stdlib.md math 5: ToInt of -2^63, the least int, succeeds.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {","to":"func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f <= 0x1p63 {","rule":"stdlib.md math 5: ToInt of 2^63 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint8-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f < 128 {","to":"func MathToInt8(f float64) (int8, error) {\n\tif f > -130 && f < 128 {","rule":"stdlib.md math 5: ToInt8 of -129 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint8-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f < 128 {","to":"func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f <= 128 {","rule":"stdlib.md math 5: ToInt8 of 128 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint16-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f < 32768 {","to":"func MathToInt16(f float64) (int16, error) {\n\tif f > -32770 && f < 32768 {","rule":"stdlib.md math 5: ToInt16 of -32769 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint16-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f < 32768 {","to":"func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f <= 32768 {","rule":"stdlib.md math 5: ToInt16 of 32768 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint32-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f < 2147483648 {","to":"func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483650 && f < 2147483648 {","rule":"stdlib.md math 5: ToInt32 of -2147483649 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint32-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f < 2147483648 {","to":"func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f <= 2147483648 {","rule":"stdlib.md math 5: ToInt32 of 2^31 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint64-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {","to":"func MathToInt64(f float64) (int64, error) {\n\tif f > -0x1p63 && f < 0x1p63 {","rule":"stdlib.md math 5: ToInt64 of -2^63, the least int64, succeeds.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-toint64-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {","to":"func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f <= 0x1p63 {","rule":"stdlib.md math 5: ToInt64 of 2^63 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUint(f float64) (uint, error) {\n\tif f > -2 && f < 0x1p64 {","rule":"stdlib.md math 5: ToUint of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f <= 0x1p64 {","rule":"stdlib.md math 5: ToUint of 2^64 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint8-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f < 256 {","to":"func MathToUint8(f float64) (uint8, error) {\n\tif f > -2 && f < 256 {","rule":"stdlib.md math 5: ToUint8 of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint8-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f < 256 {","to":"func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f <= 256 {","rule":"stdlib.md math 5: ToUint8 of 256 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint16-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f < 65536 {","to":"func MathToUint16(f float64) (uint16, error) {\n\tif f > -2 && f < 65536 {","rule":"stdlib.md math 5: ToUint16 of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint16-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f < 65536 {","to":"func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f <= 65536 {","rule":"stdlib.md math 5: ToUint16 of 65536 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint32-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f < 4294967296 {","to":"func MathToUint32(f float64) (uint32, error) {\n\tif f > -2 && f < 4294967296 {","rule":"stdlib.md math 5: ToUint32 of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint32-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f < 4294967296 {","to":"func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f <= 4294967296 {","rule":"stdlib.md math 5: ToUint32 of 2^32 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint64-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUint64(f float64) (uint64, error) {\n\tif f > -2 && f < 0x1p64 {","rule":"stdlib.md math 5: ToUint64 of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touint64-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f <= 0x1p64 {","rule":"stdlib.md math 5: ToUint64 of 2^64 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touintptr-lower","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -2 && f < 0x1p64 {","rule":"stdlib.md math 5: ToUintptr of -1.5 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"sconv-touintptr-upper","origin":"wf10/S-conv","file":"runtime/v1/numbers.go","from":"func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {","to":"func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f <= 0x1p64 {","rule":"stdlib.md math 5: ToUintptr of 2^64 fails OutOfRange.","killers":["runtime/v1:TestStdRunesLaws"]},
+    {
+      "name": "dh1-renew-unbound",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ts, err := recoverWith(at, rec, a.fresh)\n",
+      "to": "\ts, err := a.fresh(at)\n",
+      "rule": "runtime.md Machines and actors 17 and 18: a supervised restart's recover makes unbound hosts, as the first start's does.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-recover-hosts-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tdefer func() { closeHosts(hosts) }()\n",
+      "to": "\tdefer func() {}()\n",
+      "rule": "runtime.md Machines and actors 17: every host a failed recover made is closed, and so is every host no entry took when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-no-actor-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\thosts = h.take()\n",
+      "to": "\thosts = nil\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host that no entry binds is closed when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-publish-early",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t<-settled\n\t}\n}\n\n// handle steps",
+      "to": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t_ = settled\n\t}\n}\n\n// handle steps",
+      "rule": "runtime.md Machines and actors 16.4: the first entry with recovered hosts and a work is shown once the work filled them, waited or ended.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {"name": "sconv-int64-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func FloatToInt64(f float64) int64 {\n\tif f < 0x1p63 {", "to": "func FloatToInt64(f float64) int64 {\n\tif f <= 0x1p63 {", "rule": "types.md Conversions 4: 2^63 is past int64's range and saturates to its maximum (Go's conversion of it is the host's).", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int64-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "\t\treturn math.MaxInt64\n", "to": "\t\treturn math.MinInt64\n", "rule": "types.md Conversions 4: +Inf and a float past int64's range give its maximum, not linux/amd64's minimum.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int64-nan", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "\t\treturn math.MaxInt64\n\t}\n\treturn 0\n", "to": "\t\treturn math.MaxInt64\n\t}\n\treturn math.MinInt64\n", "rule": "types.md Conversions 4: NaN converts to 0.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int-width", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func FloatToInt(f float64) int { return int(FloatToInt64(f)) }", "to": "func FloatToInt(f float64) int { return int(FloatToInt32(f)) }", "rule": "types.md Conversions 4: int is 64 bits wide and saturates at int64's bounds.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int8-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8))", "to": "return int8(min(max(FloatToInt64(f), math.MinInt8-1), math.MaxInt8))", "rule": "types.md Conversions 4: a float whose truncation is below int8's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int8-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8))", "to": "return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8+1))", "rule": "types.md Conversions 4: a float past int8's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int16-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16))", "to": "return int16(min(max(FloatToInt64(f), math.MinInt16-1), math.MaxInt16))", "rule": "types.md Conversions 4: a float whose truncation is below int16's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int16-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16))", "to": "return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16+1))", "rule": "types.md Conversions 4: a float past int16's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int32-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32))", "to": "return int32(min(max(FloatToInt64(f), math.MinInt32-1), math.MaxInt32))", "rule": "types.md Conversions 4: a float whose truncation is below int32's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-int32-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32))", "to": "return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32+1))", "rule": "types.md Conversions 4: a float past int32's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint8-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8))", "to": "return uint8(min(max(FloatToInt64(f), 0-1), math.MaxUint8))", "rule": "types.md Conversions 4: a float whose truncation is below uint8's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint8-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8))", "to": "return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8+1))", "rule": "types.md Conversions 4: a float past uint8's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint16-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16))", "to": "return uint16(min(max(FloatToInt64(f), 0-1), math.MaxUint16))", "rule": "types.md Conversions 4: a float whose truncation is below uint16's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint16-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16))", "to": "return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16+1))", "rule": "types.md Conversions 4: a float past uint16's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint32-min", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32))", "to": "return uint32(min(max(FloatToInt64(f), 0-1), math.MaxUint32))", "rule": "types.md Conversions 4: a float whose truncation is below uint32's range saturates to its least value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint32-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32))", "to": "return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32+1))", "rule": "types.md Conversions 4: a float past uint32's range saturates to its greatest value.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint64-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "if f > -1 && f < 0x1p64 {\n\t\treturn uint64(f)\n", "to": "if f > -2 && f < 0x1p64 {\n\t\treturn uint64(f)\n", "rule": "types.md Conversions 4: a float at or below -1 saturates to 0 for an unsigned type.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint64-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "if f > -1 && f < 0x1p64 {\n\t\treturn uint64(f)\n", "to": "if f > -1 && f <= 0x1p64 {\n\t\treturn uint64(f)\n", "rule": "types.md Conversions 4: 2^64 is past uint64's range and saturates to its maximum.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint64-max", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return math.MaxUint64\n", "to": "return math.MaxUint64 >> 1\n", "rule": "types.md Conversions 4: the positive saturation is the type's maximum.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uintptr-width", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uintptr(FloatToUint64(f))", "to": "return uintptr(FloatToUint32(f))", "rule": "types.md Conversions 4: uintptr is 64 bits wide on every target.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-uint-width", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "return uint(FloatToUint64(f))", "to": "return uint(FloatToUint32(f))", "rule": "types.md Conversions 4: uint is 64 bits wide on every target.", "killers": ["runtime/v1:TestFloatToIntegerMatchesModel"]},
+    {"name": "sconv-toint-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {", "to": "func MathToInt(f float64) (int, error) {\n\tif f > -0x1p63 && f < 0x1p63 {", "rule": "stdlib.md math 5: ToInt of -2^63, the least int, succeeds.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {", "to": "func MathToInt(f float64) (int, error) {\n\tif f >= -0x1p63 && f <= 0x1p63 {", "rule": "stdlib.md math 5: ToInt of 2^63 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint8-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f < 128 {", "to": "func MathToInt8(f float64) (int8, error) {\n\tif f > -130 && f < 128 {", "rule": "stdlib.md math 5: ToInt8 of -129 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint8-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f < 128 {", "to": "func MathToInt8(f float64) (int8, error) {\n\tif f > -129 && f <= 128 {", "rule": "stdlib.md math 5: ToInt8 of 128 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint16-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f < 32768 {", "to": "func MathToInt16(f float64) (int16, error) {\n\tif f > -32770 && f < 32768 {", "rule": "stdlib.md math 5: ToInt16 of -32769 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint16-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f < 32768 {", "to": "func MathToInt16(f float64) (int16, error) {\n\tif f > -32769 && f <= 32768 {", "rule": "stdlib.md math 5: ToInt16 of 32768 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint32-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f < 2147483648 {", "to": "func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483650 && f < 2147483648 {", "rule": "stdlib.md math 5: ToInt32 of -2147483649 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint32-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f < 2147483648 {", "to": "func MathToInt32(f float64) (int32, error) {\n\tif f > -2147483649 && f <= 2147483648 {", "rule": "stdlib.md math 5: ToInt32 of 2^31 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint64-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {", "to": "func MathToInt64(f float64) (int64, error) {\n\tif f > -0x1p63 && f < 0x1p63 {", "rule": "stdlib.md math 5: ToInt64 of -2^63, the least int64, succeeds.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-toint64-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f < 0x1p63 {", "to": "func MathToInt64(f float64) (int64, error) {\n\tif f >= -0x1p63 && f <= 0x1p63 {", "rule": "stdlib.md math 5: ToInt64 of 2^63 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint(f float64) (uint, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUint of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint(f float64) (uint, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUint of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint8-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f < 256 {", "to": "func MathToUint8(f float64) (uint8, error) {\n\tif f > -2 && f < 256 {", "rule": "stdlib.md math 5: ToUint8 of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint8-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f < 256 {", "to": "func MathToUint8(f float64) (uint8, error) {\n\tif f > -1 && f <= 256 {", "rule": "stdlib.md math 5: ToUint8 of 256 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint16-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f < 65536 {", "to": "func MathToUint16(f float64) (uint16, error) {\n\tif f > -2 && f < 65536 {", "rule": "stdlib.md math 5: ToUint16 of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint16-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f < 65536 {", "to": "func MathToUint16(f float64) (uint16, error) {\n\tif f > -1 && f <= 65536 {", "rule": "stdlib.md math 5: ToUint16 of 65536 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint32-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f < 4294967296 {", "to": "func MathToUint32(f float64) (uint32, error) {\n\tif f > -2 && f < 4294967296 {", "rule": "stdlib.md math 5: ToUint32 of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint32-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f < 4294967296 {", "to": "func MathToUint32(f float64) (uint32, error) {\n\tif f > -1 && f <= 4294967296 {", "rule": "stdlib.md math 5: ToUint32 of 2^32 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint64-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUint64 of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touint64-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUint64 of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touintptr-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "sconv-touintptr-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
     {"name":"bodies-table-stale","origin":"wf10 CHK1","file":"runtime/v1/files_gen.go","from":"Hidden: []Hidden{\"frame\", \"site\"}, Params: []Param{{Type: \"func(*rt.Task) (T, error)\"","to":"Hidden: []Hidden{\"frame\"}, Params: []Param{{Type: \"func(*rt.Task) (T, error)\"","rule":"The generated body table equals what the reviewed rules read from runtime/v1's sources (a stale table fails, never differs silently).","killers":["runtime/v1:TestBodyTableIsCurrent"],"anchor":{"tests":["runtime/v1:TestBodyTableIsCurrent"]}},
     {"name":"g16b4-getwd-samefile-inverted","origin":"wf10 16b gate fix 4","file":"runtime/v1/host.go","from":"\tif !os.SameFile(named, dot) {","to":"\tif os.SameFile(named, dot) {","rule":"The host's Getwd gives the working directory when the path it names is the directory \".\" is.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
     {"name":"g16b4-getwd-pwd-unverified","origin":"wf10 16b gate fix 4","file":"runtime/v1/host.go","from":"named, err := os.Stat(pwd); err == nil && os.SameFile(named, dot) {","to":"named, err := os.Stat(pwd); true || err == nil && os.SameFile(named, dot) {","rule":"An absolute $PWD is the working directory only when it names the file \".\" is; a removed directory's $PWD is not.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
@@ -134,16 +529,16 @@
     {"name":"ert-explored-main-drops-exit","origin":"wf10 EXPLORE-rt","file":"runtime/v1/explore_on.go","from":"\treturn res.Exit\n}","to":"\treturn nil\n}","rule":"An explored main exits with its root's exit: status and report as in a live run.","killers":["runtime/v1[ergoexplore]:TestMainExit"]},
     {"name":"ert-domain-push-ignores-stop","origin":"wf10 EXPLORE-rt","file":"runtime/v1/queue.go","from":"\t\tp = rt.Park(t, q, stop, nil)\n","to":"\t\tp = rt.Park(t, q, nil, nil)\n","rule":"A Push parked in a clock's domain (every task of an explored run) wakes on its task's stop (gap 1).","killers":["runtime/v1[ergoexplore]:TestPollerEnds","runtime/v1[ergoexplore]:TestChildrenLawsExplored"]},
     {"name":"ert-await-never-ready","origin":"wf10 EXPLORE-rt","file":"runtime/rt/sched_explore.go","from":"\treturn x.await == nil || x.await()\n","to":"\treturn x.await == nil\n","rule":"A task waiting through the scheduler (rt.Await) runs again once its event came.","killers":["runtime/v1[ergoexplore]:TestStop","runtime/v1[ergoexplore]:TestFrameReleaseOrder","runtime/v1[ergoexplore]:TestGoInExitAction","runtime/v1[ergoexplore]:TestStopWinsReleaseModel","runtime/v1[ergoexplore]:TestPollerEnds","runtime/v1[ergoexplore]:TestChildrenLawsExplored"]},
-    {"name":"stdsh-log","origin":"wf10/STD-sh","file":"runtime/v1/numbers.go","from":"func MathLog(f float64) float64 { return math.Log(f) }","to":"func MathLog(f float64) float64 { return math.Log1p(f) }","rule":"stdlib.md math: Log is Go's math.Log.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-exp","origin":"wf10/STD-sh","file":"runtime/v1/numbers.go","from":"func MathExp(f float64) float64 { return math.Exp(f) }","to":"func MathExp(f float64) float64 { return math.Exp2(f) }","rule":"stdlib.md math: Exp is Go's math.Exp.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-trimleft","origin":"wf10/STD-sh","file":"runtime/v1/text.go","from":"return strings.TrimLeft(s, cutset)","to":"return strings.TrimPrefix(s, cutset)","rule":"stdlib.md strings 10: TrimLeft's cutset is a set of runes.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-trimright","origin":"wf10/STD-sh","file":"runtime/v1/text.go","from":"return strings.TrimRight(s, cutset)","to":"return strings.TrimSuffix(s, cutset)","rule":"stdlib.md strings 10: TrimRight's cutset is a set of runes.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-max","origin":"wf10/STD-sh","file":"runtime/v1/collections.go","from":"func CmpMax[T ordered](a T, b T) T { return max(a, b) }","to":"func CmpMax[T ordered](a T, b T) T {\n\tif a > b {\n\t\treturn a\n\t}\n\treturn b\n}","rule":"stdlib.md cmp: Max is Go's builtin max, NaN and signed zeros included.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-min","origin":"wf10/STD-sh","file":"runtime/v1/collections.go","from":"func CmpMin[T ordered](a T, b T) T { return min(a, b) }","to":"func CmpMin[T ordered](a T, b T) T {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}","rule":"stdlib.md cmp: Min is Go's builtin min, NaN and signed zeros included.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-grow-room","origin":"wf10/STD-sh","file":"runtime/v1/text.go","from":"\tif cap(buf)-len(buf) < n {","to":"\tif cap(buf)-len(buf) < n-1 {","rule":"stdlib.md strings 10: Grow(n) leaves room for n more bytes, as Go's Builder.Grow.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-append-byte","origin":"wf10/STD-sh","file":"runtime/v1/text.go","from":"return append(buf, c) }","to":"return append(buf, c|1) }","rule":"stdlib.md strings 10: WriteByte adds the byte as Go's Builder.WriteByte.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-owned-text","origin":"wf10/STD-sh r2","file":"runtime/v1/owned.go","from":"unsafe.SliceData(buf), len(buf))","to":"unsafe.SliceData(buf), len(buf)/2)","rule":"types.md Bindings 2 (consumed arguments): the owned form gives the text StringsBuilderText gives.","killers":["runtime/v1:TestStdRunesMatchGo"]},
-    {"name":"stdsh-owned-shape","origin":"wf10/STD-sh r2","file":"runtime/v1/files.go","from":"\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) || len(a.Params) != len(b.Params) {\n","to":"\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) {\n","rule":"runtime/v1 Body.Owned: an owned form has the body's shape.","killers":["runtime/v1:TestBodyOwnedForm"]},
+    {"name": "stdsh-log", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathLog(f float64) float64 { return math.Log(f) }", "to": "func MathLog(f float64) float64 { return math.Log1p(f) }", "rule": "stdlib.md math: Log is Go's math.Log.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-exp", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathExp(f float64) float64 { return math.Exp(f) }", "to": "func MathExp(f float64) float64 { return math.Exp2(f) }", "rule": "stdlib.md math: Exp is Go's math.Exp.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-trimleft", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return strings.TrimLeft(s, cutset)", "to": "return strings.TrimPrefix(s, cutset)", "rule": "stdlib.md strings 10: TrimLeft's cutset is a set of runes.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-trimright", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return strings.TrimRight(s, cutset)", "to": "return strings.TrimSuffix(s, cutset)", "rule": "stdlib.md strings 10: TrimRight's cutset is a set of runes.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-max", "origin": "wf10/STD-sh", "file": "runtime/v1/collections.go", "from": "func CmpMax[T ordered](a T, b T) T { return max(a, b) }", "to": "func CmpMax[T ordered](a T, b T) T {\n\tif a > b {\n\t\treturn a\n\t}\n\treturn b\n}", "rule": "stdlib.md cmp: Max is Go's builtin max, NaN and signed zeros included.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-min", "origin": "wf10/STD-sh", "file": "runtime/v1/collections.go", "from": "func CmpMin[T ordered](a T, b T) T { return min(a, b) }", "to": "func CmpMin[T ordered](a T, b T) T {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}", "rule": "stdlib.md cmp: Min is Go's builtin min, NaN and signed zeros included.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-grow-room", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "\tif cap(buf)-len(buf) < n {", "to": "\tif cap(buf)-len(buf) < n-1 {", "rule": "stdlib.md strings 10: Grow(n) leaves room for n more bytes, as Go's Builder.Grow.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-append-byte", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return append(buf, c) }", "to": "return append(buf, c|1) }", "rule": "stdlib.md strings 10: WriteByte adds the byte as Go's Builder.WriteByte.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-owned-text", "origin": "wf10/STD-sh r2", "file": "runtime/v1/owned.go", "from": "unsafe.SliceData(buf), len(buf))", "to": "unsafe.SliceData(buf), len(buf)/2)", "rule": "types.md Bindings 2 (consumed arguments): the owned form gives the text StringsBuilderText gives.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
+    {"name": "stdsh-owned-shape", "origin": "wf10/STD-sh r2", "file": "runtime/v1/files.go", "from": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) || len(a.Params) != len(b.Params) {\n", "to": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) {\n", "rule": "runtime/v1 Body.Owned: an owned form has the body's shape.", "killers": ["runtime/v1:TestBodyOwnedForm"]},
     {"name":"stdsh-owned-directive","origin":"wf10/STD-sh r2","file":"runtime/v1/files.go","from":"\t\t*f.to = form\n","to":"\t\t_ = form\n","rule":"runtime/v1 Body.Owned: the directive names the owned form the lowering calls.","killers":["runtime/v1:TestBodyOwnedForm","lower:TestValueRuleElides"]},
     {"name":"unchecked-string-length","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i)","to":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i-1)","rule":"StringAt is s[i:j]: j-i bytes from i.","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
     {"name":"unchecked-byte-offset","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i))","to":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i+1))","rule":"ByteAt is s[i].","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
@@ -178,26 +573,68 @@
     {"name":"ss1-queue-len-take","origin":"wf10 std-speed-1","file":"runtime/v1/queue.go","from":"\t\tq.size.Store(int64(len(q.buf)))\n\t\treturn v, true","to":"\t\treturn v, true","rule":"runtime.md, Queues: Len does not count a taken value; the lock-free count is stored at each take from the buffer.","killers":["runtime/v1:TestQueuePoll"]},
     {"name":"ss1-host-mono-origin","origin":"wf10 std-speed-1","file":"runtime/v1/time.go","from":"return int64(time.Since(hostStart))","to":"return int64(time.Since(hostStart)) / 2","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's monotonic read has TimeHostNow's origin.","killers":["runtime/v1:TestTimeLaws"]},
     {"name":"ss1-index-byte","origin":"wf10 std-speed-1","file":"runtime/v1/text.go","from":"return strings.IndexByte(s, c)","to":"return strings.LastIndexByte(s, c)","rule":"stdlib.md strings 6: IndexByte is Index of one byte, the first.","killers":["runtime/v1:TestStdTextLaws"]},
-    {"name":"npj-give-drops-buffer","origin":"wf10 REF NOPRIV-JSON","file":"runtime/v1/buffer.go","from":"\tswitch c := cap(b); {\n\tcase c < 1<<10 || c >= 8<<20:\n","to":"\tswitch c := cap(b); {\n\tcase true:\n","rule":"Give puts the borrowed array back, so the next writer's Borrow allocates no buffer.","killers":["runtime/v1:TestBorrowedBufferIsReused","examples:cborpack"]},
-    {"name":"hint-give-drops-grown","origin":"wf10 REF NOPRIV-HINT","file":"runtime/v1/buffer.go","from":"\tcase c < 1<<10 || c >= 8<<20:\n","to":"\tcase c < 1<<10 || c >= 8<<10:\n","rule":"Give keeps an array of any class up to the largest, so a text over the least class reuses its buffer.","killers":["runtime/v1:TestBorrowedBufferIsReused","examples:cborpack"]},
-    {"name":"hint-not-recorded","origin":"wf10 REF NOPRIV-HINT","file":"runtime/v1/buffer.go","from":"\t\tp.Store(int64(len(b)))\n","to":"\t\t_ = p\n","rule":"Give records its text's length as the hint, so the next Borrow, after a GC too, takes a buffer that holds it.","killers":["runtime/v1:TestBorrowedBufferIsReused","runtime/v1:TestBorrowAfterGCTakesItsHint","examples:cborpack"]},
-    {"name":"hint-ignored-by-borrow","origin":"wf10 REF NOPRIV-HINT","file":"runtime/v1/buffer.go","from":"\t\tn = p.Load()\n","to":"\t\t_ = p\n","rule":"Borrow takes the least class that holds the hint, not the least class.","killers":["runtime/v1:TestBorrowedBufferIsReused","runtime/v1:TestBorrowAfterGCTakesItsHint","examples:cborpack"]},
-    {"name":"hint-shared-across-types","origin":"wf10 REF NOPRIV-HINT","file":"runtime/v1/buffer.go","from":"\tk := any(bufferHint[W, T]{})\n","to":"\tk := any(bufferHint[W, W]{})\n","rule":"Each pair of a writer type and a value type has its own hint: a small text of one type does not shrink another's buffer.","killers":["runtime/v1:TestBorrowAfterGCTakesItsHint"]},
-    {"name":"hint-class-too-small","origin":"wf10 REF NOPRIV-HINT","file":"runtime/v1/buffer.go","from":"\tcase n <= 64<<10:\n\t\treturn buffers64K.Get().(*[64 << 10]byte)[:0]\n","to":"\tcase n <= 64<<10:\n\t\treturn buffers32K.Get().(*[32 << 10]byte)[:0]\n","rule":"Borrow's array holds the hint: one of a smaller class regrows by append.","killers":["runtime/v1:TestBorrowedBufferIsReused","runtime/v1:TestBorrowAfterGCTakesItsHint"]},
+    {"name": "npj-give-drops-buffer", "origin": "wf10 REF NOPRIV-JSON", "file": "runtime/v1/buffer.go", "from": "\tswitch c := cap(b); {\n\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tswitch c := cap(b); {\n\tcase true:\n", "rule": "Give puts the borrowed array back, so the next writer's Borrow allocates no buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
+    {"name": "hint-give-drops-grown", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tcase c < 1<<10 || c >= 8<<10:\n", "rule": "Give keeps an array of any class up to the largest, so a text over the least class reuses its buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
+    {"name": "hint-not-recorded", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\t\tp.Store(int64(len(b)))\n", "to": "\t\t_ = p\n", "rule": "Give records its text's length as the hint, so the next Borrow, after a GC too, takes a buffer that holds it.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint", "examples:cborpack"]},
+    {"name": "hint-ignored-by-borrow", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\t\tn = p.Load()\n", "to": "\t\t_ = p\n", "rule": "Borrow takes the least class that holds the hint, not the least class.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint", "examples:cborpack"]},
+    {"name": "hint-shared-across-types", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tk := any(bufferHint[W, T]{})\n", "to": "\tk := any(bufferHint[W, W]{})\n", "rule": "Each pair of a writer type and a value type has its own hint: a small text of one type does not shrink another's buffer.", "killers": ["runtime/v1:TestBorrowAfterGCTakesItsHint"]},
+    {"name": "hint-class-too-small", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tcase n <= 64<<10:\n\t\treturn buffers64K.Get().(*[64 << 10]byte)[:0]\n", "to": "\tcase n <= 64<<10:\n\t\treturn buffers32K.Get().(*[32 << 10]byte)[:0]\n", "rule": "Borrow's array holds the hint: one of a smaller class regrows by append.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint"]},
     {"name":"nappend-int-drops-out","origin":"wf10 REF NAPPEND","file":"runtime/v1/text.go","from":"{ return strconv.AppendInt(b, n, base) }","to":"{ return append(b[:0], strconv.AppendInt(nil, n, base)...) }","rule":"strconv.AppendInt appends after what its buffer holds (law AppendsFormat).","killers":["runtime/v1:TestStdTextLaws"]},
     {"name":"nappend-uint-base-ten","origin":"wf10 REF NAPPEND","file":"runtime/v1/text.go","from":"{ return strconv.AppendUint(b, n, base) }","to":"{ return strconv.AppendUint(b, n, 10) }","rule":"strconv.AppendUint writes n in its base (law AppendsFormat).","killers":["runtime/v1:TestStdTextLaws"]},
     {"name":"nappend-float-32-bits","origin":"wf10 REF NAPPEND","file":"runtime/v1/text.go","from":"return strconv.AppendFloat(b, f, fmt, prec, 64)","to":"return strconv.AppendFloat(b, f, fmt, prec, 32)","rule":"strconv.AppendFloat writes the float64's spelling, FormatFloat's (law AppendsFormat).","killers":["runtime/v1:TestStdTextLaws"]},
     {"name":"host-except-ignored","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/files.go","from":" && !slices.Contains(HostImportsExcept[path], member)","to":"","rule":"stdlib.md The body contract, host: HostImportsExcept's members of a host package reach no host state (FK3-g3).","killers":["runtime/v1:TestBodyTableIsCurrent"]},
     {"name":"host-except-net-dropped","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/files.go","from":"\t\"net\":     {\"Pipe\", \"Conn\", \"Addr\"},\n","to":"","rule":"stdlib.md The body contract, host: a body that reaches only net.Pipe, net.Conn and net.Addr of net reaches no host state, so the local Network's bodies need no //ergo:host and no Ambient (FK3-g3).","killers":["runtime/v1:TestBodyTableIsCurrent"]},
-    {"name":"gx7-main-no-floor","origin":"wf10 GX7","file":"runtime/v1/exit.go","from":"\theapFloor(os.Getenv) // heap.go\n","to":"","rule":"runtime.md Entry (GX7): a program's main installs the heap floor.","killers":["runtime/v1:TestHeapFloorRaisesTheGoal"]},
-    {"name":"gx7-floor-dropped","origin":"wf10 GX7","file":"runtime/v1/heap.go","from":"\tballast = make([]byte, heapFloorBytes)\n","to":"\t_ = make([]byte, heapFloorBytes)\n","rule":"runtime.md Entry (GX7): the ballast stays live, so the collector's goal keeps the floor.","killers":["runtime/v1:TestHeapFloorRaisesTheGoal"]},
-    {"name":"gx7-floor-ignores-gogc","origin":"wf10 GX7","file":"runtime/v1/heap.go","from":"getenv(\"GOGC\") != \"\" || ","to":"","rule":"runtime.md Entry (GX7): a program that sets GOGC gets Go's policy as written.","killers":["runtime/v1:TestHeapFloorRaisesTheGoal"]},
-    {"name":"gx7-floor-ignores-memlimit","origin":"wf10 GX7","file":"runtime/v1/heap.go","from":"getenv(\"GOMEMLIMIT\") != \"\" || ","to":"","rule":"runtime.md Entry (GX7): a program that sets GOMEMLIMIT spends none of it on a ballast.","killers":["runtime/v1:TestHeapFloorRaisesTheGoal"]},
+    {
+      "name": "gx7-main-no-floor",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/exit.go",
+      "from": "\theapFloor(os.Getenv) // heap.go\n",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program's main installs the heap floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-dropped",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "\tballast = make([]byte, heapFloorBytes)\n",
+      "to": "\t_ = make([]byte, heapFloorBytes)\n",
+      "rule": "runtime.md Entry (GX7): the ballast stays live, so the collector's goal keeps the floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-gogc",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOGC\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOGC gets Go's policy as written.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-memlimit",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOMEMLIMIT\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOMEMLIMIT spends none of it on a ballast.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
     {"name":"mq-actor-tell-opens","origin":"wf10/domain MQ-tell","file":"runtime/v1/actor.go","from":"\tif k == decideStay || k == decideTell {\n","to":"\tif k == decideStay {\n","rule":"The actor runner keeps the entry, its timer and its work on a Tell (runtime.md 11.4): TestActorModelAgreesWithTimedFold.","killers":["runtime/v1:TestActorModelAgreesWithTimedFold"],"anchor":{"tests":["runtime/v1:TestActorModelAgreesWithTimedFold"]}},
     {"name":"mq-actor-tell-silent","origin":"wf10/domain MQ-tell","file":"runtime/v1/actor.go","from":"\t\tif k == decideTell {\n\t\t\ta.out(at, d)\n\t\t}\n","to":"","rule":"The actor runner gives a Tell's output to its sink before it commits (rule 17): TestActorModelAgreesWithTimedFold.","killers":["runtime/v1:TestActorModelAgreesWithTimedFold"],"anchor":{"tests":["runtime/v1:TestActorModelAgreesWithTimedFold"]}},
     {"name":"ref-in-place-shared-blind","origin":"wf10 OWN1 (ST G1)","file":"runtime/v1/sync.go","from":"\t\tr.v = clone(r.v)\n\t}\n\tx := f(&r.v)\n","to":"\t}\n\tx := f(&r.v)\n","rule":"An in-place Modify copies a shared held value before its literal writes it: a value Get or Set handed out never changes.","killers":["lower:TestValueRuleAgrees"],"anchor":{"tests":["lower:TestValueRuleAgrees"]}},
-    {"name":"own-append-to-subslice","origin":"wf10 OWN1","file":"runtime/v1/lineage.go","from":"l.base != nil && l.n == len(xs) && ","to":"l.base != nil && ","rule":"A one-extender site appends in place only to the very slice it made last, not to a cut of it that is shorter.","killers":["lower:TestHandoverAgrees"]},
-    {"name":"own-lineage-token-stale","origin":"wf10 OWN1","file":"runtime/v1/lineage.go","from":"\t\tout = append(xs, x)\n\t} else {","to":"\t\tout = append(xs, x)\n\t\tl.mu.Unlock()\n\t\treturn out\n\t} else {","rule":"After an append in place the token names the new, longer slice, so a second extender of the old one copies.","killers":["lower:TestHandoverAgrees"]},
+    {"name": "own-append-to-subslice", "origin": "wf10 OWN1", "file": "runtime/v1/lineage.go", "from": "l.base != nil && l.n == len(xs) && ", "to": "l.base != nil && ", "rule": "A one-extender site appends in place only to the very slice it made last, not to a cut of it that is shorter.", "killers": ["lower:TestHandoverAgrees"]},
+    {"name":"spawn-stopped-starts","origin":"wf10 I21 (batch 21 integrator)","file":"runtime/v1/exec_spawn.go","from":"(ExecDetached, error) {\n\tt.Check()\n","to":"(ExecDetached, error) {\n","rule":"A stopped caller's Spawn starts nothing and raises the stop.","killers":["runtime/v1:TestExecSpawnStopped"],"anchor":{"tests":["runtime/v1:TestExecSpawnStopped"]}},
+    {"name":"kill-stop-waits-grace","origin":"wf10 I21 (batch 21 integrator)","file":"runtime/v1/exec_spawn.go","from":"\t\t\tcase <-t.Done():\n\t\t\t\tbreak wait\n","to":"","rule":"A stop of Kill's caller during the grace ends the wait and goes on to SIGKILL.","killers":["runtime/v1:TestExecKillStopped"],"anchor":{"tests":["runtime/v1:TestExecKillStopped"]}},
+    {"name": "own-lineage-token-stale", "origin": "wf10 OWN1", "file": "runtime/v1/lineage.go", "from": "\t\tout = append(xs, x)\n\t} else {", "to": "\t\tout = append(xs, x)\n\t\tl.mu.Unlock()\n\t\treturn out\n\t} else {", "rule": "After an append in place the token names the new, longer slice, so a second extender of the old one copies.", "killers": ["lower:TestHandoverAgrees"]},
     {"name":"math-fma-unfused","origin":"wf10 corpus wave HP4 (std math.FMA)","file":"runtime/v1/numbers.go","from":"{ return math.FMA(x, y, z) }","to":"{ return float64(x*y) + z }","rule":"math.FMA rounds x*y + z once: (1+d)(1-d) - 1 is exactly -d².","killers":["runtime/v1:TestStdRunesLaws"]},
     {"name":"math-fma-sign","origin":"wf10 corpus wave HP4 (std math.FMA)","file":"runtime/v1/numbers.go","from":"{ return math.FMA(x, y, z) }","to":"{ return math.FMA(x, y, -z) }","rule":"math.FMA is within the unfused error of x*y + z.","killers":["runtime/v1:TestStdRunesLaws"]}
   ]

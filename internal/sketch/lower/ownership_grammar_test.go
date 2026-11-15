@@ -828,7 +828,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 		return ""
 	}
 	kind := g.r.IntN(3)
-	arg, param, takes := "", "", ""
+	arg, param := "", ""
 	badArg := false
 	switch kind {
 	case 1:
@@ -868,7 +868,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 	// Its name is taken after its argument and before its body draw
 	// others.
 	name := fmt.Sprintf("h%d", len(g.p.helpers))
-	fn := &ogFunc{sig: fmt.Sprintf("func %s(log sync.Ref[string], n int%s) %s fails Bad%s", name, param, ogTypeName[t], takes)}
+	fn := &ogFunc{sig: fmt.Sprintf("func %s(log sync.Ref[string], n int%s) %s fails Bad", name, param, ogTypeName[t])}
 	g.p.helpers = append(g.p.helpers, fn)
 	fn.body = g.stmts(1+g.r.IntN(3), 1)
 	fn.body = append(fn.body, g.flush()...)

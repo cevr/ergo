@@ -277,7 +277,7 @@ func lowerings(u Unit) map[string]string {
 // r8Program generates a program of n files and main.ergo. File k declares
 // the error type Ak with a function that fails it, a function whose
 // written failure is E over a function type with a parameter of a mode
-// the seed chooses (escaping or not), a function whose row is written
+// the seed chooses (own or not), a function whose row is written
 // for boxing fail[T] for a T the seed chooses (a delayed row
 // substitution), and two more declaration kinds the seed chooses (a
 // machine with inline variants, tests with a property and a law, a

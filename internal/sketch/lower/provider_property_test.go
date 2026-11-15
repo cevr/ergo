@@ -30,7 +30,7 @@ type Sink {
 	Take(n int) int fails Empty,
 }
 
-type Counter { sum int, puts int }
+type Counter { sum int, puts int } implements Sink
 
 func Put(c Counter, n int) {
 	let _ = c.sum + n
@@ -49,7 +49,7 @@ func Take(c Counter, n int) int fails Empty {
 	n
 }
 
-type Log { text string }
+type Log { text string } implements Sink
 
 func Put(l Log, n int) {
 	let _ = len(l.text) + n
@@ -64,7 +64,7 @@ func Take(l Log, n int) int fails Empty {
 	n + 1
 }
 
-type Fixed { k int }
+type Fixed { k int } implements Sink
 
 func Put(f Fixed, n int) {
 	let _ = f.k + n

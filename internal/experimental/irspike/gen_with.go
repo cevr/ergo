@@ -25,8 +25,8 @@ func GenerateWith(seed uint64) string {
 	word := func() string { return []string{"a", "bc", "def", "", "zz"}[r.IntN(5)] }
 	b.WriteString("type Missing { Key int }\n\n")
 	b.WriteString("type Store {\n\tGet(k int) string,\n\tFind(k int) int fails Missing,\n}\n\n")
-	b.WriteString("type Mem { Base int }\n\nfunc Get(m Mem, k int) string {\n\t\"mem \\(m.Base + k)\"\n}\n\n")
-	b.WriteString("type Fixed { Text string }\n\nfunc Get(f Fixed, k int) string {\n\t\"\\(f.Text)\\(k)\"\n}\n\n")
+	b.WriteString("type Mem { Base int } implements Store\n\nfunc Get(m Mem, k int) string {\n\t\"mem \\(m.Base + k)\"\n}\n\n")
+	b.WriteString("type Fixed { Text string } implements Store\n\nfunc Get(f Fixed, k int) string {\n\t\"\\(f.Text)\\(k)\"\n}\n\n")
 	fmt.Fprintf(&b, "func Find(m Mem, k int) int fails Missing {\n\tif k %% %d == 0 {\n\t\treturn Missing{Key: k}\n\t}\n\tm.Base + k\n}\n\n", 2+r.IntN(3))
 	b.WriteString("func Find(f Fixed, k int) int fails Missing {\n\tif k < 0 {\n\t\treturn Missing{Key: k}\n\t}\n\tk * 2\n}\n\n")
 	fmt.Fprintf(&b, "let Live = context {\n\tStore: Mem{Base: %d},\n}\n\n", base)

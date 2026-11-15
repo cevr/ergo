@@ -392,12 +392,17 @@ func (fc *funcCtx) loopIdiomHead(s *syntax.RangeStmt, idiom *loopIdiom, lo, hi s
 	// in tests that [a, b) is a non-empty part of a value of length
 	// length. b - a is hi - lo when no bound overflowed, and an overflow
 	// makes a < b or b <= len false.
+	// With no offset, a < b is the guard itself and is left out (go vet:
+	// redundant and).
+	guard := lo + " < " + hi
 	in := func(a, b, length string) string {
+		if a+" < "+b == guard {
+			return "0 <= " + a + " && " + b + " <= len(" + length + ")"
+		}
 		return "0 <= " + a + " && " + a + " < " + b + " && " + b + " <= len(" + length + ")"
 	}
 	fc.at(s.Body.List[0])
 	place := fc.value(idiom.place)
-	guard := lo + " < " + hi
 	switch idiom.kind {
 	case "fill":
 		a, b := at(lo, idiom.dst, idiom.dstNeg), at(hi, idiom.dst, idiom.dstNeg)
