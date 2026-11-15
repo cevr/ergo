@@ -52,7 +52,17 @@ type MinuteNumber { Pad Pad }
 type SecondNumber { Pad Pad }
 type Fraction { Digits int, Trim bool }
 type Meridiem {}
-type Field = Literal | YearNumber | MonthNumber | MonthName | DayOfMonth | DayOfYear | WeekdayName | ISOWeekYear | ISOWeekNumber | Hour24 | Hour12 | MinuteNumber | SecondNumber | Fraction | Meridiem
+
+// OffsetField is the offset east of UTC of the zone a wall time is read in:
+// +hh:mm with Colon, +hhmm without, then :ss or ss when the offset is not
+// whole minutes; with Z, Z for a zero offset (RFC 3339). ZoneID is the
+// zone's name (America/Toronto, +05:30) and ZoneAbbreviation its
+// abbreviation (EST, -03). They are fields of a ZonedFormat alone, which
+// tz writes and reads (tz.FormatZoned, tz.ParseZoned).
+type OffsetField { Colon bool, Z bool }
+type ZoneID {}
+type ZoneAbbreviation {}
+type Field = Literal | YearNumber | MonthNumber | MonthName | DayOfMonth | DayOfYear | WeekdayName | ISOWeekYear | ISOWeekNumber | Hour24 | Hour12 | MinuteNumber | SecondNumber | Fraction | Meridiem | OffsetField | ZoneID | ZoneAbbreviation
 
 // Names are the words of a format: the months from January, the weekdays
 // from Monday (ISO order), and the two halves of a 12-hour day. Each list
@@ -85,13 +95,13 @@ type BadPattern { Text string, At int, Hint string }
 
 // DateFields is the date format of fields with names.
 func DateFields(fields []Field, names Names) DateFormat fails BadPattern {
-	let _ = try checkFields(fields, indexes(len(fields)), names, false, "")
+	let _ = try checkFields(fields, indexes(len(fields)), names, false, false, "")
 	DateFormat{fields: fields, names: names}
 }
 
 // Fields is the date and time format of fields with names.
 func Fields(fields []Field, names Names) DateTimeFormat fails BadPattern {
-	let _ = try checkFields(fields, indexes(len(fields)), names, true, "")
+	let _ = try checkFields(fields, indexes(len(fields)), names, true, false, "")
 	DateTimeFormat{fields: fields, names: names}
 }
 
@@ -132,9 +142,48 @@ func isTime(f Field) bool {
 	match f {
 	case Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem:
 		true
-	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber:
+	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, OffsetField, ZoneID, ZoneAbbreviation:
 		false
 	}
+}
+
+// isZone reports whether f is a field of a zone: an offset, a zone name or
+// an abbreviation.
+func isZone(f Field) bool {
+	match f {
+	case OffsetField, ZoneID, ZoneAbbreviation:
+		true
+	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem:
+		false
+	}
+}
+
+// greedy reports whether f reads a run of name bytes: a zone name or an
+// abbreviation.
+func greedy(f Field) bool {
+	match f {
+	case ZoneID, ZoneAbbreviation:
+		true
+	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem, OffsetField:
+		false
+	}
+}
+
+// ends reports whether f is a literal whose first byte ends a run of name
+// bytes.
+func ends(f Field) bool {
+	match f {
+	case Literal as l:
+		len(l.Text) > 0 && !nameByte(l.Text[0])
+	case YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
+		false
+	}
+}
+
+// nameByte reports whether c may be in a zone name or abbreviation: an
+// ASCII letter or digit, or one of /_+-:.
+func nameByte(c byte) bool {
+	c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '/' || c == '_' || c == '+' || c == '-' || c == ':'
 }
 
 // varies reports whether the text of f has no fixed length that starts
@@ -167,7 +216,9 @@ func varies(f Field) bool {
 		unpadded(x.Pad)
 	case Fraction as x:
 		x.Trim
-	case Literal, MonthName, WeekdayName, ISOWeekYear, Meridiem:
+	case OffsetField:
+		true
+	case Literal, MonthName, WeekdayName, ISOWeekYear, Meridiem, ZoneID, ZoneAbbreviation:
 		false
 	}
 }
@@ -186,7 +237,7 @@ func trimmed(f Field) bool {
 	match f {
 	case Fraction as x:
 		x.Trim
-	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Meridiem:
+	case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		false
 	}
 }
@@ -196,7 +247,7 @@ func dotFirst(f Field) bool {
 	match f {
 	case Literal as l:
 		startsWith(l.Text, ".")
-	case YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem:
+	case YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		false
 	}
 }
@@ -210,7 +261,7 @@ func digitFirst(f Field) bool {
 		!x.Trim
 	case YearNumber, MonthNumber, DayOfMonth, DayOfYear, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber:
 		true
-	case MonthName, WeekdayName, Meridiem:
+	case MonthName, WeekdayName, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		false
 	}
 }
@@ -218,9 +269,11 @@ func digitFirst(f Field) bool {
 // checkFields is the rule of every builder: names that read one way, no
 // empty literal, a pivot whose century lies in years 1 to 9999, 1 to 9
 // fraction digits, no time field in a date format, Meridiem beside
-// Hour12, and no field that may start with a digit after one whose width
-// varies. at[i] is where fields[i] came from, for the failure.
-func checkFields(fields []Field, at []int, names Names, timeOK bool, text string) bool fails BadPattern {
+// Hour12, no field that may start with a digit after one whose width
+// varies, no zone field outside a zoned format, and after a zone name or
+// abbreviation only the end or a literal that cannot continue it. at[i]
+// is where fields[i] came from, for the failure.
+func checkFields(fields []Field, at []int, names Names, timeOK bool, zoneOK bool, text string) bool fails BadPattern {
 	let _ = try checkNames(names, text)
 	let mut hour12 = -1
 	let mut meridiem = false
@@ -228,6 +281,12 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, text string
 		let f = fields[i]
 		if !timeOK && isTime(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a date format has no time of day; build a DateTimeFormat (Pattern, FromLayout or Fields)"}
+		}
+		if !zoneOK && isZone(f) {
+			return BadPattern{Text: text, At: at[i], Hint: "an offset or a zone name needs a zone; build a ZonedFormat (ZonedPattern, ZonedLayout or ZonedFields) for tz.FormatZoned"}
+		}
+		if i > 0 && greedy(fields[i - 1]) && !ends(f) {
+			return BadPattern{Text: text, At: at[i], Hint: "a zone name or abbreviation reads letters, digits and /_+-:, so the text after it starts with another byte"}
 		}
 		if i > 0 && varies(fields[i - 1]) && digitFirst(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a number of varying width is followed by one that may start with a digit; put a literal between them or pad the first"}
@@ -256,7 +315,7 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, text string
 			hour12 = i
 		case Meridiem:
 			meridiem = true
-		case MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, MinuteNumber, SecondNumber:
+		case MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, MinuteNumber, SecondNumber, OffsetField, ZoneID, ZoneAbbreviation:
 		}
 	}
 	if hour12 >= 0 && !meridiem {
@@ -310,15 +369,16 @@ func oneWay(xs []string) bool {
 }
 
 // FormatDate is the text of d in f.
-func FormatDate(d Date, f DateFormat) string { render(d, TimeOfDay{ns: 0}, f.fields, f.names) }
+func FormatDate(d Date, f DateFormat) string { render(d, TimeOfDay{ns: 0}, noZone(), f.fields, f.names) }
 
 // FormatDateTime is the text of dt in f.
-func FormatDateTime(dt DateTime, f DateTimeFormat) string { render(dt.Date, dt.Time, f.fields, f.names) }
+func FormatDateTime(dt DateTime, f DateTimeFormat) string { render(dt.Date, dt.Time, noZone(), f.fields, f.names) }
 
 // render writes each field of d and t into one buffer. Each field is at
 // most three parts, slices of constants or of a name, so the appends to
-// out are in place and a text costs its buffer and its string.
-func render(d Date, t TimeOfDay, fields []Field, names Names) string {
+// out are in place and a text costs its buffer and its string. z is the
+// zone fields' text, which a ZonedFormat alone holds.
+func render(d Date, t TimeOfDay, z ZoneParts, fields []Field, names Names) string {
 	let c = civilFromDays(int64(d.day))
 	let mut out = buffer(32)
 	for f in fields {
@@ -360,6 +420,12 @@ func render(d Date, t TimeOfDay, fields []Field, names Names) string {
 			(fractionText(int64(Nanosecond(t)), x.Digits, x.Trim), "", "")
 		case Meridiem:
 			(if Hour(t) < 12 { names.AM } else { names.PM }, "", "")
+		case OffsetField as x:
+			(offsetText(z.Offset, x.Colon, x.Z), "", "")
+		case ZoneID:
+			(z.Zone, "", "")
+		case ZoneAbbreviation:
+			(z.Abbreviation, "", "")
 		}
 		out = appendString(appendString(appendString(out, a), b), e)
 	}
@@ -438,8 +504,9 @@ func nameOf(w Width, full []string, short []string, i int) string {
 	}
 }
 
-// reading is what a parse has read so far; -1 is a field not yet read.
-type reading { year int, month int, day int, yday int, wday int, isoYear int, isoWeek int, hour int, hour12 int, pm int, minute int, second int, ns int }
+// reading is what a parse has read so far; -1 is a number not yet read,
+// and "" a zone name or abbreviation.
+type reading { year int, month int, day int, yday int, wday int, isoYear int, isoWeek int, hour int, hour12 int, pm int, minute int, second int, ns int, offset int, hasOffset bool, abbreviation string, zone string }
 
 // ParseDate is the date the text s writes in f: the whole of s, field by
 // field, with no normalisation: a day that does not exist, a weekday that
@@ -461,7 +528,7 @@ func ParseDateTime(f DateTimeFormat, s string) DateTime fails ParseError {
 
 // read reads each field of fields from s, in order, and all of s.
 func read(fields []Field, names Names, s string) reading fails ParseError {
-	let mut r = reading{year: -1, month: -1, day: -1, yday: -1, wday: -1, isoYear: -1, isoWeek: -1, hour: -1, hour12: -1, pm: -1, minute: -1, second: -1, ns: -1}
+	let mut r = reading{year: -1, month: -1, day: -1, yday: -1, wday: -1, isoYear: -1, isoWeek: -1, hour: -1, hour12: -1, pm: -1, minute: -1, second: -1, ns: -1, offset: 0, hasOffset: false, abbreviation: "", zone: ""}
 	let mut i = 0
 	for f in fields {
 		match f {
@@ -533,6 +600,27 @@ func read(fields []Field, names Names, s string) reading fails ParseError {
 		case Meridiem:
 			let (v, j) = try readName(s, i, Full, []string{names.AM, names.PM}, []string{}, "AM or PM")
 			r = reading{..r, pm: try agree(r.pm, v, s, i, "AM or PM")}
+			i = j
+		case OffsetField as x:
+			let (v, j) = try readOffset(s, i, x.Colon, x.Z)
+			if r.hasOffset && r.offset != v {
+				return ParseError{Text: s, At: i, Reason: "the offset disagrees with an earlier field"}
+			}
+			r = reading{..r, offset: v, hasOffset: true}
+			i = j
+		case ZoneID:
+			let j = nameEnd(s, i)
+			if j == i {
+				return wantField(s, i, "zone name")
+			}
+			r = reading{..r, zone: try agreeText(r.zone, s[i:j], s, i, "zone name")}
+			i = j
+		case ZoneAbbreviation:
+			let j = nameEnd(s, i)
+			if j == i {
+				return wantField(s, i, "zone abbreviation")
+			}
+			r = reading{..r, abbreviation: try agreeText(r.abbreviation, s[i:j], s, i, "zone abbreviation")}
 			i = j
 		}
 	}
@@ -803,7 +891,7 @@ func yearDays(f DateTimeFormat) (int64, int64) {
 				return (UnixDays(lo), UnixDays(hi))
 			case AllDigits, FourDigits:
 			}
-		case Literal, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem:
+		case Literal, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		}
 	}
 	(UnixDays(MinDate()), UnixDays(MaxDate()))
@@ -830,7 +918,7 @@ func held(dt DateTime, f DateTimeFormat) DateTime {
 				unit = unit * 10
 			}
 			ns = Nanosecond(dt.Time) / unit * unit
-		case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Meridiem:
+		case Literal, YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		}
 	}
 	let t = NewTimeOfDay(h, m, s, ns) catch {
@@ -875,7 +963,7 @@ func lastFixed(f DateTimeFormat) bool {
 		padded(x.Pad)
 	case Fraction as x:
 		!x.Trim
-	case Literal, MonthName, WeekdayName, ISOWeekYear, Meridiem:
+	case Literal, MonthName, WeekdayName, ISOWeekYear, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		true
 	}
 }

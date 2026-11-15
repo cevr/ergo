@@ -149,7 +149,7 @@ func yearDays(f civil.DateTimeFormat) (int64, int64) {
 				return (civil.UnixDays(lo), civil.UnixDays(hi))
 			case civil.AllDigits, civil.FourDigits:
 			}
-		case civil.Literal, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Hour24, civil.Hour12, civil.MinuteNumber, civil.SecondNumber, civil.Fraction, civil.Meridiem:
+		case civil.Literal, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Hour24, civil.Hour12, civil.MinuteNumber, civil.SecondNumber, civil.Fraction, civil.Meridiem, civil.OffsetField, civil.ZoneID, civil.ZoneAbbreviation:
 		}
 	}
 	(civil.UnixDays(civil.MinDate()), civil.UnixDays(civil.MaxDate()))
@@ -174,7 +174,7 @@ func held(dt civil.DateTime, f civil.DateTimeFormat) civil.DateTime {
 				unit = unit * 10
 			}
 			ns = civil.Nanosecond(dt.Time) / unit * unit
-		case civil.Literal, civil.YearNumber, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Meridiem:
+		case civil.Literal, civil.YearNumber, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Meridiem, civil.OffsetField, civil.ZoneID, civil.ZoneAbbreviation:
 		}
 	}
 	let t = civil.NewTimeOfDay(h, m, s, ns) catch {
@@ -217,7 +217,7 @@ func lastFixed(f civil.DateTimeFormat) bool {
 		padded(x.Pad)
 	case civil.Fraction as x:
 		!x.Trim
-	case civil.Literal, civil.MonthName, civil.WeekdayName, civil.ISOWeekYear, civil.Meridiem:
+	case civil.Literal, civil.MonthName, civil.WeekdayName, civil.ISOWeekYear, civil.Meridiem, civil.OffsetField, civil.ZoneID, civil.ZoneAbbreviation:
 		true
 	}
 }

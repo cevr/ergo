@@ -15,16 +15,16 @@
 // year; write d), and the offset and zone letters (a zone's format is
 // tz's).
 func Pattern(text string) DateTimeFormat fails BadPattern {
-	let (fields, at) = try patternFields(text)
-	let _ = try checkFields(fields, at, English(), true, text)
+	let (fields, at) = try patternFields(text, false)
+	let _ = try checkFields(fields, at, English(), true, false, text)
 	DateTimeFormat{fields: fields, names: English()}
 }
 
 // DatePattern is the date format of the LDML pattern text: Pattern's
 // letters without the time of day's.
 func DatePattern(text string) DateFormat fails BadPattern {
-	let (fields, at) = try patternFields(text)
-	let _ = try checkFields(fields, at, English(), false, text)
+	let (fields, at) = try patternFields(text, false)
+	let _ = try checkFields(fields, at, English(), false, false, text)
 	DateFormat{fields: fields, names: English()}
 }
 
@@ -35,15 +35,15 @@ func DatePattern(text string) DateFormat fails BadPattern {
 // a hint: 06 (a two-digit year needs a pivot), pm, ,999, and the zone
 // elements (MST, -0700, Z07:00 and their kin: a zone's format is tz's).
 func FromLayout(text string) DateTimeFormat fails BadPattern {
-	let (fields, at) = try layoutFields(text)
-	let _ = try checkFields(fields, at, English(), true, text)
+	let (fields, at) = try layoutFields(text, false)
+	let _ = try checkFields(fields, at, English(), true, false, text)
 	DateTimeFormat{fields: fields, names: English()}
 }
 
 // DateLayout is the date format of Go's reference layout text.
 func DateLayout(text string) DateFormat fails BadPattern {
-	let (fields, at) = try layoutFields(text)
-	let _ = try checkFields(fields, at, English(), false, text)
+	let (fields, at) = try layoutFields(text, false)
+	let _ = try checkFields(fields, at, English(), false, false, text)
 	DateFormat{fields: fields, names: English()}
 }
 
@@ -104,7 +104,7 @@ func tokens(text string) []token fails BadPattern {
 
 // patternFields is the fields of an LDML pattern and where each began;
 // adjacent literal text is one Literal.
-func patternFields(text string) ([]Field, []int) fails BadPattern {
+func patternFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 	let ts = try tokens(text)
 	let mut week = false
 	let mut month = false
@@ -129,7 +129,7 @@ func patternFields(text string) ([]Field, []int) fails BadPattern {
 			at = at.Append(litAt)
 			lit = ""
 		}
-		fields = fields.Append(try letterField(text, t, week, month))
+		fields = fields.Append(try letterField(text, t, week, month, zoned))
 		at = at.Append(t.at)
 	}
 	if len(lit) > 0 {
@@ -140,7 +140,7 @@ func patternFields(text string) ([]Field, []int) fails BadPattern {
 }
 
 // letterField is the field of one letter run of an LDML pattern.
-func letterField(text string, t token, week bool, month bool) Field fails BadPattern {
+func letterField(text string, t token, week bool, month bool, zoned bool) Field fails BadPattern {
 	let n = t.count
 	let c = t.letter
 	if c == 'y' {
@@ -249,9 +249,40 @@ func letterField(text string, t token, week bool, month bool) Field fails BadPat
 		return badAt(text, t.at, "write a for AM or PM")
 	}
 	if c == 'X' || c == 'x' || c == 'Z' || c == 'z' || c == 'O' || c == 'V' || c == 'v' {
-		return badAt(text, t.at, "an offset or a zone name needs a zone; a zone's format is tz's")
+		if !zoned {
+			return badAt(text, t.at, "an offset or a zone name needs a zone; build a ZonedFormat with ZonedPattern for tz.FormatZoned")
+		}
+		return try zoneLetter(text, t)
 	}
 	badAt(text, t.at, "\(text[t.at:t.at + 1]) is not a pattern letter of civil; quote literal text: 'at'")
+}
+
+// zoneLetter is the field of one zone letter run of a zoned LDML pattern.
+func zoneLetter(text string, t token) Field fails BadPattern {
+	let n = t.count
+	let c = t.letter
+	if c == 'X' && (n == 2 || n == 3) {
+		return OffsetField{Colon: n == 3, Z: true}
+	}
+	if c == 'x' && (n == 2 || n == 3) {
+		return OffsetField{Colon: n == 3, Z: false}
+	}
+	if c == 'Z' && n <= 3 {
+		return OffsetField{Colon: false, Z: false}
+	}
+	if c == 'Z' && n == 5 {
+		return OffsetField{Colon: true, Z: true}
+	}
+	if c == 'z' && n <= 3 {
+		return ZoneAbbreviation
+	}
+	if c == 'V' && n == 2 {
+		return ZoneID
+	}
+	if (c == 'X' || c == 'x') && n == 1 {
+		return badAt(text, t.at, "\(text[t.at:t.at + 1]) alone drops the offset's minutes; write \(text[t.at:t.at + 1])\(text[t.at:t.at + 1]) or \(text[t.at:t.at + 1])\(text[t.at:t.at + 1])\(text[t.at:t.at + 1])")
+	}
+	badAt(text, t.at, "write XX, XXX, xx, xxx, Z or ZZZZZ for the offset, z for the abbreviation and VV for the zone's name; localized zone forms are not civil's")
 }
 
 // badAt is the failure of text at at with hint.
@@ -262,13 +293,13 @@ func pad(n int) Pad { if n == 1 { NoPad } else { ZeroPad } }
 
 // layoutFields is the fields of a Go layout and where each began, found as
 // Go's nextStdChunk finds them; the bytes between are one Literal.
-func layoutFields(text string) ([]Field, []int) fails BadPattern {
+func layoutFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 	let mut fields = []Field{}
 	let mut at = []int{}
 	let mut i = 0
 	let mut litAt = 0
 	for i < len(text) {
-		let (n, f) = try layoutElement(text, i)
+		let (n, f) = try layoutElement(text, i, zoned)
 		if n == 0 {
 			i = i + 1
 			continue
@@ -319,7 +350,7 @@ func lowerAt(text string, i int) bool { i < len(text) && text[i] >= 'a' && text[
 // layoutElement is the Go layout element at text[i]: its length (0 when
 // none starts there) and its field (for ".000", the separator's Literal;
 // layoutLead gives the fraction).
-func layoutElement(text string, i int) (int, Option[Field]) fails BadPattern {
+func layoutElement(text string, i int, zoned bool) (int, Option[Field]) fails BadPattern {
 	let c = text[i]
 	if c == 'J' && has(text, i, "Jan") {
 		if has(text, i, "January") {
@@ -339,7 +370,10 @@ func layoutElement(text string, i int) (int, Option[Field]) fails BadPattern {
 			}
 		}
 		if has(text, i, "MST") {
-			return badAt(text, i, "MST is a zone abbreviation; a zone's format is tz's")
+			if !zoned {
+				return badAt(text, i, "MST is a zone abbreviation, which needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
+			}
+			return (3, Some[Field]{Value: ZoneAbbreviation})
 		}
 	}
 	if c == '0' && i + 1 < len(text) {
@@ -401,8 +435,21 @@ func layoutElement(text string, i int) (int, Option[Field]) fails BadPattern {
 	if c == 'p' && has(text, i, "pm") {
 		return badAt(text, i, "pm writes am or pm; write PM, or pass Names with lower-case AM and PM to Fields")
 	}
-	if c == '-' && (has(text, i, "-07") ) || c == 'Z' && has(text, i, "Z07") {
-		return badAt(text, i, "an offset needs a zone; a zone's format is tz's")
+	if c == '-' && has(text, i, "-07") || c == 'Z' && has(text, i, "Z07") {
+		if !zoned {
+			return badAt(text, i, "an offset needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
+		}
+		let z = c == 'Z'
+		if has(text, i + 1, "07:00:00") || has(text, i + 1, "070000") {
+			return badAt(text, i, "the offset writes its seconds when it has them; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
+		}
+		if has(text, i + 1, "07:00") {
+			return (6, Some[Field]{Value: OffsetField{Colon: true, Z: z}})
+		}
+		if has(text, i + 1, "0700") {
+			return (5, Some[Field]{Value: OffsetField{Colon: false, Z: z}})
+		}
+		return badAt(text, i, "\(text[i:i + 3]) drops the offset's minutes; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
 	}
 	if (c == '.' || c == ',') && i + 1 < len(text) && (text[i + 1] == '0' || text[i + 1] == '9') {
 		let ch = text[i + 1]
