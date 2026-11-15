@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -379,6 +380,7 @@ type valueWalk struct {
 	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
 	goReads  []*syntax.CallExpr        // calls of import go functions (readonly.go)
 	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
+	selves   map[syntax.Expr]bool      // arm values a catch stores back into their own place (catchSelf)
 	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
 	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
 	owners   map[*check.Var]bool       // freshAll's parameters, each read as an unshared local (handover.go)
@@ -855,7 +857,7 @@ func (w *valueWalk) decide() {
 						w.l.stats.ArgsShared++
 					}
 				case o.kind == occEscape || o.kind == occReturn:
-					if vf.handed[o.path] || w.reslices(o.path, vv) || !w.needsCopy(vv, o) {
+					if vf.handed[o.path] || w.reslices(o.path, vv) || w.catchSelf(o.path) || !w.needsCopy(vv, o) {
 						break
 					}
 					if o.entry && !w.inFlight(vv, o) {
@@ -965,6 +967,9 @@ func (w *valueWalk) decide() {
 				continue
 			}
 			w.moveOver(o.value)
+			if w.catchJoin(o.value) {
+				continue
+			}
 			w.freshen(o.value, whyEnters)
 		}
 		// A value Put stores in a Map whose entries are written in place
@@ -1165,6 +1170,14 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 	if t, ok := parent.(*syntax.TryExpr); ok && t.X == child {
 		parent, child = w.unparenParent(t)
 	}
+	caught := false
+	if c, ok := parent.(*syntax.CatchExpr); ok && c.X == child {
+		if !w.catchTaken() {
+			return false
+		}
+		parent, child = w.unparenParent(c)
+		caught = true
+	}
 	s, ok := parent.(*syntax.AssignStmt)
 	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
 		return false
@@ -1198,11 +1211,100 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			}
 			return false
 		}
+		if caught && o.pre > w.post[call] && o.pre < w.post[s] {
+			// An arm runs only when f failed, and f fails before it takes
+			// its owned parameter (ownedBind, consumedOcc, fieldOwned:
+			// failsAfter), so an arm reads p's old value unwritten.
+			continue
+		}
 		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
 			return false
 		}
 	}
 	return true
+}
+
+// catchTaken is own-catch's admission (REUSE RU2): a rebinding
+// p = f(…, p, …) catch { … } hands p over to f's owned parameter as
+// p = try f(…) does. An owned parameter is taken only where f cannot fail
+// after the taking, so on the failure route p is as it was, and an arm
+// may read it or yield it; and the catch's value stored back into p
+// copies none of its arms that yield p itself (catchJoin).
+func (w *valueWalk) catchTaken() bool {
+	if !w.l.takes("own-catch") {
+		return false
+	}
+	w.l.took("own-catch")
+	return true
+}
+
+// catchJoin freshens the value of p = f(…) catch { arms } as it enters
+// p: the call's result, and each arm's value but one that is the place p
+// itself, which the store puts back where it was. It reports false where
+// the value is no such catch, or own-catch is not taken.
+func (w *valueWalk) catchJoin(value syntax.Expr) bool {
+	c, place := w.catchStore(value)
+	if c == nil || !w.catchTaken() {
+		return false
+	}
+	w.freshen(c.X, whyEnters)
+	for _, tail := range catchTails(c) {
+		if samePlace(place, tail) {
+			continue
+		}
+		w.freshen(tail, whyEnters)
+	}
+	return true
+}
+
+// catchStore is the catch that value is, when it is the whole right side
+// of a plain assignment p = … catch { … }, and the place p; or nil.
+func (w *valueWalk) catchStore(value syntax.Expr) (*syntax.CatchExpr, syntax.Expr) {
+	c, ok := unparen(value).(*syntax.CatchExpr)
+	if !ok {
+		return nil, nil
+	}
+	parent, child := w.unparenParent(c)
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return nil, nil
+	}
+	return c, s.Lhs[0]
+}
+
+// catchTails is the values c's arms yield, in source order.
+func catchTails(c *syntax.CatchExpr) []syntax.Expr {
+	var out []syntax.Expr
+	for _, arm := range c.Arms {
+		tails := map[syntax.Expr]bool{}
+		tailsOf(arm.Body, tails)
+		var each []syntax.Expr
+		for tail := range tails {
+			each = append(each, tail)
+		}
+		sort.Slice(each, func(i, j int) bool { return each[i].Pos() < each[j].Pos() })
+		out = append(out, each...)
+	}
+	return out
+}
+
+// catchSelf reports an arm's value that is the place its catch is stored
+// back into, p = f(…) catch { case E: p }: the store puts p back where
+// it was, so the read escapes nowhere (own-catch).
+func (w *valueWalk) catchSelf(e syntax.Expr) bool {
+	if w.selves == nil {
+		w.selves = map[syntax.Expr]bool{}
+		for _, o := range w.owns {
+			if c, place := w.catchStore(o.value); c != nil {
+				for _, tail := range catchTails(c) {
+					if samePlace(place, tail) {
+						w.selves[unparen(tail)] = true
+					}
+				}
+			}
+		}
+	}
+	return w.selves[e] && w.l.takes("own-catch")
 }
 
 // cutPlace is the place x slices (any depth of slicing), or x.

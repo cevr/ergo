@@ -157,6 +157,15 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-catch",
+		class:      valueClass,
+		admission:  "catchTaken",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-catch-arm-shares",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-update-self",
 		class:      valueClass,
 		admission:  "updateSelf",
