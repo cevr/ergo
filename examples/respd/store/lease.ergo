@@ -1,0 +1,255 @@
+// Leases: a named lock that an owner holds until a time, with a fencing
+// token. Each grant of a name has a token greater than every token the
+// name had before, so a resource that keeps the greatest token it has
+// seen refuses a holder whose lease has passed to another. A lease is
+// renewed and released only with its token: a holder whose lease expired
+// and passed to another cannot extend or free the other's.
+
+import time
+
+// Lease is a grant: Owner holds Name until Until, under Token.
+type Lease { Name string, Owner string, Token int64, Until time.Time }
+
+// Held is an Acquire of a name another grant holds: its owner and when it
+// ends. A holder that wants more time renews; it does not acquire again.
+type Held { Name string, Owner string, Until time.Time }
+
+// Lost is a Renew or a Release of a lease that is no longer the name's
+// grant: it expired, it was released, or another owner holds the name.
+type Lost { Name string, Token int64 }
+
+// Leases is the contract of a set of leases, one per name.
+type Leases {
+	// Acquire grants name to owner until until, when no grant holds it at
+	// now, under a token greater than every token name had.
+	Acquire(name string, owner string, until time.Time, now time.Time) Lease fails Held,
+	// Renew moves the end of lease to until, when lease is name's grant at
+	// now. The token stays.
+	Renew(lease Lease, until time.Time, now time.Time) Lease fails Lost,
+	// Release frees lease's name, when lease is its grant at now.
+	Release(lease Lease, now time.Time) fails Lost,
+
+	// AcquireIsExclusive: while a grant holds a name, an Acquire of it,
+	// by any owner, is Held, with the holder and its end.
+	law AcquireIsExclusive(name string, a string, b string, t int, ttl int) {
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let l = Acquire(name, a, until, now) catch {
+		case Held:
+			return false
+		}
+		if l.Owner != a || !l.Until.Equal(until) || l.Name != name {
+			return false
+		}
+		for at in []time.Time{now, until.Add(-1ms)} {
+			let _ = Acquire(name, b, until.Add(1s), at) catch {
+			case Held as h:
+				if h.Owner != a || !h.Until.Equal(until) {
+					return false
+				}
+				continue
+			}
+			return false
+		}
+		true
+	},
+
+	// TokensRise: each grant of a name has a greater token than the last,
+	// whether the last ended by expiry or by release. A token counter that
+	// starts again when a lease expires breaks it.
+	law TokensRise(name string, a string, b string, t int, ttl int, later int) {
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let first = Acquire(name, a, until, now) catch {
+		case Held:
+			return false
+		}
+		let after = until.Add(Gap(later))
+		let second = Acquire(name, b, after.Add(Span(ttl)), after) catch {
+		case Held:
+			return false
+		}
+		Release(second, after) catch {
+		case Lost:
+			return false
+		}
+		let third = Acquire(name, a, after.Add(1s), after) catch {
+		case Held:
+			return false
+		}
+		first.Token < second.Token && second.Token < third.Token
+	},
+
+	// ReleaseNeedsTheToken: a lease that expired and passed to another
+	// owner can neither be renewed nor released: both are Lost, and the
+	// new holder still holds the name. A release that frees a name by its
+	// owner alone, without the token, breaks it.
+	law ReleaseNeedsTheToken(name string, a string, t int, ttl int, later int) {
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let old = Acquire(name, a, until, now) catch {
+		case Held:
+			return false
+		}
+		let after = until.Add(Gap(later))
+		let fresh = Acquire(name, a, after.Add(1s), after) catch {
+		case Held:
+			return false
+		}
+		let _ = Renew(old, after.Add(1h), after) catch {
+		case Lost:
+			Release(old, after) catch {
+			case Lost:
+				let _ = Acquire(name, a+"x", after.Add(1s), after) catch {
+				case Held as h:
+					return h.Owner == a && h.Until.Equal(fresh.Until)
+				}
+				return false
+			}
+			return false
+		}
+		false
+	},
+
+	// RenewKeepsTheToken: a renewal of a live lease moves its end and
+	// keeps its token; the name is held until the new end and free from
+	// it on.
+	law RenewKeepsTheToken(name string, a string, b string, t int, ttl int, more int) {
+		let now = At(t)
+		let l = Acquire(name, a, now.Add(Span(ttl)), now) catch {
+		case Held:
+			return false
+		}
+		let end = l.Until.Add(Span(more))
+		let r = Renew(l, end, now) catch {
+		case Lost:
+			return false
+		}
+		if r.Token != l.Token || !r.Until.Equal(end) || r.Owner != a {
+			return false
+		}
+		let _ = Acquire(name, b, end.Add(1s), end.Add(-1ms)) catch {
+		case Held:
+			let n = Acquire(name, b, end.Add(1s), end) catch {
+			case Held:
+				return false
+			}
+			return n.Token > r.Token
+		}
+		false
+	},
+
+	// ReleaseFrees: a released name is free at once, and the released
+	// lease is Lost to a second Release and to Renew.
+	law ReleaseFrees(name string, a string, b string, t int, ttl int) {
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let l = Acquire(name, a, until, now) catch {
+		case Held:
+			return false
+		}
+		Release(l, now) catch {
+		case Lost:
+			return false
+		}
+		let n = Acquire(name, b, until, now) catch {
+		case Held:
+			return false
+		}
+		let _ = Renew(l, until.Add(1s), now) catch {
+		case Lost:
+			Release(l, now) catch {
+			case Lost:
+				return n.Token > l.Token
+			}
+			return false
+		}
+		false
+	},
+
+	// NamesAreApart: a grant of one name holds no other.
+	law NamesAreApart(name string, other string, a string, b string, t int, ttl int) {
+		if name == other {
+			return true
+		}
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let _ = Acquire(name, a, until, now) catch {
+		case Held:
+			return false
+		}
+		let _ = Acquire(other, b, until, now) catch {
+		case Held:
+			return false
+		}
+		true
+	},
+}
+
+// Slot is the state of one name: free, with the last token it granted, or
+// taken by a grant. A Taken whose Until is past is free: Live reads it so.
+type Slot = Free{Last int64} | Taken{Owner string, Token int64, Until time.Time}
+
+// Ask is a request to a name's slot, at a time.
+type Ask = Take{Name string, Owner string, Until time.Time, Now time.Time} | Extend{Lease Lease, Until time.Time, Now time.Time} | Give{Lease Lease, Now time.Time}
+
+// Answer is a slot's reply to an Ask.
+type Answer = Granted{Lease Lease} | Refused{Owner string, Until time.Time} | Gone{} | Freed{}
+
+// Lock is the lease of one name as a machine: Leases keeps one Lock state
+// per name and runs Step under the name's lock.
+type Lock machine[Slot, Ask] {
+	initial: Free{Last: 0},
+	step:    Step,
+}
+
+// Live is s at now: a grant whose end is now or past is free, and keeps
+// its token as the last.
+func Live(s Slot, now time.Time) Slot {
+	match s {
+	case Taken as t:
+		if now.Before(t.Until) {
+			return s
+		}
+		Free{Last: t.Token}
+	case Free:
+		s
+	}
+}
+
+// Step is the decision of slot s on the ask a. A Take of a free slot grants the next token; a Take of a taken one is
+// refused. An Extend or a Give whose lease is the slot's grant (the same
+// token, still live) extends or frees it; any other is Gone.
+func Step(s Slot, a Ask) Decision[Slot, Answer] {
+	match a {
+	case Take as k:
+		match Live(s, k.Now) {
+		case Free as f:
+			let next = f.Last + 1
+			Emit[Slot, Answer]{Next: Taken{Owner: k.Owner, Token: next, Until: k.Until}, Output: Granted{Lease: Lease{Name: k.Name, Owner: k.Owner, Token: next, Until: k.Until}}}
+		case Taken as t:
+			Tell[Slot, Answer]{Next: t, Output: Refused{Owner: t.Owner, Until: t.Until}}
+		}
+	case Extend as e:
+		match Live(s, e.Now) {
+		case Taken as t:
+			if t.Token != e.Lease.Token {
+				return Tell[Slot, Answer]{Next: t, Output: Gone}
+			}
+			let l = Lease{Name: e.Lease.Name, Owner: t.Owner, Token: t.Token, Until: e.Until}
+			Tell[Slot, Answer]{Next: Taken{Owner: t.Owner, Token: t.Token, Until: e.Until}, Output: Granted{Lease: l}}
+		case Free as f:
+			Tell[Slot, Answer]{Next: f, Output: Gone}
+		}
+	case Give as g:
+		match Live(s, g.Now) {
+		case Taken as t:
+			if t.Token != g.Lease.Token {
+				return Tell[Slot, Answer]{Next: t, Output: Gone}
+			}
+			Emit[Slot, Answer]{Next: Free{Last: t.Token}, Output: Freed}
+		case Free as f:
+			Tell[Slot, Answer]{Next: f, Output: Gone}
+		}
+	}
+}
