@@ -863,7 +863,7 @@ func (r *runner) testProgram(p *program) {
 func (r *runner) testTarget(p *program, target, leg string) {
 	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
 	// The run gets a TMPDIR of its own, which must be empty after it: a
-	// law case or a test under testing.Ambient makes its folder there,
+	// law case or a test under TestAmbient makes its folder there,
 	// and the runner removes each when its case ends (rows.md, Test's ambient).
 	tmp, err := os.MkdirTemp(r.scratch, "test-tmp-")
 	if err != nil {

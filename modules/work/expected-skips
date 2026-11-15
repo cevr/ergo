@@ -5,7 +5,7 @@ skip law Api.NewIsListedOnce for Tool: its values have no generator: Cloner is a
 # The host Cloners (btrfs, reflink, clonefile, copy) run system commands
 # through an exec.Runner, which no generator builds. Their laws run under
 # each package's onHost context instead, over exec.NewTestHost in a folder
-# of each case's own (testing.Ambient), and in package memory against the
+# of each case's own (TestAmbient), and in package memory against the
 # model; clonefile's run on macOS only, through the ergo-work cases.
 skip law work.Cloner.CloneMakesTheTree for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.DiscardDiscards for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case

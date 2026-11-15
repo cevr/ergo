@@ -1123,9 +1123,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	fc.line("}")
 }
 
-// testAmbient gives the build of a context that needs testing.Ambient
+// testAmbient gives the build of a context that needs TestAmbient
 // (rows.md, Test's ambient) its case's folder: a fresh one made here, which the
-// runner's provider of testing.Ambient in env names, and removed when the
+// runner's provider of TestAmbient in env names, and removed when the
 // Go function that holds the with returns, which for a with in a test is
 // the end of the test's case (the checker admits it only in a test).
 func (fc *funcCtx) testAmbient(env string, ta *check.Named) {

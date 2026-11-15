@@ -6,16 +6,16 @@ import (
 
 // The test's ambient (rows.md, Test's ambient; runtime.md, Tests 11; TH1). A
 // test never holds the prelude's Ambient, so a law over a real host
-// provider could not run under ergo test. std testing's Ambient is the
+// provider could not run under ergo test. the prelude's TestAmbient is the
 // test's ambient instead: a fresh folder per case, which only the test
 // runner provides. Each rule is an invariant over its whole domain:
 //
-//  1. A named context whose header is exactly `needs testing.Ambient` may
+//  1. A named context whose header is exactly `needs TestAmbient` may
 //     require it while it is built; it stays closed to every other
 //     capability (README Gap 6). Any other header row is still S109 for
 //     #196 stage b, as a provides clause and an inline or a local
 //     context's header are.
-//  2. No context entry binds testing.Ambient (S106), as none binds
+//  2. No context entry binds TestAmbient (S106), as none binds
 //     Ambient: its one provider is the runner.
 //  3. A with of such a context stands only in a test's body, a function
 //     literal in it included (S102 elsewhere); a law runs under it as
@@ -28,16 +28,10 @@ import (
 // ExUnit @tag :tmp_dir names it per test. None of them confines the code
 // under test to it; here the providers refuse a path out of the folder.
 
-const testAmbientEntryText = "no context binds testing.Ambient: its one provider is the test runner, for a named context whose header says needs testing.Ambient (rows.md, Test's ambient)"
-
-// isTestAmbient reports whether t is std testing's Ambient.
-func isTestAmbient(t Type) bool {
-	n, ok := t.(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "Ambient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == "testing"
-}
+const testAmbientEntryText = "no context binds TestAmbient: its one provider is the test runner, for a named context whose header says needs TestAmbient (rows.md, Test's ambient)"
 
 // contextTestAmbient reports whether the named context w's header is
-// exactly `needs testing.Ambient` (rule 1). It reads the header once, in
+// exactly `needs TestAmbient` (rule 1). It reads the header once, in
 // w's file, reporting nothing: checkContexts reports a header it refuses.
 func (c *checker) contextTestAmbient(w *Context) bool {
 	if w == nil || w.headerRead || w.Decl == nil || w.pkg != c.pkg {
@@ -60,19 +54,19 @@ func (c *checker) contextTestAmbient(w *Context) bool {
 	return w.TestAmbient != nil
 }
 
-// testAmbientWith refuses a with of a context that needs testing.Ambient
+// testAmbientWith refuses a with of a context that needs TestAmbient
 // outside a test (rule 3).
 func (c *checker) testAmbientWith(at syntax.Node, w *Context) {
 	if !c.contextTestAmbient(w) || c.fn != nil && c.fn.test {
 		return
 	}
-	c.errorf(at, CodeMissingCap, "context %s needs testing.Ambient, which only the test runner provides: with it in a test, or let a law run under it (rows.md, Test's ambient)", w.Name)
+	c.errorf(at, CodeMissingCap, "context %s needs TestAmbient; only the test runner provides it: with it in a test, or let a law run under it (rows.md, Test's ambient)", w.Name)
 }
 
 // testAmbientEmbed refuses an embedding of a context that needs
-// testing.Ambient (rule 3).
+// TestAmbient (rule 3).
 func (c *checker) testAmbientEmbed(at syntax.Node, inner *Context) {
 	if c.contextTestAmbient(inner) {
-		c.errorf(at, CodeType, "context %s needs testing.Ambient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)", inner.Name)
+		c.errorf(at, CodeType, "context %s needs TestAmbient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)", inner.Name)
 	}
 }

@@ -1,13 +1,12 @@
 // The work.Vcs law on the host, in a folder of each case's own
-// (testing.Ambient): git runs for real, confined to the folder, with
+// (TestAmbient): git runs for real, confined to the folder, with
 // GIT_CEILING_DIRECTORIES above it.
 
 import exec
 import os
-import testing
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs testing.Ambient {
+let onHost = context needs TestAmbient {
 	work.Vcs:    New(exec.NewTestHost()),
 	exec.Runner: exec.NewTestHost(),
 	os.Process:  os.NewTestHost(),

@@ -1,6 +1,6 @@
 // The kv.Store laws on the real disk: onDisk binds a Log over
 // fs.NewTestHost, the host file system confined to a fresh folder for
-// each case (testing.Ambient), so every law case writes, renames and reads
+// each case (TestAmbient), so every law case writes, renames and reads
 // kv.log on the host, as the binary does, and no case sees another's log.
 // fstest.Confined's laws state the confinement itself: a write out of the
 // folder is Denied, and each case starts in an empty one.
@@ -8,9 +8,8 @@
 import fs
 import fstest
 import kvstore/kv
-import testing
 
-let onDisk = context needs testing.Ambient {
+let onDisk = context needs TestAmbient {
 	kv.Store:        NewLog(fs.NewTestHost(), fs.NewTestHost()),
 	fs.Files:        fs.NewTestHost(),
 	fstest.Confined: fstest.NewFolder(),

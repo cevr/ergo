@@ -1,8 +1,7 @@
 import fs
-import testing
 
 // Confined is a file system confined to one folder, a fresh one for each
-// case (testing.Ambient; docs/spec/rows.md, Test's ambient): what it writes stays
+// case (TestAmbient; docs/spec/rows.md, Test's ambient): what it writes stays
 // in it, and it starts empty. Its laws state the confinement of
 // fs.NewTestHost; they run under any context that binds Confined, which
 // only NewFolder provides.
@@ -56,9 +55,9 @@ type Folder { files fs.Files, writes fs.Writes, root string } implements Confine
 
 // NewFolder is the Confined of the case's folder: the Host fs.NewTestHost
 // gives, in the same folder. It needs the test's ambient, as that does.
-func NewFolder() Folder needs testing.Ambient {
+func NewFolder() Folder needs TestAmbient {
 	let host = fs.NewTestHost()
-	Folder{files: host, writes: host, root: testing.Folder()}
+	Folder{files: host, writes: host, root: TestFolder()}
 }
 
 func Folder(f Folder) string { f.root }

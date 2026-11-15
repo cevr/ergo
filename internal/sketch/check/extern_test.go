@@ -983,13 +983,11 @@ func main() {
 `,
 	// The test's ambient (TH1): sealed by its unexported operation, as
 	// the prelude's Ambient is.
-	"testing.Ambient": `import testing
-
-type Mine {}
+	"prelude.TestAmbient": `type Mine {}
 
 func folder(_ Mine) string { "/" }
 
-func use(_ testing.Ambient) {}
+func use(_ TestAmbient) {}
 
 func main() {
 	use(Mine)
@@ -1052,13 +1050,13 @@ func main() {
 // operation: a program value is refused at the use line by the sealedBy
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
-	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
-	"testing.Ambient": "folder is an unexported operation of testing.Ambient, so only a type of package testing implements it",
-	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
-	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
-	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
-	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
-	"json.Text":       "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"prelude.Ambient":     "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.TestAmbient": "folder is an unexported operation of prelude.TestAmbient, so only a type of package prelude implements it",
+	"http.Listener":       "bound is an unexported operation of http.Listener, so only a type of package http implements it",
+	"http.Streaming":      "open is an unexported operation of http.Streaming, so only a type of package http implements it",
+	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
+	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
 }
 
 // openStd records the operation types that did not use the old implicit

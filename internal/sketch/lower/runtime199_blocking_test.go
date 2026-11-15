@@ -251,6 +251,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
 		// unchecked.go); each reads memory and returns, no wait.
 		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
+		// TH1: the test runner's folder of one case (testhost.go), made
+		// before a context's build and removed by a defer; frame
+		// plumbing of the test harness, no wait and no release.
+		"TestFolderOpen": true, "TestFolderRemove": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

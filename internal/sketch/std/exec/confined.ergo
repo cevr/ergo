@@ -1,7 +1,6 @@
 import filepath
-import testing
 
-// The host's commands for a test (testing.Ambient; docs/spec/rows.md,
+// The host's commands for a test (TestAmbient; docs/spec/rows.md,
 // Test's ambient): NewTestHost is a Host confined to the case's folder. A command
 // runs in the folder when its Dir is "", and its Dir must lie in it. Each
 // argument is read as a path relative to that directory and must stay in
@@ -16,8 +15,8 @@ import testing
 
 // NewTestHost is the Runner of the case's folder. It needs the test's
 // ambient, which only the test runner provides, to a context that states
-// it: `context needs testing.Ambient { exec.Runner: exec.NewTestHost() }`.
-func NewTestHost() Host needs testing.Ambient { Host{root: testing.Folder()} }
+// it: `context needs TestAmbient { exec.Runner: exec.NewTestHost() }`.
+func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
 
 extern go ergo.local/prototype/runtime/v1.ExecConfine func confine(root string, dir string, args []string) string fails Denied
 

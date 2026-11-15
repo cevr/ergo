@@ -1,14 +1,13 @@
 // The work.Cloner laws on the host, in a folder of each case's own
-// (testing.Ambient): every case runs cp, test, mkdir, mv, rm and du for
+// (TestAmbient): every case runs cp, test, mkdir, mv, rm and du for
 // real, confined to its folder.
 
 import exec
 import fs
 
-import testing
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs testing.Ambient {
+let onHost = context needs TestAmbient {
 	work.Cloner:         New(exec.NewTestHost()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
 }

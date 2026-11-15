@@ -8,7 +8,7 @@ import (
 
 // The test's ambient (docs/spec/rows.md, Test's ambient; runtime.md, Tests 11).
 // The test runner gives each build of a context that needs
-// testing.Ambient, a with of it in a test or one case of a law run under
+// TestAmbient, a with of it in a test or one case of a law run under
 // it, a fresh folder (TestFolderOpen) and removes it when the case ends
 // (TestFolderRemove). The confined providers (fs.TestHost, exec.TestHost,
 // os.TestHost) resolve every path they are given against that folder

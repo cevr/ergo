@@ -1193,7 +1193,7 @@ func (l *lowerer) harness() string {
 	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
-const harnessGo = `// $TestAmbient is the test runner's provider of testing.Ambient (rows.md,
+const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
 // Test's ambient): the folder of one case, which the with or the law case that
 // builds the context made and removes when the case ends.
 type $TestAmbient struct{ dir string }
