@@ -259,10 +259,12 @@ func (fn *irFunc) walk(name, member func(*string)) {
 		for _, e := range x.Elems {
 			expr(e)
 		}
+		stmts(x.Body)
 	}
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
 			expr(s.X)
+			expr(s.Y)
 			stmts(s.Then)
 			stmts(s.Else)
 			stmts(s.Body)

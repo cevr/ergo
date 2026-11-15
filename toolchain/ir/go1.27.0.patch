@@ -2871,7 +2871,7 @@ new file mode 100644
 index 0000000..8f78c74
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,211 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2953,6 +2953,10 @@ index 0000000..8f78c74
 +		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
 +	case *types2.Named:
 +		obj = t.Obj()
++	case *types2.Alias:
++		if t.TypeArgs().Len() == 0 {
++			obj = t.Obj() // a shared type's alias (ergo_ergoshared)
++		}
 +	}
 +	if obj == nil {
 +		c.errorf(p, "ergoir: conversion to %v", t)
