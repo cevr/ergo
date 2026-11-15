@@ -433,9 +433,28 @@ func (c *checker) providerAssignability(v, t Type) (assignment, string) {
 }
 
 // resourceIntoCrossingText is R22's refusal: a resource converted to an
-// operation type that crosses would never be released.
-func resourceIntoCrossingText(v, t Type) string {
-	return fmt.Sprintf("%s is a resource and %s has no Close, so the value would never be released (resources R22); give %s a Close() operation", v, t, t)
+// operation type that crosses would never be released. Only an operation
+// type that includes Closer releases (R1), whatever operations it lists,
+// so the repair it names is `..Closer` in that type: at its declaration
+// when this package declares it, in its package otherwise, and a type
+// that includes it when the target has no declaration of its own.
+func (c *checker) resourceIntoCrossingText(v, t Type) string {
+	repair := fmt.Sprintf("convert it to an operation type that includes Closer instead of %s", t)
+	if n, ok := t.(*Named); ok && n.origin().Obj != nil {
+		tn := n.origin().Obj
+		switch {
+		case tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:
+			line, col := tn.file.syntax.Position(tn.Decl.Name.Pos())
+			at := fmt.Sprintf("%d:%d", line, col)
+			if name := tn.file.syntax.Name; name != "" {
+				at = name + ":" + at
+			}
+			repair = fmt.Sprintf("add ..Closer to %s (%s)", tn.Name, at)
+		case tn.Pkg != nil:
+			repair = fmt.Sprintf("add ..Closer to %s in package %s", tn.Name, tn.Pkg.Path)
+		}
+	}
+	return fmt.Sprintf("%s is a resource and %s does not include Closer, so the value would never be released (resources R22); %s", v, t, repair)
 }
 
 // R22 at an instantiation (16a fix r4). A type parameter whose
@@ -532,7 +551,7 @@ func (c *checker) checkOwnershipSites() {
 		}
 		if c.holdsResource(s.from) && !c.releasable(s.to) {
 			c.cur = s.file
-			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, resourceIntoCrossingText(s.from, s.to))
+			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, c.resourceIntoCrossingText(s.from, s.to))
 		}
 	}
 }
