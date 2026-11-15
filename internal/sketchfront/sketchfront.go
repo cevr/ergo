@@ -321,9 +321,13 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	split := splitLowering()
+	if !split {
+		input.Emitter += "+single"
+	}
 	var lowered []lower.File
 	if req.Mode == build.ModeBuild {
-		ev, files, err := lowerWithLedger(a, unit, req)
+		ev, files, err := lowerWithLedger(a, unit, req, split)
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
@@ -338,18 +342,15 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			lowered = files
 		}
 	}
-	split := splitLowering()
-	if !split {
-		input.Emitter += "+single"
-	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
 		files, err := lowered, error(nil)
-		if files == nil {
-			if split {
-				files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
-			} else {
-				files, err = lowering(unit)
-			}
+		switch {
+		case files != nil:
+		case split:
+			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+			countLowered(files)
+		default:
+			files, err = lowering(unit)
 			countLowered(files)
 		}
 		var refused *lower.Refused
@@ -459,7 +460,7 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // refuses instead (*LedgerError). A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
-func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
+func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
 	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return nil, nil, err
@@ -473,8 +474,8 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 	}
 	unit.Rewrite = ev
 	var files []lower.File
-	if splitLowering() {
-		files, _, err = lower.LowerSplit(unit, false) // as an unledgered build (CS4b)
+	if split {
+		files, _, err = lower.LowerSplit(unit, false)
 	} else {
 		files, err = lower.Lower(unit)
 	}

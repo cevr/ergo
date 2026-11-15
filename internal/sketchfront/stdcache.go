@@ -50,10 +50,19 @@ func prepareStd() {
 	stdCache.mu.Lock()
 	root := stdCache.root
 	stdCache.mu.Unlock()
-	if root == "" {
+	useEmbedded := embeddedEnabled()
+	if root == "" && !useEmbedded {
 		return
 	}
 	stdCache.once.Do(func() {
+		// The embedded snapshot first (stdsnap.go): it needs no cache and
+		// no compiler identity.
+		if useEmbedded && installEmbedded() {
+			return
+		}
+		if root == "" {
+			return
+		}
 		compiler, err := compilerIdentity()
 		if err != nil {
 			return

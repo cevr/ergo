@@ -131,6 +131,9 @@ func lowerSplit(u Unit, tests bool, base string) ([]File, SplitReport, error) {
 		return nil, SplitReport{}, err
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	if !tests {
+		files = l.withRecord(u, files)
+	}
 	out, rep := splitFiles(u, files, l.stdOrigins(), base)
 	return out, rep, nil
 }

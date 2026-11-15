@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -128,16 +129,21 @@ func TestStdCacheWork(t *testing.T) {
 
 type stdCacheCase struct {
 	name, source, dir string
+	// brief compares the diagnostics alone (a corpus candidate).
+	brief bool
 }
 
-// TestStdCacheAgreesWithSource compares the exact diagnostics, inspect
+// TestStdSnapshotAgrees compares the exact diagnostics, inspect
 // envelope, both lowered modes and evaluator reports over every example
-// entry plus seeded evalgen/casegen programs. The reference checks all std
-// first, in the same package order as ExportStd. Both passes then check the
-// same callers in the same order. Nothing sorts or normalizes an output.
+// entry plus seeded evalgen/casegen programs, checked from source and
+// with a snapshot installed: this process's export (the disk cache's), and
+// the one the compiler embeds (compile-speed CS1), which another process
+// made; ERGO_STD_SNAPSHOT=off leaves the embedded one out. The reference
+// checks all std first, in the same package order as ExportStd. Every pass
+// then checks the same callers in the same order. Nothing sorts or normalizes an output.
 // The warm-work mutant exercises this path too; ordinary source-only
 // agreement tests never exercise an installed graph.
-func TestStdCacheAgreesWithSource(t *testing.T) {
+func TestStdSnapshotAgrees(t *testing.T) {
 	UseStdCache("")
 	t.Cleanup(func() { resetStdCache(t) })
 	root, err := filepath.Abs("../../examples")
@@ -170,6 +176,13 @@ func TestStdCacheAgreesWithSource(t *testing.T) {
 			cases = append(cases, stdCacheCase{name: fmt.Sprintf("%s/%d", p.name, seed), source: p.source, dir: writeTree(t, map[string]string{"main.ergo": p.source})})
 		}
 	}
+	// The checker's corpus (internal/sketch/check/testdata/corpus), by its
+	// diagnostics: most candidates do not check.
+	if os.Getenv("ERGO_STD_CACHE_SEED") == "" {
+		for i, src := range stdCorpus(t) {
+			cases = append(cases, stdCacheCase{name: fmt.Sprintf("corpus/%d", i), source: src, brief: true})
+		}
+	}
 	// Include diagnostics: an erased cached error row must not admit a caller.
 	cases = append(cases, stdCacheCase{name: "diagnostic", source: "import strconv\nfunc main() { let n = strconv.Atoi(\"bad\") }\n"})
 	resetStdCache(t)
@@ -180,27 +193,69 @@ func TestStdCacheAgreesWithSource(t *testing.T) {
 	reference := make([]map[string]string, len(cases))
 	for i, c := range cases {
 		reference[i] = stdCacheOutcome(t, c)
-		if c.source != "" && c.name != "diagnostic" && reference[i]["diagnostics"] != "null" {
+		if c.source != "" && c.name != "diagnostic" && !c.brief && reference[i]["diagnostics"] != "null" {
 			t.Fatalf("%s does not check:\n%s\n%s", c.name, c.source, reference[i]["diagnostics"])
 		}
 	}
-	resetStdCache(t)
-	if err := check.InstallStd(data); err != nil {
-		t.Fatal(err)
+	// The snapshots: this process's export (the disk cache's), and the
+	// one the compiler embeds (CS1), made by another process. ERGO_STD_SNAPSHOT=off
+	// leaves the embedded one out.
+	snapshots := []struct {
+		name string
+		data []byte
+	}{{"exported", data}}
+	if os.Getenv(StdSnapshotEnv) != "off" {
+		if embeddedSnapshot(stdDependencies()) == nil {
+			t.Fatal("the embedded snapshot is stale (TestStdSnapshotIsCurrent)")
+		}
+		snapshots = append(snapshots, struct {
+			name string
+			data []byte
+		}{"embedded", embeddedStd})
 	}
-	for i, c := range cases {
-		got := stdCacheOutcome(t, c)
-		for key, want := range reference[i] {
-			if got[key] != want {
-				t.Fatalf("%s %s differs\nsource:\n%s\nfrom source:\n%s\ncached:\n%s\nreplay generated: ERGO_STD_CACHE_SEED=%s go test -run '^TestStdCacheAgreesWithSource$' ./internal/sketchfront",
-					c.name, key, c.source, want, got[key], strings.TrimPrefix(strings.TrimPrefix(c.name, "eval/"), "cases/"))
+	for _, snap := range snapshots {
+		resetStdCache(t)
+		if err := check.InstallStd(snap.data); err != nil {
+			t.Fatalf("%s: %v", snap.name, err)
+		}
+		for i, c := range cases {
+			got := stdCacheOutcome(t, c)
+			for key, want := range reference[i] {
+				if got[key] != want {
+					t.Fatalf("%s %s differs with the %s snapshot\nsource:\n%s\nfrom source:\n%s\nsnapshot:\n%s\nreplay generated: ERGO_STD_CACHE_SEED=%s go test -run '^TestStdSnapshotAgrees$' ./internal/sketchfront",
+						c.name, key, snap.name, c.source, want, got[key], strings.TrimPrefix(strings.TrimPrefix(c.name, "eval/"), "cases/"))
+				}
 			}
 		}
-	}
-	if got := check.WorkDone(); sourceWork(got) {
-		t.Fatalf("cached property checked std from source: %+v", got)
+		if got := check.WorkDone(); sourceWork(got) {
+			t.Fatalf("%s snapshot: a property checked std from source: %+v", snap.name, got)
+		}
 	}
 }
+
+// stdCorpus is the checker's corpus: every candidate of its archives, in
+// file order ("-- NNNNN.ergo --" starts a candidate; internal/sketch/lower,
+// readCheckCorpus).
+func stdCorpus(t *testing.T) []string {
+	t.Helper()
+	paths, err := filepath.Glob("../sketch/check/testdata/corpus/*.txtar")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no corpus: %v", err)
+	}
+	slices.Sort(paths)
+	var out []string
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := corpusHeader.Split(string(data), -1)
+		out = append(out, parts[1:]...)
+	}
+	return out
+}
+
+var corpusHeader = regexp.MustCompile(`(?m)^-- [0-9]+\.ergo --\n`)
 
 // sourceWork reports std work done from source; decoding an installed
 // snapshot is not.
@@ -228,7 +283,7 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		return string(b)
 	}
 	out["diagnostics"] = marshal(a.Diagnostics)
-	if len(a.Diagnostics) > 0 {
+	if len(a.Diagnostics) > 0 || c.brief {
 		return out
 	}
 	out["inspect"] = marshal(InspectGo(a.Checked()))
