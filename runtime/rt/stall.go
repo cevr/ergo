@@ -26,6 +26,7 @@ import (
 var stalls struct {
 	on     atomic.Bool
 	kick   chan struct{}
+	flush  chan chan struct{}
 	mu     sync.Mutex
 	seq    uint64
 	live   map[*Virtual]uint64 // the domains with a live member, by order made
@@ -40,13 +41,34 @@ func WatchStalls(report func()) {
 	stalls.once.Do(func() {
 		stalls.report = report
 		stalls.kick = make(chan struct{}, 1)
+		stalls.flush = make(chan chan struct{})
 		stalls.on.Store(true)
 		go func() {
-			for range stalls.kick {
-				report()
+			for {
+				select {
+				case <-stalls.kick:
+					report()
+				case done := <-stalls.flush:
+					report()
+					close(done)
+				}
 			}
 		}()
 	})
+}
+
+// FlushStalls runs the watch's report once more, on the watch's
+// goroutine, and returns when it has: so a test that saw a domain settle
+// (Settle) knows the report saw it too. It returns false, at once, when
+// no watch runs.
+func FlushStalls() bool {
+	if !stalls.on.Load() {
+		return false
+	}
+	done := make(chan struct{})
+	stalls.flush <- done
+	<-done
+	return true
 }
 
 // DomainOf is the clock domain t is a member of, or nil.
