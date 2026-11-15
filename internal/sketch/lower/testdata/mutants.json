@@ -4273,8 +4273,8 @@
       "name": "gx2-reserve-never",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "\tif reserveLowering == \"off\" || domain != check.LoopSlice",
-      "to": "\tif true || domain != check.LoopSlice",
+      "from": "\tcase reserveLowering == \"off\":\n\t\treturn \"\"\n",
+      "to": "\tcase true:\n\t\treturn \"\"\n",
       "rule": "types.md, Loops and len 8 (GX2): a qualifying append loop reserves its room before it starts.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4284,8 +4284,8 @@
       "name": "gx2-reserve-any-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "reserveLowering == \"off\" || domain != check.LoopSlice && domain != check.LoopMap {",
-      "to": "reserveLowering == \"off\" {",
+      "from": "\tcase domain != check.LoopSlice && domain != check.LoopMap:\n\t\treturn \"\"\n",
+      "to": "",
       "rule": "types.md, Loops and len 8 (GX2): only a slice or a Map domain is reserved: a Range's count is no length of memory, a string's and a Seq's are unknown.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4328,7 +4328,7 @@
       "name": "gx2-reserve-call-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "if target == nil || !fc.plainPath(s.X) || ",
+      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || ",
       "to": "if target == nil || ",
       "rule": "types.md, Loops and len 8 (GX2): a domain reached through a call could return the target's array, so it is not reserved.",
       "killers": [
@@ -4682,6 +4682,39 @@
     {"name":"provider-answer-ignored","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/lower/script.go","from":"\" = \" + w + \".\" + memberName(\"Value\") + \", true\\n\\t}\\n\")","to":"\" = \" + w + \".\" + memberName(\"Value\") + \", false\\n\\t}\\n\")","rule":"patterns.md Provider plans 4: the Some that an Ergo field's Call returns is the operation's answer.","killers":["lower:TestProviderErgoFieldAnswers"]},
     {"name":"provider-call-typeargs-dropped","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/lower/script.go","from":"\tdefault:\n\t\thead = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)\n\t}\n\treturn head","to":"\tdefault:\n\t\thead = fd.name\n\t}\n\treturn head","rule":"patterns.md Provider plans 4: an Ergo field's NewF and Call are called at the field's type arguments.","killers":["lower:TestProviderErgoFieldTypechecks"]},
     {"name":"wt-one-line-block","origin":"wf10 FU-b18 (batch-18 verify, test strength)","file":"internal/sketch/lower/wiretext.go","from":"return strings.HasPrefix(line, \"if \") && strings.HasSuffix(line, \"}\")","to":"return false && strings.HasPrefix(line, \"if \") && strings.HasSuffix(line, \"}\")","rule":"A one-line block that names no writer (an optional field's count) keeps the writer's state known, so the next key's comma is constant: one comma test fewer per encode.","killers":["lower:TestJSONCommaTestsCounted"]},
-    {"name":"wt-entry-call","origin":"wf10 FU-b18 (batch-18 verify, test strength)","file":"internal/sketch/lower/wiretext.go","from":"if !ok || l.cellFuncs[name] == nil {","to":"if true || !ok || l.cellFuncs[name] == nil {","rule":"A cell codec function called where the state is known is called by its entry variant, which runs no comma test at its start.","killers":["lower:TestJSONCommaTestsCounted"]}
+    {"name":"wt-entry-call","origin":"wf10 FU-b18 (batch-18 verify, test strength)","file":"internal/sketch/lower/wiretext.go","from":"if !ok || l.cellFuncs[name] == nil {","to":"if true || !ok || l.cellFuncs[name] == nil {","rule":"A cell codec function called where the state is known is called by its entry variant, which runs no comma test at its start.","killers":["lower:TestJSONCommaTestsCounted"]},
+    {
+      "name": "gx6-range-any-bound",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\tif !ok || len(call.Args) != 1 {\n\t\treturn false\n\t}\n",
+      "to": "\tif !ok || len(call.Args) != 1 {\n\t\treturn true\n\t}\n",
+      "rule": "types.md Loops and len 8 (GX6): a Range up to a count with no memory behind it (0..n) reserves nothing.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx6-range-wide",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\t\treturn hi >= lo && hi-lo <= reserveRangeSpan\n",
+      "to": "\t\treturn hi >= lo\n",
+      "rule": "types.md Loops and len 8 (GX6): a Range of two literals reserves only up to reserveRangeSpan.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx6-range-no-floor",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\treturn \"max(int(\" + x + \".\" + td.fieldName[\"End\"] + \"-\" + x + \".\" + td.fieldName[\"Start\"] + \"), 0)\"\n",
+      "to": "\treturn \"int(\" + x + \".\" + td.fieldName[\"End\"] + \"-\" + x + \".\" + td.fieldName[\"Start\"] + \")\"\n",
+      "rule": "types.md Loops and len 8 (GX6): an empty Range (2..len(xs) of a short xs) reserves zero, never a negative count.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    }
   ]
 }

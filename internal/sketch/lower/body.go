@@ -903,7 +903,11 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		x = fc.spill(x)
 	}
 	if target := fc.reserveTarget(s, l.Domain); target != "" {
-		fc.reserve(target, x) // reserve.go
+		count := "len(" + x + ")"
+		if l.Domain == check.LoopRange {
+			count = fc.rangeCount(s.X, x)
+		}
+		fc.reserve(target, count) // reserve.go
 	}
 	fc.killWritten(s.Body) // bounds.go, as forStmt
 	// A fill, a move or a collect is a call when its guard holds, and the

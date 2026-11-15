@@ -12,27 +12,31 @@ var reserveSeed = flag.Uint64("reserve.seed", 0, "run TestReserveAgrees on this 
 
 // The shapes TestReserveAgrees draws. A domain is what the loop ranges
 // over: the slice parameter, a field of a local record, a package let,
-// the Map parameter, a Range or a string held in a local, a call, the target itself, or a
-// field reached through a pointer. An
+// the Map parameter, a Range or a string held in a local, a call, the target itself, a
+// field reached through a pointer, or a Range written in the loop: up to
+// the slice's length from 0 or from 2 (empty for a short slice), between
+// two literals, between literals too far apart, or up to the count n. An
 // init is the target's first value: empty, two elements, or the slice
 // parameter (sharing its array until the value rule copies). A body is
 // the loop's body: the append alone, after a let, inside an if, after a
 // conditional break, continue or return, twice, followed by an element
 // write of the target, or with a reassignment of it.
 var (
-	reserveDomains = []string{"slice", "field", "pkg", "map", "range", "string", "call", "self", "pointer"}
-	reserveInits   = []string{"empty", "pre", "copy"}
-	reserveBodies  = []string{"plain", "before", "cond", "break", "continue", "return", "twice", "write", "reassign"}
+	reserveDomains = []string{"slice", "field", "pkg", "map", "range", "string", "call", "self", "pointer",
+		"lenrange", "offrange", "constrange", "widerange", "countrange"}
+	reserveInits  = []string{"empty", "pre", "copy"}
+	reserveBodies = []string{"plain", "before", "cond", "break", "continue", "return", "twice", "write", "reassign"}
 )
 
 type reserveShape struct{ domain, init, body string }
 
 // reserves is the lowering's promise (reserve.go): a slice or Map path
-// domain that does not mention the target, and a body that appends once
-// per iteration.
+// domain that does not mention the target, or a Range written in the loop
+// whose count is backed by a length or bounded by two near literals, and
+// a body that appends once per iteration.
 func (s reserveShape) reserves() bool {
 	switch s.domain {
-	case "slice", "field", "pkg", "map":
+	case "slice", "field", "pkg", "map", "lenrange", "offrange", "constrange":
 	default:
 		return false
 	}
@@ -76,6 +80,16 @@ func (s reserveShape) fn(i int) string {
 	case "pointer":
 		b.WriteString("\tlet mut box = Box{xs: xs}\n\tlet p = &box\n")
 		head = "for v in p.xs {"
+	case "lenrange":
+		head = "for v in 0..len(xs) {"
+	case "offrange":
+		head = "for v in 2..len(xs) {"
+	case "constrange":
+		head = "for v in 3..9 {"
+	case "widerange":
+		head = "for v in 0..5000 {"
+	case "countrange":
+		head = "for v in 0..n {"
 	}
 	b.WriteString("\t" + head + "\n")
 	if elem != "v" {
@@ -147,7 +161,8 @@ func digest(xs []int, inOrder bool) string {
 // value rule copies), which go/types cannot answer; each program runs
 // under the kit's memory limit (runProgram).
 //
-// Mutants it kills (testdata/mutants.json): gx2-reserve-any-domain,
+// Mutants it kills (testdata/mutants.json): gx6-range-any-bound,
+// gx6-range-wide, gx6-range-no-floor, gx2-reserve-any-domain,
 // gx2-reserve-escapes, gx2-reserve-twice, gx2-reserve-other-assign,
 // gx2-reserve-self-domain, gx2-reserve-call-domain, gx2-reserve-never.
 func TestReserveAgrees(t *testing.T) {
@@ -171,9 +186,13 @@ func TestReserveAgrees(t *testing.T) {
 				body:   reserveBodies[r.IntN(len(reserveBodies))],
 			}
 			// Half the functions take a qualifying body, so both
-			// verdicts are reached at every seed.
+			// verdicts are reached at every seed, and their domains
+			// cycle, so every domain meets a qualifying body across
+			// the seeds.
 			if i%2 == 0 {
 				s.body = []string{"plain", "before"}[r.IntN(2)]
+				s.domain = reserveDomains[(int(seed)*reserveFuncs/2+i/2)%len(reserveDomains)]
+				reached["qualifying "+s.domain] = true
 			}
 			shapes = append(shapes, s)
 			reached["domain "+s.domain], reached["init "+s.init], reached["body "+s.body] = true, true, true
@@ -214,7 +233,7 @@ func TestReserveAgrees(t *testing.T) {
 		}
 	}
 	if len(seeds) > 1 {
-		for p, k := range map[string][]string{"domain ": reserveDomains, "init ": reserveInits, "body ": reserveBodies, "reserves ": {"true", "false"}} {
+		for p, k := range map[string][]string{"domain ": reserveDomains, "qualifying ": reserveDomains, "init ": reserveInits, "body ": reserveBodies, "reserves ": {"true", "false"}} {
 			for _, v := range k {
 				if !reached[p+v] {
 					t.Errorf("seeds %v reach no %s%s", seeds, p, v)
