@@ -43,11 +43,35 @@ func buildCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if opts.emitted {
+		return printEmitted(opts, build.ModeBuild)
+	}
 	output, err := buildSource(opts, outputPath)
 	if err != nil {
 		return err
 	}
 	fmt.Println(output)
+	return nil
+}
+
+// printEmitted is build's and test's --emitted: it checks the source as
+// the command does and prints "emitted <digest>", the digest of the Go
+// module the command would link for mode (sketchfront.EmittedDigest), with
+// the platform it links for. It builds and writes nothing. A source that
+// does not check is refused as the command refuses it.
+func printEmitted(opts fileOptions, mode build.Mode) error {
+	checked, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !checked.result.Checked {
+		return refuseUnchecked(checked, opts)
+	}
+	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("emitted %s %s/%s\n", digest, opts.platform.GOOS, opts.platform.GOARCH)
 	return nil
 }
 

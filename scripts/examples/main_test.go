@@ -26,6 +26,9 @@ import (
 const asRunner = "EXAMPLES_TEST_AS_RUNNER"
 
 func TestMain(m *testing.M) {
+	// A runner under test keeps no verdict cache unless a test asks for
+	// one (cache_test.go): the caller's cache is not the fixtures'.
+	os.Unsetenv(cacheVariable)
 	if os.Getenv(asRunner) == "1" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
@@ -719,6 +722,8 @@ func TestTestLeg(t *testing.T) {
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
 	}
+	// Programs run at once (runAll), so the calls are compared as a set.
+	slices.Sort(tests)
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
 	}

@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -312,39 +313,20 @@ func Library(a Analysis, source, module, name string) ([]lower.File, error) {
 // cannot be anchored, or one the lowering refuses is refused before
 // anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
-	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
-		return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
-	}
-	lowering := lower.Lower
-	switch req.Mode {
-	case build.ModeBuild:
-		if req.IR {
-			lowering = withoutReport(lower.LowerIR)
-		}
-	case build.ModeTest:
-		lowering = lower.LowerTests
-		if req.IR {
-			lowering = withoutReport(lower.LowerIRTests)
-		}
-	default:
-		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
-	}
-	unit, input, err := buildInput(a, req)
+	unit, lowering, split, err := emission(a, req)
 	if err != nil {
 		return build.Module{}, err
 	}
-	// An IR build lowers the one way the IR has: the single lowering.
-	split := splitLowering() && !req.IR
+	input, err := unitInput(unit, analysisDependencies(a), req)
+	if err != nil {
+		return build.Module{}, err
+	}
 	if !split {
 		input.Emitter += "+single"
 	}
-	var lowered []lower.File
+	var ledgered []lower.File
 	if req.Mode == build.ModeBuild {
-		ev, files, err := lowerWithLedger(a, unit, req, split)
-		var refused *lower.Refused
-		if errors.As(err, &refused) {
-			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
-		}
+		ev, files, err := ledgerLowered(a, unit, req, split)
 		if err != nil {
 			return build.Module{}, err
 		}
@@ -352,26 +334,18 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			// The entries the lowering read are an input of it: the key
 			// holds them, and no other entry of the module's ledger.
 			input.Dependencies = append(input.Dependencies, sourceDependency(lower.LedgerFile, map[string]string{"read": ev.Read()}))
-			lowered = files
+			ledgered = files
 		}
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lowered, error(nil)
-		switch {
-		case files != nil:
-		case split:
-			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+		files := ledgered
+		if files == nil {
+			var err error
+			files, err = lowerUnit(a, unit, lowering)
+			if err != nil {
+				return nil, err
+			}
 			countLowered(files)
-		default:
-			files, err = lowering(unit)
-			countLowered(files)
-		}
-		var refused *lower.Refused
-		if errors.As(err, &refused) {
-			return nil, &BuildError{Diagnostics: a.refusals(refused)}
-		}
-		if err != nil {
-			return nil, err
 		}
 		out := make([]build.File, len(files))
 		for i, f := range files {
@@ -411,19 +385,6 @@ func withoutReport(lowering func(lower.Unit) ([]lower.File, lower.IRReport, erro
 		files, _, err := lowering(u)
 		return files, err
 	}
-}
-
-// buildInput is the unit of a checked analysis and its emission key's
-// input for req's mode. A program of one source text is anchored at the
-// request's Source; a program read from a folder at the admitted path of
-// each file it read.
-func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
-	unit, err := analysisUnit(a, req.Source)
-	if err != nil {
-		return lower.Unit{}, build.Input{}, err
-	}
-	input, err := unitInput(unit, analysisDependencies(a), req)
-	return unit, input, err
 }
 
 // analysisUnit is the validated unit of a checked analysis; source
@@ -522,6 +483,98 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 		}
 	}
 	return ev, files, nil
+}
+
+// emission is the unit a build of req lowers, the lowering it uses and
+// whether that lowering splits the program by package: Build's and
+// EmittedDigest's one reading of a request. An IR build lowers the one way
+// the IR has, the single lowering (splitLowering).
+func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), bool, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return lower.Unit{}, nil, false, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	lowering := lower.Lower
+	switch req.Mode {
+	case build.ModeBuild:
+		if req.IR {
+			lowering = withoutReport(lower.LowerIR)
+		}
+	case build.ModeTest:
+		lowering = lower.LowerTests
+		if req.IR {
+			lowering = withoutReport(lower.LowerIRTests)
+		}
+	default:
+		return lower.Unit{}, nil, false, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
+	}
+	unit, err := analysisUnit(a, req.Source)
+	if err != nil {
+		return lower.Unit{}, nil, false, err
+	}
+	split := splitLowering() && !req.IR
+	if split {
+		test := req.Mode == build.ModeTest
+		lowering = func(u lower.Unit) ([]lower.File, error) {
+			files, _, err := lower.LowerSplit(u, test)
+			return files, err
+		}
+	}
+	return unit, lowering, split, nil
+}
+
+// lowerUnit lowers unit, a refusal as the analysis's diagnostics.
+func lowerUnit(a Analysis, unit lower.Unit, lowering func(lower.Unit) ([]lower.File, error)) ([]lower.File, error) {
+	files, err := lowering(unit)
+	var refused *lower.Refused
+	if errors.As(err, &refused) {
+		return nil, &BuildError{Diagnostics: a.refusals(refused)}
+	}
+	return files, err
+}
+
+// ledgerLowered is lowerWithLedger, a refusal as the analysis's
+// diagnostics: a run build's files when its module has rewrite laws, else
+// no evidence and no files.
+func ledgerLowered(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
+	ev, files, err := lowerWithLedger(a, unit, req, split)
+	var refused *lower.Refused
+	if errors.As(err, &refused) {
+		return nil, nil, &BuildError{Diagnostics: a.refusals(refused)}
+	}
+	return ev, files, err
+}
+
+// EmittedDigest is the SHA-256 of the Go module a Build of req would link:
+// the runtime and the lowered files, by path and bytes, and the mode. Two
+// compilers that emit the same module for a program give the same digest,
+// so a cache keyed on it replays across a compiler edit that does not
+// change that program's Go (the examples runner, gate-speed GS8). It writes
+// nothing and runs no Go tool.
+func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
+	unit, lowering, split, err := emission(a, req)
+	if err != nil {
+		return "", err
+	}
+	var files []lower.File
+	if req.Mode == build.ModeBuild {
+		if _, files, err = ledgerLowered(a, unit, req, split); err != nil {
+			return "", err
+		}
+	}
+	if files == nil {
+		if files, err = lowerUnit(a, unit, lowering); err != nil {
+			return "", err
+		}
+	}
+	all := append(slices.Clone(lower.Runtime()), files...)
+	slices.SortFunc(all, func(x, y lower.File) int { return strings.Compare(x.Path, y.Path) })
+	hash := sha256.New()
+	fmt.Fprintf(hash, "mode %s\n", req.Mode)
+	for _, f := range all {
+		fmt.Fprintf(hash, "%d:%s%d:", len(f.Path), f.Path, len(f.Data))
+		hash.Write(f.Data)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

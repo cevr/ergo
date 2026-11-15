@@ -32,3 +32,9 @@ func Count(cmd *exec.Cmd, limit uint64) (Run, error) {
 	}
 	return r, nil
 }
+
+// CountSelf runs f; off Linux it counts nothing (-1).
+func CountSelf(f func()) int64 {
+	f()
+	return -1
+}

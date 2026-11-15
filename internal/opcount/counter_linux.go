@@ -41,6 +41,8 @@ const (
 	perfFlagExclHV     = 1 << 6
 	perfFlagEnableExec = 1 << 12
 	perfFlagFDCloexec  = 1 << 3 // perf_event_open's flags argument
+	perfIOCEnable      = 0x2400 // PERF_EVENT_IOC_ENABLE
+	perfIOCDisable     = 0x2401 // PERF_EVENT_IOC_DISABLE
 )
 
 // openCounter opens a counter of user-space instructions on the calling
@@ -138,4 +140,28 @@ func Count(cmd *exec.Cmd, limit uint64) (Run, error) {
 	word := func(i int) uint64 { return binary.NativeEndian.Uint64(buf[8*i:]) }
 	r.Instructions, r.Uncounted, r.Why = decode(word(0), word(1), word(2))
 	return r, nil
+}
+
+// CountSelf counts the user instructions f retires on this thread (-1 when
+// the host exposes no counter). f must not start goroutines that do the
+// work: only the calling thread is counted.
+func CountSelf(f func()) int64 {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attr := perfEventAttr{Type: perfTypeHardware, Config: perfCountHWInstr, Flags: perfFlagDisabled | perfFlagExclKernel | perfFlagExclHV}
+	attr.Size = uint32(unsafe.Sizeof(attr))
+	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), perfFlagFDCloexec, 0)
+	if errno != 0 {
+		f()
+		return -1
+	}
+	defer syscall.Close(int(fd))
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCEnable, 0)
+	f()
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCDisable, 0)
+	var buf [8]byte
+	if n, _ := syscall.Read(int(fd), buf[:]); n != 8 {
+		return -1
+	}
+	return int64(binary.LittleEndian.Uint64(buf[:]))
 }

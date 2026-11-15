@@ -1456,8 +1456,7 @@
       "rule": "buildProviders: buildProviders is the acquisition owner shared by named builders and lexical inline and local contexts.",
       "killers": [
         "lower:TestStdLawsAddNoGo",
-        "lower:TestRuntime199FrameClassCoverage",
-        "examples:lookup"
+        "lower:TestRuntime199FrameClassCoverage"
       ]
     },
     {

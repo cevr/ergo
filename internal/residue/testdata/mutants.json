@@ -105,6 +105,9 @@
       "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
-    }
+    },
+    {"name":"gs3-fast-lists-unnamed","origin":"wf10 GS3","file":"scripts/examples/fast-tier.txt","from":"adventure\nchat\n","to":"adventure\nbackups\nchat\n","rule":"A fast-tier example program is named by a mutant ledger row as a killer; one no row names runs in the full tier only.","killers":["internal/residue:TestFastTierExamplesAreLedgerKillers"],"anchor":{"tests":["internal/residue:TestFastTierExamplesAreLedgerKillers"]}},
+    {"name":"gs3-fast-drops-killer","origin":"wf10 GS3","file":"scripts/examples/fast-tier.txt","from":"\nchat\ncsvreport\n","to":"\ncsvreport\n","rule":"A default example program a ledger row names as a killer stays in the fast tier, so narrowing the tier loses no kill.","killers":["internal/residue:TestFastTierExamplesAreLedgerKillers"],"anchor":{"tests":["internal/residue:TestFastTierExamplesAreLedgerKillers"]}},
+    {"name":"gs5-std-in-fast-tier","origin":"wf10 GS5","file":"internal/gobind/bind_test.go","from":"func TestGoStdBindingsMatchToolchain(t *testing.T) {\n\tneedsBuild(t)\n","to":"func TestGoStdBindingsMatchToolchain(t *testing.T) {\n","rule":"internal/gobind's std-binding test, which compiles the standard library for both platforms, runs in the full tier only (needsBuild first).","killers":["internal/residue:TestGobindStdBuildIsFullTier"],"anchor":{"tests":["internal/residue:TestGobindStdBuildIsFullTier"]}}
   ]
 }
