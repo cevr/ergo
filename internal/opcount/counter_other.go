@@ -15,6 +15,12 @@ func Available() error {
 	return errors.New("user-space instruction counts need Linux's perf_event_open")
 }
 
+// CountThread runs f and refuses its count: only Linux counts here.
+func CountThread(f func()) (uint64, error) {
+	f()
+	return 0, Available()
+}
+
 // Count runs cmd and refuses its count (NoCounter); a run that does not
 // exit 0 is still RunIncomplete. No process group is kept on this system.
 func Count(cmd *exec.Cmd, limit uint64) (Run, error) {

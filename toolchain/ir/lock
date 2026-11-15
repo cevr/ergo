@@ -1,0 +1,12 @@
+# The patched Go compiler of the IR build path (plan-tier §1.4). ergo
+# applies the patch to the pristine source of this Go release and builds
+# cmd/compile once; scripts/irport checks the patch against this lock.
+# A port line names a Go release the patch is ported to (a row of
+# ports.md) and the patch ergo applies to it. ergo builds with no other
+# release: a Go without a port line is refused (internal/toolchain, Patch).
+# The one supported release is the pin (toolchain.Version, go.mod's
+# toolchain line); the go line is the release the patch was written on.
+go go1.27.0
+base 413adc6245e6dab11e09ca0ecd56c1a07cab7f09
+patch go1.27.0.patch sha256:c08f1f65af38bcf71585dd5b331ce44b5bc9ff26ac9dd3997f4042c4c783b42e
+port go1.27.4 go1.27.0.patch

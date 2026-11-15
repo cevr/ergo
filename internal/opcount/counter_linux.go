@@ -41,6 +41,8 @@ const (
 	perfFlagExclHV     = 1 << 6
 	perfFlagEnableExec = 1 << 12
 	perfFlagFDCloexec  = 1 << 3 // perf_event_open's flags argument
+	perfIOCEnable      = 0x2400 // PERF_EVENT_IOC_ENABLE
+	perfIOCDisable     = 0x2401 // PERF_EVENT_IOC_DISABLE
 )
 
 // openCounter opens a counter of user-space instructions on the calling
@@ -60,6 +62,41 @@ func openCounter() (int, error) {
 		return -1, errno
 	}
 	return int(fd), nil
+}
+
+// CountThread counts the user-space instructions f retires on the calling
+// goroutine's thread, which it locks for the call. f must not hand its
+// work to other goroutines: only this thread is counted. A count the
+// kernel multiplexed is refused, as Count refuses a short run.
+func CountThread(f func()) (uint64, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attr := perfEventAttr{
+		Type:       perfTypeHardware,
+		Config:     perfCountHWInstr,
+		ReadFormat: perfFormatEnabled | perfFormatRunning,
+		Flags:      perfFlagDisabled | perfFlagExclKernel | perfFlagExclHV,
+	}
+	attr.Size = uint32(unsafe.Sizeof(attr))
+	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), perfFlagFDCloexec, 0)
+	if errno != 0 {
+		f()
+		return 0, fmt.Errorf("perf_event_open of user-space instructions: %w", errno)
+	}
+	defer syscall.Close(int(fd))
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCEnable, 0)
+	f()
+	syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCDisable, 0)
+	var buf [24]byte
+	if n, _ := syscall.Read(int(fd), buf[:]); n != len(buf) {
+		return 0, fmt.Errorf("read of the instruction counter: %d bytes", n)
+	}
+	le := binary.LittleEndian
+	value, _, why := decode(le.Uint64(buf[0:]), le.Uint64(buf[8:]), le.Uint64(buf[16:]))
+	if why != "" {
+		return 0, fmt.Errorf("instruction count refused: %s", why)
+	}
+	return value, nil
 }
 
 // Available reports whether this host counts user-space instructions, and
