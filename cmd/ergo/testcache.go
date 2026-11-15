@@ -82,7 +82,7 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	write(tc.GOOS + "/" + tc.GOARCH)
 	write(tc.GOFLAGS)
 	write(strings.Join(tc.Tags, ","))
-	write(strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip))
+	write(strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip) + " " + string(tc.Profile))
 	// A full run writes the law ledger; a run that finds another ledger
 	// than the stored run left is no hit.
 	write(ledgerPart(ledger))

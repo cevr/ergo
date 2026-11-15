@@ -62,7 +62,7 @@ func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
 		if !ok {
 			return nil
 		}
-		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
+		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip)+" "+string(tc.Profile))
 	}
 	key := sketchfront.WarmKey(append(slices.Clone(parts), extra...)...)
 	if key == "" {
