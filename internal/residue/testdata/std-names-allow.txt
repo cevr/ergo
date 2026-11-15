@@ -21,5 +21,6 @@ internal/sketch/check/never.go	n.Obj.Pkg.Path != std.PreludePath	Never, the prel
 internal/sketch/check/ownership.go	o.Pkg.Path == "queue"	owned queue elements; follow-up declared contracts
 internal/sketch/check/script.go	n.Obj.Pkg.Path != "testing"	derived Script; follow-up declared contracts
 internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership; follow-up declared contracts
+internal/sketch/check/entry.go	tn.Pkg.Path == workPath	machines.Every, an after whose signal carries the firing reading (FKG1); beside machines.Work
 internal/sketch/check/work.go	tn.Pkg.Path == workPath	work literal shape; STD1b removes this
 internal/sketch/check/work.go	f.Pkg.Path == childPath	child work scope; STD1b or follow-up declared contracts
