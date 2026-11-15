@@ -93,7 +93,14 @@ reach it run again; a comment or a moved declaration runs none. A failure
 is never stored. When the evaluator leaves an obligation incomplete (its
 budget of steps runs out), it stores a route note under that obligation's
 key, and while the key holds the package goes straight to the test binary
-with no evaluation. `TestStoredVerdictsAgree` (internal/sketchfront)
+with no evaluation. Every key holds the compiler's identity, the digest
+of the `ergo` executable (its lowering, rewrite ledger, evaluator,
+standard library and runtime), so another compiler replays nothing. A law
+verdict the test binary wrote is also keyed by the Go toolchain that
+linked it, so the evaluator and another toolchain do not read it.
+`ergo test --native`, which the gate and CI run, reads no stored verdict:
+every test and law runs in the binary (it still stores what held, for
+the next default run). `TestStoredVerdictsAgree` (internal/sketchfront)
 holds the stored answers to a full evaluation under seeded edits. The
 stage report counts `obligations_stored` and `packages_routed`.
 
