@@ -46,7 +46,7 @@
       "file": "examples/fk-gallery/gallery/site.ergo",
       "from": "\t\tcase (Studio, Studio):\n\t\t\tfalse\n",
       "to": "\t\tcase (Studio, Studio):\n\t\t\ttrue\n",
-      "rule": "Staying in the studio is no exit and saves nothing (law LeavingStudioSavesDraft).",
+      "rule": "Staying in the studio is no exit and saves nothing (law LeavingStudioAlwaysSaves).",
       "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
     },
     {
@@ -111,6 +111,38 @@
       "from": "if at > 0 {",
       "to": "if at >= 0 {",
       "rule": "The first painting has no ← Previous (case scenes: painting 1).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9c-short-draft-unsaved", "origin": "wf10/fk9c",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "if exitsStudio(s.Route, next) && s.Draft != \"\" {",
+      "to": "if exitsStudio(s.Route, next) && len(s.Draft) > 1 {",
+      "rule": "Leaving the studio saves any draft that is not empty, one letter too (law LeavingStudioAlwaysSaves; the cases type longer drafts).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9c-saved-not-kept", "origin": "wf10/fk9c",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "Stay[Site]{Next: Site{..s, Saved: Some[string]{Value: d.Draft}}}",
+      "to": "Stay[Site]{Next: Site{..s, Draft: d.Draft}}",
+      "rule": "The work's answer to a save is the draft last saved (law LeavingStudioAlwaysSaves; cases).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9c-save-takes-longer", "origin": "wf10/fk9c",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\tcase SaveDraft:\n\t\t300ms\n",
+      "to": "\tcase SaveDraft:\n\t\t400ms\n",
+      "rule": "The work saves in 300 ms, as upstream's sleep (cases: the save's answer at its time).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9c-due-forgotten", "origin": "wf10/fk9c",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "js = js.Append(if j.Seq == d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })",
+      "to": "js = js.Append(if j.Seq == -d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })",
+      "rule": "A job keeps its due time across navigations: a navigation during a load does not start it again (cases).",
       "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
     }
   ]

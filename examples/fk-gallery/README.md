@@ -24,8 +24,10 @@ With `-stats`, the program also prints the work of each step.
 - Package `gallery` is the domain.
   - `Route = Home | Gallery | Painting{ID} | Studio | NotFound{Path}`, with `Parse` (a URL or a path) and `Print`.
   - The paintings.
-  - The machine `Gallerist` over `Site`. `Site` holds the route (`None` before the first URL), the log of the last 20 navigations, the catalog (`Idle | Loading | Ready`), the painting (`NoPainting | LoadingPainting{ID} | ReadyPainting{ID}`), the draft and the draft saved.
-  - The step's output is a list of `Command`s: `LoadCatalog`, `LoadPainting{ID}`, `SaveDraft{Draft}`, `Push{URL}` and `Leave{Href}`. The host answers a load or a save with its signal, and a push with `Arrived`.
+  - The machine `Gallerist` over `Site`. `Site` holds the route (`None` before the first URL), the log of the last 20 navigations, the catalog (`Idle | Loading | Ready`), the painting (`NoPainting | LoadingPainting{ID} | ReadyPainting{ID}`), the draft, the draft saved, and the jobs asked for.
+  - The loads and the save (`LoadCatalog`, `LoadPainting{ID}`, `SaveDraft{Draft}`) are jobs in the state. The machine's work runs them: it dates each job on the clock (600, 400 and 300 ms, as upstream's sleeps), sleeps to each in time order and answers it. A navigation opens a new entry, and the work starts again with the jobs left, each keeping its due time.
+  - The step's output is what the page asks of the browser: `Push{URL}` or `Leave{Href}`. The host answers a push with `Arrived`.
+  - Leaving the studio saves the draft as last typed: the leaving arm adds the save. A state's exit action would see only the draft the studio was entered with, since a key typed is a `Stay` (gap FK9-g1).
 - **What a navigation means is one `match` on the route before and the route after.** `(Home, Gallery)` is an entry, `(Gallery, Gallery)` a stay, `(Painting, Painting)` a stay that compares ids, and `(Studio, Home)` an exit. The match lists all 25 pairs, so a new route is a compile error until each of its pairs says what it means. A cold load comes from no page; as a path the site does not have, it enters every page.
 - Package `screen` is upstream's view:
   - the navigation;
@@ -33,8 +35,8 @@ With `-stats`, the program also prints the work of each step.
   - the transition log with upstream's badges (`Cold load`, `Entered X`, `Exited X`, `Stayed on Painting: A → B`, `Stayed within route`), read from the route before and the route after, as the step reads them.
   A link is a `ui.Semantic` with the `Link` role whose press sends `Clicked`; `ui.OnURL` gives `Arrived`.
 - Package `script` is the host. It runs `Gallerist` as an actor on `ui.NewTestHost` over a manual clock.
-  - It runs each command the site's sink queued: a push is followed at once with `ui.Navigate` (a push, then the address change).
-  - A load or a save is owed its answer at its time, and the answers are delivered in time order between the lines, moving the clock to each.
+  - It follows each push the site's sink queued at once with `ui.Navigate` (a push, then the address change), and shows the jobs the site asked for.
+  - Between the lines it moves the clock to each job due, in time order, so the work answers it, and shows what the answer changed.
 
 What upstream needs and the port does not:
 
@@ -53,13 +55,13 @@ A story is an Ergo test only when the test kills a mutant that no law and no cas
 - Re-entering while loading: `CatalogueLoadsOncePerVisit` models the flight; the tour re-enters at 400.
 - Entering a painting: the tour enters painting 3 from the gallery; `StayRefetchesOnlyOnIdChange` checks the id asked.
 - Staying with a new id, and with the same id: `StayRefetchesOnlyOnIdChange`; the tour visits paintings 4 and 4 again.
-- Leaving the studio, with a draft and with an empty draft: `LeavingStudioSavesDraft` draws both; the tour does both.
+- Leaving the studio, with a draft and with an empty draft: `LeavingStudioAlwaysSaves` draws both; the tour does both.
 
 ## Laws
 
 - `CatalogueLoadsOncePerVisit`: drawn navigations and catalog answers, step by step against a reference of a visit and a flight. The catalog is asked for exactly when the site enters the gallery, from another page or cold, with no load in flight.
 - `StayRefetchesOnlyOnIdChange`: on a painting, whether it is loaded or loading, a navigation to a painting loads it exactly when the id is another.
-- `LeavingStudioSavesDraft`: only leaving the studio saves, and only a draft that is not empty.
+- `LeavingStudioAlwaysSaves`: over drawn navigations, keys and answers of the work, each navigation that leaves the studio with a draft asks for one save, of the draft as last typed, and no other step asks for one; once every job is answered, the draft saved is the one the studio was last left with.
 - `LogKeepsTheLastTwenty`: the log keeps the last 20 navigations, newest first.
 - `RoutesRoundTrip`: `Parse(Print(r))` is `r` for every route of the site.
 

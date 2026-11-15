@@ -11,5 +11,5 @@ src/story.test.ts: entering a painting loads it with the payload from the route 
 src/story.test.ts: staying on the painting route with a new id refetches -> law `StayRefetchesOnlyOnIdChange`; case `tour` (painting 4 after 3)
 src/story.test.ts: staying on the painting route with the same id does not refetch -> law `StayRefetchesOnlyOnIdChange`; case `tour` (open /gallery/4 again)
 src/story.test.ts: a stale painting response for another id is ignored -> `gallery` test `AStaleAnswerForAnotherIdIsIgnored`; case `tour` (painting 3's late answer)
-src/story.test.ts: leaving the studio saves the draft -> law `LeavingStudioSavesDraft`; case `tour` (the save on the move to /gallery/9)
-src/story.test.ts: leaving the studio with an empty draft saves nothing -> law `LeavingStudioSavesDraft`; case `tour` (the empty draft at 2700)
+src/story.test.ts: leaving the studio saves the draft -> law `LeavingStudioAlwaysSaves`; case `tour` (the save on the move to /gallery/9)
+src/story.test.ts: leaving the studio with an empty draft saves nothing -> law `LeavingStudioAlwaysSaves`; case `tour` (the empty draft at 2700)

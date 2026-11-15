@@ -1,10 +1,15 @@
+import machines
+import time
+
 // The site as a machine. Upstream reads each URL change through its
 // Transition helpers (entered, stayed, exited, coldLoad) and returns
 // commands. Here the step matches the route before and the route after:
 // entering the gallery loads the catalog, entering a painting loads it,
 // staying on a painting with another id loads the new one, and leaving the
-// studio saves its draft. The commands are the step's output (Emit), and
-// the host answers each with a signal.
+// studio saves its draft. The loads and the save are jobs of the site's
+// state, and the machine's work runs them: each takes its time on the
+// clock (Takes) and answers with its signal. The host does only what the
+// page asks of the browser (the step's output): push a URL, or leave.
 
 // Catalog is the gallery's catalog: not asked for, loading, or loaded.
 type Catalog = Idle{} | Loading{} | Ready{}
@@ -19,8 +24,13 @@ type Logged { Seq int, From Option[Route], To Route }
 
 // Site is the machine's state: the route (None before the first URL),
 // the log of navigations (newest first, at most LogSize), the catalog,
-// the painting, the studio's draft, and the draft last saved.
-type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved Option[string] }
+// the painting, the studio's draft, the draft last saved, the jobs the
+// work runs (in the order asked), and the number of jobs asked.
+type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved Option[string], Jobs []Job, Asked int }
+
+// Job is a load or a save the site asked for: its number, the command,
+// and when it answers, once the work has read the clock.
+type Job { Seq int, Do Command, Due Option[time.Time] }
 
 // Link is a link the user follows: one of the site's own paths, or a page
 // elsewhere.
@@ -28,12 +38,13 @@ type Link = Internal{URL string} | External{Href string}
 
 // Signal is what the site reads: a URL the page is at (the first one is
 // the cold load), a link clicked, the answers of the three loads, and a
-// key in the studio's field.
-type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | DraftSaved{Draft string}
+// key in the studio's field; and from the work, a job's due time and its
+// end, which gives the job's answer.
+type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | DraftSaved{Draft string} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Command}
 
-// Command is what the site asks the host to do: load the catalog or a
-// painting, save a draft, push a URL of the site, or leave for a page
-// elsewhere. The host answers a load or a save with its signal, and a
+// Command is what the site asks for: load the catalog or a painting, or
+// save a draft (a job of the work), push a URL of the site, or leave for
+// a page elsewhere (the step's output, the host's). The host answers a
 // push with Arrived.
 type Command = LoadCatalog{} | LoadPainting{ID int} | SaveDraft{Draft string} | Push{URL string} | Leave{Href string}
 
@@ -41,12 +52,13 @@ type Command = LoadCatalog{} | LoadPainting{ID int} | SaveDraft{Draft string} | 
 let LogSize = 20
 
 // Blank is the site before its first URL.
-let Blank = Site{Route: None, Log: []Logged{}, Catalog: Idle, Painting: NoPainting, Draft: "", Saved: None}
+let Blank = Site{Route: None, Log: []Logged{}, Catalog: Idle, Painting: NoPainting, Draft: "", Saved: None, Jobs: []Job{}, Asked: 0}
 
 // Gallerist is the site as a machine.
 type Gallerist machine[Site, Signal] {
 	initial: Blank,
 	step:    Step,
+	work:    jobs,
 }
 
 // Step is the site's transition.
@@ -72,6 +84,33 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 			Stay[Site]{Next: Site{..s, Painting: ReadyPainting{ID: p.ID}}}
 		case NoPainting, ReadyPainting:
 			Ignore
+		}
+	case Dated as d:
+		let mut js = []Job{}
+		for j in s.Jobs {
+			js = js.Append(if j.Seq == d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })
+		}
+		Stay[Site]{Next: Site{..s, Jobs: js}}
+	case Answered as a:
+		// The job is done; its answer is then the site's, which may ignore
+		// it (a stale painting): the site keeps its entry either way, so the
+		// work runs on to the next job.
+		let mut js = []Job{}
+		for j in s.Jobs {
+			if j.Seq != a.Seq {
+				js = js.Append(j)
+			}
+		}
+		let done = Site{..s, Jobs: js}
+		match Step(done, Answer(a.Job)) {
+		case Stay[Site] as st:
+			Stay[Site]{Next: st.Next}
+		case Enter[Site] as e:
+			Stay[Site]{Next: e.Next}
+		case Emit[Site, []Command] as e:
+			Stay[Site]{Next: e.Next}
+		case Ignore, Reject, Done[[]Command]:
+			Stay[Site]{Next: done}
 		}
 	case Drafted as d:
 		Stay[Site]{Next: Site{..s, Draft: d.Text}}
@@ -129,7 +168,13 @@ func arrive(s Site, next Route) Decision[Site, []Command] {
 	if len(out) == 0 {
 		return Enter[Site]{Next: at}
 	}
-	Emit[Site, []Command]{Next: at, Output: out}
+	// A navigation ends the entry, so the work starts again with the new
+	// jobs, and each job keeps its due time.
+	let mut js = at.Jobs
+	for i, c in out {
+		js = js.Append(Job{Seq: s.Asked + i + 1, Do: c, Due: None})
+	}
+	Enter[Site]{Next: Site{..at, Jobs: js, Asked: s.Asked + len(out)}}
 }
 
 // exitsStudio is whether a navigation from before to next leaves the
@@ -159,15 +204,98 @@ func paintingID(r Route) int {
 	}
 }
 
-// Commands is what the decision d asks the host to do.
-func Commands(d Decision[Site, []Command]) []Command {
-	match d {
+// Commands is what the decision d from s asks for: its output (a push or
+// a leave), then the jobs it adds, in the order asked.
+func Commands(s Site, d Decision[Site, []Command]) []Command {
+	let mut out = match d {
 	case Emit[Site, []Command] as e:
 		e.Output
 	case Enter[Site], Stay[Site], Ignore, Reject, Done[[]Command]:
 		[]Command{}
 	}
+	for j in After(s, d).Jobs {
+		if j.Seq > s.Asked {
+			out = out.Append(j.Do)
+		}
+	}
+	out
 }
+
+// Answer is the signal a job's end gives: the catalog or the painting
+// loaded, or the draft saved. A push or a leave is never a job.
+func Answer(c Command) Signal {
+	match c {
+	case LoadCatalog:
+		CatalogLoaded
+	case LoadPainting as p:
+		PaintingLoaded{ID: p.ID}
+	case SaveDraft as d:
+		DraftSaved{Draft: d.Draft}
+	case Push as p:
+		Arrived{URL: p.URL}
+	case Leave:
+		Unreachable("gallery: a leave is never a job")
+	}
+}
+
+// Takes is how long a job takes, as upstream's sleeps: the catalog 600
+// ms, a painting 400 ms, a save 300 ms.
+func Takes(c Command) duration {
+	match c {
+	case LoadCatalog:
+		600ms
+	case LoadPainting:
+		400ms
+	case SaveDraft:
+		300ms
+	case Push, Leave:
+		0s
+	}
+}
+
+// jobs is the site's work while it has jobs: it gives each job with no
+// due time the clock's now and the job's time (Dated), then, in due order
+// (ties in the order asked), sleeps until each and gives its end
+// (Answered). A navigation ends the entry and starts the work again with
+// the jobs left, each at its own due time.
+func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler]] {
+	if len(s.Jobs) == 0 {
+		return None
+	}
+	Some{machines.Work{Listen: func(send func(e Signal)) needs time.Clock | Scheduler {
+		let now = time.Clock.Now()
+		let mut dues = []due{}
+		for j in s.Jobs {
+			let at = match j.Due {
+			case Some[time.Time] as t:
+				t.Value
+			case None:
+				let at = time.Add(now, Takes(j.Do))
+				send(Dated{Seq: j.Seq, At: at})
+				at
+			}
+			dues = dues.Append(due{At: at, Job: j, Done: false})
+		}
+		for _ in dues {
+			let mut k = -1
+			for i, d in dues {
+				if !d.Done && (k < 0 || time.Before(d.At, dues[k].At)) {
+					k = i
+				}
+			}
+			let d = dues[k]
+			dues[k] = due{..d, Done: true}
+			let t = time.Clock.Now()
+			if time.Before(t, d.At) {
+				Scheduler.Sleep(d.At.Sub(t))
+			}
+			send(Answered{Seq: d.Job.Seq, Job: d.Job.Do})
+		}
+	}}}
+}
+
+// due is a job of the work with its due time, and whether it answered.
+type due { At time.Time, Job Job, Done bool }
 
 // After is the site after the decision d from s.
 func After(s Site, d Decision[Site, []Command]) Site {

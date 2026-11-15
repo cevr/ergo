@@ -1,8 +1,8 @@
 // Package script plays a script of timed acts on the site's screen: the
 // host of stage b. The site runs as an actor on a manual clock with its
 // screen on std ui's test host, whose history is the browser's. The host
-// runs what the site asks (a catalog load takes 600 ms, a painting 400
-// ms, a save 300 ms, as upstream's sleeps), follows the site's own links
+// shows what the site asks (its work runs the loads and the save: the
+// host only moves the clock to each one due), follows the site's own links
 // as a browser does (a push, then the address change, which the screen's
 // OnURL gives the site as Arrived), and shows what changed after each
 // line and each answer.
@@ -95,26 +95,9 @@ type Site = actor.Actor[gallery.Site, gallery.Signal, Decision[gallery.Site, []g
 // Host is the site on the test host.
 type Host = ui.TestHost[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Command]]
 
-// Due is an answer the host owes the site, and when.
-type Due { At int, Signal gallery.Signal }
-
-// Ran is what the host did with the site's commands: the answers it owes
-// now, and how each command shows.
-type Ran { Owed []Due, Asks []string }
-
-// Takes is how long the host takes to answer a command, in ms.
-func Takes(c gallery.Command) int {
-	match c {
-	case gallery.LoadCatalog:
-		600
-	case gallery.LoadPainting:
-		400
-	case gallery.SaveDraft:
-		300
-	case gallery.Push, gallery.Leave:
-		0
-	}
-}
+// Ran is what the host saw of the site's commands: how many jobs the site
+// has asked for so far, and how each command since shows.
+type Ran { Seen int, Asks []string }
 
 // Frame is what a line or an answer shows: its heading, what the site
 // asked, and the screen's lines, with the work of the step.
@@ -123,7 +106,7 @@ type Frame { Head string, Asks []string, Lines []string, Counts ui.StepCounts }
 // PlayScreen plays s on the site's screen, on the test host over clock,
 // and gives each frame to show: one per line, one per answer, and one at
 // the end.
-func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler {
 	let gone = queue.New[[]gallery.Command](64)
 	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Command) {
 		gone.Push(cs) catch {
@@ -140,35 +123,46 @@ func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fail
 
 func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
-	let mut owed = []Due{}
+	let start = clock.Now()
+	let mut seen = 0
 	let mut now = 0
 	for i in 0..len(s.Lines)+1 {
 		let until = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
-		// the answers due by then, in time order
+		// The site's work answers its jobs as the clock reaches them: the
+		// host moves the clock to each job due by then, in time order, and
+		// shows what its answer changed.
 		for {
-			let mut k = -1
-			for j, o in owed {
-				if o.At <= until && (k < 0 || o.At < owed[k].At) {
-					k = j
+			let mut next Option[gallery.Job] = None
+			let mut at = 0
+			for j in ui.StateOf(&h).Jobs {
+				match j.Due {
+				case Some[time.Time] as d:
+					let ms = int(int64(d.Value.Sub(start)) / int64(1000000))
+					let first = match next {
+					case Some[gallery.Job]:
+						ms < at
+					case None:
+						true
+					}
+					if ms <= until && first {
+						next = Some[gallery.Job]{Value: j}
+						at = ms
+					}
+				case None:
 				}
 			}
-			if k < 0 {
+			let j = match next {
+			case Some[gallery.Job] as n:
+				n.Value
+			case None:
 				break
 			}
-			let o = owed[k]
-			let mut rest = []Due{}
-			for j, x in owed {
-				if j != k {
-					rest = rest.Append(x)
-				}
-			}
-			try ui.Advance(&h, time.Times(1ms, o.At-now))
-			now = o.At
-			let _ = try site.Ask(o.Signal)
+			try ui.Advance(&h, time.Times(1ms, at-now))
+			now = at
 			try ui.Settle(&h)
-			let ran = try run(&h, gone, now, rest)
-			owed = ran.Owed
-			show(Frame{Head: "@\(now) \(Answer(o.Signal))", Asks: ran.Asks, Lines: View(&h), Counts: ui.Counts(&h)})
+			let ran = try run(&h, gone, seen)
+			seen = ran.Seen
+			show(Frame{Head: "@\(now) \(Answer(gallery.Answer(j.Do)))", Asks: ran.Asks, Lines: View(&h), Counts: ui.Counts(&h)})
 		}
 		try ui.Advance(&h, time.Times(1ms, until-now))
 		try ui.Settle(&h)
@@ -207,50 +201,58 @@ func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock t
 				return b
 			}
 		}
-		let ran = try run(&h, gone, now, owed)
-		owed = ran.Owed
+		let ran = try run(&h, gone, seen)
+		seen = ran.Seen
 		let asks = if missing == "" { ran.Asks } else { ran.Asks.Append("? " + missing) }
 		show(Frame{Head: "@\(now) \(Word(l.Act))", Asks: asks, Lines: View(&h), Counts: ui.Counts(&h)})
 	}
 }
 
-// run runs the commands the site gave since the last step at now: a load
-// or a save is owed its answer, a push of the site's own URL is followed
-// at once (and what it asks is run too), and a page elsewhere is left
-// for.
-func run(h *Host, gone queue.Queue[[]gallery.Command], now int, owed []Due) Ran fails actor.Stopped | ui.BadPatch {
-	let mut out = owed
-	let mut asks = []string{}
+// run shows what the site asked since the host last looked, seen jobs
+// ago: the jobs it added (its work runs them), and what its step gave the
+// host. A push of the site's own URL is followed at once, and what that
+// navigation asks shows next; a page elsewhere is left for.
+func run(h *Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor.Stopped | ui.BadPatch {
+	let mut ran = asked(h, Ran{Seen: seen, Asks: []string{}})
 	for {
 		let cs = match gone.Poll() {
 		case Some[[]gallery.Command] as x:
 			x.Value
 		case None:
-			return Ran{Owed: out, Asks: asks}
+			return ran
 		}
 		for c in cs {
-			asks = asks.Append(Ask(c))
+			ran = Ran{..ran, Asks: ran.Asks.Append(Ask(c))}
 			match c {
-			case gallery.LoadCatalog:
-				out = out.Append(Due{At: now + Takes(c), Signal: gallery.CatalogLoaded})
-			case gallery.LoadPainting as p:
-				out = out.Append(Due{At: now + Takes(c), Signal: gallery.PaintingLoaded{ID: p.ID}})
-			case gallery.SaveDraft as s:
-				out = out.Append(Due{At: now + Takes(c), Signal: gallery.DraftSaved{Draft: s.Draft}})
 			case gallery.Push as p:
 				try ui.Navigate(h, p.URL)
 				try ui.Settle(h)
+				ran = asked(h, ran)
 			case gallery.Leave:
+			case gallery.LoadCatalog, gallery.LoadPainting, gallery.SaveDraft:
+				Unreachable("script: a job is never the step's output")
 			}
 		}
 	}
+}
+
+// asked adds to r the jobs the site asked for after the first r.Seen.
+func asked(h *Host, r Ran) Ran {
+	let s = ui.StateOf(h)
+	let mut asks = r.Asks
+	for j in s.Jobs {
+		if j.Seq > r.Seen {
+			asks = asks.Append(Ask(j.Do))
+		}
+	}
+	Ran{Seen: s.Asked, Asks: asks}
 }
 
 // Run reads the script from io.Stdin, plays it on the screen and prints
 // each frame: its heading, what the site asked, and the screen's lines
 // that changed; with stats, the work of each step too. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Clock | Scheduler {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
@@ -378,7 +380,7 @@ func Answer(sig gallery.Signal) string {
 		"painting \(p.ID) loaded"
 	case gallery.DraftSaved as d:
 		"saved \"\(d.Draft)\""
-	case gallery.Arrived, gallery.Clicked, gallery.Drafted:
+	case gallery.Arrived, gallery.Clicked, gallery.Drafted, gallery.Dated, gallery.Answered:
 		"signal"
 	}
 }

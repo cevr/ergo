@@ -30,7 +30,7 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: clock, Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "fk-gallery: the script did not run"}
 	}
