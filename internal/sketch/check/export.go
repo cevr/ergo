@@ -706,9 +706,13 @@ type encoder struct {
 	// current one names.
 	objStarts, nodeStarts []uint64
 	deps                  map[int]bool
-	// crossRef, when set (UserSegmentRefs), sees each reference to an
-	// object of an earlier segment, with that segment's index.
+	// crossRef, when set (UserExport), sees each reference to an object
+	// of an earlier segment, with that segment's index.
 	crossRef func(seg int, v any)
+	// symbolic, when set (UserExport), names an object of an earlier
+	// segment by its object path instead of its id (tag 4), when the
+	// segment's package may be checked again (compile-speed/cs5b.md §2).
+	symbolic func(seg int, v any) (objPath, bool)
 }
 
 func newEncoder() *encoder {
@@ -742,7 +746,8 @@ func (e *encoder) external(x any) (uint64, bool) {
 }
 
 // ref writes a pointer's reference and reports whether it is complete: nil
-// (0), an external (1, index), an object written before (2, id). Otherwise
+// (0), an external (1, index), an object written before (2, id), or one of
+// an earlier segment by its object path (4, segment, path; encoder.symbolic). Otherwise
 // it writes 3, gives the object the next id, and the caller writes its
 // contents.
 func (e *encoder) ref(v any, isNil bool) bool {
@@ -757,9 +762,18 @@ func (e *encoder) ref(v any, isNil bool) bool {
 	}
 	if id, ok := e.ids[v]; ok {
 		if cur := e.objStarts[len(e.objStarts)-1]; id < cur {
-			e.deps[segmentOf(e.objStarts, id)] = true
+			seg := segmentOf(e.objStarts, id)
+			e.deps[seg] = true
 			if e.crossRef != nil {
-				e.crossRef(segmentOf(e.objStarts, id), v)
+				e.crossRef(seg, v)
+			}
+			if e.symbolic != nil {
+				if p, ok := e.symbolic(seg, v); ok {
+					e.uint(4)
+					e.uint(uint64(seg))
+					e.string(string(p))
+					return true
+				}
 			}
 		}
 		e.uint(2)
@@ -859,6 +873,17 @@ type decoder struct {
 	seg      int
 	start    uint64
 	checkers []*checker
+	// imports, when set (UserExport.Decode), is the current package of an
+	// earlier segment, in which a tag 4 reference's path resolves; paths
+	// caches the resolved paths, so one path is one object.
+	imports func(seg int) *Package
+	paths   map[pathRef]any
+}
+
+// pathRef is a tag 4 reference: a segment and an object path in it.
+type pathRef struct {
+	seg  int
+	path objPath
 }
 
 func (d *decoder) failf(format string, args ...any) {
@@ -892,6 +917,27 @@ func (d *decoder) ref() (any, bool) {
 		return x, false
 	case 3:
 		return nil, true
+	case 4:
+		r := pathRef{seg: int(d.uint()), path: objPath(d.string())}
+		if x, ok := d.paths[r]; ok {
+			return x, false
+		}
+		var pkg *Package
+		if d.imports != nil {
+			pkg = d.imports(r.seg)
+		}
+		if pkg == nil {
+			d.failf("a path into segment %d, which has no current package", r.seg)
+		}
+		x, ok := resolvePath(pkg, r.path)
+		if !ok {
+			d.failf("the path %s names nothing in %s", r.path, pkg.Path)
+		}
+		if d.paths == nil {
+			d.paths = map[pathRef]any{}
+		}
+		d.paths[r] = x
+		return x, false
 	}
 	d.failf("bad reference tag")
 	return nil, false

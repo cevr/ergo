@@ -2,27 +2,42 @@ package sketchfront
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// TestCrossRefsHavePaths (CS5b-2 step 1, compile-speed/cs5b.md §3, §7):
-// every object a user package's export segment names in an earlier user
-// package is reached by a path from that package's public state, so the
-// reference can be written as a path and resolved in whichever check of
-// the import is current. The export is CHK1b's encoder over std and the
-// program's packages (check.UserSegmentRefs); the paths are the walk of
-// pathWalk, which leaves out the fields no path may step through
-// (notPath).
+// TestPathsRoundTrip (CS5b-2, compile-speed/cs5b.md §3, §7): every object
+// a user package's export segment names in an earlier user package has an
+// object path, the path names that object in the check it was taken from,
+// and it names the same declaration or type in a fresh check of the import
+// after an edit that leaves the import's interface alone (a new
+// unexported function in each imported package, probeFile). So a cached
+// importer's references resolve in whichever check of its import is
+// current.
 //
+// The export is CHK1b's encoder (check.UserExport), each user segment
+// written right after its package's check, as CS5b-3 writes it.
 // ERGO_CENSUS_ONLY=<name> runs the examples whose name has it.
-func TestCrossRefsHavePaths(t *testing.T) {
+//
+// Then each user segment is decoded against the fresh check of its
+// imports (check.UserExport.Decode), and its interface is the interface of
+// the package it was written from.
+//
+// Mutants (sketchfront ledger): the walk does not follow an interface
+// value, so a type held as a Type has no path (cs5b2-walk-skips-interface);
+// the resolver steps into the field after the one named
+// (cs5b2-resolve-field-off-by-one); a user segment names another user
+// segment's objects by id, which a fresh check of that package does not
+// hold (cs5b2-encode-ids-not-paths).
+func TestPathsRoundTrip(t *testing.T) {
 	programs := multiPackageExamples(t)
 	if testing.Short() {
 		var some []exampleDir
@@ -35,27 +50,25 @@ func TestCrossRefsHavePaths(t *testing.T) {
 		programs = some
 	}
 	total := map[string]int{}
-	unexported, nodes := 0, 0
-	keyed, indexed, heads := map[string]int{}, map[string]int{}, map[string]int{}
-	missing := map[string]int{}
-	var examples []string
+	unexported, nodes, decoded, nodeSegments := 0, 0, 0, 0
 	for _, dir := range programs {
 		if only := os.Getenv("ERGO_CENSUS_ONLY"); only != "" && !strings.Contains(dir.name, only) {
 			continue
 		}
-		var pkgs []*check.Package
 		var u *check.UserExport
 		var exportErr error
-		// Each package's segment is written right after its own check, as
-		// CS5b-3 writes it.
+		var order []string
+		var loader check.Importer
+		first := map[string]*check.Package{}
 		checkedHook = func(imp check.Importer, _ string, pkg *check.Package) {
 			if pkg == nil || exportErr != nil {
 				return
 			}
-			pkgs = append(pkgs, pkg)
+			loader = imp
+			order = append(order, pkg.Path)
+			first[pkg.Path] = pkg
 			if u == nil {
-				u, exportErr = check.NewUserExport(imp)
-				if exportErr != nil {
+				if u, exportErr = check.NewUserExport(imp); exportErr != nil {
 					return
 				}
 			}
@@ -70,150 +83,174 @@ func TestCrossRefsHavePaths(t *testing.T) {
 			t.Fatalf("%s does not check: %v", dir.name, a.Diagnostics[0])
 		}
 		if exportErr != nil {
-			// The cache misses on a package the codec cannot carry: no
-			// reference of it needs a path.
+			// The cache misses on a package the codec cannot carry (a Go
+			// function value in a binding's state): no reference of it needs
+			// a path. Any other export error is a failure.
+			if !strings.Contains(exportErr.Error(), "a function value of type") {
+				t.Errorf("%s: %v", dir.name, exportErr)
+				continue
+			}
 			t.Logf("%s: not exported: %v", dir.name, exportErr)
 			unexported++
 			continue
 		}
-		refs := u.Refs
-		byPath := map[string]*check.Package{}
-		for _, p := range pkgs {
-			byPath[p.Path] = p
+		// The fresh check, with the interface-neutral edit.
+		second := map[string]*check.Package{}
+		checkedHook = func(_ check.Importer, _ string, pkg *check.Package) {
+			if pkg != nil {
+				second[pkg.Path] = pkg
+			}
 		}
-		paths := map[string]map[uintptr]string{}
-		var lines []string
-		for _, r := range refs {
+		b, err := CheckDirFS(probeFS{root: dir.dir}, dir.dir, a.program.platform)
+		checkedHook = nil
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b.Diagnostics) > 0 {
+			t.Fatalf("%s with %s does not check: %v", dir.name, probeFile, b.Diagnostics[0])
+		}
+		for path, pkg := range second {
+			if path == "main" {
+				continue
+			}
+			probed := false
+			for _, f := range pkg.Funcs {
+				probed = probed || f.Name == "aaCs5bProbe"
+			}
+			if !probed {
+				t.Fatalf("%s: the fresh check of %s has no %s", dir.name, path, probeFile)
+			}
+		}
+		var bad []string
+		report := func(format string, args ...any) {
+			if len(bad) < 8 {
+				bad = append(bad, fmt.Sprintf(format, args...))
+			}
+		}
+		for _, r := range u.Refs {
 			if r.Obj == nil {
 				nodes++
 				continue
 			}
 			v := reflect.ValueOf(r.Obj)
-			typ := v.Type().String()
-			total[typ]++
-			ps, ok := paths[r.To]
-			if !ok {
-				ps = pathWalk(byPath[r.To])
-				paths[r.To] = ps
-			}
-			if v.Kind() != reflect.Pointer {
+			total[v.Type().String()]++
+			if !r.HasPath {
+				report("%s -> %s: %s has no path", r.From, r.To, describeObj(r.Obj))
 				continue
 			}
-			if p, ok := ps[v.Pointer()]; ok {
-				// A path through a map keyed by an object names that key by its
-				// address, which another process does not share: CS5b-2 names
-				// such a key by its own path.
-				if strings.Contains(p, "#") {
-					keyed[typ]++
-				}
-				if strings.Contains(p, "[") {
-					indexed[typ]++
-				}
-				// The package field a path starts at: Scope names a
-				// declaration; any other is a list in source order.
-				head := strings.TrimPrefix(p, "pkg.")
-				if i := strings.IndexAny(head, ".[{"); i >= 0 {
-					head = head[:i]
-				}
-				heads[head]++
-			} else {
-				missing[typ]++
-				if len(lines) < 6 {
-					lines = append(lines, fmt.Sprintf("  %s -> %s: %s", r.From, r.To, label(v)))
-				}
+			if x, ok := check.ResolvePath(first[r.To], r.Path); !ok || x != r.Obj {
+				report("%s -> %s: %s at %s resolves to %s in its own check", r.From, r.To, describeObj(r.Obj), check.PathString(r.Path), describeObj(x))
+				continue
+			}
+			y, ok := check.ResolvePath(second[r.To], r.Path)
+			if !ok {
+				report("%s -> %s: %s at %s names nothing in the fresh check", r.From, r.To, describeObj(r.Obj), check.PathString(r.Path))
+			} else if describeObj(y) != describeObj(r.Obj) {
+				report("%s -> %s: %s at %s names %s in the fresh check", r.From, r.To, describeObj(r.Obj), check.PathString(r.Path), describeObj(y))
 			}
 		}
-		if len(lines) > 0 {
-			examples = append(examples, dir.name+":\n"+strings.Join(lines, "\n"))
+		// Each segment, read against the fresh check of its imports, is the
+		// package it was written from, as an importer sees it.
+		for _, path := range order {
+			pkg, err := u.Decode(path, func(p string) *check.Package { return second[p] }, loader)
+			if err != nil {
+				if strings.Contains(err.Error(), "CS5b-4") {
+					nodeSegments++
+					continue
+				}
+				report("%s: decoding against the fresh check: %v", path, err)
+				continue
+			}
+			decoded++
+			if got, want := check.InterfaceText(pkg), check.InterfaceText(first[path]); got != want {
+				report("%s: decoded against the fresh check, its interface is\n%s\nwant\n%s", path, got, want)
+			}
+		}
+		if len(bad) > 0 {
+			t.Errorf("%s:\n  %s", dir.name, strings.Join(bad, "\n  "))
 		}
 	}
 	var rows []string
 	for typ, n := range total {
-		rows = append(rows, fmt.Sprintf("  %-22s %6d refs, %6d with no path, %6d through an object key, %6d through an index", typ, n, missing[typ], keyed[typ], indexed[typ]))
+		rows = append(rows, fmt.Sprintf("  %-22s %6d", typ, n))
 	}
 	sort.Strings(rows)
-	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; programs not exported: %d; paths by the package field they start at: %v", strings.Join(rows, "\n"), nodes, unexported, heads)
-	if len(examples) > 0 {
-		t.Errorf("objects named across user segments with no path:\n%s", strings.Join(examples, "\n"))
+	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; programs not exported: %d; segments decoded: %d; segments naming another package's nodes (CS5b-4): %d", strings.Join(rows, "\n"), nodes, unexported, decoded, nodeSegments)
+}
+
+// describeObj names an object for comparison across checks: its type and
+// its text (a type's String) or its Name.
+func describeObj(x any) string {
+	if x == nil {
+		return "nothing"
 	}
-}
-
-// notPath are the fields a path never steps through: state that no
-// importer sees by name (a package's check results, a checker, the
-// identity table), and the lazy caches of census.md.
-var notPath = map[string]bool{
-	"check.Package.Info":      true,
-	"check.Named.ctx":         true,
-	"check.Struct.index":      true,
-	"check.Interface.index":   true,
-	"check.Package.LawRuns":   true,
-	"check.Package.cellConvs": true,
-}
-
-// pathWalk is the set of objects reached from pkg through fields a path
-// may step through, by address, with the first path to each. It stops at
-// other packages, syntax nodes, checkers, identity tables and importers.
-func pathWalk(pkg *check.Package) map[uintptr]string {
-	out := map[uintptr]string{}
-	root := reflect.ValueOf(pkg).Pointer()
-	var walk func(v reflect.Value, path string)
-	walk = func(v reflect.Value, path string) {
-		switch v.Kind() {
-		case reflect.Pointer:
-			if v.IsNil() {
-				return
-			}
-			p := v.Pointer()
-			if _, ok := out[p]; ok {
-				return
-			}
-			el := v.Type().Elem()
-			if el.PkgPath() == syntaxPkg || el.PkgPath() == "sync" || el.Name() == "checker" || el.Name() == "typeTable" || el.Name() == "stdImporter" || el.Name() == "loader" {
-				return
-			}
-			if el.Name() == "Package" && strings.HasSuffix(el.PkgPath(), "sketch/check") && p != root {
-				return
-			}
-			out[p] = path
-			walk(v.Elem(), path)
-		case reflect.Interface:
-			if !v.IsNil() {
-				walk(v.Elem(), path)
-			}
-		case reflect.Struct:
-			t := v.Type()
-			for i := range t.NumField() {
-				name := t.Field(i).Name
-				if notPath[t.String()+"."+name] {
-					continue
-				}
-				walk(v.Field(i), path+"."+name)
-			}
-		case reflect.Slice, reflect.Array:
-			for i := range v.Len() {
-				walk(v.Index(i), path+"["+strconv.Itoa(i)+"]")
-			}
-		case reflect.Map:
-			keys := v.MapKeys()
-			sort.Slice(keys, func(i, j int) bool { return keyLabel(keys[i]) < keyLabel(keys[j]) })
-			for _, k := range keys {
-				s := "{" + keyLabel(k) + "}"
-				walk(k, path+s+"#key")
-				walk(v.MapIndex(k), path+s)
-			}
-		}
+	s := reflect.TypeOf(x).String()
+	if st, ok := x.(fmt.Stringer); ok {
+		return s + " " + st.String()
 	}
-	walk(reflect.ValueOf(pkg), "pkg")
-	return out
-}
-
-// label is a pointer's type, with its Name field when it has one.
-func label(p reflect.Value) string {
-	s := p.Type().String()
-	if el := p.Elem(); el.Kind() == reflect.Struct {
-		if f := el.FieldByName("Name"); f.IsValid() && f.Kind() == reflect.String {
-			s += "(" + f.String() + ")"
+	if v := reflect.ValueOf(x); v.Kind() == reflect.Pointer && v.Elem().Kind() == reflect.Struct {
+		if f := v.Elem().FieldByName("Name"); f.IsValid() && f.Kind() == reflect.String {
+			return s + " " + f.String()
 		}
 	}
 	return s
 }
+
+// probeFile is the file probeFS adds to every package folder of the
+// program but its main (cmd) folder: an unexported function, which no
+// importer sees.
+const probeFile = "aa_cs5b_probe.ergo"
+
+const probeText = "func aaCs5bProbe() int {\n\t0\n}\n"
+
+// probeFS is the host file system with probeFile in each folder that
+// holds .ergo files, except the program's main folder (root) and cmd
+// folders.
+type probeFS struct{ root string }
+
+func (p probeFS) probed(dir string) bool {
+	return filepath.Clean(dir) != filepath.Clean(p.root) && !strings.Contains(dir, string(filepath.Separator)+"cmd"+string(filepath.Separator))
+}
+
+func (p probeFS) ReadDir(dir string) ([]fs.DirEntry, error) {
+	es, err := os.ReadDir(dir)
+	if err != nil || !p.probed(dir) {
+		return es, err
+	}
+	for _, e := range es {
+		if strings.HasSuffix(e.Name(), ".ergo") {
+			return append(es, fs.FileInfoToDirEntry(probeInfo{})), nil
+		}
+	}
+	return es, nil
+}
+
+func (p probeFS) ReadFile(name string) ([]byte, error) {
+	if filepath.Base(name) == probeFile {
+		return []byte(probeText), nil
+	}
+	return hostFS{}.ReadFile(name)
+}
+
+func (p probeFS) Stat(name string) (fs.FileInfo, error) {
+	if filepath.Base(name) == probeFile {
+		return probeInfo{}, nil
+	}
+	return os.Stat(name)
+}
+
+func (p probeFS) Lstat(name string) (fs.FileInfo, error) {
+	if filepath.Base(name) == probeFile {
+		return probeInfo{}, nil
+	}
+	return os.Lstat(name)
+}
+
+type probeInfo struct{}
+
+func (probeInfo) Name() string       { return probeFile }
+func (probeInfo) Size() int64        { return int64(len(probeText)) }
+func (probeInfo) Mode() fs.FileMode  { return 0o644 }
+func (probeInfo) ModTime() time.Time { return time.Time{} }
+func (probeInfo) IsDir() bool        { return false }
+func (probeInfo) Sys() any           { return nil }
