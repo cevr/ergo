@@ -83,6 +83,20 @@ schedule search and the selections `--law`, `--skip-law` and `--run`.
 and error line. The stage report counts `obligations_evaluated` and
 `eval_steps`.
 
+The evaluator keeps each passed test's and law run's verdict in the law
+verdict store (under the emission cache's root, `laws/`), keyed by its
+reach digest: the tokens of the test's declaration and of every
+declaration it reaches, in any package, with the seed. The next
+`ergo test` prints a verdict whose key still holds with ` (cached)` and
+does not run it, so after an edit of one function only the tests that
+reach it run again; a comment or a moved declaration runs none. A failure
+is never stored. When the evaluator leaves an obligation incomplete (its
+budget of steps runs out), it stores a route note under that obligation's
+key, and while the key holds the package goes straight to the test binary
+with no evaluation. `TestStoredVerdictsAgree` (internal/sketchfront)
+holds the stored answers to a full evaluation under seeded edits. The
+stage report counts `obligations_stored` and `packages_routed`.
+
 ### A module of packages
 
 From a directory in a module, run `ergo test ./...` to select every package
