@@ -1,0 +1,40 @@
+// Package memory holds History, an app.Location in process: a browser's
+// address and its back history, with no browser.
+
+import fkroutes/app
+import sync
+
+// History is the addresses visited and the current one's place. Its
+// fields are shared handles, so every copy is the same history.
+type History { entries sync.Ref[[]string], at sync.Ref[int] }
+
+// NewHistory is a history at "/" with nothing behind it.
+func NewHistory() History { At("/") }
+
+// At is a history at path with nothing behind it.
+func At(path string) History {
+	History{entries: sync.NewRef[[]string]([]string{path}), at: sync.NewRef[int](0)}
+}
+
+// Here is the current address.
+func Here(h History) string { h.entries.Get()[h.at.Get()] }
+
+// Push drops the addresses ahead of the current one and goes to path.
+func Push(h History, path string) {
+	let at = h.at.Get()
+	h.entries.Set(h.entries.Get()[0 : at+1].Append(path))
+	h.at.Set(at + 1)
+}
+
+// Back goes to the address before the current one.
+func Back(h History) string fails app.AtStart {
+	let at = h.at.Get()
+	if at == 0 {
+		return app.AtStart
+	}
+	h.at.Set(at - 1)
+	h.entries.Get()[at-1]
+}
+
+// Depth is how many addresses are behind the current one.
+func Depth(h History) int { h.at.Get() }
