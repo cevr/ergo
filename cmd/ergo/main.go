@@ -280,8 +280,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics":
 		return opts, fmt.Errorf("--strict is only supported by diagnostics")
-	case opts.json && command != "diagnostics" && command != "run" && command != "test":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, run and test")
+	case opts.json && command != "diagnostics" && command != "run" && command != "test" && command != "inspect machine":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, run, test and inspect machine")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":

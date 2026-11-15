@@ -18,8 +18,9 @@ Draws the graph of each machine of the root package (runtime.md, Machines
 and actors 4 and 15): its states and signals, each arm of its step with
 the state and signal variants it takes and the decisions it can give
 (kind, target state, position), the timer and the work of each state, and
-the pairs a run can reach with the arm that steps each. --json prints the
-graphs as JSON, each with its reachable pairs.
+the pairs a run can reach with the arm that steps each. --json prints
+each machine's view as JSON: std code's MachineView, the graph and its
+reachable pairs (docs/spec/code.md).
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
@@ -202,8 +203,7 @@ func inspectMachineCommand(args []string) error {
 	if len(out) != 3 || out[0] != "0" {
 		return exitStatusError{code: 1, message: "inspect machine: " + strings.Join(out, " ")}
 	}
-	// With --json the answer is std code's []MachineView. (parseFileOptions
-	// refuses --json for inspect today, so only the text is reached.)
+	// With --json the answer is std code's []MachineView.
 	_, err = os.Stdout.WriteString(out[1])
 	return err
 }

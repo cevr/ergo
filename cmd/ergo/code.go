@@ -235,7 +235,12 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 				files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
 			}
 		}
-		if pkg := p.Partial; pkg != nil && pkg.Info != nil {
+		// A source text's root has its checked package and no partial one.
+		pkg := p.Partial
+		if pkg == nil {
+			pkg = p.Package
+		}
+		if pkg != nil && pkg.Info != nil {
 			t, _ := facts.Build(pkg, files)
 			addCodeRows(&cp, t, p.Path, syn)
 		}
