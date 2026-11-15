@@ -1509,6 +1509,15 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-o34-map-argument-order-unfixed",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tslices.SortFunc(keys, compareKeys)\n",
+      "to": "\n",
+      "rule": "The steps an obligation costs are the same on every run: rendering a Map argument sorts from one fixed order, not Go's map order.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o34-body-prefix-skipped",
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/compile.go",

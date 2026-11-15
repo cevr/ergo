@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,6 +94,10 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		mustCharge(in, fr, int64(len(m)))
 		keys := v.(mapV).b.keys()
 		b, basic := t.Key.(*check.Basic)
+		// The charged sort starts from one fixed order, so the comparisons
+		// it pays for do not depend on Go's map order (ORACLE O34: a law
+		// over a Map argument cost a different number of steps run to run).
+		slices.SortFunc(keys, compareKeys)
 		sort.Slice(keys, func(i, j int) bool {
 			mustCharge(in, fr, 1)
 			if basic && b.Kind != check.Bool && b.Kind != check.Complex64 && b.Kind != check.Complex128 {

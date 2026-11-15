@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -310,7 +311,17 @@ func equal(a, b Value, spend func(int64) bool) (eq, paid bool) {
 		if !spend(int64(len(a.b.m))) {
 			return false, false
 		}
-		for k, av := range a.b.m {
+		// In a fixed order of the keys, not Go's map order: the first
+		// entry that differs ends the comparison, so the steps it costs
+		// must not depend on Go's order (ORACLE O34: a law over a record
+		// holding a Map cost a different number of steps run to run).
+		keys := make([]Value, 0, len(a.b.m))
+		for k := range a.b.m {
+			keys = append(keys, k)
+		}
+		slices.SortFunc(keys, compareKeys)
+		for _, k := range keys {
+			av := a.b.m[k]
 			bw, ok := bv.b.m[k]
 			if !ok {
 				return false, true

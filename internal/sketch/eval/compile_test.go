@@ -25,7 +25,8 @@ import (
 // the main's streams, status and steps. In the full tier every example
 // package's obligations run both ways too. The seeds must make every form
 // compile.go has. A failing seed prints the source, both outcomes and the
-// replay command.
+// replay command. Every comparison is exact: the steps of an obligation
+// do not depend on Go's map order.
 //
 // It is TESTSPEED FT4's agreement property. Mutants only it kills
 // (testdata/mutants.json): ft-step-not-counted-in-fast-path and the
@@ -104,20 +105,8 @@ func TestPreparedEvalAgrees(t *testing.T) {
 			}
 			return rep
 		})
-		if reflect.DeepEqual(walk, fast) {
-			continue
-		}
-		// An obligation whose walk does not repeat itself reads the
-		// host (a law over the real environment or working directory):
-		// it is not compared.
-		eval.SetWalkOnly(true)
-		again, err := eval.Run(pkg, eval.DefaultBudget())
-		eval.SetWalkOnly(false)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		if d := reportDiff(walk.(eval.Report), fast.(eval.Report), again); d != "" {
-			t.Errorf("%s: the compiled forms and the walk differ:\n%s", dir, d)
+		if !reflect.DeepEqual(walk, fast) {
+			t.Errorf("%s: the compiled forms and the walk differ:\n%s", dir, reportDiff(walk.(eval.Report), fast.(eval.Report)))
 		}
 	}
 }
@@ -177,17 +166,14 @@ func examplePackages(t *testing.T) []string {
 }
 
 // reportDiff names the obligations whose results differ between the walk
-// and the compiled forms, of those whose second walk, again, repeats the
-// first; "" when none does.
-func reportDiff(walk, fast, again eval.Report) string {
+// and the compiled forms.
+func reportDiff(walk, fast eval.Report) string {
 	var b strings.Builder
-	if len(walk.Results) != len(fast.Results) || len(walk.Results) != len(again.Results) {
-		return fmt.Sprintf("%d results vs %d (again %d)", len(walk.Results), len(fast.Results), len(again.Results))
+	fmt.Fprintf(&b, "steps %d vs %d, bytes %d vs %d\n", walk.Steps, fast.Steps, walk.Bytes, fast.Bytes)
+	if len(walk.Results) != len(fast.Results) {
+		return fmt.Sprintf("%d results vs %d", len(walk.Results), len(fast.Results))
 	}
 	for i := range walk.Results {
-		if !reflect.DeepEqual(walk.Results[i], again.Results[i]) {
-			continue
-		}
 		if !reflect.DeepEqual(walk.Results[i], fast.Results[i]) {
 			fmt.Fprintf(&b, "walk:     %+v\ncompiled: %+v\n", walk.Results[i], fast.Results[i])
 		}
