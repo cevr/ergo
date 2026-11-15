@@ -28,6 +28,7 @@ import actor
 import fkboard/board
 import fkboard/drag
 import fkboard/kanban
+import fkboard/memory
 import fkboard/screen
 import io
 import queue
@@ -495,4 +496,152 @@ func keyName(k ui.Key) string {
 	case ui.NoKey:
 		"?"
 	}
+}
+
+// The screen's laws, on the test host with the host's layout.
+
+// PointerDropLandsWhereShown: on the screen of the default board, a drawn
+// card pressed at its middle, moved over a drawn spot (the upper or lower
+// half of a card of a drawn column, or the column below its cards) and
+// released lands where the pointer showed: while it is over the spot, the
+// column shows the drop placeholder before as many of its other cards as
+// the reference counts (the other cards above the spot's card, and one
+// more for its lower half; all of them below the cards); and after the
+// release the screen shows the reference board, the program saved it once,
+// and the live region says where the card was dropped.
+law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int where 0 <= to && to <= 2, spot int where 0 <= spot && spot <= 6, lower bool) {
+	let shelf = memory.NewShelf()
+	let m = time.NewManual(0)
+	with context { board.Store: shelf, Scheduler: m } {
+		lands(card, to, spot, lower, shelf, m)
+	}
+}
+
+// AMoveRunsNoCard: during a pointer drag of a drawn card on the default
+// board, a move from one drawn spot to another runs the body of no card:
+// the pass keeps every card (its Same) and writes only the columns and
+// the placeholder, however many cards there are.
+law AMoveRunsNoCard(card int where 1 <= card && card <= 17, a int where 0 <= a && a <= 2, b int where 0 <= b && b <= 2) {
+	let m = time.NewManual(0)
+	with context { board.Store: memory.NewShelf(), Scheduler: m } {
+		movesRunNoCard("card-\(card)", board.Defaults[a].ID, board.Defaults[b].ID, m)
+	}
+}
+
+func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs board.Store | Scheduler {
+	let mut h = Open(board.Defaults, m) catch {
+	case Unread:
+		return false
+	}
+	let mut ok = true
+	for line in []string{"press \(item)", "move \(a)", "move \(b)"} {
+		let _ = Play(&h, line, line) catch {
+		case Unread:
+			ok = false
+			[]string{}
+		}
+	}
+	let s = ui.StatsOf(&h.view)
+	Close(&h)
+	ok && s.Skipped == 17
+}
+
+func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Manual) bool needs board.Store | Scheduler {
+	let item = "card-\(card)"
+	let from = match board.Where(board.Defaults, item) {
+	case Some[board.Spot] as s:
+		s.Value
+	case None:
+		return false
+	}
+	let col = board.Defaults[to]
+	// The reference: the spot's line and where it drops.
+	let mut target = col.ID
+	let mut index = 0
+	for x in col.Cards {
+		if spot < len(col.Cards) && x.ID == col.Cards[spot].ID {
+			target = x.ID + if lower { " lower" } else { " upper" }
+			if x.ID != item && lower {
+				index = index + 1
+			}
+			break
+		}
+		if x.ID != item {
+			index = index + 1
+		}
+	}
+	let mut h = Open(board.Defaults, m) catch {
+	case Unread:
+		return false
+	}
+	let ok = dropped(&h, item, from, col, target, index, shelf)
+	Close(&h)
+	ok
+}
+
+func dropped(h *Host, item string, from board.Spot, col board.Column, target string, index int, shelf memory.Shelf) bool needs board.Store {
+	let _ = Play(h, "press \(item)", "press \(item)") catch {
+	case Unread:
+		return false
+	}
+	let _ = Play(h, "move \(target)", "move \(target)") catch {
+	case Unread:
+		return false
+	}
+	if placeholderAt(ui.Screen(&h.view), col.ID, item) != index {
+		return false
+	}
+	let _ = Play(h, "release", "release") catch {
+	case Unread:
+		return false
+	}
+	let want = board.Reorder(board.Defaults, item, from.Column, col.ID, index)
+	Board(h).Columns == want && Show(h) == lines(want) && memory.Saves(shelf) == 1 && Live(h) == "Dropped \(board.Title(board.Defaults, item)) in position \(index + 1) of \(col.Name)."
+}
+
+// lines is Show's lines for columns.
+func lines(columns []board.Column) []string {
+	let mut out = []string{}
+	for c in columns {
+		let mut ids = ""
+		for x in c.Cards {
+			ids = ids + " " + x.ID
+		}
+		out = out.Append("\(c.Name) (\(len(c.Cards))):" + ids)
+	}
+	out
+}
+
+// placeholderAt is how many of the column's cards other than item come
+// before the drop placeholder in its zone on the screen; -1 with no
+// placeholder there.
+func placeholderAt(shapes []ui.Shape[kanban.Signal], col string, item string) int {
+	for s in shapes {
+		match s.Node {
+		case ui.ZoneNode as z:
+			if z.Key == ui.ByText(col) {
+				let mut before = 0
+				for k in s.Kids {
+					match k.Node {
+					case ui.TextNode as t:
+						if t.Value == "(drop here)" {
+							return before
+						}
+					case ui.ZoneNode as c:
+						if c.Key != ui.ByText(item) {
+							before = before + 1
+						}
+					case _:
+					}
+				}
+				return -1
+			}
+		case _:
+		}
+		let at = placeholderAt(s.Kids, col, item)
+		if at != -1 {
+			return at
+		}
+	}
+	-1
 }
