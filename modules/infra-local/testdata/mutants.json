@@ -13,7 +13,7 @@
       "name": "ia2-delete-leaves-running", "origin": "wf10/domain IA2 (plan §7.5: Delete of a process leaves it running)",
       "file": "modules/infra-local/local/process.ergo",
       "from": "\t\tpr.spawner.Kill(r.Value.Detached, pr.grace)\n\t\ttry drop(pr.ledger, \"process\", id)\n",
-      "to": "\t\ttry drop(pr.ledger, \"process\", id)\n",
+      "to": "\t\tpr.spawner.Kill(exec.Detached{Pid: 0, Start: 0, Name: r.Value.Detached.Name}, pr.grace)\n\t\ttry drop(pr.ledger, \"process\", id)\n",
       "rule": "Delete ends the program's process group before it forgets the program: DeleteEndsTheProgram (Driver.DeleteIsIdempotent reads only the ledger, so it does not see this).",
       "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
     },
