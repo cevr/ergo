@@ -359,6 +359,50 @@ func TestLawRunLeastPackage(t *testing.T) {
 	}
 }
 
+// TestLawUnderAContextTakesTheOneRule: a run under a context takes its
+// cases by the one rule, its values being the law's parameters alone (the
+// context builds the provider): a law with none runs once and is proved,
+// one whose parameters can be listed takes every value, and one with an
+// int still draws 100 (types.md, Laws 10; mutants lawctx-noparams-draws,
+// lawctx-listed-draws). Before, each ran 100 cases, so a host law under a
+// test's ambient started its processes 100 times (WG1 r3). It builds Go
+// because the case count is the built test binary's report.
+func TestLawUnderAContextTakesTheOneRule(t *testing.T) {
+	needsBuild(t)
+	src := `type Shape {
+	Area() int,
+	law Positive() { Area() >= 0 },
+	law Signs(b bool) { if b { Area() >= 0 } else { -Area() <= 0 } },
+	law Scales(n int) { Area() * n == n * Area() },
+}
+
+type Sq { n int } implements Shape
+
+func Area(s Sq) int { s.n % 2 + 1 }
+
+let Live = context { Shape: Sq{n: 2} }
+
+func main() {}
+`
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawctx_onerule", src)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["lawctx_onerule"])
+	want := []string{
+		"ok law Shape.Positive for Sq (100 cases)",
+		"ok law Shape.Positive under Live (proved: 1 case)",
+		"ok law Shape.Signs for Sq (100 cases)",
+		"ok law Shape.Signs under Live (proved: all 2 cases)",
+		"ok law Shape.Scales for Sq (100 cases)",
+		"ok law Shape.Scales under Live (100 cases)",
+		"PASS (6 tests)",
+	}
+	if code != 0 || !slices.Equal(verdicts(stdout), want) {
+		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
+	}
+}
+
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
 // it as skipped, never as a test (fs4); so does a run under a context
 // whose build acquires a provider with a Close (L5; mutant
