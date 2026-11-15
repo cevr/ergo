@@ -34,7 +34,9 @@ func Screen(f *ui.Frame[desk.Signal], d desk.Desk) {
 			ui.Text(f, Empty)
 		}
 		ui.Each(f, d.Rows, func(r desk.Row) ui.Key { ui.ByInt(r.ID) }) func(r desk.Row) {
-			row(f, r)
+			ui.Same(f, SameKey(r)) {
+				row(f, r)
+			}
 		}
 	}
 }
@@ -57,6 +59,12 @@ func row(f *ui.Frame[desk.Signal], r desk.Row) {
 		}
 	}
 }
+
+// SameKey is all a row shows and sends: its id (which fixes its file and
+// size) and its transfer's state. A row's run and due time are the desk's
+// timing and are not shown, so a press runs only the rows whose state it
+// changed and keeps every other (UI HOT PATHS).
+func SameKey(r desk.Row) ui.Key { ui.ByText("\(r.ID)/\(transfer.Word(r.Transfer))") }
 
 // RowPrefix begins the name of each row's group; RowName is row id's.
 let RowPrefix = "Upload "

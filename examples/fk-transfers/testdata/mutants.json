@@ -104,6 +104,14 @@
       "to": "button(f, CancelLabel(r.ID), \"Restart\"",
       "rule": "A cancelled row's button is named Restart upload ID, as upstream's aria-label (case scenes, law ShapesAgree).",
       "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4c-same-key-drops-state", "origin": "wf10/fk4c",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "func SameKey(r desk.Row) ui.Key { ui.ByText(\"\\(r.ID)/\\(transfer.Word(r.Transfer))\") }",
+      "to": "func SameKey(r desk.Row) ui.Key { ui.ByText(\"\\(r.ID)\") }",
+      "rule": "A row's Same key holds all it shows: a row whose transfer changed runs again (cases, law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
     }
   ]
 }
