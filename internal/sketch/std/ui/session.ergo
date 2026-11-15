@@ -34,7 +34,7 @@ type Session[S, E, D, F] {
 // fetches; post gets each fetch's result as an Arrived event, on the
 // fetch's task, and a Committed when the actor commits a state by its own
 // work or timer (DOMAIN PX3a: a work's reply is shown), on the session's
-// watcher task, which reads a.Changes(): every state change redraws, as
+// watcher task, which reads a.LatestChanges(): every state change redraws, as
 // every Msg does in Elm, and a commit the loop's own signal made already
 // redraws through Step. The result is the first patch. The view may need
 // capabilities (H8b, Q16): Start's caller has them in force, and every

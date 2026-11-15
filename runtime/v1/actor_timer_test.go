@@ -70,7 +70,7 @@ func timerChain(delays []time.Duration) string {
 		func(*rt.Task, tdec) {}, 0)
 	defer func() { _ = a.Stop(root) }()
 	want := 0
-	for s := range a.Changes(root) {
+	for s := range a.Changes(root, everyState) {
 		if s.v != want {
 			return "entered state " + strconv.Itoa(s.v) + ", want " + strconv.Itoa(want)
 		}

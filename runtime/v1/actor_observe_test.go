@@ -24,6 +24,10 @@ import (
 // known state: a wait starts there, and a Stop or a Drain is called while
 // signals are queued behind it. Waits wait for events, never for time.
 
+// everyState is the room of a test's Changes loop that reads every state:
+// more than any test commits, so it never overflows.
+const everyState = 1 << 20
+
 // The signals of the observed machine: a hold waits in its step until the
 // test releases it, then ignores (oHold) or stays (oHoldStay, a state
 // written in the step a Stop or a Drain overtakes); oDone is Done and oFail
@@ -95,7 +99,8 @@ func ofold(stepped []int) (final []int, end string, last rdec, hasLast bool) {
 
 // oop is one operation of a case: "send" or "ask" e; "observe" with obs
 // "full", "lag" (reads its first state, then waits until the actor ended),
-// "latest" (lag's reads over LatestChanges) or "wait" (WaitFor len(s) >= k); or the end: "stop" or "drain" with the
+// "latest" (lag's reads over LatestChanges), "bounded" (lag's reads over
+// Changes with room 1+k%3) or "wait" (WaitFor len(s) >= k); or the end: "stop" or "drain" with the
 // signals q queued behind a held step, "done" or "fail".
 type oop struct {
 	kind, obs string
@@ -117,7 +122,7 @@ func genObserveCase(r *rand.Rand) ocase {
 		case 2:
 			c.ops = append(c.ops, oop{kind: "ask", e: r.Intn(40)})
 		default:
-			c.ops = append(c.ops, oop{kind: "observe", obs: []string{"full", "lag", "wait", "latest"}[r.Intn(4)], k: r.Intn(10)})
+			c.ops = append(c.ops, oop{kind: "observe", obs: []string{"full", "lag", "wait", "latest", "bounded"}[r.Intn(5)], k: r.Intn(10)})
 		}
 	}
 	end := oop{kind: []string{"stop", "drain", "stop", "drain", "done", "fail"}[r.Intn(6)]}
@@ -134,6 +139,7 @@ type oobs struct {
 	kind     string
 	k, start int
 	got      [][]int
+	missed   []int // the states dropped before each read
 	answer   []int
 	stopped  bool
 	done     chan struct{}
@@ -180,15 +186,26 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 			go func() {
 				defer close(ob.done)
 				w := rt.Root("observer")
-				seq := a.Changes(w)
-				if ob.kind == "latest" {
-					seq = a.LatestChanges(w)
+				room := everyState
+				if ob.kind == "bounded" {
+					room = 1 + ob.k%3
 				}
-				for s := range seq {
+				seq := a.Changes(w, room)
+				if ob.kind == "latest" {
+					seq = func(yield func([]int, int) bool) {
+						for s := range a.LatestChanges(w) {
+							if !yield(s, 0) {
+								return
+							}
+						}
+					}
+				}
+				for s, missed := range seq {
 					ob.got = append(ob.got, s)
+					ob.missed = append(ob.missed, missed)
 					if len(ob.got) == 1 {
 						close(ready)
-						if ob.kind == "lag" || ob.kind == "latest" {
+						if ob.kind == "lag" || ob.kind == "latest" || ob.kind == "bounded" {
 							<-lag
 						}
 					}
@@ -275,9 +292,9 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 	a.mu.Lock()
 	held := 0
 	for c := range a.subs {
-		if c.latest && len(c.buf) > 1 {
+		if len(c.buf) > c.room {
 			a.mu.Unlock()
-			return fmt.Sprintf("a latest subscription holds %d states", len(c.buf))
+			return fmt.Sprintf("a subscription of room %d holds %d states", c.room, len(c.buf))
 		}
 		held += len(c.buf)
 	}
@@ -291,15 +308,43 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 		// The observer reads final[:start], final[:start+1], … once each;
 		// a latest one, which lagged until the end, reads its start and
 		// then only the final state.
-		want := [][]int{}
-		for n := ob.start; n <= len(final); n++ {
+		// A bounded one, which lagged too, reads its start, then what its
+		// room kept: a commit that found it full dropped the unread states,
+		// and the first read after says how many (Overflowed).
+		want, wantMissed := [][]int{}, []int{}
+		if ob.kind == "bounded" {
+			room, kept, missed := 1+ob.k%3, []int{}, 0
+			for n := ob.start + 1; n <= len(final); n++ {
+				if len(kept) >= room {
+					missed += len(kept)
+					kept = kept[:0]
+				}
+				kept = append(kept, n)
+			}
+			want, wantMissed = append(want, final[:ob.start]), append(wantMissed, 0)
+			for i, n := range kept {
+				want = append(want, final[:n])
+				wantMissed = append(wantMissed, map[bool]int{true: missed}[i == 0])
+			}
+			if missed > 0 {
+				seen["a bounded observer overflowed"] = true
+			}
+			if !slices.Equal(ob.missed, wantMissed) {
+				return fmt.Sprintf("observer %d (bounded from %d): missed %v, want %v", i, ob.start, ob.missed, wantMissed)
+			}
+		}
+		for n := ob.start; ob.kind != "bounded" && n <= len(final); n++ {
 			if ob.kind == "latest" && n > ob.start && n < len(final) {
 				continue
 			}
 			want = append(want, final[:n])
+			wantMissed = append(wantMissed, 0)
 			if ob.kind == "wait" && n >= ob.k {
 				break
 			}
+		}
+		if !slices.Equal(ob.missed, wantMissed) {
+			return fmt.Sprintf("observer %d (%s from %d): missed %v, want %v", i, ob.kind, ob.start, ob.missed, wantMissed)
 		}
 		if ob.kind == "latest" && len(final)-ob.start >= 2 {
 			seen["a latest observer skipped states"] = true
@@ -358,7 +403,7 @@ func TestActorObserveAgreesWithFold(t *testing.T) {
 	r := rand.New(rand.NewSource(seed))
 	seen := map[string]bool{}
 	want := []string{"a drain stepped queued signals", "a stop dropped queued signals", "a stop overtook unread states",
-		"a wait ended Stopped", "a wait matched a state after its start", "three observers", "done", "fail", "a latest observer skipped states"}
+		"a wait ended Stopped", "a wait matched a state after its start", "three observers", "done", "fail", "a latest observer skipped states", "a bounded observer overflowed"}
 	n := 0
 	for ; n < 300 || slices.ContainsFunc(want, func(w string) bool { return !seen[w] }); n++ {
 		if n == 5000 {

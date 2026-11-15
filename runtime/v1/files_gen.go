@@ -9,7 +9,7 @@ package v1
 // learn a body's shape (CHK1).
 var bodyTable = map[string]bodyFact{
 	"Actor.Ask":                 {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "E"}}, Results: []string{"D", "error"}}},
-	"Actor.Changes":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[S]"}}},
+	"Actor.Changes":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "int"}}, Results: []string{"iter.Seq2[S, int]"}}},
 	"Actor.Drain":               {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"error"}}},
 	"Actor.Dropped":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Results: []string{"int"}}},
 	"Actor.Held":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Results: []string{"int"}}},
@@ -17,6 +17,7 @@ var bodyTable = map[string]bodyFact{
 	"Actor.Send":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "E"}}, Results: []string{"error"}}},
 	"Actor.State":               {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"S"}}},
 	"Actor.Stop":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"error"}}},
+	"ActorChanges":              {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}, {Name: "C", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "*Actor[S, E, D]"}, {Type: "int"}, {Type: "func(S) C", Func: &Body{Params: []Param{{Type: "S"}}, Results: []string{"C"}}}, {Type: "func(int) C", Func: &Body{Params: []Param{{Type: "int"}}, Results: []string{"C"}}}}, Results: []string{"iter.Seq[C]"}}},
 	"ActorChildDefect.String":   {body: Body{Results: []string{"string"}}},
 	"ActorDefectReason":         {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Params: []Param{{Type: "*Actor[S, E, D]"}}, Results: []string{"string"}}},
 	"ActorExitKind":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "*Actor[S, E, D]"}}, Results: []string{"int"}}},

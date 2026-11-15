@@ -47,23 +47,17 @@ type Actor[S, E, D, F] {
 	// Dropped is how many timer and work signals of ended entries the
 	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
-	// Changes is the actor's state when the loop begins, then each state
-	// it commits (Enter, Stay, Emit), in order, once each, whatever the
-	// number of loops; it ends after the actor ends and it gave every
-	// state committed before the end, also one a stop overtook. A break
-	// ends it. A loop that does not read keeps the states.
-	Changes() Seq[S],
-	// LatestChanges is Changes for a loop that wants the actor's current
-	// state, not its history: when the loop reads slower than the actor
-	// commits, it gets the latest state and skips the ones between, so it
-	// keeps at most one state however long it does not read (F-GP4c-1). It
-	// also begins with the state when the loop begins and gives the last
-	// state before it ends.
+	// LatestChanges is the actor's state when the loop begins, then its
+	// latest state each time the loop reads after a commit: a loop slower
+	// than the actor skips the states between, so it holds at most one
+	// state however long it does not read (F-GP4c-1). It ends after the
+	// actor ends and it gave the last state, also one a stop overtook. A
+	// break ends it. A loop that needs every state reads Changes(a, room).
 	LatestChanges() Seq[S],
-	// Held is how many committed states its Changes and LatestChanges
-	// loops hold and have not given yet, summed over its loops: a loop that
-	// stops reading grows it by one per commit under Changes, and keeps it
-	// at one under LatestChanges (the counter a growth guard reads).
+	// Held is how many committed states its loops (Changes, LatestChanges)
+	// hold and have not given yet, summed: a loop that stops reading keeps
+	// it at its room, never one per commit (the counter a growth guard
+	// reads).
 	Held() int,
 	// Drain closes admission, so later Sends and Asks fail Stopped, and
 	// waits until the actor has stepped every signal queued before it, in
@@ -83,26 +77,10 @@ type Actor[S, E, D, F] {
 		}
 		false
 	},
-	// ChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
-	// On a stopped actor it gives one value, its last state, so a yield
-	// that returns false at its k-th call (k of 1 or more) is called once.
-	law ChangesStops(k int) {
-		if k < 1 {
-			return true
-		}
-		Stop() catch {
-		case _:
-		}
-		let mut calls = 0
-		let s = Changes()
-		s(func(v S) bool {
-			calls = calls + 1
-			calls < k
-		})
-		calls == 1
-	},
-	// LatestChangesStops: LatestChanges is a Seq that stops, as Changes
-	// does: on a stopped actor it gives its last state once.
+	// LatestChangesStops: LatestChanges is a Seq that stops (stdlib.md,
+	// Std laws 5). On a stopped actor it gives one value, its last state,
+	// so a yield that returns false at its k-th call (k of 1 or more) is
+	// called once.
 	law LatestChangesStops(k int) {
 		if k < 1 {
 			return true
@@ -490,20 +468,61 @@ func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decis
 	machines.Can(step, s, e)
 }
 
+// Changed is a state the actor committed, in a Changes loop.
+type Changed[S] { State S }
+
+// Overflowed is the gap of a Changes loop that fell room states behind:
+// Missed is how many committed states it dropped, just before the next
+// Changed, which is the state that found it full.
+type Overflowed { Missed int }
+
+// Change is one step of a Changes loop.
+type Change[S] = Changed[S] | Overflowed
+
+// Changes is a's state when the loop begins, then each state it commits
+// (Enter, Stay, Emit), in order, once each, as Changed; it ends after the
+// actor ends and it gave every state committed before the end, also one a
+// stop overtook. It holds at most room states (1 for a room under 1): a
+// commit that finds room states unread drops them, and the loop reads an
+// Overflowed with their number before that commit's state, so a loop that
+// does not read holds room states, never one per commit (F-GP4c-1; owner,
+// 2026-11-15). A break ends it. A loop that wants only the current state
+// reads a.LatestChanges().
+func Changes[S, E, D, F](a Actor[S, E, D, F], room int) Seq[Change[S]] {
+	changesOf(a, room, changedOf[S], overflowedOf[S])
+}
+
+func changedOf[S](s S) Change[S] { Changed[S]{State: s} }
+
+func overflowedOf[S](n int) Change[S] { Overflowed{Missed: n} }
+
+// changesOf is the loop of Changes(a, room), built by changed and
+// overflowed.
+extern go ergo.local/prototype/runtime/v1.ActorChanges func changesOf[S, E, D, F, C](a Actor[S, E, D, F], room int, changed escaping func(s S) C, overflowed escaping func(n int) C) Seq[C]
+
+// waitRoom is the room of the loops of WaitFor and SendAndWait.
+func waitRoom() int { 256 }
+
 // Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
-// these is a loop over Changes, so it judges the state at its start, then
-// each committed state once, in order, and it releases its subscription
-// when it returns. No callback is registered with the actor and none runs
-// on its task.
+// these is a loop over Changes(a, waitRoom()), so it judges the state at
+// its start, then each committed state once, in order, and it releases
+// its subscription when it returns. A loop more than 256 states behind
+// the actor skips the states its Overflowed counts and judges the rest:
+// it holds 256 states at most, never one per commit. No callback is
+// registered with the actor and none runs on its task.
 
 // WaitFor is the first state that pred accepts: the state when the call
 // begins, then each state the actor commits after it, in order; a state
 // committed before the actor ended counts, also when a stop overtook it.
 // It fails Stopped when the actor ends with no such state.
 func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S fails Stopped needs R {
-	for s in a.Changes() {
-		if pred(s) {
-			return s
+	for c in Changes(a, waitRoom()) {
+		match c {
+		case Changed[S] as s:
+			if pred(s.State) {
+				return s.State
+			}
+		case Overflowed:
 		}
 	}
 	Stopped
@@ -517,13 +536,17 @@ func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S 
 // ends with no such state.
 func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool needs R) S fails Stopped needs R {
 	let mut sent = false
-	for s in a.Changes() {
+	for c in Changes(a, waitRoom()) {
 		if !sent {
 			sent = true
 			try a.Send(e)
 		}
-		if pred(s) {
-			return s
+		match c {
+		case Changed[S] as s:
+			if pred(s.State) {
+				return s.State
+			}
+		case Overflowed:
 		}
 	}
 	Stopped
@@ -597,7 +620,7 @@ func Latest[S, E, D, F](a Actor[S, E, D, F]) Option[D] {
 
 // Select is f of each state of changes, with each value equal (==) to
 // the one before it dropped: a view of one part of the state that changes
-// only when that part does. Select(a.Changes(), f) gives f of the state
+// only when that part does. Select(a.LatestChanges(), f) gives f of the state
 // at its start first.
 func Select[S, T comparable](changes Seq[S], f escaping func(s S) T) Seq[T] {
 	SelectBy(changes, f, func(x T, y T) bool { x == y })

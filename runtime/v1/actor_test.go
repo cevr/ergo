@@ -146,7 +146,7 @@ func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan stru
 	}
 	out := func(at *rt.Task, d tdec) {
 		var shown tstate
-		for s := range self.Changes(at) {
+		for s := range self.Changes(at, everyState) {
 			shown = s
 			break
 		}
@@ -763,7 +763,7 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 			{"Ask", func(w *rt.Task) { _, _ = a.Ask(w, 6) }},
 			{"State", func(w *rt.Task) { a.State(w) }},
 			{"Changes", func(w *rt.Task) {
-				for range a.Changes(w) {
+				for range a.Changes(w, everyState) {
 				}
 			}},
 		}
