@@ -64,15 +64,6 @@ func lineIn(k known, size float32) float32 {
 
 func fmax(a float32, b float32) float32 { if a > b { a } else { b } }
 
-// paragraphs are the runs of text's paragraphs, by line feed.
-func paragraphs(text string) [][]string {
-	let mut out = [][]string{}
-	for p in strings.Split(text, "\n") {
-		out = out.Append(strings.Fields(p))
-	}
-	out
-}
-
 // Widths is the widest paragraph set on one line, its runs one space
 // apart, and the widest run.
 func Widths(m Metrics, text string, size float32) layout.Intrinsic {
@@ -83,7 +74,8 @@ func widthsIn(k known, text string, size float32) layout.Intrinsic {
 	let space = widthIn(k, " ", size)
 	let mut most = float32(0)
 	let mut least = float32(0)
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
 		let mut line = float32(0)
 		for i, w in words {
 			let n = widthIn(k, w, size)
@@ -157,7 +149,8 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 	let space = widthIn(k, " ", size)
 	let mut out = []string{}
 	let mut any = false
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
 		let mut line = ""
 		let mut at = float32(0)
 		let mut open = false
@@ -213,7 +206,8 @@ func learn(m *Metrics, w go.Ref[screen.Window], text string, size float32) needs
 // of text (and a space) it has not measured.
 func unknown(k known, text string, size float32) (bool, []string) {
 	let mut missing = []string{}
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
 		for t in words.Append(" ") {
 			if k.runs.Get(run{text: t, size: size}) == None && !slices.Contains(missing, t) {
 				missing = missing.Append(t)
