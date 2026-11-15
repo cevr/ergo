@@ -17,7 +17,7 @@ import (
 // CodecByNamePair (a type with ParseX and Wire encodes as Wire's value and
 // decodes through ParseX, whose failure is in the row, both through
 // generic codecs, so the caller's witness carries the pair). The pair's
-// derived law hostRoundTrips (types.md, Codecs 7) runs here too; it checks
+// derived law HostRoundTrips (types.md, Codecs 7) runs here too; it checks
 // the pair, not the codec, so CodecByNamePair stays.
 const stdCodecLawsProbe = `import codec
 import utf8
@@ -161,20 +161,25 @@ test CodecUnknownTagFails(name string) {
 }
 
 type port int where 1 <= it && it <= 65535
-type listen { Port port, Hosts []host }
+type listen { Port port, Hosts []Host }
 
-// host has a by-name wire form: its text.
-type host { name string }
+// Host has a by-name wire form: its text.
+type Host { name string }
 type badHost { Text string }
 
-func parseHost(s string) host fails badHost {
+func ParseHost(s string) Host fails badHost {
 	if s == "" {
 		return badHost{Text: s}
 	}
-	host{name: s}
+	Host{name: s}
 }
 
-func Wire(h host) string { h.name }
+func Wire(h Host) string { h.name }
+
+// NewHost is Host's constructor, its own generator, so the pair's derived
+// law HostRoundTrips runs over the hosts it makes (types.md, Codecs 7):
+// never empty, as ParseHost requires.
+func NewHost(s string) Host { Host{name: "h" + s} }
 
 test CodecRefinedParses(n int64) {
 	let evs = []codec.Event{codec.IntEvent{V: n}}
@@ -197,10 +202,10 @@ func replayed[T wire](evs []codec.Event) T fails wired[T] {
 }
 
 test CodecByNamePair(names []string) {
-	let mut hosts = []host{}
+	let mut hosts = []Host{}
 	for s in names {
 		if s != "" {
-			hosts = hosts.Append(host{name: s})
+			hosts = hosts.Append(Host{name: s})
 		}
 	}
 	let v = listen{Port: 8080, Hosts: hosts}
@@ -255,6 +260,11 @@ func TestStdCodecLawsRun(t *testing.T) {
 		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(\d+ cases\))?$`).MatchString(stdout) {
 			t.Errorf("no ok line for %s:\n%s", name, stdout)
 		}
+	}
+	// The Host pair's derived law runs, not skips: NewHost is Host's own
+	// generator (types.md, Codecs 7; GX12).
+	if !regexp.MustCompile(`(?m)^ok law HostRoundTrips\b`).MatchString(stdout) {
+		t.Errorf("the pair's derived law HostRoundTrips did not run:\n%s", stdout)
 	}
 	lawledger.Run(t, laws)
 }

@@ -150,26 +150,31 @@ test JsonDepthLimits(k int) {
 }
 
 type port int where 1 <= it && it <= 65535
-type listen { Port port, Hosts []host, Spare Option[host] }
+type listen { Port port, Hosts []Host, Spare Option[Host] }
 
-// host has a by-name wire form: its text.
-type host { name string }
+// Host has a by-name wire form: its text.
+type Host { name string }
 type badHost { Text string }
 
-func parseHost(s string) host fails badHost {
+func ParseHost(s string) Host fails badHost {
 	if s == "" {
 		return badHost{Text: s}
 	}
-	host{name: s}
+	Host{name: s}
 }
 
-func Wire(h host) string { h.name }
+func Wire(h Host) string { h.name }
+
+// NewHost is Host's constructor, its own generator, so the pair's derived
+// law HostRoundTrips runs over the hosts it makes (types.md, Codecs 7):
+// never empty, as ParseHost requires.
+func NewHost(s string) Host { Host{name: "h" + s} }
 
 test JsonFastRefinedPair(names []string, p int) {
-	let mut hosts = []host{}
+	let mut hosts = []Host{}
 	for s in names {
 		if s != "" {
-			hosts = hosts.Append(host{name: s})
+			hosts = hosts.Append(Host{name: s})
 		}
 	}
 	let at = parsePort(if p < 1 { 1 } else if p > 65535 { 65535 } else { p }) catch {
@@ -177,7 +182,7 @@ test JsonFastRefinedPair(names []string, p int) {
 		assert false
 		return
 	}
-	let spare Option[host] = if len(hosts) > 0 { Some{Value: hosts[0]} } else { None }
+	let spare Option[Host] = if len(hosts) > 0 { Some{Value: hosts[0]} } else { None }
 	let v = listen{Port: at, Hosts: hosts, Spare: spare}
 	let c = json.Codec[listen]{MaxBytes: 0, MaxDepth: 0}
 	let text = json.Encode(c, v)
@@ -225,6 +230,11 @@ func TestStdJSONLawsRun(t *testing.T) {
 		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(\d+ cases\))?$`).MatchString(stdout) {
 			t.Errorf("no ok line for %s:\n%s", name, stdout)
 		}
+	}
+	// The Host pair's derived law runs, not skips: NewHost is Host's own
+	// generator (types.md, Codecs 7; GX12).
+	if !regexp.MustCompile(`(?m)^ok law HostRoundTrips\b`).MatchString(stdout) {
+		t.Errorf("the pair's derived law HostRoundTrips did not run:\n%s", stdout)
 	}
 	lawledger.Run(t, laws)
 }
