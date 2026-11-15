@@ -1,7 +1,7 @@
 // Package memory is a Shelf provider over catalogue texts held in memory,
 // for tests: a catalogue is named by a key.
 
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 
 // Texts holds the catalogues by name.
 type Texts { Catalogues Map[string, string] }

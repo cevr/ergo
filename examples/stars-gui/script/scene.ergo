@@ -15,8 +15,8 @@
 import actor
 import io
 import machines
-import stars/catalog
-import stars/screen
+import ergo.local/prototype/examples/starsgui/catalog
+import ergo.local/prototype/examples/starsgui/screen
 import strings
 import sync
 import time

@@ -1,1 +1,1 @@
-module stars
+module ergo.local/prototype/examples/starsgui

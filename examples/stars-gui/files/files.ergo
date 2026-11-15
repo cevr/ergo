@@ -2,7 +2,7 @@
 // the host's disk.
 
 import fs
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 
 // Disk reads catalogues from the host's files. Only New makes one.
 type Disk { host fs.Host }

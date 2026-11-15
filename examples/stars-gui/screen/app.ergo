@@ -4,7 +4,7 @@
 // virtual list (ui.Rows), so a pass writes the rows the viewport shows
 // and not the 100,000 rows of the catalogue.
 
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 import strings
 
 // Signal is what the view sends the app: a signal of the table (a key, a

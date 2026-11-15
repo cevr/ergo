@@ -1,4 +1,4 @@
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 import ui
 
 // RowHeight is the height of a row of the list.

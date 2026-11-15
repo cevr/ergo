@@ -5,7 +5,7 @@
 // text.
 
 import io
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 import strconv
 import strings
 

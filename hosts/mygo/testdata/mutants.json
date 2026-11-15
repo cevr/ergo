@@ -234,6 +234,60 @@
       "to": "if wind == 0 && i+1 < len(xs)",
       "rule": "a path's fill covers where its winding number is not zero",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GP1c-page-keys-unnamed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n",
+      "to": "",
+      "rule": "the window names the page keys, so a program's OnKey gets PageDown",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-keys-to-the-focused-button",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "if desktop.FocusId(d) == None {",
+      "to": "if true {",
+      "rule": "a key of the table's goes to the table, after a click on the list drops a button's focus",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-list-not-followed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "Offset: rh * ui.Length(float64(g.Top))",
+      "to": "Offset: rh * ui.Length(0.0)",
+      "rule": "the window's list scrolls to the table's window after each line",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-typed-without-the-field",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n",
+      "to": "",
+      "rule": "typed text goes into the field, which the window clicks first",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-control-list-not-followed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/controls/stars-gui/main.go",
+      "from": "\t\tp.list.ScrollTo(p.s.top, ui.Start)\n",
+      "to": "",
+      "rule": "the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-control-list-unbounded",
+      "origin": "GP1c",
+      "file": "hosts/mygo/controls/stars-gui/main.go",
+      "from": "}).Height(560)",
+      "to": "}).Grow(1)",
+      "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
+      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
     }
   ]
 }

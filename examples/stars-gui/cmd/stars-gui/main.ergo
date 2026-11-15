@@ -18,9 +18,9 @@ import io
 import os
 import rand
 import slices
-import stars/catalog
-import stars/files
-import stars/script
+import ergo.local/prototype/examples/starsgui/catalog
+import ergo.local/prototype/examples/starsgui/files
+import ergo.local/prototype/examples/starsgui/script
 import time
 import ui
 

@@ -137,6 +137,29 @@ widgets by design).
 control and holds their output equal, byte for byte, on 20 seeded scripts
 of 120 steps each (`-examples.seed=N` replays one).
 
+## The star table's window: `cmd/stars-gui` (GP1c)
+
+`examples/stars-gui` (module `ergo.local/prototype/examples/starsgui`) is
+required the same way. `cmd/stars-gui [-headless] [-rows H] CATALOG`
+shows its table, app and view on the desktop driver; its 100,000 rows are
+a `ui.Rows` list, so a pass writes only the rows the window's viewport
+shows. Headless, it plays the example's script lines as a person gives
+them: a key after a click on the list (so a focused button does not take
+Enter), a click on each button, a click on the field and the typed text,
+and after each line the wheel scrolls the list to the table's window.
+
+`controls/stars-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/stars-gui/control`, copied, with the window on MyGo's
+widgets and its rows in a `ui.List`. Headless, a line goes to the model
+and `ui.Tester` lays out and paints the window after it, scrolled to the
+table's window; at each `show` it writes a line for any row of the
+table's window the frame does not show.
+
+`TestStarsGuiOnTheDesktop` holds both to the example's own
+`stars-gui scene` (the view on `ui.TestHost`) on 24 seeded catalogues and
+scripts (`-stars.seed=N` replays one). The receipts per line, at 100,000
+rows, are in the run's `receipts/stars-gui-c/`.
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
