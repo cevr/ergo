@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -67,10 +68,22 @@ func (l *lowerer) wireValueDecode(tc *typeCtx, b *strings.Builder, t check.Type,
 	if fu := l.flatUnionOf(t); fu != nil {
 		flatBail(tc.site, fu)
 	}
-	b.WriteString("switch " + r + ".Peek(" + task + ").(type) {\n")
+	// The prelude's WireKind is a std union: flat (MSB3), Peek's kind is
+	// switched on by its tag, else by its type.
+	peek := r + ".Peek(" + task + ")"
+	kinds := l.flatUnionOf(check.PreludeType("WireKind"))
+	if kinds != nil {
+		b.WriteString("switch " + kinds.tagExpr(tc, peek) + " {\n")
+	} else {
+		b.WriteString("switch " + peek + ".(type) {\n")
+	}
 	for _, variant := range wireUnder(t).(*check.Union).Variants {
 		kind := check.WireVariantKind(variant)
-		b.WriteString("case " + tc.goType(check.PreludeType(kind)) + ":\n")
+		if kinds != nil {
+			b.WriteString("case " + strconv.Itoa(kinds.tagOf(check.PreludeType(kind))) + ":\n")
+		} else {
+			b.WriteString("case " + tc.goType(check.PreludeType(kind)) + ":\n")
+		}
 		if kind == "WireNull" {
 			b.WriteString(r + ".TakeNull(" + task + ")\nreturn " + tc.goType(variant) + "{}, nil\n")
 			continue

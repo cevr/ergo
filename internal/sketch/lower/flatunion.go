@@ -38,8 +38,9 @@ import (
 // The rule (flatUnionSet), decided once per program (union-repr.md, rule
 // G, steps 1, 2 and 6):
 //
-//  1. The union is declared in a package of the program's own source, it
-//     is not generic (genericunion.go has the rule of a generic union),
+//  1. The union is declared in a package of the program's own source or
+//     in a std package the program reaches (MSB3, unionPkgs), it is not
+//     generic (genericunion.go has the rule of a generic union),
 //     and no Go extern's signature names it. A machine's state and signal
 //     are unions like any other (MSB1): an enum state is a tag, a byte,
 //     and a state with fields a struct a step returns by value.
@@ -62,8 +63,7 @@ import (
 //     it, a union no call carries stays flat up to a memory bound (R3b,
 //     carry.go), and a machine's state and its signal stay flat at any
 //     size (MSB2, MSB3; carry.go's stateFlat). A field whose Go form the
-//     rule does not know (a Go type, a std type) keeps the union an
-//     interface.
+//     rule does not know (a Go type) keeps the union an interface.
 //
 // Steps 3 and 4 repeat until no union changes: a union that becomes an
 // interface changes the size of the unions that hold it.
@@ -391,7 +391,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	}
 	// A union a Go extern's signature names keeps its Go view.
 	extern := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, f := range l.canon.funcs(p) {
 			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
 				continue
@@ -408,7 +408,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	l.genericUnions(func(tn *check.TypeName) bool { return states[tn] || signals[tn] || extern[tn] || l.flatOff[tn] })
 	// Steps 1 and 2: the candidates.
 	var cands []*check.TypeName
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok || states[tn] || extern[tn] || l.flatOff[tn] {
@@ -473,6 +473,31 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 		l.niche = l.nicheAdmitted(opt.Obj)
 	}
 	return l.flatSet
+}
+
+// unionPkgs are the packages whose unions the rule decides (step 1): the
+// program's own and, from MSB3, every std package the program reaches.
+// A std union is lowered with the program, as its own are, so its form is
+// the program's choice too: a std function that returns one (tz.Resolve's
+// Resolved) or a table of field-less ones (civil's Pad, time's Month)
+// pays no box. The reference msb3Lowering "off" keeps std unions
+// interfaces, as before MSB3.
+func (l *lowerer) unionPkgs() []*check.Package {
+	ps := l.sourcedPkgs()
+	if msb3Lowering == "off" {
+		return ps
+	}
+	for _, p := range l.libraries() {
+		if p.Std() && !l.isSourced(p) {
+			ps = append(ps, p)
+		}
+	}
+	return ps
+}
+
+// unionPkg reports whether p is one of unionPkgs.
+func (l *lowerer) unionPkg(p *check.Package) bool {
+	return p != nil && (l.isSourced(p) || msb3Lowering != "off" && p.Std())
 }
 
 // optionCycle reports whether a record of the program holds itself by
@@ -629,7 +654,7 @@ func mentioned(t check.Type, out map[*check.TypeName]bool, seen map[check.Type]b
 // flatShape is the flat form of the union n by the rule's steps 1 and 2,
 // or nil when they keep it an interface (n not a union included).
 func (l *lowerer) flatShape(n *check.Named) *flatUnion {
-	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.isSourced(n.Obj.Pkg) {
+	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.unionPkg(n.Obj.Pkg) {
 		return nil
 	}
 	u, ok := n.Underlying().(*check.Union)
@@ -762,7 +787,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			return structLayout([]goLayout{{size: 1, align: 1, ssa: true}, s}), nil, true
 		case opt != nil && isOptionVariant(obj, opt.Obj):
 			// Some's record; None's is empty.
-		case !l.isSourced(obj.Pkg):
+		case !l.unionPkg(obj.Pkg):
 			return goLayout{}, nil, false
 		}
 		if d := u.Defined(); d != nil {

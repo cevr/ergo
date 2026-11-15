@@ -99,7 +99,7 @@ func (l *lowerer) carriedUnions() map[*check.TypeName]bool {
 		return l.carried
 	}
 	l.carried = map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() { // std's calls carry std's unions too
 		info := p.Info
 		for _, f := range p.Files() {
 			// called are the names a call calls, seen at the call before
