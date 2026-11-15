@@ -269,7 +269,9 @@ Decided: the same count decides, with two added classes for tables that live ins
 - Measured: 26 locals are aliases (85,264 instances), for example `paramMap:m` and `selfBinding:m`, which pass a type parameter substitution on. They need no table of their own.
 - Measured: 29 fields and 48 locals hold no entry on the corpus: error paths (`checker.intoInvalid`, `checker.refusedWheres`), traces (`checker.guardTrace`, `refWalker`'s trace sets), and code that no example reaches (`mentioner`, `keepWalk`). S3 sizes them from their code, not from this corpus.
 
-Known gaps: the peak is measured at the census points, so a delete, clear or reassignment outside a statement list (in a `for` header) is not a census point, and a map that shrinks there is under-counted. Distinct keys of a std object met in several modules count once, as in SL8. Instances count map values, not calls: a local that stays nil is not an instance. Two runs at this head give the same counts, except that the largest instance of `ValueRanks.Rank`'s two locals is 19 in one run and 18 in the other (inferred: the order of a Go map's iteration in the checker changes which walk reaches them first); the table gives the first run.
+Known gaps: the peak is measured at the census points, so a delete, clear or reassignment outside a statement list (in a `for` header) is not a census point, and a map that shrinks there is under-counted. Distinct keys of a std object met in several modules count once, as in SL8. Instances count map values, not calls: a local that stays nil is not an instance.
+
+Pinned order: one count moved between runs. The largest instance of `ValueRanks.Rank`'s two locals was 18 in one run and 19 in another, because `ungeneratableFrom` ranges over its `seen` set in Go map order, and that order decides which `Rank` call solves the largest open set. The census build visits that set in type-name order (`censusSortedNamed`, part of the uncommitted hook), and the table gives that order's value, 17. With the pin, three census runs at this head print byte-identical counts (`census.tsv`), and two runs print byte-identical SL8 walks (`dyn.tsv`, with ties in its object list sorted by name). No other count depends on map order on this corpus.
 
 Read by key / written / in a loop / deleted / len / passed are use sites in the source at this head, as in SL8's tables.
 
@@ -379,8 +381,8 @@ Read by key / written / in a loop / deleted / len / passed are use sites in the 
 | `*checker.selfCall:self` (expr.go:1386) | `*TypeParam` → `Type` | 1291 | 1291 | 1561 | 2 | 52 | 563 TypeParam | 9.2% | 1 / 0 / 0 / 0 / 0 / 3 | alias (another table's map) |
 | `*checker.contextSource:owners` (contextsum.go:108) | `*FuncDecl` → `*Named` | 267 | 0 | 1361 | 68 | 1361 | 3445 FuncDecl | 39.5% | 2 / 1 / 0 / 0 / 0 / 1 | Side |
 | `*checker.lawRuns:providers` (laws.go:462) | `*Named` → `[]LawProvider` | 267 | 0 | 1355 | 13 | 61 | 4203 Named | 1.5% | 1 / 1 / 0 / 0 / 0 / 1 | Side |
-| `*ValueRanks.Rank:cur` (tests.go:473) | `*Named` → `int` | 2139 | 0 | 1345 | 19 | 432 | 4203 Named | 10.3% | 4 / 2 / 0 / 0 / 0 / 2 | Scratch |
-| `*ValueRanks.Rank:inOpen` (tests.go:442) | `*Named` → `bool` | 2139 | 0 | 1345 | 19 | 432 | 4203 Named | 10.3% | 1 / 1 / 0 / 0 / 0 / 1 | Scratch |
+| `*ValueRanks.Rank:cur` (tests.go:473) | `*Named` → `int` | 2139 | 0 | 1345 | 17 | 432 | 4203 Named | 10.3% | 4 / 2 / 0 / 0 / 0 / 2 | Scratch |
+| `*ValueRanks.Rank:inOpen` (tests.go:442) | `*Named` → `bool` | 2139 | 0 | 1345 | 17 | 432 | 4203 Named | 10.3% | 1 / 1 / 0 / 0 / 0 / 1 | Scratch |
 | `*inferer.mentions:seen` (unify.go:53) | `*Named` → `bool` | 3496 | 0 | 1226 | 3 | 118 | 4203 Named | 2.8% | 1 / 1 / 0 / 0 / 0 / 1 | Scratch |
 | `*checker.checkRefinements:laws` (refine.go:411) | `*Field` → `bool` | 653 | 0 | 1219 | 35 | 1219 | 15014 Field | 8.1% | 1 / 1 / 0 / 0 / 0 / 1 | Scratch |
 | `*checker.checkInstantiationCycles:comp` (mono.go:226) | `*TypeParam` → `int` | 838 | 0 | 1045 | 123 | 373 | 563 TypeParam | 66.3% | 4 / 1 / 0 / 0 / 0 / 1 | Col, epoch-stamped (each key set 3 times) |
