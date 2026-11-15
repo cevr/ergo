@@ -31,7 +31,7 @@ A view reads one state, and the board of shape A is actors, not a state. So the 
   - from the work: `Timed` and `Arrived`.
 - The desk's work owns the time of the sending rows. Each entry's work gives each sending row that has no due time a due time: the clock's now plus the whole file (`Timed`). Then it sleeps until the first due time and sends that row's `Arrived`.
 - Every change of a transfer enters the desk again. The entry's end stops the work, and the next entry's work sleeps for the rows that still send. A cancelled row is not one of them, so its arrival never comes. As in shape A, a cancel is the end of a state; the due times are the rows' data, not a registry of work in flight.
-- A row's `ui.Load` that sleeps for the file would be the shorter form. It cannot run on the test host: `ui.Settle` waits for every fetch in flight, so a fetch that sleeps on the manual clock holds it forever (gap FK4-g1).
+- A row's `ui.Load` that sleeps for the file would be the shorter form. It cannot run on the test host: `ui.Settle` waits for every fetch in flight, so a fetch that sleeps on the manual clock holds it forever (gap FK4-g2).
 - Package `screen` is upstream's view:
   - the heading `File Uploads`;
   - `Upload a file`, and `Cancel all` while a transfer sends;
