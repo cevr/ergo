@@ -59,9 +59,11 @@ import (
 //     st-x1's X1b): a plain Get of a let mut Map written later, which
 //     main e02194103 also copied whole and V8 copies as the element read;
 //     kc (OWN1 arms round 1, keepCard's Bump): an entry of a Map behind a
-//     borrow replaced by keepCard(v.Value, k), whose result RU1 proves
-//     fresh (own-move) but whose argument, the entry the Get gave, is
-//     still copied whole at each step.
+//     borrow replaced by keepCard(v.Value, k) in Some's arm, which RU8's
+//     arm form of the entry move-out (moveout.go) hands the entry with no
+//     copy; gm and gs (LWR-ELEM-APPEND, D1's naive GroupBy): n values into
+//     16 groups grown in place, in a Map's entry (the arm form) and in an
+//     element of a [][]int (sameElem).
 //
 // A row marked red names the unit that turns it green: the test skips its
 // count (the build and the report's site still run) until that unit
@@ -167,7 +169,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
 		{"reuse-uc", reuse, 5000, "", shape("uc"), ""},
 		{"reuse-x1", reuse, 5000, "reuse.ergo:207:16 copy deep: ", shape("x1"), ""},
-		{"reuse-kc", reuse, 2000, "", shape("kc"), "RU8 (proposed: the entry move-out, V9, through a borrow; no unit of the REUSE plan owns it)"},
+		{"reuse-kc", reuse, 200000, "", shape("kc"), ""},
+		{"reuse-gm", reuse, 200000, "", shape("gm"), ""},
+		{"reuse-gs", reuse, 200000, "", shape("gs"), ""},
 	}
 	knownRed := os.Getenv("OWN_GROWTH_KNOWN_RED") == "1"
 	built := map[string]string{}

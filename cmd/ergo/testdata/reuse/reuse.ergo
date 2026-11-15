@@ -217,8 +217,9 @@ func x1(n int) int {
 // KC (OWN1 arms round 1, keepCard's Bump): an entry of a Map behind a
 // borrow, replaced by a function that takes its inner Map into a let mut
 // and returns an update of the entry. The base ..s is a parameter the
-// body does not own, so the result is not proved fresh: the inner Map is
-// copied at the bind and the result again at the store.
+// body does not own, so the result is not proved fresh: the inner Map was
+// copied at the bind and the result again at the store (RU0). RU1 removed
+// the second; RU8's arm form of the entry move-out hands v.Value over.
 type Card { items Map[int, int], name string }
 
 func keepCard(s Card, k int) Card {
@@ -247,6 +248,41 @@ func kc(n int) int {
 	case None:
 		0
 	}
+}
+
+// GM and GS (LWR-ELEM-APPEND, std-spike D1's naive GroupBy): n values
+// into 16 groups, each grown by an Append stored back: in a Map's entry
+// (the move-out's arm form) and in an element of a [][]int. Before RU8
+// each Append copied its group, so n values did O(n²/16) work.
+func gm(n int) int {
+	let mut m = Map[int, []int]{}
+	for i in 0..n {
+		let key = i % 16
+		match m.Get(key) {
+		case Some[[]int] as g:
+			m[key] = g.Value.Append(i)
+		case None:
+			m[key] = []int{i}
+		}
+	}
+	match m.Get(0) {
+	case Some[[]int] as g:
+		len(g.Value)
+	case None:
+		0
+	}
+}
+
+func gs(n int) int {
+	let mut groups = [][]int{}
+	for _ in 0..16 {
+		groups = groups.Append([]int{})
+	}
+	for i in 0..n {
+		let j = i % 16
+		groups[j] = groups[j].Append(i)
+	}
+	len(groups[0])
 }
 
 func main() fails os.Exit needs Console | Ambient {
@@ -278,6 +314,12 @@ func main() fails os.Exit needs Console | Ambient {
 	}
 	if shape == "kc" {
 		out = kc(n)
+	}
+	if shape == "gm" {
+		out = gm(n)
+	}
+	if shape == "gs" {
+		out = gs(n)
 	}
 	if out < 0 {
 		return os.Exit{Code: 2, Message: "unknown shape " + shape}
