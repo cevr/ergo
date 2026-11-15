@@ -39,20 +39,6 @@ const (
 	perfIOCDisable        = 0x2401
 )
 
-// Cost is the counted work of one command and its descendants.
-type Cost struct {
-	// Instructions are the user-space instructions retired by the
-	// command's process tree (perf_event_open, inherit), or -1 when the
-	// host exposes no hardware counter.
-	Instructions int64 `json:"instructions"`
-	// UserCPU and SysCPU are the rusage CPU times of the process tree
-	// (the waited-for descendants included).
-	UserCPU time.Duration `json:"user_cpu_ns"`
-	SysCPU  time.Duration `json:"sys_cpu_ns"`
-	// MaxRSS is the largest resident set of one process of the tree, KiB.
-	MaxRSS int64 `json:"max_rss_kib"`
-}
-
 // Measure runs cmd and counts its process tree's work. The counter is
 // opened on this process with inherit set and enabled just before the
 // start: it also counts this process's own threads while they wait, a
@@ -90,7 +76,7 @@ func MeasureBounded(cmd *exec.Cmd, limit uint64) (Cost, error) {
 		if ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
 			c.UserCPU = time.Duration(ru.Utime.Nano())
 			c.SysCPU = time.Duration(ru.Stime.Nano())
-			c.MaxRSS = ru.Maxrss
+			c.MaxRSS = int64(ru.Maxrss)
 		}
 	}
 	return c, err
