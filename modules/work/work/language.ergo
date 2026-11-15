@@ -4,7 +4,7 @@
 // between two snapshots by declaration and where a declaration is used;
 // a Checker (level 2) checks a snapshot with a layer of edited files over
 // it. work reads a language only through them: in process (the Ergo
-// provider, WG3b) or from a child process that speaks the wire of
+// provider, WG3b) or from a child process that speaks the protocol of
 // plugin.ergo. The laws are the admission test: work plugin-test runs
 // them against a plugin on the repository's own files.
 

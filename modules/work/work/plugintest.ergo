@@ -94,7 +94,7 @@ func PluginTest(t Tool, command string, o PluginTestOptions) PluginAdmitted fail
 
 // sample is the base's files that match one of patterns (every file
 // when there are none), at most max of them, spread over the sorted list.
-// A file that is not UTF-8 is left: the wire's JSON cannot carry it.
+// A file that is not UTF-8 is left: the protocol's JSON cannot carry it.
 func sample(t Tool, patterns []string, max int) Map[string, string] fails VcsFailed {
 	let all = try t.vcs.Read(t.base, try t.vcs.Snapshot(t.base))
 	let mut paths = []string{}

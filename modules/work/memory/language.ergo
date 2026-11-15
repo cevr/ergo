@@ -5,8 +5,8 @@
 // is a diagnostic, and a use of a name is the name as a word on a line
 // that is neither a header nor a comment. Serving is an exec.Runner that
 // answers a plugin's requests in process with work.Serve, so a Plugin
-// over it is the wire with no process: the contracts' laws run through
-// it (the context wire), and WireIsTransparent holds it to Lines itself.
+// over it is the plugin protocol with no process: the contracts' laws run
+// through it (the context overPlugin), and PluginIsTransparent holds it to Lines itself.
 
 import exec
 import fs
@@ -249,9 +249,9 @@ func Start(sv Serving, c exec.Command, st exec.Streams) exec.Running fails exec.
 	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): try sv.Run(c)}}.Start(c, st)
 }
 
-// wire binds the three contracts to the reference language through a
-// Plugin, so each contract law runs through the wire too.
-let wire = context {
+// overPlugin binds the three contracts to the reference language
+// through a Plugin, so each contract law runs through its protocol too.
+let overPlugin = context {
 	work.Splitter: work.PluginOf(NewServing(), "lines", "/"),
 	work.Indexer:  work.PluginOf(NewServing(), "lines", "/"),
 	work.Checker:  work.PluginOf(NewServing(), "lines", "/"),
@@ -280,11 +280,11 @@ func linesText(names []string, bodies []string) string {
 	out
 }
 
-// WireIsTransparent: a provider through a Plugin (the requests and the
+// PluginIsTransparent: a provider through a Plugin (the requests and the
 // answers as JSON lines, the way a child process gets and gives them)
 // answers every request as the provider in process does, failures and a
 // level-1 plugin's NotProvided included.
-law WireIsTransparent(names []string, bodies []string, extra []work.FileEdit, of string, note string, level1 bool) {
+law PluginIsTransparent(names []string, bodies []string, extra []work.FileEdit, of string, note string, level1 bool) {
 	let text = linesText(names, bodies)
 	let mut valid = utf8.ValidString(text) && utf8.ValidString(of) && utf8.ValidString(note)
 	for f in extra {

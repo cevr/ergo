@@ -918,7 +918,7 @@
       "file": "modules/work/work/plugin.ergo",
       "from": "\tcase SitesAre as s:\n\t\ts.Sites\n\tcase NotProvided as e:\n\t\te\n",
       "to": "\tcase SitesAre as s:\n\t\ts.Sites\n\tcase NotProvided:\n\t\t[]Site{}\n",
-      "rule": "A level-1 plugin asked for Sites fails NotProvided, never an empty list (memory's WireIsTransparent, level 1).",
+      "rule": "A level-1 plugin asked for Sites fails NotProvided, never an empty list (memory's PluginIsTransparent, level 1).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {

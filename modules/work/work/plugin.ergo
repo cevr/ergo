@@ -3,7 +3,7 @@
 // (a Request, its "_tag" naming the operation), and writes one Answer a
 // line on its standard output, in order, then ends with status 0. One
 // run may carry many requests, so a caller pays one start for a batch.
-// The wire is written by hand here; WG3b replaces it with the one SEM3's
+// The protocol is written by hand here; WG3b replaces it with the one SEM3's
 // generator writes from the three operation types.
 
 import exec
@@ -231,7 +231,7 @@ func Serve(stdin string, s Splitter, i Indexer, c Checker) string {
 
 // AnswerOf is the Answer of the providers to r: what Serve writes, and
 // what a provider in process and the same one through a plugin must both
-// give (memory's WireIsTransparent).
+// give (memory's PluginIsTransparent).
 func AnswerOf(r Request, s Splitter, i Indexer, c Checker) Answer {
 	match r {
 	case UnitsOf as u:

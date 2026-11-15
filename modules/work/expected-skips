@@ -32,8 +32,8 @@ skip law work.Hooks.ExitIsAFailure for Hooks: its values have no generator: exec
 skip law work.Lock.HoldExcludes for Lock: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost; a func NewLock() Lock with no rows would build one for each case
 # work.Plugin is a language plugin over an exec.Runner, which no
 # generator builds. The contracts' laws run through it in package memory,
-# under the context wire (a Plugin over memory.Serving, the wire with no
-# process), and WireIsTransparent holds it to the provider in process.
+# under the context overPlugin (a Plugin over memory.Serving: its
+# protocol with no process), and PluginIsTransparent holds it to the provider in process.
 skip law Splitter.UnitsAreTheFile for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewPlugin() Plugin with no rows would build one for each case
 skip law Splitter.KeysAreUnique for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewPlugin() Plugin with no rows would build one for each case
 skip law Splitter.EditStaysInItsUnit for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewPlugin() Plugin with no rows would build one for each case
