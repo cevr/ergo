@@ -11,17 +11,21 @@ import (
 )
 
 // The back-end concurrency of a compile (FT5b). A compile's -c runs its
-// back end on that many goroutines: it shortens one compile on an idle
-// host and costs CPU (FT5 receipt 2: -c=4 does 5 % to 14 % more work than
-// -c=1, -c=2 0.4 % to 8 %). So a compile takes
+// back end on that many goroutines: more shorten one compile on an idle
+// host, and cost CPU. On the IR path (the patched compile, -ergoir) -c=2
+// does the least work: a whole `ergo test --count 1` of three examples
+// costs 3.5 % to 6 % more instructions at -c=4, and as much or more at
+// -c=1, with release flags and with the dev profile alike (FT5b receipt,
+// irc.txt and irc-dev.txt). So a compile takes
 //
-//	-c = min(4, max(1, GOMAXPROCS / compiles in flight))
+//	-c = min(4, max(2, GOMAXPROCS / compiles in flight))
 //
 // counting every compile in flight on the host: those of this process and
 // those of every other ergo process with the same cache root. One compile
-// on an idle host keeps -c=min(4, GOMAXPROCS), cmd/go's own choice; when
-// as many compiles run as there are processors, each takes -c=1, and the
-// processors do the compiles instead of the back ends' extra work.
+// on an idle host of 4 or more processors keeps cmd/go's -c=4; when half
+// as many compiles run as there are processors, or more, each takes the
+// cheapest -c=2, and the processors do the compiles instead of the back
+// ends' extra work.
 //
 // A compile in flight is a slot: a file in Root/compiling that its compile
 // holds a flock on from before its name appears there until the compile
@@ -59,7 +63,7 @@ func compileSlot(root string) (c int, release func()) {
 // slotConcurrency is -c for a compile on procs processors with n compiles
 // in flight, itself among them.
 func slotConcurrency(procs, n int) int {
-	return min(4, max(1, procs/max(1, n)))
+	return min(4, max(2, procs/max(1, n)))
 }
 
 // takeSlot adds a locked slot file to dir and counts the live slots there,

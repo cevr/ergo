@@ -53,7 +53,7 @@ func TestCompileSlotConcurrency(t *testing.T) {
 	free := other()
 	check("two compiles on 4 processors", 2)
 	free2, free3 := other(), other()
-	check("four compiles on 4 processors", 1)
+	check("four compiles on 4 processors", 2)
 	free2()
 	free3()
 	free()
@@ -90,7 +90,7 @@ func TestCompileSlotConcurrency(t *testing.T) {
 	procs(16)
 	check("one compile on 16 processors", 4)
 	procs(1)
-	check("one compile on 1 processor", 1)
+	check("one compile on 1 processor", 2)
 
 	// With no root, the compiles of this process are counted.
 	procs(4)
