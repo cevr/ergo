@@ -52,11 +52,6 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		if fu := b.flatOf(t); fu != nil && (fu.niche || fu.generic) {
 			irNo("generic or declared-elsewhere type")
 		}
-		if fu := b.flatOf(t); fu != nil && fu.shared {
-			// U1's shared slots hold a variant's fields by Go type, not
-			// a record per variant: narrow reads a record slot only.
-			irNo("flat union with shared slots")
-		}
 		if b.admitted == nil {
 			b.admitted = map[*check.TypeName]bool{}
 		}
@@ -198,6 +193,14 @@ func (b *irBuilder) bareRecord(tn *check.TypeName, t check.Type, site syntax.Nod
 func (b *irBuilder) narrow(fu *flatUnion, s int, k int, p irPos, site syntax.Node) *irExpr {
 	if !fu.slot[k] {
 		return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
+	}
+	if fu.shared {
+		// U1's shared slots: the as method rebuilds the variant from its
+		// slots (sharedDecl), as flatNarrow reads it.
+		if len(fu.variants[k].Underlying().(*check.Struct).Fields) == 0 {
+			return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
+		}
+		return &irExpr{K: "mcall", Pos: p, Name: asName(k), X: &irExpr{K: "local", Pos: p, I: s}}
 	}
 	return &irExpr{K: "field", Pos: p, Name: slotName(k), X: &irExpr{K: "local", Pos: p, I: s}}
 }

@@ -710,12 +710,23 @@ func namesIdent(src, id string) bool {
 // packageVar lowers a let's, assigning the plan's variable.
 func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	x := td.machine.initial
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	sourced := l.isSourced(td.tn.Pkg)
+	if p := td.tn.Pkg; !sourced && p != nil && p.Info != nil {
+		// A std machine's initial value is lowered as a std let's
+		// (inStdPkg): its package's facts, no directive, its initializer
+		// located in std's tree, and no declaration-table entry.
+		saved, savedStd := l.info, l.stdLets
+		l.info, l.stdLets = p.Info, true
+		defer func() { l.info, l.stdLets = saved, savedStd }()
+	}
+	fc := newFuncCtx(l, newNamer(l.names), sourced)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	fc.owner = "machine " + td.tn.Name
 	fc.frame = newFrame(td.machine.state, false, false)
-	l.recordDecl(fc.owner, x)
+	if sourced {
+		l.recordDecl(fc.owner, x)
+	}
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
