@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -805,8 +806,8 @@ func (in *interp) compileRange(fr *frame, s *syntax.RangeStmt) fastStmt {
 	}
 }
 
-// compileRecord is the form of a record literal with no base (composite):
-// every field a value names, or its default.
+// compileRecord is the form of a record literal with no base (composite)
+// whose values name every field.
 func (in *interp) compileRecord(fr *frame, x *syntax.CompositeLit) fastExpr {
 	if x.Base != nil || fr.info.Works[x] != nil {
 		return nil
@@ -844,11 +845,8 @@ func (in *interp) compileRecord(fr *frame, x *syntax.CompositeLit) fastExpr {
 		idx[i], set[j] = j, true
 		vals[i] = in.operand(fr, v, in.fx(fr, v))
 	}
-	var unset []int
-	for i := range st.Fields {
-		if !set[i] {
-			unset = append(unset, i)
-		}
+	if slices.Contains(set, false) {
+		return nil // a field left out takes its default: walked
 	}
 	var at syntax.Node = x
 	hands := len(fr.info.PartHands) > 0
@@ -869,13 +867,6 @@ func (in *interp) compileRecord(fr *frame, x *syntax.CompositeLit) fastExpr {
 		}
 		if hands {
 			in.handParts(fr, x.Elts...)
-		}
-		for _, i := range unset {
-			z, ab := in.zero(fr, at, rtype{t: st.Fields[i].Type})
-			if ab != nil {
-				return nil, ab
-			}
-			out.fields[i] = z
 		}
 		return out, nil
 	}

@@ -1513,17 +1513,17 @@
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/compile.go",
       "from": "\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n\t\treturn v, ab",
-      "to": "\t\treturn v, ab",
+      "to": "\t\t_ = rel\n\t\treturn v, ab",
       "rule": "A compiled body releases its final statement's temporaries (R43).",
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
-      "name": "oracle-o34-record-default-missing",
+      "name": "oracle-o34-record-fields-free",
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/compile.go",
-      "from": "\t\tfor _, i := range unset {",
-      "to": "\t\tfor _, i := range unset[:0] {",
-      "rule": "A field a compiled record literal leaves out takes its default value.",
+      "from": "\t\tif ab := in.charge(fr, at, int64(nf)); ab != nil {",
+      "to": "\t\tif ab := in.charge(fr, at, 0); ab != nil {",
+      "rule": "A compiled record literal costs a step per field, as the walk's does.",
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
@@ -1533,7 +1533,7 @@
       "from": "\tfor _, i := range p.owned {",
       "to": "\tfor _, i := range p.owned[:0] {",
       "rule": "A parameter the callee's package owns is registered at the call, read from the callee's plan (R8).",
-      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
     },
     {
       "name": "oracle-o34-error-value-cached-across-owners",
@@ -1542,7 +1542,7 @@
       "from": "\tf, bit := in.fx(fr, x), uint8(1)<<fr.owner",
       "to": "\tf, bit := in.fx(fr, x), uint8(1)",
       "rule": "Whether a returned value is a failure depends on the frame's fact owner: an error type only a test's row names is a failure in a test body alone.",
-      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     }
   ]
 }
