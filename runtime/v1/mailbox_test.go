@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 
-	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -82,12 +82,25 @@ type diverged struct{}
 // Queue and the mailbox get the same operations. With want (the Queue's
 // log), it stops at the first line that differs: every wait it does next
 // is one the reference's line proves will end.
-func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string) (log []string) {
+func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string) {
 	r := rand.New(rand.NewSource(seed))
+	// root makes each task of the trace, so a trace that diverged can stop
+	// them all: with the box closed, the waits it left end, and its bubble
+	// ends with them.
+	var tasks []*rt.Task
+	root := func(name string) *rt.Task {
+		t := rt.Root(name)
+		tasks = append(tasks, t)
+		return t
+	}
 	defer func() {
 		if x := recover(); x != nil {
 			if _, ok := x.(diverged); !ok {
 				panic(x)
+			}
+			b.Close()
+			for _, t := range tasks {
+				t.Interrupt()
 			}
 		}
 	}()
@@ -106,28 +119,31 @@ func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string)
 	}
 	var waiting []*waiter // in the order they began
 	finished := make(chan string, 64)
-	// recv and settle wait at most until the test's deadline (testwait):
-	// the reference's line proves each wait ends at once, so a box that
-	// never ends one (a lost wake, a stop it ignores) says so and diverges
-	// instead of hanging.
+	// recv and settle read the box once every goroutine of the trace's
+	// bubble waits (synctest.Wait), an event and no deadline: the
+	// reference's line proves each wait ends at once, so a box that never
+	// ends one (a lost wake, a stop it ignores) says so at once and
+	// diverges instead of hanging.
 	recv := func(c <-chan string) string {
+		synctest.Wait()
 		select {
 		case s := <-c:
 			return s
-		case <-testwait.After(tw):
-			return "no end before the test's deadline"
+		default:
+			return "no end: every goroutine of the trace waits"
 		}
 	}
 	// push is a Push the reference admits at once (room, or a waiting
 	// take), run where it cannot hang the trace.
 	push := func(v int) string {
 		c := make(chan string, 1)
-		go func() { c <- fmt.Sprint(b.Push(rt.Root("p"), v)) }()
+		go func() { c <- fmt.Sprint(b.Push(root("p"), v)) }()
 		return recv(c)
 	}
 	settle := func(n int) {
-		if !testwait.Until(tw, func() bool { return b.waiters() == n }) {
-			say("%d parked, want %d", b.waiters(), n)
+		synctest.Wait()
+		if k := b.waiters(); k != n {
+			say("%d parked, want %d", k, n)
 		}
 	}
 	// finish waits for one waiting Push to return, whichever it is, and
@@ -149,7 +165,7 @@ func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string)
 	// bound taker, which waits on the box's wake token as the runner does,
 	// else a task that waits on its own stop.
 	newTaker := func() *rt.Task {
-		t := rt.Root("taker")
+		t := root("taker")
 		if r.Intn(2) == 0 {
 			b.bind(t)
 		}
@@ -159,7 +175,7 @@ func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string)
 	// after a Close). If the box parks it instead, it is stopped and its
 	// line says so, so a broken box diverges where it would hang.
 	noWait := func(op func(t *rt.Task) string) string {
-		t := rt.Root("after close")
+		t := root("after close")
 		got := make(chan string, 1)
 		go func() {
 			var s string
@@ -190,7 +206,7 @@ func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string)
 		case k <= 1 && !closed && (len(queued) == capacity || len(pending) > 0):
 			// A Push that waits for room.
 			next++
-			w := &waiter{v: next, task: rt.Root("w")}
+			w := &waiter{v: next, task: root("w")}
 			go func() {
 				var err error
 				if interrupted(func() { err = b.Push(w.task, w.v) }) {
@@ -310,6 +326,10 @@ func mailboxTrace(tw testwait.T, seed int64, capacity int, b box, want []string)
 // a take that waits (fed or stopped), a Close, the operations after it,
 // and Len and the line of waiting Pushes after each step. A failure prints
 // the seed and both logs; the mailbox's stops at its first difference.
+// Each trace runs in a synctest bubble, so each wait is read when every
+// goroutine of the trace waits: a box that loses a wake fails at once, not
+// at the test's deadline (a Push that ignored its stop held the package
+// for 564 s, EXPLORE-rt).
 func TestMailboxAgreesWithQueue(t *testing.T) {
 	seed := int64(1)
 	if s := os.Getenv("ERGO_ACTOR_SEED"); s != "" {
@@ -322,8 +342,11 @@ func TestMailboxAgreesWithQueue(t *testing.T) {
 	for i := range 300 {
 		caseSeed := seed*100003 + int64(i)
 		capacity := i % 10
-		want := mailboxTrace(t, caseSeed, capacity, queueBox{New[int](capacity)}, nil)
-		got := mailboxTrace(t, caseSeed, capacity, mailBox{newMailbox[int](capacity, false)}, want)
+		var want, got []string
+		synctest.Test(t, func(*testing.T) { want = mailboxTrace(caseSeed, capacity, queueBox{New[int](capacity)}, nil) })
+		synctest.Test(t, func(*testing.T) {
+			got = mailboxTrace(caseSeed, capacity, mailBox{newMailbox[int](capacity, false)}, want)
+		})
 		if !slices.Equal(got, want) {
 			t.Fatalf("seed %d, case %d (trace seed %d, capacity %d):\nmailbox:\n  %s\nQueue:\n  %s", seed, i, caseSeed, capacity,
 				strings.Join(got, "\n  "), strings.Join(want, "\n  "))

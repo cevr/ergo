@@ -128,7 +128,7 @@ func routerProgram(t *rt.Task) error {
 // schedule to the same failure. Each runner mutant of the runtime/v1
 // ledger, which changes how an entry keeps, stops or hears its children,
 // is found this way. It runs with the ergoexplore tag (the gate's
-// explored worker step). It runs the real runner because the laws are the
+// explored runtime/v1 step). It runs the real runner because the laws are the
 // runner's: no model of it would show the runner's own orders.
 //
 // ERGO_EXPLORE_PREEMPT=b searches the one bound b. ERGO_EXPLORE_MODE=pct

@@ -191,6 +191,17 @@
         "runtime/rt:TestTypeStringMatchesReflect"
       ]
     },
+    {
+      "name": "ert-abort-ignored",
+      "origin": "wf10 EXPLORE-rt r2",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\te.res.Stopped = why\n\te.release()\n\treturn true\n",
+      "to": "\te.res.Stopped = why\n\treturn true\n",
+      "rule": "AbortExplore ends the active explored run and frees the explorer, even when a task waits where the scheduler cannot see.",
+      "killers": [
+        "runtime/rt[ergoexplore]:TestExploreAbortReleasesTheRun"
+      ]
+    },
     {"name":"sb8-no-flush-wait","origin":"wf10 SB8","file":"runtime/rt/task.go","from":"\tif waitFlush.pending.Load() {\n\t\twaitFlush.flush()\n\t}\n","to":"","rule":"stdlib.md io 10: a task's wait of the runtime (Done) flushes held standard output.","killers":["runtime/v1:TestStdoutFlushModel"]},
     {
       "name": "pace-ignores-user-gogc",
