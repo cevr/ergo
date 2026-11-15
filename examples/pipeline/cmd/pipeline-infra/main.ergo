@@ -38,7 +38,7 @@ func main() fails os.Exit needs Ambient | Console {
 		case os.NoWorkdir:
 			return os.Exit{Code: 1, Message: "pipeline-infra: the working directory is gone"}
 		}
-		(setting("PIPELINE_HOME", cwd + "/.pipeline"), setting("PIPELINE_SERVER", "pipeline-server"), setting("PIPELINE_PORT", "8787"), os.Process.Args())
+		(setting("PIPELINE_HOME", cwd+"/.pipeline"), setting("PIPELINE_SERVER", "pipeline-server"), setting("PIPELINE_PORT", "8787"), os.Process.Args())
 	}
 	let port = strconv.Atoi(portText) catch {
 	case strconv.Malformed, strconv.OutOfRange:
@@ -52,13 +52,13 @@ func main() fails os.Exit needs Ambient | Console {
 		Place: func(stage string) deploy.Place {
 			let base = home + "/" + stage
 			deploy.Place{
-				Dirs:        local.DirsOn(host, host, base, base + "/.infra/dirs"),
-				Files:       local.FilesOn(host, host, base, base + "/.infra/files"),
-				Programs:    local.ProgramsOn(host, host, spawner, func(url string) bool { checks.Ready(url) }, base, base + "/.infra/programs", 5s),
-				DirRows:     local.DirRowsOn(host, host, base + "/.infra/rows/dir"),
-				FileRows:    local.FileRowsOn(host, host, base + "/.infra/rows/file"),
-				ProcessRows: local.ProcessRowsOn(host, host, base + "/.infra/rows/process"),
-				Lock:        local.LockOn(host, host, home + "/" + stage + ".lock"),
+				Dirs:        local.DirsOn(host, host, base, base+"/.infra/dirs"),
+				Files:       local.FilesOn(host, host, base, base+"/.infra/files"),
+				Programs:    local.ProgramsOn(host, host, spawner, func(url string) bool { checks.Ready(url) }, base, base+"/.infra/programs", 5s),
+				DirRows:     local.DirRowsOn(host, host, base+"/.infra/rows/dir"),
+				FileRows:    local.FileRowsOn(host, host, base+"/.infra/rows/file"),
+				ProcessRows: local.ProcessRowsOn(host, host, base+"/.infra/rows/process"),
+				Lock:        local.LockOn(host, host, home+"/"+stage+".lock"),
 			}
 		},
 		Want:    func(stage string) deploy.Want { deploy.Want{Stage: stage, Program: program, Port: port} },

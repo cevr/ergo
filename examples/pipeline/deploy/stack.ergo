@@ -98,13 +98,13 @@ func stagesIn(m memory, port int) Stages {
 		Place: func(stage string) Place {
 			let base = "/srv/" + stage
 			Place{
-				Dirs:        local.DirsOn(d, d, base, base + "/.infra/dirs"),
-				Files:       local.FilesOn(d, d, base, base + "/.infra/files"),
-				Programs:    local.ProgramsOn(d, d, m.spawner, local.Up, base, base + "/.infra/programs", 0s),
-				DirRows:     local.DirRowsOn(d, d, base + "/.infra/rows/dir"),
-				FileRows:    local.FileRowsOn(d, d, base + "/.infra/rows/file"),
-				ProcessRows: local.ProcessRowsOn(d, d, base + "/.infra/rows/process"),
-				Lock:        local.LockOn(d, d, "/srv/" + stage + ".lock"),
+				Dirs:        local.DirsOn(d, d, base, base+"/.infra/dirs"),
+				Files:       local.FilesOn(d, d, base, base+"/.infra/files"),
+				Programs:    local.ProgramsOn(d, d, m.spawner, local.Up, base, base+"/.infra/programs", 0s),
+				DirRows:     local.DirRowsOn(d, d, base+"/.infra/rows/dir"),
+				FileRows:    local.FileRowsOn(d, d, base+"/.infra/rows/file"),
+				ProcessRows: local.ProcessRowsOn(d, d, base+"/.infra/rows/process"),
+				Lock:        local.LockOn(d, d, "/srv/"+stage+".lock"),
 			}
 		},
 		Want:    func(stage string) Want { Want{Stage: stage, Program: "server", Port: port} },
