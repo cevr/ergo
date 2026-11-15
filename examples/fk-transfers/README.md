@@ -1,6 +1,6 @@
 # fk-transfers
 
-File transfers that a user starts, cancels one at a time or all at once, and restarts. It is a port of Foldkit's `interrupting-commands` example (`conformance/upstream/foldkit-d21db423/examples/interrupting-commands`, MIT), stage a of FK4: the model, with no view yet. The domain is file transfers, with neutral file names. The program runs a script of timed presses on a manual clock and shows the board after each one.
+File transfers that a user starts, cancels one at a time or all at once, and restarts. It is a port of Foldkit's `interrupting-commands` example (`conformance/upstream/foldkit-d21db423/examples/interrupting-commands`, MIT), stage b of FK4: the model and its view, on std ui's test host. The domain is file transfers, with neutral file names. The program runs a script of timed presses on a manual clock, clicks each press's button on the screen, and shows the screen after each one.
 
 Tag: `default`.
 
@@ -22,19 +22,40 @@ Two things the port found:
 
 A press at the very instant a transfer would arrive comes after the arrival. The live board moves the clock to the press's time first, so timers due by then have fired, and shape B's registry does the same (case `tie`). In `machines.RunTimed` the order is the other way: a signal at a timer's instant is stepped first (transfer law `ArrivesAfterTheWholeFile`).
 
+## The view
+
+A view reads one state, and the board of shape A is actors, not a state. So the view has its own model of the board:
+
+- Package `desk` is the board as one machine, `Desks`. Its rows each hold a `transfer.Transfer`, stepped by `transfer.Step` as a parent steps pure children. The signals are:
+  - from the view: `Begin`, `At{ID, Sig}` (a transfer's own `Cancel` or `Restart`) and `CancelEvery`;
+  - from the work: `Timed` and `Arrived`.
+- The desk's work owns the time of the sending rows. Each entry's work gives each sending row that has no due time a due time: the clock's now plus the whole file (`Timed`). Then it sleeps until the first due time and sends that row's `Arrived`.
+- Every change of a transfer enters the desk again. The entry's end stops the work, and the next entry's work sleeps for the rows that still send. A cancelled row is not one of them, so its arrival never comes. As in shape A, a cancel is the end of a state; the due times are the rows' data, not a registry of work in flight.
+- A row's `ui.Load` that sleeps for the file would be the shorter form. It cannot run on the test host: `ui.Settle` waits for every fetch in flight, so a fetch that sleeps on the manual clock holds it forever (gap FK4-g1).
+- Package `screen` is upstream's view:
+  - the heading `File Uploads`;
+  - `Upload a file`, and `Cancel all` while a transfer sends;
+  - the line `Nothing here yet. Start an upload.` while there is no transfer;
+  - each transfer as a group `Upload ID` with its file, its size, its status (`Uploading`, `Done`, `Cancelled`) and its button (`Cancel upload ID` or `Restart upload ID`, upstream's aria-labels).
+- `script/host.ergo` plays the script on `ui.NewTestHost`. For each line it moves the clock and settles, clicks the line's button by role and name, and reads the screen. A press whose button is not on the screen clicks nothing, as on upstream's screen.
+- `ShapesAgree` now holds three forms equal: the screen's rows, read back to shape A's words, after every press. So the cases print the screen, and the live board and the registry stay held by the law.
+
 ## Upstream tests
 
-Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files. The four scene tests are the case `scenes`.
 
 ## Laws
 
 - `transfer`: `CancelledNeverBecomesDone` (no signal takes a cancelled transfer to sent; only a restart leaves cancelled), `RestartOnlyFromCancelled`, and `ArrivesAfterTheWholeFile` (timed runs: a transfer arrives at its whole file's time unless it is cancelled before).
-- `script`: `ShapesAgree` (above), `CancelAllLeavesNoneRunning` (right after a cancel all, no transfer of the live board sends) and `IdsNeverReused` (ids are 0, 1, 2, … in the order of the starts, and a restart keeps its id).
+- `script`: `ShapesAgree` (above: shape A, shape B and the screen), `CancelAllLeavesNoneRunning` (right after a cancel all, no transfer of the live board sends) and `IdsNeverReused` (ids are 0, 1, 2, … in the order of the starts, and a restart keeps its id).
 
 The mutants these kill are in `testdata/mutants.json`.
 
 ## Cases
 
+Each case prints the screen: `@MS WHAT`, the line above the list, and `ID NAME WORD [BUTTON]` per transfer. `-stats` also prints the work of each press (`ui.Counts`).
+
 - `transfers`: three transfers, a cancel and a restart, a cancel of a sent transfer, cancel all with one already sent, a restart while sending (ignored), a cancel of an id with no transfer, and every transfer at the end.
 - `tie`: a cancel at the very time the transfer arrives; the arrival comes first.
+- `scenes`: upstream's four scene tests, in order on one screen.
 - `badscript`: `cancel` with no id; the program says which line and exits 1.
