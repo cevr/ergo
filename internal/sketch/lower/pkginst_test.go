@@ -20,8 +20,9 @@ import (
 // the split's own reading of the syntax:
 //
 //   - each package's shared list is exactly the instances it names outside
-//     a generic declaration that another package names too and that the
-//     instance package can name (every type
+//     a generic declaration that another package names too (any package,
+//     with shards; never the root alone) and that the instance package can
+//     name (every type
 //     argument a predeclared type, a non-alias type of a package other than
 //     the root, or a pointer, slice or map of such), each spelled as Go's
 //     compiler spells it (types.LinkString), so the patched compile meets
@@ -88,11 +89,19 @@ func checkSharedLists(t *testing.T, where string, files []File) int {
 			users[k]++
 		}
 	}
+	// Two packages must name an instance in a split, one with shards (the
+	// edit loop); the root alone never shares one.
+	least := 2
+	for dir := range named {
+		if strings.HasPrefix(dir, shardDir+"/") {
+			least = 1
+		}
+	}
 	union := map[string]bool{}
 	for dir := range named {
 		var want []string
 		for k := range named[dir] {
-			if users[k] >= 2 {
+			if users[k] >= least && !(users[k] == 1 && named["."][k]) {
 				want = append(want, k)
 			}
 		}

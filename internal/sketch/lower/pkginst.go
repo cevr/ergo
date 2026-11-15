@@ -26,13 +26,12 @@ import (
 // body (design.md: no frontend monomorphization, no copied bodies); the
 // split only chooses which package compiles each instance.
 //
-// An instance is shared when two or more packages name it (one that only
-// one package names gains nothing from moving) and inst can name it: a
-// generic type or function of main.go with every type argument written
-// out, each a predeclared type or a type of main.go (no alias, no type
-// parameter) or a pointer, slice or map of such. Only the root names
-// what is placed in the root, which no package imports, so no shared
-// instance needs it. An instance in a generic declaration's body is not
+// An instance is shared when a package other than the root names it, two
+// or more packages name it unless the program is cut into shards (shared,
+// minUsers), and inst can name it: a generic type or function of main.go
+// with every type argument written out, each a predeclared type or a type
+// of main.go (no alias, no type parameter) or a pointer, slice or map of
+// such. An instance in a generic declaration's body is not
 // listed: Go compiles that body only where it is instantiated, which the
 // list of the body's own instance covers. A listed instance its package
 // never names is a compile error, so the list cannot drift from the code.
@@ -308,12 +307,19 @@ func (w *instWriter) lists(insts []splitInst, uses map[int]bool) (map[int][]stri
 	return lists, b.String(), len(decl)
 }
 
-// shared keeps the instances that two or more packages name, and returns
-// them with the package-scope names they use. An instance one package
-// names stays in that package: the instance package would compile it as
-// often, and every package still checks what it names, so moving it only
-// adds the instance package's reading of it to a cold build.
-func (s *splitInsts) shared(insts []splitInst, plan *splitPlan, base string) ([]splitInst, map[string]bool) {
+// shared keeps the instances that minUsers packages or more name, one of
+// them not the root, and returns them with the package-scope names they
+// use. Only the root names a declaration placed in the root, which no
+// package imports, so inst never needs one.
+//
+// minUsers is 2 for a split without shards: an instance one package names
+// costs a cold build as much in inst as in that package, and the package
+// still reads and checks it, so moving it costs the cold build (the first
+// test build of a program, lowerAuto) inst's reading of it. It is 1 with
+// shards, the edit loop: an edit compiles one shard again, with every
+// instance it would compile itself, and inst keeps them compiled
+// (docs/receipts/compile-speed.md, "Shared instances").
+func (s *splitInsts) shared(insts []splitInst, plan *splitPlan, base string, minUsers int) ([]splitInst, map[string]bool) {
 	w := &instWriter{s: s, plan: plan, base: base}
 	pkgs := map[string]map[int]bool{}
 	for _, in := range insts {
@@ -326,7 +332,7 @@ func (s *splitInsts) shared(insts []splitInst, plan *splitPlan, base string) ([]
 	var out []splitInst
 	names := map[string]bool{}
 	for _, in := range insts {
-		if len(pkgs[w.key(in.x)]) < 2 {
+		if ps := pkgs[w.key(in.x)]; len(ps) < minUsers || len(ps) == 1 && ps[1] {
 			continue
 		}
 		out = append(out, in)
@@ -338,6 +344,15 @@ func (s *splitInsts) shared(insts []splitInst, plan *splitPlan, base string) ([]
 		})
 	}
 	return out, names
+}
+
+// minUsers is shared's least number of packages that name an instance,
+// for a module with shards shards.
+func minUsers(shards int) int {
+	if shards > 0 {
+		return 1
+	}
+	return 2
 }
 
 // isType reports whether gen names a type.
