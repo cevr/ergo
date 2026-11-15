@@ -18,6 +18,6 @@ func main() fails os.Exit needs Console | Ambient {
 	let host = fs.NewHost()
 	let status = with context { io.Stdin: io.NewStdin(), board.Store: file.NewSheet(host, host) } { script.Run() }
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-board: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-board: the script did not run"}
 	}
 }
