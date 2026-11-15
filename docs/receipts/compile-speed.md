@@ -301,3 +301,22 @@ Second cut, at `2f9663cb0` (load 45 to 46): a shard's cost counts the generic de
 - Not done: emitting each instantiation once, in the generic's own shard, would remove the duplicated cost; that is the monomorphization work (MONO1), not a shard cut.
 - The receipt compiles without the inliner (`-l`, FT5's dev profile), so a body never enters export data and no importer of the edited shard compiles again. Until FT5 lands, a body small enough for Go's inliner compiles its importers too (see "Direct path").
 - The script and the raw log are the wf10 run's `test-speed/FT9a/receipt/`.
+
+## Shared instances
+
+MONO-SHARED (`internal/sketch/lower/pkginst.go`, the patched compile's `noder/ergoshared.go`) compiles each shared generic instance once, in package `inst`, where before each package or shard that named it compiled it again ([tooling](../tooling.md#package-split)). This was measured on 2026-11-15 at `6980a712d` on the workbox, with the `deps/graph` and `deps/resolve` test modules that `ergo test` writes, each built twice with the patched compile (go1.27.4): once with the shared lists and once with them stripped. The stripped build is the reference, Go's own rule, and its total leaves `inst` out. The figures are compile instructions in millions, the median of 5 runs. The load was 62 to 78; instruction counts do not track load as times do. The two `deps/graph` split builds share nothing, so they are the same build twice, and the 1.8 % between them is the noise. With shards every non-root user shares; in a split, only an instance two packages name.
+
+| Program, profile | Costliest shard, an edit's cost (M): Go's rule / shared | Clean, all program packages with `inst` (M): Go's rule / shared | `inst` (M) |
+| --- | ---: | ---: | ---: |
+| `deps/graph` shards, inliner on (`ergo test`) | 1,694 / 610 (−64 %) | 4,591 / 4,148 (−10 %) | 1,804 |
+| `deps/resolve` shards, inliner on | 1,369 / 904 (−34 %) | 7,123 / 7,145 (+0.3 %) | 1,030 |
+| `deps/graph` shards, `-l` | 921 / 707 (−23 %) | 3,118 / 3,861 (+24 %) | 1,758 |
+| `deps/resolve` shards, `-l` | 853 / 610 (−28 %) | 4,947 / 5,246 (+6 %) | 982 |
+| `deps/resolve` split, inliner on | (root) 3,104 / 2,625 | 4,356 / 4,168 (−4 %) | 764 |
+| `deps/resolve` split, `-l` | (root) 2,002 / 1,803 | 2,943 / 3,270 (+11 %) | 787 |
+
+- Measured: an edit in the costliest shard now costs 23 % (graph) and 29 % (resolve) of the split's root compile with the inliner on. Before, it cost 63 % and 44 %, which missed FT9's 40 % bound. With `-l` it costs 41 % and 30 %, against 53 % and 43 % before.
+- Measured: sharing every instance in a split made both clean builds dearer with `-l`, since `inst` reads and compiles what one package would have compiled anyway (`matrix-1.log`: graph 1,664 → 1,791, resolve 2,933 → 3,433). The split now shares only an instance two packages name (`minUsers`). That leaves the `deps/graph` split unchanged and the `deps/resolve` split 4 % cheaper with the inliner on.
+- A sharded clean build is still +52 % (graph) and +64 % (resolve) over the split with the inliner on, so it misses FT9's cold bound of +25 %. `lowerAuto` therefore keeps the first test build of a program unsharded.
+- Not done: `cutShards` still adds a shard's instantiations to its cost, although `inst` now compiles them. The cuts measured above were made under that cost model.
+- The scripts and raw logs are the wf10 run's `dod/mono-shared/receipt/`.

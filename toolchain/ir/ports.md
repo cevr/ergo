@@ -18,6 +18,6 @@ A port that passes adds the line `port <release> <patch>` to `lock`: ergo builds
 
 | Go | conflicts | patch lines | files | export format | noder tests | stock equivalence | agreement tests |
 |---|---|---:|---|---|---|---|---|
-| go1.27.4 (2026-11-12, IRT0b; the pin) | 0 of 10 hunks rejected | 1960 | 10: base/flag.go, noder/ergoir.go, noder/ergoir_call.go, noder/ergoir_expr.go, noder/ergoir_fail.go, noder/ergoir_stmt.go, noder/ergoir_text.go, noder/ergoir_text_shape.go, noder/ergoir_types.go, noder/unified.go | pkgbits V5 | ok | 55 of 55 examples | the full tier's IR tests (IRT0b r2) |
+| go1.27.4 (2026-11-15, MONO-SHARED; the pin) | 0 of 19 hunks rejected | 2157 | 13: base/flag.go, gc/compile.go, noder/ergoir.go, noder/ergoir_call.go, noder/ergoir_expr.go, noder/ergoir_fail.go, noder/ergoir_stmt.go, noder/ergoir_text.go, noder/ergoir_text_shape.go, noder/ergoir_types.go, noder/ergoshared.go, noder/reader.go, noder/unified.go | pkgbits V5 | ok | 54 of 54 examples | irspike TestIRMatchesSource, TestIRAgreesOnExamples, TestIRBodyThatDoesNotCheck: ok (MONO-SHARED r1) |
 
 ergo supports one release, the pin (`toolchain.Version`, go.mod's `toolchain` line, which `TestGoModPinsTheRelease` keeps equal): the rows of go1.27.0, go1.27.2 and go1.27.3 and their port lines are gone (IRT0b r2, owner: "use same version on both mac and here"); git history holds them.
