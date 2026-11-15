@@ -1931,8 +1931,10 @@ func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
 
 func replyTimer(s int) Option[Timeout[int]] { None }
 
+func replyExit(s int) Option[func()] { None }
+
 func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last)}
+	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last), Exit: replyExit}
 }
 
 func replyView(f *ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
@@ -2285,7 +2287,7 @@ func crashFollows() bool needs Scheduler {
 	let gate = queue.New[int](1)
 	let posted = queue.New[ui.Event[int]](64)
 	let reports = sync.NewRef(0)
-	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
+	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate), Exit: replyExit}
 	let crashes = ui.Crashes[int, Boom]{View: keyCrashView, Report: func(c ui.Crash[Boom]) {
 		reports.Update(func(k int) int { k + 1 })
 	}}
@@ -2364,7 +2366,7 @@ func haltIf(b bool) fails Halt {
 func statsStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
 
 func statsMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0)}
+	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0), Exit: replyExit}
 }
 
 func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {

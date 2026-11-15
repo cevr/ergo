@@ -622,7 +622,7 @@ law VersionCountsCommits(signals []int) {
 // then, once per entry, on every path that ends it.
 
 // exitSeen is where the counter's exit actions write the state they got;
-// the action needs it, so StartMachine does (the machine's row W).
+// the action's row holds it, so StartMachine's row does (the machine's W).
 type exitSeen {
 	Left(s int),
 }

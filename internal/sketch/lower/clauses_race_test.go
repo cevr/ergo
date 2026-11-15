@@ -210,6 +210,8 @@ var clauseUnreached = map[string]string{
 	"actor.start.work":             "a std literal over a Machine field's work",
 	"actor.start.kind":             "a std literal with no capture",
 	"actor.start.next":             "a std literal with no capture",
+	"actor.start.hasExit":          "a std literal over the Machine's Exit field (FK9-g1)",
+	"actor.start.leave":            "a std literal over the Machine's Exit field (FK9-g1)",
 	"actor.child.step":             "a Machine field, escaping by its position",
 	"actor.child.fire":             "a std literal over the Machine's fields",
 	"actor.child.delay":            "a std literal over the Machine's fields",
@@ -218,6 +220,8 @@ var clauseUnreached = map[string]string{
 	"actor.child.work":             "a std literal over a Machine field's work",
 	"actor.child.kind":             "a std literal with no capture",
 	"actor.child.next":             "a std literal with no capture",
+	"actor.child.hasExit":          "a std literal over the Machine's Exit field (FK9-g1)",
+	"actor.child.leave":            "a std literal over the Machine's Exit field (FK9-g1)",
 	"actor.child.out":              "Child's toParent reaches it; Child runs only in a machine's work with its send (S108 elsewhere), and toParent is escaping in Child's own signature",
 }
 
