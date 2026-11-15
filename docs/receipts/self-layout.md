@@ -78,16 +78,18 @@ The command is the same, at `3f54f4a3a` (source path). Each variant is a scratch
 
 Bytes allocated stay at 0.81 of hand Go's.
 
-`Count.Next` keeps its check: a `Count` has no room to check once against. That check is the 1.19 instructions per byte between the head and the last row.
+`Count.Next` keeps its check: a `Count` has no room to check once against. That check costs 1.19 instructions per byte on the source path (the head against the last row) and 0.53 on the IR path (below).
 
-On the IR build path (`wf10/batch-21pre` plus SL1 to SL2b), `scripts/opcount` cannot build the program: its `go build -overlay` does not read IR. Instead, the tree's own `ergo build` (the patched compile) built each variant. `perf stat -e instructions:u` counted it at the workload's two sizes, 5 rounds, median slope, with the default collector. These counts carry about ±1 instr/B of noise between runs:
+On the IR build path, the tree is `wf10/batch-21pre` plus SL1 to SL2b and FK2's OPCOUNT-IR (`1cdaefb57`), so `scripts/opcount` builds the program the product way. The command is the same. The receipt reads `path ir`; the IR bodies are 2 of 18 functions in the main package.
 
 | toktree, IR path | ergo instr/B | hand Go | ratio |
 | --- | --- | --- | --- |
-| head (three runs) | 49.53 to 51.84 | 34.54 to 36.20 | 1.42 to 1.48 |
-| ids from `Table` | 67.23 to 68.30 | 34.54 to 34.80 | 1.95 to 1.96 |
-| ids from `Table`, no field-less fix | 74.60 | 34.54 | 2.16 |
-| head, no full check in `next` | 52.15 | 36.20 | 1.44 (no change) |
+| SL2b head | 50.72 | 35.79 | 1.417 |
+| ids from `Table` | 69.93 | 35.80 | 1.954 |
+| the same, with no field-less fix | 79.76 | 35.80 | 2.228 |
+| head, no full check in `next` | 50.19 | 35.80 | 1.402 |
+
+Bytes allocated are 0.84 of hand Go's on this path.
 
 ### The plan's 11.6% GC share, and its 2.30 ratio: the input path, not the stores
 
