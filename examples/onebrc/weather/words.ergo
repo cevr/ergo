@@ -1,0 +1,71 @@
+// Eight bytes at a time (SWAR): the fast path reads a station and a
+// temperature as 64-bit little-endian words.
+
+import bits
+
+// Word is the eight bytes of w as a little-endian word. Its caller cuts w
+// from the text where a guard proves the cut in range, so the cut needs
+// no check (the lowering's bounds facts), and gc, which then sees eight
+// bytes, needs none for the reads.
+func Word(w string) uint64 {
+	uint64(w[0]) | uint64(w[1])<<8 | uint64(w[2])<<16 | uint64(w[3])<<24 | uint64(w[4])<<32 | uint64(w[5])<<40 | uint64(w[6])<<48 | uint64(w[7])<<56
+}
+
+// Lanes marks the bytes of w equal to the byte that rep repeats in every
+// lane: the high bit of the lowest marked lane is exact, and a lane above
+// a marked one may be marked too.
+func Lanes(w uint64, rep uint64) uint64 {
+	let x = w ^ rep
+	(x - 0x0101010101010101) & ^x & 0x8080808080808080
+}
+
+// Below keeps the bytes of a word below the lowest lane that s marks
+// (Lanes): all of them when s marks none.
+func Below(s uint64) uint64 {
+	let z = ((s - 1) & ^s) >> 63
+	((s ^ (s - 1)) >> 8) | -z
+}
+
+// Semis is 0x3B, ';', in every lane.
+let Semis uint64 = 0x3B3B3B3B3B3B3B3B
+
+// Newlines is 0x0A, '\n', in every lane.
+let Newlines uint64 = 0x0A0A0A0A0A0A0A0A
+
+// Temp is a temperature read from the word that starts it, "-?d?d.d\n":
+// Bad is 0 exactly when the word holds that form.
+type Temp { Tenths int, Width int, Bad uint64 }
+
+// ReadTemp reads the temperature at the start of w: its tenths, the width
+// of its text before the newline, and Bad, 0 exactly when w holds that
+// form. It has no branch (Wuerthinger's multiply turns the digits into
+// the value), and every shift is by a count below 64 (& 63), so Go makes
+// one instruction of each.
+func ReadTemp(w uint64) Temp {
+	let neg = (((w ^ 0x2D) & 0xFF) - 1) >> 63
+	let dot = uint(bits.TrailingZeros64(^w&0x10101000)) >> 3
+	let sh = (dot * 8) & 63
+	let nsh = (dot*8 + 16) & 63
+	let l = ^uint64(0) >> ((40 - dot*8) & 63)
+	let d = (w & l) ^ (uint64(0x1E) << sh) ^ (neg * 0x1D) ^ (uint64(0x3A) << nsh)
+	let bad = (((d & 0xF0F0F0F0F0F0F0F0) ^ 0x3030303030303030) & l) | ((((d & 0x0F0F0F0F0F0F0F0F) + 0x0606060606060606) & 0x1010101010101010) & l) | (((w >> sh) & 0xFF) ^ 0x2E) | (((w >> nsh) & 0xFF) ^ 0x0A) | (uint64(dot-uint(neg)-1) & ^uint64(1))
+	let signed = -neg
+	let digits = ((w & ^(signed & 0xFF)) << ((24 - dot*8) & 63)) & 0x0F000F0F00
+	let abs = ((digits * 0x640a0001) >> 32) & 0x3FF
+	Temp{Tenths: int((abs ^ signed) - signed), Width: int(dot) + 2, Bad: bad}
+}
+
+// Words is the first sixteen bytes of the station of n bytes at p, as the
+// fast path loads and masks them, read byte by byte.
+func Words(text string, p int, n int) (uint64, uint64) {
+	let mut w0 uint64 = 0
+	let mut w1 uint64 = 0
+	for k in 0..lo(n, 16) {
+		if k < 8 {
+			w0 |= uint64(text[p+k]) << (uint(k) * 8)
+		} else {
+			w1 |= uint64(text[p+k]) << (uint(k-8) * 8)
+		}
+	}
+	(w0, w1)
+}

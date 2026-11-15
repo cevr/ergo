@@ -1,0 +1,109 @@
+// The whole input: chunks scanned in parallel, their parts merged, and
+// the report.
+
+import slices
+import strings
+import tasks
+
+// Readings is where the text of an input comes from. The binary chooses
+// the provider: the host's files mapped read-only, or texts in memory.
+type Readings {
+	Text(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one input give one text.
+	law Repeatable(path string) {
+		let a = Text(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Text(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Unreadable is an input that cannot be read, with the host's reason.
+type Unreadable { Path string, Reason string }
+
+// Chunk is the lines that start from From up to To.
+type Chunk { From int, To int }
+
+// Split cuts text into at most workers chunks that start at line starts.
+func Split(text string, workers int) []Chunk {
+	let mut starts = []int{0}
+	for i in 1..workers {
+		let mut at = hi(len(text)*i/workers, starts[len(starts)-1])
+		for at < len(text) && at > 0 && text[at-1] != '\n' {
+			at += 1
+		}
+		if at > starts[len(starts)-1] && at < len(text) {
+			starts = starts.Append(at)
+		}
+	}
+	starts = starts.Append(len(text))
+	let mut chunks = []Chunk{}
+	for i in 0..len(starts)-1 {
+		chunks = chunks.Append(Chunk{From: starts[i], To: starts[i+1]})
+	}
+	chunks
+}
+
+// Station is a station's name and Stats.
+type Station { Name string, Stats Stats }
+
+// Summarize is every station of text with its Stats, sorted by name. It
+// scans one chunk per worker at once, and merges the parts by Merge,
+// whose laws make the result the same for every split.
+func Summarize(text string, workers int) []Station fails Malformed | TooManyStations {
+	let parts = tasks.Transform(Split(text, workers), workers, func(c Chunk) Part { Scan(text, c.From, c.To) })
+	let mut crowded = false
+	for part in parts {
+		match part {
+		case Broken as b:
+			return b.Fault
+		case Crowded:
+			crowded = true
+		case Counted:
+		}
+	}
+	if crowded {
+		return TooManyStations
+	}
+	let mut total = Map[string, Stats]{}
+	for part in parts {
+		match part {
+		case Counted as c:
+			for h in c.Used {
+				let s = c.Slots[h]
+				let name = strings.Slice(text, s.Start, s.Start+s.Len)
+				let had = match total.Get(name) {
+				case Some[Stats] as v:
+					v.Value
+				case None:
+					Empty()
+				}
+				total[name] = Merge(had, StatsOf(s))
+			}
+		case Broken, Crowded:
+		}
+	}
+	if len(total) > MaxStations {
+		return TooManyStations
+	}
+	let mut out = []Station{}
+	for name, s in total {
+		out = out.Append(Station{Name: name, Stats: s})
+	}
+	slices.SortFunc(out, func(a Station, b Station) int { strings.Compare(a.Name, b.Name) })
+}
+
+// Report is the challenge's output: "{a=min/mean/max, b=...}".
+func Report(stations []Station) string {
+	let mut lines = []string{}
+	for s in stations {
+		lines = lines.Append(Line(s.Name, s.Stats))
+	}
+	"{\(strings.Join(lines, ", "))}"
+}
