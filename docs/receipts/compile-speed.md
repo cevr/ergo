@@ -280,13 +280,13 @@ CS10 splits the IR path too (`lower.LowerIRSplit`): each Go package of the split
 
 Test-speed FT9 (`lower.LowerIRShards`, the fallback of the killed in-compiler function reuse FT9a) cuts each big package of a test build into Go packages, so a body edit compiles one shard. Measured on 2026-11-15 at `6e98da091` on the workbox: the IR lowering of the `examples/deps` test programs, split and sharded, each program package compiled by ergo's patched compile (go1.27.4) with the dev flags `-l -dwarf=false` and the go command's own flags (`-c=4`), `GOMAXPROCS=4`, the median of 5 runs of the user-mode instructions, at a 1-minute load of 34 to 48.
 
-| Program | Split: root compile (M) | Shards: compile of the shard a user-function edit changes (M) | Shards: the largest shard, the tests and laws (M) | Shards: the root (M) | Clean, all program packages (M): split / shards |
+| Program | Split: root compile (M) | Shards: each shard (M) | Shards: the costliest shard (M) | Shards: the root (M) | Clean, all program packages (M): split / shards |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `deps/graph` tests (6 shards) | 1,688 | 181 (10.7 %) | 1,001 (59 %) | 708 (42 %) | 1,711 / 2,663 |
-| `deps/resolve` tests (12 shards) | 1,971 | 128 to 545 (6.5 to 28 %); 899 (46 %) for one shard | 899 (46 %) | 784 (40 %) | 2,950 / 5,757 |
+| `deps/graph` tests (6 shards) | 1,688 | 122 to 337 (7 to 20 %) | 1,001 (59 %): the tests and laws | 708 (42 %) | 1,711 / 2,663 |
+| `deps/resolve` tests (12 shards) | 1,971 | 128 to 545 (6.5 to 28 %) | 899 (46 %): `Resolve` and the table's generator | 784 (40 %) | 2,950 / 5,757 |
 
-- Measured: an edit of a function of the program's own package compiles one shard of 6.5 % to 28 % of the split's root compile, for every shard but the largest. Which shard an edit lands in is `TestBodyEditChangesOneShard`'s log: every seeded edit of `graph.ergo` changes the 61 KB shard of 181 M.
-- Measured: the shard of the tests and laws costs 46 % to 59 % of the root, so an edit of a test body misses FT9's 40 % bound. A shard is cut by bytes of Go, and the test and law functions compile at 30 M per KB against 3 M per KB for the rest (`sff93794e` 33 KB at 1,001 M; `sa42a4527` 61 KB at 181 M). A cut weighted by the compile's cost per declaration is the follow-up.
+- Measured, with which shard an edit lands in from `TestBodyEditChangesOneShard`'s log (seed 1, 10 edits of literals in function bodies per program): all 10 edits of `graph.ergo` compile the shard of 181 M (10.7 % of the split's root compile); 9 of 10 edits of `resolve.ergo` compile a shard of 217 M to 347 M (11 % to 18 %), and 1 the shard of `Resolve` at 899 M (46 %).
+- Measured: one shard per program misses FT9's 40 % bound: the tests and laws of `deps/graph` (59 %) and `Resolve` with the table's generator in `deps/resolve` (46 %); the roots are at 40 % and 42 %. A shard is cut by bytes of Go, and these compile at about 30 M per KB against 3 M per KB for the rest (`sff93794e` 33 KB at 1,001 M; `sa42a4527` 61 KB at 181 M). A cut weighted by the compile's cost per declaration is the follow-up.
 - Measured: a clean build compiles 56 % (graph) to 95 % (resolve) more instructions sharded, since each shard pays the process start and its imports (58 M to 107 M, plan §3.5), in more processes that the direct path runs at once.
 - The receipt compiles without the inliner (`-l`, FT5's dev profile), so a body never enters export data and no importer of the edited shard compiles again. Until FT5 lands, a body small enough for Go's inliner compiles its importers too (see "Direct path").
 - The script and the raw log are the wf10 run's `test-speed/FT9a/receipt/`.
