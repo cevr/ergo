@@ -311,7 +311,14 @@ type TypeParam struct {
 	Pos        syntax.Pos
 	// Lent: the bracket writes lent before the constraint, `[T lent C]`
 	// (types.md, Borrows 7); `[T lent]` is the constraint lent itself.
-	Lent     bool
+	Lent bool
+	// Slot marks an error row parameter of a function that stands alone as
+	// a type argument of a generic type in the function's signature, such
+	// as F in `func Await[T, F](a Async[T, F]) T fails F` (CK-rowarg). Go
+	// must see the argument's value type there, so the lowering makes it a
+	// Go type parameter constrained by error: one error type when its row
+	// has one element, error otherwise (types.md, Generics 6 and 8).
+	Slot     bool
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }

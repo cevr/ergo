@@ -516,6 +516,13 @@ func constraintOf(tp *check.TypeParam) *check.Interface {
 // as a witness value (witness.go; stage E1 orchestrator answer 2), and a
 // type declaration's fields need none.
 func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
+	if tp.Slot {
+		// A Slot row's Go argument is an error type, or error (goParam).
+		return "error"
+	}
+	if tp.Kind == check.KindUses && l.isHeld(tp) {
+		return l.envCopier() // a held row (inforce.go)
+	}
 	if tp.Constraint == nil {
 		return "any"
 	}
@@ -745,6 +752,11 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if len(f.Sig.Params) == 0 || f.Decl == nil || f.Name == "main" {
 		return nil, false
 	}
+	if l.hasGoRow(f.Sig) {
+		// A held row is a Go type parameter of the function's own, which
+		// a Go method cannot declare (inforce.go).
+		return nil, false
+	}
 	first := f.Sig.Params[0].Type
 	ptr := false
 	if p, ok := first.(*check.Pointer); ok {
@@ -823,6 +835,13 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return nil
 	}
 	s := f.Sig
+	if f.Name == "InForce" && len(s.TParams) == 1 && len(s.Params) == 0 {
+		// Each call is written in place (inforce.go); the Go function is
+		// never called.
+		return func(_ *funcCtx, _ []string) string {
+			return "\tpanic(\"InForce is lowered at each call\")\n"
+		}
+	}
 	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
 		return nil
 	}
@@ -1034,10 +1053,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		ice(site, "%s declares %d parameters and its signature has %d", f.Name, len(params), len(f.Sig.Params))
 	}
 	// Type parameters: a method's are its receiver's; a function's are its
-	// own type-kinded ones.
+	// own type-kinded ones and its Slot rows (goParam).
 	var own []*check.TypeParam
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType {
+		if l.goParam(tp) {
 			own = append(own, tp)
 		}
 	}
@@ -1689,6 +1708,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	}
 	b.WriteString("type " + l.envName + " struct {\n")
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
+	if l.holdsRows() {
+		b.WriteString("\t" + envWith + " *" + l.rt() + ".Scope\n") // inforce.go
+	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}
