@@ -16,7 +16,7 @@ type Host = ui.TestHost[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
 //	         Done is sent, Cancelled is cancelled)
 //	Actions  each row's button, or "" for a row with none
 //	Counts   the work of the press, from ui.Counts
-type Frame { Top []string, Rows []string, Actions []string, Counts string }
+type Frame { Top []string, Rows []string, Actions []string, Counts ui.StepCounts }
 
 // PlayScreen plays lines on the desk's screen, on std ui's test host over
 // clock, as PlayA plays them on the live board. The first frame is the
@@ -60,6 +60,37 @@ func played[R](app actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never
 	show(read(&h))
 }
 
+// pressWork is the visits of each press after n transfers started: a
+// start, a cancel of one and its restart, all before the first arrival
+// (UI HOT PATHS; the counts are ui.Counts of the test host, no time).
+func pressWork(n int) []int {
+	let mut ls = []Line{}
+	for i in 0..n {
+		ls = ls.Append(Line{At: time.Times(1ms, i), Press: Start})
+	}
+	ls = ls.Append(Line{At: 1000ms, Press: Start})
+	ls = ls.Append(Line{At: 1001ms, Press: Cancel{ID: n / 2}})
+	ls = ls.Append(Line{At: 1002ms, Press: Restart{ID: n / 2}})
+	let c = time.NewManual(0)
+	let mut visits = []int{}
+	with context { Scheduler: c } {
+		PlayScreen(ls, 1002ms, c, func(f Frame) { visits = visits.Append(f.Counts.Visits) })
+	} catch {
+	case _:
+		return []int{}
+	}
+	// the frames of the three presses: after the open frame and n starts
+	[]int{visits[n+1], visits[n+2], visits[n+3]}
+}
+
+test PressWorkIsFlat {
+	// A press runs the rows it changed and keeps every other (each row is a
+	// ui.Same keyed by its state), so its work is the same at 4 and at 8
+	// transfers running.
+	let small = pressWork(4)
+	assert len(small) == 3 && small == pressWork(8)
+}
+
 // Label is the accessible name of the button a press clicks.
 func Label(p Press) string {
 	match p {
@@ -75,7 +106,7 @@ func Label(p Press) string {
 }
 
 func read(h *Host) Frame {
-	let mut f = Frame{Top: []string{}, Rows: []string{}, Actions: []string{}, Counts: ui.CountsLine(ui.Counts(h))}
+	let mut f = Frame{Top: []string{}, Rows: []string{}, Actions: []string{}, Counts: ui.Counts(h)}
 	walk(&f, ui.Screen(h))
 	f
 }

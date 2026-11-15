@@ -162,7 +162,7 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler
 			Console.Println(if f.Actions[j] == "" { "  \(r)" } else { "  \(r) \(f.Actions[j])" })
 		}
 		if stats {
-			Console.Println("  stats: \(f.Counts)")
+			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
 		}
 	}) catch {
 	case actor.Stopped:

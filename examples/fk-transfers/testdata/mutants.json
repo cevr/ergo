@@ -112,6 +112,14 @@
       "to": "func SameKey(r desk.Row) ui.Key { ui.ByText(\"\\(r.ID)\") }",
       "rule": "A row's Same key holds all it shows: a row whose transfer changed runs again (cases, law ShapesAgree).",
       "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4c-same-removed", "origin": "wf10/fk5b",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "\t\t\tui.Same(f, SameKey(r)) {\n\t\t\t\trow(f, r)\n\t\t\t}\n",
+      "to": "\t\t\trow(f, r)\n",
+      "rule": "A press runs only the rows it changed, so its work is flat in the rows (UI HOT PATHS; test PressWorkIsFlat, the only killer: no output changes).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
     }
   ]
 }
