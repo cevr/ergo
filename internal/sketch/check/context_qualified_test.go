@@ -13,13 +13,13 @@ import (
 // The context w is unexported.
 const qualifiedLib = `type Store { Get() string }
 type Log { Say(s string) }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { m.V }
 func read() string needs Log {
 	Log.Say("read")
 	"x"
 }
-type Quiet {}
+type Quiet {} implements Log
 func Say(_ Quiet, s string) {}
 let W = context { Log: Quiet, Store: Mem{V: read()} }
 let w = context { Log: Quiet }
@@ -52,9 +52,9 @@ func TestQualifiedContextEmbed(t *testing.T) {
 	src := `import lib
 
 type Box { Peek() int }
-type Lid {}
+type Lid {} implements Box
 func Peek(_ Lid) int { 1 }
-type Mine {}
+type Mine {} implements lib.Store
 func Get(_ Mine) string { "mine" }
 
 func inline() string {

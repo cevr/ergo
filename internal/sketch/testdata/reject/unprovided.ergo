@@ -16,7 +16,7 @@ type Gateway {
 	Charge(order Order) string fails GatewayDown,
 }
 
-type MemoryOrders {}
+type MemoryOrders {} implements Orders
 
 func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	if id == "42" {

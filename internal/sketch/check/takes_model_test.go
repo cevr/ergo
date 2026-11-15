@@ -72,7 +72,7 @@ func TestTakesInferenceModel(t *testing.T) {
 	tkTwoPackages(t)
 }
 
-const tkPrelude = `type Res { id int }
+const tkPrelude = `type Res { id int } implements Closer
 
 func Close(r Res) {}
 
@@ -80,15 +80,15 @@ func open(n int) Res { Res{id: n} }
 
 func lend(r Res) {}
 
-func keep(r Res) takes r {}
+func keep(r own Res) {}
 
 func cond(n int) bool { n > 2 }
 
-func use(f func(n int, a Res, b Res, g func(r Res) takes r)) {}
+func use(f func(n int, a Res, b Res, g func(r own Res))) {}
 
-func first[T](a T, b T) T takes a, b { a }
+func first[T](a own T, b own T) T { a }
 
-func keyed[K comparable](m Map[K, int], x K) K takes x { x }
+func keyed[K comparable](m Map[K, int], x own K) K { x }
 
 `
 
@@ -168,19 +168,15 @@ func (m *tkModel) print() string {
 		line++
 	}
 	for i, f := range m.funcs {
-		clause := ""
+		mode := [2]string{"", ""}
 		if f.exported {
-			var names []string
 			for x := range 2 {
 				if f.written[x] {
-					names = append(names, tkParam(x))
+					mode[x] = "own "
 				}
 			}
-			if len(names) > 0 {
-				clause = " takes " + strings.Join(names, ", ")
-			}
 		}
-		emit(fmt.Sprintf("func %s(n int, a Res, b Res, g func(r Res) takes r)%s {", m.name(i), clause))
+		emit(fmt.Sprintf("func %s(n int, a %sRes, b %sRes, g func(r own Res)) {", m.name(i), mode[0], mode[1]))
 		for k, s := range f.body {
 			s.line = line
 			x := tkParam(s.x)
@@ -433,7 +429,7 @@ func tkInferred(c *checker) []string {
 // resource (refused) and with an int (admitted); std slices.Clone, an extern
 // generic outside runtime/v1's moving table, copies its T.
 func tkTwoPackages(t *testing.T) {
-	lib := `type Res { id int }
+	lib := `type Res { id int } implements Closer
 
 func Close(r Res) {}
 
@@ -441,15 +437,15 @@ func Open(n int) Res { Res{id: n} }
 
 type Holder { r Res }
 
-func Keep(r Res) Holder takes r { Holder{r: r} }
+func Keep(r own Res) Holder { Holder{r: r} }
 
 func hold(r Res) Holder { Keep(r) }
 
-func Hold(r Res) Holder takes r { hold(r) }
+func Hold(r own Res) Holder { hold(r) }
 
 func Dup[T](x T) (T, T) { (x, x) }
 
-func Pass[T](x T) T takes x { x }
+func Pass[T](x own T) T { x }
 `
 	main := `import lib
 import slices

@@ -55,7 +55,7 @@ func openb(id int, bad bool, n int, c int) Res needs Console {
 
 func use2(t (Res, Res)) {}
 
-func keep2(a Res, b Res) needs Console takes a, b {
+func keep2(a own Res, b own Res) needs Console {
 	Console.Println("keep2 \(a.id) \(b.id)")
 }
 
@@ -72,11 +72,11 @@ type Big { ..Core, S (Res, Res), T Res, k int }
 type Small { ..Core, k int }
 
 type Sink {
-	Put(r Res) takes,
-	Close(),
+	..Closer,
+	own Put(r Res),
 }
 
-type Snk { id int, bad bool }
+type Snk { id int, bad bool } implements Sink, Closer
 
 func Close(s Snk) {
 	if s.bad {
@@ -84,7 +84,7 @@ func Close(s Snk) {
 	}
 }
 
-func Put(s Snk, r Res) takes s {}
+func Put(s own Snk, r Res) {}
 
 func sink(id int, bad bool) Sink {
 	Snk{id: id, bad: bad}

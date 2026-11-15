@@ -14,12 +14,12 @@ import (
 // alone (196b U4, round 1 B1).
 const (
 	reachP  = "type S { N() string }\n\nfunc Use() string needs S { S.N() }\n"
-	reachN  = "import p\n\ntype C { k int }\n\nfunc N(c C) string { \"n \\(c.k)\" }\n\nfunc Close(c C) needs Console {\n\tConsole.Println(\"closed n\")\n}\n\nfunc mk() C { C{k: 2} }\n\nfunc Make(k int) C { C{k: k} }\n\nfunc K() int { 5 }\n\nlet W = context { p.S: mk() }\n"
+	reachN  = "import p\n\ntype C { k int } implements Closer\n\nfunc N(c C) string { \"n \\(c.k)\" }\n\nfunc Close(c C) needs Console {\n\tConsole.Println(\"closed n\")\n}\n\nfunc mk() C { C{k: 2} }\n\nfunc Make(k int) C { C{k: k} }\n\nfunc K() int { 5 }\n\nlet W = context { p.S: mk() }\n"
 	reachM1 = "import n\n\nlet W = context { n.W }\n"
 	reachM2 = "import m1\n\nlet W = context { m1.W }\n"
 	// q is an imported context that the program also names: a with body
 	// calls q.R.
-	reachQ = "type R { Get() string }\n\ntype G {}\n\nfunc Get(_ G) string { \"q\" }\n\nlet V = context { R: G }\n"
+	reachQ = "type R { Get() string }\n\ntype G {} implements R\n\nfunc Get(_ G) string { \"q\" }\n\nlet V = context { R: G }\n"
 	// reachT is the root's own contract T and its provider H.
 	reachT = "type T { Hi() string }\n\ntype H {}\n\nfunc Hi(_ H) string { \"h\" }\n"
 )

@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Pure parameters (rows.md, Footprints 6; grammar.md, Declarations 15): a
+// Pure parameters (rows.md, Footprints 6; grammar.md, Declarations 16): a
 // function declaration's parameter written `m pure T` requires of each
 // call that the checker sees the function its argument runs, and that the
 // function is pure: its footprint is empty (Footprints 2 and 3), no

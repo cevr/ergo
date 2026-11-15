@@ -86,7 +86,7 @@ func via2[T](b Box[T], d T) T {
 func at2[T](b Box[T], i int) T { at(b, i) }
 
 // keep returns its callback (escaping), so it has no known variant.
-func keep(b *Box[int], f escaping func(v *int)) func(v *int) {
+func keep(b *Box[int], f own func(v *int)) func(v *int) {
 	f(&b.items[0])
 	f
 }

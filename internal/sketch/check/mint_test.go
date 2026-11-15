@@ -178,7 +178,7 @@ var mintPlaceNames = map[MintPlace]string{
 // a record with a hidden field, and the mints of H (and of what holds it)
 // are compared; other types' mints are left out.
 func TestMintsEachForm(t *testing.T) {
-	const base = `type H { root string }
+	const base = `type H { root string } implements Rd
 
 type U {}
 

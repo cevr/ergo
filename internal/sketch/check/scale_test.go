@@ -187,11 +187,11 @@ type scaleShape struct {
 	skip string
 }
 
-// longNames writes a capability whose name grows with n, named twice (its
-// declaration and context B), and n contexts that each embed B: the source grows
+// longNames writes a capability whose name grows with n, named three times (its
+// declaration, P's clause and context B), and n contexts that each embed B: the source grows
 // linearly, and hashing the name once per context grows with n². The control
 // has the same size and structure, with a one-letter name and the same
-// bytes in two string literals instead.
+// bytes in three string literals instead.
 func longNames(n int, control bool) string {
 	var g gen
 	long := strings.Repeat("x", 400*n)
@@ -200,9 +200,16 @@ func longNames(n int, control bool) string {
 		name, pad = "C", long
 	}
 	g.line("type %s { Label() string }", name)
-	g.line("type P {}")
+	// P provides every capability, so it declares each one: the name
+	// is written a third time, and the control a third pad.
+	ys := make([]string, n)
+	for i := range n {
+		ys[i] = fmt.Sprintf(", Y%d", i)
+	}
+	g.line("type P {} implements %s%s", name, strings.Join(ys, ""))
 	g.line("func Label(_ P) string { return \"p%s\" }", pad)
 	g.line("func Pad() string { return \"p%s\" }", pad)
+	g.line("func Pad2() string { return \"p%s\" }", pad)
 	g.line("let B = context { %s: P }", name)
 	for i := range n {
 		g.line("type Y%d { Label() string }", i)
@@ -245,7 +252,7 @@ var scaleShapes = []scaleShape{
 			var g gen
 			for i := range n {
 				g.line("type S%d { Label() string }", i)
-				g.line("type M%d { Text string }", i)
+				g.line("type M%d { Text string } implements S%d", i, i)
 				g.line("func Label(m M%d) string { return m.Text }", i)
 			}
 			g.line("let W = context {")
@@ -602,7 +609,7 @@ var scaleShapes = []scaleShape{
 			var g gen
 			g.line("type Fault {}")
 			g.line("type Store { Get() string }")
-			g.line("type Mem {}")
+			g.line("type Mem {} implements Store")
 			g.line("func Get(_ Mem) string { return \"m\" }")
 			g.line("func f%d(k int64) string {", n)
 			g.line("\tif k == 0 {")
@@ -626,7 +633,7 @@ var scaleShapes = []scaleShape{
 		source: func(n int) string {
 			var g gen
 			g.line("type Store { Label() string }")
-			g.line("type Memory { Text string }")
+			g.line("type Memory { Text string } implements Store")
 			g.line("func Label(m Memory) string { return m.Text }")
 			g.line("func run() string needs Store { return Store.Label() }")
 			g.line("let W0 = context { Store: Memory{Text: \"live\"} }")

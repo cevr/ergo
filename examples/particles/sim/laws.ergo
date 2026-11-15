@@ -90,7 +90,7 @@ law StepsFollowTheClock(seed uint64, n int, frames int) {
 
 // lateEvery is a Scheduler that sleeps on m with no wait, and a quarter
 // longer on each every-th sleep, as a late frame does.
-type lateEvery { m time.Manual, every int }
+type lateEvery { m time.Manual, every int } implements Scheduler
 
 func Sleep(l lateEvery, d duration) {
 	let n = time.Count(l.m.Now().Sub(time.Unix(0, 0)), d)

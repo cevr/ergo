@@ -154,11 +154,10 @@ var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
 // BodyNames is the name of every exported function and method of Source
 // that BodyOf reads, sorted, a refused one included.
 func BodyNames() []string {
-	names := make([]string, 0, len(bodyTable))
-	for name := range bodyTable {
-		names = append(names, name)
+	names := make([]string, len(bodyTable))
+	for i, r := range bodyTable {
+		names[i] = r.name // the rows are sorted by name
 	}
-	slices.Sort(names)
 	return names
 }
 

@@ -28,10 +28,10 @@ type Timer {
 	Now() int,
 }
 
-type Plain {}
-type Loud {}
-type Holder { v string }
-type Fixed {}
+type Plain {} implements Greeter
+type Loud {} implements Greeter
+type Holder { v string } implements Store
+type Fixed {} implements Timer
 type Tag { s string }
 type Box { w int }
 
@@ -123,7 +123,7 @@ func localRules() []localRule {
 		{"charge-enclosing-with", "func f() string {\n\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\twith Stored {\n\t\twith w { Greeter.Greet(\"x\") }\n\t}\n}\n"},
 		{"charge-let-inside-with", "func f() string {\n\twith Stored {\n\t\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\t\tlet g = func() string {\n\t\t\twith w { Greeter.Greet(\"x\") } // want S102\n\t\t}\n\t\tg()\n\t}\n}\n"},
 		{"charge-each-with", "func f() string needs Store {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet a = with w { Store.Get() }\n\tlet b = with w { Store.Get() }\n\ta + b\n}\n\nfunc g() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith Stored {\n\t\tlet a = with w { Store.Get() }\n\t\t_ = a\n\t}\n\twith w { Store.Get() } // want S102\n}\n"},
-		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() escaping func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
+		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
 
 		// The header and a constructor entry stay refused (#196 stage b, #37).
 		{"local-header", "func f() string {\n\tlet w = context provides Greeter { Greeter: Plain } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
@@ -260,7 +260,7 @@ var chargeErrors = []string{"E0", "E1"}
 func chargePrelude() string {
 	var b strings.Builder
 	b.WriteString(severalPrelude())
-	b.WriteString("type Out { O() int }\ntype Po { v int }\nfunc O(p Po) int { p.v }\n")
+	b.WriteString("type Out { O() int }\ntype Po { v int } implements Out\nfunc O(p Po) int { p.v }\n")
 	for _, e := range chargeErrors {
 		fmt.Fprintf(&b, "type %s {}\nfunc fail%s(b bool) int fails %s {\n\tif b {\n\t\treturn %s\n\t}\n\t0\n}\n", e, e, e, e)
 	}
@@ -539,7 +539,7 @@ func TestLocalContextLawNine(t *testing.T) {
 	Greet(name string) string,
 }
 
-type Plain {}
+type Plain {} implements Greeter
 
 func Greet(_ Plain, name string) string {
 	name

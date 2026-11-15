@@ -34,7 +34,7 @@ type Scheduler {
 // sleeps on the host's clock, so it is a host provider (docs/spec/
 // stdlib.md, Host packages): its field gives the prelude the construction
 // authority, and only NewLiveScheduler makes one (std-align S2b).
-type LiveScheduler { live liveOnly }
+type LiveScheduler { live liveOnly } implements Scheduler
 
 // liveOnly is the zero-size type of LiveScheduler's field.
 type liveOnly {}
@@ -222,7 +222,7 @@ type Context[R] { install func() needs R }
 // value (owner q26; types.md, Bindings), and the lowering appends in place
 // only for xs = xs.Append(x) or a dead xs. With resource elements it takes
 // xs and x: the result is their one owner (#197 L8 A3, resources R14).
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T takes xs, x
+extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs own []T, x own T) []T
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
@@ -242,7 +242,7 @@ extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K,
 // Take gives up m and returns the value at k (Some, or None if absent)
 // and the map without k. Resource values and the remainder have separate
 // owners. With plain-data values, m is unchanged (mode crossing).
-extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m Map[K, V], k K) (Option[V], Map[K, V]) takes m
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
@@ -338,19 +338,30 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
+// Closer is the release contract (resources R1): a type that implements
+// it is a resource, and its owner's scope calls Close where the value
+// dies, on every exit. Close takes the value it is called on (R19). It is
+// an ordinary operation type: a type declares it with `implements
+// Closer`, and an operation type includes it with `..Closer` (types.md,
+// Interface assignability 1).
+// law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
+type Closer {
+	own Close(),
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
 	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
-	Wait() T fails E takes,
+	own Wait() T fails E,
 	Stop(),
-	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end when no Wait took the task. It
-	// stops the task and waits until it has ended, as Stop does, and drops
-	// its typed failure; a Task is a resource.
-	Close(),
+	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
+	// its owner's scope calls it at the scope's end when no Wait took the
+	// task. It stops the task and waits until it has ended, as Stop does,
+	// and drops its typed failure; a Task is a resource.
+	..Closer,
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

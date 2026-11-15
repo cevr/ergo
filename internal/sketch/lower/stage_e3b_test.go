@@ -134,7 +134,7 @@ var lawFacts = []lawFact{
 		law:   "law L(s string, n int) { wrap6(s).V == s && wrap6(n).V == n }"},
 	// A named context only a law opens.
 	{name: "named-context", canary: "buildLive7",
-		decls: "type Store7 {\n\tPeek() int,\n}\n\ntype Mem7 {}\n\nfunc Peek(_ Mem7) int {\n\t7\n}\n\nlet Live7 = context {\n\tStore7: Mem7,\n}\n",
+		decls: "type Store7 {\n\tPeek() int,\n}\n\ntype Mem7 {} implements Store7\n\nfunc Peek(_ Mem7) int {\n\t7\n}\n\nlet Live7 = context {\n\tStore7: Mem7,\n}\n",
 		law:   "law L() { with Live7 { Store7.Peek() } == 7 }"},
 	// A context literal only a law opens.
 	{name: "literal-context", canary: "opsMem8AsStore8",

@@ -19,7 +19,7 @@ import (
 // Close admitted.
 func TestCloseFormsTakeOnce(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Releaser { Close() }
+	src := ofPrelude + `// r is a Closer, which Res declares.
 
 func addr() {
 	let mut h = open(1)
@@ -28,7 +28,7 @@ func addr() {
 }
 
 func value() {
-	let r Releaser = open(2)
+	let r Closer = open(2)
 	let f = r.Close
 	f()
 }
@@ -65,7 +65,7 @@ func main() {}
 // copy site (the resource leaks silently).
 func TestGenericDropRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `func drop[T](x T) takes x {}
+	src := ofPrelude + `func drop[T](x own T) {}
 
 func main() {
 	drop(1)
@@ -128,11 +128,11 @@ func TestArrayOwnership(t *testing.T) {
 // resources leak silently).
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Keeper[T] { Put(v T) takes v }
+	src := ofPrelude + `type Keeper[T] { Put(v own T) }
 
-type Mem { n int }
+type Mem { n int } implements Keeper[Res]
 
-func Put(m Mem, v Res) takes v { Close(v) }
+func Put(m Mem, v own Res) { Close(v) }
 
 func main() {
 	let b Keeper[Res] = Mem{n: 1}

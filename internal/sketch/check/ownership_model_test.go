@@ -510,7 +510,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	unit := "\tfor _ in 0..n {\n\t\tfor _ in 0..n {\n\t\t\tfor _ in 0..n {\n\t\t\t\tif cond(n) {\n\t\t\t\t\tlet r = open(1)\n\t\t\t\t\tlend(open(2))\n\t\t\t\t\tkeep(r)\n\t\t\t\t\tcontinue\n\t\t\t\t}\n\t\t\t\tlend(q)\n\t\t\t}\n\t\t}\n\t}\n"
 	steps := func(n int) int {
-		c, diags := checkFor(ofPrelude + "func body(n int, p Res, q Res) fails Bad takes q {\n" + strings.Repeat(unit, n) + "}\n\nfunc main() {}\n")
+		c, diags := checkFor(ofPrelude + "func body(n int, p Res, q own Res) fails Bad {\n" + strings.Repeat(unit, n) + "}\n\nfunc main() {}\n")
 		if len(diags) != 0 {
 			t.Fatalf("diagnostics: %v", diags)
 		}
@@ -530,7 +530,7 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 		// The innermost hand-off changes every loop's entry state (and is
 		// S108 at its second iteration); the diagnostics do not matter here.
 		src := "\tlet r = open(1)\n" + strings.Repeat("\tfor _ in 0..n {\n", d) + "\tif cond(n) {\n\tkeep(r)\n\t}\n" + strings.Repeat("\t}\n", d)
-		c, _ := checkFor(ofPrelude + "func body(n int, p Res, q Res) fails Bad takes q {\n" + src + "}\n\nfunc main() {}\n")
+		c, _ := checkFor(ofPrelude + "func body(n int, p Res, q own Res) fails Bad {\n" + src + "}\n\nfunc main() {}\n")
 		return c.ownSteps
 	}
 	n8, n16 := nested(8), nested(16)
@@ -541,7 +541,7 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	// A whole pattern binds a shared type DAG once. It does not expand
 	// the tree of all fields when no pattern splits those fields (PO1).
 	patternWork := func(depth int) int {
-		src := "type T0 {}\nfunc Close(x T0) {}\n"
+		src := "type T0 {} implements Closer\nfunc Close(x T0) {}\n"
 		for i := 1; i <= depth; i++ {
 			src += fmt.Sprintf("type T%d { A T%d, B T%d }\n", i, i-1, i-1)
 		}
@@ -578,7 +578,7 @@ func TestOwnershipMessages(t *testing.T) {
 			k, _ := strconv.Atoi(s[1 : len(s)-1])
 			return fmt.Sprintf("%d:", base+k)
 		})
-		_, diags := checkFor(ofPrelude + "func body(n int, p Res, q Res) fails Bad takes q {\n\t" + row.body + "\n}\n\nfunc main() {}\n")
+		_, diags := checkFor(ofPrelude + "func body(n int, p Res, q own Res) fails Bad {\n\t" + row.body + "\n}\n\nfunc main() {}\n")
 		if len(diags) != 1 || !strings.Contains(diags[0].Message, row.want) {
 			t.Errorf("%q: got %v, want one S108 containing %q", row.body, diags, row.want)
 		}
@@ -602,7 +602,7 @@ func TestOwnershipMessages(t *testing.T) {
 
 const ofPrelude = `import queue
 
-type Res { id int }
+type Res { id int } implements Closer, Closes, Store
 
 type Bad {}
 
@@ -614,9 +614,9 @@ func lend(r Res) {}
 
 func held(r Res) bool { true }
 
-func keep(r Res) takes r {}
+func keep(r own Res) {}
 
-func take(r Res) int takes r { 0 }
+func take(r own Res) int { 0 }
 
 func both(r Res, n int) {}
 
@@ -639,7 +639,7 @@ type Empty {}
 
 type Held = Res | Empty
 
-type Closer { Close() }
+type Closes { ..Closer }
 
 type Store { Get() int }
 
@@ -647,9 +647,9 @@ func Get(r Res) int { r.id }
 
 func lendBox(b Box) {}
 
-func keepBox(b Box) takes b {}
+func keepBox(b own Box) {}
 
-func lendCloser(c Closer) {}
+func lendCloser(c Closes) {}
 
 let shared = Res{id: 0}
 
@@ -1286,7 +1286,7 @@ func ofPrint(body []*ofStmt, bare bool) (string, int) {
 	if bare {
 		emit(0, "func body(n int) fails Bad {")
 	} else {
-		emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
+		emit(0, "func body(n int, p Res, q own Res) fails Bad {")
 	}
 	walk(body, 1)
 	emit(0, "}")

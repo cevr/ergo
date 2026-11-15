@@ -13,7 +13,7 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
 	// takes v: a resource moves into the queue (resources R13).
-	Push(v T) fails Closed takes v,
+	Push(v own T) fails Closed,
 	// Pop takes the value at the front, waiting while the queue is open and
 	// empty. It fails with Closed when the queue is closed and empty.
 	Pop() T fails Closed,
@@ -129,7 +129,7 @@ law LenCountsUntaken(xs []int) {
 // releaseCount records a release in Seen, with no capability row: a release
 // that has no needs row can still change shared state and must run. queue
 // observes it with a queue, since sync imports task, which imports queue.
-type releaseCount { Seen Queue[int] }
+type releaseCount { Seen Queue[int] } implements Closer
 
 func Close(r releaseCount) {
 	r.Seen.Push(1) catch {

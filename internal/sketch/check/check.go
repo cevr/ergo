@@ -220,7 +220,9 @@ type checker struct {
 	// includesExpanded is set once expandIncludes ran: a record resolved
 	// later splices its includes in as it resolves (include.go).
 	includesExpanded bool
-	inferSubjects    map[any]*switchUnion
+	// declOps memoizes declaredOps of a resolved named type (implements.go).
+	declOps       map[*Named][]*Named
+	inferSubjects map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests
@@ -288,6 +290,8 @@ type checker struct {
 	ownershipSites []ownershipSite
 	ownershipSeen  map[ownershipKey]bool
 	takesSeen      map[*syntax.TakesClause]bool
+	escapingSeen   map[*syntax.FuncType]bool // retired escaping words already reported (q168)
+	ownSeen        map[*syntax.Field]bool    // own parameter fields whose sites are recorded
 	mapKeysSeen    map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.

@@ -339,7 +339,7 @@ func genOwnRun(seed int) (string, string) {
 	}
 }
 
-const orPrelude = `type Res { id int, bad bool }
+const orPrelude = `type Res { id int, bad bool } implements Closer
 
 type Bad { n int }
 
@@ -365,7 +365,7 @@ func use(r Res) needs Console {
 	Console.Println("use \(r.id)")
 }
 
-func keep(r Res) needs Console takes r {
+func keep(r own Res) needs Console {
 	Console.Println("keep \(r.id)")
 }
 

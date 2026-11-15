@@ -28,7 +28,7 @@ func TestContextValueDiagnostics(t *testing.T) {
 		{"row parameter", head + "func f[R]() Context[R] {\n\tcontext { A: Box{n: 1} }\n}\n", "S108:6 a context converts only to a Context of concrete capabilities, and Context[R] names the row parameter R", false},
 		{"composite literal", head + "func f() {\n\tlet v = Context[A]{}\n\t_ = v\n}\n", "S108:6 a Context value is made from a context", false},
 		{"composite literal in std", head + "func f() {\n\tlet v = Context[A]{}\n\t_ = v\n}\n", "S108:6 a Context value is made from a context", true},
-		{"provider with a Close", head + "type Conn { n int }\nfunc Get(c Conn) int { c.n }\nfunc Close(c Conn) {}\nfunc open() Conn { Conn{n: 1} }\nfunc f() {\n\tlet v Context[A] = context { A: open() }\n\t_ = v\n}\n", "S109:10 a Context value cannot hold a provider with a Close", false},
+		{"provider with a Close", head + "type Conn { n int } implements Closer\nfunc Get(c Conn) int { c.n }\nfunc Close(c Conn) {}\nfunc open() Conn { Conn{n: 1} }\nfunc f() {\n\tlet v Context[A] = context { A: open() }\n\t_ = v\n}\n", "S109:10 a Context value cannot hold a provider with a Close", false},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {

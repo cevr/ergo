@@ -69,6 +69,8 @@ type oType struct {
 	op     string
 	elems  []*oType
 	impls  []*oType // oHost: the implementers of a sealed Host
+	// declares: oRec: the operation types its clause names (EXC1).
+	declares []*oType
 }
 
 type oField struct {
@@ -368,6 +370,7 @@ func (g *oGen) item(s *oType, ps []*oType) {
 		// its operation is an exported function of the package whose
 		// first parameter is the provider.
 		impl := g.rec(true, oField{"n", &oType{kind: oInt}})
+		impl.declares = []*oType{o}
 		g.items = append(g.items,
 			oItem{kind: "context", name: g.fresh("Ctx"), t: o, impl: impl},
 			oItem{kind: "func", name: o.op, sig: &oSig{params: append([]*oType{impl}, o.sig.params...), results: o.sig.results}})
@@ -423,6 +426,13 @@ func (g *oGen) text(t *oType) string {
 			d = "type " + t.name + " { " + strings.Join(fs, ", ") + " }"
 			if len(fs) == 0 {
 				d = "type " + t.name + " {}"
+			}
+			if len(t.declares) > 0 {
+				var ns []string
+				for _, o := range t.declares {
+					ns = append(ns, g.text(o))
+				}
+				d += " implements " + strings.Join(ns, ", ")
 			}
 		case oFunc:
 			d = "type " + t.name + " func" + g.sigText(t.sig)

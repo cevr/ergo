@@ -1,5 +1,5 @@
 type Store { Get() string }
-type Holder { Value string }
+type Holder { Value string } implements Store
 
 func Get(h Holder) string { return h.Value }
 

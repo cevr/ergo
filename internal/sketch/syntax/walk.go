@@ -59,6 +59,7 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Values)
 	case *TypeDecl:
 		walk(n.Extern, n.Name, n.TypeParams, n.Spec, n.Where, n.Derive)
+		exprs(n.Implements)
 	case *FuncDecl:
 		walk(n.Extern, n.Recv, n.Name, n.TypeParams, n.Type, n.Body)
 	case *ExternSpec:
@@ -156,6 +157,9 @@ func Inspect(n Node, f func(Node) bool) {
 	case *StructType:
 		walk(n.Fields)
 	case *InterfaceType:
+		for _, m := range n.Includes {
+			Inspect(m, f)
+		}
 		for _, m := range n.Methods {
 			Inspect(m, f)
 		}

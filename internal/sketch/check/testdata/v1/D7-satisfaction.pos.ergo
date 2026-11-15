@@ -5,8 +5,8 @@ type Orders {
 	Get(id string) string,
 }
 
-type Memory {}
-type Disk { Root string }
+type Memory {} implements Orders
+type Disk { Root string } implements Orders
 
 func Get(_ Memory, id string) string {
 	id

@@ -1,7 +1,7 @@
 // want S101
 type Fault {}
 type Box { Get() string }
-type Holder { Value string }
+type Holder { Value string } implements Box
 func Get(h Holder) string      { return h.Value }
 func fail() string fails Fault { return Fault{} }
 func main() needs Console {

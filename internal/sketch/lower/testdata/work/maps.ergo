@@ -9,7 +9,7 @@ type Down {}
 
 type Catalog { Search(query string) []string fails Unavailable | Down }
 
-type Fixed { Name string }
+type Fixed { Name string } implements Catalog
 
 func Search(f Fixed, query string) []string fails Unavailable | Down {
 	if query == "down" {
