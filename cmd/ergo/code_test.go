@@ -62,10 +62,14 @@ func codeRunOn(t *testing.T, tables string, args ...string) (int, string, string
 //     when one package declares the name, and Ambiguous with every
 //     candidate when several do.
 //
-// The examples are drawn from the seed: two under -short, every one
-// otherwise. ERGO_CODE_SEED=N replays a seed. Mutants code-root-main,
+// Every example program, in an order the seed draws; full tier only. ERGO_CODE_SEED=N replays a seed. Mutants code-root-main,
 // code-short-first, code-site-dropped (cmd/ergo/testdata/mutants.json).
 func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
+	if testing.Short() {
+		// The fast tier's CPU budget has no headroom (scripts/gate
+		// fastCPUKnownGap); the full tier runs it on every batch.
+		t.Skip("full tier: checks every example program")
+	}
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_CODE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -82,9 +86,6 @@ func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
 	slices.Sort(programs)
 	r.Shuffle(len(programs), func(i, j int) { programs[i], programs[j] = programs[j], programs[i] })
 	perPackage := 2
-	if testing.Short() {
-		programs, perPackage = programs[:2], 4
-	}
 	for _, dir := range programs {
 		abs, err := filepath.Abs(dir)
 		if err != nil {

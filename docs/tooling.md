@@ -165,7 +165,7 @@ Some of the `ergo` binary's commands are written in Ergo. Until capstone stage S
 
 1. **The list.** `linked.Packages` (`internal/linked/linked.go`) names each linked package: its name, its Ergo module under `internal/linked/<name>/ergo`, and the std operation types whose command lines `ergo gen cli` generates into that module. `code` is the first: `ergo code` ([code](spec/code.md)).
 2. **The generator.** `go run ./scripts/linked` writes every listed package: it generates the command lines, checks the module in memory, lowers it as `ergo lib` does ([interop](spec/interop.md#go-calls-ergo)) into the Go package `internal/linked/<name>`, and formats it with gofmt. Never edit the generated files by hand.
-3. **Fresh.** `internal/linked`'s `TestLinkedGoIsFresh` regenerates every listed package in process and fails when a checked-in file differs or a generated folder holds a file the generator does not write. An edit of a linked module, of a std package it imports, or of the lowering therefore fails the gate until the generator has run.
+3. **Fresh.** `cmd/ergo`'s `TestLinkedGoIsFresh` regenerates every listed package in process and fails when a checked-in file differs or a generated folder holds a file the generator does not write. An edit of a linked module, of a std package it imports, or of the lowering therefore fails the gate until the generator has run.
 4. **The seam.** Only basic types and slices cross an `ergo lib` function. Go passes a linked package its input as JSON text that the Ergo side decodes with std `json`, and gets back strings. This seam goes when S1 links Ergo and Go in one program.
 
 `ergo work` is not linked: it runs `ergo-work` from `PATH`, as git runs its subcommands.

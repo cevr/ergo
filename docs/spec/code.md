@@ -1,6 +1,6 @@
 # Code: questions about a workspace's code
 
-Status: `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` are implemented (SEMTOOLS SEM1). `Calls`, `Reach`, `Machine` and `Api` (SEM2), the server on `ergo dev`, MCP and HTTP (SEM3), plans and `Apply` (SEM4), rename (SEM5), patterns (SEM6) and rewrites (SEM7) are planned (`semtools/plan.md` of the wf10 run).
+Status: **partly implemented**: the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1). `Calls`, `Reach`, `Machine` and `Api` (SEM2), the server on `ergo dev`, MCP and HTTP (SEM3), plans and `Apply` (SEM4), rename (SEM5), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).
 
 Std package `code` answers questions about code from the **fact tables** the checker's result gives for each package ([GLOSSARY](../../GLOSSARY.md), Fact table). No tool walks typed trees to answer a name question, and none reads source text with a regular expression.
 

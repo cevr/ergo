@@ -467,7 +467,7 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **`ergo fix`**: The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
 
-**Fact table**: What the checker knows about one package, as rows that tools read instead of walking typed trees: its symbols, its sites, their positions, and relations (union to variant, caller to callee, operation to the function that provides it, machines). A table names a symbol of another package by its handle, never by a pointer. Std `code` answers from them, and `ergo code` is its command line ([code](docs/spec/code.md)).
+**Fact table**: What the checker knows about one package, as rows that tools read instead of walking typed trees: its symbols, its sites, their positions, and relations (union to variant, caller to callee, operation to its provider, machines). A table names a symbol of another package by its handle, never by a pointer. Std `code` answers from them, and `ergo code` is its command line ([code](docs/spec/code.md)).
 
 **Site**: One place in source that names a symbol, with a kind: `def`, `read`, `write`, `call`, `typeuse`, `construct`, `match`, `import`, `needs`, `fails`, `provides`, `binds` or `handles`. References, type uses and the uses in a signature are one question with a kind filter.
 
