@@ -80,6 +80,38 @@
       "to": "\tif len(parts) == 1 && parts[0] == \"studio\" {\n\t\treturn Home\n",
       "rule": "Every route of the site prints to a path that parses back to it (law RoutesRoundTrip).",
       "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9b-exited-names-the-next", "origin": "wf10/fk9b",
+      "file": "examples/fk-gallery/screen/screen.ergo",
+      "from": ".Append(\"Exited \\(kind(r.Value))\")",
+      "to": ".Append(\"Exited \\(kind(l.To))\")",
+      "rule": "A navigation's Exited badge names the route left, as upstream's exitedAny (cases).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9b-stay-is-an-entry", "origin": "wf10/fk9b",
+      "file": "examples/fk-gallery/screen/screen.ergo",
+      "from": "if kind(r.Value) != kind(l.To) {",
+      "to": "if r.Value != l.To {",
+      "rule": "A stay on a painting with another id is no entry: its badge is the stay alone, as upstream's enteredAny (cases: Painting 3 → Painting 4).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9b-next-is-this", "origin": "wf10/fk9b",
+      "file": "examples/fk-gallery/screen/screen.ergo",
+      "from": "link(f, \"Next →\", \"/gallery/\\(gallery.Paintings[at+1].ID)\")",
+      "to": "link(f, \"Next →\", \"/gallery/\\(gallery.Paintings[at].ID)\")",
+      "rule": "Next → goes to the next painting (cases).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9b-previous-of-the-first", "origin": "wf10/fk9b",
+      "file": "examples/fk-gallery/screen/screen.ergo",
+      "from": "if at > 0 {",
+      "to": "if at >= 0 {",
+      "rule": "The first painting has no ← Previous (case scenes: painting 1).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
     }
   ]
 }

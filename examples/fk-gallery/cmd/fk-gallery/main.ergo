@@ -1,17 +1,37 @@
-// fk-gallery is a port of Foldkit's route-transitions example (stage a:
-// the model, with no view): a gallery site whose navigations load the
-// catalog on entry, load a painting by its id, and save the studio's
-// draft on leaving. It plays a script of timed visits and shows the page
-// after each one. Package gallery is the site; package script is the
-// host that plays the script.
+// fk-gallery is a port of Foldkit's route-transitions example (stage b:
+// the view on std ui's test host): a gallery site whose navigations carry
+// data work. It plays a script of timed acts on the site's screen and
+// shows what changed after each. Package gallery is the site as a
+// machine; package screen is the view; package script plays the script
+// on the test host, whose history is the browser's. This binary is the
+// only place that chooses the clock: a time.Manual that only the script
+// moves. With -stats it also prints the work of each step.
 
 import fkgallery/script
+import flag
 import io
 import os
+import time
+
+let statsFlag = flag.Bool("stats", false, "print the work of each step (ui.Counts)")
+
+let set = flag.Set{Name: "fk-gallery", Usage: "", Flags: []flag.Flag{statsFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: fk-gallery [-stats] < script"
 
 func main() fails os.Exit needs Console | Ambient {
-	let status = with context { io.Stdin: io.NewStdin() } { script.Run() }
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-gallery: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-gallery: the script did not run"}
 	}
 }
