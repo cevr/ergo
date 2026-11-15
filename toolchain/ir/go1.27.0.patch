@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..57c87db
+index 0000000..412efef
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,248 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,7 @@ index 0000000..57c87db
 +	loopLabels []string
 +	labels     map[string]bool
 +	gotos      []*ergoStmt
++	ctxt       *types2.Context // shares the instances of generic types (ergoir_types.go)
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -267,10 +268,10 @@ index 0000000..57c87db
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_call.go b/src/cmd/compile/internal/noder/ergoir_call.go
 new file mode 100644
-index 0000000..73aec3e
+index 0000000..29ad509
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_call.go
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,59 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -283,6 +284,22 @@ index 0000000..73aec3e
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
++
++// ergoRangeTypes is the key and the element type of Go's range over a
++// value of type t: a slice's index and element, a map's key and value, a
++// string's byte offset and rune; nil and nil for any other type.
++func ergoRangeTypes(t types2.Type) (key, elem types2.Type) {
++	switch u := types2.CoreType(t).(type) {
++	case *types2.Slice:
++		return types2.Typ[types2.Int], u.Elem()
++	case *types2.Map:
++		return u.Key(), u.Elem()
++	}
++	if ergoIsString(t) {
++		return types2.Typ[types2.Int], types2.Universe.Lookup("rune").Type()
++	}
++	return nil, nil
++}
 +
 +// call checks the arguments of a call of fun, whose signature is sig.
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
@@ -541,10 +558,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..93193ff
+index 0000000..8611127
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,398 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -668,12 +685,16 @@ index 0000000..93193ff
 +			return nil, nil
 +		}
 +		sig := fn.Type().(*types2.Signature)
-+		if sig.TypeParams().Len() > 0 {
-+			c.errorf(x.Pos, "ergoir: %s is generic", x.Name)
-+			return nil, nil
-+		}
 +		fun := syntax.NewName(pos, x.Name)
 +		c.info.Uses[fun] = fn
++		if sig.TypeParams().Len() > 0 || x.T != "" {
++			// A generic function's instance: T lists its type arguments
++			// (Go's spelling), recorded as Go records an inferred one.
++			sig = c.funcInstance(x.Pos, fun, sig, x.T)
++			if sig == nil {
++				return nil, nil
++			}
++		}
 +		ergoValue(fun, sig, nil)
 +		return c.call(x, fun, sig)
 +	case "mcall":
@@ -712,12 +733,15 @@ index 0000000..93193ff
 +			return nil, nil
 +		}
 +		sig := fn.Type().(*types2.Signature)
-+		if sig.TypeParams().Len() > 0 {
-+			c.errorf(x.Pos, "ergoir: %s.%s is generic", x.T, x.Name)
-+			return nil, nil
-+		}
 +		sel := syntax.NewName(pos, x.Name)
 +		c.info.Uses[sel] = fn
++		if sig.TypeParams().Len() > 0 || x.V != "" {
++			// A generic function's instance: V lists its type arguments.
++			sig = c.funcInstance(x.Pos, sel, sig, x.V)
++			if sig == nil {
++				return nil, nil
++			}
++		}
 +		tv := syntax.TypeAndValue{Type: sig}
 +		tv.SetIsValue()
 +		sel.SetTypeInfo(tv)
@@ -785,7 +809,12 @@ index 0000000..93193ff
 +		if xs == nil {
 +			return nil, nil
 +		}
-+		if _, ok := types2.CoreType(xt).(*types2.Slice); !ok && !ergoIsString(xt) {
++		switch types2.CoreType(xt).(type) {
++		case *types2.Slice, *types2.Map:
++		default:
++			if ergoIsString(xt) {
++				break
++			}
 +			c.errorf(x.Pos, "ergoir: len of %v", xt)
 +			return nil, nil
 +		}
@@ -842,6 +871,23 @@ index 0000000..93193ff
 +				}
 +				lit.ElemList = append(lit.ElemList, e)
 +			}
++		case *types2.Map:
++			// Each entry's key, then its value (IRG4b).
++			if len(x.Keys) != 0 || len(x.Elems)%2 != 0 {
++				c.errorf(x.Pos, "ergoir: map literal with %d elements", len(x.Elems))
++				return nil, nil
++			}
++			for i := 0; i < len(x.Elems); i += 2 {
++				k, kt := c.expr(x.Elems[i])
++				v, vt := c.expr(x.Elems[i+1])
++				if k == nil || v == nil || !c.assignable(x.Elems[i].Pos, "key", kt, u.Key()) || !c.assignable(x.Elems[i+1].Pos, "value", vt, u.Elem()) {
++					return nil, nil
++				}
++				kv := &syntax.KeyValueExpr{Key: k, Value: v}
++				kv.SetPos(c.pos(x.Elems[i].Pos))
++				lit.ElemList = append(lit.ElemList, kv)
++			}
++			lit.NKeys = len(lit.ElemList)
 +		default:
 +			c.errorf(x.Pos, "ergoir: literal of %v", t)
 +			return nil, nil
@@ -1485,7 +1531,7 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..12e949e
+index 0000000..efa852a
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
 @@ -0,0 +1,304 @@
@@ -1724,14 +1770,14 @@ index 0000000..12e949e
 +		if x == nil {
 +			return nil
 +		}
-+		sl, ok := types2.CoreType(t).(*types2.Slice)
-+		if !ok {
-+			c.errorf(s.Pos, "ergoir: range over %v, not a slice", t)
++		key, elem := ergoRangeTypes(t) // ergoir_call.go
++		if key == nil {
++			c.errorf(s.Pos, "ergoir: range over %v, not a slice, a map or a string", t)
 +			return nil
 +		}
 +		lhs := &syntax.ListExpr{}
 +		lhs.SetPos(pos)
-+		for i, want := range []types2.Type{types2.Typ[types2.Int], sl.Elem()} {
++		for i, want := range []types2.Type{key, elem} {
 +			idx := s.Key
 +			if i == 1 {
 +				idx = s.Val
@@ -1795,10 +1841,10 @@ index 0000000..12e949e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..c686264
+index 0000000..8724b4c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,638 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2278,7 +2324,7 @@ index 0000000..c686264
 +		// A local by the IR's own name: two locals of one scope with one
 +		// name do not compile, or bind as Go's := does, and the text's
 +		// structure then differs (TestIRTextChecks).
-+		return x.Value
++		return x.Value + p.typeArgs(x)
 +	case *syntax.ParenExpr:
 +		return "(" + p.expr(x.X) + ")"
 +	case *syntax.Operation:
@@ -2297,7 +2343,7 @@ index 0000000..c686264
 +		}
 +		return p.expr(x.Fun) + "(" + strings.Join(args, ", ") + dots + ")"
 +	case *syntax.SelectorExpr:
-+		return p.expr(x.X) + "." + x.Sel.Value
++		return p.expr(x.X) + "." + x.Sel.Value + p.typeArgs(x.Sel)
 +	case *syntax.IndexExpr:
 +		return p.expr(x.X) + "[" + p.expr(x.Index) + "]"
 +	case *syntax.SliceExpr:
@@ -2342,6 +2388,21 @@ index 0000000..c686264
 +	return fmt.Sprintf("ergoirNoText() /* %T */", x)
 +}
 +
++// typeArgs is the type argument list of a generic function's instance
++// named by n, as the IR gives it (IRG4b: a generic call never leaves its
++// arguments to Go's inference); "" for any other name.
++func (p *ergoPrinter) typeArgs(n *syntax.Name) string {
++	inst, ok := p.info.Instances[n]
++	if !ok || inst.TypeArgs.Len() == 0 {
++		return ""
++	}
++	args := make([]string, inst.TypeArgs.Len())
++	for i := range args {
++		args[i] = p.typ(inst.TypeArgs.At(i))
++	}
++	return "[" + strings.Join(args, ", ") + "]"
++}
++
 +func (p *ergoPrinter) qualifier(pkg *types2.Package) string {
 +	if pkg == p.pkg {
 +		return ""
@@ -2366,7 +2427,9 @@ index 0000000..c686264
 +	if _, basic := t.(*types2.Basic); basic {
 +		return s
 +	}
-+	if strings.HasPrefix(s, "[]") && !strings.Contains(s, "func") && !strings.Contains(s, "chan") {
++	// A slice or map type stands bare before a literal's braces (Go
++	// refuses a parenthesized literal type).
++	if (strings.HasPrefix(s, "[]") || strings.HasPrefix(s, "map[")) && !strings.Contains(s, "func") && !strings.Contains(s, "chan") {
 +		return s
 +	}
 +	return "(" + s + ")"
@@ -2422,10 +2485,10 @@ index 0000000..c686264
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..d2707a5
+index 0000000..ddc9139
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,475 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2510,8 +2573,27 @@ index 0000000..d2707a5
 +		return "void"
 +	}
 +	// The IR records a comparison as bool where types2 records untyped
-+	// bool; the writer encodes both as bool.
-+	return types2.TypeString(types2.Default(t), nil)
++	// bool; the writer encodes both as bool. A range over a string types
++	// its element as rune, the IR as int32: one type, which types2 keeps
++	// as two Basic values (byte and rune are named apart), so a basic type
++	// is shaped by its kind (IRG4b).
++	t = types2.Default(t)
++	if b, ok := t.(*types2.Basic); ok {
++		t = types2.Typ[b.Kind()]
++	}
++	return types2.TypeString(t, nil)
++}
++
++// ergoInstanceName is the name a function's instance is recorded at: x
++// itself, or a qualified name's selector; nil for any other expression.
++func ergoInstanceName(x syntax.Expr) *syntax.Name {
++	switch x := x.(type) {
++	case *syntax.Name:
++		return x
++	case *syntax.SelectorExpr:
++		return x.Sel
++	}
++	return nil
 +}
 +
 +// object is what a name denotes: a parameter, a local (numbered in order
@@ -2761,7 +2843,23 @@ index 0000000..d2707a5
 +		s.zero(tv.Type, depth) // T(nil)
 +		return
 +	}
++	// A generic function's instance: the text writes F[T1, T2] (an index
++	// expression), the IR a name with its Instances entry (IRG4b). Both
++	// are the instance, shaped by the name and the instance's type.
++	if ix, ok := x.(*syntax.IndexExpr); ok {
++		if n := ergoInstanceName(ix.X); n != nil {
++			if _, inst := s.info.Instances[n]; inst {
++				s.expr(ix.X, depth)
++				return
++			}
++		}
++	}
 +	typ := ergoShapeType(tv.Type)
++	if n := ergoInstanceName(x); n != nil {
++		if inst, ok := s.info.Instances[n]; ok {
++			typ = "instance " + ergoShapeType(inst.Type)
++		}
++	}
 +	switch x := x.(type) {
 +	case *syntax.Name:
 +		s.out(depth, "name %s %s", s.object(x), typ)
@@ -2868,10 +2966,10 @@ index 0000000..d2707a5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..8f78c74
+index 0000000..f49dad8
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,344 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2887,12 +2985,14 @@ index 0000000..8f78c74
 +	"strconv"
 +	"strings"
 +
++	"cmd/compile/internal/base"
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
 +
 +// typ resolves a type spelling: NAME (package scope or universe),
-+// PATH.NAME (an exported type of the imported package PATH), []T, *T.
++// PATH.NAME (an exported type of the imported package PATH), []T, *T,
++// map[K]V and a generic type's instance NAME[T1, T2].
 +func (c *ergoChecker) typ(p ergoPos, s string) types2.Type {
 +	if t, ok := c.literalType(p, s); ok { // ergoir_closure.go
 +		return t
@@ -2908,6 +3008,34 @@ index 0000000..8f78c74
 +			return types2.NewPointer(e)
 +		}
 +		return nil
++	}
++	if rest, ok := strings.CutPrefix(s, "map["); ok {
++		// map[K]V: K ends at the bracket that closes map's.
++		depth := 1
++		for i := 0; i < len(rest); i++ {
++			switch rest[i] {
++			case '[':
++				depth++
++			case ']':
++				depth--
++			}
++			if depth == 0 {
++				k, v := c.typ(p, rest[:i]), c.typ(p, rest[i+1:])
++				if k == nil || v == nil {
++					return nil
++				}
++				if !types2.Comparable(k) {
++					c.errorf(p, "ergoir: map key %v is not comparable", k)
++					return nil
++				}
++				return types2.NewMap(k, v)
++			}
++		}
++		c.errorf(p, "ergoir: %q is not a type", s)
++		return nil
++	}
++	if i := strings.IndexByte(s, '['); i > 0 && strings.HasSuffix(s, "]") {
++		return c.instance(p, s[:i], s[i+1:len(s)-1])
 +	}
 +	var obj types2.Object
 +	if i := strings.LastIndex(s, "."); i >= 0 {
@@ -2929,6 +3057,113 @@ index 0000000..8f78c74
 +		return nil
 +	}
 +	return tn.Type()
++}
++
++// instance is the generic type name instantiated with the type arguments
++// args, written as Go writes them (comma and space between top-level
++// arguments): Option[int], Pair[[]string, Option[int]]. Instantiate
++// checks the arguments against the type parameters' constraints.
++func (c *ergoChecker) instance(p ergoPos, name, args string) types2.Type {
++	gen := c.typ(p, name)
++	if gen == nil {
++		return nil
++	}
++	named, ok := gen.(*types2.Named)
++	if !ok || named.TypeParams().Len() == 0 {
++		c.errorf(p, "ergoir: %s is not a generic type", name)
++		return nil
++	}
++	targs := c.typeList(p, args)
++	if targs == nil {
++		return nil
++	}
++	t, err := types2.Instantiate(c.context(), named.Origin(), targs, true)
++	if err != nil {
++		c.errorf(p, "ergoir: %s[%s]: %v", name, args, err)
++		return nil
++	}
++	return t
++}
++
++// typeList resolves a list of type spellings, comma and space between
++// top-level ones; nil when one is not a type (an error).
++func (c *ergoChecker) typeList(p ergoPos, args string) []types2.Type {
++	var out []types2.Type
++	depth, start := 0, 0
++	for i := 0; i <= len(args); i++ {
++		if i < len(args) {
++			switch args[i] {
++			case '[':
++				depth++
++				continue
++			case ']':
++				depth--
++				continue
++			case ',':
++				if depth > 0 {
++					continue
++				}
++			default:
++				continue
++			}
++		}
++		t := c.typ(p, strings.TrimSpace(args[start:i]))
++		if t == nil {
++			return nil
++		}
++		out = append(out, t)
++		start = i + 1
++	}
++	return out
++}
++
++// funcInstance is the signature of the generic function fun's instance
++// with the type arguments args, recorded in Instances at fun; nil (an
++// error) when args do not instantiate sig.
++func (c *ergoChecker) funcInstance(p ergoPos, fun *syntax.Name, sig *types2.Signature, args string) *types2.Signature {
++	if sig.TypeParams().Len() == 0 || args == "" {
++		c.errorf(p, "ergoir: type arguments [%s] for %v", args, sig)
++		return nil
++	}
++	targs := c.typeList(p, args)
++	if targs == nil {
++		return nil
++	}
++	t, err := types2.Instantiate(c.context(), sig, targs, true)
++	if err != nil {
++		c.errorf(p, "ergoir: %s[%s]: %v", fun.Value, args, err)
++		return nil
++	}
++	inst := t.(*types2.Signature)
++	c.info.Instances[fun] = types2.Instance{TypeArgs: ergoTypeList(targs), Type: inst}
++	return inst
++}
++
++// ergoTypeList is targs as a *types2.TypeList, which types2 makes only
++// for an instance: the type arguments of a throwaway generic type's
++// instance (types2 exports no TypeList constructor; the writer reads an
++// instance's arguments from the list).
++func ergoTypeList(targs []types2.Type) *types2.TypeList {
++	var nopos syntax.Pos
++	any := types2.Universe.Lookup("any").Type()
++	tparams := make([]*types2.TypeParam, len(targs))
++	for i := range targs {
++		tparams[i] = types2.NewTypeParam(types2.NewTypeName(nopos, nil, "T", nil), any)
++	}
++	gen := types2.NewNamed(types2.NewTypeName(nopos, nil, "ergoTypeList", nil), types2.NewStruct(nil, nil), nil)
++	gen.SetTypeParams(tparams)
++	t, err := types2.Instantiate(nil, gen, targs, false)
++	if err != nil {
++		base.Fatalf("ergoir: type list: %v", err)
++	}
++	return t.(*types2.Named).TypeArgs()
++}
++
++func (c *ergoChecker) context() *types2.Context {
++	if c.ctxt == nil {
++		c.ctxt = types2.NewContext()
++	}
++	return c.ctxt
 +}
 +
 +// imported is the package of import path the package imports, or nil

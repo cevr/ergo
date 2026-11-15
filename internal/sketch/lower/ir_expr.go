@@ -205,6 +205,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 				lit.Elems = append(lit.Elems, b.expr(e))
 			}
+		case *check.Map:
+			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			s := tt.Underlying().(*check.Struct)

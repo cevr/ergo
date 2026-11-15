@@ -142,7 +142,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"generic or task call", "G4"},
+	{"generic or task call", "G4"}, // a generic std body
+	{"task call", "G4"},
+	{"generic call kind *", "G4"},
+	{"generic call without its type arguments", "G4"},
+	{"Option's pointer niche", "G4"},
+	{"append form", "G4"},
+	{"append to a defined slice type", "G4"},
+	{"Map write form", "G4"},
+	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
 	// runtime/v1 body; these call forms remain.
 	{"call without a function", "G4"},
@@ -153,6 +161,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
+	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Pointer", "G4"},
 	{"pointer receiver", "G4"},
