@@ -9,6 +9,7 @@ actor	same
 arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
 atomic	same
 base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+bench	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 bits	same
 cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 codec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
@@ -16,6 +17,7 @@ config	differs	lower: a union of a user package lowers to the flat form, a std u
 copyfixture	same
 crc32	same
 csv	same
+dense	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 embed	same
 exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 explore	same
@@ -25,13 +27,13 @@ fs	differs	lower: a union of a user package lowers to the flat form, a std union
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 hex	same
 http	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-io	same
+io	differs	lower: the flat std program suffixes a name another std package declares too (io's Host is Host_1 beside fs's), the copy's names are unique	follow-up std-name-suffix
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
 journal/memory	same
-json	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+json	differs	surface: Settle's row loses Malformed in the copy: a copy is in no module, so it cannot declare the extern Go type Malformed (the NP4e door)	follow-up NP4e
 log	same
-machines	same
+machines	differs	check: S108 a declared machine's Every timer must be std machines.Every (IsStdEvery reads std membership, FKG1)	B20-NP
 maps	same
 math	same
 os	differs	lower: os.Code lowers to Go's int at the runtime record boundary (runtimeType names it), a copy's Code to its own type	follow-up os-code-type
@@ -53,6 +55,8 @@ testing	differs	check: S108 a record with no fields is written bare: Script[prob
 text	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
-toml	same
+toml	differs	lower: the flat std program suffixes a name another std package declares too (toml's DecodeMono_1 beside json's), the copy's names are unique	follow-up std-name-suffix
 trace	same
+ui	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+ui/layout	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 utf8	same

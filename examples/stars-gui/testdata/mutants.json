@@ -7,7 +7,7 @@
       "from": "Whole: kept(g.Filter, view), Key: key",
       "to": "Whole: g.Whole, Key: key",
       "rule": "A sort changes the key, so the kept order of the whole catalogue goes.",
-      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-edit-keeps-the-whole", "origin": "wf10 GP1x",
@@ -15,7 +15,7 @@
       "from": "Rows: rows, View: view, Whole: kept(g.Filter, view)",
       "to": "Rows: rows, View: view, Whole: g.Whole",
       "rule": "An edit may move its star, so the kept order of the whole catalogue goes.",
-      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-widen-narrows-the-view", "origin": "wf10 GP1x",
@@ -23,7 +23,7 @@
       "from": "View: Narrow(g.Rows, all, filter)",
       "to": "View: Narrow(g.Rows, g.View, filter)",
       "rule": "A widening filter filters the whole catalogue, not the narrower view.",
-      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder", "examples/stars-gui/catalog:law Table.ViewIsOrder"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-whole-kept-under-a-filter", "origin": "wf10 GP1x",
@@ -31,7 +31,7 @@
       "from": "if filter == \"\" { Some{Value: view} } else { None }",
       "to": "Some{Value: view}",
       "rule": "A filtered view is not the whole catalogue.",
-      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-retext-types-the-whole-field", "origin": "wf10 GP1b",
@@ -39,7 +39,7 @@
       "from": "catalog.After(at, catalog.Type{Text: strings.Slice(text, len(Typed(at)), len(text))})",
       "to": "catalog.After(at, catalog.Type{Text: text})",
       "rule": "A field that grew by text is the table typing that text, not the whole field again.",
-      "killers": ["examples/stars-gui/screen:law RetextIsTyping"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-app-swallows-the-refusal", "origin": "wf10 GP1b",
@@ -47,7 +47,7 @@
       "from": "case catalog.Refused as r:\n\t\t\treturn Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
       "to": "case catalog.Refused:\n\t\t\treturn Stay[catalog.State]{Next: s}",
       "rule": "A refused edit is the app's output, which the window shows.",
-      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
       "name": "stars-page-up-pages-down", "origin": "wf10 GP1b",
@@ -63,7 +63,7 @@
       "from": "for i in w.Top-x.First..w.Top-x.First+w.Height {",
       "to": "for i in w.Top-x.First..w.Top-x.First+w.Height+1 {",
       "rule": "A window shows the rows of its viewport, not the rows a list writes past its edges.",
-      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
       "name": "stars-host-never-scrolls", "origin": "wf10 GP1b",
@@ -71,7 +71,7 @@
       "from": "\tif now == was {\n\t\treturn was\n\t}",
       "to": "\tif now != was {\n\t\treturn was\n\t}",
       "rule": "The host scrolls the list to the table's window when it moves.",
-      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
       "name": "stars-scene-presses-one-key-short", "origin": "wf10 GP1b",
@@ -79,7 +79,7 @@
       "from": "for _ in 0..n {",
       "to": "for _ in 1..n {",
       "rule": "down N is N presses of the down arrow.",
-      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
       "name": "stars-window-lets-cursor-fall-below", "origin": "wf10 GP1a",
@@ -87,7 +87,7 @@
       "from": "if cursor >= top+g.Height {",
       "to": "if cursor > top+g.Height {",
       "rule": "The window always holds the cursor's row.",
-      "killers": ["examples/stars-gui/catalog:law Table.WindowWithinBounds"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-sort-clears-selection", "origin": "wf10 GP1a",
@@ -95,7 +95,7 @@
       "from": "Key: key, Cursor: follow(view, at, g.Cursor)})}}",
       "to": "Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
       "rule": "A sort keeps the selected stars.",
-      "killers": ["examples/stars-gui/catalog:law Table.SelectionSurvivesSort"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-narrow-keeps-every-row", "origin": "wf10 GP1a",
@@ -103,7 +103,7 @@
       "from": "\t\tif Matches(rows[id], filter) {",
       "to": "\t\tif true {",
       "rule": "A typed letter keeps only the shown stars that the longer filter keeps.",
-      "killers": ["examples/stars-gui/catalog:law Table.ViewIsOrder", "examples/stars-gui/catalog:law NarrowIsOrder", "examples/stars-gui/catalog:law FilterThenSortCommutes"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-order-always-keeps-the-first", "origin": "wf10 GP1a",
@@ -111,7 +111,7 @@
       "from": "\t\tif Matches(s, filter) {",
       "to": "\t\tif Matches(s, filter) || id == 0 {",
       "rule": "A filter keeps a star only when the filter is in its name or constellation.",
-      "killers": ["examples/stars-gui/catalog:law FilterThenSortCommutes"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-sort-adds-a-row", "origin": "wf10 GP1a",
@@ -119,7 +119,7 @@
       "from": "slices.SortFunc(ids, func",
       "to": "slices.SortFunc(ids.Append(0), func",
       "rule": "A sort shows exactly the ids it is given.",
-      "killers": ["examples/stars-gui/catalog:law SortIsPermutation"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-fixed-drops-leading-zeros", "origin": "wf10 GP1a",
@@ -127,7 +127,7 @@
       "from": "strings.PadLeft(strconv.Itoa(a%scale), places, '0')",
       "to": "strconv.Itoa(a%scale)",
       "rule": "A fixed-point number prints every decimal place: 1.05, not 1.5.",
-      "killers": ["examples/stars-gui/catalog:law CellTextReadsBack"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-distance-sets-declination", "origin": "wf10 GP1a",
@@ -135,7 +135,7 @@
       "from": "Star{..s, Distance: f.Value}",
       "to": "Star{..s, Declination: f.Value}",
       "rule": "An edit of a column changes that column.",
-      "killers": ["examples/stars-gui/catalog:law SetShowsTheCell"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-catalogue-joins-with-spaces", "origin": "wf10 GP1a",
@@ -143,7 +143,7 @@
       "from": "strings.Join(cells, \"\\t\")",
       "to": "strings.Join(cells, \" \")",
       "rule": "A catalogue line separates its cells with tabs, so it reads back.",
-      "killers": ["examples/stars-gui/catalog:law FormatParsesBack"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-edit-is-never-opened", "origin": "wf10 GP1a",
@@ -151,7 +151,7 @@
       "from": "Enter[State]{Next: Editing{G: g, Row: id.Value, Column: e.Column, Draft: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
       "to": "Enter[State]{Next: Filtering{G: g, Before: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
       "rule": "Edit opens the draft of the cell under the cursor.",
-      "killers": ["examples/stars-gui/catalog:law Table.ReachesEditing"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-filter-is-never-started", "origin": "wf10 GP1a",
@@ -159,7 +159,7 @@
       "from": "Enter[State]{Next: Filtering{G: g, Before: g.Filter}}",
       "to": "Reject",
       "rule": "Filter starts a filter from browsing.",
-      "killers": ["examples/stars-gui/catalog:law Table.FilterAndBack"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-up-writes-down", "origin": "wf10 GP1a",
@@ -167,7 +167,7 @@
       "from": "\"up \\(-m.By)\"",
       "to": "\"up \\(m.By)\"",
       "rule": "A command's line reads back as the command.",
-      "killers": ["examples/stars-gui/script:law LineParsesBack"]
+      "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-cursor-mark-on-top-row", "origin": "wf10 GP1a",

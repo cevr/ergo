@@ -17,8 +17,8 @@ import (
 // cellLib is a package that seals Bag (seal is unexported) and provides it
 // through Box, whose Add takes *Box; Open has no unexported operation.
 const cellLib = `type Bag {
-	Add(n int),
-	Total() int,
+	..Open,
+	// seal seals Bag to this package.
 	seal(),
 }
 
@@ -71,7 +71,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 	resource := func(close bool) string {
 		op, fn := "", ""
 		if close {
-			op, fn = "\tClose(),\n", "func Close(k Kept) {}\n"
+			op, fn = "\t..Closer,\n", "func Close(k Kept) {}\n"
 		} else {
 			op, fn = "\tTotal() int,\n", "func Total(k Kept) int { k.n }\n"
 		}

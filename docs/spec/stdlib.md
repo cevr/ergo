@@ -1531,9 +1531,11 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
-| `internal/sketch/check/close.go:closeTakes` | `Close` |
+| `internal/sketch/check/close.go:checker.closeTakes` | `Close` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
+| `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
+| `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
 | `internal/sketch/check/extern.go:IsGoError` | `go.Error` |
 | `internal/sketch/check/extern.go:predeclaredExtern` | the prelude's externs, intrinsics whose bodies the lowering writes |

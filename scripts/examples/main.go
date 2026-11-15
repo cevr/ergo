@@ -150,7 +150,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var selected []*program
 	if cfg.modules {
 		selected, err = selectModules(cfg.names, modules)
-	} else if selected, err = selectPrograms(cfg, programs); err == nil && len(cfg.names) == 0 && !cfg.record {
+	} else if selected, err = selectPrograms(cfg, programs, modules); err == nil && len(cfg.names) == 0 && !cfg.record {
 		// A run of the tags runs every module too: the gate's examples
 		// step checks modules/ (MK0).
 		selected = append(selected, modules...)
@@ -454,7 +454,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if strings.HasSuffix(file, ".ergo") {
 				p.sources = append(p.sources, filepath.Join(p.dir, file))
 			}
-		case file == opcount.WorkloadFile:
+		case file == opcount.WorkloadFile && !entry.IsDir():
 			// scripts/opcount's sizes and arguments (examples/README.md,
 			// "Workload"); the runner checks it and does not run it.
 			if !entry.Type().IsRegular() {
@@ -733,9 +733,12 @@ func lines(content []byte) []string {
 	return strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
 }
 
-func selectPrograms(cfg *config, programs []*program) ([]*program, error) {
+func selectPrograms(cfg *config, programs, modules []*program) ([]*program, error) {
 	var selected []*program
 	if len(cfg.names) > 0 {
+		// A name may also be a module, modules/NAME: the mutant runner's
+		// examples suite names one so (examples:modules/NAME).
+		programs := slices.Concat(programs, modules)
 		for _, name := range cfg.names {
 			at := slices.IndexFunc(programs, func(p *program) bool { return p.name == name })
 			if at < 0 {

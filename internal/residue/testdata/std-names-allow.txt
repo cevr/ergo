@@ -24,3 +24,6 @@ internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership;
 internal/sketch/check/implements.go	c.pkg.Path != std.PreludePath	Closer and prelude-named types; predeclared language contract
 internal/sketch/check/implements.go	c.pkg.Path == std.PreludePath	Closer and prelude-named types; predeclared language contract
 internal/sketch/check/implements.go	o.Obj.Pkg.Path == "io"	Go's io.Closer binds the predeclared Closer (interop.md, Resources 1)
+internal/sketch/check/call.go	c.Func.Pkg.Path == std.PreludePath	InForce; predeclared language function, lowered in place (rows.md, Context values)
+internal/sketch/check/never.go	c.pkg.Path == std.PreludePath	Never, the prelude's empty union (FKG2); predeclared language type
+internal/sketch/check/never.go	n.Obj.Pkg.Path != std.PreludePath	Never, the prelude's empty union (FKG2); predeclared language type

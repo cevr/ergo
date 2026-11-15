@@ -102,21 +102,12 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 // a decision, the output of a decision, and the inbox's capacity.
 extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh escaping func() S fails G needs R, limit int, step escaping func(s S, e E) D fails F needs R, fire escaping func(at S, s S) D fails F needs R, delay escaping func(s S) duration, workOf escaping func(s S) W, hasWork escaping func(w W) bool, work escaping func(w W, send func(e E)) needs R, kind escaping func(d D) int, next escaping func(s S, d D) S, out escaping func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
-// firingOn and firingOff set and clear the runner's firing mark on the
-// calling task (std machines' firingOn, FKG1).
-extern go ergo.local/prototype/runtime/v1.MachineFiringOn func firingOn()
-
-extern go ergo.local/prototype/runtime/v1.MachineFiringOff func firingOff()
-
 // fired is the timer of the entry that opened in at, as it fires: m's
 // After under the firing mark, so a machines.Every timer's signal carries
 // time.Clock's reading now. The fire of start and child reads it so; the
 // delay reads only In.
 func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
-	firingOn()
-	let timer = m.After(at)
-	firingOff()
-	timer
+	machines.AfterFiring(m, at)
 }
 
 // noTimer is the delay start reads as "no timer" for a state whose After

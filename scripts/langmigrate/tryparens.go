@@ -150,15 +150,21 @@ var (
 // moves, and without the source text an assert quotes. The call-site
 // table (lower: callTable) lists the calls in source order, by offset,
 // so a removal that moves a call's start past another's on its line
-// reorders two rows; each run of rows is compared as a set.
+// reorders two rows; each run of rows is compared as a set. The compact
+// table names each text by its index in the names table, numbered in the
+// order of the calls, so its rows are read with the texts and the names
+// table, a set too, is sorted.
 func positionless(goText string) string {
+	goText = resolveCallNames(goText)
 	goText = lineDirective.ReplaceAllString(goText, "")
 	goText = column.ReplaceAllString(goText, "Column: _")
 	goText = assertText.ReplaceAllString(goText, `$1"_"`)
 	goText = columnText.ReplaceAllString(goText, "$1:_")
 	lines := strings.Split(goText, "\n")
 	// moved maps a call row's index to its index in the sorted run; the
-	// inline table (lower: ergoInlines) names a call by that index.
+	// inline table (lower: ergoInlines) names a call by that index, and is
+	// written before or after the call table, so it is read in a second
+	// pass.
 	var moved map[int]int
 	for i := 0; i < len(lines); {
 		j := i
@@ -177,13 +183,53 @@ func positionless(goText string) string {
 			}
 			slices.Sort(lines[i:j])
 		}
-		if m := inlineCall.FindStringSubmatch(lines[i]); m != nil && moved != nil {
+		i = max(j, i+1)
+	}
+	for i, l := range lines {
+		if m := inlineCall.FindStringSubmatch(l); m != nil && moved != nil {
 			n, _ := strconv.Atoi(m[1])
 			if to, ok := moved[n]; ok {
-				lines[i] = strings.Replace(lines[i], m[0], "{Call: "+strconv.Itoa(to)+",", 1)
+				lines[i] = strings.Replace(l, m[0], "{Call: "+strconv.Itoa(to)+",", 1)
 			}
 		}
-		i = max(j, i+1)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// compactRow is a row of the compact call table (lower: callTable),
+// whose Func, Callee and File are indices into the names table.
+var compactRow = regexp.MustCompile(`^\t\{Func: (\d+), Callee: (\d+), File: (\d+),`)
+
+// resolveCallNames writes each compact call row with the texts its
+// indices name, and sorts the names table.
+func resolveCallNames(goText string) string {
+	lines := strings.Split(goText, "\n")
+	var names []string
+	start := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "var ergoCallNames") && strings.HasSuffix(l, "= [...]string{") {
+			start = i + 1
+			for j := start; j < len(lines) && lines[j] != "}"; j++ {
+				names = append(names, lines[j])
+			}
+			slices.Sort(lines[start : start+len(names)])
+			break
+		}
+	}
+	if start < 0 {
+		return goText
+	}
+	name := func(n string) string {
+		i, err := strconv.Atoi(n)
+		if err != nil || i >= len(names) {
+			return n
+		}
+		return strings.TrimSuffix(strings.TrimPrefix(names[i], "\t"), ",")
+	}
+	for i, l := range lines {
+		if m := compactRow.FindStringSubmatch(l); m != nil {
+			lines[i] = "\t{Func: " + name(m[1]) + ", Callee: " + name(m[2]) + ", File: " + name(m[3]) + "," + l[len(m[0]):]
+		}
 	}
 	return strings.Join(lines, "\n")
 }

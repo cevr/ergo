@@ -283,9 +283,7 @@
       "from": "\tif cell != \"\" {\n\t\tl.CellsTail = cell[len(cell)-1]\n\t}\n",
       "to": "",
       "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
-      "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
-      ]
+      "killers": ["internal/selfhostcheck:TestSelfhostLayoutModel"]
     },
     {
       "name": "sh-separator-keeps-blank",
