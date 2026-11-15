@@ -1,6 +1,6 @@
 // Package copy is a work.Cloner by a plain copy of every file (cp -a):
 // it works on any file system and shares nothing, so the tool makes one
-// only when asked (new -copy, or a copy line in ergo.work).
+// only when asked (new -copy, or copy = true in work.toml).
 //
 // Go control: rift create on a file system without copy-on-write.
 
@@ -17,6 +17,9 @@ func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
 func Name(_ Cloner) string { "copy" }
 
 func Shares(_ Cloner) bool { false }
+
+// KeepsInodes: each file of the clone is a new inode.
+func KeepsInodes(_ Cloner) bool { false }
 
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "copy", from, to)

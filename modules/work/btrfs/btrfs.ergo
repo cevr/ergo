@@ -23,6 +23,9 @@ func Name(_ Cloner) string { "btrfs" }
 
 func Shares(_ Cloner) bool { true }
 
+// KeepsInodes: a snapshot keeps every inode and time.
+func KeepsInodes(_ Cloner) bool { true }
+
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "btrfs", from, to)
 	let r = system.Run(c.trees, "btrfs", "btrfs", []string{"subvolume", "snapshot", from, to}) catch {

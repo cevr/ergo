@@ -2,12 +2,12 @@
 // memory providers, held to a reference written apart from the Tool (a
 // list of names, states, parents, kept flags and ages).
 
-import exec
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
 import maps
 import slices
+import strings
 import time
 
 // Op is one step of a sequence: a command, an edit, a land or a commit in
@@ -45,14 +45,29 @@ let theBase = "/w/base"
 let otherBase = "/w/other"
 
 // World is a Tool over memory providers and the handles the driver uses.
-type World { tool work.Tool, trees Cloner, vcs Vcs, registry Registry, clock time.Manual }
+type World { tool work.Tool, trees Cloner, vcs Vcs, registry Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
-func world(sharing bool) World {
+func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
+
+// worldWith is a fresh World whose base also holds the files tree (each
+// committed), installed packages (node_modules, untracked and not
+// ignored, with nested folders) and ignored build output (dist), with
+// config as its work.toml ("" for none) and hooks that fail the command
+// failing. A work.toml is allowed (work trust) at init.
+func worldWith(sharing bool, tree Map[string, string], config string, failing string) World {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
-	Repo(vcs, theBase, "main", Map[string, string]{"main.ergo": "func main() {}\n"}, "c0")
+	let mut files = Map[string, string]{"main.ergo": "func main() {}\n", ".gitignore": "dist\nnode_modules\n"}
+	for path, text in tree {
+		let own = path == "" || strings.HasPrefix(path, ".git") || strings.HasPrefix(path, "dist") || strings.HasPrefix(path, "node_modules") || strings.HasSuffix(path, "/") || strings.Contains(path, "//") || path == "main.ergo"
+		if !own {
+			files[path] = text
+		}
+	}
+	Repo(vcs, theBase, "main", files, "c0")
+	let _ = Write(trees, theBase, "node_modules/left-pad/index.js", "module.exports = 1\n") && Write(trees, theBase, "node_modules/.bin/left-pad", "#!/bin/sh\n") && Write(trees, theBase, "dist/out.js", "built\n")
 	let cloner = if sharing { trees } else { Refusing(trees) }
 	let registry = NewRegistry()
 	let disk = fstest.NewMemory()
@@ -60,14 +75,24 @@ func world(sharing bool) World {
 	case fs.Denied, fs.Failed:
 		Unreachable("a folder of a memory disk")
 	}
+	if config != "" {
+		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a file of a memory disk")
+		}
+	}
 	let clock = time.NewManual(1000)
-	let tool = work.NewTool(theBase, []work.Cloner{cloner}, Beside(trees, false), registry, vcs, disk, disk, exec.Script{Results: Map[string, exec.Result]{}}, clock, "/")
+	let lock = NewLock()
+	let hooks = Recording(lock, failing)
+	let runner = NewRunner()
+	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: clock}
+	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
 	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:
 		Unreachable("init of a memory base")
 		""
 	}
-	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock}
+	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: disk, hooks: hooks, lock: lock, runner: runner}
 }
 
 // fresh are new's options with only the copy flag.
@@ -79,9 +104,9 @@ func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, 
 // workspace ready handed is held by its parent's branch; a sync records
 // the commit it merged as the base. A second base's trash is never
 // touched.
-law ToolAgreesWithTheReference(ops []Op, sharing bool) {
-	let w = world(sharing)
-	Repo(w.vcs, "/w/.ergo-work/other/.ergo-trash/x.1", "x", Map[string, string]{"f": "other"}, "o1")
+law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string]) {
+	let w = worldWith(sharing, tree, "", "")
+	Repo(w.vcs, "/w/.work/other/.work-trash/x.1", "x", Map[string, string]{"f": "other"}, "o1")
 	let mut want = []Expected{}
 	let mut gone = []string{}
 	let mut commits = 0
@@ -90,20 +115,23 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 		match op {
 		case NewOp as o:
 			let name = pick(o.Name)
-			let _ = w.tool.New(name, fresh(o.Copy)) catch {
+			let made = w.tool.New(name, fresh(o.Copy)) catch {
 			case _:
-				""
+				nothing()
+			}
+			if made.Path != "" && !carries(w, made.Path) {
+				return false
 			}
 			if !named(want, name) && (sharing || o.Copy) {
-				want = want.Append(Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase) + "/" + work.FolderOf(name)})
+				want = want.Append(Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name)})
 			}
 		case OnOp as o:
 			let name = pick(o.Name)
 			let on = pick(o.On)
-			let made = w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}}) catch {
+			let made = (w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}}) catch {
 			case _:
-				""
-			}
+				nothing()
+			}).Path
 			match find(want, on) {
 			case Some[Expected] as parent:
 				let can = !named(want, name) && parent.Value.State == "active"
@@ -122,7 +150,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 			let name = pick(o.Name)
 			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon}) catch {
 			case _:
-				work.Workspace{Name: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Active, Since: 0, Base: "", Latest: ""}
+				work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Active, Since: 0, Base: "", Latest: "", Deps: ""}
 			}
 			want = removed(want, name, o.Abandon, at, out.Name == name)
 		case EditOp as o:
@@ -168,10 +196,10 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 			}
 		case SyncOp as o:
 			let name = pick(o.Name)
-			let theirs = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: name}}) catch {
+			let theirs = (w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: name}}) catch {
 			case _:
-				""
-			}
+				work.Synced{Commit: "", Deps: work.NoDeps}
+			}).Commit
 			if theirs != "" {
 				if !synced(w, name, theirs) {
 					return false
@@ -189,8 +217,8 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 		case CrashOp as o:
 			let name = pick(o.Name)
 			if !named(want, name) {
-				let path = work.Home(theBase) + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: ""}) catch {
+				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: ""}) catch {
 				case work.Unkept:
 				}
 				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
@@ -212,7 +240,17 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 			return false
 		}
 	}
-	w.trees.Has("/w/.ergo-work/other/.ergo-trash/x.1")
+	w.trees.Has("/w/.work/other/.work-trash/x.1")
+}
+
+// nothing is the answer of a new that failed.
+func nothing() work.Created { work.Created{Name: "", Id: "", Path: "", Branch: "", Deps: work.NoDeps, Hooks: work.HooksRan{Count: 0}} }
+
+// carries reports whether the clone at path holds the base's installed
+// packages and ignored build output: a clone copies everything.
+func carries(w World, path string) bool {
+	let files = Files(w.trees, path)
+	files.Get("node_modules/left-pad/index.js") != None && files.Get("node_modules/.bin/left-pad") != None && files.Get("dist/out.js") != None
 }
 
 // handedHeld reports whether the parent's branch holds the workspace's

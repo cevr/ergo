@@ -1,11 +1,11 @@
 # work.Tool is the Api over providers the binary chooses; package work
 # sees no provider of its contracts. The Api's law runs in package memory
 # against memory.Workspaces, a Tool over the memory providers.
-skip law Api.NewIsListedOnce for Tool: its values have no generator: Cloner is an operation type with no builder: neither main nor maintest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewTool() Tool with no rows would build one for each case
+skip law Api.NewIsListedOnce for Tool: its values have no generator: Lock is an operation type with no builder: neither main nor maintest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewTool() Tool with no rows would build one for each case
 # The host Cloners (btrfs, reflink, clonefile, copy) run system commands
 # through a host exec.Runner, which only main makes (exec.NewHost needs
 # Ambient). Their laws run in package memory against the model, and the
-# examples/ergo-work cases run new, rm and gc through them on the host.
+# examples/work cases run new, rm and gc through them on the host.
 skip law work.Cloner.CloneMakesTheTree for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.DiscardDiscards for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.FailedCloneLeavesNothing for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
@@ -17,3 +17,7 @@ skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generato
 skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+# sh.Hooks runs sh through a host exec.Runner, as the Cloners do; the law
+# runs against memory.Hooks (whose "exit N" is sh's), and the hook cases
+# of examples/work run sh on the host.
+skip law work.Hooks.ExitIsAFailure for Hooks: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewHooks() Hooks with no rows would build one for each case

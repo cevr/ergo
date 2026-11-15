@@ -23,6 +23,9 @@ func Name(_ Cloner) string { "clonefile" }
 
 func Shares(_ Cloner) bool { true }
 
+// KeepsInodes: each file of the clone is a new inode.
+func KeepsInodes(_ Cloner) bool { false }
+
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "clonefile", from, to)
 	let r = try system.Run(c.trees, "clonefile", "cp", []string{"-c", "-pPR", from, to})

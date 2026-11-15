@@ -1,0 +1,200 @@
+import filepath
+import fs
+import json
+import strings
+import toml
+
+// Report is what work doctor finds about a base: its storage, the
+// Cloners tried in order and the one that made the last workspace, the
+// file system and mount options of the base, whether a purge of a btrfs
+// workspace is one call (the mount allows a user's subvolume delete),
+// how many tracked files the base's Git index holds a stale stat of (each
+// is read again by the next Git command in the base and in every clone),
+// whether work.toml's commands are allowed, and what to do.
+type Report {
+	Base         string,
+	Storage      string,
+	Cloners      []string,
+	LastCloner   string,
+	FileSystem   string,
+	PurgeOneCall bool,
+	StaleIndex   int,
+	Trusted      bool,
+	Notes        []string,
+}
+
+// mountOf is the file system type and options of the mount that holds
+// path, from /proc/mounts (the longest mount point that is a prefix);
+// ("", "") when the host has no such file.
+func mountOf(t Tool, path string) (string, string) {
+	let text = t.files.ReadFile("/proc/mounts") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ("", "")
+	}
+	let abs = filepath.Clean(path)
+	let mut best = ""
+	let mut kind = ""
+	let mut opts = ""
+	for line in strings.Split(text, "\n") {
+		let f = strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		let at = f[1]
+		let under = abs == at || at == "/" || strings.HasPrefix(abs, at+"/")
+		if under && len(at) >= len(best) {
+			best = at
+			kind = f[2]
+			opts = f[3]
+		}
+	}
+	(kind, opts)
+}
+
+// Doctor reports on the base.
+func Doctor(t Tool) Report fails NoBase | BadConfig | Unkept | VcsFailed {
+	try initialized(t)
+	let c = try config(t)
+	let mut names = []string{}
+	for cl in t.cloners {
+		names = names.Append(cl.Name())
+	}
+	names = names.Append(t.copier.Name())
+	let mut last = ""
+	for w in try t.registry.All() {
+		if w.Cloner != "" && w.Cloner != "adopted" {
+			last = w.Cloner
+		}
+	}
+	let (kind, opts) = mountOf(t, t.base)
+	let oneCall = kind == "btrfs" && strings.Contains(","+opts+",", ",user_subvol_rm_allowed,")
+	let stale = try t.vcs.StatDirty(t.base)
+	let ok = trusted(t, c)
+	let mut notes = []string{}
+	if kind == "btrfs" && !oneCall {
+		notes = notes.Append("a purge deletes each file: mount \(kind) with user_subvol_rm_allowed to make it one call")
+	}
+	if stale > 0 {
+		notes = notes.Append("\(stale) tracked files have a stale stat in the index: run work refresh")
+	}
+	if !ok {
+		notes = notes.Append("work.toml runs commands work trust has not allowed: run work trust")
+	}
+	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes}
+}
+
+// Refresh refreshes the stat data of the base's Git index (git
+// update-index --refresh), so that a clone starts with a fresh index; it
+// is the number of tracked files that had a stale stat.
+func Refresh(t Tool) int fails NoBase | Unkept | VcsFailed {
+	try initialized(t)
+	let stale = try t.vcs.StatDirty(t.base)
+	try t.vcs.Refresh(t.base)
+	stale
+}
+
+// BasesFile is the list of the bases init registered, one a line, in
+// the user's data folder.
+func BasesFile(data string) string { filepath.Join([]string{data, "bases"}) }
+
+// Bases is every base init registered on this host.
+func Bases(t Tool) []string fails Unkept {
+	let text = t.files.ReadFile(BasesFile(t.data)) catch {
+	case fs.NotFound:
+		return []string{}
+	case fs.Denied, fs.Failed:
+		return Unkept{Reason: "\(BasesFile(t.data)) does not read"}
+	}
+	let mut out = []string{}
+	for line in strings.Split(text, "\n") {
+		if line != "" && !strings.Contains(strings.Join(out, "\n")+"\n", line+"\n") {
+			out = out.Append(line)
+		}
+	}
+	out
+}
+
+// ShellLines is what work shell-init prints, for eval "$(work
+// shell-init)": a shell function work that runs the binary and, after a
+// new that succeeded, changes to the new workspace's folder.
+let ShellLines = "work() {\n\tif [ \"$1\" = new ]; then\n\t\tout=$(command work --json \"$@\") || { printf '%s\\n' \"$out\"; return 1; }\n\t\tprintf '%s\\n' \"$out\"\n\t\tcd \"$(printf '%s\\n' \"$out\" | sed -n 's/.*\"path\":\"\\([^\"]*\\)\".*/\\1/p')\" || return\n\telse\n\t\tcommand work \"$@\"\n\tfi\n}"
+
+// ShellInit is the shell lines of ShellLines.
+func ShellInit(t Tool) string { ShellLines }
+
+// ImportRiftOptions name the .rift.toml to read (-file; the base's when
+// absent).
+type ImportRiftOptions { File Option[string] }
+
+type riftHook { Run json.Optional[string] "run" }
+
+type riftHooks {
+	Precreate  json.Optional[riftHook] "precreate",
+	Postcreate json.Optional[riftHook] "postcreate",
+	Preremove  json.Optional[riftHook] "preremove",
+	Postremove json.Optional[riftHook] "postremove",
+}
+
+type riftFile { Hooks json.Optional[riftHooks] "hooks" }
+
+func riftRun(h json.Optional[riftHook]) []string {
+	match h {
+	case json.Present[riftHook] as p:
+		match p.Value.Run {
+		case json.Present[string] as r:
+			[]string{r.Value}
+		case json.Absent:
+			[]string{}
+		}
+	case json.Absent:
+		[]string{}
+	}
+}
+
+// ImportRift is the work.toml of a Rift configuration (.rift.toml: its
+// four hooks, each a `run` command): the hooks as they are, and Rift's
+// default copy (leave_out = ["rift-filtered"]) named so a reader sees
+// what work's default changes. It writes nothing.
+func ImportRift(t Tool, o ImportRiftOptions) string fails BadConfig | fs.NotFound | fs.Denied | fs.Failed {
+	let file = match o.File {
+	case Some[string] as f:
+		f.Value
+	case None:
+		filepath.Join([]string{t.base, ".rift.toml"})
+	}
+	let text = try t.files.ReadFile(file)
+	let r = toml.Decode(json.Codec[riftFile]{MaxBytes: 1 << 20, MaxDepth: 32}, text) catch {
+	case toml.Malformed as m:
+		return BadConfig{Line: m.Line, Why: m.Reason}
+	case _:
+		return BadConfig{Line: 0, Why: "a value of .rift.toml has the wrong type"}
+	}
+	let mut lines = []string{"# work.toml imported from \(filepath.Base(file)) (work import-rift).", "[work]", "# Rift's default copy leaves these folders out; work's copies everything.", "# Delete this line to clone installed packages and build output too.", "leave_out = [\"rift-filtered\"]"}
+	match r.Hooks {
+	case json.Present[riftHooks] as h:
+		lines = lines.Append("")
+		lines = lines.Append("[hooks]")
+		lines = hookLine(lines, "precreate", riftRun(h.Value.Precreate))
+		lines = hookLine(lines, "postcreate", riftRun(h.Value.Postcreate))
+		lines = hookLine(lines, "preremove", riftRun(h.Value.Preremove))
+		lines = hookLine(lines, "postremove", riftRun(h.Value.Postremove))
+	case json.Absent:
+	}
+	strings.Join(lines, "\n")
+}
+
+func hookLine(lines []string, name string, commands []string) []string {
+	if len(commands) == 0 {
+		return lines
+	}
+	let mut quoted = []string{}
+	for c in commands {
+		quoted = quoted.Append(tomlString(c))
+	}
+	lines.Append(name + " = [" + strings.Join(quoted, ", ") + "]")
+}
+
+// tomlString is s as a TOML basic string.
+func tomlString(s string) string {
+	"\"" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "\"", "\\\""), "\n", "\\n"), "\t", "\\t") + "\""
+}

@@ -1,5 +1,5 @@
 {
-  "about": "module work's mutants (SEMWS WS0); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples ergo-work), not by a compiler test. The law, test or case that kills each is named in its rule.",
+  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
       "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
@@ -22,16 +22,16 @@
       "file": "modules/work/reflink/reflink.ergo",
       "from": "[]string{\"-a\", \"--reflink=always\", \"--\", from, to}",
       "to": "[]string{\"-a\", \"-l\", \"--\", from, to}",
-      "rule": "A host clone shares no writable block after a write (the provider returns a hard link): the new case's warm command writes the clone's a.txt and prints the base's, which must be unchanged.",
-      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+      "rule": "A host clone shares no writable block after a write (the provider returns a hard link): the new case's postcreate hook writes the clone's a.txt and prints the base's, which must be unchanged.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "ws0-gc-shares-a-home", "origin": "wf10/semws WS0",
       "file": "modules/work/work/api.ergo",
-      "from": "func Home(base string) string { filepath.Join([]string{filepath.Dir(base), \".ergo-work\", filepath.Base(base)}) }",
-      "to": "func Home(base string) string { filepath.Join([]string{filepath.Dir(base), \".ergo-work\"}) }",
+      "from": "\t\treturn filepath.Join([]string{filepath.Dir(base), \".work\", filepath.Base(base)})",
+      "to": "\t\treturn filepath.Join([]string{filepath.Dir(base), \".work\"})",
       "rule": "gc reads only its own base's registry and trash: one home for every base beside one folder makes the bases share a registry and a trash (the gc, list and rm cases, which keep two bases' folders apart).",
-      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "ws0-rm-unkept-work", "origin": "wf10/semws WS0",
@@ -39,12 +39,12 @@
       "from": "\t\t\tif !kept {\n",
       "to": "\t\t\tif false {\n",
       "rule": "rm refuses a workspace whose work is not in its parent unless -abandon: memory's ToolAgreesWithTheReference (an edit, then rm), the rm-dirty case.",
-      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:ergo-work"]
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:work"]
     },
     {
       "name": "ws0-refused-clone-stays-registered", "origin": "wf10/semws WS0",
       "file": "modules/work/work/api.ergo",
-      "from": "\tcase CopyRefused as e:\n\t\ttry t.registry.Drop(name)\n\t\treturn e\n",
+      "from": "\tcase CopyRefused as e:\n\t\ttry drop(t, name)\n\t\treturn e\n",
       "to": "\tcase CopyRefused as e:\n\t\treturn e\n",
       "rule": "A new that does not clone leaves no registered workspace with no tree: memory's ToolAgreesWithTheReference, CopyRefusedSaysTheBytes.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -52,7 +52,7 @@
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
       "file": "modules/work/work/api.ergo",
-      "from": "\t\t\tage >= stale && strings.HasPrefix(w.Path, Home(t.base)+\"/\")\n",
+      "from": "\t\t\tage >= stale && strings.HasPrefix(w.Path, t.home+\"/\")\n",
       "to": "\t\t\tfalse\n",
       "rule": "A crash between the record and the clone leaves Creating, and gc removes it once it is an hour old: memory's ToolAgreesWithTheReference (CrashOp, WaitOp, GcOp).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -70,8 +70,8 @@
       "file": "modules/work/work/api.ergo",
       "from": "\t\tif by.Has(left) {\n",
       "to": "\t\tif false {\n",
-      "rule": "new leaves out the leave-out folders of ergo.work: the new case's warm command checks that tmp is not in the clone.",
-      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+      "rule": "new leaves out the leave_out folders of work.toml: the new case's postcreate hook checks that tmp is not in the clone.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "ws0-torn-line-kept", "origin": "wf10/semws WS0",
@@ -79,7 +79,7 @@
       "from": "\t\tif i == len(lines)-1 || line == \"\" {\n",
       "to": "\t\tif line == \"\" {\n",
       "rule": "A journal line a crash cut short is no record: journal's TornWriteIsDropped, the list case.",
-      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:ergo-work"]
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:work"]
     },
     {
       "name": "ws0-landing-commits-to-active", "origin": "wf10/semws WS0",
@@ -103,38 +103,367 @@
       "from": "\ttry answer(v, root, []string{\"status\", \"--porcelain\", \"--untracked-files=normal\"}) == \"\"\n",
       "to": "\ttrue\n",
       "rule": "git's Clean sees an untracked file: the rm-dirty case is NotHeld.",
-      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "ws0-json-failure-empty-message", "origin": "wf10/semws WS0",
-      "file": "examples/ergo-work/cmd/ergo-work/main.ergo",
+      "file": "examples/work/cmd/work/main.ergo",
       "from": "\t\tif o.Err == \"\" {\n",
       "to": "\t\tif false {\n",
       "rule": "With --json a failure is its JSON on standard output, and standard error says so, not a bare \"ergo work: \" line (an os.Exit always writes its Message and a line feed): the json-noinit case.",
-      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
-    {"name":"ws1-snapshot-misses-untracked","origin":"wf10/semws WS1","file":"modules/work/memory/vcs.ergo","from":"{ stored(v, Working(try checkout(v, root))) }","to":"{ stored(v, indexOf(try checkout(v, root))) }","rule":"A snapshot holds the untracked files (the plan's mutant): memory's SnapshotIsTheFiles.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws1-git-snapshot-misses-untracked","origin":"wf10/semws WS1","file":"modules/work/git/git.ergo","from":"let add = []string{\"add\", \"--all\", \"--\", \".\"}","to":"let add = []string{\"add\", \"--update\", \"--\", \".\"}","rule":"git's snapshot holds the untracked files: the ready case's snapshot tree holds note.txt.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-snapshot-moves-index","origin":"wf10/semws WS1","file":"modules/work/memory/vcs.ergo","from":"{ stored(v, Working(try checkout(v, root))) }","to":"{\n\tlet files = Working(try checkout(v, root))\n\ttry checkOut(v, root, files, files)\n\tstored(v, files)\n}","rule":"A snapshot changes no index (the plan's mutant): Vcs.SnapshotChangesNoBranch on memory's fixture, whose untracked file a staging snapshot would make clean.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws1-ready-pushes-origin","origin":"wf10/semws WS1","file":"modules/work/git/git.ergo","from":"let mut args = []string{\"push\", \"--atomic\", \"--porcelain\", try other(root, parent)}","to":"let mut args = []string{\"push\", \"--atomic\", \"--porcelain\", \"origin\"}","rule":"ready hands to the parent, never to origin (the plan's mutant): the ready case, whose origin is another repository.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-on-records-base","origin":"wf10/semws WS1","file":"modules/work/work/api.ergo","from":"Workspace{Name: name, Path: path, Parent: parent,","to":"Workspace{Name: name, Path: path, Parent: t.base,","rule":"new -on records the workspace it clones as the parent, not the base (the plan's mutant): memory's ToolAgreesWithTheReference (OnOp).","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws1-from-ignored","origin":"wf10/semws WS1","file":"modules/work/work/api.ergo","from":"\tif at != \"\" {\n\t\treturn at\n\t}\n","to":"","rule":"new -from starts the branch at the revision: the new-from case.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-cas-not-atomic","origin":"wf10/semws WS1","file":"modules/work/memory/vcs.ergo","from":"\tif have != old {\n\t\treturn work.Moved","to":"\tif false {\n\t\treturn work.Moved","rule":"A set from a stale read is Moved: Vcs.CompareAndSetIsAtomic on memory.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws1-sync-merges-own-branch","origin":"wf10/semws WS1","file":"modules/work/work/api.ergo","from":"\tlet branch = try t.vcs.Branch(w.Parent)\n","to":"\tlet branch = w.Branch\n","rule":"sync merges the parent's branch: memory's ParityWithLaneRift (the lane merges main), the sync case.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work","examples:ergo-work"]},
-    {"name":"ws1-start-no-guard","origin":"wf10/semws WS1","file":"modules/work/git/git.ergo","from":"\t\tlet _ = try writes(v, root, []string{\"config\", \"remote.origin.pushurl\", Guard})\n","to":"","rule":"new stops pushes to origin as lane-rift.sh does: the new-from case prints the push URL.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-kept-ignores-ready","origin":"wf10/semws WS1","file":"modules/work/work/vcs.ergo","from":"\tlatest != \"\" && try Vcs.Snapshot(root) == latest","to":"\tfalse && try Vcs.Snapshot(root) == latest","rule":"rm takes a workspace whose snapshot ready handed and that has not changed since, uncommitted work and all: the rm-ready case (the model property draws an edit, a ready and an rm of one name too seldom to kill it).","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-snapshot-keeps-ignored","origin":"wf10/semws WS1","file":"modules/work/memory/vcs.ergo","from":"\t\tif !strings.HasPrefix(path, \".git/\") && !ignored(files, path) {\n\t\t\tout[path] = text","to":"\t\tif !strings.HasPrefix(path, \".git/\") {\n\t\t\tout[path] = text","rule":"A snapshot leaves out ignored files: memory's SnapshotIsTheFiles.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws1-env-unreplaced","origin":"wf10/semws WS1","file":"modules/work/work/api.ergo","from":"lines = lines.Append(strings.ReplaceAll(line, \"{workspace}\", w.Path))","to":"lines = lines.Append(line)","rule":"env names the workspace's folder: the env case.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]},
-    {"name":"ws1-journal-drops-base","origin":"wf10/semws WS1","file":"modules/work/journal/registry.ergo","from":", strconv.Quote(w.Base), strconv.Quote(w.Latest)}","to":"}","rule":"The journal keeps a record's base and latest snapshot: journal's ReplayIsTheMemoryRegistry.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-removal-beats-change","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/classes.ergo","from":"\tif equal(theirs, base, same) || equal(ours, theirs, same) {","to":"\tif equal(theirs, base, same) || equal(ours, theirs, same) || theirs == None {","rule":"A removal against a change is a conflict, never a removal (the plan's mutant): classes' RowsByUnitsAreTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-row-clash-taken","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/rows.ergo","from":"\t\t\t} else {\n\t\t\t\tclashes = clashes.Append(r.Key)\n\t\t\t\tout = out.Append(Row{Key: r.Key, Raw: Marked(r.Raw, other)})","to":"\t\t\t} else {\n\t\t\t\tout = out.Append(Row{Key: r.Key, Raw: r.Raw})","rule":"A row both sides changed apart conflicts; ours is not taken silently: classes' RowsByUnitsAreTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-their-row-dropped","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/rows.ergo","from":"\t\t\t\t\tout = rowInserted(out, after, Row{Key: r.Key, Raw: v.Value})","to":"\t\t\t\t\tout = out","rule":"A row only theirs added is in the merge: classes' RowsAreTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-measured-takes-theirs","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/measured.ergo","from":"\t\t\treturn (textOf(ours), true)","to":"\t\t\treturn (textOf(theirs), true)","rule":"A number both sides measured apart is the lander's (ours): classes' MeasuredIsTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-measured-not-marked","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/measured.ergo","from":"\t\t\treturn (textOf(ours), true)","to":"\t\t\treturn (textOf(ours), false)","rule":"A file with a number both sides measured apart is marked to be measured again: classes' MeasuredIsTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-lines-keep-removed","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/classes.ergo","from":"\t\tif line != \"\" && has(b, line) && !has(t, line) {","to":"\t\tif false {","rule":"A line theirs removed is not in the merge: classes' LinesAreTheReference.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-text-merge-blind","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/text.ergo","from":"\t\tif sameLines(os, bs) {","to":"\t\tif false {","rule":"The line merge takes theirs' change where ours left the base: classes' TextIsDiff3.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-derived-merged","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/classes/classes.ergo","from":"\tif c == Derived {\n\t\treturn ByUnits(c, base, ours, theirs)\n\t}\n","to":"","rule":"A derived file is never merged by lines (the plan: regenerate, never merge): classes' DerivedIsNeverMerged.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-merge-file-writes-nothing","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/work/api.ergo","from":"\ttry t.writes.WriteFile(ours, merged.Text)\n","to":"","rule":"merge-file leaves the merge in ours, the file Git keeps: memory's MergeFileWritesTheMerge.","anchor":{"tests":["examples:modules/work"]},"killers":["examples:modules/work"]},
-    {"name":"ws5e-merge-file-conflict-clean","origin":"wf10/semws WS5a-early (compounding #6)","file":"modules/work/work/api.ergo","from":"\tif len(merged.Conflicts) > 0 {","to":"\tif false {","rule":"A merge with conflicts ends with status 1, so Git keeps the file conflicted: the merge-clash case.","anchor":{"tests":["examples:ergo-work"]},"killers":["examples:ergo-work"]}
+    {
+      "name": "ws1-snapshot-misses-untracked", "origin": "wf10/semws WS1",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "{ stored(v, Working(try checkout(v, root))) }",
+      "to": "{ stored(v, indexOf(try checkout(v, root))) }",
+      "rule": "A snapshot holds the untracked files (the plan's mutant): memory's SnapshotIsTheFiles.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws1-git-snapshot-misses-untracked", "origin": "wf10/semws WS1",
+      "file": "modules/work/git/git.ergo",
+      "from": "let add = []string{\"add\", \"--all\", \"--\", \".\"}",
+      "to": "let add = []string{\"add\", \"--update\", \"--\", \".\"}",
+      "rule": "git's snapshot holds the untracked files: the ready case's snapshot tree holds note.txt.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-snapshot-moves-index", "origin": "wf10/semws WS1",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "{ stored(v, Working(try checkout(v, root))) }",
+      "to": "{\n\tlet files = Working(try checkout(v, root))\n\ttry checkOut(v, root, files, files)\n\tstored(v, files)\n}",
+      "rule": "A snapshot changes no index (the plan's mutant): Vcs.SnapshotChangesNoBranch on memory's fixture, whose untracked file a staging snapshot would make clean.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws1-ready-pushes-origin", "origin": "wf10/semws WS1",
+      "file": "modules/work/git/git.ergo",
+      "from": "let mut args = []string{\"push\", \"--atomic\", \"--porcelain\", try other(root, parent)}",
+      "to": "let mut args = []string{\"push\", \"--atomic\", \"--porcelain\", \"origin\"}",
+      "rule": "ready hands to the parent, never to origin (the plan's mutant): the ready case, whose origin is another repository.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-on-records-base", "origin": "wf10/semws WS1",
+      "file": "modules/work/work/api.ergo",
+      "from": "Workspace{Name: name, Id: id, Path: path, Parent: parent,",
+      "to": "Workspace{Name: name, Id: id, Path: path, Parent: t.base,",
+      "rule": "new -on records the workspace it clones as the parent, not the base (the plan's mutant): memory's ToolAgreesWithTheReference (OnOp).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws1-from-ignored", "origin": "wf10/semws WS1",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif at != \"\" {\n\t\treturn at\n\t}\n",
+      "to": "",
+      "rule": "new -from starts the branch at the revision: the new-from case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-cas-not-atomic", "origin": "wf10/semws WS1",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "\tif have != old {\n\t\treturn work.Moved",
+      "to": "\tif false {\n\t\treturn work.Moved",
+      "rule": "A set from a stale read is Moved: Vcs.CompareAndSetIsAtomic on memory.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws1-sync-merges-own-branch", "origin": "wf10/semws WS1",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet branch = try t.vcs.Branch(w.Parent)\n",
+      "to": "\tlet branch = w.Branch\n",
+      "rule": "sync merges the parent's branch: memory's ParityWithLaneRift (the lane merges main), the sync case.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:work"]
+    },
+    {
+      "name": "ws1-start-no-guard", "origin": "wf10/semws WS1",
+      "file": "modules/work/git/git.ergo",
+      "from": "\t\tlet _ = try writes(v, root, []string{\"config\", \"remote.origin.pushurl\", Guard})\n",
+      "to": "",
+      "rule": "new stops pushes to origin as lane-rift.sh does: the new-from case prints the push URL.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-kept-ignores-ready", "origin": "wf10/semws WS1",
+      "file": "modules/work/work/vcs.ergo",
+      "from": "\tlatest != \"\" && try Vcs.Snapshot(root) == latest",
+      "to": "\tfalse && try Vcs.Snapshot(root) == latest",
+      "rule": "rm takes a workspace whose snapshot ready handed and that has not changed since, uncommitted work and all: the rm-ready case (the model property draws an edit, a ready and an rm of one name too seldom to kill it).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-snapshot-keeps-ignored", "origin": "wf10/semws WS1",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "\t\tif !strings.HasPrefix(path, \".git/\") && !ignored(files, path) {\n\t\t\tout[path] = text",
+      "to": "\t\tif !strings.HasPrefix(path, \".git/\") {\n\t\t\tout[path] = text",
+      "rule": "A snapshot leaves out ignored files: memory's SnapshotIsTheFiles.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws1-env-unreplaced", "origin": "wf10/semws WS1",
+      "file": "modules/work/work/api.ergo",
+      "from": "lines = lines.Append(strings.ReplaceAll(line, \"{workspace}\", w.Path))",
+      "to": "lines = lines.Append(line)",
+      "rule": "env names the workspace's folder: the env case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "ws1-journal-drops-base", "origin": "wf10/semws WS1",
+      "file": "modules/work/journal/registry.ergo",
+      "from": ", strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}",
+      "to": ", strconv.Quote(\"\"), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}",
+      "rule": "The journal keeps a record's base and latest snapshot: journal's ReplayIsTheMemoryRegistry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-removal-beats-change", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/classes.ergo",
+      "from": "\tif equal(theirs, base, same) || equal(ours, theirs, same) {",
+      "to": "\tif equal(theirs, base, same) || equal(ours, theirs, same) || theirs == None {",
+      "rule": "A removal against a change is a conflict, never a removal (the plan's mutant): classes' RowsByUnitsAreTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-row-clash-taken", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/rows.ergo",
+      "from": "\t\t\t} else {\n\t\t\t\tclashes = clashes.Append(r.Key)\n\t\t\t\tout = out.Append(Row{Key: r.Key, Raw: Marked(r.Raw, other)})",
+      "to": "\t\t\t} else {\n\t\t\t\tout = out.Append(Row{Key: r.Key, Raw: r.Raw})",
+      "rule": "A row both sides changed apart conflicts; ours is not taken silently: classes' RowsByUnitsAreTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-their-row-dropped", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/rows.ergo",
+      "from": "\t\t\t\t\tout = rowInserted(out, after, Row{Key: r.Key, Raw: v.Value})",
+      "to": "\t\t\t\t\tout = out",
+      "rule": "A row only theirs added is in the merge: classes' RowsAreTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-measured-takes-theirs", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/measured.ergo",
+      "from": "\t\t\treturn (textOf(ours), true)",
+      "to": "\t\t\treturn (textOf(theirs), true)",
+      "rule": "A number both sides measured apart is the lander's (ours): classes' MeasuredIsTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-measured-not-marked", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/measured.ergo",
+      "from": "\t\t\treturn (textOf(ours), true)",
+      "to": "\t\t\treturn (textOf(ours), false)",
+      "rule": "A file with a number both sides measured apart is marked to be measured again: classes' MeasuredIsTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-lines-keep-removed", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/classes.ergo",
+      "from": "\t\tif line != \"\" && has(b, line) && !has(t, line) {",
+      "to": "\t\tif false {",
+      "rule": "A line theirs removed is not in the merge: classes' LinesAreTheReference.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-text-merge-blind", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/text.ergo",
+      "from": "\t\tif sameLines(os, bs) {",
+      "to": "\t\tif false {",
+      "rule": "The line merge takes theirs' change where ours left the base: classes' TextIsDiff3.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-derived-merged", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/classes/classes.ergo",
+      "from": "\tif c == Derived {\n\t\treturn ByUnits(c, base, ours, theirs)\n\t}\n",
+      "to": "",
+      "rule": "A derived file is never merged by lines (the plan: regenerate, never merge): classes' DerivedIsNeverMerged.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-merge-file-writes-nothing", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry t.writes.WriteFile(ours, merged.Text)\n",
+      "to": "",
+      "rule": "merge-file leaves the merge in ours, the file Git keeps: memory's MergeFileWritesTheMerge.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws5e-merge-file-conflict-clean", "origin": "wf10/semws WS5a-early (compounding #6)",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif len(merged.Conflicts) > 0 {",
+      "to": "\tif false {",
+      "rule": "A merge with conflicts ends with status 1, so Git keeps the file conflicted: the merge-clash case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-default-leaves-out-node-modules", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/config.ergo",
+      "from": "Config{Storage: \"\", LeaveOut: []string{}, Copy: false,",
+      "to": "Config{Storage: \"\", LeaveOut: []string{\"node_modules\"}, Copy: false,",
+      "rule": "The default clone copies everything, installed packages included: CloneCarriesEverything and the new-carries case.",
+      "anchor": {"tests": ["examples:modules/work", "examples:work"]}, "killers": ["examples:modules/work", "examples:work"]
+    },
+    {
+      "name": "wg0-leave-out-keeps-the-last", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/config.ergo",
+      "from": "\t\tout = out.Append(try folder(f))\n",
+      "to": "\t\tout = []string{try folder(f)}\n",
+      "rule": "leave_out leaves out every folder it names, and only those: LeaveOutLeavesOnlyThose (two folders).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-marker-in-the-tree", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "let MarkerFile = \".git/work-id\"",
+      "to": "let MarkerFile = \"work-id\"",
+      "rule": "The marker is in the clone's Git folder, never in its tree (git status shows nothing): the new-carries case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-new-writes-the-source", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet marked = mark(t, path, id) catch {",
+      "to": "\tlet marked = mark(t, parent, id) catch {",
+      "rule": "new writes nothing into its source: the new-carries case (the base's status).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-hook-under-the-lock", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release()\n\t\treturn e\n\t}\n\tt.lock.Release()\n}",
+      "to": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release()\n\t\treturn e\n\t}\n}",
+      "rule": "No hook runs while the registry's lock is held: NoHookUnderTheLock.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-hook-for-an-unallowed-digest", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif !trusted(t, c) {\n\t\tlet v Hooked = untrusted(c)",
+      "to": "\tif false {\n\t\tlet v Hooked = untrusted(c)",
+      "rule": "A config whose digest work trust has not allowed runs no hook: UnallowedConfigRunsNothing and the hooks-untrusted case.",
+      "anchor": {"tests": ["examples:modules/work", "examples:work"]}, "killers": ["examples:modules/work", "examples:work"]
+    },
+    {
+      "name": "wg0-install-for-an-unallowed-digest", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/deps.ergo",
+      "from": "\tif !trusted(t, c) {\n\t\treturn (w, untrusted(c))",
+      "to": "\tif false {\n\t\treturn (w, untrusted(c))",
+      "rule": "A config whose digest work trust has not allowed runs no install: UnallowedConfigRunsNothing.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-deps-installs-when-equal", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/deps.ergo",
+      "from": "\tif digest == w.Deps {",
+      "to": "\tif false {",
+      "rule": "deps starts no process when the lock's digest is the one installed: InstallOnlyWhenTheLockDiffers.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-deps-forgets-the-digest", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/deps.ergo",
+      "from": "\tlet done = Workspace{..w, Deps: digest}",
+      "to": "\tlet done = w",
+      "rule": "An install records the lock's digest, so the next deps of the same lock does nothing: InstallOnlyWhenTheLockDiffers.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-init-leaves-the-index-stale", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tt.vcs.Refresh(t.base) catch {\n\tcase VcsFailed:\n\t}",
+      "to": "\tlet _ = t.vcs.StatDirty(t.base) catch {\n\tcase VcsFailed:\n\t\t0\n\t}",
+      "rule": "init refreshes the base's index, so a clone starts with no stale stat: InitRefreshesTheIndex.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-branch-by-checkout-at-head", "origin": "wf10/semws WG0",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tif try Head(v, root) == commit {",
+      "to": "\tif false {",
+      "rule": "At the source's HEAD the branch is two ref writes and the index is not rewritten: the new-carries case (same-index).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-memory-branch-by-checkout-at-head", "origin": "wf10/semws WG0",
+      "file": "modules/work/memory/vcs.ergo",
+      "from": "\tif files.Get(\".git/HEAD\") == (Some[string]{Value: commit}) {",
+      "to": "\tif false {",
+      "rule": "The reference Vcs makes a branch at the head with no index write: BranchAtHeadWritesNoIndex.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-no-stat-settings", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif !by.KeepsInodes() {",
+      "to": "\tif false {",
+      "rule": "A clone made file by file gets core.checkStat=minimal and core.trustctime=false: the new-carries case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-json-without-id", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tCreated{Name: name, Id: id, Path: path,",
+      "to": "\tCreated{Name: name, Id: \"\", Path: path,",
+      "rule": "new answers {path, id}: the new-carries case (the id equals the marker).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-postcreate-in-the-parent", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)",
+      "to": "\tlet hooks = runHook(t, c, \"postcreate\", parent, env)",
+      "rule": "postcreate runs in the new workspace: HooksRunInOrder.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-hook-failure-runs-on", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tcase HookFailed as f:\n\t\t\tlet v Hooked = f\n\t\t\treturn v",
+      "to": "\t\tcase HookFailed as f:\n\t\t\tlet v Hooked = f\n\t\t\tlet _ = v",
+      "rule": "A failed hook command stops its hook and is new's answer: FailedPostcreateLeavesActive and FailedHookIsInCreated.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-failed-postcreate-drops", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)\n\tCreated{",
+      "to": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)\n\tmatch hooks {\n\tcase HookFailed:\n\t\ttry drop(t, name)\n\tcase HooksRan, Untrusted:\n\t}\n\tCreated{",
+      "rule": "A failed postcreate leaves the workspace active and registered: FailedPostcreateLeavesActive.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-hook-env-without-id", "origin": "wf10/semws WG0",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "Setting{Key: \"WORK_ID\", Value: id}",
+      "to": "Setting{Key: \"WORK_ID\", Value: \"\"}",
+      "rule": "A hook sees the workspace's id as WORK_ID: the new-carries case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-stat-dirty-counts-changes", "origin": "wf10/semws WG0",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tstat - changed\n",
+      "to": "\tstat\n",
+      "rule": "refresh and doctor count stale stats, not changed files: the refresh case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg0-memory-exit-is-success", "origin": "wf10/semws WG0",
+      "file": "modules/work/memory/hooks.ergo",
+      "from": "\t\t\tif status != 0 {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "The reference Hooks fails \"exit N\" as sh does: Hooks.ExitIsAFailure.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg0-journal-release-keeps-hold", "origin": "wf10/semws WG0",
+      "file": "modules/work/journal/lock.ergo",
+      "from": "func Release(l Lock) { l.held.Set(l.held.Get() - 1) }",
+      "to": "func Release(l Lock) {}",
+      "rule": "A release gives the hold back: Lock.ReleaseUndoesHold on the journal's lock.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    }
   ]
 }

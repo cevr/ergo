@@ -1,0 +1,87 @@
+import exec
+import filepath
+import fs
+import hex
+import sha256
+
+// Installed is an install that ran: the digest of the lock it installed.
+type Installed { Digest string }
+
+// Unchanged is a lock whose digest is the one of the last install: no
+// process was started.
+type Unchanged { Digest string }
+
+// NoDeps is a work.toml with no [deps].
+type NoDeps {}
+
+// DepsFailed is an install that did not end with status 0.
+type DepsFailed { Command string, Status int, Stderr string }
+
+// DepsRun is what the deps step of new or sync did.
+type DepsRun = Installed | Unchanged | NoDeps | Untrusted | DepsFailed
+
+// DepsDone is what work deps did when it did not fail.
+type DepsDone = Installed | Unchanged | NoDeps
+
+// DepsOptions name the workspace (-name); when absent it is the one the
+// working folder is in.
+type DepsOptions { Name Option[string] }
+
+// lockDigest is the digest of the workspace's lock file ("" when it has
+// none).
+func lockDigest(t Tool, path string, c Config) string {
+	let text = t.files.ReadFile(filepath.Join([]string{path, c.Lock})) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ""
+	}
+	hex.Encode(sha256.Sum(text))
+}
+
+// install runs [deps]'s install in w when its lock's digest is not the
+// one w last installed, and records the new digest; it starts no process
+// when the digests are equal.
+func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept {
+	if c.Lock == "" {
+		return (w, NoDeps)
+	}
+	let digest = lockDigest(t, w.Path, c)
+	if digest == w.Deps {
+		return (w, Unchanged{Digest: digest})
+	}
+	if !trusted(t, c) {
+		return (w, untrusted(c))
+	}
+	let r = t.runner.Run(exec.New("sh", []string{"-c", c.Install}).WithDir(w.Path)) catch {
+	case exec.NotFound, exec.Denied:
+		return (w, DepsFailed{Command: c.Install, Status: 127, Stderr: "sh could not start"})
+	case exec.Failed as f:
+		return (w, DepsFailed{Command: c.Install, Status: 1, Stderr: f.Reason})
+	}
+	if r.Status != 0 {
+		return (w, DepsFailed{Command: c.Install, Status: r.Status, Stderr: r.Stderr})
+	}
+	let done = Workspace{..w, Deps: digest}
+	try put(t, done)
+	(done, Installed{Digest: digest})
+}
+
+// Deps installs the workspace's packages when its lock changed since the
+// last install (workrift deps).
+func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed {
+	try initialized(t)
+	let w = try chosen(t, o.Name)
+	let c = try config(t)
+	let (_, run) = try install(t, w, c)
+	match run {
+	case Untrusted as u:
+		u
+	case DepsFailed as f:
+		f
+	case Installed as i:
+		i
+	case Unchanged as u:
+		u
+	case NoDeps as n:
+		n
+	}
+}

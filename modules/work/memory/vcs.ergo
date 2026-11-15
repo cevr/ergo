@@ -22,6 +22,11 @@ type Store {
 	keys    Map[string, string],
 	commits Map[string, Node],
 	next    int,
+	// indexWrites counts the writes of an index file, as Git writes the
+	// whole file: one each time a checkout's index is written.
+	indexWrites int,
+	// stale is each checkout's count of index entries with a stale stat.
+	stale Map[string, int],
 }
 
 // Node is a commit object: its tree and its parents.
@@ -32,7 +37,7 @@ type Node { Tree string, Parents []string }
 let Guard = "no-push:workspaces-never-push-origin"
 
 // VcsOver is the Vcs over the trees of c, with an empty object store.
-func VcsOver(c Cloner) Vcs { Vcs{trees: c, store: sync.NewRef(Store{trees: Map[string, Map[string, string]]{}, keys: Map[string, string]{}, commits: Map[string, Node]{}, next: 1})} }
+func VcsOver(c Cloner) Vcs { Vcs{trees: c, store: sync.NewRef(Store{trees: Map[string, Map[string, string]]{}, keys: Map[string, string]{}, commits: Map[string, Node]{}, next: 1, indexWrites: 0, stale: Map[string, int]{}})} }
 
 // NewVcs is the laws' Vcs: a checkout at "." on branch main, committed
 // twice, with an uncommitted change, an untracked file and an ignored one.
@@ -128,6 +133,11 @@ func Contains(v Vcs, root string, commit string, ancestor string) bool fails wor
 
 func Start(v Vcs, root string, branch string, commit string) fails work.VcsFailed {
 	let files = try checkout(v, root)
+	if files.Get(".git/HEAD") == (Some[string]{Value: commit}) {
+		// At the head: two ref writes, the index as it is.
+		let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit) && Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
+		return
+	}
 	let target = try treeOf(v, root, commit)
 	let index = indexOf(files)
 	let working = Working(files)
@@ -342,6 +352,36 @@ func checkOut(v Vcs, root string, files Map[string, string], index Map[string, s
 			let _ = Write(v.trees, root, ".git/index/"+path, text)
 		}
 	}
+	let s = v.store.Get()
+	v.store.Set(Store{..s, indexWrites: s.indexWrites + 1})
+}
+
+// IndexWrites is the number of index writes the store has seen.
+func IndexWrites(v Vcs) int { v.store.Get().indexWrites }
+
+func Configure(v Vcs, root string, key string, value string) fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	let _ = Write(v.trees, root, ".git/config/"+key, value)
+}
+
+// Touch gives n index entries of the checkout at root a stale stat, as
+// a copy made file by file or a touch of a file does.
+func Touch(v Vcs, root string, n int) {
+	let s = v.store.Get()
+	let mut stale = s.stale
+	stale[root] = n
+	v.store.Set(Store{..s, stale: stale})
+}
+
+// StatDirty is the count Touch left (0 for a checkout never touched).
+func StatDirty(v Vcs, root string) int fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	maps.GetOr(v.store.Get().stale, root, 0)
+}
+
+func Refresh(v Vcs, root string) fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	Touch(v, root, 0)
 }
 
 // stored is the id of the tree of files in the store, which keeps it once.
@@ -485,4 +525,32 @@ func Land(v Vcs, root string, parent string) bool {
 	case _:
 		false
 	}
+}
+
+// BranchAtHeadWritesNoIndex: a new workspace that starts at its base's
+// head makes its branch by ref writes alone: no index is written.
+law BranchAtHeadWritesNoIndex(tree Map[string, string]) {
+	let w = worldWith(true, tree, "", "")
+	let before = IndexWrites(w.vcs)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	IndexWrites(w.vcs) == before
+}
+
+// InitRefreshesTheIndex: init leaves the base's index with no stale
+// stat, so the clones made after it start fresh.
+law InitRefreshesTheIndex(n int) {
+	let w = world(true)
+	Touch(w.vcs, theBase, (n%5+5)%5+1)
+	let _ = w.tool.Init() catch {
+	case _:
+		return false
+	}
+	let left = w.vcs.StatDirty(theBase) catch {
+	case work.VcsFailed:
+		return false
+	}
+	left == 0
 }

@@ -4,11 +4,12 @@
 // line is a word and tab-separated fields, each Go-quoted (a tab in a
 // field is \t, so a tab only separates):
 //
-//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"
+//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"	"id"	"deps"
 //	drop	"name"
 //
 // A put of seven fields (before the base and the latest snapshot were
-// recorded) reads with both empty.
+// recorded) reads with both empty; one of nine (before the id and the
+// install's digest) reads with those empty.
 //
 // A reader replays every whole line; the last put of a name is its
 // record, a drop forgets it. Each write is one append of one line, so two
@@ -57,7 +58,7 @@ func All(r Registry) []work.Workspace fails work.Unkept {
 func appendLine(r Registry, line string) fails work.Unkept {
 	r.writes.AppendFile(r.path, line) catch {
 	case fs.NotFound:
-		return work.Unkept{Reason: "\(r.path): its folder is not there; run ergo work init"}
+		return work.Unkept{Reason: "\(r.path): its folder is not there; run work init"}
 	case fs.Denied:
 		return work.Unkept{Reason: "\(r.path): permission denied"}
 	case fs.Failed as f:
@@ -67,7 +68,7 @@ func appendLine(r Registry, line string) fails work.Unkept {
 
 // PutLine is the journal line of a put of w.
 func PutLine(w work.Workspace) string {
-	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest)}
+	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}
 	strings.Join(fields, "\t") + "\n"
 }
 
@@ -83,8 +84,8 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 		let fields = strings.Split(line, "\t")
 		match fields[0] {
 		case "put":
-			if len(fields) != 8 && len(fields) != 10 {
-				return bad(i, "a put has 7 or 9 fields")
+			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 {
+				return bad(i, "a put has 7, 9 or 11 fields")
 			}
 			let state = match work.StateNamed(fields[6]) {
 			case Some[work.State] as s:
@@ -96,9 +97,12 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 			case strconv.Malformed, strconv.OutOfRange:
 				return bad(i, "the time \(fields[7]) is not a number")
 			}
-			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: ""}
-			if len(fields) == 10 {
+			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: ""}
+			if len(fields) >= 10 {
 				w = work.Workspace{..w, Base: try field(i, fields[8]), Latest: try field(i, fields[9])}
+			}
+			if len(fields) == 12 {
+				w = work.Workspace{..w, Id: try field(i, fields[10]), Deps: try field(i, fields[11])}
 			}
 			records = memory.Kept(records, w)
 		case "drop":

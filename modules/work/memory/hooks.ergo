@@ -1,0 +1,274 @@
+// The memory Lock, Hooks and exec.Runner: each records what it saw, so
+// the laws beside them read the order of the hooks, the lock held at each
+// hook's start and the installs that ran.
+
+import exec
+import fs
+import github.com/cevr/ergo/modules/work/work
+import slices
+import strconv
+import strings
+import sync
+
+// Lock counts the holds not yet released.
+type Lock { held sync.Ref[int] } implements work.Lock
+
+// NewLock is a free lock.
+func NewLock() Lock { Lock{held: sync.NewRef(0)} }
+
+func Hold(l Lock) fails work.Unkept { l.held.Set(l.held.Get() + 1) }
+
+func Release(l Lock) { l.held.Set(l.held.Get() - 1) }
+
+func Held(l Lock) int { l.held.Get() }
+
+// HookRun is one command a hook ran: the hook, the command, the folder,
+// and the holds of the lock when it started.
+type HookRun { Hook string, Command string, Dir string, Held int }
+
+// Hooks records every command it runs and fails the one named failing,
+// and, as sh does, "exit N" with status N.
+type Hooks { runs sync.Ref[[]HookRun], lock Lock, failing string } implements work.Hooks
+
+// NewHooks is a recorder over a free lock that fails no command but
+// "exit N".
+func NewHooks() Hooks { Recording(NewLock(), "") }
+
+// Recording is a recorder that reads lock at each start and fails the
+// command failing ("" fails none).
+func Recording(lock Lock, failing string) Hooks { Hooks{runs: sync.NewRef([]HookRun{}), lock: lock, failing: failing} }
+
+func Run(h Hooks, hook string, command string, dir string, env []work.Setting) fails work.HookFailed {
+	h.runs.Set(h.runs.Get().Append(HookRun{Hook: hook, Command: command, Dir: dir, Held: h.lock.Held()}))
+	if command == h.failing {
+		return work.HookFailed{Hook: hook, Command: command, Status: 1, Stderr: "failed\n"}
+	}
+	match strings.Cut(command, "exit ") {
+	case Some[strings.Halves] as h2:
+		if h2.Value.Before == "" {
+			let status = strconv.Atoi(h2.Value.After) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				0
+			}
+			if status != 0 {
+				return work.HookFailed{Hook: hook, Command: command, Status: status, Stderr: ""}
+			}
+		}
+	case None:
+	}
+}
+
+// Runs is every command the recorder ran, in order.
+func Runs(h Hooks) []HookRun { h.runs.Get() }
+
+// Runner is an exec.Runner that ends every command with status 0 and
+// counts the commands it ran.
+type Runner { ran sync.Ref[[]string] } implements exec.Runner
+
+// NewRunner is a Runner that ran nothing.
+func NewRunner() Runner { Runner{ran: sync.NewRef([]string{})} }
+
+func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func Start(r Runner, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): exec.Result{Status: 0, Stdout: "", Stderr: ""}}}.Start(c, s)
+}
+
+// Ran is every command the Runner ran, in order.
+func Ran(r Runner) []string { r.ran.Get() }
+
+// hookConfig is a work.toml whose four hooks run n[i] commands each
+// (precreate p1.., postcreate c1.., preremove r1.., postremove q1..).
+func hookConfig(n []int) string {
+	let names = work.HookNames()
+	let letters = []string{"p", "c", "r", "q"}
+	let mut lines = []string{"[hooks]"}
+	for i, name in names {
+		let mut list = []string{}
+		let count = if i < len(n) { n[i] % 3 } else { 1 }
+		for k in 0..count {
+			list = list.Append("\"\(letters[i])\(k)\"")
+		}
+		lines = lines.Append("\(name) = [\(strings.Join(list, ", "))]")
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// hooked is the commands of each hook a config of hookConfig(n) runs,
+// with the folder each runs in, for a workspace at path.
+func hooked(n []int, path string) []HookRun {
+	let names = work.HookNames()
+	let letters = []string{"p", "c", "r", "q"}
+	let dirs = []string{theBase, path, path, theBase}
+	let mut out = []HookRun{}
+	for i, name in names {
+		let count = if i < len(n) { n[i] % 3 } else { 1 }
+		for k in 0..count {
+			out = out.Append(HookRun{Hook: name, Command: "\(letters[i])\(k)", Dir: dirs[i], Held: 0})
+		}
+	}
+	out
+}
+
+// HooksRunInOrder: new runs precreate in the base, then postcreate in
+// the workspace; rm runs preremove in the workspace, then postremove in
+// the base; each hook's commands in their order, each once.
+law HooksRunInOrder(n []int) {
+	let mut counts = []int{}
+	for x in n {
+		counts = counts.Append(if x < 0 { -x } else { x })
+	}
+	let w = worldWith(true, Map[string, string]{}, hookConfig(counts), "")
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true}) catch {
+	case _:
+		return false
+	}
+	let mut ran = []HookRun{}
+	for r in w.hooks.Runs() {
+		ran = ran.Append(HookRun{..r, Held: 0})
+	}
+	ran == hooked(counts, made.Path)
+}
+
+// NoHookUnderTheLock: every hook starts with the registry's lock free,
+// in a new, a new of a stack, an rm and a failed hook; and no step ends
+// with it held.
+law NoHookUnderTheLock(stack bool, failing bool) {
+	let w = worldWith(true, Map[string, string]{}, hookConfig([]int{1, 2, 1, 1}), if failing { "c1" } else { "" })
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	if stack {
+		let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}}) catch {
+		case _:
+			return false
+		}
+		let _ = w.tool.Rm("b", work.RmOptions{Abandon: true}) catch {
+		case _:
+			return false
+		}
+	}
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true}) catch {
+	case _:
+		return false
+	}
+	len(w.hooks.Runs()) > 0 && slices.IndexFunc(w.hooks.Runs(), func(r HookRun) bool { r.Held != 0 }) < 0 && w.lock.Held() == 0
+}
+
+// UnallowedConfigRunsNothing: a work.toml changed after init (its
+// digest not the one allowed) runs no hook and no install, and new and
+// deps say Untrusted with the digest work trust would allow; after work
+// trust it runs.
+law UnallowedConfigRunsNothing(n int) {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
+	let changed = "[deps]\nlock = \"bun.lock\"\ninstall = \"i\(n)\"\n[hooks]\npostcreate = [\"b\(n)\"]\n"
+	w.disk.WriteFile(theBase+"/"+work.ConfigFile, changed) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let want = work.ParseConfig(changed) catch {
+	case work.BadConfig:
+		return false
+	}
+	let refused = match made.Hooks {
+	case work.Untrusted as u:
+		u.Digest == work.Digest(want)
+	case work.HooksRan, work.HookFailed:
+		false
+	}
+	w.disk.WriteFile(made.Path+"/bun.lock", "lock \(n)\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let mut installRefused = false
+	let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	case work.Untrusted:
+		installRefused = true
+		work.NoDeps
+	case _:
+		work.NoDeps
+	}
+	if !refused || !installRefused || len(w.hooks.Runs()) != 0 || len(w.runner.Ran()) != 0 {
+		return false
+	}
+	let _ = w.tool.Trust() catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	case _:
+		return false
+	}
+	len(w.runner.Ran()) == 1
+}
+
+// FailedPostcreateLeavesActive: a postcreate command that fails stops
+// the hook (the next command does not run), and new answers Created with
+// the failure: the workspace is registered and active.
+law FailedPostcreateLeavesActive(before int) {
+	let k = (before%3 + 3) % 3
+	let mut list = []string{}
+	for i in 0..k {
+		list = list.Append("\"ok\(i)\"")
+	}
+	list = list.Append("\"bad\"")
+	list = list.Append("\"after\"")
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\(strings.Join(list, ", "))]\n", "bad")
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let failed = match made.Hooks {
+	case work.HookFailed as f:
+		f.Command == "bad" && f.Hook == "postcreate"
+	case work.HooksRan, work.Untrusted:
+		false
+	}
+	let listed = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		return false
+	}
+	failed && len(w.hooks.Runs()) == k+1 && len(listed) == 1 && listed[0].State == work.Active && listed[0].Path == made.Path
+}
+
+// InstallOnlyWhenTheLockDiffers: work deps starts the install exactly
+// when the workspace's lock file is not the one it last installed from,
+// whatever the sequence of lock texts.
+law InstallOnlyWhenTheLockDiffers(locks []string) {
+	let w = worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	// The workspace starts with no lock file: an empty one differs.
+	let mut last Option[string] = None
+	let mut want = 0
+	for text in locks {
+		w.disk.WriteFile(made.Path+"/bun.lock", text) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if last != (Some[string]{Value: text}) {
+			want = want + 1
+			last = Some[string]{Value: text}
+		}
+		let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	len(w.runner.Ran()) == want
+}

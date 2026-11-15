@@ -1,4 +1,3 @@
-import exec
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
@@ -14,7 +13,7 @@ func NewWorkspaces() Workspaces { Workspaces{tool: world(true).tool} }
 
 func Init(w Workspaces) string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed { try w.tool.Init() }
 
-func New(w Workspaces, name string, o work.NewOptions) string fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.WarmFailed {
+func New(w Workspaces, name string, o work.NewOptions) work.Created fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed {
 	try w.tool.New(name, o)
 }
 
@@ -24,7 +23,7 @@ func Adopt(w Workspaces, dir string, o work.AdoptOptions) work.Workspace fails w
 
 func List(w Workspaces) []work.Workspace fails work.NoBase | work.Unkept { try w.tool.List() }
 
-func Rm(w Workspaces, name string, o work.RmOptions) work.Workspace fails work.NoBase | work.NoWorkspace | work.NotHeld | work.Busy | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed {
+func Rm(w Workspaces, name string, o work.RmOptions) work.Workspace fails work.NoBase | work.BadConfig | work.NoWorkspace | work.NotHeld | work.Busy | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed {
 	try w.tool.Rm(name, o)
 }
 
@@ -36,7 +35,7 @@ func Ready(w Workspaces, o work.ReadyOptions) work.Handed fails work.NoBase | wo
 	try w.tool.Ready(o)
 }
 
-func Sync(w Workspaces, o work.SyncOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.Dirty | work.Conflicted | work.Unkept | work.VcsFailed {
+func Sync(w Workspaces, o work.SyncOptions) work.Synced fails work.NoBase | work.BadConfig | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.Dirty | work.Conflicted | work.Unkept | work.VcsFailed {
 	try w.tool.Sync(o)
 }
 
@@ -46,13 +45,35 @@ func MergeFile(w Workspaces, class string, base string, ours string, theirs stri
 	try w.tool.MergeFile(class, base, ours, theirs, o)
 }
 
+func Deps(w Workspaces, o work.DepsOptions) work.DepsDone fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept | work.Untrusted | work.DepsFailed { try w.tool.Deps(o) }
+
+func Trust(w Workspaces) work.Trusted fails work.NoBase | work.BadConfig | work.Unkept | fs.NotFound | fs.Denied | fs.Failed { try w.tool.Trust() }
+
+func Doctor(w Workspaces) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed { try w.tool.Doctor() }
+
+func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed { try w.tool.Refresh() }
+
+func Bases(w Workspaces) []string fails work.Unkept { try w.tool.Bases() }
+
+func ShellInit(w Workspaces) string { w.tool.ShellInit() }
+
+func ImportRift(w Workspaces, o work.ImportRiftOptions) string fails work.BadConfig | fs.NotFound | fs.Denied | fs.Failed { try w.tool.ImportRift(o) }
+
+// Providers is the memory providers over the trees of c, the registry r,
+// the Vcs v and the disk: a free lock, hooks that record (and fail the
+// command failing) and a runner that counts.
+func Providers(c Cloner, sharing []work.Cloner, r work.Registry, v Vcs, disk fstest.Memory, clock time.Clock, failing string) work.Providers {
+	let lock = NewLock()
+	work.Providers{Cloners: sharing, Copier: Beside(c, false), Registry: r, Lock: lock, Hooks: Recording(lock, failing), Vcs: v, Files: disk, Writes: disk, Runner: NewRunner(), Clock: clock}
+}
+
 // MergeFileWritesTheMerge: merge-file leaves in ours the merge of
 // classes.Merge, and answers clean exactly when that merge is; a side
 // that does not read as the class leaves the merge by lines and fails.
 law MergeFileWritesTheMerge(base string, ours string, theirs string, rows bool) {
 	let disk = fstest.NewMemory()
 	let written = put(disk, "/m/o", base) && put(disk, "/m/a", ours) && put(disk, "/m/b", theirs)
-	let tool = work.NewTool("/base", []work.Cloner{}, NewCloner(), NewRegistry(), NewVcs(), disk, disk, exec.Script{Results: Map[string, exec.Result]{}}, time.NewManual(0), "/")
+	let tool = work.NewTool("/base", "/.work/base", "/data", Providers(NewCloner(), []work.Cloner{}, NewRegistry(), NewVcs(), disk, time.NewManual(0), ""), "/")
 	let class = if rows { "rows" } else { "lines" }
 	let c = if rows { classes.Rows } else { classes.Lines }
 	let merged = classes.Merge(c, base, ours, theirs) catch {

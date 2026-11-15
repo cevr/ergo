@@ -87,6 +87,10 @@ func Name(c Cloner) string {
 
 func Shares(c Cloner) bool { c.shares }
 
+// KeepsInodes: the sharing model keeps them, as a snapshot does; its
+// copy does not.
+func KeepsInodes(c Cloner) bool { c.shares }
+
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	if c.refuses {
 		return work.Unsupported{Cloner: "memory", Why: "this disk has no copy-on-write clone"}
@@ -121,7 +125,33 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 	c.disk.Set(Disk{..d, trees: trees, blocks: blocks, next: next})
 }
 
-func Has(c Cloner, root string) bool { held(c.disk.Get(), root) }
+// Has: a tree is at root, or root is a folder inside a tree (a file
+// of the tree is under it), as leave_out finds one.
+func Has(c Cloner, root string) bool {
+	let d = c.disk.Get()
+	held(d, root) || inner(d, root) != None
+}
+
+// Inside is a folder inside a tree: the tree's root and the folder's
+// path in it.
+type Inside { Root string, Folder string }
+
+// inner is the tree root is a folder inside, when a file of it is under
+// root.
+func inner(d Disk, root string) Option[Inside] {
+	for at, tree in d.trees {
+		if !strings.HasPrefix(root, at+"/") {
+			continue
+		}
+		let folder = strings.TrimPrefix(root, at+"/")
+		for path, _ in tree {
+			if strings.HasPrefix(path, folder+"/") {
+				return Some[Inside]{Value: Inside{Root: at, Folder: folder}}
+			}
+		}
+	}
+	None
+}
 
 func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
@@ -142,12 +172,28 @@ func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | w
 	c.disk.Set(Disk{..d, trees: trees})
 }
 
+// Discard deletes the tree at root, or the files under a folder inside
+// a tree.
 func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
-	if !held(d, root) {
+	if held(d, root) {
+		c.disk.Set(Disk{..d, trees: d.trees.Delete(root)})
+		return
+	}
+	match inner(d, root) {
+	case Some[Inside] as hit:
+		let mut kept = Map[string, int]{}
+		for path, block in maps.GetOr(d.trees, hit.Value.Root, Map[string, int]{}) {
+			if !strings.HasPrefix(path, hit.Value.Folder+"/") {
+				kept[path] = block
+			}
+		}
+		let mut trees = d.trees
+		trees[hit.Value.Root] = kept
+		c.disk.Set(Disk{..d, trees: trees})
+	case None:
 		return work.Missing{Path: root}
 	}
-	c.disk.Set(Disk{..d, trees: d.trees.Delete(root)})
 }
 
 func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
@@ -270,4 +316,54 @@ func Files(c Cloner, root string) Map[string, string] {
 	case None:
 	}
 	out
+}
+
+// outside is the files of a checkout outside its Git folder.
+func outside(files Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for path, text in files {
+		if !strings.HasPrefix(path, ".git/") {
+			out[path] = text
+		}
+	}
+	out
+}
+
+// CloneCarriesEverything: a new workspace holds every file of its base
+// outside .git, tracked, untracked and ignored (installed packages,
+// build output), with its text, and the base is unchanged: the default
+// leaves nothing out and new writes nothing into its source.
+law CloneCarriesEverything(tree Map[string, string], sharing bool) {
+	let w = worldWith(sharing, tree, "", "")
+	let before = Files(w.trees, theBase)
+	let made = w.tool.New("a", fresh(true)) catch {
+	case _:
+		return false
+	}
+	outside(Files(w.trees, made.Path)) == outside(before) && Files(w.trees, theBase) == before
+}
+
+// LeaveOutLeavesOnlyThose: with leave_out, the clone lacks exactly the
+// files under the folders it names.
+law LeaveOutLeavesOnlyThose(tree Map[string, string], modules bool, dist bool) {
+	let mut out = []string{}
+	if modules {
+		out = out.Append("\"node_modules\"")
+	}
+	if dist {
+		out = out.Append("\"dist\"")
+	}
+	let w = worldWith(true, tree, "[work]\nleave_out = [\(strings.Join(out, ", "))]\n", "")
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let mut want = Map[string, string]{}
+	for path, text in outside(Files(w.trees, theBase)) {
+		let left = (modules && strings.HasPrefix(path, "node_modules/")) || (dist && strings.HasPrefix(path, "dist/"))
+		if !left {
+			want[path] = text
+		}
+	}
+	outside(Files(w.trees, made.Path)) == want
 }

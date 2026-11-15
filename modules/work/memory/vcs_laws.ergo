@@ -58,14 +58,15 @@ law ParityWithLaneRift(verbs []Verb) {
 	case _:
 		return false
 	}
-	Start(w.vcs, lane, "lane", start) catch {
+	w.vcs.Start(lane, "lane", start) catch {
 	case work.VcsFailed:
 		return false
 	}
-	let path = w.tool.New("work", fresh(false)) catch {
+	let made = w.tool.New("work", fresh(false)) catch {
 	case _:
 		return false
 	}
+	let path = made.Path
 	let mut n = 0
 	for verb in verbs {
 		n = n + 1
@@ -103,7 +104,7 @@ law ParityWithLaneRift(verbs []Verb) {
 			let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "work"}}) catch {
 			case _:
 				synced = false
-				""
+				work.Synced{Commit: "", Deps: work.NoDeps}
 			}
 			if merged != synced {
 				return false

@@ -58,8 +58,17 @@ type Vcs {
 	Contains(root string, commit string, ancestor string) bool fails VcsFailed,
 	// Start makes branch at commit and switches the checkout to it,
 	// carrying its uncommitted and untracked files, and stops pushes to
-	// the checkout's origin.
+	// the checkout's origin. At the checkout's own head it writes two refs
+	// and leaves the index as it is.
 	Start(root string, branch string, commit string) fails VcsFailed,
+	// Configure sets key to value in the checkout's own configuration.
+	Configure(root string, key string, value string) fails VcsFailed,
+	// StatDirty is the number of tracked files whose stat the index does
+	// not match: the next Git command reads each again.
+	StatDirty(root string) int fails VcsFailed,
+	// Refresh makes the index's stat of each tracked file the file's own,
+	// changing no file and no branch.
+	Refresh(root string) fails VcsFailed,
 	// Push writes refs of the checkout into the repository at parent, all
 	// or none.
 	Push(root string, parent string, refs []Pushed) fails NotFastForward | VcsFailed,

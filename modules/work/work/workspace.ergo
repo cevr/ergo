@@ -140,13 +140,16 @@ func States() []State { []State{Creating, Active, Landing, Landed, Abandoned, Tr
 
 // Workspace is the registry's record of one workspace: its name, the
 // folder that holds its clone, its parent (the base checkout, or another
-// workspace for a stack), its branch, the Cloner that made its tree
+// workspace for a stack), its id (the marker .git/work-id of its clone
+// holds it), its branch, the Cloner that made its tree
 // ("adopted" for a clone made by another tool), its state, the Unix
 // second it entered that state, its base (the parent's commit it started
 // at or last synced with) and its latest snapshot (the tree ready last
-// handed to the parent, "" before the first ready).
+// handed to the parent, "" before the first ready), and the digest of
+// the lock file of its last install ("" before one).
 type Workspace {
 	Name   string,
+	Id     string,
 	Path   string,
 	Parent string,
 	Branch string,
@@ -155,6 +158,7 @@ type Workspace {
 	Since  int64,
 	Base   string,
 	Latest string,
+	Deps   string,
 }
 
 // Usage is the bytes a tree takes: Exclusive only it holds, Shared it

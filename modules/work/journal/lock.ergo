@@ -1,0 +1,17 @@
+import github.com/cevr/ergo/modules/work/work
+import sync
+
+// Lock is the journal's lock within one process: it counts holds. Each
+// write of the journal is one append of one line, which two processes
+// never interleave; the lock across processes (a file lock beside the
+// journal) is the registry unit's (SEMWS WG1).
+type Lock { held sync.Ref[int] } implements work.Lock
+
+// NewLock is a free lock.
+func NewLock() Lock { Lock{held: sync.NewRef(0)} }
+
+func Hold(l Lock) fails work.Unkept { l.held.Set(l.held.Get() + 1) }
+
+func Release(l Lock) { l.held.Set(l.held.Get() - 1) }
+
+func Held(l Lock) int { l.held.Get() }

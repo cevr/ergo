@@ -32,6 +32,10 @@ type Cloner {
 	// Shares reports whether a clone shares its blocks with its source
 	// (a copy-on-write provider) or holds a copy of each (a plain copy).
 	Shares() bool,
+	// KeepsInodes reports whether a clone keeps each file's inode and
+	// change time (a btrfs snapshot does; a clone made file by file does
+	// not, so Git's index sees every tracked file as possibly changed).
+	KeepsInodes() bool,
 	// Clone makes to a copy of from. On a failure nothing is left at to.
 	Clone(from string, to string) fails NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed,
 	// Has reports whether a tree is at root.

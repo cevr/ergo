@@ -41,12 +41,3 @@ law FolderIsOneLevel(name string) {
 	let folder = FolderOf(name)
 	folder != "" && !strings.Contains(folder, "/") && folder != "." && folder != ".."
 }
-
-// ConfigStarterReads: the starter ergo.work reads, as one module root.
-law ConfigStarterReads() {
-	let c = ParseConfig(StarterConfig) catch {
-	case BadConfig:
-		return false
-	}
-	c.Modules == []string{"."} && len(c.LeaveOut) == 0 && c.Warm == "" && !c.Copy
-}

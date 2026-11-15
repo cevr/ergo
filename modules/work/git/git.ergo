@@ -22,7 +22,7 @@ let Guard = "no-push:workspaces-never-push-origin"
 
 // SnapshotIndex is the index file a snapshot builds its tree in, inside
 // the checkout's Git folder.
-let SnapshotIndex = "ergo-work-index"
+let SnapshotIndex = "work-index"
 
 // git runs git in the checkout at root with args, and the environment
 // entries env (key, value, key, value, ...).
@@ -189,8 +189,17 @@ func Contains(v Vcs, root string, commit string, ancestor string) bool fails wor
 	}
 }
 
+// Start at the checkout's own head writes the two refs (git
+// update-ref, git symbolic-ref): a switch would refresh and rewrite the
+// whole index, in a clone made file by file a read of every tracked file,
+// to change two refs. At another commit it switches.
 func Start(v Vcs, root string, branch string, commit string) fails work.VcsFailed {
-	let _ = try writes(v, root, []string{"switch", "--quiet", "--no-track", "-C", branch, commit})
+	if try Head(v, root) == commit {
+		let _ = try writes(v, root, []string{"update-ref", "refs/heads/" + branch, commit})
+		let _ = try writes(v, root, []string{"symbolic-ref", "HEAD", "refs/heads/" + branch})
+	} else {
+		let _ = try writes(v, root, []string{"switch", "--quiet", "--no-track", "-C", branch, commit})
+	}
 	let origin = try reads(v, root, []string{"remote", "get-url", "origin"})
 	if origin.Status == 0 {
 		let _ = try writes(v, root, []string{"config", "remote.origin.pushurl", Guard})
@@ -226,4 +235,32 @@ func Merge(v Vcs, root string, parent string, branch string) string fails work.C
 		return work.VcsFailed{Reason: "git merge in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
 	}
 	theirs
+}
+
+func Configure(v Vcs, root string, key string, value string) fails work.VcsFailed {
+	let _ = try writes(v, root, []string{"config", key, value})
+}
+
+// StatDirty counts the entries git diff-files reports (a stat that
+// differs from the index's; diff-files refreshes nothing) less those whose
+// content changed (git diff, which compares content and, with
+// --no-optional-locks, writes no index).
+func StatDirty(v Vcs, root string) int fails work.VcsFailed {
+	let stat = lines(try answer(v, root, []string{"diff-files", "--name-only"}))
+	let changed = lines(try answer(v, root, []string{"diff", "--name-only"}))
+	stat - changed
+}
+
+func lines(text string) int {
+	let t = strings.TrimSpace(text)
+	if t == "" { 0 } else { len(strings.Split(t, "\n")) }
+}
+
+// Refresh is git update-index --refresh: status 1 only says that some
+// file's content changed, which a refresh leaves to git status.
+func Refresh(v Vcs, root string) fails work.VcsFailed {
+	let r = try git(v, root, []string{"update-index", "-q", "--refresh"}, []string{})
+	if r.Status != 0 && r.Status != 1 {
+		return work.VcsFailed{Reason: "git update-index --refresh in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
 }

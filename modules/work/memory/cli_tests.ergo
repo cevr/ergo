@@ -1,6 +1,7 @@
-// The two refusals of new, as the command line prints them: the text is
-// the diagnostic a person reads, so each is a row.
+// The refusals of new and the answers of its hooks, as the command line
+// prints them: the text is what a person reads, so each is a row.
 
+import fs
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 
@@ -11,7 +12,7 @@ test CopyRefusedSaysTheBytes {
 	let w = world(false)
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
 	assert o.Code == 1
-	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":38,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
+	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":109,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
 	let listed = w.tool.List() catch {
 	case work.NoBase, work.Unkept:
 		assert false
@@ -24,8 +25,32 @@ test CopyRefusedSaysTheBytes {
 // its base is refused with both folders, not copied.
 test NotSameVolumeNamesBoth {
 	let w = world(true)
-	Mount(w.trees, "/w/.ergo-work", "other")
+	Mount(w.trees, "/w/.work", "other")
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
 	assert o.Code == 1
-	assert o.Err == "NotSameVolume: {\"_tag\":\"NotSameVolume\",\"from\":\"/w/base\",\"to\":\"/w/.ergo-work/base/a\"}\n"
+	assert o.Err == "NotSameVolume: {\"_tag\":\"NotSameVolume\",\"from\":\"/w/base\",\"to\":\"/w/.work/base/a\"}\n"
+}
+
+// UntrustedHookSaysTheDigest: new in a base whose work.toml changed
+// after init runs no hook; its answer names the commands refused and the
+// digest work trust would allow.
+test UntrustedHookSaysTheDigest {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
+	w.disk.WriteFile(theBase+"/"+work.ConfigFile, "[hooks]\npostcreate = [\"bun install\"]\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	assert o.Code == 0
+	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"Untrusted\",\"digest\":\"e16cec248c0fea3998d553128b37ee8bee97cac8fba0d999f25b9bd4de5e336e\",\"commands\":[\"hooks.postcreate: bun install\"]}}\n"
+}
+
+// FailedHookIsInCreated: a failed postcreate is in new's answer (the
+// hook, the command, its status and stderr), with the workspace's path.
+test FailedHookIsInCreated {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"make\"]\n", "make")
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	assert o.Code == 0
+	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"HookFailed\",\"hook\":\"postcreate\",\"command\":\"make\",\"status\":1,\"stderr\":\"failed\\n\"}}\n"
 }

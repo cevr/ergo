@@ -1,76 +1,224 @@
+import hex
+import json
+import sha256
 import strings
+import toml
 
 // ConfigFile is the name of the one checked-in configuration, at the
-// root of a base (Go's go.work is the convention).
-let ConfigFile = "ergo.work"
+// root of a base. Every key has a default, so a repository with no
+// work.toml works.
+let ConfigFile = "work.toml"
 
-// Config is what ergo.work says: the module roots of the repository, the
-// folders a new workspace leaves out of its clone, the command that warms
-// a new workspace (run in it, by sh), whether a plain copy may be made
-// when no copy-on-write clone can, and the shell lines env prints for a
-// workspace ({workspace} is its folder).
+// Config is what work.toml says:
+//
+//   - Storage is the folder of the base's workspaces, relative to the
+//     base ("<base>" is the base's folder name); "" is ../.work/<base>.
+//   - LeaveOut is the folders a new workspace leaves out of its clone
+//     (none by default: installed packages and build output arrive by the
+//     clone, which is the reason to clone). "rift-filtered" in the list is
+//     Rift's default list.
+//   - Copy allows a plain copy where no clone can share blocks.
+//   - Env is the shell lines env prints for a workspace ({workspace} is
+//     its folder).
+//   - Lock and Install are [deps]: the lock file and the command that
+//     installs from it, run only when the lock changed since the last
+//     install.
+//   - Hooks are the four hooks of Rift, each a list of shell commands.
 type Config {
-	Modules  []string,
+	Storage  string,
 	LeaveOut []string,
-	Warm     string,
 	Copy     bool,
 	Env      []string,
+	Lock     string,
+	Install  string,
+	Hooks    HookCommands,
 }
 
-// BadConfig is a line of ergo.work that does not read.
+// HookCommands are the commands of each hook, run by sh in order:
+// precreate in the parent before the clone, postcreate in the new
+// workspace, preremove in the workspace before it goes, postremove in the
+// parent after it went.
+type HookCommands { Precreate []string, Postcreate []string, Preremove []string, Postremove []string }
+
+// BadConfig is a work.toml that does not read: the line (0 when the file
+// as a whole is wrong) and why.
 type BadConfig { Line int, Why string }
 
-// StarterConfig is the ergo.work that init writes when there is none.
-let StarterConfig = "# ergo.work: the workspaces of this repository (ergo work).\n#\n#   module DIR       a module root\n#   leave-out DIR    a folder a new workspace leaves out of its clone\n#   warm COMMAND     run by sh in a new workspace\n#   copy             a plain copy may be made where no clone can share blocks\n#   env LINE         a shell line ergo work env prints; {workspace} is the folder\nmodule .\n"
+// RiftFiltered is Rift's default list of folders a copy leaves out
+// (rift 0.0.13, filter.rs): `leave_out = ["rift-filtered"]` names it.
+let RiftFiltered = []string{"node_modules", ".pnpm-store", "target", ".venv", "venv", ".tox", ".nox", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vite", ".parcel-cache", ".cache", "dist", "build", "coverage", ".yarn/cache"}
 
-// ParseConfig reads the text of ergo.work: one directive a line, a word
-// then its value; a blank line or one that starts with # says nothing. An
-// unknown word, a missing value or a folder that leaves the root is
-// BadConfig.
+// StarterConfig is the work.toml that init writes when there is none.
+let StarterConfig = "# work.toml: the workspaces of this repository (work, ergo work).\n# Every key has a default; see modules/work/README.md.\n[work]\n# storage = \"../.work/<base>\"\n# leave_out = []          # [\"rift-filtered\"] is Rift's default list\n# env = []\n\n# [deps]\n# lock = \"bun.lock\"\n# install = \"bun install --frozen-lockfile\"\n\n# [hooks]                  # run only after work trust\n# postcreate = []\n"
+
+// ConfigStarterReads: the starter work.toml reads as the empty
+// configuration: every key it shows is a comment, so a fresh base runs
+// no command and copies everything.
+law ConfigStarterReads() {
+	let c = ParseConfig(StarterConfig) catch {
+	case BadConfig:
+		return false
+	}
+	c == EmptyConfig()
+}
+
+// EmptyConfig is the configuration of a base with no work.toml.
+func EmptyConfig() Config {
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}}
+}
+
+type fileTable {
+	Work  json.Optional[workTable] "work",
+	Deps  json.Optional[depsTable] "deps",
+	Hooks json.Optional[hooksTable] "hooks",
+}
+
+type workTable {
+	Storage  json.Optional[string] "storage",
+	LeaveOut json.Optional[[]string] "leave_out",
+	Copy     json.Optional[bool] "copy",
+	Env      json.Optional[[]string] "env",
+}
+
+type depsTable {
+	Lock    json.Optional[string] "lock",
+	Install json.Optional[string] "install",
+}
+
+type hooksTable {
+	Precreate  json.Optional[[]string] "precreate",
+	Postcreate json.Optional[[]string] "postcreate",
+	Preremove  json.Optional[[]string] "preremove",
+	Postremove json.Optional[[]string] "postremove",
+}
+
+// ParseConfig reads the text of work.toml (TOML 1.0). A table or key it
+// does not know is skipped ([[class]], [language.*] and [land] belong to
+// later units); a value of the wrong type, a folder that leaves the root
+// and an [deps] with a lock and no install are BadConfig.
 func ParseConfig(text string) Config fails BadConfig {
-	let mut c = Config{Modules: []string{}, LeaveOut: []string{}, Warm: "", Copy: false, Env: []string{}}
-	for i, raw in strings.Split(text, "\n") {
-		let line = strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	let f = toml.Decode(json.Codec[fileTable]{MaxBytes: 1 << 20, MaxDepth: 32}, text) catch {
+	case toml.Malformed as m:
+		return BadConfig{Line: m.Line, Why: m.Reason}
+	case _:
+		return BadConfig{Line: 0, Why: "a value of \(ConfigFile) has the wrong type"}
+	}
+	let mut c = EmptyConfig()
+	match f.Work {
+	case json.Present[workTable] as w:
+		let leave = try folders(or(w.Value.LeaveOut))
+		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Env: or(w.Value.Env)}
+	case json.Absent:
+	}
+	match f.Deps {
+	case json.Present[depsTable] as d:
+		c = Config{..c, Lock: orText(d.Value.Lock), Install: orText(d.Value.Install)}
+		if (c.Lock == "") != (c.Install == "") {
+			return BadConfig{Line: 0, Why: "[deps] needs both lock and install"}
 		}
-		let words = strings.Fields(line)
-		let value = strings.TrimSpace(strings.TrimPrefix(line, words[0]))
-		match words[0] {
-		case "module":
-			c = Config{..c, Modules: c.Modules.Append(try folder(i+1, value))}
-		case "leave-out":
-			c = Config{..c, LeaveOut: c.LeaveOut.Append(try folder(i+1, value))}
-		case "warm":
-			if value == "" {
-				return BadConfig{Line: i + 1, Why: "warm takes a command"}
-			}
-			c = Config{..c, Warm: value}
-		case "copy":
-			if value != "" {
-				return BadConfig{Line: i + 1, Why: "copy takes no value"}
-			}
-			c = Config{..c, Copy: true}
-		case "env":
-			if value == "" {
-				return BadConfig{Line: i + 1, Why: "env takes a shell line"}
-			}
-			c = Config{..c, Env: c.Env.Append(value)}
-		case _:
-			return BadConfig{Line: i + 1, Why: "unknown word \(words[0]); ergo.work knows module, leave-out, warm, copy and env"}
+		if c.Lock != "" {
+			let _ = try folder(c.Lock)
 		}
+	case json.Absent:
+	}
+	match f.Hooks {
+	case json.Present[hooksTable] as h:
+		c = Config{..c, Hooks: HookCommands{Precreate: or(h.Value.Precreate), Postcreate: or(h.Value.Postcreate), Preremove: or(h.Value.Preremove), Postremove: or(h.Value.Postremove)}}
+	case json.Absent:
 	}
 	c
 }
 
-// folder is the folder value of line n: one word, relative, inside the
-// root.
-func folder(n int, value string) string fails BadConfig {
+func or(v json.Optional[[]string]) []string {
+	match v {
+	case json.Present[[]string] as p:
+		p.Value
+	case json.Absent:
+		[]string{}
+	}
+}
+
+func orText(v json.Optional[string]) string {
+	match v {
+	case json.Present[string] as p:
+		p.Value
+	case json.Absent:
+		""
+	}
+}
+
+func orFalse(v json.Optional[bool]) bool {
+	match v {
+	case json.Present[bool] as p:
+		p.Value
+	case json.Absent:
+		false
+	}
+}
+
+// folders is the leave_out list, "rift-filtered" expanded, each a folder
+// inside the root.
+func folders(list []string) []string fails BadConfig {
+	let mut out = []string{}
+	for f in list {
+		if f == "rift-filtered" {
+			for r in RiftFiltered {
+				out = out.Append(r)
+			}
+			continue
+		}
+		out = out.Append(try folder(f))
+	}
+	out
+}
+
+// folder is a path value: one word, relative, inside the root.
+func folder(value string) string fails BadConfig {
 	if value == "" || len(strings.Fields(value)) != 1 {
-		return BadConfig{Line: n, Why: "a folder is one word"}
+		return BadConfig{Line: 0, Why: "a folder is one word: \(value)"}
 	}
 	if strings.HasPrefix(value, "/") || value == ".." || strings.HasPrefix(value, "../") || strings.Contains(value, "/../") || strings.HasSuffix(value, "/..") {
-		return BadConfig{Line: n, Why: "\(value) is not a folder inside the repository"}
+		return BadConfig{Line: 0, Why: "\(value) is not a folder inside the repository"}
 	}
 	value
+}
+
+// Commands is every command work.toml makes the tool run, in a fixed
+// order: the install of [deps], then each hook's commands.
+func Commands(c Config) []string {
+	let mut out = []string{}
+	if c.Install != "" {
+		out = out.Append("deps.install: " + c.Install)
+	}
+	for h in HookNames() {
+		for command in HookList(c.Hooks, h) {
+			out = out.Append("hooks.\(h): \(command)")
+		}
+	}
+	out
+}
+
+// Digest is the digest of the commands a configuration runs: what work
+// trust allows. A config that runs nothing needs no trust; a changed
+// command asks again.
+func Digest(c Config) string { hex.Encode(sha256.Sum(strings.Join(Commands(c), "\n"))) }
+
+// HookNames is the four hooks, in the order a create and a remove run
+// them.
+func HookNames() []string { []string{"precreate", "postcreate", "preremove", "postremove"} }
+
+// HookList is the commands of the hook named name.
+func HookList(h HookCommands, name string) []string {
+	match name {
+	case "precreate":
+		h.Precreate
+	case "postcreate":
+		h.Postcreate
+	case "preremove":
+		h.Preremove
+	case "postremove":
+		h.Postremove
+	case _:
+		[]string{}
+	}
 }
