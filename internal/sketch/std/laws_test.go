@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
@@ -681,6 +682,15 @@ func TestStdHostLawsHold(t *testing.T) {
 			mv := filepath.Join(dir, "mv")
 			moved := 0
 			names := append([]string{"a", "b", "./a", "sub", "sub/a", "link", "a/", "d", "d/x"}, paths[6:]...)
+			// A host whose file system names only valid UTF-8 (darwin's
+			// APFS: EILSEQ, a Failed the law skips) would skip every case
+			// that draws a name holding randomText's "\xff", about half of
+			// them; there the cases draw valid names only, so the reach
+			// bar below still measures the law and not the host's naming.
+			if err := os.WriteFile(filepath.Join(dir, "probe-\xff"), nil, 0o644); err != nil {
+				names = slices.DeleteFunc(names, func(name string) bool { return !utf8.ValidString(name) })
+				t.Logf("the host refuses a name that is not UTF-8 (%v): the cases draw valid names only", err)
+			}
 			for i := range 300 {
 				base := filepath.Join(mv, strconv.Itoa(i))
 				for _, err := range []error{os.MkdirAll(filepath.Join(base, "sub"), 0o755), os.MkdirAll(filepath.Join(base, "d"), 0o755), os.Symlink("b", filepath.Join(base, "link"))} {
