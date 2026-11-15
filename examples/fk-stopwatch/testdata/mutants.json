@@ -21,15 +21,15 @@
       "name": "fk1-stop-zeros", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
       "from": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
-      "to": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
+      "to": "\tcase (Running, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
       "rule": "Stop keeps the time.",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
       "name": "fk1-stop-keeps-last-tick", "origin": "wf10/fk1a (orchestrator: shown time equals clock elapsed)",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
-      "to": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
+      "from": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
+      "to": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
       "rule": "Stop keeps its reading: a stopped watch shows the time it ran, not the time of its last tick (upstream's form, which loses the time after a late tick).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
@@ -37,16 +37,16 @@
       "name": "fk1-tick-counts", "origin": "wf10/fk1a (orchestrator: shown time equals clock elapsed)",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
       "from": "Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + t.At.Sub(r.Since)}",
-      "to": "Running{Before: r.Before, Since: r.Since, Elapsed: r.Elapsed + TickEvery}",
+      "to": "Running{Before: r.Before, Since: r.Since, Elapsed: r.Elapsed + TickEvery + t.At.Sub(t.At)}",
       "rule": "A tick shows the clock's elapsed time, never one more interval: a late or bunched tick must not lose or add time (round 1's tick count).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
       "name": "fk1-reset-keeps-time", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Initial()}\n",
-      "to": "\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: ElapsedOf(w)}}\n",
-      "rule": "Reset is the initial watch from any state.",
+      "from": "at.Sub(r.Since)}}\n\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Initial()}\n",
+      "to": "at.Sub(r.Since)}}\n\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: ElapsedOf(w)}}\n",
+      "rule": "Reset is the initial watch from any state (the press's arm).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
@@ -69,8 +69,8 @@
     {
       "name": "fkg1g5-start-click-forgets-the-time", "origin": "wf10/fkg1-g5",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tEnter[Watch]{Next: Starting{Elapsed: st.Elapsed}}\n",
-      "to": "\t\tEnter[Watch]{Next: Starting{Elapsed: 0s}}\n",
+      "from": "\tcase (Stopped as st, Start):\n\t\tEnter[Watch]{Next: Starting{Elapsed: st.Elapsed}}\n",
+      "to": "\tcase (Stopped, Start):\n\t\tEnter[Watch]{Next: Starting{Elapsed: 0s}}\n",
       "rule": "A click of Start waits from the time the watch shows (law ClickThenWorkIsThePress).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
