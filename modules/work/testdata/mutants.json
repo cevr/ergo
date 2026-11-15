@@ -700,8 +700,8 @@
     {
       "name": "ws9a-idle-abandons", "origin": "wf10/semws WS9a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, false) catch {\n",
-      "to": "\tlet _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, true) catch {\n",
+      "from": "\tlet why = try rmOnce(t, c, w, false)\n",
+      "to": "\tlet why = try rmOnce(t, c, w, true)\n",
       "rule": "gc -idle never abandons work: an idle workspace whose work is not held stays (memory's ToolAgreesWithTheReference: removed with no abandon).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -832,6 +832,78 @@
       "to": "\"status\", \"--porcelain\", \"--untracked-files=no\"}) == \"\"",
       "rule": "The held check counts untracked files, with the untracked cache on too (the rm-untracked-cached and rm-dirty cases).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg6-rift-parent-lost", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "Path: c.Path, Parent: parent, Branch:",
+      "to": "Path: c.Path, Parent: t.base, Branch:",
+      "rule": "A Rift copy made on a copy is adopted with that copy's folder as its parent (memory's AdoptRiftKeepsTheTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-rift-writes-marker", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\t\ttry put(t, w)\n\t\tadopted = adopted.Append(w)",
+      "to": "\t\ttry put(t, w)\n\t\tt.writes.WriteFile(c.Path + \"/.work-id\", w.Id) catch {\n\t\tcase _:\n\t\t}\n\t\tadopted = adopted.Append(w)",
+      "rule": "adopt-rift writes no file of an adopted tree (memory's AdoptRiftKeepsTheTree: each copy's folder holds what it held).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-rift-marker-unchecked", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\tif strings.TrimSpace(marker) != c.Id {",
+      "to": "\tif false {",
+      "rule": "A copy whose .rift marker names another id is left (memory's AdoptRiftKeepsTheTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-rift-orphan", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\tif parent != t.base && livePath(all, parent) == None {",
+      "to": "\tif false {",
+      "rule": "A copy whose parent was left is left too: no record outlives its parent (memory's AdoptRiftKeepsTheTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-rift-other-root", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\t\tif r.Path == base && r.Parent == \"\" {",
+      "to": "\t\tif r.Parent == \"\" {",
+      "rule": "Only the copies of this base's Rift root are its (memory's AdoptRiftKeepsTheTree: doctor -rift lists another root's copy).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-rift-unread-runs", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\tif !exists(t, file) {\n\t\treturn RiftUnread{Registry: file, Why: \"no such file\"}",
+      "to": "\tif false {\n\t\treturn RiftUnread{Registry: file, Why: \"no such file\"}",
+      "rule": "A registry that is not there is RiftUnread naming it (the adopt-rift-unread case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg6-archive-not-kept", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet kept = try keepWork(t, w)\n",
+      "to": "\tlet kept = \"\"\n",
+      "rule": "gc -archive removes an unheld idle workspace only after its work is kept (memory's ArchiveKeepsTheWork).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-archive-in-parent", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tt.vcs.Push(w.Path, t.base, []Pushed{",
+      "to": "\tt.vcs.Push(w.Path, w.Parent, []Pushed{",
+      "rule": "gc -archive keeps the work in the base: a parent workspace removed next would take it (memory's ArchiveKeepsTheWork).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg6-archive-always", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif why != \"NotHeld\" || !archive {",
+      "to": "\tif why != \"NotHeld\" {",
+      "rule": "Without -archive an unheld idle workspace stays (memory's ArchiveKeepsTheWork).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
