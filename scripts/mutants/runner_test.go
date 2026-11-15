@@ -24,7 +24,8 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // f.go of the same shape (the same line numbers: coverage read for the
 // wrong package runs the wrong tests); each test calls a random set of
 // functions and asserts a random part of them; one test fails on the
-// unmutated tree. Its ledger holds one value mutant per function (known
+// unmutated tree, so a mutant it covers or that names it is unjudged
+// (FT11b: a red baseline judges nothing). Its ledger holds one value mutant per function (known
 // killers drawn at random, some wrong), a mutant that does not build, one
 // that no longer applies, a string-literal mutant with an anchor and one
 // without (no block of one runs it, but two:TestReadsOne reads one/f.go:
@@ -34,7 +35,8 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // that allocates past the memory limit. A named killer runs whether or not
 // it covers the lines. TestGreet
 // also reads the repository with git ls-files, as internal/residue's rules
-// do: in a copy with no Git index it would fail on the unmutated tree.
+// do: in a copy with no Git index it would fail on the unmutated tree; and
+// it fails when GOFLAGS is set, as cmd/ergo's direct-path tests do.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -159,6 +161,9 @@ func (m fakeModule) testSource(pkg string) string {
 				// It reads the repository, as internal/residue's rules do:
 				// the copy must carry the checkout's file list.
 				b.WriteString("\tif out, err := exec.Command(\"git\", \"ls-files\", \"--error-unmatch\", \"f.go\").CombinedOutput(); err != nil {\n\t\tt.Fatalf(\"git ls-files: %v\\n%s\", err, out)\n\t}\n")
+				// It sees the go command's settings as the gate sets them:
+				// a set GOFLAGS makes ergo build refuse its direct path.
+				b.WriteString("\tif f := os.Getenv(\"GOFLAGS\"); f != \"\" {\n\t\tt.Fatalf(\"GOFLAGS=%q\", f)\n\t}\n")
 				continue
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
@@ -218,7 +223,11 @@ type expect struct {
 
 func (m fakeModule) model(target string, invalid bool) expect {
 	var e expect
+	red := false
 	for _, ft := range m.tests {
+		if ft.broken && slices.Contains(ft.calls, target) {
+			red = true
+		}
 		if ft.broken || !slices.Contains(ft.calls, target) {
 			continue
 		}
@@ -228,6 +237,10 @@ func (m fakeModule) model(target string, invalid bool) expect {
 		}
 	}
 	switch {
+	case red:
+		// A covering test fails on the unmutated tree: no verdict, and
+		// nothing runs.
+		e.status, e.killers = Unjudged, nil
 	case len(e.covering) == 0:
 		e.status = Uncovered
 	case invalid:
@@ -242,12 +255,15 @@ func (m fakeModule) model(target string, invalid bool) expect {
 
 // named adds the ledger's named killers to e: the runner runs a named test
 // whether or not it covers the lines, so a mutant whose named test does not
-// kill it survives rather than being uncovered. A test that fails on the
-// unmutated tree judges nothing.
+// kill it survives rather than being uncovered. A named test that fails on
+// the unmutated tree leaves the mutant unjudged.
 func (m fakeModule) named(e expect, killers []string) expect {
 	for _, id := range killers {
 		i := slices.IndexFunc(m.tests, func(ft fakeTest) bool { return ft.id() == id })
-		if i < 0 || m.tests[i].broken || slices.Contains(e.covering, id) {
+		if i >= 0 && m.tests[i].broken {
+			e.status, e.killers = Unjudged, nil
+		}
+		if i < 0 || m.tests[i].broken || slices.Contains(e.covering, id) || e.status == Unjudged {
 			continue
 		}
 		e.covering = append(e.covering, id)

@@ -483,7 +483,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	counts := map[string]int{}
-	var newSurvivors, gaps, closed, moved, only, owners []string
+	var newSurvivors, gaps, closed, moved, only, owners, unjudged []string
 	for _, r := range results {
 		if r.Status == "" {
 			continue // not judged: the run was interrupted
@@ -515,6 +515,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			}
 		case Stale, Invalid:
 			owners = append(owners, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, r.Status, m.Origin, firstLine(r.Detail)))
+		case Unjudged:
+			unjudged = append(unjudged, fmt.Sprintf("%s (%s): %s", r.Name, where, r.Detail))
 		}
 	}
 	var keys []string
@@ -536,7 +538,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	section(w, "tests that fail on the unmutated tree (they kill nothing)", broken)
-	if len(newSurvivors) > 0 {
+	section(w, "NOT JUDGED (a test that covers them fails on the unmutated tree: fix it, then run again)", unjudged)
+	if len(newSurvivors) > 0 || len(unjudged) > 0 {
 		return 1
 	}
 	return 0

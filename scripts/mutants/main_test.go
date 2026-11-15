@@ -13,6 +13,22 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
+// TestUnjudgedFailsTheRun is the smallest repro of FT11b's cmd/ergo run,
+// where 7 tests failed on the unmutated tree and the run judged their rows
+// uncovered: a row a red test would judge gets no verdict, and the run
+// fails and lists it. Mutant: gt8b-unjudged-exit.
+func TestUnjudgedFailsTheRun(t *testing.T) {
+	m := &Mutant{Name: "row", File: "f.go", Killers: []string{"s:TestRed"}}
+	jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}
+	results := []Result{{Ledger: "l.json", Name: "row", Status: Unjudged, Detail: "s:TestRed fails on the unmutated tree"}}
+	cov := &coverage{Tests: []*covTest{{ID: "s:TestRed", Failed: true, Detail: "fail"}}}
+	cov.reindex()
+	var out strings.Builder
+	if code := report(&out, jobs, results, cov); code != 1 || !strings.Contains(out.String(), "NOT JUDGED") {
+		t.Errorf("an unjudged row: exit %d, want 1, and a NOT JUDGED list:\n%s", code, out.String())
+	}
+}
+
 // TestHeaderLineIsCoveredByWhatReachesIt is the smallest repro of M1's
 // uncovered runtime/v1 mutant: the cover tool gives a case line of a
 // tagless switch no block (measured: blocks 180 and 182 around the case at

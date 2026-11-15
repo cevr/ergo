@@ -112,6 +112,7 @@ const (
 	Uncovered = "uncovered" // no test runs its lines, and the ledger names none
 	Stale     = "stale"     // its edit does not apply: report it to its origin
 	Invalid   = "invalid"   // the mutated tree does not build: report it to its origin
+	Unjudged  = "unjudged"  // a test that covers it or the ledger names fails on the unmutated tree
 )
 
 // Result is the verdict on one mutant.
@@ -385,7 +386,10 @@ func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 }
 
 // env is the environment of every child: the runner's own, with the
-// thread share, and extra.
+// thread share, and extra. GOFLAGS is empty: a go command's default -p is
+// GOMAXPROCS, and a set GOFLAGS makes ergo build refuse its direct path,
+// which failed the cmd/ergo tests that require it on the unmutated tree
+// (FT11b: TestDirectBuildStartsNoGoCommand, TestBuildGoesThroughIR).
 func (e *engine) env(extra ...string) []string {
 	var out []string
 	for _, kv := range os.Environ() {
@@ -397,7 +401,7 @@ func (e *engine) env(extra ...string) []string {
 		out = append(out, kv)
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
-	out = append(out, "GOMAXPROCS="+procs, "GOFLAGS=-p="+procs, "GOWORK=off")
+	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")
 	return append(out, extra...)
 }
 
@@ -969,6 +973,20 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	r.Covering = len(covering)
 	if len(covering) == 0 {
 		r.Status = Uncovered
+		return r
+	}
+	// A test that would judge the mutant and fails on the unmutated tree
+	// kills nothing, so a survivor or a kill by another test would rest on
+	// a red baseline: no verdict until it passes (FT11b's cmd/ergo run).
+	var red []string
+	for id := range covering {
+		if w.e.cov.test(id).Failed {
+			red = append(red, id)
+		}
+	}
+	if len(red) > 0 {
+		slices.Sort(red)
+		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
 		return r
 	}
 	info, err := os.Stat(path)
