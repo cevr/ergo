@@ -252,8 +252,10 @@ holds both to the example's `dash-gui scene` on 24 seeded sensors, frame
 counts and scene scripts (`-dash.seed=N` replays one).
 
 Headless, `Drain` takes what the session posted (`Pump`) after each frame,
-as the window's own loop does after every input; `TestDashGuiHeapStaysFlat`
-holds the live heap after 4n frames to the one after n (F-GP4c-1).
+as the window's own loop does after every input and as `ui.Advance` does,
+so both hosts take a work's reply at the same frame (F-GP4c-1). The
+session's watcher reads `LatestChanges`, so a blocked watcher holds one
+state (std ui's `WatcherHoldsOneState`).
 
 ## Pins and checks
 
