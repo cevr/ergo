@@ -286,7 +286,18 @@ Test-speed FT9 (`lower.LowerIRShards`, the fallback of the killed in-compiler fu
 | `deps/resolve` tests (12 shards) | 1,971 | 128 to 545 (6.5 to 28 %) | 899 (46 %): `Resolve` and the table's generator | 784 (40 %) | 2,950 / 5,757 |
 
 - Measured, with which shard an edit lands in from `TestBodyEditChangesOneShard`'s log (seed 1, 10 edits of literals in function bodies per program): all 10 edits of `graph.ergo` compile the shard of 181 M (10.7 % of the split's root compile); 9 of 10 edits of `resolve.ergo` compile a shard of 217 M to 347 M (11 % to 18 %), and 1 the shard of `Resolve` at 899 M (46 %).
-- Measured: one shard per program misses FT9's 40 % bound: the tests and laws of `deps/graph` (59 %) and `Resolve` with the table's generator in `deps/resolve` (46 %); the roots are at 40 % and 42 %. A shard is cut by bytes of Go, and these compile at about 30 M per KB against 3 M per KB for the rest (`sff93794e` 33 KB at 1,001 M; `sa42a4527` 61 KB at 181 M). A cut weighted by the compile's cost per declaration is the follow-up.
+- Measured: one shard per program misses FT9's 40 % bound: the tests and laws of `deps/graph` (59 %) and `Resolve` with the table's generator in `deps/resolve` (46 %); the roots are at 40 % and 42 %. A shard is cut by bytes of Go, and these compile at about 30 M per KB against 3 M per KB for the rest (`sff93794e` 33 KB at 1,001 M; `sa42a4527` 61 KB at 181 M). The second cut, below, weights the cost.
 - Measured: a clean build compiles 56 % (graph) to 95 % (resolve) more instructions sharded, since each shard pays the process start and its imports (58 M to 107 M, plan §3.5), in more processes that the direct path runs at once.
+
+Second cut, at `2f9663cb0` (load 45 to 46): a shard's cost counts the generic declarations it instantiates, and only a package of 64 KiB is cut (`deps/graph`'s 42 KB package and `deps/semver`'s 24 KB are not).
+
+| Program | Split: root compile (M) | Shards: the shard user-function edits compile (M) | Shards: the costliest shard (M) | Shards: the root (M) | Clean, all program packages (M): split / shards |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `deps/graph` tests (5 shards) | 1,688 | 164 (9.7 %), all 10 edits | 899 (53 %) | 745 (44 %) | 1,711 / 2,885 (+69 %) |
+| `deps/resolve` tests (5 shards) | 1,971 | 439 (22 %) for 9 of 10 edits; 866 (44 %) for 1 | 866 (44 %) | 734 (37 %) | 2,950 / 4,249 (+44 %) |
+
+- Measured: counting instantiations moves the tests and laws of `deps/graph` into a shard of 6.4 KB of Go that still costs 486 M: most of a shard's cost is the instantiations of the program's generic graph, which Go compiles again in every package that makes them. Cutting finer duplicates them; cutting coarser keeps every edit dear. No cut reaches a cold build within +25 % of the split (+44 % to +95 % across both cuts).
+- So the first test build of a program does not shard (cold: the split's cost, +0 %), and every later one does (`lowerAuto`). The first build after it compiles every shard once (2,885 M and 4,249 M against a split root recompile of 1,688 M and 1,971 M); each edit after that compiles one shard (164 M to 866 M).
+- Not done: emitting each instantiation once, in the generic's own shard, would remove the duplicated cost; that is the monomorphization work (MONO1), not a shard cut.
 - The receipt compiles without the inliner (`-l`, FT5's dev profile), so a body never enters export data and no importer of the edited shard compiles again. Until FT5 lands, a body small enough for Go's inliner compiles its importers too (see "Direct path").
 - The script and the raw log are the wf10 run's `test-speed/FT9a/receipt/`.
