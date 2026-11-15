@@ -165,7 +165,9 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Task tree**: The parent and child relation of tasks. Stopping a task stops every task below it.
 
-**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4).
+**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4). Not std `set.Set`, a key set.
+
+**Key set**: A value of std `set.Set[K comparable]`: keys with no order, each once, over a Map. It is a value, as a Map is: `set.Add` and `set.Remove` return a new set, and a copy never sees a later change. Effect's `HashSet`; Go's `map[K]struct{}`. See [stdlib](docs/spec/stdlib.md#slices-maps-and-cmp) 13.
 
 **Interruption**: A request that a task stop. It is cooperative and is not a typed error: no error row names it.
 
