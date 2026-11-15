@@ -87,3 +87,14 @@ func Delete(f Files, id string) fails infra.Failed {
 		try drop(f.ledger, "file", id)
 	}
 }
+
+// ChangedFileHoldsTheNewText: an Apply of a file whose text changed writes
+// the new text over the old.
+law ChangedFileHoldsTheNewText(first string, second string) {
+	let m = fstest.NewMemory()
+	let f = FilesOn(m, m, "/work", "/state")
+	try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: first, Mode: fs.Shared()})
+	let file = try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: second, Mode: fs.Shared()})
+	let text = try m.ReadFile(file.Path)
+	text == second
+}
