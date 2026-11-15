@@ -1256,7 +1256,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 				gates = append(gates, g.reason)
 			}
 		}
-		if l.ir.body(fc, fd, params, gates) {
+		variant := ""
+		if drop {
+			variant = fd.dropped
+		}
+		if l.ir.body(fc, fd, params, gates, variant) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
 			return
