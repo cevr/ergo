@@ -24,6 +24,12 @@ type Frame[E] {
 	// pass numbers the passes: an entry of seen counts only in the pass
 	// it names, so a pass starts with no count and deletes none.
 	pass    int,
+	// pending is the kept groups whose tops' counts the pass has not
+	// taken yet (the first npending; group.ergo, writeAgain), and
+	// rootPending whether one is at the top (spec.pending below one).
+	pending []pendingCounts,
+	npending int,
+	rootPending bool,
 	// unplaced counts the pass's lookups that missed the old child at
 	// the node's place (Unplaced).
 	unplaced int,
@@ -144,7 +150,8 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // and last are the spec's first and last child, next and before its next
 // and previous sibling (-1 for none), so the children of a spec are a
 // walk, not a list built each pass. nkids is how many children it has so
-// far: the place of the next, which prior tries first.
+// far: the place of the next, which prior tries first. pending is whether
+// a kept group under it has not taken its tops' counts yet.
 type spec[E] {
 	node    Node[E],
 	id      ident,
@@ -165,6 +172,7 @@ type spec[E] {
 	next    int,
 	before  int,
 	nkids   int,
+	pending bool,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -177,7 +185,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, compared: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, compared: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
@@ -201,6 +209,8 @@ func begin[E](f *Frame[E]) {
 	f.nloads = 0
 	f.nroot = 0
 	f.unplaced = 0
+	f.npending = 0
+	f.rootPending = false
 	// The last pass's counts are stale by its number. A map holding many
 	// more than the last pass took (rows that went) starts again.
 	f.pass = f.pass + 1
@@ -252,6 +262,9 @@ func identify[E](f *Frame[E], at CallSite) ident {
 
 // see takes the next count of s, logged so a cut gives it back.
 func see[E](f *Frame[E], s slotOf) int {
+	if pendingUnder(f, s.parent) {
+		takePending(f, s.parent)
+	}
 	let n = seenOf(f, s)
 	f.seen[s] = tally{pass: f.pass, n: n + 1}
 	if f.nseen < len(f.seenLog) {
@@ -334,7 +347,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 		prev = arena.Null[node[E]]()
 	}
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0}
+	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false}
 	putSpec(f, sp)
 }
 

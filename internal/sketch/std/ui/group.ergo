@@ -57,7 +57,14 @@ type groupKey[E] { owner arena.Ref[node[E]], id ident }
 // inside a held group is stamped whenever that group is, so it stays held
 // in its place, and stamping it is no lookup by key (NS2c: a list holder
 // of 200 kept rows stamps 200 groups a pass).
-type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool }
+// alone is whether every top took the first count of its identity and
+// all share one row site (each), so writeAgain may defer their counts.
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite }
+
+// pendingCounts is a kept group written again whose tops' counts the pass
+// has not taken: under parent spec parent (-1 the top), kept group entry,
+// its first spec start, and whether a later write took them (done).
+type pendingCounts { parent int, entry int, start int, done bool }
 
 // keptTop is one top node of a kept group: what it shows, its identity,
 // its node and its disabled state.
@@ -196,6 +203,31 @@ func writeAgain[E](f *Frame[E], i int) bool {
 	let p = f.parent
 	let up = p >= 0 && f.specs[p].off
 	let t = len(f.keptList[i].tops)
+	if f.keptList[i].alone && clearBefore(f, p, f.keptList[i].each) {
+		// No node before the group under p shares its tops' row site, so
+		// each top's identity count is none before it, the first count it
+		// had: the counts are taken only when a later write under p asks
+		// for one (see), which a list holder's rows seldom are.
+		for k in 0..t {
+			if f.keptList[i].tops[k].off != (up || disables(f.keptList[i].tops[k].node)) {
+				return false
+			}
+		}
+		let start = f.nspecs
+		putTops(f, i, p)
+		if f.npending < len(f.pending) {
+			f.pending[f.npending] = pendingCounts{parent: p, entry: i, start: start, done: false}
+		} else {
+			f.pending = f.pending.Append(pendingCounts{parent: p, entry: i, start: start, done: false})
+		}
+		f.npending = f.npending + 1
+		if p < 0 {
+			f.rootPending = true
+		} else {
+			f.specs[p].pending = true
+		}
+		return true
+	}
 	for k in 0..t {
 		// Each top takes its count as it is checked (one lookup a top);
 		// a refusal gives back the counts taken.
@@ -209,11 +241,82 @@ func writeAgain[E](f *Frame[E], i int) bool {
 			return false
 		}
 	}
-	for k in 0..t {
+	putTops(f, i, p)
+	true
+}
+
+// putTops writes the top nodes of kept group i under parent p, skipped.
+func putTops[E](f *Frame[E], i int, p int) {
+	for k in 0..len(f.keptList[i].tops) {
 		let x = f.keptList[i].tops[k]
-		let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: arena.Null[node[E]](), onText: x.onText, onPoint: x.onPoint, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0})
+		let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: arena.Null[node[E]](), onText: x.onText, onPoint: x.onPoint, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false})
+	}
+}
+
+// clearBefore is whether the few nodes written so far under p (at most
+// four, counted, not looked up) all have a row site other than each: then
+// none shares an identity's base with a top of a group whose tops share
+// row site each.
+func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
+	if kidsWritten(f, p) > 4 {
+		return false
+	}
+	let mut s = lastKid(f, p)
+	for s >= 0 {
+		if f.specs[s].id.each == each {
+			return false
+		}
+		s = f.specs[s].before
 	}
 	true
+}
+
+// pendingUnder is whether a kept group under parent spec p (-1 the top)
+// has not taken its tops' counts yet.
+func pendingUnder[E](f *Frame[E], p int) bool {
+	if p < 0 {
+		return f.rootPending
+	}
+	f.specs[p].pending
+}
+
+// takePending takes the counts of the tops of each kept group under p
+// that has not taken them: a write under p is about to ask for one. They
+// are not logged: a cut gives them back by its pending groups (giveBack).
+func takePending[E](f *Frame[E], p int) {
+	for b in 0..f.npending {
+		if f.pending[b].parent == p && !f.pending[b].done {
+			let e = f.pending[b].entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				let s = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
+				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) + 1}
+			}
+			f.pending[b].done = true
+		}
+	}
+	if p < 0 {
+		f.rootPending = false
+	} else {
+		f.specs[p].pending = false
+	}
+}
+
+// giveBack drops the pending groups a cut to spec index start takes back,
+// giving back the counts of those that took theirs.
+func giveBack[E](f *Frame[E], start int) {
+	for f.npending > 0 && f.pending[f.npending-1].start >= start {
+		f.npending = f.npending - 1
+		let g = f.pending[f.npending]
+		if g.done {
+			let e = g.entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				let s = slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}
+				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+			}
+		}
+	}
 }
 
 // unsee gives back the last n identity counts the pass took.
@@ -267,9 +370,17 @@ func keepGroups[E](f *Frame[E]) {
 			}
 			let key = groupKey[E]{owner: o, id: g.id}
 			let mut tops = []keptTop[E]{}
+			let mut alone = true
+			let mut each = nowhere
 			for j in g.start..g.end {
 				if f.specs[j].parent == g.parent {
 					let c = f.specs[j]
+					if len(tops) == 0 {
+						each = c.id.each
+					}
+					if c.id.n != 0 || c.id.each != each {
+						alone = false
+					}
 					tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, off: c.off})
 				}
 			}
@@ -277,7 +388,7 @@ func keepGroups[E](f *Frame[E]) {
 			if f.nested {
 				nest = inner[r]
 			}
-			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true}
+			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each}
 			let mut at = g.entry
 			if g.entry >= 0 {
 				stamped = stamped + restamp(f, g.entry, stamp)
