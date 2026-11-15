@@ -273,6 +273,11 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
 	// 2026-11-10).
 	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
+	// Every GOOS the toolchain lists vets, or names why it cannot
+	// (scripts/vetgoos; FU-freebsd). Full tier: it compiles std for 18
+	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,
+	// 2026-11-15), far past the fast tier's 2 s.
+	add(&Step{Name: "go vet every GOOS", Argv: []string{"go", "run", "./scripts/vetgoos"}, Weight: 600, Class: classHeavy})
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
