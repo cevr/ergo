@@ -54,7 +54,7 @@ func (w *valueWalk) decideMoves() {
 			if o.kind != occEscape {
 				continue
 			}
-			if w.takeOf(vv, o) || w.resliceOf(vv, o) {
+			if w.takeOf(vv, o) || w.reslices(o.path, vv) {
 				w.vf.moved[o.path] = true
 				w.l.stats.Moves++
 			}
@@ -138,10 +138,12 @@ func (w *valueWalk) plainFresh(e syntax.Expr, v *check.Var) bool {
 	return ok
 }
 
-// resliceOf reports o, a kept read of the root vv, as the value of
-// `P = P[a:b]` on one place P.
-func (w *valueWalk) resliceOf(vv *vvar, o *vocc) bool {
-	s, ok := unparen(o.path).(*syntax.SliceExpr)
+// resliceOf reports the read e of the root vv as the value of
+// `P = P[a:b]` on one place P: a variable, its fields or a pointee. The
+// bound rule and the shortcut are reslices' (storeread.go), which asks
+// this.
+func (w *valueWalk) resliceOf(vv *vvar, e syntax.Expr) bool {
+	s, ok := unparen(e).(*syntax.SliceExpr)
 	if !ok {
 		return false
 	}
@@ -156,26 +158,10 @@ func (w *valueWalk) resliceOf(vv *vvar, o *vocc) bool {
 	if !w.placeOf(base, vv.v) {
 		return false
 	}
-	parent, child := w.unparenParent(o.path)
+	parent, child := w.unparenParent(e)
 	stmt, ok := parent.(*syntax.AssignStmt)
 	if !ok || stmt.Tok != syntax.ASSIGN || len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || syntax.Node(stmt.Rhs[0]) != child {
 		return false
 	}
-	if !w.placeOf(stmt.Lhs[0], vv.v) || !samePlace(stmt.Lhs[0], base) {
-		return false
-	}
-	// A bound that writes the root (a call given &s) keeps the copy, and
-	// the move is the own-reslice shortcut, so the reference lowering and
-	// a test build copy (storeread.go reslices; one rule, batch-21
-	// integration).
-	for _, x := range vv.occs {
-		if x.kind == occWrite && w.pre[s] <= x.pre && x.pre < w.post[s] {
-			return false
-		}
-	}
-	if !w.l.takes("own-reslice") {
-		return false
-	}
-	w.l.took("own-reslice")
-	return true
+	return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)
 }
