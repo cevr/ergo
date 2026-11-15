@@ -1304,7 +1304,7 @@ func (w *valueWalk) catchSelf(e syntax.Expr) bool {
 			}
 		}
 	}
-	return w.selves[e] && w.l.takes("own-catch")
+	return w.selves[e] && w.catchTaken()
 }
 
 // cutPlace is the place x slices (any depth of slicing), or x.
