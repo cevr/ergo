@@ -74,7 +74,8 @@ const share = "share"
 //
 // Mutants it alone catches: ffi-derive-reads-on-mutates,
 // ffi-derive-reads-on-leak-to-result, ffi-derive-wrong-parameter,
-// ffi-derive-unparsed-line-is-reads, ffi-derive-map-reads.
+// ffi-derive-any-verdict-is-reads, ffi-derive-map-reads,
+// ffi-derive-map-elem-reads.
 func TestDerivedFactsSound(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3}

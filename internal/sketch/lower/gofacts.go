@@ -51,6 +51,15 @@ func goTarget(f *check.Func) string {
 	return strings.Trim(t.Value, "\"")
 }
 
+// goOnlyReport reports the Go operand a, the identifier id, when it is a
+// let of Go's own Map or slice that only Go calls use (H5), which goes to
+// Go uncopied.
+func (w *valueWalk) goOnlyReport(a syntax.Expr, id *syntax.Ident, goOnly map[*vvar]bool) {
+	if v, ok := w.info.Uses[id].(*check.Var); ok && goOnly[w.vars[v]] {
+		w.goOperandReport(a, "shared", "a let of Go's own Map or slice that only Go calls use")
+	}
+}
+
 // goOperandReport writes the copy report's row for the Go operand a, whose
 // copy the walk decided: its form (copy, shared, no copy), why, and each
 // foreign fact on it, and adds those facts to the inspect rows.

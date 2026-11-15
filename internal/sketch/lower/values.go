@@ -963,14 +963,14 @@ func (w *valueWalk) decide() {
 		// both lowerings: a copy here would lose the write, not keep a
 		// value.
 		if inner := unparen(a); w.goHeld(inner) {
-			vf.goShare[inner] = true
 			w.goOperandReport(a, "shared", "Go's own Map or slice, a Go call's result or a Go struct's field, goes back to Go as Go holds it")
+			vf.goShare[inner] = true
 			continue
 		}
 		// So is a let that holds one and that only Go calls use (H5).
 		if id, ok := unparen(a).(*syntax.Ident); ok {
+			w.goOnlyReport(a, id, goOnly)
 			if v, ok := w.info.Uses[id].(*check.Var); ok && goOnly[w.vars[v]] {
-				w.goOperandReport(a, "shared", "a let of Go's own Map or slice that only Go calls use")
 				continue
 			}
 		}
