@@ -1,0 +1,150 @@
+// Package route is fk-domains' URL (plan §20.2): the route is the single
+// source of the query, the TLD filter, the availability filter and the
+// order, and Parse and Print go between it and the URL's path and query.
+// An invalid parameter is its default (FK10's rule): a pasted link with a
+// typo still opens the search. The original's route.ts keeps only the
+// query in the URL; the port keeps the filters and the order there too.
+
+import hex
+import http
+import strings
+import fk-domains/domains
+
+// Order is the order of the results; Relevance is the catalog's order.
+type Order = Relevance{} | Length{} | PriceAscending{} | PriceDescending{} | Alphabetical{}
+
+// Route is the page: Landing (no query), Search, or NotFound for any path
+// but the root. TLD is "" for every TLD, else one of domains.Catalog.
+type Route = Landing{} | Search{Query string, TLD string, AvailableOnly bool, Order Order} | NotFound{Path string}
+
+// orderName is the order's spelling in the URL.
+func orderName(o Order) string {
+	match o {
+	case Relevance:
+		"relevance"
+	case Length:
+		"length"
+	case PriceAscending:
+		"price-asc"
+	case PriceDescending:
+		"price-desc"
+	case Alphabetical:
+		"alphabetical"
+	}
+}
+
+// Orders are the orders, the default first.
+let Orders = []Order{Relevance, Length, PriceAscending, PriceDescending, Alphabetical}
+
+func orderOf(name string) Order {
+	for o in Orders {
+		if orderName(o) == name {
+			return o
+		}
+	}
+	Relevance
+}
+
+let catalogSet = catalogMap()
+
+func catalogMap() Map[string, bool] {
+	let mut m = Map[string, bool]{}
+	for t in domains.Catalog {
+		m[t] = true
+	}
+	m
+}
+
+func inCatalog(tld string) bool {
+	match catalogSet.Get(tld) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+// first is the first value of the query parameter name, "" when absent.
+func first(fields []http.Field, name string) string {
+	match http.Query(fields, name) {
+	case Some as v:
+		v.Value
+	case None:
+		""
+	}
+}
+
+// Parse is the route of url, a path with an optional query ("/?q=acme").
+// A path other than "/" is NotFound. An empty or absent q is Landing.
+// tld is a TLD of the catalog or every TLD; available is "1" or not;
+// sort is an order's name or Relevance. Any other value is the default,
+// and an unknown parameter is ignored.
+func Parse(url string) Route {
+	let noFragment = match strings.Cut(url, "#") {
+	case Some as h:
+		h.Value.Before
+	case None:
+		url
+	}
+	let (path, query) = match strings.Cut(noFragment, "?") {
+	case Some as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(noFragment, "")
+	}
+	if path != "/" && path != "" {
+		return NotFound{Path: path}
+	}
+	let fields = http.ParseQuery(query)
+	let q = first(fields, "q")
+	if q == "" {
+		return Landing
+	}
+	let tld = first(fields, "tld")
+	Search{
+		Query:         q,
+		TLD:           if inCatalog(tld) { tld } else { "" },
+		AvailableOnly: first(fields, "available") == "1",
+		Order:         orderOf(first(fields, "sort")),
+	}
+}
+
+// Print is the URL of r: only the parameters that are not their default,
+// in a fixed order, so Print(Parse(u)) is the canonical form of u.
+func Print(r Route) string {
+	match r {
+	case Landing:
+		"/"
+	case NotFound as n:
+		n.Path
+	case Search as s:
+		let mut url = "/?q=" + Escape(s.Query)
+		if s.TLD != "" {
+			url = url + "&tld=" + Escape(s.TLD)
+		}
+		if s.AvailableOnly {
+			url = url + "&available=1"
+		}
+		match s.Order {
+		case Relevance:
+		case _:
+			url = url + "&sort=" + orderName(s.Order)
+		}
+		url
+	}
+}
+
+// Escape is s in a query value: the unreserved bytes (RFC 3986: letters,
+// digits, -, ., _ and ~) as they are, every other byte as %XX.
+func Escape(s string) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let c = s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			out = out + s[i:i+1]
+		} else {
+			out = out + "%" + strings.ToUpper(hex.Encode(s[i:i+1]))
+		}
+	}
+	out
+}

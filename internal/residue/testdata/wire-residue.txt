@@ -446,6 +446,22 @@ examples/pipeline/README.md	holds for the generated client over the wire
 examples/pipeline/README.md	the wire sends two requests in the other order
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
+examples/fk-domains/domains/domainsrpc/client.ergo	*
+examples/fk-domains/domains/domainsrpc/server.ergo	*
+examples/fk-domains/domains/domainsrpc/wire.ergo	*
+examples/fk-domains/loopback/loopback.ergo	*
+examples/fk-domains/domains/listing.ergo	*
+examples/fk-domains/domains/registry.ergo	*
+examples/fk-domains/sample/sample.ergo	*
+examples/fk-domains/server/origin.ergo	*
+examples/fk-domains/server/recorded/wire.mjs	*
+examples/fk-domains/README.md	*
+examples/fk-domains/search/search.ergo	Some[string]{Value: domains.Wire(l)}
+examples/fk-domains/expected-skips	*
+examples/fk-domains/origin/README.md	*
+examples/fk-domains/origin/measure/README.md	*
+examples/fk-domains/origin/tests.txt	*
+internal/rpcgen/refined_test.go	*
 docs/spec/stdlib.md	a contract's laws run through the wire
 docs/spec/stdlib.md	`toml.Encode[T wire](v T) string fails toml.Unrepresentable` writes v as a
 docs/spec/stdlib.md	2. **Layers.** `Load[T wire](s Spec) T fails Unreadable | Malformed |

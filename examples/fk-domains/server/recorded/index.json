@@ -1,0 +1,206 @@
+{
+ "source": "foldkit/foldkit-domains 039c941ad42c9db46d1aa8014c770c9a841c75ad (MIT)",
+ "base": "http://127.0.0.1:5391",
+ "cases": [
+  {
+   "case": "01-top",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 199,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 409
+  },
+  {
+   "case": "02-first-page",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 200,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 6777
+  },
+  {
+   "case": "03-page-60",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 201,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 7323
+  },
+  {
+   "case": "04-last-page",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 202,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 2109
+  },
+  {
+   "case": "05-past-end",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 202,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 147
+  },
+  {
+   "case": "06-whole",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 201,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 67639
+  },
+  {
+   "case": "07-no-range",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 175,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 66081
+  },
+  {
+   "case": "08-taken",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 198,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 405
+  },
+  {
+   "case": "09-one-letter",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 193,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 495
+  },
+  {
+   "case": "10-empty-label",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 192,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 188
+  },
+  {
+   "case": "11-upper",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 200,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 189
+  },
+  {
+   "case": "12-dotted",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 200,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 189
+  },
+  {
+   "case": "13-negative",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 198,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 148
+  },
+  {
+   "case": "14-zero-limit",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 197,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 147
+  },
+  {
+   "case": "15-not-json-type",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 177,
+   "status": 415,
+   "contentType": null,
+   "cacheControl": "no-store",
+   "responseBytes": 0
+  },
+  {
+   "case": "16-too-large",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 1273,
+   "status": 413,
+   "contentType": null,
+   "cacheControl": "no-store",
+   "responseBytes": 0
+  },
+  {
+   "case": "17-malformed",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 18,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 142
+  },
+  {
+   "case": "18-get",
+   "path": "/rpc",
+   "method": "GET",
+   "requestBytes": 0,
+   "status": 404,
+   "contentType": null,
+   "cacheControl": null,
+   "responseBytes": 0
+  },
+  {
+   "case": "19-exactly-1024",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 1024,
+   "status": 200,
+   "contentType": "application/json",
+   "cacheControl": "no-store",
+   "responseBytes": 66083
+  },
+  {
+   "case": "20-exactly-1025",
+   "path": "/rpc",
+   "method": "POST",
+   "requestBytes": 1025,
+   "status": 413,
+   "contentType": null,
+   "cacheControl": "no-store",
+   "responseBytes": 0
+  }
+ ]
+}

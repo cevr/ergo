@@ -1,0 +1,75 @@
+// Package sample is the provider of domains.Registry with the original's
+// deterministic sample data (src/shared/demoDomains.ts and
+// src/server/search.ts at 039c941a): a fixed price per featured TLD,
+// 19.99 for every other, a one-year quote that is never premium, and
+// four labels whose .com and .dev are taken.
+
+import fk-domains/domains
+import json
+import slices
+
+// Sample is the sample registry. It holds nothing: every answer is a
+// function of the request.
+type Sample {}
+
+// NewSample is the sample registry.
+func NewSample() Sample { Sample }
+
+// prices are the original's demo prices, by TLD.
+let prices = Map[string, float64]{
+	"com":    12.0, "dev": 12.0, "app": 9.99, "io": 34.99, "ai": 80.0, "xyz": 2.99,
+	"org":    9.99, "me": 13.99, "net": 13.5, "tech": 7.99, "space": 1.99, "cloud": 7.99,
+	"studio": 21.99, "sh": 33.0, "design": 39.99, "co": 25.99, "site": 1.99, "online": 3.99,
+	"store":  4.99, "agency": 5.99, "world": 3.99, "run": 19.99, "page": 9.99, "tools": 24.99,
+}
+
+// otherPrice is the price of a TLD the table does not name.
+func otherPrice() float64 { 19.99 }
+
+// taken is whether label.tld is taken: the four labels under .com and .dev.
+func taken(label string, tld string) bool {
+	let known = label == "vercel" || label == "google" || label == "github" || label == "foldkit"
+	known && (tld == "com" || tld == "dev")
+}
+
+// listing is label under tld.
+func listing(label string, tld string) domains.Listing {
+	let name = label + "." + tld
+	if taken(label, tld) {
+		return domains.Unavailable{Name: name, TLD: tld}
+	}
+	let price = match prices.Get(tld) {
+	case Some as p:
+		p.Value
+	case None:
+		otherPrice()
+	}
+	domains.Available{Name: name, TLD: tld, Price: price, RenewalPrice: price, Years: 1, IsPremium: false}
+}
+
+// SearchDomains lists label under the catalog from offset, at most limit
+// listings; it builds only the listings it answers.
+func SearchDomains(s Sample, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
+	let from = match offset {
+	case json.Present[domains.Offset] as o:
+		int(o.Value)
+	case json.Absent:
+		0
+	}
+	let count = match limit {
+	case json.Present[domains.Limit] as n:
+		int(n.Value)
+	case json.Absent:
+		len(domains.Catalog)
+	}
+	let mut to = from + count
+	if to > len(domains.Catalog) {
+		to = len(domains.Catalog)
+	}
+	let text = domains.Wire(label)
+	let mut out = slices.WithCapacity[domains.Listing](to - from)
+	for t in domains.Catalog[from:to] {
+		out = out.Append(listing(text, t))
+	}
+	out
+}

@@ -1,0 +1,567 @@
+// The search machine's laws (plan §20.4) and the host they run on. Sim
+// is a host on a manual clock: it steps the machine, arms the debounce's
+// timer as the runner does (an Enter or an Emit opens an entry and arms
+// it; a Stay keeps it), keeps the fetches the machine told, and answers
+// them when a script or a drawn run says, in any order, also after a
+// cancel (an abort that lost the race). After each step it checks the
+// six invariants of models/domainsearch on the machine's own state and
+// on what it told:
+//
+//   - ShownBelongs: every shown listing is a name of the current label;
+//   - ShownMonotone: for one label and range, the shown data's version
+//     never goes back;
+//   - FreshBound: a range that changes shows data served within the
+//     freshness;
+//   - NoWastedRequest: no fetch is told inside the debounce of a key;
+//   - SettledShows: with nothing in flight and no failure, the window's
+//     ranges are shown and nothing waits;
+//   - OnePending: at most one fetch is in flight and wanted;
+//
+// and UrlFollowsState: the address bar parses to the state's route.
+
+import strings
+import time
+import fk-domains/domains
+import fk-domains/search/plan
+import fk-domains/search/route
+
+// Sim is the machine on a host: the state, the clock, the debounce's
+// deadline (Due, in ms), the fetches in flight (Flying) and those
+// cancelled but not answered (Orphans), every fetch told, the address
+// bar, the scrolls to the top, the server's data version, the time of
+// the last key, the best version shown per label and range, and the
+// invariants broken so far.
+type Sim {
+	S       Search,
+	Clock   time.Manual,
+	Due     Option[int],
+	Flying  []Key,
+	Orphans []Key,
+	Fetches []Key,
+	URL     string,
+	Tops    int,
+	Version int,
+	TypedAt int,
+	Best    Map[string, int],
+	Broken  []string,
+}
+
+// DebounceMs is the debounce the laws hold the machine to: the
+// original's 150 ms, written here apart from Debounce().
+let DebounceMs = 150
+
+// Open is the page of url on a manual clock at 0, over catalog, with a
+// viewport of rows rows.
+func Open(url string, catalog []string, rows int) Sim {
+	let c = time.NewManual(0)
+	let s = Begin(Opening{URL: url, Catalog: catalog, Viewport: rows * RowHeight()})
+	Sim{S: s, Clock: c, Due: arm(s, 0), Flying: []Key{}, Orphans: []Key{}, Fetches: []Key{}, URL: url, Tops: 0, Version: 0, TypedAt: -1000000, Best: Map[string, int]{}, Broken: []string{}}
+}
+
+// Small is the first 130 TLDs of the catalog: four ranges.
+func Small() []string { domains.Catalog[0:130] }
+
+func arm(s Search, now int) Option[int] {
+	match Timer(s) {
+	case Some[Timeout[Signal]] as t:
+		Some[int]{Value: now + time.Count(t.Value.In, 1ms)}
+	case None:
+		None
+	}
+}
+
+// Ms is the clock's time in milliseconds.
+func Ms(m Sim) int { time.Count(m.Clock.Now().Sub(time.Unix(0, 0)), 1ms) }
+
+// Feed steps the machine with sig at the clock's time.
+func Feed(m Sim, sig Signal) Sim {
+	let now = Ms(m)
+	let mut at = m
+	let d = with context { time.Clock: m.Clock } { Step(m.S, sig) }
+	// A key that the machine takes (it changes the query) starts a debounce.
+	let took = match d {
+	case Ignore, Reject:
+		false
+	case Enter[Search], Emit[Search, []Effect], Stay[Search], Done[[]Effect]:
+		true
+	}
+	match sig {
+	case Typed, Cleared:
+		if took {
+			at = Sim{..at, TypedAt: now}
+		}
+	case Navigated as n:
+		// A navigation is not a key: its query starts at once.
+		at = Sim{..at, URL: n.URL, TypedAt: if took { -1000000 } else { at.TypedAt }}
+	case Quiet, Loaded, Failed, Scrolled, Resized, Ordered, FilteredTLD, FilteredAvailable, Retry, Added, Removed:
+	}
+	match d {
+	case Enter[Search] as e:
+		check(Sim{..at, S: e.Next, Due: arm(e.Next, now)}, m.S, now)
+	case Emit[Search, []Effect] as em:
+		check(tell(Sim{..at, S: em.Next, Due: arm(em.Next, now)}, em.Output, now), m.S, now)
+	case Stay[Search] as st:
+		check(Sim{..at, S: st.Next}, m.S, now)
+	case Ignore, Reject, Done[[]Effect]:
+		check(at, m.S, now)
+	}
+}
+
+// tell does what the machine told the host.
+func tell(m Sim, effects []Effect, now int) Sim {
+	let mut at = m
+	for e in effects {
+		match e {
+		case Fetch as f:
+			at = Sim{..at, Flying: at.Flying.Append(f.Key), Fetches: at.Fetches.Append(f.Key)}
+			if now < at.TypedAt+DebounceMs {
+				at = broke(at, "NoWastedRequest")
+			}
+		case Cancel as c:
+			at = Sim{..at, Flying: drop(at.Flying, c.Key), Orphans: at.Orphans.Append(c.Key)}
+		case Replace as r:
+			at = Sim{..at, URL: r.URL}
+		case ScrollToTop:
+			at = Sim{..at, Tops: at.Tops + 1}
+		}
+	}
+	at
+}
+
+func drop(keys []Key, k Key) []Key {
+	let mut out = []Key{}
+	for x in keys {
+		if x != k {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func broke(m Sim, name string) Sim {
+	for b in m.Broken {
+		if b == name {
+			return m
+		}
+	}
+	Sim{..m, Broken: m.Broken.Append(name)}
+}
+
+// Holds is whether no invariant named in laws is broken.
+func Holds(m Sim, laws []string) bool {
+	for b in m.Broken {
+		for l in laws {
+			if b == l {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// check checks the invariants after a step from before at now.
+func check(m Sim, before Search, now int) Sim {
+	let s = m.S
+	let label = LabelOf(s.Phase)
+	let mut at = m
+	let mut best = m.Best
+	for k in 0..plan.Count(len(s.Catalog)) {
+		match s.Pages.Get(k) {
+		case None:
+		case Some[[]domains.Listing] as page:
+			if label == "" {
+				at = broke(at, "ShownBelongs")
+			}
+			for l in page.Value {
+				if !strings.HasPrefix(nameOf(l), label+".") {
+					at = broke(at, "ShownBelongs")
+				}
+			}
+			let v = versionOf(page.Value)
+			let key = "\(label)/\(k)"
+			match best.Get(key) {
+			case Some[int] as b:
+				if v >= 0 && v < b.Value {
+					at = broke(at, "ShownMonotone")
+				}
+			case None:
+			}
+			if v >= 0 {
+				match best.Get(key) {
+				case Some[int] as b:
+					if v > b.Value {
+						best[key] = v
+					}
+				case None:
+					best[key] = v
+				}
+			}
+			let changed = match before.Pages.Get(k) {
+			case None:
+				true
+			case Some[[]domains.Listing] as was:
+				sign(was.Value) != sign(page.Value)
+			}
+			if changed && now-servedOf(page.Value) >= Freshness() {
+				at = broke(at, "FreshBound")
+			}
+		}
+	}
+	at = Sim{..at, Best: best}
+	if len(at.Flying) > 1 {
+		at = broke(at, "OnePending")
+	}
+	match s.Phase {
+	case Showing:
+		if len(at.Flying) == 0 && !settled(s) {
+			at = broke(at, "SettledShows")
+		}
+	case Landing, Invalid, Debouncing:
+	}
+	if route.Parse(at.URL) != s.Route {
+		at = broke(at, "UrlFollowsState")
+	}
+	at
+}
+
+// settled is whether s, with nothing in flight, waits on nothing and
+// shows every range its window shows, or shows a failure to retry.
+func settled(s Search) bool {
+	match s.InFlight {
+	case Some:
+		return false
+	case None:
+	}
+	match s.Failed {
+	case Some:
+		// A failure waits for the user's retry, which its row offers.
+		return true
+	case None:
+	}
+	let st = Input(s)
+	match plan.Next(st).Next {
+	case Some:
+		return false
+	case None:
+	}
+	match s.Whole {
+	case plan.Loaded, plan.Failed:
+		return true
+	case plan.NotLoaded, plan.Loading:
+	}
+	for p in st.Wanted {
+		match s.Ranges[plan.IndexOf(p)] {
+		case plan.Loaded, plan.Failed:
+		case plan.NotLoaded, plan.Loading:
+			return false
+		}
+	}
+	true
+}
+
+func nameOf(l domains.Listing) string {
+	match l {
+	case domains.Available as a:
+		a.Name
+	case domains.Unavailable as u:
+		u.Name
+	}
+}
+
+// The test server writes its data version in Years and the time it
+// served in RenewalPrice (an available listing's).
+func versionOf(ls []domains.Listing) int {
+	for l in ls {
+		match l {
+		case domains.Available as a:
+			return a.Years
+		case domains.Unavailable:
+		}
+	}
+	-1
+}
+
+func servedOf(ls []domains.Listing) int {
+	for l in ls {
+		match l {
+		case domains.Available as a:
+			return int(a.RenewalPrice)
+		case domains.Unavailable:
+		}
+	}
+	1000000000000
+}
+
+func sign(ls []domains.Listing) string {
+	"\(len(ls)) \(versionOf(ls)) \(servedOf(ls)) \(if len(ls) > 0 { nameOf(ls[0]) } else { "" })"
+}
+
+// Serve is the test server's answer to k at version v and time now: a
+// listing per TLD of the range, every fifth taken, with a price that
+// depends on the position and the version.
+func Serve(catalog []string, k Key, v int, now int) []domains.Listing {
+	let mut out = []domains.Listing{}
+	for p in k.Offset..k.Offset+k.Limit {
+		if p >= len(catalog) {
+			continue
+		}
+		let tld = catalog[p]
+		let name = "\(k.Label).\(tld)"
+		if (p*7+len(k.Label))%5 == 0 {
+			out = out.Append(domains.Unavailable{Name: name, TLD: tld})
+		} else {
+			out = out.Append(domains.Available{Name: name, TLD: tld, Price: float64((p*37+v*11)%89 + 1), RenewalPrice: float64(now), Years: v + 1, IsPremium: false})
+		}
+	}
+	out
+}
+
+// Wait lets d milliseconds pass; the debounce fires at its deadline.
+func Wait(m Sim, d int) Sim {
+	let end = Ms(m) + d
+	let mut at = m
+	for _ in 0..4 {
+		match at.Due {
+		case Some[int] as due:
+			if due.Value <= end {
+				at.Clock.Advance(time.Times(1ms, due.Value-Ms(at)))
+				at = Feed(Sim{..at, Due: None}, Quiet)
+			}
+		case None:
+		}
+	}
+	if end > Ms(at) {
+		at.Clock.Advance(time.Times(1ms, end-Ms(at)))
+	}
+	at
+}
+
+// Answer answers the fetch i of the flying ones then the cancelled ones
+// (an index past them wraps), with the server's data or a failure.
+func Answer(m Sim, i int, ok bool) Sim {
+	let mut pool = m.Flying
+	for k in m.Orphans {
+		pool = pool.Append(k)
+	}
+	if len(pool) == 0 {
+		return m
+	}
+	let k = pool[((i%len(pool))+len(pool))%len(pool)]
+	let at = Sim{..m, Flying: drop(m.Flying, k), Orphans: drop(m.Orphans, k)}
+	if ok {
+		return Feed(at, Loaded{Key: k, Listings: Serve(m.S.Catalog, k, m.Version, Ms(m))})
+	}
+	Feed(at, Failed{Key: k})
+}
+
+// Settle lets the debounce pass and answers every fetch in flight until
+// none is left.
+func Settle(m Sim) Sim {
+	let mut at = Wait(m, DebounceMs)
+	for _ in 0..40 {
+		if len(at.Flying) > 0 {
+			at = Answer(at, 0, true)
+		}
+	}
+	at
+}
+
+// Type types text one key after another, gap milliseconds apart.
+func Type(m Sim, text string, gap int) Sim {
+	let mut at = m
+	for i in 1..len(text)+1 {
+		at = Wait(Feed(at, Typed{Text: text[0:i]}), gap)
+	}
+	at
+}
+
+// Show is m as text: the phase, the route, the loads, the fetches and
+// the invariants broken, for a law's report.
+func Show(m Sim) string {
+	let phase = match m.S.Phase {
+	case Landing:
+		"landing"
+	case Invalid as i:
+		"invalid \(i.Query)"
+	case Debouncing as d:
+		"debouncing \(d.Label)"
+	case Showing as s:
+		"showing \(s.Label)"
+	}
+	let mut ranges = ""
+	for l in m.S.Ranges {
+		ranges = ranges + loadText(l)
+	}
+	let inFlight = match m.S.InFlight {
+	case Some[Key] as k:
+		keyText(k.Value)
+	case None:
+		"-"
+	}
+	let failedKey = match m.S.Failed {
+	case Some[Key] as k:
+		keyText(k.Value)
+	case None:
+		"-"
+	}
+	"at \(Ms(m)) ms: \(phase), url \(m.URL), ranges \(ranges) whole \(loadText(m.S.Whole)), checked \(m.S.Checked), in flight \(inFlight), failed \(failedKey); fetched \(keysText(m.Fetches)); flying \(keysText(m.Flying)); cut \(keysText(m.Orphans)); broken \(strings.Join(m.Broken, ","))"
+}
+
+func loadText(l plan.Load) string {
+	match l {
+	case plan.NotLoaded:
+		"."
+	case plan.Loading:
+		"~"
+	case plan.Loaded:
+		"#"
+	case plan.Failed:
+		"x"
+	}
+}
+
+func keyText(k Key) string { "\(k.Label)/\(k.Offset)/\(k.Limit)@\(k.Gen)" }
+
+func keysText(ks []Key) string {
+	let mut out = []string{}
+	for k in ks {
+		out = out.Append(keyText(k))
+	}
+	strings.Join(out, " ")
+}
+
+func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+
+// Drawn runs a drawn script on the small catalog. Each op is one of six
+// phrases, so that a short script reaches the orders of events the model
+// explores: a key and a pause (none, inside or past the debounce); an
+// answer of any fetch, also a cut one; a failure of one; time passing
+// (inside or past the freshness), with a change of the server's data;
+// the window, the order or a filter; a retry or a navigation.
+func Drawn(ops []int) Sim {
+	let mut m = Open("/", Small(), 5)
+	let texts = []string{"acme", "beta", "acme.io", "", "b@d"}
+	let pauses = []int{0, 60, 200}
+	let times = []int{60, 200, 20000, Freshness() + 1000}
+	let urls = []string{"/?q=acme", "/", "/?q=beta&sort=price-asc", "/?q=acme&available=1"}
+	let tlds = []string{"", "com", "dev", Small()[100]}
+	for o in ops {
+		let op = if o < 0 { -(o / 2) } else { o }
+		let a = op / 6
+		let b = a / 8
+		let c = op % 6
+		if c == 0 {
+			m = Wait(Feed(m, Typed{Text: pick(texts, a)}), pick(pauses, b))
+		} else if c == 1 {
+			m = Answer(m, a, true)
+		} else if c == 2 {
+			m = Answer(m, a, false)
+		} else if c == 3 {
+			if b%3 == 0 {
+				m = Sim{..m, Version: m.Version + 1}
+			}
+			m = Wait(m, pick(times, a))
+		} else if c == 4 {
+			let w = a % 5
+			if w == 0 {
+				m = Feed(m, Scrolled{Top: (b % 140) * RowHeight()})
+			} else if w == 1 {
+				m = Feed(m, Ordered{Order: pick(route.Orders, b)})
+			} else if w == 2 {
+				m = Feed(m, FilteredTLD{TLD: pick(tlds, b)})
+			} else if w == 3 {
+				m = Feed(m, FilteredAvailable{On: b%2 == 1})
+			} else {
+				m = Feed(m, Resized{Viewport: (2 + b%8) * RowHeight()})
+			}
+		} else if a%2 == 0 {
+			m = Feed(m, Retry)
+		} else {
+			m = Feed(m, Navigated{URL: pick(urls, a)})
+		}
+	}
+	m
+}
+
+// SearchFollowsModel: over drawn scripts of keys, time, answers in any
+// order (also of cut fetches), data changes, scrolls, orders, filters,
+// retries and navigations, the machine keeps the six invariants of
+// models/domainsearch and the URL follows the state.
+law SearchFollowsModel(ops []int) {
+	// A refuted case prints the run's last state, after the drawn script
+	// and the replay command of the law's report.
+	let m = Drawn(ops)
+	if len(m.Broken) > 0 {
+		assert Show(m) == "the invariants hold"
+	}
+	true
+}
+
+// ReachesShowing: from every state a drawn script reaches, a new label
+// and the debounce reach Showing.
+law ReachesShowing(ops []int) {
+	let m = Drawn(ops)
+	let next = if Query(m.S.Route) == "zzz" { "zzy" } else { "zzz" }
+	let after = Wait(Feed(m, Typed{Text: next}), 200)
+	match after.S.Phase {
+	case Showing as s:
+		s.Label == next
+	case Landing, Invalid, Debouncing:
+		false
+	}
+}
+
+// BurstMakesOneSearch: keys inside the debounce start exactly the
+// requests of the last label: two, {0,4} and {4,56} (target P1).
+law BurstMakesOneSearch(keys int where 1 <= keys && keys <= 12, gap int where 0 <= gap && gap <= 149) {
+	let text = "foldkitfoldk"[0:keys]
+	let m = Settle(Type(Open("/", domains.Catalog, 15), text, gap))
+	len(m.Fetches) == 2 && m.Fetches[0].Label == text && m.Fetches[1].Label == text && Holds(m, []string{"NoWastedRequest"})
+}
+
+// SettledQueryMakesTwoRequests: a cold query asks for the top four, then
+// the rest of the first page, and shows them.
+law SettledQueryMakesTwoRequests(gap int where 150 <= gap && gap <= 60000) {
+	let m = Settle(Wait(Feed(Open("/", domains.Catalog, 15), Typed{Text: "acme"}), gap))
+	len(m.Fetches) == 2 && m.Fetches[0].Offset == 0 && m.Fetches[0].Limit == 4 && m.Fetches[1].Offset == 4 && m.Fetches[1].Limit == 56 && m.S.Checked == 60
+}
+
+// WarmQueryMakesNone: a query typed again within the freshness makes no
+// request and shows what it showed.
+law WarmQueryMakesNone(away int where 0 <= away && away <= 58000) {
+	let first = Settle(Type(Open("/", domains.Catalog, 15), "acme", 200))
+	let other = Settle(Wait(Feed(first, Typed{Text: "beta"}), away))
+	let back = Settle(Feed(other, Typed{Text: "acme"}))
+	len(back.Fetches) == len(other.Fetches) && back.S.Checked == 60 && len(back.Broken) == 0
+}
+
+// RetryLoadsOnlyTheFailedRange: with the top four loaded and the rest of
+// the first page failed, a retry asks for that range alone.
+law RetryLoadsOnlyTheFailedRange(later int where 0 <= later && later <= 100000) {
+	let top = Answer(Wait(Feed(Open("/", domains.Catalog, 15), Typed{Text: "acme"}), 150), 0, true)
+	let broken = Wait(Answer(top, 0, false), later)
+	let retried = Feed(broken, Retry)
+	len(retried.Fetches) == 3 && retried.Fetches[2].Offset == 4 && retried.Fetches[2].Limit == 56 && retried.S.Checked == 4
+}
+
+// UrlFollowsState: after any drawn script the address bar is the state's
+// route.
+law UrlFollowsState(ops []int) {
+	let m = Drawn(ops)
+	if !Holds(m, []string{"UrlFollowsState"}) {
+		assert Show(m) == "the URL follows the state"
+	}
+	true
+}
+
+// ScrollKeepsIndex: a scroll or a resize never builds the index again
+// (target P3): the builds a drawn script made, then any scrolls.
+law ScrollKeepsIndex(ops []int, tops []int) {
+	let m = Drawn(ops)
+	let mut at = m
+	for t in tops {
+		at = Feed(at, Scrolled{Top: (if t < 0 { -t } else { t }) % 100000})
+		at = Feed(at, Resized{Viewport: 240 + (if t < 0 { -t } else { t })%400})
+	}
+	at.S.IndexBuilds == m.S.IndexBuilds
+}

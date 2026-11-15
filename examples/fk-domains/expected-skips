@@ -1,0 +1,8 @@
+# ergo test cannot build the generated RPC Client of domains.Registry: a
+# Client needs a Conn to a served registry. Package loopback runs the same
+# laws through the wire, against the client of a sample registry served
+# in process.
+skip law domains.Registry.PageIsSliceOfWhole for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
+skip law domains.Registry.SameAnswerTwice for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
+skip law domains.Registry.FeaturedFirst for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
+skip law domains.Registry.AtMostLimit for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
