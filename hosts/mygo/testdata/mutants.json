@@ -443,6 +443,42 @@
       "killers": ["mygo:TestDrawGuiOnTheDesktop"]
     },
     {
+      "name": "GP4c-no-frames-asked",
+      "origin": "GP4c",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "d.w.Frames(animates)",
+      "to": "d.w.Frames(false)",
+      "rule": "a view that animates asks the window for its display's frames, and each frame is a tick of the session",
+      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP4c-frames-not-drawn",
+      "origin": "GP4c",
+      "file": "hosts/mygo/cmd/dash-gui/main.ergo",
+      "from": "\t\tlet _ = w.Render()\n",
+      "to": "",
+      "rule": "the headless window's display draws a frame for each frame the script moves",
+      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP4c-notes-repeated",
+      "origin": "GP4c",
+      "file": "hosts/mygo/cmd/dash-gui/main.ergo",
+      "from": "\t\tnotes.Set([]feed.Notice{})\n",
+      "to": "",
+      "rule": "each panel's note is printed once, after the frame that made it",
+      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP4c-control-resume-ignored",
+      "origin": "GP4c",
+      "file": "hosts/mygo/controls/dash-gui/main.go",
+      "from": "w.b.panels[i].mode = live",
+      "to": "w.b.panels[i].mode = paused",
+      "rule": "the control's pause button resumes a paused panel, as the Ergo view's does",
+      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+    },
+    {
       "name": "wasm-node-env-inherits-gomaxprocs",
       "origin": "LY P-ui queue (GP's browser-run finding)",
       "file": "hosts/mygo/examples_test.go",

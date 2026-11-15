@@ -26,6 +26,7 @@ replace github.com/egoist/mygo/drawing => ./drawing
 require (
 	ergo.local/prototype/examples/countergui v0.0.0
 	ergo.local/prototype/examples/editorgui v0.0.0
+	ergo.local/prototype/examples/dashgui v0.0.0
 	ergo.local/prototype/examples/drawgui v0.0.0
 	ergo.local/prototype/examples/starsgui v0.0.0
 	ergo.local/prototype/examples/todogui v0.0.0
@@ -40,3 +41,5 @@ replace ergo.local/prototype/examples/starsgui => ../../examples/stars-gui
 replace ergo.local/prototype/examples/editorgui => ../../examples/editor-gui
 
 replace ergo.local/prototype/examples/drawgui => ../../examples/draw-gui
+
+replace ergo.local/prototype/examples/dashgui => ../../examples/dash-gui

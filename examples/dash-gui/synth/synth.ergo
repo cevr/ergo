@@ -4,7 +4,7 @@
 // its queue's capacity now and then, and nothing at all for stretches of
 // a second and a half, so panels go stale and queues drop.
 
-import dash/feed
+import ergo.local/prototype/examples/dashgui/feed
 
 // Bank is the sensors of one seed.
 type Bank { Seed int }

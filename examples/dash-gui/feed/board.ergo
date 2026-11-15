@@ -1,6 +1,6 @@
 // The board: twelve panels, a source task for each, and the frame loop.
 
-import dash/panel
+import ergo.local/prototype/examples/dashgui/panel
 import queue
 import slices
 import tasks
