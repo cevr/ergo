@@ -30,7 +30,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Interface value**: A value of an interface type in a type position, such as a parameter `o Orders`. It holds a provider value. Calling its method runs that provider's method with the method's declared rows and charges no capability. A type is assignable to the interface by method-row compatibility ([types](docs/spec/types.md#interface-assignability)).
 
-**Provider**: A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
+**Provider**: A value bound to a capability by a `context`, whose type implements the capability's operation type: its `implements` clause names it, directly or through an include (EXC1). A provider may fail less than its capability, never more.
 
 **Value provider**: A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; a conversion of `P` to an operation-type value moves it into a provider cell. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
 
@@ -142,7 +142,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7).
 
-**Resource**: A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
+**Resource**: A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
 **Copy site**: A place where a generic body copies a value of its type parameter `T` (uses it after a hand-off, or hands off a lent `T`). The package records it; a call that binds `T` to a resource is refused there, and plain data is admitted. See [resources](docs/spec/resources.md) R44.
 
@@ -224,7 +224,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Predeclared name**: A name the language gives a meaning to with no import: a prelude declaration the compiler knows, or an operation name of a language protocol (`Close`, `Wire`). The readers of each are listed in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary).
 
-**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract.
+**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract. Each fact and its home are listed in [stdlib.md, The body contract](docs/spec/stdlib.md#the-body-contract).
 
 **Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 

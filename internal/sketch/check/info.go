@@ -8,6 +8,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The Info contract (check-v1 spec, "Interface to lower-v1"). The lowering
@@ -114,6 +115,18 @@ type Package struct {
 	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
 	// the package is checked; Std reads it.
 	std bool
+	// module is the module the package belongs to, as its loader names it
+	// ("" when it has none), and trusted reports that the root module
+	// vouches for the Go it binds (ergo.mod `trust`; docs/spec/interop.md,
+	// Trusted Go): its externs may bind the Ergo runtime under the body
+	// contract. The loader sets both through GoTrust before the check; the
+	// toolchain vouches for the packages it ships.
+	module  string
+	trusted bool
+	// goBodies are the bodies its externs bind in its module's own Go
+	// packages, by extern target (moduleDoor; docs/spec/interop.md,
+	// Trusted Go 3). Only the package's own check writes it.
+	goBodies map[string]v1.Body
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
@@ -140,6 +153,10 @@ type Package struct {
 // check-v1 stage E4). A program package never has it, whatever its path,
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
+
+// Trusted reports whether the root module vouches for the Go that p binds
+// (GoTrust): its externs may bind the Ergo runtime under the body contract.
+func (p *Package) Trusted() bool { return p != nil && p.trusted }
 
 // Host reports whether p is a Go package read from its binding (import go;
 // docs/spec/interop.md).
@@ -201,10 +218,6 @@ type Info struct {
 	// (types.md, Structs 3; owner q43). A field T names is not listed. An
 	// update with a base of exactly T has no entry: it copies the base.
 	Spreads map[*syntax.CompositeLit][]Spread
-	// Works is every Work literal of the work rule's forms (Run or Listen
-	// with their maps; work.go), which the lowering builds Start from. Nil
-	// when the package has none. Added by MU4 (additive).
-	Works map[*syntax.CompositeLit]*WorkLit
 	// ImplicitElems is, for a value of several elements that a multi-name
 	// let (`let a, b Store = pair()`) or a return of several results takes
 	// apart, each element's implicit conversion in order, a zero
@@ -619,6 +632,11 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 		for _, op := range it.Methods {
 			method, f := c.methodOf(targs[i], op.Name)
 			if method == nil {
+				if c.clauseUnmet(targs[i], it) {
+					// The clause failed at the type (S106 there); the
+					// program does not build, and the use stays silent.
+					return ""
+				}
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig

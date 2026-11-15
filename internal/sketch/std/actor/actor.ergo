@@ -19,12 +19,12 @@ import tasks
 // requested, and the answer of an Ask that was queued or in a step when
 // the actor ended. An ended actor is a normal end of the protocol, not a
 // stop of the caller.
-type Stopped {}
+extern go ergo.local/prototype/runtime/v1.ActorStopped type Stopped {}
 
 // Actor is a running machine with state S, signal E, step decision D and
 // step error row F (StartMachine gives D = Decision[S, O]). Its values are
 // copies of one handle: any task may Send, Ask, read State and Stop.
-type Actor[S, E, D, F] {
+extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	runtimeOnly(),
 	// Send admits e into the inbox, waiting while it is full, and returns
 	// once e is queued, before it is stepped. A sender's signals are
@@ -238,7 +238,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // the actor's first entry binds each one its first state holds, and its
 // work fills them with new children. Every other host recover made is
 // closed when StartDurable returns, so a journal never keeps a live child.
-func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func StartDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		StartMachine(durable(m, initial, save), capacity, sink)
 	})
@@ -258,7 +258,7 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // A failure of recover at the start fails SuperviseDurable; at a restart
 // it is a defect of the new incarnation (ActorFreshDefect), which the
 // budget counts like any other.
-func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
@@ -321,9 +321,11 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // identity: two children of one machine are two children. A child's
 // failure ends only the child (ExitOf reads it); a child's defect ends the
 // parent. send names the entry's signal type, so toParent gives the
-// parent's signals; the checker accepts a Child only with the send of the
-// Listen work that encloses the call (S108 elsewhere).
-func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+// parent's signals. It is an entry func: the send the runner gave the
+// entry's work (machines.Work's Start), or one a caller passed on to a
+// parameter written entry; no other value is one (types.md, Function
+// values).
+func Child[S, E, O, F, R, W, P](send entry func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
 }
 
@@ -337,7 +339,7 @@ func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], cap
 // waited, or ended, so a reader that sees the entry finds each host filled
 // unless the work waited first.
 // law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model models/host.
-type Host[A] {
+extern go ergo.local/prototype/runtime/v1.Host type Host[A] {
 	runtimeOnly(),
 	// Get is the child once the entry's work filled the host, waiting
 	// while it is empty; it fails Stopped once the entry ended, also after
@@ -364,7 +366,7 @@ extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
 // work owns and that is empty. Any other host is a defect, with no child
 // started: a host of an ended entry (a state that carried it into a new
 // entry), a filled host, or one that no entry owns.
-func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func ChildIn[S, E, O, F, R, W, P](send entry func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(host, m, capacity, toParent)
 }
 

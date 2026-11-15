@@ -44,6 +44,8 @@ internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, policy tas
 internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, fresh escaping func() S fails G needs R, limit int)
 internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func
 internal/sketch/std/rpc/rpc.ergo	fails Failed needs R, emit func(line string)
+internal/sketch/std/machines/machines.ergo	run escaping func() T fails F needs R, onSuccess escaping func(t T) E needs R, onFailure
+internal/sketch/std/machines/machines.ergo	run func() T fails F needs R, onSuccess func(t T) E needs R)
 internal/sketch/std/actor/actor.ergo	recover func() Option[S] fails G needs R, initial S)
 internal/sketch/std/actor/actor.ergo	recover func() S fails G needs R, start func(s S) A needs Q)
 internal/sketch/std/journal/journal.ergo	step func(s S, e E) Decision[S, O] fails F needs R, s S

@@ -61,13 +61,13 @@ type pairKind struct {
 }
 
 const pairDecls = `type Fault { msg string }
-type DInt int
-type DS []int
+type DInt int implements Store, Gen[int]
+type DS []int implements Store, Gen[int]
 type GS[T] []T
 type DMap Map[string, int]
-type Mem { N int }
+type Mem { N int } implements Store, Gen[int]
 type Other { C int }
-type DMem Mem
+type DMem Mem implements Store, Gen[int]
 type Pair[A, B] { First A, Second B }
 type DPair Pair[int, int]
 type Store { Get() int }
@@ -169,7 +169,8 @@ func pairKinds() []pairKind {
 
 // admits is the model of the checker's assignability (types.md,
 // Assignability) over the grid: clause 1 identity, clause 2 one underlying
-// type with an unnamed side, clause 3 an operation type from a provider,
+// type with an unnamed side, clause 3 an operation type from a provider
+// that declares it (EXC1; no operation type of the grid includes another),
 // clause 4 a variant into its union, clause 5 subset rows (the error row
 // and the needs row) on otherwise identical function shapes with at least
 // one unnamed side. The row bits are sets from the source declarations,
@@ -183,7 +184,7 @@ func admits(s, t pairKind) bool {
 	case s.under == t.under && (!s.named || !t.named):
 		return true
 	case t.ops:
-		return s.impl
+		return s.impl && !s.ops
 	case t.name == "U":
 		return s.member
 	case t.name == "Opt":

@@ -1,5 +1,7 @@
 package check
 
+import "slices"
+
 // Value-argument type inference by unification, after go/types unify.go
 // (round-5 M1, M3). Unification walks a parameter type p, which mentions
 // the callee's type parameters, against an argument type a and binds the
@@ -255,8 +257,14 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 			}
 			return true
 		case xi != nil:
+			if d := in.declaredInstance(x, y); d != nil {
+				return in.nify(x, d, mode, depth)
+			}
 			return in.implements(xi, y, depth)
 		case yi != nil:
+			if d := in.declaredInstance(y, x); d != nil {
+				return in.nify(d, y, mode, depth)
+			}
 			return in.implements(yi, x, depth)
 		}
 	}
@@ -332,6 +340,18 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		return true
 	case *Union:
 		yu, ok := y.(*Union)
+		if x.Row != nil && slices.ContainsFunc(x.Row.Elems(), func(e Type) bool { tp, ok := e.(*TypeParam); return ok && in.set[tp] }) {
+			// The value type of a row that holds a row parameter (q47:
+			// `bad func(f F) E`): the argument's row binds it, as a row
+			// after fails does. An error type is the row of itself, and
+			// a row value its row; the instance is assigned afterwards.
+			yrow := newRow().with(in.c.types, y)
+			if ok && yu.Row != nil {
+				yrow = yu.Row
+			}
+			in.unifyRow(x.Row, yrow)
+			return true
+		}
 		if !ok || len(yu.Variants) != len(x.Variants) {
 			return false
 		}

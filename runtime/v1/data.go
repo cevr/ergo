@@ -25,6 +25,8 @@ import "slices"
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+//
+//ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
 // ArenaValue is the physical storage of arena's private stored[T]. It is
@@ -40,6 +42,7 @@ type ArenaValue[T any] struct{ Value T }
 // that could bypass Ergo's initialization or construction authority.
 //
 //ergo:pure
+//ergo:wait none
 func ArenaTake[T any](s *ArenaValue[T]) T {
 	v := s.Value
 	var zero T
@@ -100,6 +103,7 @@ func Put[K comparable, V any](m map[K]V, k K, v V) map[K]V {
 // Index validation precedes allocation and every write.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesTake[T any](xs []T, i int) (T, []T) {
 	value := xs[i]
 	xs = slices.Clone(xs)
@@ -113,6 +117,7 @@ func SlicesTake[T any](xs []T, i int) (T, []T) {
 // wraps value and found in the program's Option and returns it beside m.
 //
 //ergo:pure
+//ergo:wait none
 func MapTake[K comparable, V any](m map[K]V, k K) (V, bool, map[K]V) {
 	value, found := m[k]
 	rest := make(map[K]V, len(m))

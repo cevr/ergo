@@ -16,7 +16,7 @@ import (
 // next checkpoint. runtime/v1 holds the one mask and cause boundary
 // (release in task.go). Each lowered release reaches it through one
 // binding of runtimeBindings whose release route is not notRelease: those
-// bindings are the release catalog, and runtimeCall is their one emitter.
+// bindings are the release catalog (derived from the bodies' //ergo:release marks, bodycontract.go), and runtimeCall is their one emitter.
 // TestRuntime199MaskProperty derives its release axis from the catalog;
 // the owner scan fails a route that masks or releases on its own.
 type releaseRoute uint8
@@ -331,7 +331,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 	if runtimeBindings[name].release != callerRelease {
 		ice(site, "the binding %s is not the caller release route", name)
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the release route %s has no runtime/v1 body: %v", name, err)
 	}
@@ -375,7 +375,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 
 // ownBinding is the v1 body of an ownership binding.
 func (fc *funcCtx) ownBinding(name string, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the ownership binding %s has no runtime/v1 body: %v", name, err)
 	}
@@ -507,16 +507,26 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 		}
 	}
 	if d.Drain != nil {
-		// A std queue of resources (Q7, R13): Drain ends admission and
+		// An operation type that keeps values (Q7, R13; STD-NOPRIV NP3c):
+		// the drain of the prelude's Keeping it includes (check.DrainOp)
 		// gives the values left, oldest first; they are released last
-		// entered first.
+		// entered first. A queue's drain also ends admission. The value of
+		// an operation type that includes Keeping and is no runtime type
+		// holds one that is, and the drain is its operation call.
 		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
-		n, _ := d.Type.(*check.Named)
-		if n == nil {
-			ice(g.site, "a drain of %s, which is no named operation type", d.Type)
+		op := check.DrainOp(d.Type)
+		if op == nil {
+			ice(g.site, "a drain of %s, which declares no drain operation", d.Type)
 		}
-		name := n.Obj.Name + ".Drain"
-		drain := g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		var drain string
+		if n, ok := d.Type.(*check.Named); ok && g.fc.l.runtimeType(n, g.site) != "" {
+			// A runtime-backed type: its operations are the Go methods of
+			// the runtime's type, whose Go names are exported.
+			name := n.Obj.Name + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
+			drain = g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		} else {
+			drain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)
+		}
 		b.WriteString(xs + " := " + drain + "; for " + i + " := len(" + xs + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + xs + "[" + i + "]; " + g.release(d.Drain, e) + "}; ")
 	}
 	if len(d.Variants) > 0 {
@@ -851,8 +861,8 @@ func (fc *funcCtx) partsFrom(list []syntax.Expr) int {
 	return len(list)
 }
 
-// holdTaken finds the owned locals that x, a call of a bodiless std
-// operation that takes them (queue Push, D-C), hands off: their entries
+// holdTaken finds the owned locals that x, a call of a runtime Go body
+// that takes them (queue Push, D-C; check's holdsTaken), hands off: their entries
 // stay on the frame until the call returns (handoff skips them), so a
 // Push that fails releases its value and a stopped one leaves it to the
 // frame's End (Q7, plan 1.4). It returns their Go entries.
@@ -862,7 +872,7 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
 		takes = c.Op.Sig.Takes
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != "":
 		takes = c.Func.Sig.Takes
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
@@ -892,14 +902,15 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	return held
 }
 
-// stdOp reports a call of a std operation type's operation, whose body is
-// runtime/v1's.
+// stdOp reports a call of an operation whose body is a runtime/v1 method
+// (check.OpBodyOf: the type's package binds the runtime, and the runtime
+// has the method), for a type of any package.
 func (fc *funcCtx) stdOp(c *check.Call) bool {
-	if c.Recv == nil {
+	if c.Recv == nil || c.Op == nil {
 		return false
 	}
 	n, ok := fc.typeOf(c.Recv).(*check.Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Std()
+	return ok && n.Obj != nil && check.OpBodyOf(n, c.Op.Name).Runtime != ""
 }
 
 // settleTaken writes the call text and settles the held entries: on

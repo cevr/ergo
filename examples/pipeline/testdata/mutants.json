@@ -92,8 +92,8 @@
     {
       "name": "px1-offline-passes", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "OnFailure: func(u Offline) Signal { Ran{OK: false} }",
-      "to": "OnFailure: func(u Offline) Signal { Ran{OK: true} }",
+      "from": "func(u Offline) Signal { Ran{OK: false} })",
+      "to": "func(u Offline) Signal { Ran{OK: true} })",
       "rule": "An offline runner is a failed try: SceneAgreesWithStory.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },

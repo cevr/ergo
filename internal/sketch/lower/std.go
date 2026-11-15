@@ -20,95 +20,37 @@ import (
 // queue.Closed is Closed, so a lowered catch matches the runtime's failure
 // and a returned Task can Move.
 
-// stdRecord is the lowering's lookup in the binding table of std records:
-// v1.StdRecord. It is a variable only so that a test can bind fixture
-// records through rows whose Go names differ from the records' names
-// (TestStdRecordsBindTheRowsGoName); nothing else assigns it.
-var stdRecord = v1.StdRecord
-
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
-// std type n lowers to, or "" when n is lowered as a declaration of the
-// program (the types of the program's own packages, the prelude's other
-// types, and a std record with no row in the binding table, such as
-// strings.Halves). A std record with a row is the runtime struct the row
-// names, keyed by the record's package and name (v1.StdRecord), never by
-// its name alone; a runtime-backed std operation type is a
-// pointer to the runtime's type of the same name, whose methods are its
-// operations, and an open one is a declaration of the program.
+// type n lowers to, or "" when n is lowered as a declaration of the
+// program. A type whose declaration names a Go type of the runtime
+// (`extern go …/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
+// The body contract; check.GoTypeOf) is that Go type: a record is the
+// struct, and a sealed operation type is a pointer to the type, whose
+// methods are its operations. The checker holds the declaration to the Go
+// type's shape (check/body.go runtimeTypeRefusal), so the lowering reads
+// the declaration and never a std name. Every other type of every package
+// is a declaration of the program, apart from os.Code below.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
 		return l.rt() + ".GoError"
 	}
-	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
-		return "" // a user package's type is a declaration of the program
-	}
-	if obj.Pkg.Path == "prelude" {
-		if obj.Name == "Task" {
-			return "*" + l.rt() + ".Task"
-		}
+	if obj.Pkg == nil || obj.Decl == nil {
 		return ""
+	}
+	if goName, ok := check.GoTypeOf(n); ok {
+		if _, isOps := obj.Decl.Spec.(*syntax.InterfaceType); isOps {
+			return "*" + l.rt() + "." + goName
+		}
+		return l.rt() + "." + goName
 	}
 	// Code is checked as an ordinary refinement. At the runtime record
 	// boundary its representation is the existing Go int field of Exit.
-	if obj.Pkg.Path == "os" && obj.Name == "Code" {
+	if obj.Pkg.Std() && obj.Pkg.Path == "os" && obj.Name == "Code" {
 		return "int"
 	}
-	switch spec := obj.Decl.Spec.(type) {
-	case *syntax.StructType:
-		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
-		if !ok {
-			return ""
-		}
-		origin := n
-		if n.Orig != nil {
-			origin = n.Orig
-		}
-		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
-			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
-		}
-		return l.rt() + "." + goName
-	case *syntax.InterfaceType:
-		if len(spec.Union) == 0 {
-			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
-				return "" // an open std protocol, such as os.Process: a program value implements it
-			}
-			if !check.Sealed(n) {
-				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
-			}
-			return "*" + l.rt() + "." + obj.Name
-		}
-		// A closed union of std records, such as flag.Failure (std-align
-		// S1d) or time.Layout (S2b): a declaration of the program, as the
-		// prelude's Option is. Its variants are std records, each the
-		// runtime's struct or a declaration of the program by the rule
-		// above.
-		return ""
-	case *syntax.MachineType:
-		// A std machine declaration, such as prompt.Picker (CU3): a
-		// declaration of the program, as a user package's machine is. Std
-		// is ordinary code (std.go), so its machines lower by the same
-		// rule.
-		return ""
-	case *syntax.Ident, *syntax.SelectorExpr, *syntax.ArrayType, *syntax.MapType:
-		return "" // an ordinary defined type, including refinements
-	}
-	// Every other std type is a record, a union or an operation type.
-	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
-}
-
-// runtimeProtocols selects Go representations, never source admission.
-// A sealed type implemented in Ergo (http.Streaming) is not necessarily
-// a runtime struct. Every type here declares its own private operation.
-var runtimeProtocols = map[string]bool{
-	"atomic.Int64": true, "atomic.Bool": true, "embed.FS": true,
-	"queue.Queue": true, "sync.Ref": true, "json.Cursor": true,
-	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
-	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
-	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
-	"http.BodyFile": true, "fs.HostRoot": true,
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.
@@ -117,25 +59,32 @@ func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 	return ok && l.runtimeType(n, site) != ""
 }
 
-// stdBody is the runtime/v1 body of the std extern function f, or false
-// when f's Go body is not a runtime/v1 function or f is an intrinsic, whose
-// body the lowering writes (lowerer.intrinsic). A std extern that binds a
-// runtime/v1 body BodyOf cannot read (missing, or a pure mark the reviewed
-// rules refuse) is an internal compiler error with BodyOf's error: std and
-// runtime/v1 ship with the compiler, so no user program can cause it
-// (TestStdExternsHaveBodies holds every std extern to a body).
+// stdBody is the runtime/v1 body of the extern function f, of any package,
+// or false when f's Go body is not a runtime/v1 function or f is an
+// intrinsic, whose body the lowering writes (lowerer.intrinsic). The key is
+// the target alone (STD-NOPRIV NP4e): the checker admits a runtime/v1
+// target only in a package the root trusts and only when BodyOf reads it
+// (check/extern.go runtimeDoor), so a body BodyOf cannot read is an
+// internal compiler error with BodyOf's error (TestStdExternsHaveBodies
+// holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
-	if fd.extern == "" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {
+	if fd.extern == "" || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
+	}
+	if body, ok := check.ModuleBody(fd.fn); ok {
+		// A body of the module's own Go package (check/extern.go
+		// moduleDoor): its name is the full target, which runtimeCall
+		// qualifies by its package.
+		return body, fd.extern, true
 	}
 	i := strings.LastIndex(fd.extern, ".")
 	if i < 0 || fd.extern[:i] != runtimeImport {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
-		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
+		ice(fd.fn.Decl, "the function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
 	return body, name, true
 }
@@ -277,7 +226,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	}
 	if s := fc.refSiteOf(x); s != nil {
 		// A literal that owns the value the body hands it (refown.go).
-		owned, err := v1.BodyOf(s.form.name)
+		owned, err := runtimeBody(s.form.name)
 		if err != nil {
 			ice(x, "%s: %v", s.form.name, err)
 		}
@@ -307,7 +256,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 		name = "TasksGoOwned"
 		var err error
-		body, err = v1.BodyOf(name)
+		body, err = runtimeBody(name)
 		if err != nil {
 			ice(x, "%s: %v", name, err)
 		}
@@ -328,7 +277,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 // opBody is the runtime/v1 method of the operation name of the std type n,
 // which takes params Ergo arguments.
 func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(n.Obj.Name + "." + name)
+	body, err := runtimeBody(n.Obj.Name + "." + name)
 	if err != nil {
 		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}

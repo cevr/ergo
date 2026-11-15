@@ -268,6 +268,8 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 
 // stdCopyBaseline are the packages testdata/std-copy.txt held as differs
 // when the rule landed. A package may leave; none may join.
+// ui joined with the rule: it reached std on another branch while the rule
+// landed, and the two met in the merge of wf10/ia2b into wf10/domain.
 var stdCopyBaseline = []string{
 	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
 	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
@@ -275,7 +277,7 @@ var stdCopyBaseline = []string{
 	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
 	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",
 	"sync", "task", "tasks", "term", "testing", "time", "timeout", "toml",
-	"trace", "utf8",
+	"trace", "ui", "utf8",
 }
 
 // copySource is one std file of a package under test.
@@ -350,7 +352,7 @@ func checkCopy(t *testing.T, path string) copyPair {
 			under = p
 		}
 	}
-	pair.copied, pair.diags = check.CheckTest("copy/"+path, files, nil, under)
+	pair.copied, pair.diags = check.CheckTest("copy/"+path, files, copyTrust{}, under)
 	pair.unit = lower.Unit{Package: pair.copied, Files: files, Sources: sources}
 	return pair
 }
@@ -509,6 +511,14 @@ func copyMain(path string, refs []string) string {
 	b.WriteString("}\n")
 	return b.String()
 }
+
+// copyTrust is the importer of a copy: std, and the root module's trust
+// line for the copy's module, `trust go copy` (docs/spec/interop.md, Trusted
+// Go), so the copy binds the runtime as std does (NP4e).
+type copyTrust struct{}
+
+func (copyTrust) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
+func (copyTrust) TrustsGo() (string, bool)                   { return "copy", true }
 
 // copyImporter serves the package under test (std or its copy) and std.
 type copyImporter map[string]*check.Package
@@ -730,6 +740,24 @@ func callTableDecl(d ast.Decl, text string) bool {
 		}
 	}
 	return false
+}
+
+// TestQueueCopyKeepsItsValues is NP3c's acceptance (STD-NOPRIV plan §1.1):
+// std queue copied into a user package checks with no "has no release"
+// diagnostic. Queue[T] declares the operation that gives back what it
+// keeps (drain), and the release rule reads that declaration, not the
+// package. Before, only a std type whose runtime body had a Drain had a
+// release, so the copy's Queue of a type parameter had none. The copy's
+// other diagnostics (the extern door, NP4e) are not this rule's. Mutant
+// keeps-drain-read-by-name (drainMethod accepts only std's) brings the
+// diagnostic back.
+func TestQueueCopyKeepsItsValues(t *testing.T) {
+	pair := checkCopy(t, "queue")
+	for _, d := range pair.diags {
+		if strings.Contains(d.Message, "has no release") {
+			t.Errorf("the queue copy: %s %s", d.Code, d.Message)
+		}
+	}
 }
 
 func mapsKeys[V any](m map[string]V) func(func(string) bool) {

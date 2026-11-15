@@ -15,7 +15,10 @@ import (
 // TestResourceTypeModel (#197 L8 A1) is a seeded property of mode
 // crossing (resource.go; plan 1.2): it generates declaration graphs (records,
 // empty records, defined basic types and unions, each with a Close of one
-// shape or none; fields of slices, Maps, tuples, Options, a generic record,
+// shape or none, crossed with how it declares the release: Closer in its
+// clause, Rel (which includes Closer), through a field that holds one, or
+// not at all (EXC1 Property 3: a resource is decided by the declarations
+// alone, never by the name Close); fields of slices, Maps, tuples, Options, a generic record,
 // an operation type that takes, one that does not, and one with a Close,
 // recursive through slices and Maps) and uses of them (a map key, a
 // conversion to an operation type with no Close, a zero value, a takes
@@ -31,7 +34,10 @@ import (
 // resource map key admitted; a takes operation of an operation type
 // ignored, or counted on a crossing instance; a conversion to a crossing
 // operation type admitted; takes on a crossing parameter admitted silently;
-// a resource's zero value admitted.
+// a resource's zero value admitted. EXC1: the name Close still makes a
+// resource; an implementation through an including operation type makes
+// none; a clause naming Closer over a Close with a result, a failure row
+// or a parameter is accepted.
 func TestResourceTypeModel(t *testing.T) {
 	seeds := make([]uint64, 0, 300)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -103,10 +109,20 @@ const (
 	rcParam
 )
 
+// How a generated declaration declares the release (resources R1: a type
+// that implements Closer is a resource; EXC1): not at all, Closer in its
+// clause, or Rel, an operation type that includes Closer.
+const (
+	rmNone = iota
+	rmDirect
+	rmInclude
+)
+
 type rdecl struct {
 	kind   int
 	fields []*rexpr // a union's variant A holds fields[0] (if any)
 	close  int
+	mode   int
 }
 
 type resGen struct {
@@ -200,7 +216,9 @@ func (g *resGen) declHolds() []bool {
 			if decl[i] {
 				continue
 			}
-			h := d.close == rcRight
+			// Declared, not named: a Close of any shape on a type that
+			// declares nothing makes no resource.
+			h := d.mode != rmNone
 			for _, f := range d.fields {
 				h = h || g.holds(f, decl, false)
 			}
@@ -261,7 +279,7 @@ func (g *resGen) program() (string, []string) {
 	n := 2 + g.r.IntN(5)
 	g.decls = make([]rdecl, n)
 	for i := range n {
-		d := rdecl{kind: g.r.IntN(4), close: g.r.IntN(5)}
+		d := rdecl{kind: g.r.IntN(4), close: g.r.IntN(5), mode: g.r.IntN(3)}
 		switch d.kind {
 		case rdRecord:
 			for range 1 + g.r.IntN(3) {
@@ -284,25 +302,40 @@ func (g *resGen) program() (string, []string) {
 		}
 	}
 	g.add("type Bad {}")
-	g.add("type Res { Close() }")
+	g.add("type Res { ..Closer }")
+	g.add("type Rel { ..Closer }")
 	g.add("type Named { Name() string }")
 	g.add("type G[T] { v T, n int }")
 	g.add("type Box[T] { Put(v T) takes v }")
 	g.add("type View[T] { Get() T }")
 	for i, d := range g.decls {
+		// Every type declares Named (cv below); the release by its mode.
+		clause, marker := " implements Named", ""
+		switch d.mode {
+		case rmDirect:
+			clause, marker = clause+", Closer", "Closer"
+		case rmInclude:
+			clause, marker = clause+", Rel", "Rel"
+		}
+		var ln int
 		switch d.kind {
 		case rdRecord:
 			var fs []string
 			for j, f := range d.fields {
 				fs = append(fs, fmt.Sprintf("f%d %s", j, f))
 			}
-			g.add("type T%d { %s }", i, strings.Join(fs, ", "))
+			ln = g.add("type T%d { %s }%s", i, strings.Join(fs, ", "), clause)
 		case rdEmpty:
-			g.add("type T%d {}", i)
+			ln = g.add("type T%d {}%s", i, clause)
 		case rdBasic:
-			g.add("type T%d int", i)
+			ln = g.add("type T%d int%s", i, clause)
 		case rdUnion:
-			g.add("type T%d = T%dA{v %s} | T%dB{}", i, i, d.fields[0], i)
+			ln = g.add("type T%d = T%dA{v %s} | T%dB{}%s", i, i, d.fields[0], i, clause)
+		}
+		if marker != "" && d.close != rcRight {
+			// The clause names the release, and no Close of the
+			// contract's shape meets it: S106 at the clause (R1, R2).
+			g.at(ln, ", "+marker, 1, 2, "S106")
 		}
 		switch d.close {
 		case rcRight:
@@ -310,8 +343,7 @@ func (g *resGen) program() (string, []string) {
 		case rcResult:
 			g.add("func Close(x T%d) int { 0 }", i)
 		case rcFails:
-			ln := g.add("func Close(x T%d) fails Bad {}", i)
-			g.at(ln, "Close", 1, 0, "S108") // R2
+			g.add("func Close(x T%d) fails Bad {}", i)
 		case rcParam:
 			g.add("func Close(x T%d, n int) {}", i)
 		}
@@ -328,7 +360,7 @@ func (g *resGen) program() (string, []string) {
 		if d.kind == rdBasic || d.kind == rdEmpty {
 			g.add("func dz%d() T%d {", i, i)
 			ln := g.add("\tlet z T%d", i)
-			if d.close == rcRight {
+			if d.mode != rmNone {
 				g.at(ln, "z", 1, 0, "S108")
 			}
 			g.add("\tz")

@@ -568,6 +568,16 @@ func main() {
 	use(Mine)
 }
 `,
+	"prelude.Keeping": `type Mine {}
+
+func drain(_ Mine) []int { []int{} }
+
+func use(_ Keeping[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Console": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
@@ -821,6 +831,69 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ui (merged with ia2b): open; a program or a host module
+	// provides each (ui.MemoryClipboard, ui.Monospace, the hosts' Host).
+	"ui.Clipboard": `import ui
+
+type Mine {} implements ui.Clipboard
+
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+
+func use(c ui.Clipboard) { _ = c.Read() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Measure": `import ui
+
+type Mine {} implements ui.Measure
+
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { 0.0 }
+
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "x", Size: 1.0}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Host": `import ui
+
+type Mine {} implements ui.Host[int]
+
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+
+func use(h ui.Host[int]) { h.Frames(false) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// exec.Spawner (IA2b): open, as no std extern's result names it;
+	// exec.Processes is the std's memory provider of it.
+	"exec.Spawner": `import exec
+
+type Mine {} implements exec.Spawner
+
+func Spawn(_ Mine, c exec.Command, s exec.Streams) exec.Detached fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Detached{Pid: 1, Start: 1, Name: c.Name}
+}
+
+func Alive(_ Mine, d exec.Detached) bool { false }
+
+func Kill(_ Mine, d exec.Detached, grace duration) {}
+
+func use(s exec.Spawner) { _ = s.Alive(exec.Detached{Pid: 1, Start: 1, Name: "x"}) }
+
+func main() {
+	use(Mine)
+}
+`,
 	// exec.Running (CU4): the Script's and the Host's Start externs
 	// return it, so it is sealed.
 	"exec.Running": `import exec
@@ -981,6 +1054,7 @@ func main() {
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.Keeping": "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
@@ -1008,6 +1082,10 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
+	"exec.Spawner":      true,
+	"ui.Clipboard":      true,
+	"ui.Measure":        true,
+	"ui.Host":           true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
 	"http.Streaming":    true,
@@ -1219,7 +1297,7 @@ func main() {
 // withForgedSeal attempts to spoof the private operation by spelling it
 // in the importing package too. Its package is part of its identity.
 func withForgedSeal(src string) string {
-	// After the whole line: an `implements` clause (EXC1) follows the body.
+	// After the declaration's whole line: it may end in an implements clause.
 	if i := strings.Index(src, "type Mine {}"); i >= 0 {
 		end := i + strings.IndexByte(src[i:]+"\n", '\n')
 		src = src[:end] + "\nfunc runtimeOnly(_ Mine) {}" + src[end:]
@@ -1274,6 +1352,40 @@ func main() needs Ambient {
 	use(FakeEnv{Argv: []string{}})
 	let p os.Process = os.NewHost()
 	use(p)
+}
+`,
+		// IA2 (STD-NOPRIV): a module's stateful fake implements
+		// exec.Runner, its Start giving exec.Ended's Running. Mutant
+		// exec-ended-unexported (std exec has no Ended) refuses it.
+		"exec-runner": `import exec
+
+type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}
+}
+
+func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Ended(s, try f.Run(c))
+}
+
+func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
+
+func main() {
+	with context { exec.Runner: Fake{Ran: Map[string, int]{}} } { run() }
+}
+`,
+		// NP3c: Keeping is the release's contract; a queue implements it
+		// and still never converts to it (its drain is the runtime's).
+		// Mutant keeps-converts admits it.
+		"keeps-value": `import queue
+
+func use(k Keeping[int]) {}
+
+func main() {
+	let q = queue.New[int](1)
+	use(q) // want S108
+	q.End()
 }
 `,
 		"queue-param": queueMine + `

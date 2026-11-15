@@ -420,9 +420,6 @@ func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
 // from a record of another type, or a slice, array or Map literal. A field
 // the literal leaves out takes its default value.
 func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) {
-	if fr.info.Works[x] != nil {
-		return nil, fr.unsupported(x, "a Work literal")
-	}
 	t := fr.rtypeOf(x)
 	if check.RefinementOf(t.t) != nil {
 		return nil, fr.unsupported(x, "a literal of the refined type %s, whose where runs at the literal", t.t)

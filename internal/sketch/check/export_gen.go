@@ -5,6 +5,7 @@ package check
 
 import (
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/runtime/v1"
 	"go/constant"
 	"io"
 	"math/big"
@@ -44,6 +45,8 @@ func (e *encoder) encFieldsPackage(v *Package) {
 	e.encT10(v.ErrorTypes)
 	e.encT11(v.qualify)
 	e.encT11(v.std)
+	e.encT2(v.module)
+	e.encT11(v.trusted)
 	e.encPtrhostPkg(v.host)
 	e.encT12(v.owners)
 	e.encT13(v.files)
@@ -232,39 +235,38 @@ func (e *encoder) encFieldsInfo(v *Info) {
 	e.encT30(v.Closes)
 	e.encT31(v.Implicit)
 	e.encT32(v.Spreads)
-	e.encT33(v.Works)
-	e.encT34(v.ImplicitElems)
-	e.encT35(v.Patterns)
-	e.encT36(v.Matches)
-	e.encT37(v.Tails)
-	e.encT38(v.Literals)
-	e.encT39(v.ValueCaptures)
-	e.encT40(v.LocalFrames)
-	e.encT41(v.Loops)
-	e.encT42(v.Withs)
-	e.encT43(v.ContextValues)
-	e.encT44(v.InitOrder)
-	e.encT45(v.Footprints)
-	e.encT46(v.Instances)
-	e.encT47(v.ReturnedValues)
-	e.encT48(v.Releases)
-	e.encT49(v.OwnedVars)
-	e.encT50(v.OwnedTemps)
-	e.encT47(v.PartHands)
-	e.encT47(v.ArmHeld)
-	e.encT47(v.LentYields)
-	e.encT51(v.HeldIn)
-	e.encT52(v.Replaced)
-	e.encT53(v.TaskCaptures)
-	e.encT54(v.ResultDrops)
-	e.encT55(v.CloseParts)
-	e.encT47(v.ReturnedTemps)
-	e.encT50(v.ArmValues)
-	e.encT56(v.FieldTakes)
-	e.encT57(v.Handoffs)
-	e.encT58(v.PatternOwners)
-	e.encT59(v.Takes)
-	e.encT60(v.Copies)
+	e.encT33(v.ImplicitElems)
+	e.encT34(v.Patterns)
+	e.encT35(v.Matches)
+	e.encT36(v.Tails)
+	e.encT37(v.Literals)
+	e.encT38(v.ValueCaptures)
+	e.encT39(v.LocalFrames)
+	e.encT40(v.Loops)
+	e.encT41(v.Withs)
+	e.encT42(v.ContextValues)
+	e.encT43(v.InitOrder)
+	e.encT44(v.Footprints)
+	e.encT45(v.Instances)
+	e.encT46(v.ReturnedValues)
+	e.encT47(v.Releases)
+	e.encT48(v.OwnedVars)
+	e.encT49(v.OwnedTemps)
+	e.encT46(v.PartHands)
+	e.encT46(v.ArmHeld)
+	e.encT46(v.LentYields)
+	e.encT50(v.HeldIn)
+	e.encT51(v.Replaced)
+	e.encT52(v.TaskCaptures)
+	e.encT53(v.ResultDrops)
+	e.encT54(v.CloseParts)
+	e.encT46(v.ReturnedTemps)
+	e.encT49(v.ArmValues)
+	e.encT55(v.FieldTakes)
+	e.encT56(v.Handoffs)
+	e.encT57(v.PatternOwners)
+	e.encT58(v.Takes)
+	e.encT59(v.Copies)
 }
 
 func (e *encoder) encInfo(v Info) { e.encFieldsInfo(&v) }
@@ -284,7 +286,7 @@ func (e *encoder) encT10(v map[FactOwner]map[*Named]bool) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encFactOwner(k)
-		e.encT61(x)
+		e.encT60(x)
 	}
 }
 
@@ -297,12 +299,12 @@ func (e *encoder) encFieldshostPkg(v *hostPkg) {
 	e.encPtrfileInfo(v.fi)
 	e.encT11(v.loaded)
 	e.encT2(v.err)
-	e.encT62(v.vars)
-	e.encT63(v.refused)
-	e.encT64(v.recvPtr)
-	e.encT64(v.variadic)
-	e.encT64(v.context)
-	e.encT65(v.goLines)
+	e.encT61(v.vars)
+	e.encT62(v.refused)
+	e.encT63(v.recvPtr)
+	e.encT63(v.variadic)
+	e.encT63(v.context)
+	e.encT64(v.goLines)
 }
 
 func (e *encoder) enchostPkg(v hostPkg) { e.encFieldshostPkg(&v) }
@@ -452,7 +454,7 @@ func (e *encoder) encFieldsfileInfo(v *fileInfo) {
 	e.encPtrSyntax_File(v.syntax)
 	e.encT1(v.index)
 	e.encPtrScope(v.scope)
-	e.encT66(v.imports)
+	e.encT65(v.imports)
 }
 
 func (e *encoder) encfileInfo(v fileInfo) { e.encFieldsfileInfo(&v) }
@@ -525,7 +527,7 @@ func (e *encoder) encT18(v []*Builder) {
 
 func (e *encoder) encFieldsRefinement(v *Refinement) {
 	e.encT11(v.Len)
-	e.encT67(v.Spans)
+	e.encT66(v.Spans)
 	e.encT2(v.Text)
 }
 
@@ -580,48 +582,49 @@ func (e *encoder) encFieldschecker(v *checker) {
 	e.encPtrScope(v.universe)
 	e.encT13(v.files)
 	e.encT24(v.diags)
-	e.encT68(v.seen)
+	e.encT67(v.seen)
 	e.encT1(v.silent)
 	e.encT1(v.shallow)
 	e.enctestState(v.tests)
-	e.encT69(v.relSeeds)
-	e.encT70(v.relHit)
-	e.encT71(v.wireNeeds)
-	e.encT72(v.lateEdges)
-	e.encT72(v.wireEdges)
-	e.encT73(v.refusedBinders)
-	e.encT74(v.aliases)
+	e.encT68(v.relSeeds)
+	e.encT69(v.relHit)
+	e.encT70(v.wireNeeds)
+	e.encT71(v.lateEdges)
+	e.encT71(v.wireEdges)
+	e.encT72(v.refusedBinders)
+	e.encT73(v.aliases)
 	e.encSyntax_Expr(v.writeTarget)
-	e.encT75(v.refusedMembers)
-	e.encT76(v.inferredRefs)
-	e.encT68(v.dupNames)
-	e.encT77(v.workSends)
-	e.encT78(v.durableCalls)
+	e.encT74(v.refusedMembers)
+	e.encT75(v.inferredRefs)
+	e.encT67(v.dupNames)
+	e.encT76(v.pureArgs)
 	e.encT8(v.lawPreds)
-	e.encT79(v.withSites)
-	e.encT80(v.contextValueSites)
+	e.encT77(v.withSites)
+	e.encT78(v.contextValueSites)
 	e.enccontextOwners(v.contextOwners)
 	e.encPtrfileInfo(v.cur)
-	e.encT81(v.owners)
-	e.encT82(v.origins)
-	e.encT83(v.instance)
-	e.encT83(v.inferInstances)
+	e.encT79(v.owners)
+	e.encT80(v.origins)
+	e.encT81(v.instance)
+	e.encT81(v.inferInstances)
 	e.encT11(v.includesExpanded)
-	e.encT84(v.inferSubjects)
-	e.encT64(v.settled)
-	e.encT85(v.widened)
-	e.encT86(v.refs)
-	e.encT87(v.valueRefs)
-	e.encT64(v.group)
-	e.encT88(v.groupValue)
-	e.encT89(v.lits)
+	e.encT82(v.declOps)
+	e.encT83(v.inferSubjects)
+	e.encT63(v.settled)
+	e.encT84(v.widened)
+	e.encT85(v.refs)
+	e.encT86(v.valueRefs)
+	e.encT63(v.group)
+	e.encT87(v.groupValue)
+	e.encT88(v.lits)
 	e.encT1(v.walkOps)
-	e.encT90(v.resMemo)
+	e.encT89(v.resMemo)
 	e.encT1(v.resSteps)
 	e.encT1(v.ownSteps)
 	e.encT11(v.providing)
-	e.encT61(v.cellTypes)
-	e.encT83(v.cellHolds)
+	e.encT90(v.capture)
+	e.encT60(v.cellTypes)
+	e.encT81(v.cellHolds)
 	e.encT91(v.cellSites)
 	e.encT11(v.encodeLend)
 	e.encT5(v.typeNamedFuncs)
@@ -630,9 +633,9 @@ func (e *encoder) encFieldschecker(v *checker) {
 	e.encT93(v.ownershipSites)
 	e.encT94(v.ownershipSeen)
 	e.encT95(v.takesSeen)
-	e.encT47(v.mapKeysSeen)
-	e.encT47(v.typeNodes)
-	e.encT47(v.intoInvalid)
+	e.encT46(v.mapKeysSeen)
+	e.encT46(v.typeNodes)
+	e.encT46(v.intoInvalid)
 	e.encPtrcontextMeter(v.contexts)
 	e.encT11(v.contextsDone)
 	e.encPtrcontextMeter(v.withs)
@@ -641,9 +644,9 @@ func (e *encoder) encFieldschecker(v *checker) {
 	e.encT97(v.contextBodies)
 	e.encT98(v.contextEntries)
 	e.encT1(v.convergeChecks)
-	e.encT75(v.grew)
+	e.encT74(v.grew)
 	e.encT99(v.asNames)
-	e.encT47(v.literals)
+	e.encT46(v.literals)
 	e.encPtrSyntax_SelectorExpr(v.callee)
 	e.encPtrSyntax_IndexExpr(v.calleeIndex)
 	e.encPtrSyntax_CompositeLit(v.elidedLit)
@@ -682,18 +685,18 @@ func (e *encoder) encFieldschecker(v *checker) {
 	e.encT1(v.inferOps)
 	e.encPtrtypeTable(v.types)
 	e.encT108(v.vindex)
-	e.encT84(v.subjects)
+	e.encT83(v.subjects)
 	e.encmonoState(v.mono)
 	e.encT109(v.errorTypes)
 	e.encFactOwner(v.owner)
 	e.encT5(v.funcs)
 	e.encT110(v.vars)
 	e.encT6(v.machines)
-	e.encT64(v.guarded)
+	e.encT63(v.guarded)
 	e.encT111(v.reach)
-	e.encT112(v.providers)
-	e.encT113(v.variants)
-	e.encT77(v.synthetic)
+	e.encT82(v.providers)
+	e.encT112(v.variants)
+	e.encT113(v.synthetic)
 	e.encT114(v.pkgPatterns)
 	e.encT115(v.mapInstances)
 	e.encT11(v.refining)
@@ -927,19 +930,7 @@ func (e *encoder) encT32(v map[*syntax.CompositeLit][]Spread) {
 	}
 }
 
-func (e *encoder) encT33(v map[*syntax.CompositeLit]*WorkLit) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrSyntax_CompositeLit(k)
-		e.encPtrWorkLit(x)
-	}
-}
-
-func (e *encoder) encT34(v map[syntax.Expr][]Conversion) {
+func (e *encoder) encT33(v map[syntax.Expr][]Conversion) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -951,7 +942,7 @@ func (e *encoder) encT34(v map[syntax.Expr][]Conversion) {
 	}
 }
 
-func (e *encoder) encT35(v map[syntax.Expr]*Pattern) {
+func (e *encoder) encT34(v map[syntax.Expr]*Pattern) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -963,7 +954,7 @@ func (e *encoder) encT35(v map[syntax.Expr]*Pattern) {
 	}
 }
 
-func (e *encoder) encT36(v map[syntax.Node]*Match) {
+func (e *encoder) encT35(v map[syntax.Node]*Match) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -975,7 +966,7 @@ func (e *encoder) encT36(v map[syntax.Node]*Match) {
 	}
 }
 
-func (e *encoder) encT37(v map[syntax.Stmt]Type) {
+func (e *encoder) encT36(v map[syntax.Stmt]Type) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -987,7 +978,7 @@ func (e *encoder) encT37(v map[syntax.Stmt]Type) {
 	}
 }
 
-func (e *encoder) encT38(v map[syntax.Node]*Signature) {
+func (e *encoder) encT37(v map[syntax.Node]*Signature) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -999,7 +990,7 @@ func (e *encoder) encT38(v map[syntax.Node]*Signature) {
 	}
 }
 
-func (e *encoder) encT39(v map[syntax.Node][]*Var) {
+func (e *encoder) encT38(v map[syntax.Node][]*Var) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1011,7 +1002,7 @@ func (e *encoder) encT39(v map[syntax.Node][]*Var) {
 	}
 }
 
-func (e *encoder) encT40(v map[*syntax.FuncLit]bool) {
+func (e *encoder) encT39(v map[*syntax.FuncLit]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1023,7 +1014,7 @@ func (e *encoder) encT40(v map[*syntax.FuncLit]bool) {
 	}
 }
 
-func (e *encoder) encT41(v map[*syntax.RangeStmt]*Loop) {
+func (e *encoder) encT40(v map[*syntax.RangeStmt]*Loop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1035,7 +1026,7 @@ func (e *encoder) encT41(v map[*syntax.RangeStmt]*Loop) {
 	}
 }
 
-func (e *encoder) encT42(v map[*syntax.CallExpr]*With) {
+func (e *encoder) encT41(v map[*syntax.CallExpr]*With) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1047,7 +1038,7 @@ func (e *encoder) encT42(v map[*syntax.CallExpr]*With) {
 	}
 }
 
-func (e *encoder) encT43(v map[syntax.Expr]*With) {
+func (e *encoder) encT42(v map[syntax.Expr]*With) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1059,7 +1050,7 @@ func (e *encoder) encT43(v map[syntax.Expr]*With) {
 	}
 }
 
-func (e *encoder) encT44(v []*Initializer) {
+func (e *encoder) encT43(v []*Initializer) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1070,7 +1061,7 @@ func (e *encoder) encT44(v []*Initializer) {
 	}
 }
 
-func (e *encoder) encT45(v map[syntax.Node]Footprint) {
+func (e *encoder) encT44(v map[syntax.Node]Footprint) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1082,7 +1073,7 @@ func (e *encoder) encT45(v map[syntax.Node]Footprint) {
 	}
 }
 
-func (e *encoder) encT46(v map[syntax.Expr]*Instance) {
+func (e *encoder) encT45(v map[syntax.Expr]*Instance) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1094,7 +1085,7 @@ func (e *encoder) encT46(v map[syntax.Expr]*Instance) {
 	}
 }
 
-func (e *encoder) encT47(v map[syntax.Expr]bool) {
+func (e *encoder) encT46(v map[syntax.Expr]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1106,7 +1097,7 @@ func (e *encoder) encT47(v map[syntax.Expr]bool) {
 	}
 }
 
-func (e *encoder) encT48(v map[syntax.Node][]Release) {
+func (e *encoder) encT47(v map[syntax.Node][]Release) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1118,7 +1109,7 @@ func (e *encoder) encT48(v map[syntax.Node][]Release) {
 	}
 }
 
-func (e *encoder) encT49(v map[*Var]*Drop) {
+func (e *encoder) encT48(v map[*Var]*Drop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1130,7 +1121,7 @@ func (e *encoder) encT49(v map[*Var]*Drop) {
 	}
 }
 
-func (e *encoder) encT50(v map[syntax.Expr]*Drop) {
+func (e *encoder) encT49(v map[syntax.Expr]*Drop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1142,7 +1133,7 @@ func (e *encoder) encT50(v map[syntax.Expr]*Drop) {
 	}
 }
 
-func (e *encoder) encT51(v map[syntax.Expr]syntax.Expr) {
+func (e *encoder) encT50(v map[syntax.Expr]syntax.Expr) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1154,7 +1145,7 @@ func (e *encoder) encT51(v map[syntax.Expr]syntax.Expr) {
 	}
 }
 
-func (e *encoder) encT52(v map[*syntax.CompositeLit][]Replaced) {
+func (e *encoder) encT51(v map[*syntax.CompositeLit][]Replaced) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1166,7 +1157,7 @@ func (e *encoder) encT52(v map[*syntax.CompositeLit][]Replaced) {
 	}
 }
 
-func (e *encoder) encT53(v map[syntax.Node]*TaskCapture) {
+func (e *encoder) encT52(v map[syntax.Node]*TaskCapture) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1178,7 +1169,7 @@ func (e *encoder) encT53(v map[syntax.Node]*TaskCapture) {
 	}
 }
 
-func (e *encoder) encT54(v map[*syntax.CallExpr]*Drop) {
+func (e *encoder) encT53(v map[*syntax.CallExpr]*Drop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1190,7 +1181,7 @@ func (e *encoder) encT54(v map[*syntax.CallExpr]*Drop) {
 	}
 }
 
-func (e *encoder) encT55(v map[*Func]*Drop) {
+func (e *encoder) encT54(v map[*Func]*Drop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1202,7 +1193,7 @@ func (e *encoder) encT55(v map[*Func]*Drop) {
 	}
 }
 
-func (e *encoder) encT56(v map[*syntax.SelectorExpr]FieldTake) {
+func (e *encoder) encT55(v map[*syntax.SelectorExpr]FieldTake) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1214,7 +1205,7 @@ func (e *encoder) encT56(v map[*syntax.SelectorExpr]FieldTake) {
 	}
 }
 
-func (e *encoder) encT57(v map[*syntax.Ident]*Var) {
+func (e *encoder) encT56(v map[*syntax.Ident]*Var) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1226,7 +1217,7 @@ func (e *encoder) encT57(v map[*syntax.Ident]*Var) {
 	}
 }
 
-func (e *encoder) encT58(v map[*syntax.CaseClause]PatternOwners) {
+func (e *encoder) encT57(v map[*syntax.CaseClause]PatternOwners) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1238,7 +1229,7 @@ func (e *encoder) encT58(v map[*syntax.CaseClause]PatternOwners) {
 	}
 }
 
-func (e *encoder) encT59(v map[*Func][]int) {
+func (e *encoder) encT58(v map[*Func][]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1250,7 +1241,7 @@ func (e *encoder) encT59(v map[*Func][]int) {
 	}
 }
 
-func (e *encoder) encT60(v map[*Func][]CopySite) {
+func (e *encoder) encT59(v map[*Func][]CopySite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1264,7 +1255,7 @@ func (e *encoder) encT60(v map[*Func][]CopySite) {
 
 func (e *encoder) encFactOwner(v FactOwner) { e.uint(uint64(v)) }
 
-func (e *encoder) encT61(v map[*Named]bool) {
+func (e *encoder) encT60(v map[*Named]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1291,7 +1282,7 @@ func (e *encoder) encPtrGoBindings(v *GoBindings) {
 	e.encFieldsGoBindings(v)
 }
 
-func (e *encoder) encT62(v map[*Var]*syntax.VarSpec) {
+func (e *encoder) encT61(v map[*Var]*syntax.VarSpec) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1303,7 +1294,7 @@ func (e *encoder) encT62(v map[*Var]*syntax.VarSpec) {
 	}
 }
 
-func (e *encoder) encT63(v map[string]string) {
+func (e *encoder) encT62(v map[string]string) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1315,7 +1306,7 @@ func (e *encoder) encT63(v map[string]string) {
 	}
 }
 
-func (e *encoder) encT64(v map[*Func]bool) {
+func (e *encoder) encT63(v map[*Func]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1327,7 +1318,7 @@ func (e *encoder) encT64(v map[*Func]bool) {
 	}
 }
 
-func (e *encoder) encT65(v map[int]string) {
+func (e *encoder) encT64(v map[int]string) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1535,6 +1526,7 @@ func (e *encoder) encFieldsSignature(v *Signature) {
 	e.encPtrRow(v.Errors)
 	e.encPtrRow(v.Uses)
 	e.encT11(v.NonEscaping)
+	e.encT11(v.Entry)
 	e.encT101(v.Takes)
 	e.encT11(v.TakesSelf)
 }
@@ -1657,7 +1649,7 @@ func (e *encoder) encPtrSyntax_File(v *syntax.File) {
 	e.uint(e.nodes.ID(v))
 }
 
-func (e *encoder) encT66(v []*PkgName) {
+func (e *encoder) encT65(v []*PkgName) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1693,7 +1685,7 @@ func (e *encoder) encPtrGoExtern(v *GoExtern) {
 	e.encFieldsGoExtern(v)
 }
 
-func (e *encoder) encT67(v []Span) {
+func (e *encoder) encT66(v []Span) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1742,7 +1734,7 @@ func (e *encoder) encImporter(v Importer) {
 	}
 }
 
-func (e *encoder) encT68(v map[string]bool) {
+func (e *encoder) encT67(v map[string]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1756,7 +1748,7 @@ func (e *encoder) encT68(v map[string]bool) {
 
 func (e *encoder) encFieldstestState(v *testState) {
 	e.encT140(v.stray)
-	e.encT63(v.names)
+	e.encT62(v.names)
 	e.encT7(v.all)
 	e.encPtrValueRanks(v.ranks)
 	e.encT141(v.sees)
@@ -1765,7 +1757,7 @@ func (e *encoder) encFieldstestState(v *testState) {
 
 func (e *encoder) enctestState(v testState) { e.encFieldstestState(&v) }
 
-func (e *encoder) encT69(v map[syntax.Node]relSeed) {
+func (e *encoder) encT68(v map[syntax.Node]relSeed) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1777,7 +1769,7 @@ func (e *encoder) encT69(v map[syntax.Node]relSeed) {
 	}
 }
 
-func (e *encoder) encT70(v map[syntax.Node]bool) {
+func (e *encoder) encT69(v map[syntax.Node]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1789,7 +1781,7 @@ func (e *encoder) encT70(v map[syntax.Node]bool) {
 	}
 }
 
-func (e *encoder) encT71(v []wireNeed) {
+func (e *encoder) encT70(v []wireNeed) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1800,7 +1792,7 @@ func (e *encoder) encT71(v []wireNeed) {
 	}
 }
 
-func (e *encoder) encT72(v map[*syntax.FuncDecl][]*syntax.FuncDecl) {
+func (e *encoder) encT71(v map[*syntax.FuncDecl][]*syntax.FuncDecl) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1812,7 +1804,7 @@ func (e *encoder) encT72(v map[*syntax.FuncDecl][]*syntax.FuncDecl) {
 	}
 }
 
-func (e *encoder) encT73(v map[binderKey]bool) {
+func (e *encoder) encT72(v map[binderKey]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1824,7 +1816,7 @@ func (e *encoder) encT73(v map[binderKey]bool) {
 	}
 }
 
-func (e *encoder) encT74(v []importAlias) {
+func (e *encoder) encT73(v []importAlias) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1843,7 +1835,7 @@ func (e *encoder) encSyntax_Expr(v syntax.Expr) {
 	e.uint(e.nodes.ID(v))
 }
 
-func (e *encoder) encT75(v map[*Func][2]bool) {
+func (e *encoder) encT74(v map[*Func][2]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1855,7 +1847,7 @@ func (e *encoder) encT75(v map[*Func][2]bool) {
 	}
 }
 
-func (e *encoder) encT76(v map[*syntax.Ident]*Func) {
+func (e *encoder) encT75(v map[*syntax.Ident]*Func) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1867,30 +1859,18 @@ func (e *encoder) encT76(v map[*syntax.Ident]*Func) {
 	}
 }
 
-func (e *encoder) encT77(v map[*syntax.Ident]bool) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrSyntax_Ident(k)
-		e.encT11(x)
-	}
-}
-
-func (e *encoder) encT78(v []durableCall) {
+func (e *encoder) encT76(v []pureArg) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for _, x := range v {
-		e.encdurableCall(x)
+		e.encpureArg(x)
 	}
 }
 
-func (e *encoder) encT79(v []withSite) {
+func (e *encoder) encT77(v []withSite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1901,7 +1881,7 @@ func (e *encoder) encT79(v []withSite) {
 	}
 }
 
-func (e *encoder) encT80(v []contextValueSite) {
+func (e *encoder) encT78(v []contextValueSite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1919,7 +1899,7 @@ func (e *encoder) encFieldscontextOwners(v *contextOwners) {
 
 func (e *encoder) enccontextOwners(v contextOwners) { e.encFieldscontextOwners(&v) }
 
-func (e *encoder) encT81(v map[syntax.Node]*fileInfo) {
+func (e *encoder) encT79(v map[syntax.Node]*fileInfo) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1931,7 +1911,7 @@ func (e *encoder) encT81(v map[syntax.Node]*fileInfo) {
 	}
 }
 
-func (e *encoder) encT82(v map[syntax.Node]syntax.Node) {
+func (e *encoder) encT80(v map[syntax.Node]syntax.Node) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1943,7 +1923,7 @@ func (e *encoder) encT82(v map[syntax.Node]syntax.Node) {
 	}
 }
 
-func (e *encoder) encT83(v map[int32]*Named) {
+func (e *encoder) encT81(v map[int32]*Named) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1955,7 +1935,19 @@ func (e *encoder) encT83(v map[int32]*Named) {
 	}
 }
 
-func (e *encoder) encT84(v map[any]*switchUnion) {
+func (e *encoder) encT82(v map[*Named][]*Named) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrNamed(k)
+		e.encT22(x)
+	}
+}
+
+func (e *encoder) encT83(v map[any]*switchUnion) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1967,7 +1959,7 @@ func (e *encoder) encT84(v map[any]*switchUnion) {
 	}
 }
 
-func (e *encoder) encT85(v []string) {
+func (e *encoder) encT84(v []string) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1978,7 +1970,7 @@ func (e *encoder) encT85(v []string) {
 	}
 }
 
-func (e *encoder) encT86(v map[any]map[any]bool) {
+func (e *encoder) encT85(v map[any]map[any]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1990,7 +1982,7 @@ func (e *encoder) encT86(v map[any]map[any]bool) {
 	}
 }
 
-func (e *encoder) encT87(v map[any]map[*Func][2]useSite) {
+func (e *encoder) encT86(v map[any]map[*Func][2]useSite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -2002,7 +1994,7 @@ func (e *encoder) encT87(v map[any]map[*Func][2]useSite) {
 	}
 }
 
-func (e *encoder) encT88(v map[*Func][2]groupSite) {
+func (e *encoder) encT87(v map[*Func][2]groupSite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -2014,7 +2006,7 @@ func (e *encoder) encT88(v map[*Func][2]groupSite) {
 	}
 }
 
-func (e *encoder) encT89(v []*litFrame) {
+func (e *encoder) encT88(v []*litFrame) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -2025,10 +2017,17 @@ func (e *encoder) encT89(v []*litFrame) {
 	}
 }
 
-func (e *encoder) encT90(v [2]map[int32]bool) {
+func (e *encoder) encT89(v [2]map[int32]bool) {
 	for _, x := range v {
 		e.encT151(x)
 	}
+}
+
+func (e *encoder) encT90(v *bool) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encT11(*v)
 }
 
 func (e *encoder) encT91(v []cellSite) {
@@ -2212,7 +2211,7 @@ func (e *encoder) encdeclKinds(v declKinds) { e.encFieldsdeclKinds(&v) }
 
 func (e *encoder) encFieldsinitDeps(v *initDeps) {
 	e.encT147(v.owner)
-	e.encT86(v.deps)
+	e.encT85(v.deps)
 	e.encT155(v.byVar)
 	e.encT11(v.tentative)
 }
@@ -2393,19 +2392,7 @@ func (e *encoder) encT111(v map[any]*reachNode) {
 	}
 }
 
-func (e *encoder) encT112(v map[*Named][]*Named) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrNamed(k)
-		e.encT22(x)
-	}
-}
-
-func (e *encoder) encT113(v map[*syntax.VariantSpec]*TypeName) {
+func (e *encoder) encT112(v map[*syntax.VariantSpec]*TypeName) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -2414,6 +2401,18 @@ func (e *encoder) encT113(v map[*syntax.VariantSpec]*TypeName) {
 	for k, x := range v {
 		e.encPtrSyntax_VariantSpec(k)
 		e.encPtrTypeName(x)
+	}
+}
+
+func (e *encoder) encT113(v map[*syntax.Ident]bool) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrSyntax_Ident(k)
+		e.encT11(x)
 	}
 }
 
@@ -2740,27 +2739,6 @@ func (e *encoder) encT125(v []Spread) {
 	for _, x := range v {
 		e.encSpread(x)
 	}
-}
-
-func (e *encoder) encFieldsWorkLit(v *WorkLit) {
-	e.encSyntax_Expr(v.Run)
-	e.encSyntax_Expr(v.Listen)
-	e.encSyntax_Expr(v.OnSuccess)
-	e.encSyntax_Expr(v.OnFailure)
-	e.encType(v.Result)
-	e.encPtrRow(v.Failures)
-	e.encType(v.Failure)
-	e.encType(v.Signal)
-	e.encPtrSignature(v.Send)
-}
-
-func (e *encoder) encWorkLit(v WorkLit) { e.encFieldsWorkLit(&v) }
-
-func (e *encoder) encPtrWorkLit(v *WorkLit) {
-	if e.ref(v, v == nil) {
-		return
-	}
-	e.encFieldsWorkLit(v)
 }
 
 func (e *encoder) encT126(v []Conversion) {
@@ -3275,8 +3253,8 @@ func (e *encoder) encFieldsstdImporter(v *stdImporter) {
 	e.encT179(v.entries)
 	e.encWork(v.work)
 	e.encPtrsnapshot(v.snap)
-	e.encT85(v.order)
-	e.encT68(v.ready)
+	e.encT84(v.order)
+	e.encT67(v.ready)
 }
 
 func (e *encoder) encPtrstdImporter(v *stdImporter) {
@@ -3324,7 +3302,7 @@ func (e *encoder) encT141(v map[*Package]bool) {
 }
 
 func (e *encoder) encFieldsrelSeed(v *relSeed) {
-	e.encT85(v.fields)
+	e.encT84(v.fields)
 }
 
 func (e *encoder) encrelSeed(v relSeed) { e.encFieldsrelSeed(&v) }
@@ -3369,13 +3347,16 @@ func (e *encoder) encT143(v [2]bool) {
 	}
 }
 
-func (e *encoder) encFieldsdurableCall(v *durableCall) {
-	e.encPtrSyntax_CallExpr(v.x)
-	e.encT2(v.name)
+func (e *encoder) encFieldspureArg(v *pureArg) {
+	e.encSyntax_Expr(v.arg)
+	e.encT2(v.callee)
+	e.encT2(v.param)
+	e.encT11(v.fn)
+	e.encPtrFunc(v.encl)
 	e.encPtrfileInfo(v.file)
 }
 
-func (e *encoder) encdurableCall(v durableCall) { e.encFieldsdurableCall(&v) }
+func (e *encoder) encpureArg(v pureArg) { e.encFieldspureArg(&v) }
 
 func (e *encoder) encFieldswithSite(v *withSite) {
 	e.encPtrSyntax_CallExpr(v.x)
@@ -3435,357 +3416,357 @@ func (e *encoder) encT147(v interface{}) {
 	case *Basic:
 		e.uint(3)
 		e.encPtrBasic(x)
-	case *Builder:
+	case *Body:
 		e.uint(4)
+		e.encPtrBody(x)
+	case *Builder:
+		e.uint(5)
 		e.encPtrBuilder(x)
 	case *Builtin:
-		e.uint(5)
+		e.uint(6)
 		e.encPtrBuiltin(x)
 	case *Call:
-		e.uint(6)
+		e.uint(7)
 		e.encPtrCall(x)
 	case *Close:
-		e.uint(7)
+		e.uint(8)
 		e.encPtrClose(x)
 	case *Code:
-		e.uint(8)
+		e.uint(9)
 		e.encPtrCode(x)
 	case *Const:
-		e.uint(9)
+		e.uint(10)
 		e.encPtrConst(x)
 	case *Context:
-		e.uint(10)
+		e.uint(11)
 		e.encPtrContext(x)
 	case *ContextBinding:
-		e.uint(11)
+		e.uint(12)
 		e.encPtrContextBinding(x)
 	case *ContextEntry:
-		e.uint(12)
+		e.uint(13)
 		e.encPtrContextEntry(x)
 	case *Conversion:
-		e.uint(13)
+		e.uint(14)
 		e.encPtrConversion(x)
 	case *CopySite:
-		e.uint(14)
+		e.uint(15)
 		e.encPtrCopySite(x)
 	case *Diagnostic:
-		e.uint(15)
+		e.uint(16)
 		e.encPtrDiagnostic(x)
 	case *Drop:
-		e.uint(16)
+		e.uint(17)
 		e.encPtrDrop(x)
 	case *DropField:
-		e.uint(17)
+		e.uint(18)
 		e.encPtrDropField(x)
 	case *Embed:
-		e.uint(18)
+		e.uint(19)
 		e.encPtrEmbed(x)
 	case *EmbedFile:
-		e.uint(19)
+		e.uint(20)
 		e.encPtrEmbedFile(x)
 	case *Field:
-		e.uint(20)
+		e.uint(21)
 		e.encPtrField(x)
 	case *FieldPattern:
-		e.uint(21)
+		e.uint(22)
 		e.encPtrFieldPattern(x)
 	case *FieldTake:
-		e.uint(22)
+		e.uint(23)
 		e.encPtrFieldTake(x)
 	case *Footprint:
-		e.uint(23)
+		e.uint(24)
 		e.encPtrFootprint(x)
 	case *Func:
-		e.uint(24)
+		e.uint(25)
 		e.encPtrFunc(x)
 	case *GoBindings:
-		e.uint(25)
+		e.uint(26)
 		e.encPtrGoBindings(x)
 	case *GoExtern:
-		e.uint(26)
+		e.uint(27)
 		e.encPtrGoExtern(x)
 	case *ImportError:
-		e.uint(27)
+		e.uint(28)
 		e.encPtrImportError(x)
 	case *Info:
-		e.uint(28)
+		e.uint(29)
 		e.encPtrInfo(x)
 	case *Initializer:
-		e.uint(29)
+		e.uint(30)
 		e.encPtrInitializer(x)
 	case *Instance:
-		e.uint(30)
+		e.uint(31)
 		e.encPtrInstance(x)
 	case *Interface:
-		e.uint(31)
+		e.uint(32)
 		e.encPtrInterface(x)
 	case *Law:
-		e.uint(32)
+		e.uint(33)
 		e.encPtrLaw(x)
 	case *LawContext:
-		e.uint(33)
+		e.uint(34)
 		e.encPtrLawContext(x)
 	case *LawProvider:
-		e.uint(34)
+		e.uint(35)
 		e.encPtrLawProvider(x)
 	case *LawRun:
-		e.uint(35)
+		e.uint(36)
 		e.encPtrLawRun(x)
 	case *LawSlot:
-		e.uint(36)
+		e.uint(37)
 		e.encPtrLawSlot(x)
 	case *LegacyPair:
-		e.uint(37)
+		e.uint(38)
 		e.encPtrLegacyPair(x)
 	case *Loop:
-		e.uint(38)
+		e.uint(39)
 		e.encPtrLoop(x)
 	case *MachineType:
-		e.uint(39)
+		e.uint(40)
 		e.encPtrMachineType(x)
 	case *Map:
-		e.uint(40)
+		e.uint(41)
 		e.encPtrMap(x)
 	case *Match:
-		e.uint(41)
+		e.uint(42)
 		e.encPtrMatch(x)
 	case *Method:
-		e.uint(42)
+		e.uint(43)
 		e.encPtrMethod(x)
 	case *Mint:
-		e.uint(43)
+		e.uint(44)
 		e.encPtrMint(x)
 	case *MintFrame:
-		e.uint(44)
+		e.uint(45)
 		e.encPtrMintFrame(x)
 	case *Named:
-		e.uint(45)
-		e.encPtrNamed(x)
-	case *Override:
 		e.uint(46)
+		e.encPtrNamed(x)
+	case *OpBody:
+		e.uint(47)
+		e.encPtrOpBody(x)
+	case *Override:
+		e.uint(48)
 		e.encPtrOverride(x)
 	case *Package:
-		e.uint(47)
+		e.uint(49)
 		e.encPtrPackage(x)
 	case *Pattern:
-		e.uint(48)
+		e.uint(50)
 		e.encPtrPattern(x)
 	case *PatternOwners:
-		e.uint(49)
+		e.uint(51)
 		e.encPtrPatternOwners(x)
 	case *PkgName:
-		e.uint(50)
+		e.uint(52)
 		e.encPtrPkgName(x)
 	case *Pointer:
-		e.uint(51)
+		e.uint(53)
 		e.encPtrPointer(x)
 	case *Refinement:
-		e.uint(52)
+		e.uint(54)
 		e.encPtrRefinement(x)
 	case *Release:
-		e.uint(53)
+		e.uint(55)
 		e.encPtrRelease(x)
 	case *Replaced:
-		e.uint(54)
+		e.uint(56)
 		e.encPtrReplaced(x)
 	case *Rewrite:
-		e.uint(55)
+		e.uint(57)
 		e.encPtrRewrite(x)
 	case *RewriteArg:
-		e.uint(56)
+		e.uint(58)
 		e.encPtrRewriteArg(x)
 	case *RewriteCall:
-		e.uint(57)
+		e.uint(59)
 		e.encPtrRewriteCall(x)
 	case *Row:
-		e.uint(58)
+		e.uint(60)
 		e.encPtrRow(x)
 	case *RowArg:
-		e.uint(59)
+		e.uint(61)
 		e.encPtrRowArg(x)
 	case *RowVar:
-		e.uint(60)
+		e.uint(62)
 		e.encPtrRowVar(x)
 	case *Scope:
-		e.uint(61)
+		e.uint(63)
 		e.encPtrScope(x)
 	case *Signature:
-		e.uint(62)
+		e.uint(64)
 		e.encPtrSignature(x)
 	case *Slice:
-		e.uint(63)
+		e.uint(65)
 		e.encPtrSlice(x)
 	case *Span:
-		e.uint(64)
+		e.uint(66)
 		e.encPtrSpan(x)
 	case *Spread:
-		e.uint(65)
+		e.uint(67)
 		e.encPtrSpread(x)
 	case *Struct:
-		e.uint(66)
+		e.uint(68)
 		e.encPtrStruct(x)
 	case *TaskCapture:
-		e.uint(67)
+		e.uint(69)
 		e.encPtrTaskCapture(x)
 	case *Test:
-		e.uint(68)
+		e.uint(70)
 		e.encPtrTest(x)
 	case *Tuple:
-		e.uint(69)
+		e.uint(71)
 		e.encPtrTuple(x)
 	case *TypeName:
-		e.uint(70)
+		e.uint(72)
 		e.encPtrTypeName(x)
 	case *TypeParam:
-		e.uint(71)
+		e.uint(73)
 		e.encPtrTypeParam(x)
 	case *Union:
-		e.uint(72)
+		e.uint(74)
 		e.encPtrUnion(x)
 	case *ValueRanks:
-		e.uint(73)
+		e.uint(75)
 		e.encPtrValueRanks(x)
 	case *Var:
-		e.uint(74)
+		e.uint(76)
 		e.encPtrVar(x)
 	case *WirePair:
-		e.uint(75)
+		e.uint(77)
 		e.encPtrWirePair(x)
 	case *Wired:
-		e.uint(76)
+		e.uint(78)
 		e.encPtrWired(x)
 	case *With:
-		e.uint(77)
+		e.uint(79)
 		e.encPtrWith(x)
 	case *Witness:
-		e.uint(78)
+		e.uint(80)
 		e.encPtrWitness(x)
 	case *WitnessOp:
-		e.uint(79)
+		e.uint(81)
 		e.encPtrWitnessOp(x)
 	case *Work:
-		e.uint(80)
-		e.encPtrWork(x)
-	case *WorkLit:
-		e.uint(81)
-		e.encPtrWorkLit(x)
-	case *argList:
 		e.uint(82)
+		e.encPtrWork(x)
+	case *argList:
+		e.uint(83)
 		e.encPtrargList(x)
 	case *armVar:
-		e.uint(83)
+		e.uint(84)
 		e.encPtrarmVar(x)
 	case *asBinding:
-		e.uint(84)
+		e.uint(85)
 		e.encPtrasBinding(x)
 	case *assignment:
-		e.uint(85)
+		e.uint(86)
 		e.encPtrassignment(x)
 	case *at:
-		e.uint(86)
+		e.uint(87)
 		e.encPtrat(x)
 	case *binderKey:
-		e.uint(87)
+		e.uint(88)
 		e.encPtrbinderKey(x)
 	case *bodyNode:
-		e.uint(88)
+		e.uint(89)
 		e.encPtrbodyNode(x)
 	case *bodySum:
-		e.uint(89)
+		e.uint(90)
 		e.encPtrbodySum(x)
 	case *borrowWalk:
-		e.uint(90)
+		e.uint(91)
 		e.encPtrborrowWalk(x)
 	case *branch:
-		e.uint(91)
+		e.uint(92)
 		e.encPtrbranch(x)
 	case *capBinding:
-		e.uint(92)
+		e.uint(93)
 		e.encPtrcapBinding(x)
 	case *capCall:
-		e.uint(93)
+		e.uint(94)
 		e.encPtrcapCall(x)
 	case *capKey:
-		e.uint(94)
+		e.uint(95)
 		e.encPtrcapKey(x)
 	case *capNode:
-		e.uint(95)
+		e.uint(96)
 		e.encPtrcapNode(x)
 	case *capSet:
-		e.uint(96)
+		e.uint(97)
 		e.encPtrcapSet(x)
 	case *catchItem:
-		e.uint(97)
+		e.uint(98)
 		e.encPtrcatchItem(x)
 	case *catchMatrix:
-		e.uint(98)
+		e.uint(99)
 		e.encPtrcatchMatrix(x)
 	case *catchSpace:
-		e.uint(99)
+		e.uint(100)
 		e.encPtrcatchSpace(x)
 	case *caughtCall:
-		e.uint(100)
+		e.uint(101)
 		e.encPtrcaughtCall(x)
 	case *cell:
-		e.uint(101)
+		e.uint(102)
 		e.encPtrcell(x)
 	case *cellSite:
-		e.uint(102)
+		e.uint(103)
 		e.encPtrcellSite(x)
 	case *checker:
-		e.uint(103)
+		e.uint(104)
 		e.encPtrchecker(x)
 	case *colInfo:
-		e.uint(104)
+		e.uint(105)
 		e.encPtrcolInfo(x)
 	case *collKey:
-		e.uint(105)
+		e.uint(106)
 		e.encPtrcollKey(x)
 	case *collision:
-		e.uint(106)
+		e.uint(107)
 		e.encPtrcollision(x)
 	case *column:
-		e.uint(107)
+		e.uint(108)
 		e.encPtrcolumn(x)
 	case *contextComp:
-		e.uint(108)
+		e.uint(109)
 		e.encPtrcontextComp(x)
 	case *contextDeps:
-		e.uint(109)
+		e.uint(110)
 		e.encPtrcontextDeps(x)
 	case *contextFinding:
-		e.uint(110)
+		e.uint(111)
 		e.encPtrcontextFinding(x)
 	case *contextGroup:
-		e.uint(111)
+		e.uint(112)
 		e.encPtrcontextGroup(x)
 	case *contextMeter:
-		e.uint(112)
+		e.uint(113)
 		e.encPtrcontextMeter(x)
 	case *contextNode:
-		e.uint(113)
+		e.uint(114)
 		e.encPtrcontextNode(x)
 	case *contextOwners:
-		e.uint(114)
+		e.uint(115)
 		e.encPtrcontextOwners(x)
 	case *contextPass:
-		e.uint(115)
+		e.uint(116)
 		e.encPtrcontextPass(x)
 	case *contextValueSite:
-		e.uint(116)
+		e.uint(117)
 		e.encPtrcontextValueSite(x)
 	case *declKinds:
-		e.uint(117)
+		e.uint(118)
 		e.encPtrdeclKinds(x)
 	case *decoder:
-		e.uint(118)
+		e.uint(119)
 		e.encPtrdecoder(x)
 	case *dropWalk:
-		e.uint(119)
-		e.encPtrdropWalk(x)
-	case *durableCall:
 		e.uint(120)
-		e.encPtrdurableCall(x)
+		e.encPtrdropWalk(x)
 	case *encoder:
 		e.uint(121)
 		e.encPtrencoder(x)
@@ -4002,162 +3983,171 @@ func (e *encoder) encT147(v interface{}) {
 	case *preludeState:
 		e.uint(192)
 		e.encPtrpreludeState(x)
-	case *reachNode:
+	case *pureArg:
 		e.uint(193)
+		e.encPtrpureArg(x)
+	case *pureBinding:
+		e.uint(194)
+		e.encPtrpureBinding(x)
+	case *pureSeer:
+		e.uint(195)
+		e.encPtrpureSeer(x)
+	case *reachNode:
+		e.uint(196)
 		e.encPtrreachNode(x)
 	case *refWalker:
-		e.uint(194)
+		e.uint(197)
 		e.encPtrrefWalker(x)
 	case *refiner:
-		e.uint(195)
+		e.uint(198)
 		e.encPtrrefiner(x)
 	case *relNeed:
-		e.uint(196)
+		e.uint(199)
 		e.encPtrrelNeed(x)
 	case *relSeed:
-		e.uint(197)
+		e.uint(200)
 		e.encPtrrelSeed(x)
 	case *resWalk:
-		e.uint(198)
+		e.uint(201)
 		e.encPtrresWalk(x)
 	case *resolved:
-		e.uint(199)
+		e.uint(202)
 		e.encPtrresolved(x)
 	case *resourceLoan:
-		e.uint(200)
+		e.uint(203)
 		e.encPtrresourceLoan(x)
 	case *resourceSite:
-		e.uint(201)
+		e.uint(204)
 		e.encPtrresourceSite(x)
 	case *rowRef:
-		e.uint(202)
+		e.uint(205)
 		e.encPtrrowRef(x)
 	case *rowSet:
-		e.uint(203)
+		e.uint(206)
 		e.encPtrrowSet(x)
 	case *scopeNode:
-		e.uint(204)
+		e.uint(207)
 		e.encPtrscopeNode(x)
 	case *segment:
-		e.uint(205)
+		e.uint(208)
 		e.encPtrsegment(x)
 	case *sink:
-		e.uint(206)
+		e.uint(209)
 		e.encPtrsink(x)
 	case *snapshot:
-		e.uint(207)
+		e.uint(210)
 		e.encPtrsnapshot(x)
 	case *stdBase:
-		e.uint(208)
+		e.uint(211)
 		e.encPtrstdBase(x)
 	case *stdEntry:
-		e.uint(209)
+		e.uint(212)
 		e.encPtrstdEntry(x)
 	case *stdImporter:
-		e.uint(210)
+		e.uint(213)
 		e.encPtrstdImporter(x)
 	case *stdSnapshot:
-		e.uint(211)
+		e.uint(214)
 		e.encPtrstdSnapshot(x)
 	case *switchGroup:
-		e.uint(212)
+		e.uint(215)
 		e.encPtrswitchGroup(x)
 	case *switchUnion:
-		e.uint(213)
+		e.uint(216)
 		e.encPtrswitchUnion(x)
 	case *target:
-		e.uint(214)
+		e.uint(217)
 		e.encPtrtarget(x)
 	case *taskNode:
-		e.uint(215)
+		e.uint(218)
 		e.encPtrtaskNode(x)
 	case *testState:
-		e.uint(216)
+		e.uint(219)
 		e.encPtrtestState(x)
 	case *trimmedNode:
-		e.uint(217)
+		e.uint(220)
 		e.encPtrtrimmedNode(x)
 	case *typeCtx:
-		e.uint(218)
+		e.uint(221)
 		e.encPtrtypeCtx(x)
 	case *typeEnv:
-		e.uint(219)
+		e.uint(222)
 		e.encPtrtypeEnv(x)
 	case *typeTable:
-		e.uint(220)
+		e.uint(223)
 		e.encPtrtypeTable(x)
 	case *typeWalker:
-		e.uint(221)
+		e.uint(224)
 		e.encPtrtypeWalker(x)
 	case *universeState:
-		e.uint(222)
+		e.uint(225)
 		e.encPtruniverseState(x)
 	case *useAt:
-		e.uint(223)
+		e.uint(226)
 		e.encPtruseAt(x)
 	case *useSite:
-		e.uint(224)
+		e.uint(227)
 		e.encPtruseSite(x)
 	case *valueFrame:
-		e.uint(225)
+		e.uint(228)
 		e.encPtrvalueFrame(x)
 	case *variantIndex:
-		e.uint(226)
+		e.uint(229)
 		e.encPtrvariantIndex(x)
 	case *vcand:
-		e.uint(227)
+		e.uint(230)
 		e.encPtrvcand(x)
 	case *vnode:
-		e.uint(228)
+		e.uint(231)
 		e.encPtrvnode(x)
 	case *vrow:
-		e.uint(229)
+		e.uint(232)
 		e.encPtrvrow(x)
 	case *vsym:
-		e.uint(230)
+		e.uint(233)
 		e.encPtrvsym(x)
 	case *vterms:
-		e.uint(231)
+		e.uint(234)
 		e.encPtrvterms(x)
 	case *wireFault:
-		e.uint(232)
+		e.uint(235)
 		e.encPtrwireFault(x)
 	case *wireNeed:
-		e.uint(233)
+		e.uint(236)
 		e.encPtrwireNeed(x)
 	case *withFrame:
-		e.uint(234)
+		e.uint(237)
 		e.encPtrwithFrame(x)
 	case *withRefusal:
-		e.uint(235)
+		e.uint(238)
 		e.encPtrwithRefusal(x)
 	case *withScope:
-		e.uint(236)
+		e.uint(239)
 		e.encPtrwithScope(x)
 	case *withSite:
-		e.uint(237)
+		e.uint(240)
 		e.encPtrwithSite(x)
 	case *worklist:
-		e.uint(238)
+		e.uint(241)
 		e.encPtrworklist(x)
 	case bool:
-		e.uint(239)
+		e.uint(242)
 		e.encT11(x)
 	case int:
-		e.uint(240)
+		e.uint(243)
 		e.encT1(x)
 	case int32:
-		e.uint(241)
+		e.uint(244)
 		e.encT146(x)
 	case int64:
-		e.uint(242)
+		e.uint(245)
 		e.encT133(x)
 	case string:
-		e.uint(243)
+		e.uint(246)
 		e.encT2(x)
 	default:
 		if id, ok := e.nodes.Lookup(x); ok {
-			e.uint(244)
+			e.uint(247)
 			e.uint(id)
 			return
 		}
@@ -4390,7 +4380,7 @@ func (e *encoder) encT154(v map[*TypeName]map[string]bool) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encPtrTypeName(k)
-		e.encT68(x)
+		e.encT67(x)
 	}
 }
 
@@ -4601,7 +4591,7 @@ func (e *encoder) encFieldsreachNode(v *reachNode) {
 	e.encT174(v.contexts)
 	e.encT5(v.funcs)
 	e.encT192(v.capCalls)
-	e.encT85(v.methodNames)
+	e.encT84(v.methodNames)
 }
 
 func (e *encoder) encreachNode(v reachNode) { e.encFieldsreachNode(&v) }
@@ -5053,6 +5043,31 @@ func (e *encoder) encPtrAcquisition(v *Acquisition) {
 	e.encFieldsAcquisition(v)
 }
 
+func (e *encoder) encFieldsBody(v *Body) {
+	e.encT2(v.Runtime)
+	e.encT11(v.Known)
+	e.encT11(v.Pure)
+	e.encT11(v.Host)
+	e.encT11(v.Inert)
+	e.encT199(v.Hidden)
+	e.encT11(v.Value)
+	e.encT11(v.MovesOnly)
+	e.encT11(v.Moves)
+	e.encT1(v.MovingParam)
+	e.encT11(v.Repeated)
+	e.encT11(v.Keeps)
+	e.encT1(v.Keeper)
+}
+
+func (e *encoder) encBody(v Body) { e.encFieldsBody(&v) }
+
+func (e *encoder) encPtrBody(v *Body) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldsBody(v)
+}
+
 func (e *encoder) encFieldsCode(v *Code) {
 	e.encT2(v.Code)
 	e.encT2(v.Name)
@@ -5107,7 +5122,7 @@ func (e *encoder) encPtrDropField(v *DropField) {
 
 func (e *encoder) encFieldsEmbedFile(v *EmbedFile) {
 	e.encT2(v.Path)
-	e.encT199(v.Data)
+	e.encT200(v.Data)
 }
 
 func (e *encoder) encEmbedFile(v EmbedFile) { e.encFieldsEmbedFile(&v) }
@@ -5224,7 +5239,7 @@ func (e *encoder) encFieldsMint(v *Mint) {
 	e.encSyntax_Node(v.Node)
 	e.encMintPlace(v.Place)
 	e.encT2(v.Name)
-	e.encT200(v.Frames)
+	e.encT201(v.Frames)
 }
 
 func (e *encoder) encMint(v Mint) { e.encFieldsMint(&v) }
@@ -5250,6 +5265,21 @@ func (e *encoder) encPtrMintFrame(v *MintFrame) {
 		return
 	}
 	e.encFieldsMintFrame(v)
+}
+
+func (e *encoder) encFieldsOpBody(v *OpBody) {
+	e.encT2(v.Runtime)
+	e.encT11(v.StopsRunning)
+	e.encT11(v.DrainsLends)
+}
+
+func (e *encoder) encOpBody(v OpBody) { e.encFieldsOpBody(&v) }
+
+func (e *encoder) encPtrOpBody(v *OpBody) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldsOpBody(v)
 }
 
 func (e *encoder) encPtrOverride(v *Override) {
@@ -5298,7 +5328,7 @@ func (e *encoder) encFieldsRewriteCall(v *RewriteCall) {
 	e.encPtrSyntax_CallExpr(v.Call)
 	e.encPtrMethod(v.Op)
 	e.encT11(v.Try)
-	e.encT201(v.Args)
+	e.encT202(v.Args)
 }
 
 func (e *encoder) encRewriteCall(v RewriteCall) { e.encFieldsRewriteCall(&v) }
@@ -5327,7 +5357,7 @@ func (e *encoder) encPtrSpread(v *Spread) {
 func (e *encoder) encFieldsWitness(v *Witness) {
 	e.encPtrTypeParam(v.Param)
 	e.encType(v.Arg)
-	e.encT202(v.Ops)
+	e.encT203(v.Ops)
 }
 
 func (e *encoder) encWitness(v Witness) { e.encFieldsWitness(&v) }
@@ -5422,7 +5452,7 @@ func (e *encoder) encPtrassignment(v *assignment) {
 func (e *encoder) encFieldsat(v *at) {
 	e.encMintPlace(v.place)
 	e.encT2(v.name)
-	e.encT200(v.frames)
+	e.encT201(v.frames)
 }
 
 func (e *encoder) encat(v at) { e.encFieldsat(&v) }
@@ -5444,7 +5474,7 @@ func (e *encoder) encPtrbinderKey(v *binderKey) {
 func (e *encoder) encFieldsbodyNode(v *bodyNode) {
 	e.encPtrFunc(v.fn)
 	e.encPtrpkgVar(v.v)
-	e.encT203(v.edges)
+	e.encT204(v.edges)
 	e.encT1(v.index)
 	e.encT1(v.low)
 	e.encT11(v.onStack)
@@ -5466,7 +5496,7 @@ func (e *encoder) encPtrbodyNode(v *bodyNode) {
 func (e *encoder) encFieldsborrowWalk(v *borrowWalk) {
 	e.encPtrchecker(v.c)
 	e.encPtrInfo(v.info)
-	e.encT204(v.stack)
+	e.encT205(v.stack)
 }
 
 func (e *encoder) encborrowWalk(v borrowWalk) { e.encFieldsborrowWalk(&v) }
@@ -5528,8 +5558,8 @@ func (e *encoder) encFieldscatchItem(v *catchItem) {
 	e.encsolverRow(v.row)
 	e.encT11(v.whole)
 	e.encT19(v.variants)
-	e.encT205(v.binds)
-	e.encT206(v.placeholders)
+	e.encT206(v.binds)
+	e.encT207(v.placeholders)
 	e.encT11(v.restRefused)
 }
 
@@ -5544,7 +5574,7 @@ func (e *encoder) encPtrcatchItem(v *catchItem) {
 
 func (e *encoder) encFieldscatchMatrix(v *catchMatrix) {
 	e.encPtrrowSet(v.rows)
-	e.encT204(v.origin)
+	e.encT205(v.origin)
 }
 
 func (e *encoder) enccatchMatrix(v catchMatrix) { e.encFieldscatchMatrix(&v) }
@@ -5559,8 +5589,8 @@ func (e *encoder) encPtrcatchMatrix(v *catchMatrix) {
 func (e *encoder) encFieldscatchSpace(v *catchSpace) {
 	e.encPtrchecker(v.c)
 	e.encPtrpatResolver(v.r)
-	e.encT207(v.cols)
-	e.encT208(v.mats)
+	e.encT208(v.cols)
+	e.encT209(v.mats)
 	e.encPtrmatrixSolver(v.solver)
 	e.encT151(v.wholeSeen)
 }
@@ -5639,8 +5669,8 @@ func (e *encoder) encFieldscolumn(v *column) {
 	e.encT1(v.ctor)
 	e.encT1(v.field)
 	e.encT138(v.consts)
-	e.encT209(v.label)
-	e.encT210(v.children)
+	e.encT210(v.label)
+	e.encT211(v.children)
 }
 
 func (e *encoder) enccolumn(v column) { e.encFieldscolumn(&v) }
@@ -5655,8 +5685,8 @@ func (e *encoder) encPtrcolumn(v *column) {
 func (e *encoder) encFieldscontextDeps(v *contextDeps) {
 	e.encPtrtypeTable(v.tab)
 	e.encT19(v.order)
-	e.encT211(v.needs)
-	e.encT212(v.at)
+	e.encT212(v.needs)
+	e.encT213(v.at)
 }
 
 func (e *encoder) enccontextDeps(v contextDeps) { e.encFieldscontextDeps(&v) }
@@ -5685,7 +5715,7 @@ func (e *encoder) encPtrcontextFinding(v *contextFinding) {
 
 func (e *encoder) encFieldscontextGroup(v *contextGroup) {
 	e.encT2(v.key)
-	e.encT213(v.lits)
+	e.encT214(v.lits)
 	e.encT174(v.locals)
 	e.encT187(v.embeds)
 	e.encT13(v.files)
@@ -5728,7 +5758,7 @@ func (e *encoder) encFieldscontextPass(v *contextPass) {
 	e.encPtrchecker(v.c)
 	e.encPtrcontextMeter(v.m)
 	e.encT11(v.stopped)
-	e.encT214(v.nodes)
+	e.encT215(v.nodes)
 }
 
 func (e *encoder) enccontextPass(v contextPass) { e.encFieldscontextPass(&v) }
@@ -5755,15 +5785,15 @@ func (e *encoder) encPtrdeclKinds(v *declKinds) {
 }
 
 func (e *encoder) encFieldsdecoder(v *decoder) {
-	e.encT199(v.buf)
+	e.encT200(v.buf)
 	e.encT1(v.pos)
-	e.encT215(v.refs)
-	e.encT215(v.ext)
+	e.encT216(v.refs)
+	e.encT216(v.ext)
 	e.encPtrSyntax_NodeTable(v.nodes)
 	e.encPtrobjTable(v.table)
 	e.encT1(v.seg)
 	e.encT196(v.start)
-	e.encT216(v.checkers)
+	e.encT217(v.checkers)
 }
 
 func (e *encoder) encdecoder(v decoder) { e.encFieldsdecoder(&v) }
@@ -5777,7 +5807,7 @@ func (e *encoder) encPtrdecoder(v *decoder) {
 
 func (e *encoder) encFieldsdropWalk(v *dropWalk) {
 	e.encPtrchecker(v.c)
-	e.encT217(v.seen)
+	e.encT218(v.seen)
 	e.encT2(v.bad)
 }
 
@@ -5790,22 +5820,15 @@ func (e *encoder) encPtrdropWalk(v *dropWalk) {
 	e.encFieldsdropWalk(v)
 }
 
-func (e *encoder) encPtrdurableCall(v *durableCall) {
-	if e.ref(v, v == nil) {
-		return
-	}
-	e.encFieldsdurableCall(v)
-}
-
 func (e *encoder) encFieldsencoder(v *encoder) {
-	e.encT199(v.buf)
-	e.encT218(v.ids)
+	e.encT200(v.buf)
+	e.encT219(v.ids)
 	e.encT196(v.next)
-	e.encT218(v.ext)
+	e.encT219(v.ext)
 	e.encPtrSyntax_NodeEncoder(v.nodes)
-	e.encT219(v.objStarts)
-	e.encT219(v.nodeStarts)
-	e.encT220(v.deps)
+	e.encT220(v.objStarts)
+	e.encT220(v.nodeStarts)
+	e.encT221(v.deps)
 }
 
 func (e *encoder) encencoder(v encoder) { e.encFieldsencoder(&v) }
@@ -5820,23 +5843,23 @@ func (e *encoder) encPtrencoder(v *encoder) {
 func (e *encoder) encFieldsescWalk(v *escWalk) {
 	e.encPtrchecker(v.c)
 	e.encPtrInfo(v.info)
-	e.encT204(v.stack)
+	e.encT205(v.stack)
 	e.encT170(v.frames)
-	e.encT221(v.varFrame)
-	e.encT204(v.frameNodes)
-	e.encT204(v.regions)
-	e.encT221(v.declDepth)
-	e.encT77(v.writes)
-	e.encT222(v.events)
+	e.encT222(v.varFrame)
+	e.encT205(v.frameNodes)
+	e.encT205(v.regions)
+	e.encT222(v.declDepth)
+	e.encT113(v.writes)
+	e.encT223(v.events)
 	e.encT120(v.order)
-	e.encT223(v.aliases)
-	e.encT224(v.addressed)
-	e.encT225(v.borrowHolders)
-	e.encT226(v.keeps)
+	e.encT224(v.aliases)
+	e.encT225(v.addressed)
+	e.encT226(v.borrowHolders)
+	e.encT227(v.keeps)
 	e.encT11(v.collecting)
-	e.encT227(v.litVar)
-	e.encT228(v.litUses)
-	e.encT222(v.localUses)
+	e.encT228(v.litVar)
+	e.encT229(v.litUses)
+	e.encT223(v.localUses)
 }
 
 func (e *encoder) encescWalk(v escWalk) { e.encFieldsescWalk(&v) }
@@ -5864,10 +5887,10 @@ func (e *encoder) encPtrexportError(v *exportError) {
 func (e *encoder) encFieldsfootprinter(v *footprinter) {
 	e.encPtrPackage(v.pkg)
 	e.encPtrInfo(v.info)
-	e.encT229(v.nodes)
-	e.encT230(v.list)
+	e.encT230(v.nodes)
+	e.encT231(v.list)
 	e.encPtrcontextOwners(v.owners)
-	e.encT231(v.trimmed)
+	e.encT232(v.trimmed)
 	e.encT11(v.foreign)
 }
 
@@ -5882,10 +5905,10 @@ func (e *encoder) encPtrfootprinter(v *footprinter) {
 
 func (e *encoder) encFieldsfpNode(v *fpNode) {
 	e.encSyntax_Node(v.key)
-	e.encT232(v.caps)
+	e.encT233(v.caps)
 	e.encT11(v.tasks)
 	e.encT11(v.opaque)
-	e.encT230(v.edges)
+	e.encT231(v.edges)
 	e.encT11(v.walked)
 	e.encT1(v.index)
 	e.encT1(v.low)
@@ -5958,9 +5981,9 @@ func (e *encoder) encPtrguardedUse(v *guardedUse) {
 func (e *encoder) encFieldshand(v *hand) {
 	e.encSyntax_Node(v.at)
 	e.encT2(v.how)
-	e.encT233(v.lend)
+	e.encT234(v.lend)
 	e.encT11(v.yieldRoot)
-	e.encT234(v.failed)
+	e.encT235(v.failed)
 	e.encT11(v.provider)
 	e.encT11(v.root)
 	e.encT11(v.endLoans)
@@ -5978,7 +6001,7 @@ func (e *encoder) encPtrhand(v *hand) {
 }
 
 func (e *encoder) encFieldsheaderReader(v *headerReader) {
-	e.encT199(v.buf)
+	e.encT200(v.buf)
 	e.encT1(v.pos)
 	e.encBuiltin_error(v.err)
 }
@@ -6026,9 +6049,9 @@ func (e *encoder) encFieldskeepWalk(v *keepWalk) {
 	e.encPtrescWalk(v.w)
 	e.encPtrInfo(v.info)
 	e.encPtrTypeParam(v.tp)
-	e.encT204(v.stack)
+	e.encT205(v.stack)
 	e.encT170(v.frames)
-	e.encT221(v.declared)
+	e.encT222(v.declared)
 	e.encT2(v.why)
 }
 
@@ -6088,9 +6111,9 @@ func (e *encoder) encPtrlendPoint(v *lendPoint) {
 }
 
 func (e *encoder) encFieldslendWalk(v *lendWalk) {
-	e.encT82(v.parent)
-	e.encT235(v.points)
-	e.encT236(v.loans)
+	e.encT80(v.parent)
+	e.encT236(v.points)
+	e.encT237(v.loans)
 }
 
 func (e *encoder) enclendWalk(v lendWalk) { e.encFieldslendWalk(&v) }
@@ -6135,7 +6158,7 @@ func (e *encoder) encPtrlitType(v *litType) {
 
 func (e *encoder) encFieldslitUse(v *litUse) {
 	e.encT11(v.allowed)
-	e.encT204(v.frames)
+	e.encT205(v.frames)
 	e.encT170(v.esc)
 }
 
@@ -6166,9 +6189,9 @@ func (e *encoder) encPtrlocalBinding(v *localBinding) {
 
 func (e *encoder) encFieldsmatrixSolver(v *matrixSolver) {
 	e.encPtrpatSpace(v.patSpace)
-	e.encT237(v.memo)
+	e.encT238(v.memo)
 	e.encT138(v.rowIDs)
-	e.encT238(v.rowRefs)
+	e.encT239(v.rowRefs)
 	e.encT1(v.steps)
 	e.encT1(v.cells)
 	e.encT1(v.budget)
@@ -6188,7 +6211,7 @@ func (e *encoder) encPtrmatrixSolver(v *matrixSolver) {
 func (e *encoder) encFieldsmentioner(v *mentioner) {
 	e.encPtrPackage(v.from)
 	e.encT6(v.out)
-	e.encT239(v.seen)
+	e.encT240(v.seen)
 }
 
 func (e *encoder) encmentioner(v mentioner) { e.encFieldsmentioner(&v) }
@@ -6202,7 +6225,7 @@ func (e *encoder) encPtrmentioner(v *mentioner) {
 
 func (e *encoder) encFieldsminter(v *minter) {
 	e.encPtrPackage(v.pkg)
-	e.encT240(v.out)
+	e.encT241(v.out)
 }
 
 func (e *encoder) encminter(v minter) { e.encFieldsminter(&v) }
@@ -6258,7 +6281,7 @@ func (e *encoder) encFieldsmutEvent(v *mutEvent) {
 	e.encPtrSyntax_Ident(v.id)
 	e.encT11(v.write)
 	e.encSyntax_Node(v.esc)
-	e.encT204(v.regions)
+	e.encT205(v.regions)
 }
 
 func (e *encoder) encmutEvent(v mutEvent) { e.encFieldsmutEvent(&v) }
@@ -6271,7 +6294,7 @@ func (e *encoder) encPtrmutEvent(v *mutEvent) {
 }
 
 func (e *encoder) encFieldsnodeKey(v *nodeKey) {
-	e.encT241(v.kind)
+	e.encT242(v.kind)
 	e.encT147(v.ref)
 	e.encT133(v.n)
 	e.encT2(v.s)
@@ -6288,8 +6311,8 @@ func (e *encoder) encPtrnodeKey(v *nodeKey) {
 }
 
 func (e *encoder) encFieldsobjTable(v *objTable) {
-	e.encT219(v.starts)
-	e.encT242(v.segs)
+	e.encT220(v.starts)
+	e.encT243(v.segs)
 }
 
 func (e *encoder) encobjTable(v objTable) { e.encFieldsobjTable(&v) }
@@ -6329,7 +6352,7 @@ func (e *encoder) encPtroperand(v *operand) {
 
 func (e *encoder) encFieldsownCatch(v *ownCatch) {
 	e.encT1(v.first)
-	e.encT243(v.fails)
+	e.encT244(v.fails)
 }
 
 func (e *encoder) encownCatch(v ownCatch) { e.encFieldsownCatch(&v) }
@@ -6357,13 +6380,13 @@ func (e *encoder) encPtrownDiag(v *ownDiag) {
 }
 
 func (e *encoder) encFieldsownFrameSave(v *ownFrameSave) {
-	e.encT244(v.loops)
-	e.encT245(v.catches)
+	e.encT245(v.loops)
+	e.encT246(v.catches)
 	e.encT1(v.first)
 	e.encT2(v.name)
 	e.encT2(v.nested)
 	e.encownTail(v.tail)
-	e.encT234(v.onFailure)
+	e.encT235(v.onFailure)
 }
 
 func (e *encoder) encownFrameSave(v ownFrameSave) { e.encFieldsownFrameSave(&v) }
@@ -6427,8 +6450,8 @@ func (e *encoder) encPtrownLocal(v *ownLocal) {
 
 func (e *encoder) encFieldsownLoop(v *ownLoop) {
 	e.encT1(v.first)
-	e.encT243(v.breaks)
-	e.encT243(v.cont)
+	e.encT244(v.breaks)
+	e.encT244(v.cont)
 }
 
 func (e *encoder) encownLoop(v ownLoop) { e.encFieldsownLoop(&v) }
@@ -6443,7 +6466,7 @@ func (e *encoder) encPtrownLoop(v *ownLoop) {
 func (e *encoder) encFieldsownLoopMemo(v *ownLoopMemo) {
 	e.encownState(v.entry)
 	e.encownState(v.out)
-	e.encT246(v.diags)
+	e.encT247(v.diags)
 }
 
 func (e *encoder) encownLoopMemo(v ownLoopMemo) { e.encFieldsownLoopMemo(&v) }
@@ -6473,11 +6496,11 @@ func (e *encoder) encFieldsownSlot(v *ownSlot) {
 	e.encownSt(v.st)
 	e.encSyntax_Node(v.at)
 	e.encT2(v.how)
-	e.encT247(v.callLoans)
+	e.encT248(v.callLoans)
 	e.encT196(v.fields)
 	e.encT196(v.maybe)
 	e.encSyntax_Node(v.fieldAt)
-	e.encT248(v.loans)
+	e.encT249(v.loans)
 }
 
 func (e *encoder) encownSlot(v ownSlot) { e.encFieldsownSlot(&v) }
@@ -6491,7 +6514,7 @@ func (e *encoder) encPtrownSlot(v *ownSlot) {
 
 func (e *encoder) encFieldsownState(v *ownState) {
 	e.encT11(v.reached)
-	e.encT249(v.slots)
+	e.encT250(v.slots)
 }
 
 func (e *encoder) encownState(v ownState) { e.encFieldsownState(&v) }
@@ -6508,9 +6531,9 @@ func (e *encoder) encFieldsownTail(v *ownTail) {
 	e.encT2(v.how)
 	e.encT1(v.slot)
 	e.encT1(v.first)
-	e.encT233(v.lend)
+	e.encT234(v.lend)
 	e.encT11(v.yieldRoot)
-	e.encT234(v.failed)
+	e.encT235(v.failed)
 	e.encT11(v.frame)
 	e.encSyntax_Expr(v.form)
 }
@@ -6529,25 +6552,25 @@ func (e *encoder) encFieldsownWalk(v *ownWalk) {
 	e.encPtrInfo(v.info)
 	e.encownState(v.st)
 	e.encSyntax_Expr(v.fresh)
-	e.encT250(v.vars)
-	e.encT221(v.slot)
+	e.encT251(v.vars)
+	e.encT222(v.slot)
 	e.encT1(v.depth)
 	e.encT1(v.first)
 	e.encT2(v.name)
 	e.encT2(v.nested)
-	e.encT251(v.scopes)
-	e.encT244(v.loops)
-	e.encT245(v.catches)
-	e.encT252(v.loopMemo)
-	e.encT246(v.diags)
+	e.encT252(v.scopes)
+	e.encT245(v.loops)
+	e.encT246(v.catches)
+	e.encT253(v.loopMemo)
+	e.encT247(v.diags)
 	e.encownTail(v.tail)
-	e.encT234(v.onFailure)
+	e.encT235(v.onFailure)
 	e.encT11(v.infer)
 	e.encPtrFunc(v.fn)
 	e.encPtrSyntax_BlockStmt(v.top)
-	e.encT220(v.promote)
-	e.encT253(v.copies)
-	e.encT254(v.borrow)
+	e.encT221(v.promote)
+	e.encT254(v.copies)
+	e.encT255(v.borrow)
 	e.encPtrlendWalk(v.lending)
 	e.encSyntax_Node(v.lendFrame)
 	e.encSyntax_Expr(v.ranged)
@@ -6610,15 +6633,15 @@ func (e *encoder) encPtrpatNode(v *patNode) {
 func (e *encoder) encFieldspatResolver(v *patResolver) {
 	e.encPtrchecker(v.c)
 	e.encPtrpatSpace(v.sp)
-	e.encT255(v.info)
+	e.encT256(v.info)
 	e.encPtrlookupSteps(v.resolve)
-	e.encT205(v.binds)
-	e.encT68(v.bound)
+	e.encT206(v.binds)
+	e.encT67(v.bound)
 	e.encT11(v.bad)
 	e.encT11(v.bindings)
 	e.encT11(v.letFor)
 	e.encT11(v.local)
-	e.encT77(v.own)
+	e.encT113(v.own)
 }
 
 func (e *encoder) encpatResolver(v patResolver) { e.encFieldspatResolver(&v) }
@@ -6631,9 +6654,9 @@ func (e *encoder) encPtrpatResolver(v *patResolver) {
 }
 
 func (e *encoder) encFieldspatSpace(v *patSpace) {
-	e.encT256(v.cols)
-	e.encT257(v.child)
-	e.encT258(v.pats)
+	e.encT257(v.cols)
+	e.encT258(v.child)
+	e.encT259(v.pats)
 	e.encT138(v.patKey)
 	e.encT1(v.work)
 	e.encT1(v.cells)
@@ -6706,7 +6729,7 @@ func (e *encoder) encPtrpendingSelf(v *pendingSelf) {
 func (e *encoder) encFieldsplace(v *place) {
 	e.encSyntax_Expr(v.expr)
 	e.encObject(v.root)
-	e.encT259(v.steps)
+	e.encT260(v.steps)
 }
 
 func (e *encoder) encplace(v place) { e.encFieldsplace(&v) }
@@ -6750,26 +6773,62 @@ func (e *encoder) encPtrpreludeState(v *preludeState) {
 	e.encFieldspreludeState(v)
 }
 
+func (e *encoder) encPtrpureArg(v *pureArg) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldspureArg(v)
+}
+
+func (e *encoder) encFieldspureBinding(v *pureBinding) {
+	e.encPtrInfo(v.info)
+	e.encSyntax_Expr(v.x)
+	e.encT261(v.env)
+}
+
+func (e *encoder) encpureBinding(v pureBinding) { e.encFieldspureBinding(&v) }
+
+func (e *encoder) encPtrpureBinding(v *pureBinding) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldspureBinding(v)
+}
+
+func (e *encoder) encFieldspureSeer(v *pureSeer) {
+	e.encPtrFunc(v.encl)
+	e.encT11(v.forwarded)
+}
+
+func (e *encoder) encpureSeer(v pureSeer) { e.encFieldspureSeer(&v) }
+
+func (e *encoder) encPtrpureSeer(v *pureSeer) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldspureSeer(v)
+}
+
 func (e *encoder) encFieldsrefWalker(v *refWalker) {
 	e.encPtrchecker(v.c)
-	e.encT260(v.scopes)
+	e.encT262(v.scopes)
 	e.encT148(v.refs)
 	e.encT149(v.values)
-	e.encT261(v.frames)
-	e.encT70(v.callees)
-	e.encT262(v.argRows)
-	e.encT68(v.tparams)
+	e.encT263(v.frames)
+	e.encT69(v.callees)
+	e.encT264(v.argRows)
+	e.encT67(v.tparams)
 	e.encT1(v.ops)
-	e.encT263(v.pending)
-	e.encT264(v.retired)
-	e.encT265(v.idents)
-	e.encT77(v.nameIdents)
-	e.encT77(v.binders)
-	e.encT77(v.undecided)
-	e.encT70(v.visited)
+	e.encT265(v.pending)
+	e.encT266(v.retired)
+	e.encT267(v.idents)
+	e.encT113(v.nameIdents)
+	e.encT113(v.binders)
+	e.encT113(v.undecided)
+	e.encT69(v.visited)
 	e.encPtrguardNode(v.guard)
 	e.encT156(v.guarded)
-	e.encT204(v.cbFrames)
+	e.encT205(v.cbFrames)
 	e.encT147(v.owner)
 }
 
@@ -6823,7 +6882,7 @@ func (e *encoder) encPtrrelSeed(v *relSeed) {
 func (e *encoder) encFieldsresWalk(v *resWalk) {
 	e.encPtrchecker(v.c)
 	e.encT11(v.generic)
-	e.encT266(v.nodes)
+	e.encT268(v.nodes)
 	e.encT159(v.stack)
 	e.encT1(v.next)
 }
@@ -6892,11 +6951,11 @@ func (e *encoder) encPtrrowRef(v *rowRef) {
 
 func (e *encoder) encFieldsrowSet(v *rowSet) {
 	e.encPtrmatrixSolver(v.s)
-	e.encT267(v.rows)
+	e.encT269(v.rows)
 	e.encT170(v.dead)
-	e.encT268(v.byCell)
-	e.encT268(v.byFirst)
-	e.encT269(v.byColumn)
+	e.encT270(v.byCell)
+	e.encT270(v.byFirst)
+	e.encT271(v.byColumn)
 	e.encT101(v.empty)
 	e.encT1(v.cover)
 }
@@ -6934,10 +6993,10 @@ func (e *encoder) encFieldssegment(v *segment) {
 	e.encT196(v.objStart)
 	e.encT196(v.nodeStart)
 	e.encT101(v.deps)
-	e.encT199(v.data)
+	e.encT200(v.data)
 	e.encT196(v.off)
 	e.encT196(v.size)
-	e.encT270(v.sum)
+	e.encT272(v.sum)
 }
 
 func (e *encoder) encsegment(v segment) { e.encFieldssegment(&v) }
@@ -6955,10 +7014,10 @@ func (e *encoder) encFieldssink(v *sink) {
 	e.encT19(v.tuple)
 	e.encT11(v.discard)
 	e.encT11(v.ret)
-	e.encT271(v.pass)
+	e.encT273(v.pass)
 	e.encT2(v.what)
-	e.encT272(v.missing)
-	e.encT273(v.noElse)
+	e.encT274(v.missing)
+	e.encT275(v.noElse)
 	e.encT11(v.optional)
 	e.encT11(v.none)
 	e.encType(v.hint)
@@ -6991,7 +7050,7 @@ func (e *encoder) encPtrstdEntry(v *stdEntry) {
 
 func (e *encoder) encFieldsstdSnapshot(v *stdSnapshot) {
 	e.encPtrstdBase(v.base)
-	e.encT85(v.paths)
+	e.encT84(v.paths)
 	e.encT198(v.packages)
 }
 
@@ -7043,7 +7102,7 @@ func (e *encoder) encPtrtrimmedNode(v *trimmedNode) {
 }
 
 func (e *encoder) encFieldstypeCtx(v *typeCtx) {
-	e.encT274(v.params)
+	e.encT276(v.params)
 	e.encT11(v.method)
 	e.encT2(v.hostRecv)
 	e.encT11(v.decl)
@@ -7064,8 +7123,8 @@ func (e *encoder) encPtrtypeCtx(v *typeCtx) {
 
 func (e *encoder) encFieldstypeEnv(v *typeEnv) {
 	e.encPtrfileInfo(v.file)
-	e.encT68(v.params)
-	e.encT275(v.local)
+	e.encT67(v.params)
+	e.encT277(v.local)
 }
 
 func (e *encoder) enctypeEnv(v typeEnv) { e.encFieldstypeEnv(&v) }
@@ -7078,10 +7137,10 @@ func (e *encoder) encPtrtypeEnv(v *typeEnv) {
 }
 
 func (e *encoder) encFieldstypeWalker(v *typeWalker) {
-	e.encT276(v.f)
-	e.encT277(v.slots)
-	e.encT278(v.index)
-	e.encT279(v.maps)
+	e.encT278(v.f)
+	e.encT279(v.slots)
+	e.encT280(v.index)
+	e.encT281(v.maps)
 }
 
 func (e *encoder) enctypeWalker(v typeWalker) { e.encFieldstypeWalker(&v) }
@@ -7130,7 +7189,7 @@ func (e *encoder) encPtruseSite(v *useSite) {
 }
 
 func (e *encoder) encFieldsvalueFrame(v *valueFrame) {
-	e.encT280(v.mode)
+	e.encT282(v.mode)
 	e.encSyntax_Pos(v.at)
 	e.encT2(v.via)
 }
@@ -7159,10 +7218,10 @@ func (e *encoder) encPtrvcand(v *vcand) {
 }
 
 func (e *encoder) encFieldsvnode(v *vnode) {
-	e.encT281(v.next)
-	e.encT282(v.vars)
-	e.encT283(v.rows)
-	e.encT284(v.rowList)
+	e.encT283(v.next)
+	e.encT284(v.vars)
+	e.encT285(v.rows)
+	e.encT286(v.rowList)
 	e.encPtrvnode(v.wild)
 	e.encT101(v.leaves)
 }
@@ -7191,7 +7250,7 @@ func (e *encoder) encPtrvrow(v *vrow) {
 }
 
 func (e *encoder) encFieldsvsym(v *vsym) {
-	e.encT241(v.kind)
+	e.encT242(v.kind)
 	e.encT147(v.ref)
 	e.encT133(v.n)
 	e.encT2(v.s)
@@ -7250,7 +7309,7 @@ func (e *encoder) encFieldswithFrame(v *withFrame) {
 	e.encT11(v.unknown)
 	e.encwithScope(v.outer)
 	e.encT1(v.depth)
-	e.encT285(v.at)
+	e.encT287(v.at)
 	e.encT19(v.caps)
 	e.encT118(v.entries)
 }
@@ -7280,7 +7339,7 @@ func (e *encoder) encPtrwithSite(v *withSite) {
 
 func (e *encoder) encFieldsworklist(v *worklist) {
 	e.encbodyHeap(v.h)
-	e.encT286(v.member)
+	e.encT288(v.member)
 	e.encT1(v.steps)
 }
 
@@ -7325,7 +7384,7 @@ func (e *encoder) encT183(v map[*vnode]map[int32][]*vnode) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encPtrvnode(k)
-		e.encT287(x)
+		e.encT289(x)
 	}
 }
 
@@ -7490,14 +7549,25 @@ func (e *encoder) encT198(v []*Package) {
 	}
 }
 
-func (e *encoder) encT199(v []byte) {
+func (e *encoder) encT199(v []v1.Hidden) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for _, x := range v {
-		e.encT241(x)
+		e.encV1_Hidden(x)
+	}
+}
+
+func (e *encoder) encT200(v []byte) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for _, x := range v {
+		e.encT242(x)
 	}
 }
 
@@ -7505,7 +7575,7 @@ func (e *encoder) encMintForm(v MintForm) { e.int(int64(v)) }
 
 func (e *encoder) encMintPlace(v MintPlace) { e.int(int64(v)) }
 
-func (e *encoder) encT200(v []MintFrame) {
+func (e *encoder) encT201(v []MintFrame) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7516,7 +7586,7 @@ func (e *encoder) encT200(v []MintFrame) {
 	}
 }
 
-func (e *encoder) encT201(v []RewriteArg) {
+func (e *encoder) encT202(v []RewriteArg) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7527,7 +7597,7 @@ func (e *encoder) encT201(v []RewriteArg) {
 	}
 }
 
-func (e *encoder) encT202(v []WitnessOp) {
+func (e *encoder) encT203(v []WitnessOp) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7548,7 +7618,7 @@ func (e *encoder) encPtrSyntax_BlockStmt(v *syntax.BlockStmt) {
 
 func (e *encoder) encassignClause(v assignClause) { e.int(int64(v)) }
 
-func (e *encoder) encT203(v []*bodyNode) {
+func (e *encoder) encT204(v []*bodyNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7559,7 +7629,7 @@ func (e *encoder) encT203(v []*bodyNode) {
 	}
 }
 
-func (e *encoder) encT204(v []syntax.Node) {
+func (e *encoder) encT205(v []syntax.Node) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7572,9 +7642,9 @@ func (e *encoder) encT204(v []syntax.Node) {
 
 func (e *encoder) encbranchKind(v branchKind) { e.int(int64(v)) }
 
-func (e *encoder) encsolverRow(v solverRow) { e.encT288([]cell(v)) }
+func (e *encoder) encsolverRow(v solverRow) { e.encT290([]cell(v)) }
 
-func (e *encoder) encT205(v []patBinding) {
+func (e *encoder) encT206(v []patBinding) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7585,7 +7655,7 @@ func (e *encoder) encT205(v []patBinding) {
 	}
 }
 
-func (e *encoder) encT206(v []*syntax.Ident) {
+func (e *encoder) encT207(v []*syntax.Ident) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7596,7 +7666,7 @@ func (e *encoder) encT206(v []*syntax.Ident) {
 	}
 }
 
-func (e *encoder) encT207(v map[int32]int) {
+func (e *encoder) encT208(v map[int32]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7608,7 +7678,7 @@ func (e *encoder) encT207(v map[int32]int) {
 	}
 }
 
-func (e *encoder) encT208(v map[int32]*catchMatrix) {
+func (e *encoder) encT209(v map[int32]*catchMatrix) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7622,13 +7692,13 @@ func (e *encoder) encT208(v map[int32]*catchMatrix) {
 
 func (e *encoder) encdomain(v domain) { e.int(int64(v)) }
 
-func (e *encoder) encT209(v func(w witness, col int, out *strings.Builder)) {
+func (e *encoder) encT210(v func(w witness, col int, out *strings.Builder)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT210(v map[int][]int) {
+func (e *encoder) encT211(v map[int][]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7640,7 +7710,7 @@ func (e *encoder) encT210(v map[int][]int) {
 	}
 }
 
-func (e *encoder) encT211(v map[int32]*Row) {
+func (e *encoder) encT212(v map[int32]*Row) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7652,7 +7722,7 @@ func (e *encoder) encT211(v map[int32]*Row) {
 	}
 }
 
-func (e *encoder) encT212(v map[int32]syntax.Expr) {
+func (e *encoder) encT213(v map[int32]syntax.Expr) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7664,7 +7734,7 @@ func (e *encoder) encT212(v map[int32]syntax.Expr) {
 	}
 }
 
-func (e *encoder) encT213(v []*syntax.ContextLit) {
+func (e *encoder) encT214(v []*syntax.ContextLit) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7675,7 +7745,7 @@ func (e *encoder) encT213(v []*syntax.ContextLit) {
 	}
 }
 
-func (e *encoder) encT214(v map[*Context]*contextNode) {
+func (e *encoder) encT215(v map[*Context]*contextNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7687,7 +7757,7 @@ func (e *encoder) encT214(v map[*Context]*contextNode) {
 	}
 }
 
-func (e *encoder) encT215(v []any) {
+func (e *encoder) encT216(v []any) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7698,7 +7768,7 @@ func (e *encoder) encT215(v []any) {
 	}
 }
 
-func (e *encoder) encT216(v []*checker) {
+func (e *encoder) encT217(v []*checker) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7709,7 +7779,7 @@ func (e *encoder) encT216(v []*checker) {
 	}
 }
 
-func (e *encoder) encT217(v map[int32]*Drop) {
+func (e *encoder) encT218(v map[int32]*Drop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7721,7 +7791,7 @@ func (e *encoder) encT217(v map[int32]*Drop) {
 	}
 }
 
-func (e *encoder) encT218(v map[any]uint64) {
+func (e *encoder) encT219(v map[any]uint64) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7741,7 +7811,7 @@ func (e *encoder) encPtrSyntax_NodeEncoder(v *syntax.NodeEncoder) {
 	e.uint(e.nodes.ID(v))
 }
 
-func (e *encoder) encT219(v []uint64) {
+func (e *encoder) encT220(v []uint64) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7752,7 +7822,7 @@ func (e *encoder) encT219(v []uint64) {
 	}
 }
 
-func (e *encoder) encT220(v map[int]bool) {
+func (e *encoder) encT221(v map[int]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7764,7 +7834,7 @@ func (e *encoder) encT220(v map[int]bool) {
 	}
 }
 
-func (e *encoder) encT221(v map[*Var]int) {
+func (e *encoder) encT222(v map[*Var]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7776,79 +7846,7 @@ func (e *encoder) encT221(v map[*Var]int) {
 	}
 }
 
-func (e *encoder) encT222(v map[*Var][]mutEvent) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrVar(k)
-		e.encT289(x)
-	}
-}
-
-func (e *encoder) encT223(v map[*Var][]*Var) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrVar(k)
-		e.encT120(x)
-	}
-}
-
-func (e *encoder) encT224(v map[*Var]bool) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrVar(k)
-		e.encT11(x)
-	}
-}
-
-func (e *encoder) encT225(v map[*Var]Type) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrVar(k)
-		e.encType(x)
-	}
-}
-
-func (e *encoder) encT226(v map[*Func]map[*TypeParam]string) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrFunc(k)
-		e.encT290(x)
-	}
-}
-
-func (e *encoder) encT227(v map[*syntax.FuncLit]*Var) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for k, x := range v {
-		e.encPtrSyntax_FuncLit(k)
-		e.encPtrVar(x)
-	}
-}
-
-func (e *encoder) encT228(v map[*Var][]litUse) {
+func (e *encoder) encT223(v map[*Var][]mutEvent) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7860,13 +7858,85 @@ func (e *encoder) encT228(v map[*Var][]litUse) {
 	}
 }
 
+func (e *encoder) encT224(v map[*Var][]*Var) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrVar(k)
+		e.encT120(x)
+	}
+}
+
+func (e *encoder) encT225(v map[*Var]bool) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrVar(k)
+		e.encT11(x)
+	}
+}
+
+func (e *encoder) encT226(v map[*Var]Type) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrVar(k)
+		e.encType(x)
+	}
+}
+
+func (e *encoder) encT227(v map[*Func]map[*TypeParam]string) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrFunc(k)
+		e.encT292(x)
+	}
+}
+
+func (e *encoder) encT228(v map[*syntax.FuncLit]*Var) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrSyntax_FuncLit(k)
+		e.encPtrVar(x)
+	}
+}
+
+func (e *encoder) encT229(v map[*Var][]litUse) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encPtrVar(k)
+		e.encT293(x)
+	}
+}
+
 func (e *encoder) encBuiltin_error(v error) {
 	if v != nil {
 		e.failf("an error value is not exported: %v", v)
 	}
 }
 
-func (e *encoder) encT229(v map[any]*fpNode) {
+func (e *encoder) encT230(v map[any]*fpNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7878,7 +7948,7 @@ func (e *encoder) encT229(v map[any]*fpNode) {
 	}
 }
 
-func (e *encoder) encT230(v []*fpNode) {
+func (e *encoder) encT231(v []*fpNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7889,7 +7959,7 @@ func (e *encoder) encT230(v []*fpNode) {
 	}
 }
 
-func (e *encoder) encT231(v map[*Context][]trimmedNode) {
+func (e *encoder) encT232(v map[*Context][]trimmedNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7897,11 +7967,11 @@ func (e *encoder) encT231(v map[*Context][]trimmedNode) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encPtrContext(k)
-		e.encT292(x)
+		e.encT294(x)
 	}
 }
 
-func (e *encoder) encT232(v map[*TypeName]Type) {
+func (e *encoder) encT233(v map[*TypeName]Type) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7913,19 +7983,19 @@ func (e *encoder) encT232(v map[*TypeName]Type) {
 	}
 }
 
-func (e *encoder) encT233(v func(int, *syntax.Ident)) {
+func (e *encoder) encT234(v func(int, *syntax.Ident)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT234(v func()) {
+func (e *encoder) encT235(v func()) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT235(v map[*Var]lendPoint) {
+func (e *encoder) encT236(v map[*Var]lendPoint) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7937,7 +8007,7 @@ func (e *encoder) encT235(v map[*Var]lendPoint) {
 	}
 }
 
-func (e *encoder) encT236(v map[syntax.Node][]resourceLoan) {
+func (e *encoder) encT237(v map[syntax.Node][]resourceLoan) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7945,13 +8015,13 @@ func (e *encoder) encT236(v map[syntax.Node][]resourceLoan) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encSyntax_Node(k)
-		e.encT248(x)
+		e.encT249(x)
 	}
 }
 
 func (e *encoder) enclitKind(v litKind) { e.uint(uint64(v)) }
 
-func (e *encoder) encT237(v map[string]missingResult) {
+func (e *encoder) encT238(v map[string]missingResult) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7963,7 +8033,7 @@ func (e *encoder) encT237(v map[string]missingResult) {
 	}
 }
 
-func (e *encoder) encT238(v map[rowRef]int) {
+func (e *encoder) encT239(v map[rowRef]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7975,7 +8045,7 @@ func (e *encoder) encT238(v map[rowRef]int) {
 	}
 }
 
-func (e *encoder) encT239(v map[Type]bool) {
+func (e *encoder) encT240(v map[Type]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7987,7 +8057,7 @@ func (e *encoder) encT239(v map[Type]bool) {
 	}
 }
 
-func (e *encoder) encT240(v []Mint) {
+func (e *encoder) encT241(v []Mint) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -7998,24 +8068,24 @@ func (e *encoder) encT240(v []Mint) {
 	}
 }
 
-func (e *encoder) encwitness(v witness) { e.encT269(map[int]int(v)) }
+func (e *encoder) encwitness(v witness) { e.encT271(map[int]int(v)) }
 
-func (e *encoder) encT241(v byte) { e.uint(uint64(v)) }
+func (e *encoder) encT242(v byte) { e.uint(uint64(v)) }
 
-func (e *encoder) encT242(v [][]any) {
+func (e *encoder) encT243(v [][]any) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for _, x := range v {
-		e.encT215(x)
+		e.encT216(x)
 	}
 }
 
 func (e *encoder) encopMode(v opMode) { e.int(int64(v)) }
 
-func (e *encoder) encT243(v []ownState) {
+func (e *encoder) encT244(v []ownState) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8026,7 +8096,7 @@ func (e *encoder) encT243(v []ownState) {
 	}
 }
 
-func (e *encoder) encT244(v []*ownLoop) {
+func (e *encoder) encT245(v []*ownLoop) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8037,7 +8107,7 @@ func (e *encoder) encT244(v []*ownLoop) {
 	}
 }
 
-func (e *encoder) encT245(v []*ownCatch) {
+func (e *encoder) encT246(v []*ownCatch) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8048,7 +8118,7 @@ func (e *encoder) encT245(v []*ownCatch) {
 	}
 }
 
-func (e *encoder) encT246(v []ownDiag) {
+func (e *encoder) encT247(v []ownDiag) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8061,7 +8131,7 @@ func (e *encoder) encT246(v []ownDiag) {
 
 func (e *encoder) encownSt(v ownSt) { e.uint(uint64(v)) }
 
-func (e *encoder) encT247(v []ownLoan) {
+func (e *encoder) encT248(v []ownLoan) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8072,7 +8142,7 @@ func (e *encoder) encT247(v []ownLoan) {
 	}
 }
 
-func (e *encoder) encT248(v []resourceLoan) {
+func (e *encoder) encT249(v []resourceLoan) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8083,7 +8153,7 @@ func (e *encoder) encT248(v []resourceLoan) {
 	}
 }
 
-func (e *encoder) encT249(v []ownSlot) {
+func (e *encoder) encT250(v []ownSlot) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8096,7 +8166,7 @@ func (e *encoder) encT249(v []ownSlot) {
 
 func (e *encoder) encownMode(v ownMode) { e.uint(uint64(v)) }
 
-func (e *encoder) encT250(v []ownLocal) {
+func (e *encoder) encT251(v []ownLocal) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8107,7 +8177,7 @@ func (e *encoder) encT250(v []ownLocal) {
 	}
 }
 
-func (e *encoder) encT251(v []ownScope) {
+func (e *encoder) encT252(v []ownScope) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8118,7 +8188,7 @@ func (e *encoder) encT251(v []ownScope) {
 	}
 }
 
-func (e *encoder) encT252(v map[syntax.Node]*ownLoopMemo) {
+func (e *encoder) encT253(v map[syntax.Node]*ownLoopMemo) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8130,7 +8200,7 @@ func (e *encoder) encT252(v map[syntax.Node]*ownLoopMemo) {
 	}
 }
 
-func (e *encoder) encT253(v map[*TypeParam]CopySite) {
+func (e *encoder) encT254(v map[*TypeParam]CopySite) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8142,7 +8212,7 @@ func (e *encoder) encT253(v map[*TypeParam]CopySite) {
 	}
 }
 
-func (e *encoder) encT254(v map[*Var]*Var) {
+func (e *encoder) encT255(v map[*Var]*Var) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8154,7 +8224,7 @@ func (e *encoder) encT254(v map[*Var]*Var) {
 	}
 }
 
-func (e *encoder) encT255(v []colInfo) {
+func (e *encoder) encT256(v []colInfo) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8165,7 +8235,7 @@ func (e *encoder) encT255(v []colInfo) {
 	}
 }
 
-func (e *encoder) encT256(v []column) {
+func (e *encoder) encT257(v []column) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8176,19 +8246,19 @@ func (e *encoder) encT256(v []column) {
 	}
 }
 
-func (e *encoder) encT257(v map[[3]int]int) {
+func (e *encoder) encT258(v map[[3]int]int) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
-		e.encT293(k)
+		e.encT295(k)
 		e.encT1(x)
 	}
 }
 
-func (e *encoder) encT258(v []patNode) {
+func (e *encoder) encT259(v []patNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8199,7 +8269,7 @@ func (e *encoder) encT258(v []patNode) {
 	}
 }
 
-func (e *encoder) encT259(v []placeStep) {
+func (e *encoder) encT260(v []placeStep) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8210,18 +8280,30 @@ func (e *encoder) encT259(v []placeStep) {
 	}
 }
 
-func (e *encoder) encT260(v []map[string]*localBinding) {
+func (e *encoder) encT261(v map[string]*pureBinding) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for k, x := range v {
+		e.encT2(k)
+		e.encPtrpureBinding(x)
+	}
+}
+
+func (e *encoder) encT262(v []map[string]*localBinding) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for _, x := range v {
-		e.encT294(x)
+		e.encT296(x)
 	}
 }
 
-func (e *encoder) encT261(v []valueFrame) {
+func (e *encoder) encT263(v []valueFrame) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8232,7 +8314,7 @@ func (e *encoder) encT261(v []valueFrame) {
 	}
 }
 
-func (e *encoder) encT262(v map[syntax.Node][2]bool) {
+func (e *encoder) encT264(v map[syntax.Node][2]bool) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8244,7 +8326,7 @@ func (e *encoder) encT262(v map[syntax.Node][2]bool) {
 	}
 }
 
-func (e *encoder) encT263(v []pendingSelf) {
+func (e *encoder) encT265(v []pendingSelf) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8255,7 +8337,7 @@ func (e *encoder) encT263(v []pendingSelf) {
 	}
 }
 
-func (e *encoder) encT264(v []*syntax.SelectorExpr) {
+func (e *encoder) encT266(v []*syntax.SelectorExpr) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8266,7 +8348,7 @@ func (e *encoder) encT264(v []*syntax.SelectorExpr) {
 	}
 }
 
-func (e *encoder) encT265(v map[*syntax.Ident]any) {
+func (e *encoder) encT267(v map[*syntax.Ident]any) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8278,7 +8360,7 @@ func (e *encoder) encT265(v map[*syntax.Ident]any) {
 	}
 }
 
-func (e *encoder) encT266(v map[int32]*taskNode) {
+func (e *encoder) encT268(v map[int32]*taskNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8290,7 +8372,7 @@ func (e *encoder) encT266(v map[int32]*taskNode) {
 	}
 }
 
-func (e *encoder) encT267(v []solverRow) {
+func (e *encoder) encT269(v []solverRow) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8301,19 +8383,19 @@ func (e *encoder) encT267(v []solverRow) {
 	}
 }
 
-func (e *encoder) encT268(v map[[2]int][]int) {
+func (e *encoder) encT270(v map[[2]int][]int) {
 	if v == nil {
 		e.uint(0)
 		return
 	}
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
-		e.encT295(k)
+		e.encT297(k)
 		e.encT101(x)
 	}
 }
 
-func (e *encoder) encT269(v map[int]int) {
+func (e *encoder) encT271(v map[int]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8325,31 +8407,31 @@ func (e *encoder) encT269(v map[int]int) {
 	}
 }
 
-func (e *encoder) encT270(v [32]byte) {
+func (e *encoder) encT272(v [32]byte) {
 	for _, x := range v {
-		e.encT241(x)
+		e.encT242(x)
 	}
 }
 
-func (e *encoder) encT271(v func(*operand)) {
+func (e *encoder) encT273(v func(*operand)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT272(v func(end syntax.Pos)) {
+func (e *encoder) encT274(v func(end syntax.Pos)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT273(v func(s *syntax.IfStmt)) {
+func (e *encoder) encT275(v func(s *syntax.IfStmt)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT274(v map[string]*TypeParam) {
+func (e *encoder) encT276(v map[string]*TypeParam) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8361,43 +8443,43 @@ func (e *encoder) encT274(v map[string]*TypeParam) {
 	}
 }
 
-func (e *encoder) encT275(v func(name string) bool) {
+func (e *encoder) encT277(v func(name string) bool) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT276(v func(*syntax.Ident, Kind)) {
+func (e *encoder) encT278(v func(*syntax.Ident, Kind)) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT277(v func(head syntax.Expr) []Kind) {
+func (e *encoder) encT279(v func(head syntax.Expr) []Kind) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT278(v func(ix *syntax.IndexExpr) bool) {
+func (e *encoder) encT280(v func(ix *syntax.IndexExpr) bool) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT279(v func(m *syntax.MapType) syntax.Expr) {
+func (e *encoder) encT281(v func(m *syntax.MapType) syntax.Expr) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT280(v [2]frameMode) {
+func (e *encoder) encT282(v [2]frameMode) {
 	for _, x := range v {
 		e.encframeMode(x)
 	}
 }
 
-func (e *encoder) encT281(v map[vsym]*vnode) {
+func (e *encoder) encT283(v map[vsym]*vnode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8409,7 +8491,7 @@ func (e *encoder) encT281(v map[vsym]*vnode) {
 	}
 }
 
-func (e *encoder) encT282(v map[*TypeParam]*vnode) {
+func (e *encoder) encT284(v map[*TypeParam]*vnode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8421,7 +8503,7 @@ func (e *encoder) encT282(v map[*TypeParam]*vnode) {
 	}
 }
 
-func (e *encoder) encT283(v map[int32]*vrow) {
+func (e *encoder) encT285(v map[int32]*vrow) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8433,7 +8515,7 @@ func (e *encoder) encT283(v map[int32]*vrow) {
 	}
 }
 
-func (e *encoder) encT284(v []*vrow) {
+func (e *encoder) encT286(v []*vrow) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8444,7 +8526,7 @@ func (e *encoder) encT284(v []*vrow) {
 	}
 }
 
-func (e *encoder) encT285(v map[capKey]int) {
+func (e *encoder) encT287(v map[capKey]int) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8456,15 +8538,15 @@ func (e *encoder) encT285(v map[capKey]int) {
 	}
 }
 
-func (e *encoder) encbodyHeap(v bodyHeap) { e.encT203([]*bodyNode(v)) }
+func (e *encoder) encbodyHeap(v bodyHeap) { e.encT204([]*bodyNode(v)) }
 
-func (e *encoder) encT286(v func(*bodyNode) bool) {
+func (e *encoder) encT288(v func(*bodyNode) bool) {
 	if v != nil {
 		e.failf("a function value of type %T is not exported", v)
 	}
 }
 
-func (e *encoder) encT287(v map[int32][]*vnode) {
+func (e *encoder) encT289(v map[int32][]*vnode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8472,11 +8554,13 @@ func (e *encoder) encT287(v map[int32][]*vnode) {
 	e.uint(uint64(len(v)) + 1)
 	for k, x := range v {
 		e.encT146(k)
-		e.encT296(x)
+		e.encT298(x)
 	}
 }
 
-func (e *encoder) encT288(v []cell) {
+func (e *encoder) encV1_Hidden(v v1.Hidden) { e.string(string(v)) }
+
+func (e *encoder) encT290(v []cell) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8487,7 +8571,7 @@ func (e *encoder) encT288(v []cell) {
 	}
 }
 
-func (e *encoder) encT289(v []mutEvent) {
+func (e *encoder) encT291(v []mutEvent) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8498,7 +8582,7 @@ func (e *encoder) encT289(v []mutEvent) {
 	}
 }
 
-func (e *encoder) encT290(v map[*TypeParam]string) {
+func (e *encoder) encT292(v map[*TypeParam]string) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8510,7 +8594,7 @@ func (e *encoder) encT290(v map[*TypeParam]string) {
 	}
 }
 
-func (e *encoder) encT291(v []litUse) {
+func (e *encoder) encT293(v []litUse) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8521,7 +8605,7 @@ func (e *encoder) encT291(v []litUse) {
 	}
 }
 
-func (e *encoder) encT292(v []trimmedNode) {
+func (e *encoder) encT294(v []trimmedNode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8532,13 +8616,13 @@ func (e *encoder) encT292(v []trimmedNode) {
 	}
 }
 
-func (e *encoder) encT293(v [3]int) {
+func (e *encoder) encT295(v [3]int) {
 	for _, x := range v {
 		e.encT1(x)
 	}
 }
 
-func (e *encoder) encT294(v map[string]*localBinding) {
+func (e *encoder) encT296(v map[string]*localBinding) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8550,7 +8634,7 @@ func (e *encoder) encT294(v map[string]*localBinding) {
 	}
 }
 
-func (e *encoder) encT295(v [2]int) {
+func (e *encoder) encT297(v [2]int) {
 	for _, x := range v {
 		e.encT1(x)
 	}
@@ -8558,7 +8642,7 @@ func (e *encoder) encT295(v [2]int) {
 
 func (e *encoder) encframeMode(v frameMode) { e.uint(uint64(v)) }
 
-func (e *encoder) encT296(v []*vnode) {
+func (e *encoder) encT298(v []*vnode) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -8612,6 +8696,8 @@ func (d *decoder) decFieldsPackage(v *Package) {
 	v.ErrorTypes = d.decT10()
 	v.qualify = d.decT11()
 	v.std = d.decT11()
+	v.module = d.decT2()
+	v.trusted = d.decT11()
 	v.host = d.decPtrhostPkg()
 	v.owners = d.decT12()
 	v.files = d.decT13()
@@ -8850,39 +8936,38 @@ func (d *decoder) decFieldsInfo(v *Info) {
 	v.Closes = d.decT30()
 	v.Implicit = d.decT31()
 	v.Spreads = d.decT32()
-	v.Works = d.decT33()
-	v.ImplicitElems = d.decT34()
-	v.Patterns = d.decT35()
-	v.Matches = d.decT36()
-	v.Tails = d.decT37()
-	v.Literals = d.decT38()
-	v.ValueCaptures = d.decT39()
-	v.LocalFrames = d.decT40()
-	v.Loops = d.decT41()
-	v.Withs = d.decT42()
-	v.ContextValues = d.decT43()
-	v.InitOrder = d.decT44()
-	v.Footprints = d.decT45()
-	v.Instances = d.decT46()
-	v.ReturnedValues = d.decT47()
-	v.Releases = d.decT48()
-	v.OwnedVars = d.decT49()
-	v.OwnedTemps = d.decT50()
-	v.PartHands = d.decT47()
-	v.ArmHeld = d.decT47()
-	v.LentYields = d.decT47()
-	v.HeldIn = d.decT51()
-	v.Replaced = d.decT52()
-	v.TaskCaptures = d.decT53()
-	v.ResultDrops = d.decT54()
-	v.CloseParts = d.decT55()
-	v.ReturnedTemps = d.decT47()
-	v.ArmValues = d.decT50()
-	v.FieldTakes = d.decT56()
-	v.Handoffs = d.decT57()
-	v.PatternOwners = d.decT58()
-	v.Takes = d.decT59()
-	v.Copies = d.decT60()
+	v.ImplicitElems = d.decT33()
+	v.Patterns = d.decT34()
+	v.Matches = d.decT35()
+	v.Tails = d.decT36()
+	v.Literals = d.decT37()
+	v.ValueCaptures = d.decT38()
+	v.LocalFrames = d.decT39()
+	v.Loops = d.decT40()
+	v.Withs = d.decT41()
+	v.ContextValues = d.decT42()
+	v.InitOrder = d.decT43()
+	v.Footprints = d.decT44()
+	v.Instances = d.decT45()
+	v.ReturnedValues = d.decT46()
+	v.Releases = d.decT47()
+	v.OwnedVars = d.decT48()
+	v.OwnedTemps = d.decT49()
+	v.PartHands = d.decT46()
+	v.ArmHeld = d.decT46()
+	v.LentYields = d.decT46()
+	v.HeldIn = d.decT50()
+	v.Replaced = d.decT51()
+	v.TaskCaptures = d.decT52()
+	v.ResultDrops = d.decT53()
+	v.CloseParts = d.decT54()
+	v.ReturnedTemps = d.decT46()
+	v.ArmValues = d.decT49()
+	v.FieldTakes = d.decT55()
+	v.Handoffs = d.decT56()
+	v.PatternOwners = d.decT57()
+	v.Takes = d.decT58()
+	v.Copies = d.decT59()
 }
 
 func (d *decoder) decInfo() (v Info) {
@@ -8912,7 +8997,7 @@ func (d *decoder) decT10() map[FactOwner]map[*Named]bool {
 	v := make(map[FactOwner]map[*Named]bool, n-1)
 	for range n - 1 {
 		k := d.decFactOwner()
-		v[k] = d.decT61()
+		v[k] = d.decT60()
 	}
 	return v
 }
@@ -8926,12 +9011,12 @@ func (d *decoder) decFieldshostPkg(v *hostPkg) {
 	v.fi = d.decPtrfileInfo()
 	v.loaded = d.decT11()
 	v.err = d.decT2()
-	v.vars = d.decT62()
-	v.refused = d.decT63()
-	v.recvPtr = d.decT64()
-	v.variadic = d.decT64()
-	v.context = d.decT64()
-	v.goLines = d.decT65()
+	v.vars = d.decT61()
+	v.refused = d.decT62()
+	v.recvPtr = d.decT63()
+	v.variadic = d.decT63()
+	v.context = d.decT63()
+	v.goLines = d.decT64()
 }
 
 func (d *decoder) dechostPkg() (v hostPkg) {
@@ -9076,7 +9161,7 @@ func (d *decoder) decFieldsfileInfo(v *fileInfo) {
 	v.syntax = d.decPtrSyntax_File()
 	v.index = d.decT1()
 	v.scope = d.decPtrScope()
-	v.imports = d.decT66()
+	v.imports = d.decT65()
 }
 
 func (d *decoder) decfileInfo() (v fileInfo) {
@@ -9180,7 +9265,7 @@ func (d *decoder) decT18() []*Builder {
 
 func (d *decoder) decFieldsRefinement(v *Refinement) {
 	v.Len = d.decT11()
-	v.Spans = d.decT67()
+	v.Spans = d.decT66()
 	v.Text = d.decT2()
 }
 
@@ -9248,48 +9333,49 @@ func (d *decoder) decFieldschecker(v *checker) {
 	v.universe = d.decPtrScope()
 	v.files = d.decT13()
 	v.diags = d.decT24()
-	v.seen = d.decT68()
+	v.seen = d.decT67()
 	v.silent = d.decT1()
 	v.shallow = d.decT1()
 	v.tests = d.dectestState()
-	v.relSeeds = d.decT69()
-	v.relHit = d.decT70()
-	v.wireNeeds = d.decT71()
-	v.lateEdges = d.decT72()
-	v.wireEdges = d.decT72()
-	v.refusedBinders = d.decT73()
-	v.aliases = d.decT74()
+	v.relSeeds = d.decT68()
+	v.relHit = d.decT69()
+	v.wireNeeds = d.decT70()
+	v.lateEdges = d.decT71()
+	v.wireEdges = d.decT71()
+	v.refusedBinders = d.decT72()
+	v.aliases = d.decT73()
 	v.writeTarget = d.decSyntax_Expr()
-	v.refusedMembers = d.decT75()
-	v.inferredRefs = d.decT76()
-	v.dupNames = d.decT68()
-	v.workSends = d.decT77()
-	v.durableCalls = d.decT78()
+	v.refusedMembers = d.decT74()
+	v.inferredRefs = d.decT75()
+	v.dupNames = d.decT67()
+	v.pureArgs = d.decT76()
 	v.lawPreds = d.decT8()
-	v.withSites = d.decT79()
-	v.contextValueSites = d.decT80()
+	v.withSites = d.decT77()
+	v.contextValueSites = d.decT78()
 	v.contextOwners = d.deccontextOwners()
 	v.cur = d.decPtrfileInfo()
-	v.owners = d.decT81()
-	v.origins = d.decT82()
-	v.instance = d.decT83()
-	v.inferInstances = d.decT83()
+	v.owners = d.decT79()
+	v.origins = d.decT80()
+	v.instance = d.decT81()
+	v.inferInstances = d.decT81()
 	v.includesExpanded = d.decT11()
-	v.inferSubjects = d.decT84()
-	v.settled = d.decT64()
-	v.widened = d.decT85()
-	v.refs = d.decT86()
-	v.valueRefs = d.decT87()
-	v.group = d.decT64()
-	v.groupValue = d.decT88()
-	v.lits = d.decT89()
+	v.declOps = d.decT82()
+	v.inferSubjects = d.decT83()
+	v.settled = d.decT63()
+	v.widened = d.decT84()
+	v.refs = d.decT85()
+	v.valueRefs = d.decT86()
+	v.group = d.decT63()
+	v.groupValue = d.decT87()
+	v.lits = d.decT88()
 	v.walkOps = d.decT1()
-	v.resMemo = d.decT90()
+	v.resMemo = d.decT89()
 	v.resSteps = d.decT1()
 	v.ownSteps = d.decT1()
 	v.providing = d.decT11()
-	v.cellTypes = d.decT61()
-	v.cellHolds = d.decT83()
+	v.capture = d.decT90()
+	v.cellTypes = d.decT60()
+	v.cellHolds = d.decT81()
 	v.cellSites = d.decT91()
 	v.encodeLend = d.decT11()
 	v.typeNamedFuncs = d.decT5()
@@ -9298,9 +9384,9 @@ func (d *decoder) decFieldschecker(v *checker) {
 	v.ownershipSites = d.decT93()
 	v.ownershipSeen = d.decT94()
 	v.takesSeen = d.decT95()
-	v.mapKeysSeen = d.decT47()
-	v.typeNodes = d.decT47()
-	v.intoInvalid = d.decT47()
+	v.mapKeysSeen = d.decT46()
+	v.typeNodes = d.decT46()
+	v.intoInvalid = d.decT46()
 	v.contexts = d.decPtrcontextMeter()
 	v.contextsDone = d.decT11()
 	v.withs = d.decPtrcontextMeter()
@@ -9309,9 +9395,9 @@ func (d *decoder) decFieldschecker(v *checker) {
 	v.contextBodies = d.decT97()
 	v.contextEntries = d.decT98()
 	v.convergeChecks = d.decT1()
-	v.grew = d.decT75()
+	v.grew = d.decT74()
 	v.asNames = d.decT99()
-	v.literals = d.decT47()
+	v.literals = d.decT46()
 	v.callee = d.decPtrSyntax_SelectorExpr()
 	v.calleeIndex = d.decPtrSyntax_IndexExpr()
 	v.elidedLit = d.decPtrSyntax_CompositeLit()
@@ -9350,18 +9436,18 @@ func (d *decoder) decFieldschecker(v *checker) {
 	v.inferOps = d.decT1()
 	v.types = d.decPtrtypeTable()
 	v.vindex = d.decT108()
-	v.subjects = d.decT84()
+	v.subjects = d.decT83()
 	v.mono = d.decmonoState()
 	v.errorTypes = d.decT109()
 	v.owner = d.decFactOwner()
 	v.funcs = d.decT5()
 	v.vars = d.decT110()
 	v.machines = d.decT6()
-	v.guarded = d.decT64()
+	v.guarded = d.decT63()
 	v.reach = d.decT111()
-	v.providers = d.decT112()
-	v.variants = d.decT113()
-	v.synthetic = d.decT77()
+	v.providers = d.decT82()
+	v.variants = d.decT112()
+	v.synthetic = d.decT113()
 	v.pkgPatterns = d.decT114()
 	v.mapInstances = d.decT115()
 	v.refining = d.decT11()
@@ -9652,20 +9738,7 @@ func (d *decoder) decT32() map[*syntax.CompositeLit][]Spread {
 	return v
 }
 
-func (d *decoder) decT33() map[*syntax.CompositeLit]*WorkLit {
-	n := d.uint()
-	if n == 0 {
-		return nil
-	}
-	v := make(map[*syntax.CompositeLit]*WorkLit, n-1)
-	for range n - 1 {
-		k := d.decPtrSyntax_CompositeLit()
-		v[k] = d.decPtrWorkLit()
-	}
-	return v
-}
-
-func (d *decoder) decT34() map[syntax.Expr][]Conversion {
+func (d *decoder) decT33() map[syntax.Expr][]Conversion {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9678,7 +9751,7 @@ func (d *decoder) decT34() map[syntax.Expr][]Conversion {
 	return v
 }
 
-func (d *decoder) decT35() map[syntax.Expr]*Pattern {
+func (d *decoder) decT34() map[syntax.Expr]*Pattern {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9691,7 +9764,7 @@ func (d *decoder) decT35() map[syntax.Expr]*Pattern {
 	return v
 }
 
-func (d *decoder) decT36() map[syntax.Node]*Match {
+func (d *decoder) decT35() map[syntax.Node]*Match {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9704,7 +9777,7 @@ func (d *decoder) decT36() map[syntax.Node]*Match {
 	return v
 }
 
-func (d *decoder) decT37() map[syntax.Stmt]Type {
+func (d *decoder) decT36() map[syntax.Stmt]Type {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9717,7 +9790,7 @@ func (d *decoder) decT37() map[syntax.Stmt]Type {
 	return v
 }
 
-func (d *decoder) decT38() map[syntax.Node]*Signature {
+func (d *decoder) decT37() map[syntax.Node]*Signature {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9730,7 +9803,7 @@ func (d *decoder) decT38() map[syntax.Node]*Signature {
 	return v
 }
 
-func (d *decoder) decT39() map[syntax.Node][]*Var {
+func (d *decoder) decT38() map[syntax.Node][]*Var {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9743,7 +9816,7 @@ func (d *decoder) decT39() map[syntax.Node][]*Var {
 	return v
 }
 
-func (d *decoder) decT40() map[*syntax.FuncLit]bool {
+func (d *decoder) decT39() map[*syntax.FuncLit]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9756,7 +9829,7 @@ func (d *decoder) decT40() map[*syntax.FuncLit]bool {
 	return v
 }
 
-func (d *decoder) decT41() map[*syntax.RangeStmt]*Loop {
+func (d *decoder) decT40() map[*syntax.RangeStmt]*Loop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9769,7 +9842,7 @@ func (d *decoder) decT41() map[*syntax.RangeStmt]*Loop {
 	return v
 }
 
-func (d *decoder) decT42() map[*syntax.CallExpr]*With {
+func (d *decoder) decT41() map[*syntax.CallExpr]*With {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9782,7 +9855,7 @@ func (d *decoder) decT42() map[*syntax.CallExpr]*With {
 	return v
 }
 
-func (d *decoder) decT43() map[syntax.Expr]*With {
+func (d *decoder) decT42() map[syntax.Expr]*With {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9795,7 +9868,7 @@ func (d *decoder) decT43() map[syntax.Expr]*With {
 	return v
 }
 
-func (d *decoder) decT44() []*Initializer {
+func (d *decoder) decT43() []*Initializer {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9807,7 +9880,7 @@ func (d *decoder) decT44() []*Initializer {
 	return v
 }
 
-func (d *decoder) decT45() map[syntax.Node]Footprint {
+func (d *decoder) decT44() map[syntax.Node]Footprint {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9820,7 +9893,7 @@ func (d *decoder) decT45() map[syntax.Node]Footprint {
 	return v
 }
 
-func (d *decoder) decT46() map[syntax.Expr]*Instance {
+func (d *decoder) decT45() map[syntax.Expr]*Instance {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9833,7 +9906,7 @@ func (d *decoder) decT46() map[syntax.Expr]*Instance {
 	return v
 }
 
-func (d *decoder) decT47() map[syntax.Expr]bool {
+func (d *decoder) decT46() map[syntax.Expr]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9846,7 +9919,7 @@ func (d *decoder) decT47() map[syntax.Expr]bool {
 	return v
 }
 
-func (d *decoder) decT48() map[syntax.Node][]Release {
+func (d *decoder) decT47() map[syntax.Node][]Release {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9859,7 +9932,7 @@ func (d *decoder) decT48() map[syntax.Node][]Release {
 	return v
 }
 
-func (d *decoder) decT49() map[*Var]*Drop {
+func (d *decoder) decT48() map[*Var]*Drop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9872,7 +9945,7 @@ func (d *decoder) decT49() map[*Var]*Drop {
 	return v
 }
 
-func (d *decoder) decT50() map[syntax.Expr]*Drop {
+func (d *decoder) decT49() map[syntax.Expr]*Drop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9885,7 +9958,7 @@ func (d *decoder) decT50() map[syntax.Expr]*Drop {
 	return v
 }
 
-func (d *decoder) decT51() map[syntax.Expr]syntax.Expr {
+func (d *decoder) decT50() map[syntax.Expr]syntax.Expr {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9898,7 +9971,7 @@ func (d *decoder) decT51() map[syntax.Expr]syntax.Expr {
 	return v
 }
 
-func (d *decoder) decT52() map[*syntax.CompositeLit][]Replaced {
+func (d *decoder) decT51() map[*syntax.CompositeLit][]Replaced {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9911,7 +9984,7 @@ func (d *decoder) decT52() map[*syntax.CompositeLit][]Replaced {
 	return v
 }
 
-func (d *decoder) decT53() map[syntax.Node]*TaskCapture {
+func (d *decoder) decT52() map[syntax.Node]*TaskCapture {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9924,7 +9997,7 @@ func (d *decoder) decT53() map[syntax.Node]*TaskCapture {
 	return v
 }
 
-func (d *decoder) decT54() map[*syntax.CallExpr]*Drop {
+func (d *decoder) decT53() map[*syntax.CallExpr]*Drop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9937,7 +10010,7 @@ func (d *decoder) decT54() map[*syntax.CallExpr]*Drop {
 	return v
 }
 
-func (d *decoder) decT55() map[*Func]*Drop {
+func (d *decoder) decT54() map[*Func]*Drop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9950,7 +10023,7 @@ func (d *decoder) decT55() map[*Func]*Drop {
 	return v
 }
 
-func (d *decoder) decT56() map[*syntax.SelectorExpr]FieldTake {
+func (d *decoder) decT55() map[*syntax.SelectorExpr]FieldTake {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9963,7 +10036,7 @@ func (d *decoder) decT56() map[*syntax.SelectorExpr]FieldTake {
 	return v
 }
 
-func (d *decoder) decT57() map[*syntax.Ident]*Var {
+func (d *decoder) decT56() map[*syntax.Ident]*Var {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9976,7 +10049,7 @@ func (d *decoder) decT57() map[*syntax.Ident]*Var {
 	return v
 }
 
-func (d *decoder) decT58() map[*syntax.CaseClause]PatternOwners {
+func (d *decoder) decT57() map[*syntax.CaseClause]PatternOwners {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -9989,7 +10062,7 @@ func (d *decoder) decT58() map[*syntax.CaseClause]PatternOwners {
 	return v
 }
 
-func (d *decoder) decT59() map[*Func][]int {
+func (d *decoder) decT58() map[*Func][]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10002,7 +10075,7 @@ func (d *decoder) decT59() map[*Func][]int {
 	return v
 }
 
-func (d *decoder) decT60() map[*Func][]CopySite {
+func (d *decoder) decT59() map[*Func][]CopySite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10017,7 +10090,7 @@ func (d *decoder) decT60() map[*Func][]CopySite {
 
 func (d *decoder) decFactOwner() FactOwner { return FactOwner(d.uint()) }
 
-func (d *decoder) decT61() map[*Named]bool {
+func (d *decoder) decT60() map[*Named]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10055,7 +10128,7 @@ func (d *decoder) decPtrGoBindings() *GoBindings {
 	return v
 }
 
-func (d *decoder) decT62() map[*Var]*syntax.VarSpec {
+func (d *decoder) decT61() map[*Var]*syntax.VarSpec {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10068,7 +10141,7 @@ func (d *decoder) decT62() map[*Var]*syntax.VarSpec {
 	return v
 }
 
-func (d *decoder) decT63() map[string]string {
+func (d *decoder) decT62() map[string]string {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10081,7 +10154,7 @@ func (d *decoder) decT63() map[string]string {
 	return v
 }
 
-func (d *decoder) decT64() map[*Func]bool {
+func (d *decoder) decT63() map[*Func]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10094,7 +10167,7 @@ func (d *decoder) decT64() map[*Func]bool {
 	return v
 }
 
-func (d *decoder) decT65() map[int]string {
+func (d *decoder) decT64() map[int]string {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10370,6 +10443,7 @@ func (d *decoder) decFieldsSignature(v *Signature) {
 	v.Errors = d.decPtrRow()
 	v.Uses = d.decPtrRow()
 	v.NonEscaping = d.decT11()
+	v.Entry = d.decT11()
 	v.Takes = d.decT101()
 	v.TakesSelf = d.decT11()
 }
@@ -10572,7 +10646,7 @@ func (d *decoder) decPtrSyntax_File() *syntax.File {
 	return x.(*syntax.File)
 }
 
-func (d *decoder) decT66() []*PkgName {
+func (d *decoder) decT65() []*PkgName {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10619,7 +10693,7 @@ func (d *decoder) decPtrGoExtern() *GoExtern {
 	return v
 }
 
-func (d *decoder) decT67() []Span {
+func (d *decoder) decT66() []Span {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10673,7 +10747,7 @@ func (d *decoder) decImporter() Importer {
 	return nil
 }
 
-func (d *decoder) decT68() map[string]bool {
+func (d *decoder) decT67() map[string]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10688,7 +10762,7 @@ func (d *decoder) decT68() map[string]bool {
 
 func (d *decoder) decFieldstestState(v *testState) {
 	v.stray = d.decT140()
-	v.names = d.decT63()
+	v.names = d.decT62()
 	v.all = d.decT7()
 	v.ranks = d.decPtrValueRanks()
 	v.sees = d.decT141()
@@ -10700,7 +10774,7 @@ func (d *decoder) dectestState() (v testState) {
 	return v
 }
 
-func (d *decoder) decT69() map[syntax.Node]relSeed {
+func (d *decoder) decT68() map[syntax.Node]relSeed {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10713,7 +10787,7 @@ func (d *decoder) decT69() map[syntax.Node]relSeed {
 	return v
 }
 
-func (d *decoder) decT70() map[syntax.Node]bool {
+func (d *decoder) decT69() map[syntax.Node]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10726,7 +10800,7 @@ func (d *decoder) decT70() map[syntax.Node]bool {
 	return v
 }
 
-func (d *decoder) decT71() []wireNeed {
+func (d *decoder) decT70() []wireNeed {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10738,7 +10812,7 @@ func (d *decoder) decT71() []wireNeed {
 	return v
 }
 
-func (d *decoder) decT72() map[*syntax.FuncDecl][]*syntax.FuncDecl {
+func (d *decoder) decT71() map[*syntax.FuncDecl][]*syntax.FuncDecl {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10751,7 +10825,7 @@ func (d *decoder) decT72() map[*syntax.FuncDecl][]*syntax.FuncDecl {
 	return v
 }
 
-func (d *decoder) decT73() map[binderKey]bool {
+func (d *decoder) decT72() map[binderKey]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10764,7 +10838,7 @@ func (d *decoder) decT73() map[binderKey]bool {
 	return v
 }
 
-func (d *decoder) decT74() []importAlias {
+func (d *decoder) decT73() []importAlias {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10784,7 +10858,7 @@ func (d *decoder) decSyntax_Expr() syntax.Expr {
 	return x.(syntax.Expr)
 }
 
-func (d *decoder) decT75() map[*Func][2]bool {
+func (d *decoder) decT74() map[*Func][2]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10797,7 +10871,7 @@ func (d *decoder) decT75() map[*Func][2]bool {
 	return v
 }
 
-func (d *decoder) decT76() map[*syntax.Ident]*Func {
+func (d *decoder) decT75() map[*syntax.Ident]*Func {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10810,32 +10884,19 @@ func (d *decoder) decT76() map[*syntax.Ident]*Func {
 	return v
 }
 
-func (d *decoder) decT77() map[*syntax.Ident]bool {
+func (d *decoder) decT76() []pureArg {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
-	v := make(map[*syntax.Ident]bool, n-1)
-	for range n - 1 {
-		k := d.decPtrSyntax_Ident()
-		v[k] = d.decT11()
-	}
-	return v
-}
-
-func (d *decoder) decT78() []durableCall {
-	n := d.uint()
-	if n == 0 {
-		return nil
-	}
-	v := make([]durableCall, n-1)
+	v := make([]pureArg, n-1)
 	for i := range v {
-		v[i] = d.decdurableCall()
+		v[i] = d.decpureArg()
 	}
 	return v
 }
 
-func (d *decoder) decT79() []withSite {
+func (d *decoder) decT77() []withSite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10847,7 +10908,7 @@ func (d *decoder) decT79() []withSite {
 	return v
 }
 
-func (d *decoder) decT80() []contextValueSite {
+func (d *decoder) decT78() []contextValueSite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10869,7 +10930,7 @@ func (d *decoder) deccontextOwners() (v contextOwners) {
 	return v
 }
 
-func (d *decoder) decT81() map[syntax.Node]*fileInfo {
+func (d *decoder) decT79() map[syntax.Node]*fileInfo {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10882,7 +10943,7 @@ func (d *decoder) decT81() map[syntax.Node]*fileInfo {
 	return v
 }
 
-func (d *decoder) decT82() map[syntax.Node]syntax.Node {
+func (d *decoder) decT80() map[syntax.Node]syntax.Node {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10895,7 +10956,7 @@ func (d *decoder) decT82() map[syntax.Node]syntax.Node {
 	return v
 }
 
-func (d *decoder) decT83() map[int32]*Named {
+func (d *decoder) decT81() map[int32]*Named {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10908,7 +10969,20 @@ func (d *decoder) decT83() map[int32]*Named {
 	return v
 }
 
-func (d *decoder) decT84() map[any]*switchUnion {
+func (d *decoder) decT82() map[*Named][]*Named {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make(map[*Named][]*Named, n-1)
+	for range n - 1 {
+		k := d.decPtrNamed()
+		v[k] = d.decT22()
+	}
+	return v
+}
+
+func (d *decoder) decT83() map[any]*switchUnion {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10921,7 +10995,7 @@ func (d *decoder) decT84() map[any]*switchUnion {
 	return v
 }
 
-func (d *decoder) decT85() []string {
+func (d *decoder) decT84() []string {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10933,7 +11007,7 @@ func (d *decoder) decT85() []string {
 	return v
 }
 
-func (d *decoder) decT86() map[any]map[any]bool {
+func (d *decoder) decT85() map[any]map[any]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10946,7 +11020,7 @@ func (d *decoder) decT86() map[any]map[any]bool {
 	return v
 }
 
-func (d *decoder) decT87() map[any]map[*Func][2]useSite {
+func (d *decoder) decT86() map[any]map[*Func][2]useSite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10959,7 +11033,7 @@ func (d *decoder) decT87() map[any]map[*Func][2]useSite {
 	return v
 }
 
-func (d *decoder) decT88() map[*Func][2]groupSite {
+func (d *decoder) decT87() map[*Func][2]groupSite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10972,7 +11046,7 @@ func (d *decoder) decT88() map[*Func][2]groupSite {
 	return v
 }
 
-func (d *decoder) decT89() []*litFrame {
+func (d *decoder) decT88() []*litFrame {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -10984,10 +11058,24 @@ func (d *decoder) decT89() []*litFrame {
 	return v
 }
 
-func (d *decoder) decT90() (v [2]map[int32]bool) {
+func (d *decoder) decT89() (v [2]map[int32]bool) {
 	for i := range v {
 		v[i] = d.decT151()
 	}
+	return v
+}
+
+func (d *decoder) decT90() *bool {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*bool)
+	}
+	v := new(bool)
+	d.add(v)
+	*v = d.decT11()
 	return v
 }
 
@@ -11205,7 +11293,7 @@ func (d *decoder) decdeclKinds() (v declKinds) {
 
 func (d *decoder) decFieldsinitDeps(v *initDeps) {
 	v.owner = d.decT147()
-	v.deps = d.decT86()
+	v.deps = d.decT85()
 	v.byVar = d.decT155()
 	v.tentative = d.decT11()
 }
@@ -11416,20 +11504,7 @@ func (d *decoder) decT111() map[any]*reachNode {
 	return v
 }
 
-func (d *decoder) decT112() map[*Named][]*Named {
-	n := d.uint()
-	if n == 0 {
-		return nil
-	}
-	v := make(map[*Named][]*Named, n-1)
-	for range n - 1 {
-		k := d.decPtrNamed()
-		v[k] = d.decT22()
-	}
-	return v
-}
-
-func (d *decoder) decT113() map[*syntax.VariantSpec]*TypeName {
+func (d *decoder) decT112() map[*syntax.VariantSpec]*TypeName {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -11438,6 +11513,19 @@ func (d *decoder) decT113() map[*syntax.VariantSpec]*TypeName {
 	for range n - 1 {
 		k := d.decPtrSyntax_VariantSpec()
 		v[k] = d.decPtrTypeName()
+	}
+	return v
+}
+
+func (d *decoder) decT113() map[*syntax.Ident]bool {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make(map[*syntax.Ident]bool, n-1)
+	for range n - 1 {
+		k := d.decPtrSyntax_Ident()
+		v[k] = d.decT11()
 	}
 	return v
 }
@@ -11849,37 +11937,6 @@ func (d *decoder) decT125() []Spread {
 	for i := range v {
 		v[i] = d.decSpread()
 	}
-	return v
-}
-
-func (d *decoder) decFieldsWorkLit(v *WorkLit) {
-	v.Run = d.decSyntax_Expr()
-	v.Listen = d.decSyntax_Expr()
-	v.OnSuccess = d.decSyntax_Expr()
-	v.OnFailure = d.decSyntax_Expr()
-	v.Result = d.decType()
-	v.Failures = d.decPtrRow()
-	v.Failure = d.decType()
-	v.Signal = d.decType()
-	v.Send = d.decPtrSignature()
-}
-
-func (d *decoder) decWorkLit() (v WorkLit) {
-	d.decFieldsWorkLit(&v)
-	return v
-}
-
-func (d *decoder) decPtrWorkLit() *WorkLit {
-	x, fresh := d.ref()
-	if !fresh {
-		if x == nil {
-			return nil
-		}
-		return x.(*WorkLit)
-	}
-	v := new(WorkLit)
-	d.add(v)
-	d.decFieldsWorkLit(v)
 	return v
 }
 
@@ -12590,8 +12647,8 @@ func (d *decoder) decFieldsstdImporter(v *stdImporter) {
 	v.entries = d.decT179()
 	v.work = d.decWork()
 	v.snap = d.decPtrsnapshot()
-	v.order = d.decT85()
-	v.ready = d.decT68()
+	v.order = d.decT84()
+	v.ready = d.decT67()
 }
 
 func (d *decoder) decPtrstdImporter() *stdImporter {
@@ -12658,7 +12715,7 @@ func (d *decoder) decT141() map[*Package]bool {
 }
 
 func (d *decoder) decFieldsrelSeed(v *relSeed) {
-	v.fields = d.decT85()
+	v.fields = d.decT84()
 }
 
 func (d *decoder) decrelSeed() (v relSeed) {
@@ -12717,14 +12774,17 @@ func (d *decoder) decT143() (v [2]bool) {
 	return v
 }
 
-func (d *decoder) decFieldsdurableCall(v *durableCall) {
-	v.x = d.decPtrSyntax_CallExpr()
-	v.name = d.decT2()
+func (d *decoder) decFieldspureArg(v *pureArg) {
+	v.arg = d.decSyntax_Expr()
+	v.callee = d.decT2()
+	v.param = d.decT2()
+	v.fn = d.decT11()
+	v.encl = d.decPtrFunc()
 	v.file = d.decPtrfileInfo()
 }
 
-func (d *decoder) decdurableCall() (v durableCall) {
-	d.decFieldsdurableCall(&v)
+func (d *decoder) decpureArg() (v pureArg) {
+	d.decFieldspureArg(&v)
 	return v
 }
 
@@ -12792,239 +12852,239 @@ func (d *decoder) decT147() interface{} {
 	case 3:
 		return d.decPtrBasic()
 	case 4:
-		return d.decPtrBuilder()
+		return d.decPtrBody()
 	case 5:
-		return d.decPtrBuiltin()
+		return d.decPtrBuilder()
 	case 6:
-		return d.decPtrCall()
+		return d.decPtrBuiltin()
 	case 7:
-		return d.decPtrClose()
+		return d.decPtrCall()
 	case 8:
-		return d.decPtrCode()
+		return d.decPtrClose()
 	case 9:
-		return d.decPtrConst()
+		return d.decPtrCode()
 	case 10:
-		return d.decPtrContext()
+		return d.decPtrConst()
 	case 11:
-		return d.decPtrContextBinding()
+		return d.decPtrContext()
 	case 12:
-		return d.decPtrContextEntry()
+		return d.decPtrContextBinding()
 	case 13:
-		return d.decPtrConversion()
+		return d.decPtrContextEntry()
 	case 14:
-		return d.decPtrCopySite()
+		return d.decPtrConversion()
 	case 15:
-		return d.decPtrDiagnostic()
+		return d.decPtrCopySite()
 	case 16:
-		return d.decPtrDrop()
+		return d.decPtrDiagnostic()
 	case 17:
-		return d.decPtrDropField()
+		return d.decPtrDrop()
 	case 18:
-		return d.decPtrEmbed()
+		return d.decPtrDropField()
 	case 19:
-		return d.decPtrEmbedFile()
+		return d.decPtrEmbed()
 	case 20:
-		return d.decPtrField()
+		return d.decPtrEmbedFile()
 	case 21:
-		return d.decPtrFieldPattern()
+		return d.decPtrField()
 	case 22:
-		return d.decPtrFieldTake()
+		return d.decPtrFieldPattern()
 	case 23:
-		return d.decPtrFootprint()
+		return d.decPtrFieldTake()
 	case 24:
-		return d.decPtrFunc()
+		return d.decPtrFootprint()
 	case 25:
-		return d.decPtrGoBindings()
+		return d.decPtrFunc()
 	case 26:
-		return d.decPtrGoExtern()
+		return d.decPtrGoBindings()
 	case 27:
-		return d.decPtrImportError()
+		return d.decPtrGoExtern()
 	case 28:
-		return d.decPtrInfo()
+		return d.decPtrImportError()
 	case 29:
-		return d.decPtrInitializer()
+		return d.decPtrInfo()
 	case 30:
-		return d.decPtrInstance()
+		return d.decPtrInitializer()
 	case 31:
-		return d.decPtrInterface()
+		return d.decPtrInstance()
 	case 32:
-		return d.decPtrLaw()
+		return d.decPtrInterface()
 	case 33:
-		return d.decPtrLawContext()
+		return d.decPtrLaw()
 	case 34:
-		return d.decPtrLawProvider()
+		return d.decPtrLawContext()
 	case 35:
-		return d.decPtrLawRun()
+		return d.decPtrLawProvider()
 	case 36:
-		return d.decPtrLawSlot()
+		return d.decPtrLawRun()
 	case 37:
-		return d.decPtrLegacyPair()
+		return d.decPtrLawSlot()
 	case 38:
-		return d.decPtrLoop()
+		return d.decPtrLegacyPair()
 	case 39:
-		return d.decPtrMachineType()
+		return d.decPtrLoop()
 	case 40:
-		return d.decPtrMap()
+		return d.decPtrMachineType()
 	case 41:
-		return d.decPtrMatch()
+		return d.decPtrMap()
 	case 42:
-		return d.decPtrMethod()
+		return d.decPtrMatch()
 	case 43:
-		return d.decPtrMint()
+		return d.decPtrMethod()
 	case 44:
-		return d.decPtrMintFrame()
+		return d.decPtrMint()
 	case 45:
-		return d.decPtrNamed()
+		return d.decPtrMintFrame()
 	case 46:
-		return d.decPtrOverride()
+		return d.decPtrNamed()
 	case 47:
-		return d.decPtrPackage()
+		return d.decPtrOpBody()
 	case 48:
-		return d.decPtrPattern()
+		return d.decPtrOverride()
 	case 49:
-		return d.decPtrPatternOwners()
+		return d.decPtrPackage()
 	case 50:
-		return d.decPtrPkgName()
+		return d.decPtrPattern()
 	case 51:
-		return d.decPtrPointer()
+		return d.decPtrPatternOwners()
 	case 52:
-		return d.decPtrRefinement()
+		return d.decPtrPkgName()
 	case 53:
-		return d.decPtrRelease()
+		return d.decPtrPointer()
 	case 54:
-		return d.decPtrReplaced()
+		return d.decPtrRefinement()
 	case 55:
-		return d.decPtrRewrite()
+		return d.decPtrRelease()
 	case 56:
-		return d.decPtrRewriteArg()
+		return d.decPtrReplaced()
 	case 57:
-		return d.decPtrRewriteCall()
+		return d.decPtrRewrite()
 	case 58:
-		return d.decPtrRow()
+		return d.decPtrRewriteArg()
 	case 59:
-		return d.decPtrRowArg()
+		return d.decPtrRewriteCall()
 	case 60:
-		return d.decPtrRowVar()
+		return d.decPtrRow()
 	case 61:
-		return d.decPtrScope()
+		return d.decPtrRowArg()
 	case 62:
-		return d.decPtrSignature()
+		return d.decPtrRowVar()
 	case 63:
-		return d.decPtrSlice()
+		return d.decPtrScope()
 	case 64:
-		return d.decPtrSpan()
+		return d.decPtrSignature()
 	case 65:
-		return d.decPtrSpread()
+		return d.decPtrSlice()
 	case 66:
-		return d.decPtrStruct()
+		return d.decPtrSpan()
 	case 67:
-		return d.decPtrTaskCapture()
+		return d.decPtrSpread()
 	case 68:
-		return d.decPtrTest()
+		return d.decPtrStruct()
 	case 69:
-		return d.decPtrTuple()
+		return d.decPtrTaskCapture()
 	case 70:
-		return d.decPtrTypeName()
+		return d.decPtrTest()
 	case 71:
-		return d.decPtrTypeParam()
+		return d.decPtrTuple()
 	case 72:
-		return d.decPtrUnion()
+		return d.decPtrTypeName()
 	case 73:
-		return d.decPtrValueRanks()
+		return d.decPtrTypeParam()
 	case 74:
-		return d.decPtrVar()
+		return d.decPtrUnion()
 	case 75:
-		return d.decPtrWirePair()
+		return d.decPtrValueRanks()
 	case 76:
-		return d.decPtrWired()
+		return d.decPtrVar()
 	case 77:
-		return d.decPtrWith()
+		return d.decPtrWirePair()
 	case 78:
-		return d.decPtrWitness()
+		return d.decPtrWired()
 	case 79:
-		return d.decPtrWitnessOp()
+		return d.decPtrWith()
 	case 80:
-		return d.decPtrWork()
+		return d.decPtrWitness()
 	case 81:
-		return d.decPtrWorkLit()
+		return d.decPtrWitnessOp()
 	case 82:
-		return d.decPtrargList()
+		return d.decPtrWork()
 	case 83:
-		return d.decPtrarmVar()
+		return d.decPtrargList()
 	case 84:
-		return d.decPtrasBinding()
+		return d.decPtrarmVar()
 	case 85:
-		return d.decPtrassignment()
+		return d.decPtrasBinding()
 	case 86:
-		return d.decPtrat()
+		return d.decPtrassignment()
 	case 87:
-		return d.decPtrbinderKey()
+		return d.decPtrat()
 	case 88:
-		return d.decPtrbodyNode()
+		return d.decPtrbinderKey()
 	case 89:
-		return d.decPtrbodySum()
+		return d.decPtrbodyNode()
 	case 90:
-		return d.decPtrborrowWalk()
+		return d.decPtrbodySum()
 	case 91:
-		return d.decPtrbranch()
+		return d.decPtrborrowWalk()
 	case 92:
-		return d.decPtrcapBinding()
+		return d.decPtrbranch()
 	case 93:
-		return d.decPtrcapCall()
+		return d.decPtrcapBinding()
 	case 94:
-		return d.decPtrcapKey()
+		return d.decPtrcapCall()
 	case 95:
-		return d.decPtrcapNode()
+		return d.decPtrcapKey()
 	case 96:
-		return d.decPtrcapSet()
+		return d.decPtrcapNode()
 	case 97:
-		return d.decPtrcatchItem()
+		return d.decPtrcapSet()
 	case 98:
-		return d.decPtrcatchMatrix()
+		return d.decPtrcatchItem()
 	case 99:
-		return d.decPtrcatchSpace()
+		return d.decPtrcatchMatrix()
 	case 100:
-		return d.decPtrcaughtCall()
+		return d.decPtrcatchSpace()
 	case 101:
-		return d.decPtrcell()
+		return d.decPtrcaughtCall()
 	case 102:
-		return d.decPtrcellSite()
+		return d.decPtrcell()
 	case 103:
-		return d.decPtrchecker()
+		return d.decPtrcellSite()
 	case 104:
-		return d.decPtrcolInfo()
+		return d.decPtrchecker()
 	case 105:
-		return d.decPtrcollKey()
+		return d.decPtrcolInfo()
 	case 106:
-		return d.decPtrcollision()
+		return d.decPtrcollKey()
 	case 107:
-		return d.decPtrcolumn()
+		return d.decPtrcollision()
 	case 108:
-		return d.decPtrcontextComp()
+		return d.decPtrcolumn()
 	case 109:
-		return d.decPtrcontextDeps()
+		return d.decPtrcontextComp()
 	case 110:
-		return d.decPtrcontextFinding()
+		return d.decPtrcontextDeps()
 	case 111:
-		return d.decPtrcontextGroup()
+		return d.decPtrcontextFinding()
 	case 112:
-		return d.decPtrcontextMeter()
+		return d.decPtrcontextGroup()
 	case 113:
-		return d.decPtrcontextNode()
+		return d.decPtrcontextMeter()
 	case 114:
-		return d.decPtrcontextOwners()
+		return d.decPtrcontextNode()
 	case 115:
-		return d.decPtrcontextPass()
+		return d.decPtrcontextOwners()
 	case 116:
-		return d.decPtrcontextValueSite()
+		return d.decPtrcontextPass()
 	case 117:
-		return d.decPtrdeclKinds()
+		return d.decPtrcontextValueSite()
 	case 118:
-		return d.decPtrdecoder()
+		return d.decPtrdeclKinds()
 	case 119:
-		return d.decPtrdropWalk()
+		return d.decPtrdecoder()
 	case 120:
-		return d.decPtrdurableCall()
+		return d.decPtrdropWalk()
 	case 121:
 		return d.decPtrencoder()
 	case 122:
@@ -13170,108 +13230,114 @@ func (d *decoder) decT147() interface{} {
 	case 192:
 		return d.decPtrpreludeState()
 	case 193:
-		return d.decPtrreachNode()
+		return d.decPtrpureArg()
 	case 194:
-		return d.decPtrrefWalker()
+		return d.decPtrpureBinding()
 	case 195:
-		return d.decPtrrefiner()
+		return d.decPtrpureSeer()
 	case 196:
-		return d.decPtrrelNeed()
+		return d.decPtrreachNode()
 	case 197:
-		return d.decPtrrelSeed()
+		return d.decPtrrefWalker()
 	case 198:
-		return d.decPtrresWalk()
+		return d.decPtrrefiner()
 	case 199:
-		return d.decPtrresolved()
+		return d.decPtrrelNeed()
 	case 200:
-		return d.decPtrresourceLoan()
+		return d.decPtrrelSeed()
 	case 201:
-		return d.decPtrresourceSite()
+		return d.decPtrresWalk()
 	case 202:
-		return d.decPtrrowRef()
+		return d.decPtrresolved()
 	case 203:
-		return d.decPtrrowSet()
+		return d.decPtrresourceLoan()
 	case 204:
-		return d.decPtrscopeNode()
+		return d.decPtrresourceSite()
 	case 205:
-		return d.decPtrsegment()
+		return d.decPtrrowRef()
 	case 206:
-		return d.decPtrsink()
+		return d.decPtrrowSet()
 	case 207:
-		return d.decPtrsnapshot()
+		return d.decPtrscopeNode()
 	case 208:
-		return d.decPtrstdBase()
+		return d.decPtrsegment()
 	case 209:
-		return d.decPtrstdEntry()
+		return d.decPtrsink()
 	case 210:
-		return d.decPtrstdImporter()
+		return d.decPtrsnapshot()
 	case 211:
-		return d.decPtrstdSnapshot()
+		return d.decPtrstdBase()
 	case 212:
-		return d.decPtrswitchGroup()
+		return d.decPtrstdEntry()
 	case 213:
-		return d.decPtrswitchUnion()
+		return d.decPtrstdImporter()
 	case 214:
-		return d.decPtrtarget()
+		return d.decPtrstdSnapshot()
 	case 215:
-		return d.decPtrtaskNode()
+		return d.decPtrswitchGroup()
 	case 216:
-		return d.decPtrtestState()
+		return d.decPtrswitchUnion()
 	case 217:
-		return d.decPtrtrimmedNode()
+		return d.decPtrtarget()
 	case 218:
-		return d.decPtrtypeCtx()
+		return d.decPtrtaskNode()
 	case 219:
-		return d.decPtrtypeEnv()
+		return d.decPtrtestState()
 	case 220:
-		return d.decPtrtypeTable()
+		return d.decPtrtrimmedNode()
 	case 221:
-		return d.decPtrtypeWalker()
+		return d.decPtrtypeCtx()
 	case 222:
-		return d.decPtruniverseState()
+		return d.decPtrtypeEnv()
 	case 223:
-		return d.decPtruseAt()
+		return d.decPtrtypeTable()
 	case 224:
-		return d.decPtruseSite()
+		return d.decPtrtypeWalker()
 	case 225:
-		return d.decPtrvalueFrame()
+		return d.decPtruniverseState()
 	case 226:
-		return d.decPtrvariantIndex()
+		return d.decPtruseAt()
 	case 227:
-		return d.decPtrvcand()
+		return d.decPtruseSite()
 	case 228:
-		return d.decPtrvnode()
+		return d.decPtrvalueFrame()
 	case 229:
-		return d.decPtrvrow()
+		return d.decPtrvariantIndex()
 	case 230:
-		return d.decPtrvsym()
+		return d.decPtrvcand()
 	case 231:
-		return d.decPtrvterms()
+		return d.decPtrvnode()
 	case 232:
-		return d.decPtrwireFault()
+		return d.decPtrvrow()
 	case 233:
-		return d.decPtrwireNeed()
+		return d.decPtrvsym()
 	case 234:
-		return d.decPtrwithFrame()
+		return d.decPtrvterms()
 	case 235:
-		return d.decPtrwithRefusal()
+		return d.decPtrwireFault()
 	case 236:
-		return d.decPtrwithScope()
+		return d.decPtrwireNeed()
 	case 237:
-		return d.decPtrwithSite()
+		return d.decPtrwithFrame()
 	case 238:
-		return d.decPtrworklist()
+		return d.decPtrwithRefusal()
 	case 239:
-		return d.decT11()
+		return d.decPtrwithScope()
 	case 240:
-		return d.decT1()
+		return d.decPtrwithSite()
 	case 241:
-		return d.decT146()
+		return d.decPtrworklist()
 	case 242:
-		return d.decT133()
+		return d.decT11()
 	case 243:
-		return d.decT2()
+		return d.decT1()
 	case 244:
+		return d.decT146()
+	case 245:
+		return d.decT133()
+	case 246:
+		return d.decT2()
+	case 247:
 		return d.node().(interface{})
 	}
 	d.failf("bad tag in interface{}")
@@ -13571,7 +13637,7 @@ func (d *decoder) decT154() map[*TypeName]map[string]bool {
 	v := make(map[*TypeName]map[string]bool, n-1)
 	for range n - 1 {
 		k := d.decPtrTypeName()
-		v[k] = d.decT68()
+		v[k] = d.decT67()
 	}
 	return v
 }
@@ -13830,7 +13896,7 @@ func (d *decoder) decFieldsreachNode(v *reachNode) {
 	v.contexts = d.decT174()
 	v.funcs = d.decT5()
 	v.capCalls = d.decT192()
-	v.methodNames = d.decT85()
+	v.methodNames = d.decT84()
 }
 
 func (d *decoder) decreachNode() (v reachNode) {
@@ -14421,6 +14487,41 @@ func (d *decoder) decPtrAcquisition() *Acquisition {
 	return v
 }
 
+func (d *decoder) decFieldsBody(v *Body) {
+	v.Runtime = d.decT2()
+	v.Known = d.decT11()
+	v.Pure = d.decT11()
+	v.Host = d.decT11()
+	v.Inert = d.decT11()
+	v.Hidden = d.decT199()
+	v.Value = d.decT11()
+	v.MovesOnly = d.decT11()
+	v.Moves = d.decT11()
+	v.MovingParam = d.decT1()
+	v.Repeated = d.decT11()
+	v.Keeps = d.decT11()
+	v.Keeper = d.decT1()
+}
+
+func (d *decoder) decBody() (v Body) {
+	d.decFieldsBody(&v)
+	return v
+}
+
+func (d *decoder) decPtrBody() *Body {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*Body)
+	}
+	v := new(Body)
+	d.add(v)
+	d.decFieldsBody(v)
+	return v
+}
+
 func (d *decoder) decFieldsCode(v *Code) {
 	v.Code = d.decT2()
 	v.Name = d.decT2()
@@ -14516,7 +14617,7 @@ func (d *decoder) decPtrDropField() *DropField {
 
 func (d *decoder) decFieldsEmbedFile(v *EmbedFile) {
 	v.Path = d.decT2()
-	v.Data = d.decT199()
+	v.Data = d.decT200()
 }
 
 func (d *decoder) decEmbedFile() (v EmbedFile) {
@@ -14718,7 +14819,7 @@ func (d *decoder) decFieldsMint(v *Mint) {
 	v.Node = d.decSyntax_Node()
 	v.Place = d.decMintPlace()
 	v.Name = d.decT2()
-	v.Frames = d.decT200()
+	v.Frames = d.decT201()
 }
 
 func (d *decoder) decMint() (v Mint) {
@@ -14763,6 +14864,31 @@ func (d *decoder) decPtrMintFrame() *MintFrame {
 	v := new(MintFrame)
 	d.add(v)
 	d.decFieldsMintFrame(v)
+	return v
+}
+
+func (d *decoder) decFieldsOpBody(v *OpBody) {
+	v.Runtime = d.decT2()
+	v.StopsRunning = d.decT11()
+	v.DrainsLends = d.decT11()
+}
+
+func (d *decoder) decOpBody() (v OpBody) {
+	d.decFieldsOpBody(&v)
+	return v
+}
+
+func (d *decoder) decPtrOpBody() *OpBody {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*OpBody)
+	}
+	v := new(OpBody)
+	d.add(v)
+	d.decFieldsOpBody(v)
 	return v
 }
 
@@ -14850,7 +14976,7 @@ func (d *decoder) decFieldsRewriteCall(v *RewriteCall) {
 	v.Call = d.decPtrSyntax_CallExpr()
 	v.Op = d.decPtrMethod()
 	v.Try = d.decT11()
-	v.Args = d.decT201()
+	v.Args = d.decT202()
 }
 
 func (d *decoder) decRewriteCall() (v RewriteCall) {
@@ -14903,7 +15029,7 @@ func (d *decoder) decPtrSpread() *Spread {
 func (d *decoder) decFieldsWitness(v *Witness) {
 	v.Param = d.decPtrTypeParam()
 	v.Arg = d.decType()
-	v.Ops = d.decT202()
+	v.Ops = d.decT203()
 }
 
 func (d *decoder) decWitness() (v Witness) {
@@ -15065,7 +15191,7 @@ func (d *decoder) decPtrassignment() *assignment {
 func (d *decoder) decFieldsat(v *at) {
 	v.place = d.decMintPlace()
 	v.name = d.decT2()
-	v.frames = d.decT200()
+	v.frames = d.decT201()
 }
 
 func (d *decoder) decat() (v at) {
@@ -15104,7 +15230,7 @@ func (d *decoder) decPtrbinderKey() *binderKey {
 func (d *decoder) decFieldsbodyNode(v *bodyNode) {
 	v.fn = d.decPtrFunc()
 	v.v = d.decPtrpkgVar()
-	v.edges = d.decT203()
+	v.edges = d.decT204()
 	v.index = d.decT1()
 	v.low = d.decT1()
 	v.onStack = d.decT11()
@@ -15136,7 +15262,7 @@ func (d *decoder) decPtrbodyNode() *bodyNode {
 func (d *decoder) decFieldsborrowWalk(v *borrowWalk) {
 	v.c = d.decPtrchecker()
 	v.info = d.decPtrInfo()
-	v.stack = d.decT204()
+	v.stack = d.decT205()
 }
 
 func (d *decoder) decborrowWalk() (v borrowWalk) {
@@ -15238,8 +15364,8 @@ func (d *decoder) decFieldscatchItem(v *catchItem) {
 	v.row = d.decsolverRow()
 	v.whole = d.decT11()
 	v.variants = d.decT19()
-	v.binds = d.decT205()
-	v.placeholders = d.decT206()
+	v.binds = d.decT206()
+	v.placeholders = d.decT207()
 	v.restRefused = d.decT11()
 }
 
@@ -15264,7 +15390,7 @@ func (d *decoder) decPtrcatchItem() *catchItem {
 
 func (d *decoder) decFieldscatchMatrix(v *catchMatrix) {
 	v.rows = d.decPtrrowSet()
-	v.origin = d.decT204()
+	v.origin = d.decT205()
 }
 
 func (d *decoder) deccatchMatrix() (v catchMatrix) {
@@ -15289,8 +15415,8 @@ func (d *decoder) decPtrcatchMatrix() *catchMatrix {
 func (d *decoder) decFieldscatchSpace(v *catchSpace) {
 	v.c = d.decPtrchecker()
 	v.r = d.decPtrpatResolver()
-	v.cols = d.decT207()
-	v.mats = d.decT208()
+	v.cols = d.decT208()
+	v.mats = d.decT209()
 	v.solver = d.decPtrmatrixSolver()
 	v.wholeSeen = d.decT151()
 }
@@ -15423,8 +15549,8 @@ func (d *decoder) decFieldscolumn(v *column) {
 	v.ctor = d.decT1()
 	v.field = d.decT1()
 	v.consts = d.decT138()
-	v.label = d.decT209()
-	v.children = d.decT210()
+	v.label = d.decT210()
+	v.children = d.decT211()
 }
 
 func (d *decoder) deccolumn() (v column) {
@@ -15449,8 +15575,8 @@ func (d *decoder) decPtrcolumn() *column {
 func (d *decoder) decFieldscontextDeps(v *contextDeps) {
 	v.tab = d.decPtrtypeTable()
 	v.order = d.decT19()
-	v.needs = d.decT211()
-	v.at = d.decT212()
+	v.needs = d.decT212()
+	v.at = d.decT213()
 }
 
 func (d *decoder) deccontextDeps() (v contextDeps) {
@@ -15499,7 +15625,7 @@ func (d *decoder) decPtrcontextFinding() *contextFinding {
 
 func (d *decoder) decFieldscontextGroup(v *contextGroup) {
 	v.key = d.decT2()
-	v.lits = d.decT213()
+	v.lits = d.decT214()
 	v.locals = d.decT174()
 	v.embeds = d.decT187()
 	v.files = d.decT13()
@@ -15569,7 +15695,7 @@ func (d *decoder) decFieldscontextPass(v *contextPass) {
 	v.c = d.decPtrchecker()
 	v.m = d.decPtrcontextMeter()
 	v.stopped = d.decT11()
-	v.nodes = d.decT214()
+	v.nodes = d.decT215()
 }
 
 func (d *decoder) deccontextPass() (v contextPass) {
@@ -15620,15 +15746,15 @@ func (d *decoder) decPtrdeclKinds() *declKinds {
 }
 
 func (d *decoder) decFieldsdecoder(v *decoder) {
-	v.buf = d.decT199()
+	v.buf = d.decT200()
 	v.pos = d.decT1()
-	v.refs = d.decT215()
-	v.ext = d.decT215()
+	v.refs = d.decT216()
+	v.ext = d.decT216()
 	v.nodes = d.decPtrSyntax_NodeTable()
 	v.table = d.decPtrobjTable()
 	v.seg = d.decT1()
 	v.start = d.decT196()
-	v.checkers = d.decT216()
+	v.checkers = d.decT217()
 }
 
 func (d *decoder) decdecoder() (v decoder) {
@@ -15652,7 +15778,7 @@ func (d *decoder) decPtrdecoder() *decoder {
 
 func (d *decoder) decFieldsdropWalk(v *dropWalk) {
 	v.c = d.decPtrchecker()
-	v.seen = d.decT217()
+	v.seen = d.decT218()
 	v.bad = d.decT2()
 }
 
@@ -15675,29 +15801,15 @@ func (d *decoder) decPtrdropWalk() *dropWalk {
 	return v
 }
 
-func (d *decoder) decPtrdurableCall() *durableCall {
-	x, fresh := d.ref()
-	if !fresh {
-		if x == nil {
-			return nil
-		}
-		return x.(*durableCall)
-	}
-	v := new(durableCall)
-	d.add(v)
-	d.decFieldsdurableCall(v)
-	return v
-}
-
 func (d *decoder) decFieldsencoder(v *encoder) {
-	v.buf = d.decT199()
-	v.ids = d.decT218()
+	v.buf = d.decT200()
+	v.ids = d.decT219()
 	v.next = d.decT196()
-	v.ext = d.decT218()
+	v.ext = d.decT219()
 	v.nodes = d.decPtrSyntax_NodeEncoder()
-	v.objStarts = d.decT219()
-	v.nodeStarts = d.decT219()
-	v.deps = d.decT220()
+	v.objStarts = d.decT220()
+	v.nodeStarts = d.decT220()
+	v.deps = d.decT221()
 }
 
 func (d *decoder) decencoder() (v encoder) {
@@ -15722,23 +15834,23 @@ func (d *decoder) decPtrencoder() *encoder {
 func (d *decoder) decFieldsescWalk(v *escWalk) {
 	v.c = d.decPtrchecker()
 	v.info = d.decPtrInfo()
-	v.stack = d.decT204()
+	v.stack = d.decT205()
 	v.frames = d.decT170()
-	v.varFrame = d.decT221()
-	v.frameNodes = d.decT204()
-	v.regions = d.decT204()
-	v.declDepth = d.decT221()
-	v.writes = d.decT77()
-	v.events = d.decT222()
+	v.varFrame = d.decT222()
+	v.frameNodes = d.decT205()
+	v.regions = d.decT205()
+	v.declDepth = d.decT222()
+	v.writes = d.decT113()
+	v.events = d.decT223()
 	v.order = d.decT120()
-	v.aliases = d.decT223()
-	v.addressed = d.decT224()
-	v.borrowHolders = d.decT225()
-	v.keeps = d.decT226()
+	v.aliases = d.decT224()
+	v.addressed = d.decT225()
+	v.borrowHolders = d.decT226()
+	v.keeps = d.decT227()
 	v.collecting = d.decT11()
-	v.litVar = d.decT227()
-	v.litUses = d.decT228()
-	v.localUses = d.decT222()
+	v.litVar = d.decT228()
+	v.litUses = d.decT229()
+	v.localUses = d.decT223()
 }
 
 func (d *decoder) decescWalk() (v escWalk) {
@@ -15786,10 +15898,10 @@ func (d *decoder) decPtrexportError() *exportError {
 func (d *decoder) decFieldsfootprinter(v *footprinter) {
 	v.pkg = d.decPtrPackage()
 	v.info = d.decPtrInfo()
-	v.nodes = d.decT229()
-	v.list = d.decT230()
+	v.nodes = d.decT230()
+	v.list = d.decT231()
 	v.owners = d.decPtrcontextOwners()
-	v.trimmed = d.decT231()
+	v.trimmed = d.decT232()
 	v.foreign = d.decT11()
 }
 
@@ -15814,10 +15926,10 @@ func (d *decoder) decPtrfootprinter() *footprinter {
 
 func (d *decoder) decFieldsfpNode(v *fpNode) {
 	v.key = d.decSyntax_Node()
-	v.caps = d.decT232()
+	v.caps = d.decT233()
 	v.tasks = d.decT11()
 	v.opaque = d.decT11()
-	v.edges = d.decT230()
+	v.edges = d.decT231()
 	v.walked = d.decT11()
 	v.index = d.decT1()
 	v.low = d.decT1()
@@ -15937,9 +16049,9 @@ func (d *decoder) decPtrguardedUse() *guardedUse {
 func (d *decoder) decFieldshand(v *hand) {
 	v.at = d.decSyntax_Node()
 	v.how = d.decT2()
-	v.lend = d.decT233()
+	v.lend = d.decT234()
 	v.yieldRoot = d.decT11()
-	v.failed = d.decT234()
+	v.failed = d.decT235()
 	v.provider = d.decT11()
 	v.root = d.decT11()
 	v.endLoans = d.decT11()
@@ -15967,7 +16079,7 @@ func (d *decoder) decPtrhand() *hand {
 }
 
 func (d *decoder) decFieldsheaderReader(v *headerReader) {
-	v.buf = d.decT199()
+	v.buf = d.decT200()
 	v.pos = d.decT1()
 	v.err = d.decBuiltin_error()
 }
@@ -16049,9 +16161,9 @@ func (d *decoder) decFieldskeepWalk(v *keepWalk) {
 	v.w = d.decPtrescWalk()
 	v.info = d.decPtrInfo()
 	v.tp = d.decPtrTypeParam()
-	v.stack = d.decT204()
+	v.stack = d.decT205()
 	v.frames = d.decT170()
-	v.declared = d.decT221()
+	v.declared = d.decT222()
 	v.why = d.decT2()
 }
 
@@ -16151,9 +16263,9 @@ func (d *decoder) decPtrlendPoint() *lendPoint {
 }
 
 func (d *decoder) decFieldslendWalk(v *lendWalk) {
-	v.parent = d.decT82()
-	v.points = d.decT235()
-	v.loans = d.decT236()
+	v.parent = d.decT80()
+	v.points = d.decT236()
+	v.loans = d.decT237()
 }
 
 func (d *decoder) declendWalk() (v lendWalk) {
@@ -16228,7 +16340,7 @@ func (d *decoder) decPtrlitType() *litType {
 
 func (d *decoder) decFieldslitUse(v *litUse) {
 	v.allowed = d.decT11()
-	v.frames = d.decT204()
+	v.frames = d.decT205()
 	v.esc = d.decT170()
 }
 
@@ -16279,9 +16391,9 @@ func (d *decoder) decPtrlocalBinding() *localBinding {
 
 func (d *decoder) decFieldsmatrixSolver(v *matrixSolver) {
 	v.patSpace = d.decPtrpatSpace()
-	v.memo = d.decT237()
+	v.memo = d.decT238()
 	v.rowIDs = d.decT138()
-	v.rowRefs = d.decT238()
+	v.rowRefs = d.decT239()
 	v.steps = d.decT1()
 	v.cells = d.decT1()
 	v.budget = d.decT1()
@@ -16311,7 +16423,7 @@ func (d *decoder) decPtrmatrixSolver() *matrixSolver {
 func (d *decoder) decFieldsmentioner(v *mentioner) {
 	v.from = d.decPtrPackage()
 	v.out = d.decT6()
-	v.seen = d.decT239()
+	v.seen = d.decT240()
 }
 
 func (d *decoder) decmentioner() (v mentioner) {
@@ -16335,7 +16447,7 @@ func (d *decoder) decPtrmentioner() *mentioner {
 
 func (d *decoder) decFieldsminter(v *minter) {
 	v.pkg = d.decPtrPackage()
-	v.out = d.decT240()
+	v.out = d.decT241()
 }
 
 func (d *decoder) decminter() (v minter) {
@@ -16428,7 +16540,7 @@ func (d *decoder) decFieldsmutEvent(v *mutEvent) {
 	v.id = d.decPtrSyntax_Ident()
 	v.write = d.decT11()
 	v.esc = d.decSyntax_Node()
-	v.regions = d.decT204()
+	v.regions = d.decT205()
 }
 
 func (d *decoder) decmutEvent() (v mutEvent) {
@@ -16451,7 +16563,7 @@ func (d *decoder) decPtrmutEvent() *mutEvent {
 }
 
 func (d *decoder) decFieldsnodeKey(v *nodeKey) {
-	v.kind = d.decT241()
+	v.kind = d.decT242()
 	v.ref = d.decT147()
 	v.n = d.decT133()
 	v.s = d.decT2()
@@ -16478,8 +16590,8 @@ func (d *decoder) decPtrnodeKey() *nodeKey {
 }
 
 func (d *decoder) decFieldsobjTable(v *objTable) {
-	v.starts = d.decT219()
-	v.segs = d.decT242()
+	v.starts = d.decT220()
+	v.segs = d.decT243()
 }
 
 func (d *decoder) decobjTable() (v objTable) {
@@ -16539,7 +16651,7 @@ func (d *decoder) decPtroperand() *operand {
 
 func (d *decoder) decFieldsownCatch(v *ownCatch) {
 	v.first = d.decT1()
-	v.fails = d.decT243()
+	v.fails = d.decT244()
 }
 
 func (d *decoder) decownCatch() (v ownCatch) {
@@ -16587,13 +16699,13 @@ func (d *decoder) decPtrownDiag() *ownDiag {
 }
 
 func (d *decoder) decFieldsownFrameSave(v *ownFrameSave) {
-	v.loops = d.decT244()
-	v.catches = d.decT245()
+	v.loops = d.decT245()
+	v.catches = d.decT246()
 	v.first = d.decT1()
 	v.name = d.decT2()
 	v.nested = d.decT2()
 	v.tail = d.decownTail()
-	v.onFailure = d.decT234()
+	v.onFailure = d.decT235()
 }
 
 func (d *decoder) decownFrameSave() (v ownFrameSave) {
@@ -16697,8 +16809,8 @@ func (d *decoder) decPtrownLocal() *ownLocal {
 
 func (d *decoder) decFieldsownLoop(v *ownLoop) {
 	v.first = d.decT1()
-	v.breaks = d.decT243()
-	v.cont = d.decT243()
+	v.breaks = d.decT244()
+	v.cont = d.decT244()
 }
 
 func (d *decoder) decownLoop() (v ownLoop) {
@@ -16723,7 +16835,7 @@ func (d *decoder) decPtrownLoop() *ownLoop {
 func (d *decoder) decFieldsownLoopMemo(v *ownLoopMemo) {
 	v.entry = d.decownState()
 	v.out = d.decownState()
-	v.diags = d.decT246()
+	v.diags = d.decT247()
 }
 
 func (d *decoder) decownLoopMemo() (v ownLoopMemo) {
@@ -16773,11 +16885,11 @@ func (d *decoder) decFieldsownSlot(v *ownSlot) {
 	v.st = d.decownSt()
 	v.at = d.decSyntax_Node()
 	v.how = d.decT2()
-	v.callLoans = d.decT247()
+	v.callLoans = d.decT248()
 	v.fields = d.decT196()
 	v.maybe = d.decT196()
 	v.fieldAt = d.decSyntax_Node()
-	v.loans = d.decT248()
+	v.loans = d.decT249()
 }
 
 func (d *decoder) decownSlot() (v ownSlot) {
@@ -16801,7 +16913,7 @@ func (d *decoder) decPtrownSlot() *ownSlot {
 
 func (d *decoder) decFieldsownState(v *ownState) {
 	v.reached = d.decT11()
-	v.slots = d.decT249()
+	v.slots = d.decT250()
 }
 
 func (d *decoder) decownState() (v ownState) {
@@ -16828,9 +16940,9 @@ func (d *decoder) decFieldsownTail(v *ownTail) {
 	v.how = d.decT2()
 	v.slot = d.decT1()
 	v.first = d.decT1()
-	v.lend = d.decT233()
+	v.lend = d.decT234()
 	v.yieldRoot = d.decT11()
-	v.failed = d.decT234()
+	v.failed = d.decT235()
 	v.frame = d.decT11()
 	v.form = d.decSyntax_Expr()
 }
@@ -16859,25 +16971,25 @@ func (d *decoder) decFieldsownWalk(v *ownWalk) {
 	v.info = d.decPtrInfo()
 	v.st = d.decownState()
 	v.fresh = d.decSyntax_Expr()
-	v.vars = d.decT250()
-	v.slot = d.decT221()
+	v.vars = d.decT251()
+	v.slot = d.decT222()
 	v.depth = d.decT1()
 	v.first = d.decT1()
 	v.name = d.decT2()
 	v.nested = d.decT2()
-	v.scopes = d.decT251()
-	v.loops = d.decT244()
-	v.catches = d.decT245()
-	v.loopMemo = d.decT252()
-	v.diags = d.decT246()
+	v.scopes = d.decT252()
+	v.loops = d.decT245()
+	v.catches = d.decT246()
+	v.loopMemo = d.decT253()
+	v.diags = d.decT247()
 	v.tail = d.decownTail()
-	v.onFailure = d.decT234()
+	v.onFailure = d.decT235()
 	v.infer = d.decT11()
 	v.fn = d.decPtrFunc()
 	v.top = d.decPtrSyntax_BlockStmt()
-	v.promote = d.decT220()
-	v.copies = d.decT253()
-	v.borrow = d.decT254()
+	v.promote = d.decT221()
+	v.copies = d.decT254()
+	v.borrow = d.decT255()
 	v.lending = d.decPtrlendWalk()
 	v.lendFrame = d.decSyntax_Node()
 	v.ranged = d.decSyntax_Expr()
@@ -16984,15 +17096,15 @@ func (d *decoder) decPtrpatNode() *patNode {
 func (d *decoder) decFieldspatResolver(v *patResolver) {
 	v.c = d.decPtrchecker()
 	v.sp = d.decPtrpatSpace()
-	v.info = d.decT255()
+	v.info = d.decT256()
 	v.resolve = d.decPtrlookupSteps()
-	v.binds = d.decT205()
-	v.bound = d.decT68()
+	v.binds = d.decT206()
+	v.bound = d.decT67()
 	v.bad = d.decT11()
 	v.bindings = d.decT11()
 	v.letFor = d.decT11()
 	v.local = d.decT11()
-	v.own = d.decT77()
+	v.own = d.decT113()
 }
 
 func (d *decoder) decpatResolver() (v patResolver) {
@@ -17015,9 +17127,9 @@ func (d *decoder) decPtrpatResolver() *patResolver {
 }
 
 func (d *decoder) decFieldspatSpace(v *patSpace) {
-	v.cols = d.decT256()
-	v.child = d.decT257()
-	v.pats = d.decT258()
+	v.cols = d.decT257()
+	v.child = d.decT258()
+	v.pats = d.decT259()
 	v.patKey = d.decT138()
 	v.work = d.decT1()
 	v.cells = d.decT1()
@@ -17137,7 +17249,7 @@ func (d *decoder) decPtrpendingSelf() *pendingSelf {
 func (d *decoder) decFieldsplace(v *place) {
 	v.expr = d.decSyntax_Expr()
 	v.root = d.decObject()
-	v.steps = d.decT259()
+	v.steps = d.decT260()
 }
 
 func (d *decoder) decplace() (v place) {
@@ -17215,26 +17327,89 @@ func (d *decoder) decPtrpreludeState() *preludeState {
 	return v
 }
 
+func (d *decoder) decPtrpureArg() *pureArg {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*pureArg)
+	}
+	v := new(pureArg)
+	d.add(v)
+	d.decFieldspureArg(v)
+	return v
+}
+
+func (d *decoder) decFieldspureBinding(v *pureBinding) {
+	v.info = d.decPtrInfo()
+	v.x = d.decSyntax_Expr()
+	v.env = d.decT261()
+}
+
+func (d *decoder) decpureBinding() (v pureBinding) {
+	d.decFieldspureBinding(&v)
+	return v
+}
+
+func (d *decoder) decPtrpureBinding() *pureBinding {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*pureBinding)
+	}
+	v := new(pureBinding)
+	d.add(v)
+	d.decFieldspureBinding(v)
+	return v
+}
+
+func (d *decoder) decFieldspureSeer(v *pureSeer) {
+	v.encl = d.decPtrFunc()
+	v.forwarded = d.decT11()
+}
+
+func (d *decoder) decpureSeer() (v pureSeer) {
+	d.decFieldspureSeer(&v)
+	return v
+}
+
+func (d *decoder) decPtrpureSeer() *pureSeer {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*pureSeer)
+	}
+	v := new(pureSeer)
+	d.add(v)
+	d.decFieldspureSeer(v)
+	return v
+}
+
 func (d *decoder) decFieldsrefWalker(v *refWalker) {
 	v.c = d.decPtrchecker()
-	v.scopes = d.decT260()
+	v.scopes = d.decT262()
 	v.refs = d.decT148()
 	v.values = d.decT149()
-	v.frames = d.decT261()
-	v.callees = d.decT70()
-	v.argRows = d.decT262()
-	v.tparams = d.decT68()
+	v.frames = d.decT263()
+	v.callees = d.decT69()
+	v.argRows = d.decT264()
+	v.tparams = d.decT67()
 	v.ops = d.decT1()
-	v.pending = d.decT263()
-	v.retired = d.decT264()
-	v.idents = d.decT265()
-	v.nameIdents = d.decT77()
-	v.binders = d.decT77()
-	v.undecided = d.decT77()
-	v.visited = d.decT70()
+	v.pending = d.decT265()
+	v.retired = d.decT266()
+	v.idents = d.decT267()
+	v.nameIdents = d.decT113()
+	v.binders = d.decT113()
+	v.undecided = d.decT113()
+	v.visited = d.decT69()
 	v.guard = d.decPtrguardNode()
 	v.guarded = d.decT156()
-	v.cbFrames = d.decT204()
+	v.cbFrames = d.decT205()
 	v.owner = d.decT147()
 }
 
@@ -17325,7 +17500,7 @@ func (d *decoder) decPtrrelSeed() *relSeed {
 func (d *decoder) decFieldsresWalk(v *resWalk) {
 	v.c = d.decPtrchecker()
 	v.generic = d.decT11()
-	v.nodes = d.decT266()
+	v.nodes = d.decT268()
 	v.stack = d.decT159()
 	v.next = d.decT1()
 }
@@ -17441,11 +17616,11 @@ func (d *decoder) decPtrrowRef() *rowRef {
 
 func (d *decoder) decFieldsrowSet(v *rowSet) {
 	v.s = d.decPtrmatrixSolver()
-	v.rows = d.decT267()
+	v.rows = d.decT269()
 	v.dead = d.decT170()
-	v.byCell = d.decT268()
-	v.byFirst = d.decT268()
-	v.byColumn = d.decT269()
+	v.byCell = d.decT270()
+	v.byFirst = d.decT270()
+	v.byColumn = d.decT271()
 	v.empty = d.decT101()
 	v.cover = d.decT1()
 }
@@ -17503,10 +17678,10 @@ func (d *decoder) decFieldssegment(v *segment) {
 	v.objStart = d.decT196()
 	v.nodeStart = d.decT196()
 	v.deps = d.decT101()
-	v.data = d.decT199()
+	v.data = d.decT200()
 	v.off = d.decT196()
 	v.size = d.decT196()
-	v.sum = d.decT270()
+	v.sum = d.decT272()
 }
 
 func (d *decoder) decsegment() (v segment) {
@@ -17534,10 +17709,10 @@ func (d *decoder) decFieldssink(v *sink) {
 	v.tuple = d.decT19()
 	v.discard = d.decT11()
 	v.ret = d.decT11()
-	v.pass = d.decT271()
+	v.pass = d.decT273()
 	v.what = d.decT2()
-	v.missing = d.decT272()
-	v.noElse = d.decT273()
+	v.missing = d.decT274()
+	v.noElse = d.decT275()
 	v.optional = d.decT11()
 	v.none = d.decT11()
 	v.hint = d.decType()
@@ -17587,7 +17762,7 @@ func (d *decoder) decPtrstdEntry() *stdEntry {
 
 func (d *decoder) decFieldsstdSnapshot(v *stdSnapshot) {
 	v.base = d.decPtrstdBase()
-	v.paths = d.decT85()
+	v.paths = d.decT84()
 	v.packages = d.decT198()
 }
 
@@ -17676,7 +17851,7 @@ func (d *decoder) decPtrtrimmedNode() *trimmedNode {
 }
 
 func (d *decoder) decFieldstypeCtx(v *typeCtx) {
-	v.params = d.decT274()
+	v.params = d.decT276()
 	v.method = d.decT11()
 	v.hostRecv = d.decT2()
 	v.decl = d.decT11()
@@ -17707,8 +17882,8 @@ func (d *decoder) decPtrtypeCtx() *typeCtx {
 
 func (d *decoder) decFieldstypeEnv(v *typeEnv) {
 	v.file = d.decPtrfileInfo()
-	v.params = d.decT68()
-	v.local = d.decT275()
+	v.params = d.decT67()
+	v.local = d.decT277()
 }
 
 func (d *decoder) dectypeEnv() (v typeEnv) {
@@ -17731,10 +17906,10 @@ func (d *decoder) decPtrtypeEnv() *typeEnv {
 }
 
 func (d *decoder) decFieldstypeWalker(v *typeWalker) {
-	v.f = d.decT276()
-	v.slots = d.decT277()
-	v.index = d.decT278()
-	v.maps = d.decT279()
+	v.f = d.decT278()
+	v.slots = d.decT279()
+	v.index = d.decT280()
+	v.maps = d.decT281()
 }
 
 func (d *decoder) dectypeWalker() (v typeWalker) {
@@ -17817,7 +17992,7 @@ func (d *decoder) decPtruseSite() *useSite {
 }
 
 func (d *decoder) decFieldsvalueFrame(v *valueFrame) {
-	v.mode = d.decT280()
+	v.mode = d.decT282()
 	v.at = d.decSyntax_Pos()
 	v.via = d.decT2()
 }
@@ -17866,10 +18041,10 @@ func (d *decoder) decPtrvcand() *vcand {
 }
 
 func (d *decoder) decFieldsvnode(v *vnode) {
-	v.next = d.decT281()
-	v.vars = d.decT282()
-	v.rows = d.decT283()
-	v.rowList = d.decT284()
+	v.next = d.decT283()
+	v.vars = d.decT284()
+	v.rows = d.decT285()
+	v.rowList = d.decT286()
 	v.wild = d.decPtrvnode()
 	v.leaves = d.decT101()
 }
@@ -17918,7 +18093,7 @@ func (d *decoder) decPtrvrow() *vrow {
 }
 
 func (d *decoder) decFieldsvsym(v *vsym) {
-	v.kind = d.decT241()
+	v.kind = d.decT242()
 	v.ref = d.decT147()
 	v.n = d.decT133()
 	v.s = d.decT2()
@@ -18014,7 +18189,7 @@ func (d *decoder) decFieldswithFrame(v *withFrame) {
 	v.unknown = d.decT11()
 	v.outer = d.decwithScope()
 	v.depth = d.decT1()
-	v.at = d.decT285()
+	v.at = d.decT287()
 	v.caps = d.decT19()
 	v.entries = d.decT118()
 }
@@ -18068,7 +18243,7 @@ func (d *decoder) decPtrwithSite() *withSite {
 
 func (d *decoder) decFieldsworklist(v *worklist) {
 	v.h = d.decbodyHeap()
-	v.member = d.decT286()
+	v.member = d.decT288()
 	v.steps = d.decT1()
 }
 
@@ -18125,7 +18300,7 @@ func (d *decoder) decT183() map[*vnode]map[int32][]*vnode {
 	v := make(map[*vnode]map[int32][]*vnode, n-1)
 	for range n - 1 {
 		k := d.decPtrvnode()
-		v[k] = d.decT287()
+		v[k] = d.decT289()
 	}
 	return v
 }
@@ -18307,14 +18482,26 @@ func (d *decoder) decT198() []*Package {
 	return v
 }
 
-func (d *decoder) decT199() []byte {
+func (d *decoder) decT199() []v1.Hidden {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make([]v1.Hidden, n-1)
+	for i := range v {
+		v[i] = d.decV1_Hidden()
+	}
+	return v
+}
+
+func (d *decoder) decT200() []byte {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
 	v := make([]byte, n-1)
 	for i := range v {
-		v[i] = d.decT241()
+		v[i] = d.decT242()
 	}
 	return v
 }
@@ -18323,7 +18510,7 @@ func (d *decoder) decMintForm() MintForm { return MintForm(d.int()) }
 
 func (d *decoder) decMintPlace() MintPlace { return MintPlace(d.int()) }
 
-func (d *decoder) decT200() []MintFrame {
+func (d *decoder) decT201() []MintFrame {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18335,7 +18522,7 @@ func (d *decoder) decT200() []MintFrame {
 	return v
 }
 
-func (d *decoder) decT201() []RewriteArg {
+func (d *decoder) decT202() []RewriteArg {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18347,7 +18534,7 @@ func (d *decoder) decT201() []RewriteArg {
 	return v
 }
 
-func (d *decoder) decT202() []WitnessOp {
+func (d *decoder) decT203() []WitnessOp {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18369,7 +18556,7 @@ func (d *decoder) decPtrSyntax_BlockStmt() *syntax.BlockStmt {
 
 func (d *decoder) decassignClause() assignClause { return assignClause(d.int()) }
 
-func (d *decoder) decT203() []*bodyNode {
+func (d *decoder) decT204() []*bodyNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18381,7 +18568,7 @@ func (d *decoder) decT203() []*bodyNode {
 	return v
 }
 
-func (d *decoder) decT204() []syntax.Node {
+func (d *decoder) decT205() []syntax.Node {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18395,9 +18582,9 @@ func (d *decoder) decT204() []syntax.Node {
 
 func (d *decoder) decbranchKind() branchKind { return branchKind(d.int()) }
 
-func (d *decoder) decsolverRow() solverRow { return solverRow(d.decT288()) }
+func (d *decoder) decsolverRow() solverRow { return solverRow(d.decT290()) }
 
-func (d *decoder) decT205() []patBinding {
+func (d *decoder) decT206() []patBinding {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18409,7 +18596,7 @@ func (d *decoder) decT205() []patBinding {
 	return v
 }
 
-func (d *decoder) decT206() []*syntax.Ident {
+func (d *decoder) decT207() []*syntax.Ident {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18421,7 +18608,7 @@ func (d *decoder) decT206() []*syntax.Ident {
 	return v
 }
 
-func (d *decoder) decT207() map[int32]int {
+func (d *decoder) decT208() map[int32]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18434,7 +18621,7 @@ func (d *decoder) decT207() map[int32]int {
 	return v
 }
 
-func (d *decoder) decT208() map[int32]*catchMatrix {
+func (d *decoder) decT209() map[int32]*catchMatrix {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18449,9 +18636,9 @@ func (d *decoder) decT208() map[int32]*catchMatrix {
 
 func (d *decoder) decdomain() domain { return domain(d.int()) }
 
-func (d *decoder) decT209() func(w witness, col int, out *strings.Builder) { return nil }
+func (d *decoder) decT210() func(w witness, col int, out *strings.Builder) { return nil }
 
-func (d *decoder) decT210() map[int][]int {
+func (d *decoder) decT211() map[int][]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18464,7 +18651,7 @@ func (d *decoder) decT210() map[int][]int {
 	return v
 }
 
-func (d *decoder) decT211() map[int32]*Row {
+func (d *decoder) decT212() map[int32]*Row {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18477,7 +18664,7 @@ func (d *decoder) decT211() map[int32]*Row {
 	return v
 }
 
-func (d *decoder) decT212() map[int32]syntax.Expr {
+func (d *decoder) decT213() map[int32]syntax.Expr {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18490,7 +18677,7 @@ func (d *decoder) decT212() map[int32]syntax.Expr {
 	return v
 }
 
-func (d *decoder) decT213() []*syntax.ContextLit {
+func (d *decoder) decT214() []*syntax.ContextLit {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18502,7 +18689,7 @@ func (d *decoder) decT213() []*syntax.ContextLit {
 	return v
 }
 
-func (d *decoder) decT214() map[*Context]*contextNode {
+func (d *decoder) decT215() map[*Context]*contextNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18515,7 +18702,7 @@ func (d *decoder) decT214() map[*Context]*contextNode {
 	return v
 }
 
-func (d *decoder) decT215() []any {
+func (d *decoder) decT216() []any {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18527,7 +18714,7 @@ func (d *decoder) decT215() []any {
 	return v
 }
 
-func (d *decoder) decT216() []*checker {
+func (d *decoder) decT217() []*checker {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18539,7 +18726,7 @@ func (d *decoder) decT216() []*checker {
 	return v
 }
 
-func (d *decoder) decT217() map[int32]*Drop {
+func (d *decoder) decT218() map[int32]*Drop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18552,7 +18739,7 @@ func (d *decoder) decT217() map[int32]*Drop {
 	return v
 }
 
-func (d *decoder) decT218() map[any]uint64 {
+func (d *decoder) decT219() map[any]uint64 {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18573,7 +18760,7 @@ func (d *decoder) decPtrSyntax_NodeEncoder() *syntax.NodeEncoder {
 	return x.(*syntax.NodeEncoder)
 }
 
-func (d *decoder) decT219() []uint64 {
+func (d *decoder) decT220() []uint64 {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18585,7 +18772,7 @@ func (d *decoder) decT219() []uint64 {
 	return v
 }
 
-func (d *decoder) decT220() map[int]bool {
+func (d *decoder) decT221() map[int]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18598,7 +18785,7 @@ func (d *decoder) decT220() map[int]bool {
 	return v
 }
 
-func (d *decoder) decT221() map[*Var]int {
+func (d *decoder) decT222() map[*Var]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18611,7 +18798,7 @@ func (d *decoder) decT221() map[*Var]int {
 	return v
 }
 
-func (d *decoder) decT222() map[*Var][]mutEvent {
+func (d *decoder) decT223() map[*Var][]mutEvent {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18619,12 +18806,12 @@ func (d *decoder) decT222() map[*Var][]mutEvent {
 	v := make(map[*Var][]mutEvent, n-1)
 	for range n - 1 {
 		k := d.decPtrVar()
-		v[k] = d.decT289()
+		v[k] = d.decT291()
 	}
 	return v
 }
 
-func (d *decoder) decT223() map[*Var][]*Var {
+func (d *decoder) decT224() map[*Var][]*Var {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18637,7 +18824,7 @@ func (d *decoder) decT223() map[*Var][]*Var {
 	return v
 }
 
-func (d *decoder) decT224() map[*Var]bool {
+func (d *decoder) decT225() map[*Var]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18650,7 +18837,7 @@ func (d *decoder) decT224() map[*Var]bool {
 	return v
 }
 
-func (d *decoder) decT225() map[*Var]Type {
+func (d *decoder) decT226() map[*Var]Type {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18663,7 +18850,7 @@ func (d *decoder) decT225() map[*Var]Type {
 	return v
 }
 
-func (d *decoder) decT226() map[*Func]map[*TypeParam]string {
+func (d *decoder) decT227() map[*Func]map[*TypeParam]string {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18671,12 +18858,12 @@ func (d *decoder) decT226() map[*Func]map[*TypeParam]string {
 	v := make(map[*Func]map[*TypeParam]string, n-1)
 	for range n - 1 {
 		k := d.decPtrFunc()
-		v[k] = d.decT290()
+		v[k] = d.decT292()
 	}
 	return v
 }
 
-func (d *decoder) decT227() map[*syntax.FuncLit]*Var {
+func (d *decoder) decT228() map[*syntax.FuncLit]*Var {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18689,7 +18876,7 @@ func (d *decoder) decT227() map[*syntax.FuncLit]*Var {
 	return v
 }
 
-func (d *decoder) decT228() map[*Var][]litUse {
+func (d *decoder) decT229() map[*Var][]litUse {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18697,14 +18884,14 @@ func (d *decoder) decT228() map[*Var][]litUse {
 	v := make(map[*Var][]litUse, n-1)
 	for range n - 1 {
 		k := d.decPtrVar()
-		v[k] = d.decT291()
+		v[k] = d.decT293()
 	}
 	return v
 }
 
 func (d *decoder) decBuiltin_error() error { return nil }
 
-func (d *decoder) decT229() map[any]*fpNode {
+func (d *decoder) decT230() map[any]*fpNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18717,7 +18904,7 @@ func (d *decoder) decT229() map[any]*fpNode {
 	return v
 }
 
-func (d *decoder) decT230() []*fpNode {
+func (d *decoder) decT231() []*fpNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18729,7 +18916,7 @@ func (d *decoder) decT230() []*fpNode {
 	return v
 }
 
-func (d *decoder) decT231() map[*Context][]trimmedNode {
+func (d *decoder) decT232() map[*Context][]trimmedNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18737,12 +18924,12 @@ func (d *decoder) decT231() map[*Context][]trimmedNode {
 	v := make(map[*Context][]trimmedNode, n-1)
 	for range n - 1 {
 		k := d.decPtrContext()
-		v[k] = d.decT292()
+		v[k] = d.decT294()
 	}
 	return v
 }
 
-func (d *decoder) decT232() map[*TypeName]Type {
+func (d *decoder) decT233() map[*TypeName]Type {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18755,11 +18942,11 @@ func (d *decoder) decT232() map[*TypeName]Type {
 	return v
 }
 
-func (d *decoder) decT233() func(int, *syntax.Ident) { return nil }
+func (d *decoder) decT234() func(int, *syntax.Ident) { return nil }
 
-func (d *decoder) decT234() func() { return nil }
+func (d *decoder) decT235() func() { return nil }
 
-func (d *decoder) decT235() map[*Var]lendPoint {
+func (d *decoder) decT236() map[*Var]lendPoint {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18772,7 +18959,7 @@ func (d *decoder) decT235() map[*Var]lendPoint {
 	return v
 }
 
-func (d *decoder) decT236() map[syntax.Node][]resourceLoan {
+func (d *decoder) decT237() map[syntax.Node][]resourceLoan {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18780,14 +18967,14 @@ func (d *decoder) decT236() map[syntax.Node][]resourceLoan {
 	v := make(map[syntax.Node][]resourceLoan, n-1)
 	for range n - 1 {
 		k := d.decSyntax_Node()
-		v[k] = d.decT248()
+		v[k] = d.decT249()
 	}
 	return v
 }
 
 func (d *decoder) declitKind() litKind { return litKind(d.uint()) }
 
-func (d *decoder) decT237() map[string]missingResult {
+func (d *decoder) decT238() map[string]missingResult {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18800,7 +18987,7 @@ func (d *decoder) decT237() map[string]missingResult {
 	return v
 }
 
-func (d *decoder) decT238() map[rowRef]int {
+func (d *decoder) decT239() map[rowRef]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18813,7 +19000,7 @@ func (d *decoder) decT238() map[rowRef]int {
 	return v
 }
 
-func (d *decoder) decT239() map[Type]bool {
+func (d *decoder) decT240() map[Type]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18826,7 +19013,7 @@ func (d *decoder) decT239() map[Type]bool {
 	return v
 }
 
-func (d *decoder) decT240() []Mint {
+func (d *decoder) decT241() []Mint {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18838,25 +19025,25 @@ func (d *decoder) decT240() []Mint {
 	return v
 }
 
-func (d *decoder) decwitness() witness { return witness(d.decT269()) }
+func (d *decoder) decwitness() witness { return witness(d.decT271()) }
 
-func (d *decoder) decT241() byte { return byte(d.uint()) }
+func (d *decoder) decT242() byte { return byte(d.uint()) }
 
-func (d *decoder) decT242() [][]any {
+func (d *decoder) decT243() [][]any {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
 	v := make([][]any, n-1)
 	for i := range v {
-		v[i] = d.decT215()
+		v[i] = d.decT216()
 	}
 	return v
 }
 
 func (d *decoder) decopMode() opMode { return opMode(d.int()) }
 
-func (d *decoder) decT243() []ownState {
+func (d *decoder) decT244() []ownState {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18868,7 +19055,7 @@ func (d *decoder) decT243() []ownState {
 	return v
 }
 
-func (d *decoder) decT244() []*ownLoop {
+func (d *decoder) decT245() []*ownLoop {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18880,7 +19067,7 @@ func (d *decoder) decT244() []*ownLoop {
 	return v
 }
 
-func (d *decoder) decT245() []*ownCatch {
+func (d *decoder) decT246() []*ownCatch {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18892,7 +19079,7 @@ func (d *decoder) decT245() []*ownCatch {
 	return v
 }
 
-func (d *decoder) decT246() []ownDiag {
+func (d *decoder) decT247() []ownDiag {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18906,7 +19093,7 @@ func (d *decoder) decT246() []ownDiag {
 
 func (d *decoder) decownSt() ownSt { return ownSt(d.uint()) }
 
-func (d *decoder) decT247() []ownLoan {
+func (d *decoder) decT248() []ownLoan {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18918,7 +19105,7 @@ func (d *decoder) decT247() []ownLoan {
 	return v
 }
 
-func (d *decoder) decT248() []resourceLoan {
+func (d *decoder) decT249() []resourceLoan {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18930,7 +19117,7 @@ func (d *decoder) decT248() []resourceLoan {
 	return v
 }
 
-func (d *decoder) decT249() []ownSlot {
+func (d *decoder) decT250() []ownSlot {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18944,7 +19131,7 @@ func (d *decoder) decT249() []ownSlot {
 
 func (d *decoder) decownMode() ownMode { return ownMode(d.uint()) }
 
-func (d *decoder) decT250() []ownLocal {
+func (d *decoder) decT251() []ownLocal {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18956,7 +19143,7 @@ func (d *decoder) decT250() []ownLocal {
 	return v
 }
 
-func (d *decoder) decT251() []ownScope {
+func (d *decoder) decT252() []ownScope {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18968,7 +19155,7 @@ func (d *decoder) decT251() []ownScope {
 	return v
 }
 
-func (d *decoder) decT252() map[syntax.Node]*ownLoopMemo {
+func (d *decoder) decT253() map[syntax.Node]*ownLoopMemo {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18981,7 +19168,7 @@ func (d *decoder) decT252() map[syntax.Node]*ownLoopMemo {
 	return v
 }
 
-func (d *decoder) decT253() map[*TypeParam]CopySite {
+func (d *decoder) decT254() map[*TypeParam]CopySite {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -18994,7 +19181,7 @@ func (d *decoder) decT253() map[*TypeParam]CopySite {
 	return v
 }
 
-func (d *decoder) decT254() map[*Var]*Var {
+func (d *decoder) decT255() map[*Var]*Var {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19007,7 +19194,7 @@ func (d *decoder) decT254() map[*Var]*Var {
 	return v
 }
 
-func (d *decoder) decT255() []colInfo {
+func (d *decoder) decT256() []colInfo {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19019,7 +19206,7 @@ func (d *decoder) decT255() []colInfo {
 	return v
 }
 
-func (d *decoder) decT256() []column {
+func (d *decoder) decT257() []column {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19031,20 +19218,20 @@ func (d *decoder) decT256() []column {
 	return v
 }
 
-func (d *decoder) decT257() map[[3]int]int {
+func (d *decoder) decT258() map[[3]int]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
 	v := make(map[[3]int]int, n-1)
 	for range n - 1 {
-		k := d.decT293()
+		k := d.decT295()
 		v[k] = d.decT1()
 	}
 	return v
 }
 
-func (d *decoder) decT258() []patNode {
+func (d *decoder) decT259() []patNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19056,7 +19243,7 @@ func (d *decoder) decT258() []patNode {
 	return v
 }
 
-func (d *decoder) decT259() []placeStep {
+func (d *decoder) decT260() []placeStep {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19068,19 +19255,32 @@ func (d *decoder) decT259() []placeStep {
 	return v
 }
 
-func (d *decoder) decT260() []map[string]*localBinding {
+func (d *decoder) decT261() map[string]*pureBinding {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make(map[string]*pureBinding, n-1)
+	for range n - 1 {
+		k := d.decT2()
+		v[k] = d.decPtrpureBinding()
+	}
+	return v
+}
+
+func (d *decoder) decT262() []map[string]*localBinding {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
 	v := make([]map[string]*localBinding, n-1)
 	for i := range v {
-		v[i] = d.decT294()
+		v[i] = d.decT296()
 	}
 	return v
 }
 
-func (d *decoder) decT261() []valueFrame {
+func (d *decoder) decT263() []valueFrame {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19092,7 +19292,7 @@ func (d *decoder) decT261() []valueFrame {
 	return v
 }
 
-func (d *decoder) decT262() map[syntax.Node][2]bool {
+func (d *decoder) decT264() map[syntax.Node][2]bool {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19105,7 +19305,7 @@ func (d *decoder) decT262() map[syntax.Node][2]bool {
 	return v
 }
 
-func (d *decoder) decT263() []pendingSelf {
+func (d *decoder) decT265() []pendingSelf {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19117,7 +19317,7 @@ func (d *decoder) decT263() []pendingSelf {
 	return v
 }
 
-func (d *decoder) decT264() []*syntax.SelectorExpr {
+func (d *decoder) decT266() []*syntax.SelectorExpr {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19129,7 +19329,7 @@ func (d *decoder) decT264() []*syntax.SelectorExpr {
 	return v
 }
 
-func (d *decoder) decT265() map[*syntax.Ident]any {
+func (d *decoder) decT267() map[*syntax.Ident]any {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19142,7 +19342,7 @@ func (d *decoder) decT265() map[*syntax.Ident]any {
 	return v
 }
 
-func (d *decoder) decT266() map[int32]*taskNode {
+func (d *decoder) decT268() map[int32]*taskNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19155,7 +19355,7 @@ func (d *decoder) decT266() map[int32]*taskNode {
 	return v
 }
 
-func (d *decoder) decT267() []solverRow {
+func (d *decoder) decT269() []solverRow {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19167,20 +19367,20 @@ func (d *decoder) decT267() []solverRow {
 	return v
 }
 
-func (d *decoder) decT268() map[[2]int][]int {
+func (d *decoder) decT270() map[[2]int][]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
 	}
 	v := make(map[[2]int][]int, n-1)
 	for range n - 1 {
-		k := d.decT295()
+		k := d.decT297()
 		v[k] = d.decT101()
 	}
 	return v
 }
 
-func (d *decoder) decT269() map[int]int {
+func (d *decoder) decT271() map[int]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19193,20 +19393,20 @@ func (d *decoder) decT269() map[int]int {
 	return v
 }
 
-func (d *decoder) decT270() (v [32]byte) {
+func (d *decoder) decT272() (v [32]byte) {
 	for i := range v {
-		v[i] = d.decT241()
+		v[i] = d.decT242()
 	}
 	return v
 }
 
-func (d *decoder) decT271() func(*operand) { return nil }
+func (d *decoder) decT273() func(*operand) { return nil }
 
-func (d *decoder) decT272() func(end syntax.Pos) { return nil }
+func (d *decoder) decT274() func(end syntax.Pos) { return nil }
 
-func (d *decoder) decT273() func(s *syntax.IfStmt) { return nil }
+func (d *decoder) decT275() func(s *syntax.IfStmt) { return nil }
 
-func (d *decoder) decT274() map[string]*TypeParam {
+func (d *decoder) decT276() map[string]*TypeParam {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19219,24 +19419,24 @@ func (d *decoder) decT274() map[string]*TypeParam {
 	return v
 }
 
-func (d *decoder) decT275() func(name string) bool { return nil }
+func (d *decoder) decT277() func(name string) bool { return nil }
 
-func (d *decoder) decT276() func(*syntax.Ident, Kind) { return nil }
+func (d *decoder) decT278() func(*syntax.Ident, Kind) { return nil }
 
-func (d *decoder) decT277() func(head syntax.Expr) []Kind { return nil }
+func (d *decoder) decT279() func(head syntax.Expr) []Kind { return nil }
 
-func (d *decoder) decT278() func(ix *syntax.IndexExpr) bool { return nil }
+func (d *decoder) decT280() func(ix *syntax.IndexExpr) bool { return nil }
 
-func (d *decoder) decT279() func(m *syntax.MapType) syntax.Expr { return nil }
+func (d *decoder) decT281() func(m *syntax.MapType) syntax.Expr { return nil }
 
-func (d *decoder) decT280() (v [2]frameMode) {
+func (d *decoder) decT282() (v [2]frameMode) {
 	for i := range v {
 		v[i] = d.decframeMode()
 	}
 	return v
 }
 
-func (d *decoder) decT281() map[vsym]*vnode {
+func (d *decoder) decT283() map[vsym]*vnode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19249,7 +19449,7 @@ func (d *decoder) decT281() map[vsym]*vnode {
 	return v
 }
 
-func (d *decoder) decT282() map[*TypeParam]*vnode {
+func (d *decoder) decT284() map[*TypeParam]*vnode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19262,7 +19462,7 @@ func (d *decoder) decT282() map[*TypeParam]*vnode {
 	return v
 }
 
-func (d *decoder) decT283() map[int32]*vrow {
+func (d *decoder) decT285() map[int32]*vrow {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19275,7 +19475,7 @@ func (d *decoder) decT283() map[int32]*vrow {
 	return v
 }
 
-func (d *decoder) decT284() []*vrow {
+func (d *decoder) decT286() []*vrow {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19287,7 +19487,7 @@ func (d *decoder) decT284() []*vrow {
 	return v
 }
 
-func (d *decoder) decT285() map[capKey]int {
+func (d *decoder) decT287() map[capKey]int {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19300,11 +19500,11 @@ func (d *decoder) decT285() map[capKey]int {
 	return v
 }
 
-func (d *decoder) decbodyHeap() bodyHeap { return bodyHeap(d.decT203()) }
+func (d *decoder) decbodyHeap() bodyHeap { return bodyHeap(d.decT204()) }
 
-func (d *decoder) decT286() func(*bodyNode) bool { return nil }
+func (d *decoder) decT288() func(*bodyNode) bool { return nil }
 
-func (d *decoder) decT287() map[int32][]*vnode {
+func (d *decoder) decT289() map[int32][]*vnode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19312,12 +19512,14 @@ func (d *decoder) decT287() map[int32][]*vnode {
 	v := make(map[int32][]*vnode, n-1)
 	for range n - 1 {
 		k := d.decT146()
-		v[k] = d.decT296()
+		v[k] = d.decT298()
 	}
 	return v
 }
 
-func (d *decoder) decT288() []cell {
+func (d *decoder) decV1_Hidden() v1.Hidden { return v1.Hidden(d.string()) }
+
+func (d *decoder) decT290() []cell {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19329,7 +19531,7 @@ func (d *decoder) decT288() []cell {
 	return v
 }
 
-func (d *decoder) decT289() []mutEvent {
+func (d *decoder) decT291() []mutEvent {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19341,7 +19543,7 @@ func (d *decoder) decT289() []mutEvent {
 	return v
 }
 
-func (d *decoder) decT290() map[*TypeParam]string {
+func (d *decoder) decT292() map[*TypeParam]string {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19354,7 +19556,7 @@ func (d *decoder) decT290() map[*TypeParam]string {
 	return v
 }
 
-func (d *decoder) decT291() []litUse {
+func (d *decoder) decT293() []litUse {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19366,7 +19568,7 @@ func (d *decoder) decT291() []litUse {
 	return v
 }
 
-func (d *decoder) decT292() []trimmedNode {
+func (d *decoder) decT294() []trimmedNode {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19378,14 +19580,14 @@ func (d *decoder) decT292() []trimmedNode {
 	return v
 }
 
-func (d *decoder) decT293() (v [3]int) {
+func (d *decoder) decT295() (v [3]int) {
 	for i := range v {
 		v[i] = d.decT1()
 	}
 	return v
 }
 
-func (d *decoder) decT294() map[string]*localBinding {
+func (d *decoder) decT296() map[string]*localBinding {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -19398,7 +19600,7 @@ func (d *decoder) decT294() map[string]*localBinding {
 	return v
 }
 
-func (d *decoder) decT295() (v [2]int) {
+func (d *decoder) decT297() (v [2]int) {
 	for i := range v {
 		v[i] = d.decT1()
 	}
@@ -19407,7 +19609,7 @@ func (d *decoder) decT295() (v [2]int) {
 
 func (d *decoder) decframeMode() frameMode { return frameMode(d.uint()) }
 
-func (d *decoder) decT296() []*vnode {
+func (d *decoder) decT298() []*vnode {
 	n := d.uint()
 	if n == 0 {
 		return nil

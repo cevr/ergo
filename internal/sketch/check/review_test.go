@@ -294,13 +294,6 @@ func F(m Map[int, S]) { G(&m[0]) }`},
 	{"M18", "unknown-context-cascade-in-context", "S104", `func F() { with(context{ Missing }) { Console.Println("x") } }`},
 	{"M18", "unknown-context-cascade-named", "S104", `let W = context { Missing }
 func F() { with W { Console.Println("x") } }`},
-	{"N1", "pointer-receiver-parameter", "", `type I { M() }
-type S {} implements I
-func M(s *S) {}
-func F(s *S) {
-	let x I = s
-	x.M()
-}`},
 	{"N1", "pointer-receiver-value", "S108", `type I { M() }
 type S {}
 func M(s *S) {}

@@ -34,7 +34,7 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"
@@ -368,7 +368,7 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"

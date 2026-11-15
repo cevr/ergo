@@ -726,7 +726,7 @@ var i1Graphs = append([]i1Graph{
 	}, call: "left(%d)", frames: []string{"left", "run"}, opaque: true},
 	// A provider method recursing by a dot call on its receiver.
 	{name: "provider-self", decls: func(row, clause string) string {
-		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
+		return "type Worker { Run(n int) int, }\ntype Impl {} implements Worker\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
 	}, call: "with Work { Worker.Run(%d) }", frames: []string{"Impl.Run"}, provider: true},
 }, i1CallGraphs()...)
 
@@ -1415,7 +1415,7 @@ func i1LivePrograms() map[string]string {
 		out["decl-"+kind] = work("func spin() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\n", "spin()\n")
 		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
 		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nu.Wait()\n")
-		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = context { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
+		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {} implements Worker\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = context { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")

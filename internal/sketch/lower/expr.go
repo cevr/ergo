@@ -317,9 +317,6 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
-		if lit := fc.l.info.Works[x]; lit != nil {
-			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
-		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}

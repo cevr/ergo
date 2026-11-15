@@ -22,7 +22,7 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"
@@ -427,7 +427,7 @@ let Releasing = context { R: First }
 
 type Store { Get() string }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string { "ok" }
 

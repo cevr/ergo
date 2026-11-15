@@ -20,7 +20,7 @@ var severalCaps = []string{"A", "B", "C", "D"}
 func severalPrelude() string {
 	var b strings.Builder
 	for _, x := range severalCaps {
-		fmt.Fprintf(&b, "type C%s { %s() int }\ntype P%s { v int }\nfunc %s(p P%s) int { p.v }\n", x, x, x, x, x)
+		fmt.Fprintf(&b, "type C%s { %s() int }\ntype P%s { v int } implements C%s\nfunc %s(p P%s) int { p.v }\n", x, x, x, x, x, x)
 		fmt.Fprintf(&b, "func need%s() int needs C%s { C%s.%s() }\n", x, x, x, x)
 	}
 	b.WriteString("type Tag { s string }\nfunc contextKey(t Tag) string { \"tag\" }\nfunc contextText(t Tag) string { t.s }\n")

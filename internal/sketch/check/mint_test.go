@@ -178,7 +178,7 @@ var mintPlaceNames = map[MintPlace]string{
 // a record with a hidden field, and the mints of H (and of what holds it)
 // are compared; other types' mints are left out.
 func TestMintsEachForm(t *testing.T) {
-	const base = `type H { root string }
+	const base = `type H { root string } implements Rd
 
 type U {}
 
@@ -250,7 +250,7 @@ func Get(_ H) int { 1 }
 		pkg, ds := Check("fixture", []*syntax.File{f}, nil)
 		var real []Diagnostic
 		for _, d := range ds {
-			if d.Code != CodeUnused && !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if d.Code != CodeUnused && !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				real = append(real, d)
 			}
 		}

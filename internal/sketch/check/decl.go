@@ -27,6 +27,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
+	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
 	pkg = n.runOnce(files)
@@ -131,8 +132,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
-		// After the footprints: a durable machine's step is pure (MU9).
-		c.checkDurableSteps,
+		// After the footprints: the argument of a pure parameter runs a
+		// pure function (Footprints 6), a durable machine's step (MU9).
+		c.checkPureArgs,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
 		// After every body: the first with operand past the with budget,
@@ -283,7 +285,7 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
-			if syntax.IsBindingDecl(d) {
+			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
 				// checker reads bindings with #202's import checking.
@@ -1316,6 +1318,11 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		if ctx != nil {
 			inner = *ctx
 		}
+		if x.Entry && (ctx == nil || !ctx.param) {
+			// An entry's send is a parameter's type (Signature.Entry): a
+			// field or a result of it would keep the send past the entry.
+			c.errorIn(x, x.EntryPos, x.EntryPos+syntax.Pos(len("entry")), CodeType, "entry func(…) is written only as a parameter's type: the send a work is given lives no longer than the call that got it (runtime.md, Machines and actors 14)")
+		}
 		inner.field, inner.param = false, false
 		sig := c.signature(x, &inner)
 		// A written function type's parameter names declare its
@@ -1987,6 +1994,9 @@ func writtenParamType(x syntax.Expr, t Type) Type {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
+			// `entry func(…)` is an entry's send (Signature.Entry); it is
+			// written only on a parameter, so only here.
+			ne.Entry = ft.Entry
 			return &ne
 		}
 	}
@@ -2122,7 +2132,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
-	closeTakes(f)
+	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
 	}

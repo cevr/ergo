@@ -9,7 +9,7 @@
 // the index of the first byte that is not a hex digit, or the length of
 // the text when every byte is one and the length is odd (Go's
 // InvalidByteError and ErrLength).
-type Malformed { Offset int }
+extern go ergo.local/prototype/runtime/v1.HexMalformed type Malformed { Offset int }
 
 // Encode is the lower-case hexadecimal text of the bytes of s, two digits
 // a byte, as Go's hex.EncodeToString.

@@ -25,6 +25,8 @@ func (e TOMLMalformed) Error() string {
 // nominal record, ParseX functions, refinements and typed failure rows.
 // There is no host I/O, reflection, or external module dependency.
 // Dates/times are strings; nonfinite floats use json's existing strings.
+//
+//ergo:wait none
 func TOMLParse(text string, maxBytes, maxDepth int) (string, error) {
 	p := tomlParser{line: 1, maxDepth: maxDepth}
 	if maxBytes > 0 && len(text) > maxBytes {

@@ -4,7 +4,7 @@
 // Stream is the state of a PCG provider: Go's *rand.Rand over a PCG
 // source, behind a lock, so tasks that share one provider draw from one
 // stream. Only Seeded makes one.
-type Stream {
+extern go ergo.local/prototype/runtime/v1.Stream type Stream {
 	runtimeOnly(),
 	// Uint64 is 64 random bits.
 	Uint64() uint64,

@@ -67,7 +67,7 @@ func MinInt() int { -9223372036854775807 - 1 }
 // OutOfRange is the failure of a float that an integer type cannot hold:
 // NaN, an infinity, or a value whose truncation lies outside the type's
 // range. Value is the float.
-type OutOfRange { Value float64 }
+extern go ergo.local/prototype/runtime/v1.MathOutOfRange type OutOfRange { Value float64 }
 
 // The checked conversions, one per integer type T that a float converts
 // to (docs/spec/types.md, Conversions 4): ToT(f) is f toward zero, as

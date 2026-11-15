@@ -48,7 +48,7 @@ type Manual { line Timeline } implements Clock, Scheduler
 
 // Timeline is the state a Manual shares between its copies. Only NewManual
 // makes one.
-type Timeline {
+extern go ergo.local/prototype/runtime/v1.Timeline type Timeline {
 	runtimeOnly(),
 	// Read is the time now.
 	Read() Reading,

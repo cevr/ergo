@@ -324,6 +324,22 @@ test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status i
 	assert p.Wait() == want.Status
 }
 
+test ExecSpawnerKilledIsNotAlive(name string) {
+	let p = exec.NewProcesses([]string{name})
+	let d = try p.Spawn(exec.New(name, []string{}), exec.Streams{Stdout: exec.Discard, Stderr: exec.Discard})
+	assert p.Alive(d)
+	p.Kill(d, 0s)
+	assert !p.Alive(d)
+}
+
+test ExecSpawnerKillIsIdempotent(name string) {
+	let p = exec.NewProcesses([]string{name})
+	let d = try p.Spawn(exec.New(name, []string{}), exec.Streams{Stdout: exec.Discard, Stderr: exec.Discard})
+	p.Kill(d, 0s)
+	p.Kill(d, 0s)
+	assert !p.Alive(d)
+}
+
 test ExecWithEnvOverrides(key string, first string, second string) {
 	let c = exec.New("x", []string{}).WithEnv(key, first).WithEnv(key, second)
 	assert c.Env.Get(key) == Some[string]{Value: second}
@@ -371,6 +387,8 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 var execLawStatements = map[string]string{
 	"exec Runner.StartAgreesWithRun": `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
 	"exec ScriptReplaysRecorded":     `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
+	"exec Spawner.KillIsIdempotent":  `KillIsIdempotent(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) Kill(d, 0s) !Alive(d) }`,
+	"exec Spawner.KilledIsNotAlive":  `KilledIsNotAlive(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) !Alive(d) }`,
 	"exec WithEnvKeepsTheOriginal":   `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
 	"exec WithEnvOverrides":          `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }

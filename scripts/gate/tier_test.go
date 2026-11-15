@@ -338,7 +338,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// internal/selfhostcheck's and internal/experimental/irspike's; the
 	// direct build path's identity test lives in internal/sketchfront, so
 	// internal/sketch/build's tests import no part of the checker.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}

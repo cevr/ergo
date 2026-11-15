@@ -237,7 +237,8 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 
 // machineWork is the Work of a machine value's Machine (ConvMachine, MU4):
 // a function that calls the machine's work function and gives the Start
-// of its std machines.Work, or, when it has none, a function that gives
+// of its work record (check.WorkStart: std machines.Work, or a program's
+// record of its shape), or, when it has none, a function that gives
 // every state None (no work). The work function has no rows of its own
 // (checkMachineWork), so its error is always nil.
 //
@@ -254,6 +255,17 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 		return fc.machineNone(conv, "Work", site)
 	}
 	sig := fc.machineField(conv, "Work", site)
+	// The work record's one field (check.WorkStart): Start for std
+	// machines.Work, or the name a program's record of its shape gives it.
+	var start string
+	if o, ok := work.Sig.Results[0].(*check.Named); ok && len(o.TArgs) == 1 {
+		if field, _ := check.WorkStart(o.TArgs[0]); field != "" {
+			start = fc.l.typeDecl(o.TArgs[0].(*check.Named).Obj, site).fieldName[field]
+		}
+	}
+	if start == "" {
+		ice(site, "the work %s gives no work record", work.Name)
+	}
 	g := fc.funcValue(work, work.Sig, site, nil)
 	gv, o, w := fc.scope.alloc("work"), fc.scope.alloc("o"), fc.scope.alloc("w")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
@@ -263,7 +275,7 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 			ind + gv + " := " + g + "\n" +
 				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
 				ind + "if " + fc.optionSomeIf(work.Sig.Results[0], o, w, site) + " {\n" +
-				ind + "\treturn " + fc.optionSome(sig.Results[0], w+".Value.Start", site) + ", nil\n" +
+				ind + "\treturn " + fc.optionSome(sig.Results[0], w+".Value."+start, site) + ", nil\n" +
 				ind + "}\n" +
 				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
 	})

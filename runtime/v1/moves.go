@@ -44,6 +44,15 @@ var running = map[string]bool{
 // (running).
 func StopsRunning(name string) bool { return running[name] }
 
+// Inert reports a body that acts on nothing outside the value it makes:
+// it reads its hidden arguments, so it is not marked pure, but it runs no
+// capability, starts no task and calls no Ergo code, so a call made again
+// in a replay acts on nothing (a reviewed body fact; the checker reads it
+// for any extern that binds the body, check/body.go). NewHost makes an
+// empty host cell, which the actor's entry binds (actor_host.go; DH1;
+// runtime.md, Machines and actors 17): a durable step may make hosts.
+func Inert(name string) bool { return name == "NewHost" }
+
 // MovingBody names the callback whose captures move to a child task's
 // root lifetime (R12). Repeated is true when the callback can run again:
 // it only lends those captures, as any repeated nested frame does. This

@@ -402,6 +402,17 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				td.ops = append(td.ops, op)
 			}
 		}
+		// A member `..I` includes I's operations (types.md, Interface
+		// assignability 1): the checked method set holds them, after the
+		// written ones.
+		if it, ok := named.Underlying().(*check.Interface); ok {
+			for _, op := range it.Methods {
+				if !taken[memberName(op.Name)] {
+					taken[memberName(op.Name)] = true
+					td.ops = append(td.ops, op)
+				}
+			}
+		}
 	case *syntax.MachineType:
 		td.kind, td.machine = kindMachine, l.machineOf(tn, named, spec, site)
 	default:

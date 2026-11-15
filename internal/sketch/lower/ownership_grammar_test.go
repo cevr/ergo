@@ -135,12 +135,12 @@ const (
 	oPair                 // Pair{R Res, S Res}
 	oTup                  // (Res, Res)
 	oGuard                // Guard{R Res}, with its own Close
-	oBox                  // Box{C Closer, n int}: an operation type stored in a field
+	oBox                  // Box{C Usable, n int}: an operation type stored in a field
 	oSlot                 // Slot = Full{R Res} | Vacant
 	oTypes
 )
 
-var ogTypeName = [oTypes]string{"Res", "Closer", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
+var ogTypeName = [oTypes]string{"Res", "Usable", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
 var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "Slot"}
 
 // ogPrelude declares the types and the fixed functions. Every event goes
@@ -150,12 +150,12 @@ var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "
 const ogPrelude = `import sync
 import tasks
 
-type Res { id int, bad bool, log sync.Ref[string] }
+type Res { id int, bad bool, log sync.Ref[string] } implements Usable
 type Bad { n int }
-type Closer { Use(), Close() }
+type Usable { ..Closer, Use() }
 type Pair { R Res, S Res }
-type Guard { R Res }
-type Box { C Closer, n int }
+type Guard { R Res } implements Closer
+type Box { C Usable, n int }
 type Full { R Res }
 type Vacant {}
 type Slot = Full | Vacant
@@ -236,7 +236,7 @@ func twice(f func()) {
 }
 
 func lendRes(r Res) { r.Use() }
-func lendCloser(c Closer) { c.Use() }
+func lendCloser(c Usable) { c.Use() }
 func lendPair(p Pair) {
 	p.R.Use()
 	p.S.Use()
@@ -247,7 +247,7 @@ func lendBox(b Box) { b.C.Use() }
 func lendSlot(s Slot) {}
 
 func keepRes(r Res) takes r {}
-func keepCloser(c Closer) takes c {}
+func keepCloser(c Usable) takes c {}
 func keepPair(p Pair) takes p {}
 func keepTup(t (Res, Res)) takes t {}
 func keepGuard(g Guard) takes g {}

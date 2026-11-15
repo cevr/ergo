@@ -19,9 +19,12 @@ func Count(f Fixed, query string) int fails Unavailable {
 func work(s Phase) Option[machines.Work[Signal, Catalog]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() Signal fails Unavailable needs Catalog { Found{N: try Catalog.Count(q.Query)} }}}
+		Some{machines.Attempt(func() int fails Unavailable needs Catalog { try Catalog.Count(q.Query) }, func(n int) Signal { Found{N: n} }, func(u) {
+			let sig Signal = u
+			sig
+		})}
 	case Listening:
-		Some{machines.Work{Listen: func(send func(e Signal)) {
+		Some{machines.Work{Start: func(send entry func(e Signal)) {
 			for i in 1..4 {
 				send(Tick{N: i})
 			}

@@ -99,7 +99,8 @@ func TestImportGoRows(t *testing.T) {
 // (module.CheckImportPath: github.com/0xAX/x is a path); a pointer-receiver
 // method called on a copy; a borrow kept as a go.Ref; a program operation
 // type's value admitted into a Go interface, which Go then refuses
-// (16b-g-ops-into-go-interface).
+// (16b-g-ops-into-go-interface); an Ergo record admitted into a Go
+// interface by its functions, with no clause (EXC1).
 func TestImportGoUses(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"refused-at-use", "import go math\nfunc F() int { let _ = math.Pi; 0 }\nfunc G() uint64 { math.MaxUint64 }\n",
@@ -115,6 +116,11 @@ func TestImportGoUses(t *testing.T) {
 			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
 		{"ops-into-go-interface", "import go fmt\ntype S { String() string }\nfunc F(s S) fmt.Stringer { s }\n",
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
+		// EXC1: an Ergo record whose functions fit a Go interface is not
+		// one until it declares it (interop.md, Go calls Ergo 1).
+		{"record-into-go-interface-undeclared", "import go fmt\ntype R {}\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n",
+			"4:28:S108 cannot use R as fmt.Stringer in the body's tail value: R does not declare that it implements fmt.Stringer: write implements fmt.Stringer after R's body (types.md, Interface assignability 1)"},
+		{"record-into-go-interface", "import go fmt\ntype R {} implements fmt.Stringer\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n", ""},
 		// wf10 defects D2: a Go function is a value only when its type
 		// needs no conversion at the Go edge (check.GoDirectSig), and so
 		// is a Go function parameter an Ergo function is passed to.

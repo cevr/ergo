@@ -36,6 +36,7 @@
       "to": "(&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)",
       "rule": "A variable can be nil; map a resource pointer to Option[go.Ref[T]].",
       "killers": ["gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
-    }
+    },
+    {"name":"exc1-bind-close-param","origin":"wf10 EXC1","file":"internal/gobind/map.go","from":"if !ok || sig.Params().Len() != 0 || sig.Variadic() {","to":"if !ok || sig.Variadic() {","rule":"ergo bind go writes implements Closer only for Close() or Close() error, never for a Close with a parameter.","killers":["gobind:TestBindMappingProperty"]}
   ]
 }

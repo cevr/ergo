@@ -262,7 +262,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		}
 	}
 	slices.Sort(hosts)
-	want := []string{"config.hostEnviron", "exec.hostRun", "exec.hostStart", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
+	want := []string{"config.hostEnviron", "exec.hostAlive", "exec.hostKill", "exec.hostRun", "exec.hostSpawn", "exec.hostStart", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostWriteFile", "fs.hostWriteFileMode",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
@@ -393,7 +393,7 @@ func checkFixture(t *testing.T, name string, f *syntax.File, src string) *check.
 	t.Helper()
 	fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 	for _, d := range ds {
-		if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+		if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 			t.Fatalf("%s: %v\n%s", name, ds, src)
 		}
 	}

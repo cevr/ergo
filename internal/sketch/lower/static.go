@@ -146,14 +146,15 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 	return true
 }
 
-// takesHeld reports a bodiless std call that takes a value (holdTaken):
-// its entry stays until the call returns, which the static form does not
-// write.
+// takesHeld reports a bodiless call that takes a value (holdTaken): an
+// operation, or an extern of any package bound to a runtime/v1 body
+// (check.BodyOf). Its entry stays until the call returns, which the
+// static form does not write.
 func takesHeld(c *check.Call) bool {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil:
 		return len(c.Op.Sig.Takes) > 0
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+	case c.Kind == check.CallFunc && check.BodyOf(c.Func).Runtime != "" && c.Func.Sig != nil:
 		return len(c.Func.Sig.Takes) > 0
 	}
 	return false
