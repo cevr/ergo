@@ -361,10 +361,12 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		let id = Id[E]{ref: refs[j]}
 		if sp.same && src[j] >= 0 {
 			// A kept group's node, matched to the node it was: it and its
-			// subtree are unchanged (writeAgain set their refs).
-			if !keep[j] {
-				emit(f, Move{Id: id, Parent: parent, Before: before})
+			// subtree are unchanged (writeAgain set their refs); it moves
+			// only when it left the kept run.
+			if keep[j] {
+				continue
 			}
+			emit(f, Move{Id: id, Parent: parent, Before: before})
 			continue
 		}
 		f.compared = f.compared + 1
