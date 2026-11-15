@@ -16,7 +16,7 @@ fk-flow < cases/tour/stdin
 fk-flow -stats < cases/tour/stdin
 ```
 
-The script's words are listed in `script/script.ergo`: `seed`, `frame`, `press`, `move`, `click`, `strength` and `scale`. With `-stats`, each line also shows its work (`ui.Counts`) and the frames the host sent.
+The script's words are listed in `script/script.ergo`: `seed`, `frame`, `press`, `move`, `click`, `strength` and `scale`. With `-stats`, each line also shows its work (`ui.Counts`) and the frames the host sent. With `-last` it prints only the last screen. `fk-flow -gen N` prints the receipt's script: the flow filled to about 600 trails, then N frames.
 
 ## The shape
 
@@ -48,6 +48,14 @@ How the port differs from upstream:
 ## Upstream tests
 
 Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.txt`. No story or scene is an Ergo test, because a law or a case already kills every mutant that a test of it would. The scenes are case `scenes`, on the test host, one comment each.
+
+## The control and the receipt
+
+fk-flow makes the one perf claim of the Foldkit ports (plan §18.3 FK12): per frame at 600 paths, its allocations and instructions against a hand Go control.
+
+- `testdata/control` is that control: the same model, paint and script host in Go, with no ui package. It prints what `fk-flow` prints.
+- `workload` has `scripts/opcount` play `fk-flow -gen N` with `-last` at two sizes, so the cost of a frame of about 600 trails is the slope between them, on both sides.
+- `hosts/mygo/controls/fk-flow` is the same model (copied) on MyGo's widgets, its canvas painted with MyGo's `Painter`. `TestFkFlowControlAgrees` (hosts/mygo) holds it to `fk-flow` on seeded scripts, and holds the two copies of the model to one file.
 
 ## Laws
 

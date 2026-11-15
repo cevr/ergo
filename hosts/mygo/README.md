@@ -257,6 +257,32 @@ so both hosts take a work's reply at the same frame (F-GP4c-1). The
 session's watcher reads `LatestChanges`, so a blocked watcher holds one
 state (std ui's `WatcherHoldsOneState`).
 
+## The flow's control: `controls/fk-flow` (FK12c)
+
+`examples/fk-flow` makes the one perf claim of the Foldkit ports (plan
+§18.3 FK12), so it has a MyGo-direct control. `controls/fk-flow` is the
+hand-Go model, paint and script host of
+`examples/fk-flow/testdata/control` (`model.go`, copied), with the window
+on MyGo's widgets: the scene switch, the buttons and the count are
+MyGo's `Button` and `Text`, and the canvas is a box whose `Draw` replays
+the scene's paint with MyGo's `Painter`. A rectangle is `Fill`, a circle
+a path of four cubics and `FillPath`, and a trail `StrokePath`. In a
+window, a running scene asks for the next display frame
+(`Painter.AnimationFrame`) and takes it as a frame of the program. A press
+on the canvas is not wired, as draw-gui's picture is not. Headless, a
+line goes to the model, and `ui.Tester` lays the window out and paints it
+after each frame and act; it prints what `fk-flow` prints on
+`ui.TestHost`, and with `-last` only the last screen.
+
+`TestFkFlowControlAgrees` holds it to `examples/fk-flow` on 24 seeded
+scripts, output and exit status (`-flow.seed=N` replays one), and holds
+the two copies of the model to one file. `scripts/opcount` measures the
+program against `examples/fk-flow/testdata/control` on its workload: a
+frame of about 600 trails. That control is the same model with no ui
+package, because opcount builds a control as a module of its own with no
+dependencies. There is no Ergo window binary for fk-flow yet: the example
+runs on `ui.TestHost` only.
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
