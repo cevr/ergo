@@ -132,9 +132,9 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 }
 
 // recovered is the records after a gc of another process.
-func recovered(w World) []work.Workspace fails work.NoBase | work.BadAge | work.Missing | work.CloneFailed | work.Unkept | work.Locked {
+func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
 	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
-	let _ = try t.Gc(work.GcOptions{Older: None, Id: None})
+	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None})
 	try t.List()
 }
 

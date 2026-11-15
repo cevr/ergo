@@ -13,7 +13,7 @@ import time
 // Op is one step of a sequence: a command, an edit, a land or a commit in
 // a workspace, a commit in the base, a crash between the registry's
 // record and the clone, or time passing. Each picks its names from three
-// by Name (and On).
+// by Name (and On). A gc with a positive Idle is a gc -idle.
 type Op =
 	| NewOp{Name int, Copy bool}
 	| OnOp{Name int, On int}
@@ -24,7 +24,7 @@ type Op =
 	| SyncOp{Name int}
 	| BaseOp{}
 	| CrashOp{Name int}
-	| GcOp{Older int}
+	| GcOp{Older int, Idle int}
 	| WaitOp{Seconds int}
 
 // Expected is the reference's record of one name. Kept is whether its
@@ -188,7 +188,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					if handed.Name != name || !handedHeld(w, e.Value, handed) {
 						return false
 					}
-					want = replaced(want, Expected{..e.Value, Kept: true, Sure: true})
+					want = replaced(want, Expected{..e.Value, Kept: true, Sure: true, Since: at})
 				} else if handed.Name != "" {
 					return false
 				}
@@ -209,7 +209,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				}
 				match find(want, name) {
 				case Some[Expected] as e:
-					want = replaced(want, Expected{..e.Value, Sure: false})
+					want = replaced(want, Expected{..e.Value, Sure: false, Since: at})
 				case None:
 					return false
 				}
@@ -229,9 +229,24 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 		case GcOp as o:
 			let older = small(o.Older, 7200)
-			let _ = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Id: None}) catch {
+			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
+			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None}) catch {
 			case _:
-				[]string{}
+				work.Collected{Purged: []string{}, Idle: []work.Idle{}}
+			}
+			if o.Idle > 0 {
+				let found = idled(want, int64(small(o.Idle, 7200)), at)
+				let mut reported = []string{}
+				for i in out.Idle {
+					reported = reported.Append(i.Name)
+				}
+				if reported != found {
+					return false
+				}
+				for name in found {
+					let trashed = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed }) >= 0
+					want = removed(want, name, false, at, trashed)
+				}
 			}
 			let (kept, dropped) = collected(want, int64(older), at)
 			want = kept
@@ -360,6 +375,19 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool)
 	case None:
 		want
 	}
+}
+
+// idled is the names gc -idle at the second at finds: each active one
+// no new, ready or sync touched for idle seconds, the last made first.
+func idled(want []Expected, idle int64, at int64) []string {
+	let mut out = []string{}
+	for i in 0..len(want) {
+		let e = want[len(want)-1-i]
+		if e.State == "active" && at-e.Since >= idle {
+			out = out.Append(e.Name)
+		}
+	}
+	out
 }
 
 // collected is the reference after gc at the second at with the age

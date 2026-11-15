@@ -142,8 +142,19 @@ type HasDescendants { Name string, Paths []string }
 // GcOptions are gc's flags: -older is the age a trashed workspace must
 // have to be deleted (0s when absent); -id purges the one entry of that
 // id, whatever its age. A reservation whose maker is gone (its clone
-// never ended) is deleted too.
-type GcOptions { Older Option[string], Id Option[string] }
+// never ended) is deleted too. -idle first removes, as rm does, each
+// active workspace of the base unused for that age (no new, ready or
+// sync: its Since) whose work is held in its parent, so the same gc
+// deletes it; an idle one rm would refuse stays, and gc reports it.
+type GcOptions { Older Option[string], Id Option[string], Idle Option[string] }
+
+// Collected is what gc did: the names it purged, and each idle workspace
+// -idle found, removed or not.
+type Collected { Purged []string, Idle []Idle }
+
+// Idle is a workspace -idle found: removed, or kept back with why (the
+// name of the failure rm gave: NotHeld, HasDescendants, Busy).
+type Idle { Name string, Id string, Since int64, Removed bool, Why string }
 
 // TombWindow is how long the registry keeps the tomb of a purged
 // workspace: 30 days. Within it, rm -expect of the id answers
@@ -172,8 +183,9 @@ type Api {
 	// Rm moves a workspace to the trash.
 	Rm(name string, o RmOptions) []Removed fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants,
 	// Gc deletes the trash of this base (never another's) and the
-	// workspaces whose clone never ended, and names each.
-	Gc(o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept | Locked,
+	// workspaces whose clone never ended, and names each; -idle removes
+	// the idle workspaces whose work is held first, and reports the rest.
+	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked,
 	// Du is the bytes each live workspace takes, exclusive and shared.
 	Du() []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept,
 	// Ready snapshots the workspace and hands its branch (fast-forward
@@ -684,7 +696,7 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 	case VcsFailed as e:
 		return e
 	}
-	try put(t, Workspace{..w, Branch: branch, Latest: tree})
+	try put(t, Workspace{..w, Branch: branch, Latest: tree, Since: now(t)})
 	Handed{Name: w.Name, Branch: branch, Commit: held, Snapshot: tree, Parent: w.Parent}
 }
 
@@ -700,7 +712,7 @@ func Sync(t Tool, o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoW
 		return Detached{Path: w.Parent}
 	}
 	let theirs = try t.vcs.Merge(w.Path, w.Parent, branch)
-	let synced = Workspace{..w, Base: theirs}
+	let synced = Workspace{..w, Base: theirs, Since: now(t)}
 	try put(t, synced)
 	let (_, deps) = try install(t, synced, c)
 	Synced{Commit: theirs, Deps: deps}

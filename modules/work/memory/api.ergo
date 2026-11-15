@@ -27,7 +27,7 @@ func Rm(w Workspaces, name string, o work.RmOptions) []work.Removed fails work.N
 	try w.tool.Rm(name, o)
 }
 
-func Gc(w Workspaces, o work.GcOptions) []string fails work.NoBase | work.BadAge | work.Missing | work.CloneFailed | work.Unkept | work.Locked { try w.tool.Gc(o) }
+func Gc(w Workspaces, o work.GcOptions) work.Collected fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked { try w.tool.Gc(o) }
 
 func Du(w Workspaces) []work.Space fails work.NoBase | work.Unsupported | work.Missing | work.CloneFailed | work.Unkept { try w.tool.Du() }
 

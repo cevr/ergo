@@ -48,7 +48,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Id: some(a.Id)}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id)}) catch {
 	case _:
 		return false
 	}
@@ -76,7 +76,7 @@ law RemovingSparesTheReplacement() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Id: None}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None}) catch {
 	case _:
 		return false
 	}
@@ -139,7 +139,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Id: some(a.Id)}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id)}) catch {
 	case _:
 		return false
 	}
@@ -151,7 +151,7 @@ law PurgingTouchesOneEntry() {
 	case work.Unkept:
 		return false
 	}
-	purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
+	purged.Purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
 }
 
 // ClaimReadsTheParentAgain: a new -on x that looked at x and read its
@@ -183,7 +183,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 		return false
 	}
 	if replaced {
-		let _ = w.tool.Gc(work.GcOptions{Older: None, Id: None}) catch {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None}) catch {
 		case _:
 			return false
 		}

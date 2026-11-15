@@ -281,22 +281,90 @@ func markerOf(t Tool, path string) string {
 	strings.TrimSpace(text)
 }
 
-func Gc(t Tool, o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept | Locked {
+func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
 	try initialized(t)
-	let older = match o.Older {
-	case Some[string] as text:
-		time.ParseDuration(text.Value) catch {
-		case time.ParseError:
-			return BadAge{Text: text.Value}
-		}
+	let older = try age(o.Older)
+	let idle = match o.Idle {
+	case Some[string]:
+		try Idled(t, try age(o.Idle))
 	case None:
-		0s
+		[]Idle{}
 	}
 	let due = try Collect(t, o.Id, older)
 	for w in due {
 		try t.DiscardOf(w)
 	}
-	try Purge(t, due)
+	Collected{Purged: try Purge(t, due), Idle: idle}
+}
+
+// age is the duration of a gc flag, 0s when absent.
+func age(text Option[string]) duration fails BadAge {
+	match text {
+	case Some[string] as s:
+		time.ParseDuration(s.Value) catch {
+		case time.ParseError:
+			return BadAge{Text: s.Value}
+		}
+	case None:
+		0s
+	}
+}
+
+// Idled removes, as rm does with no -abandon, each active workspace of
+// the base unused for idle, the ones made on another before it (the
+// list's last first), and is each one found. One rm refuses stays, with
+// the refusal's name; a failure of the host ends gc.
+func Idled(t Tool, idle duration) []Idle fails NoWorkspace | BadConfig | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let c = try config(t)
+	let at = now(t)
+	let all = try t.registry.All()
+	let mut out = []Idle{}
+	for i in 0..len(all) {
+		let w = all[len(all)-1-i]
+		match w.State {
+		case Active:
+		case Creating, Landing, Landed, Abandoned, Trashed:
+			continue
+		}
+		if time.Times(1s, int(at-w.Since)) < idle {
+			continue
+		}
+		let why = try idleRm(t, c, w)
+		out = out.Append(Idle{Name: w.Name, Id: w.Id, Since: w.Since, Removed: why == "", Why: why})
+	}
+	out
+}
+
+// idleRm removes one idle workspace as rm does, and is "" when it is
+// removed or the name of rm's refusal when it stays.
+func idleRm(t Tool, c Config, w Workspace) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, false) catch {
+	case NotHeld:
+		return "NotHeld"
+	case HasDescendants:
+		return "HasDescendants"
+	case Busy:
+		return "Busy"
+	case IdMismatch:
+		return "IdMismatch"
+	case NoWorkspace as e:
+		return e
+	case Exists as e:
+		return e
+	case Missing as e:
+		return e
+	case CloneFailed as e:
+		return e
+	case Unkept as e:
+		return e
+	case VcsFailed as e:
+		return e
+	case HookFailed as e:
+		return e
+	case Locked as e:
+		return e
+	}
+	""
 }
 
 // Collect is gc's first step, under the lock: the trashed workspaces of
