@@ -44,6 +44,10 @@ const (
 	valueClass    trust = "value"    // a wrong decision gives a wrong value
 	memoryClass   trust = "memory"   // a wrong decision corrupts memory
 	detectorClass trust = "detector" // a wrong decision hides a report
+	// checkedClass: the shortcut checks its condition at run time at each
+	// site and takes the plain form when it fails; a wrong static premise
+	// of the check gives a wrong value (own-lineage's token).
+	checkedClass trust = "checked"
 )
 
 // shortcut is one row of the registry.
@@ -126,6 +130,33 @@ var shortcuts = []shortcut{
 		mutant:     "fact-pure-with-borrow",
 		consumer:   "PURE1: Go's CSE, dead code and loop-invariant passes (ssa/ergofacts.go)",
 		referenced: func() bool { return factExport == "off" },
+	},
+	{
+		name:       "own-consume",
+		class:      valueClass,
+		admission:  "ownedFormAt",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-concat-live-first-operand",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-field",
+		class:      valueClass,
+		admission:  "ownFieldOK",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-update-field-of-live-record",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-lineage",
+		class:      checkedClass,
+		admission:  "lineageOK",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-lineage-result-fresh",
+		referenced: func() bool { return !valueOwned() },
 	},
 }
 

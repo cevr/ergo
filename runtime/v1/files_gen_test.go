@@ -139,5 +139,8 @@ func bodyLiteral(b Body) string {
 	if b.Owned != "" {
 		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
 	}
+	if b.Check != "" {
+		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }

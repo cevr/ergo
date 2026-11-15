@@ -64,6 +64,9 @@ type Unit struct {
 	// unit, not only those its run build's sites use: std's ledger
 	// (FreshStdLedger) holds each law proved once, for every program.
 	AllLaws bool
+	// Copies, when set, receives the form of each Append and owned-form
+	// site the lowering decides (handover.go; ergo build -report copies).
+	Copies *CopyReport
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
