@@ -216,6 +216,78 @@
       "to": "return 0",
       "rule": "Reused and judged verdicts are reported in ledger order.",
       "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt6-key-closure-dropped",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if closure == nil || closure.Covers(p) {\n\t\t\tput(\"file\", p, in.files[p])",
+      "to": "if closure == nil {\n\t\t\tput(\"file\", p, in.files[p])",
+      "rule": "A suite's segment key holds the content of every file in its closure.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-key-ignored-dropped",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "put(\"ignored\", p, digest)",
+      "to": "_ = digest",
+      "rule": "A Go suite's segment key holds the ignored files its closure reads (generated testdata).",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-store-failed",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if endErr == nil && !failed && end[s.Name] == keys[s.Name] {",
+      "to": "if endErr == nil && (failed || !failed) && end[s.Name] == keys[s.Name] {",
+      "rule": "A segment with a test that failed on the unmutated tree is not stored.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-ends-unchecked",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if endErr == nil && !failed && end[s.Name] == keys[s.Name] {",
+      "to": "if endErr == nil && !failed && (true || end[s.Name] == keys[s.Name]) {",
+      "rule": "A segment whose suite's key changed during the measure is not stored.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-merge-offset",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "tests[k] = i + offset",
+      "to": "tests[k] = i + 0*offset",
+      "rule": "Merged segments keep each block's tests: indexes move by the tests before the segment.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-segment-tools",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "for _, name := range append([]string{suite}, tools...) {",
+      "to": "for _, name := range []string{suite} {",
+      "rule": "A suite's segment keeps the build times of the tools it runs (the mutant pass's build deadlines).",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-no-reuse",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if c, ok := load(keys[s.Name]); ok {",
+      "to": "if c, ok := load(keys[s.Name]); false && ok {",
+      "rule": "A suite whose key is unchanged takes its stored segment and is not measured.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-tree-no-store",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if e.cfg.CoverStore == \"\" {",
+      "to": "if true || e.cfg.CoverStore == \"\" {",
+      "rule": "The runner's coverage pass takes the stored segments when a store is named.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     }
   ]
 }

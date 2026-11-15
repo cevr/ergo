@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -221,8 +222,13 @@ func (k *collector) files() map[string][]covBlock {
 	return out
 }
 
+// saveCoverage writes c to path: a new file, renamed into place, so two
+// runs filling the coverage store at once never interleave.
 func saveCoverage(path string, c *coverage) error {
-	f, err := os.Create(path + ".partial")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.partial")
 	if err != nil {
 		return err
 	}
@@ -234,10 +240,13 @@ func saveCoverage(path string, c *coverage) error {
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
-		return err
+	if err == nil {
+		err = os.Rename(f.Name(), path)
 	}
-	return os.Rename(path+".partial", path)
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 func loadCoverage(path string) (*coverage, error) {

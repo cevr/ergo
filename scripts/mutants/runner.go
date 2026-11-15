@@ -47,6 +47,11 @@ type Config struct {
 	All bool
 	// Coverage, when set, is a coverage file to read instead of measuring.
 	Coverage string
+	// CoverStore, when set, is the directory of the coverage store
+	// (coverstore.go): each suite's segment is taken from it where the
+	// suite's key holds, and the measured ones are stored. Empty: every
+	// suite is measured.
+	CoverStore string
 	// CoverDeadline bounds each child of the coverage pass, which has no
 	// earlier run to derive a deadline from.
 	CoverDeadline time.Duration
@@ -135,22 +140,41 @@ type Job struct {
 // ledger order, the coverage it used, and an error when the run itself
 // failed (a build of the unmutated tree, a copy left mutated).
 func Run(ctx context.Context, cfg Config, jobs []Job) ([]Result, *coverage, error) {
-	e, err := newEngine(cfg)
+	e, err := covered(ctx, cfg, jobs)
 	if err != nil {
 		return nil, nil, err
+	}
+	results, err := e.judgeAll(ctx, jobs)
+	return results, e.cov, err
+}
+
+// Measure prepares the coverage of the jobs' suites as Run does (taking
+// and filling the coverage store, Config.CoverStore) and judges nothing.
+func Measure(ctx context.Context, cfg Config, jobs []Job) (*coverage, error) {
+	e, err := covered(ctx, cfg, jobs)
+	if err != nil {
+		return nil, err
+	}
+	return e.cov, nil
+}
+
+// covered is the engine of the jobs with its coverage prepared.
+func covered(ctx context.Context, cfg Config, jobs []Job) (*engine, error) {
+	e, err := newEngine(cfg)
+	if err != nil {
+		return nil, err
 	}
 	var ledgers []string
 	for _, j := range jobs {
 		ledgers = append(ledgers, j.Path)
 	}
 	if err := e.load(ledgers); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := e.prepareCoverage(ctx); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	results, err := e.judgeAll(ctx, jobs)
-	return results, e.cov, err
+	return e, nil
 }
 
 type engine struct {
@@ -610,8 +634,8 @@ func (e *engine) prepareCoverage(ctx context.Context) error {
 	if path == "" {
 		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+".json.gz")
 		if _, err := os.Stat(path); err != nil {
-			e.logf("coverage: measuring (tree %s) into %s", e.key, path)
-			c, err := e.measure(ctx)
+			e.logf("coverage: tree %s into %s", e.key, path)
+			c, err := e.coverageOfTree(ctx)
 			if err != nil {
 				return err
 			}
@@ -632,9 +656,10 @@ func (e *engine) prepareCoverage(ctx context.Context) error {
 	return nil
 }
 
-// measure runs every test of every suite once, each in its own process
-// with its own coverage directory, in a fresh copy of the checkout.
-func (e *engine) measure(ctx context.Context) (*coverage, error) {
+// measure runs every test of suites once, each in its own process with its
+// own coverage directory, in a fresh copy of the checkout. It builds the
+// tools those suites run.
+func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error) {
 	root := filepath.Join(e.cfg.Work, "cover", "src")
 	bin := filepath.Join(e.cfg.Work, "cover", "bin")
 	if err := e.copyTree(root); err != nil {
@@ -643,8 +668,17 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		return nil, err
 	}
+	need := map[string]bool{}
+	for i := range suites {
+		for _, name := range toolsOf(&suites[i]) {
+			need[name] = true
+		}
+	}
 	c := &coverage{Key: e.key, Builds: map[string]float64{}}
 	for _, t := range e.cfg.Tools {
+		if !need[t.Name] {
+			continue
+		}
 		o, err := e.buildTool(ctx, root, bin, t.Name, true, e.cfg.CoverDeadline)
 		if err == nil && o.reason != "" {
 			err = fmt.Errorf("build %s with coverage: %s\n%s", t.Name, o.reason, o.tail)
@@ -654,8 +688,8 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 		}
 		c.Builds[t.Name] = o.seconds
 	}
-	for i := range e.cfg.Suites {
-		s := &e.cfg.Suites[i]
+	for i := range suites {
+		s := &suites[i]
 		var names []string
 		if s.Package != "" {
 			o := e.buildSuite(ctx, root, bin, s, true, e.cfg.CoverDeadline)

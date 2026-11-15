@@ -13,7 +13,9 @@
 // top-level test of the check, lower and std packages and every default
 // example program, each in its own process, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
-// main packages included). Then, for each mutant, it applies the edit,
+// main packages included); a suite whose segment the coverage store holds
+// at its unchanged key is not measured again (coverstore.go). Then, for
+// each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover
 // the mutated lines, the ledger's known killers first and then the
 // cheapest, until the first one fails. Each child runs as the leader of its
@@ -68,9 +70,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write, fresh bool
+	var write, fresh, measureOnly bool
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
-	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key (the reference)")
+	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
+	flags.BoolVar(&measureOnly, "measure", false, "measure the coverage of the ledgers' suites into the coverage store and judge nothing (run on main's head after a landing)")
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
@@ -129,6 +132,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
+	}
+	if !fresh {
+		if store, err := openCoverStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no coverage segment reused: %v\n", err)
+		} else {
+			cfg.CoverStore = store.dir
+		}
+	}
+	if measureOnly {
+		if cfg.CoverStore == "" {
+			fmt.Fprintln(stderr, "mutants: -measure fills the coverage store, which -fresh turns off")
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		c, err := Measure(ctx, cfg, jobs)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(stdout, "coverage: %d tests of %d suites, stored at %s\n", len(c.Tests), len(cfg.Suites), cfg.CoverStore)
+		return 0
 	}
 	start := time.Now()
 	// The rows whose killed verdict the store holds at their key are not

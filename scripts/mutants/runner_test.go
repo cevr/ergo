@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -38,7 +39,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // All, that the killers are exactly those tests), that the mutant pass runs
 // only tests that cover the mutated lines, that a mutant that does not
 // build is invalid and never killed, that the memory mutant is killed by
-// the memory limit, and that the checkout is left equal to HEAD.
+// the memory limit, and that the checkout is left equal to HEAD. Seed 1
+// runs a second pass over the coverage store the first filled (GT6): it
+// reuses two's segment, measures one again, and its verdicts are the
+// model's too.
 //
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
@@ -318,17 +322,40 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		want[x.mu.Name] = x.want
 	}
 
+	// Seed 1 runs twice over one coverage store, each pass in a fresh work
+	// directory: the second takes two's stored segment and measures one
+	// again (one's TestBroken fails on the unmutated tree, so its segment
+	// is never stored), and its verdicts are the model's too.
+	store, passes := "", 1
+	if seed == 1 {
+		store, passes = t.TempDir(), 2
+	}
+	for pass := 1; pass <= passes; pass++ {
+		var log strings.Builder
+		checkPass(t, seed, all, repo, store, memoryLimit, mutants, want, &log)
+		if pass == 2 && !strings.Contains(log.String(), "coverage: 1 of 2 suites' segments reused") {
+			t.Errorf("seed %d: the second pass over the store did not reuse two's segment alone:\n%s", seed, log.String())
+		}
+	}
+}
+
+// checkPass runs the runner once over repo and checks every verdict with
+// the model's.
+func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLimit uint64, mutants []*Mutant, want map[string]expect, log io.Writer) {
+	t.Helper()
 	logPath := filepath.Join(t.TempDir(), "ran.log")
 	t.Setenv("FAKE_LOG", logPath)
 	cfg := Config{
-		Root:    repo,
-		Work:    filepath.Join(t.TempDir(), "work"),
-		Cover:   []string{"./one", "./two"},
-		Suites:  []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}}},
-		Workers: 2,
-		Procs:   1,
-		Memory:  memoryLimit,
-		All:     all,
+		Root:       repo,
+		Work:       filepath.Join(t.TempDir(), "work"),
+		Cover:      []string{"./one", "./two"},
+		Suites:     []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}}},
+		Workers:    2,
+		Procs:      1,
+		Memory:     memoryLimit,
+		All:        all,
+		CoverStore: store,
+		Log:        log, // the engine's logf writes under its lock
 	}
 	results, _, err := Run(context.Background(), cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}}})
 	if err != nil {
