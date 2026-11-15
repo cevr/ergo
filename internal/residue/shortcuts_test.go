@@ -166,8 +166,8 @@ func TestShortcutsAreRegistered(t *testing.T) {
 			t.Errorf("%s: two rows are named %q", at, name)
 		}
 		byName[name] = row
-		if !slices.Contains([]string{"valueClass", "memoryClass", "detectorClass"}, row["class"]) {
-			t.Errorf("%s: %q: the class %q is not valueClass, memoryClass or detectorClass", at, name, row["class"])
+		if !slices.Contains([]string{"valueClass", "memoryClass", "detectorClass", "checkedClass"}, row["class"]) {
+			t.Errorf("%s: %q: the class %q is not valueClass, memoryClass, detectorClass or checkedClass", at, name, row["class"])
 		}
 		if a := row["admission"]; a != "" && !funcs[a] {
 			t.Errorf("%s: %q: the admission function %s is not declared in internal/sketch/lower", at, name, a)

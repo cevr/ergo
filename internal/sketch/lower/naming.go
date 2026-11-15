@@ -101,9 +101,13 @@ func (l *lowerer) nameAll() {
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
-	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...))                   // witspec.go
-	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))                       // tabulate.go
+	if valueOwned() {
+		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
+	}
+	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...)) // witspec.go
+	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))     // tabulate.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its

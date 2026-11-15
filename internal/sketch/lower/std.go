@@ -285,8 +285,11 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	}
 	if fc.l.vals != nil && fc.l.vals.consumes[x] {
 		// The first operand is consumed (values.go, consumes): the owned
-		// form, of the same shape, takes it over.
-		name = body.Owned
+		// form, of the same shape, takes it over, or in a test build its
+		// checking form (handover.go, own-consume).
+		name = fc.ownedFormAt(x, body)
+	} else if body.Owned != "" && fc.l.checkedOwnedForm(f) {
+		fc.copySite(x, "copy", "the first operand may be read again")
 	}
 	vals := fc.callArgs(args, x)
 	for i, p := range body.Params {

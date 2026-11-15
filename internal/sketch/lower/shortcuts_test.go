@@ -28,6 +28,175 @@ test At {
 	assert at("ab", 1) == 98
 }
 `,
+	"own-consume": `import slices
+
+func join(parts [][]int) []int {
+	let mut doc = []int{}
+	for p in parts {
+		doc = slices.Concat(doc, p)
+	}
+	doc
+}
+
+func main() needs Console {
+	Console.Println("\(len(join([][]int{[]int{1}, []int{2, 3}})))")
+}
+
+test Join {
+	assert len(join([][]int{[]int{1}, []int{2, 3}})) == 3
+}
+`,
+	"own-field": `type Bag { Items []int, N int }
+
+func grow(n int) int {
+	let mut total = 0
+	for i in 0..n {
+		let c = Bag{Items: []int{i}, N: i}
+		let d = Bag{N: c.N + 1, Items: c.Items.Append(i)}
+		total = total + len(d.Items)
+	}
+	total
+}
+
+func main() needs Console {
+	Console.Println("\(grow(3))")
+}
+
+test Grow {
+	assert grow(3) == 6
+}
+`,
+	"own-read": `type Block { Kind int, Lines []string }
+
+type Store { blocks []Block }
+
+func total(p *Store) int {
+	let mut n = 0
+	for i in 0..len(p.blocks) {
+		let b = p.blocks[i]
+		p.blocks[i].Kind = b.Kind + 1
+		n += len(b.Lines)
+	}
+	n
+}
+
+func main() needs Console {
+	let mut s = Store{blocks: []Block{Block{Kind: 0, Lines: []string{"a"}}}}
+	Console.Println("\(total(&s))")
+}
+
+test Total {
+	let mut s = Store{blocks: []Block{Block{Kind: 0, Lines: []string{"a"}}}}
+	assert total(&s) == 1
+}
+`,
+	"own-reslice": `type Stack { xs []int }
+
+func pop(s *Stack) {
+	if len(s.xs) > 0 {
+		s.xs = s.xs[:len(s.xs)-1]
+	}
+}
+
+func main() needs Console {
+	let mut s = Stack{xs: []int{1, 2}}
+	pop(&s)
+	Console.Println("\(len(s.xs))")
+}
+
+test Pop {
+	let mut s = Stack{xs: []int{1, 2}}
+	pop(&s)
+	assert len(s.xs) == 1
+}
+`,
+	"own-ref-in-place": `import sync
+
+type Tally { Seen []int, N int }
+
+func bump(r sync.Ref[Tally], x int) int {
+	sync.Modify(r, func(v Tally) (int, Tally) {
+		let mut s = v
+		s.Seen = s.Seen.Append(x)
+		s.N = s.N + 1
+		(s.N, s)
+	})
+}
+
+func main() needs Console {
+	let r = sync.NewRef[Tally](Tally{Seen: []int{}, N: 0})
+	Console.Println("\(bump(r, 3))")
+}
+
+test Bump {
+	let r = sync.NewRef[Tally](Tally{Seen: []int{}, N: 0})
+	assert bump(r, 3) == 1
+}
+`,
+	"own-fresh-call": `type Doc { Items []int, Last []int }
+
+func step(d Doc, xs []int) Doc {
+	let mut items = d.Items
+	items = items.Append(len(xs))
+	Doc{Items: items, Last: xs}
+}
+
+func fill(n int) int {
+	let mut d = Doc{Items: []int{}, Last: []int{}}
+	for i in 0..n {
+		d = step(d, []int{i})
+	}
+	len(d.Items)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 3
+}
+`,
+	"own-lineage": `type Bag { Items []int, N int }
+
+func step(b Bag, x int) Bag {
+	Bag{Items: b.Items.Append(x), N: b.N + 1}
+}
+
+func main() needs Console {
+	Console.Println("\(len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items))")
+}
+
+test Step {
+	assert len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items) == 2
+}
+`,
+	"uni-slot": `type Tree = Leaf{N int} | Node{L Tree, R Tree}
+
+func pick(t Tree, d int) Tree {
+	if d > 0 {
+		return pick(t, d - 1)
+	}
+	t
+}
+
+func size(t Tree) int {
+	match pick(t, 2) {
+	case Leaf as l:
+		l.N
+	case Node:
+		2
+	}
+}
+
+func main() needs Console {
+	Console.Println("\(size(Leaf{N: 1}))")
+}
+
+test Size {
+	assert size(Leaf{N: 1}) == 1
+}
+`,
 }
 
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered

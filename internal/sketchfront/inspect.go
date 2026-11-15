@@ -77,6 +77,27 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 	return ev.Sites(), nil
 }
 
+// CopyReport is the copy report of the checked analysis's run build
+// (ergo build -report copies; OWN1, lower/handover.go): each Append,
+// Concat and owned-form site, with the form it lowers to (in place, one
+// extender, or copy) and why. It lowers the program in process and runs
+// no Go tool; source anchors a program of one source text.
+func CopyReport(a Analysis, source string) ([]lower.CopySite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	report := &lower.CopyReport{}
+	unit.Copies = report
+	if _, err := lower.Lower(unit); err != nil {
+		return nil, err
+	}
+	return report.Sites, nil
+}
+
 // GoDerived is one `type T derive E`: what it produced and, for a pattern,
 // the parse matcher's engine, why that engine, and its counts.
 type GoDerived struct {

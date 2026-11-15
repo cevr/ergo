@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -43,7 +44,9 @@ import (
 // method): B's parameters, the receiver first, then the copy function of
 // the handed value and the fresh flag (ownedForm). B takes exactly one
 // function, the callback, of one parameter, whose type is the handed T.
-// Today runtime/v1 declares two: RefUpdateOwned and RefModifyOwned.
+// Today runtime/v1 declares two: RefUpdateOwned and RefModifyOwned, each
+// with an in-place form beside it (RefUpdateInPlace, RefModifyInPlace;
+// inPlaceLit below).
 //
 // Prior art: Swift's Array and Dictionary copy on write after a uniqueness
 // test of their reference count (isKnownUniquelyReferenced), which the
@@ -339,13 +342,163 @@ func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, l
 	if err != nil || len(body.Params) != len(list)+2 || cb >= len(list) || body.Params[cb].Func == nil {
 		ice(x, "the owned body %s is not readable: %v", name, err)
 	}
-	vals := fc.callArgs(list, x)
-	vals[cb] = fc.adaptFunc(vals[cb], body.Params[cb].Func, fc.argSig(list[cb], x), x)
+	var vals []string
+	if ip, inName, inBody := fc.inPlaceOf(s); ip != nil {
+		if fc.l.inPlace == nil {
+			fc.l.inPlace = map[syntax.Node]*inPlaceLit{}
+		}
+		fc.l.inPlace[s.lit] = ip
+		vals = fc.callArgs(list, x)
+		delete(fc.l.inPlace, s.lit)
+		vals[cb] = fc.adaptInPlace(vals[cb], ip, x)
+		name, body = inName, inBody
+	} else {
+		vals = fc.callArgs(list, x)
+		vals[cb] = fc.adaptFunc(vals[cb], body.Params[cb].Func, fc.argSig(list[cb], x), x)
+	}
 	goT := fc.goType(s.elem)
 	v := fc.scope.alloc("v")
 	clone := "func(" + v + " " + goT + ") " + goT + " { return " + fc.cloneValue(s.elem, v, x) + " }"
 	vals = append(vals, clone, strconv.FormatBool(s.fresh))
 	return fc.runtimeCall(name, body, typeArgs, "", vals, fc.envExpr(x), x, c, x), result, false
+}
+
+// inPlaceLit is the in-place form of an owned site's literal (G1; wf10
+// ST's json.Stream: each Reader operation is one sync.Modify of a ~170
+// byte state). A literal that binds its parameter v to one let mut s
+// first, `let mut s = v`, with no copy, and returns s (Update) or (x, s)
+// (Modify) as its last value, holds the cell's value in s from its first
+// statement to its last: the owned form's Go body copies T into the
+// literal, into s, into the result and back into the cell, about five
+// copies of T per call. The in-place form's literal takes the address of
+// the held value, p, and s lowers to (*p): no copy of T is made, and the
+// literal returns x alone. The cell keeps what s holds when the literal
+// ends, as it would store s; a defect poisons the cell, which then holds
+// a value s wrote in part, as the owned form's in-place writes do.
+//
+// The form needs, beside the owned site's facts: s's binding takes v with
+// no copy (the value walk proved v unshared there, so v has no other use
+// that could see a write through s), no return statement and no function
+// literal or trailing block in the literal (a capture or another exit
+// would see s's storage, or skip the store), no frame of its own (an
+// owned parameter or capture), and a runtime body named B's name with
+// InPlace for Owned whose callback takes *T and returns R, or nothing.
+// Rust's Mutex lends &mut T to the guard's holder in the same way; Swift's
+// `modify` accessors yield the stored value in place (inout) rather than
+// copying it out and back.
+type inPlaceLit struct {
+	held   *check.Var  // s
+	elem   check.Type  // T
+	result check.Type  // R; nil for an Update
+	tail   syntax.Expr // the literal's last value: s or (x, s)
+}
+
+// inPlaceOf is the in-place form of the owned site s, with its runtime
+// body's name and body, or nil (inPlaceLit).
+func (fc *funcCtx) inPlaceOf(s *refSite) (*inPlaceLit, string, v1.Body) {
+	lit := s.lit
+	if lit == nil || lit.Type == nil || lit.Type.Params == nil || lit.Body == nil || len(lit.Body.List) < 2 {
+		return nil, "", v1.Body{}
+	}
+	var v *check.Var
+	for _, field := range lit.Type.Params.List {
+		for _, id := range field.Names {
+			if v != nil {
+				return nil, "", v1.Body{}
+			}
+			v, _ = fc.l.info.Defs[id].(*check.Var)
+		}
+	}
+	list := lit.Body.List
+	d, ok := list[0].(*syntax.DeclStmt)
+	if v == nil || !ok || !d.Decl.Mut.IsValid() || len(d.Decl.Specs) != 1 {
+		return nil, "", v1.Body{}
+	}
+	spec := d.Decl.Specs[0]
+	if len(spec.Names) != 1 || spec.Pattern != nil || spec.Type != nil || len(spec.Values) != 1 {
+		return nil, "", v1.Body{}
+	}
+	init, ok := unparen(spec.Values[0]).(*syntax.Ident)
+	if !ok || fc.l.info.Uses[init] != check.Object(v) || fc.l.vals.clone[spec.Values[0]] || fc.l.vals.clone[init] {
+		return nil, "", v1.Body{}
+	}
+	held, ok := fc.l.info.Defs[spec.Names[0]].(*check.Var)
+	if !ok || fc.scalarOf(held) != nil {
+		return nil, "", v1.Body{}
+	}
+	leaves := false
+	syntax.Inspect(lit.Body, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.ReturnStmt, *syntax.FuncLit:
+			leaves = true
+		case *syntax.CallExpr:
+			leaves = leaves || n.Trailing != nil
+		}
+		return !leaves
+	})
+	cap := fc.l.info.TaskCaptures[lit]
+	if leaves || fc.l.bodyNeedsFrame(list) || fc.l.ownsParams([]*check.Var{v}) || cap != nil && !cap.Repeated {
+		return nil, "", v1.Body{}
+	}
+	if sig := fc.l.info.Literals[lit]; sig == nil || len(rowElems(sig.Errors)) > 0 {
+		return nil, "", v1.Body{}
+	}
+	name := strings.TrimSuffix(s.form.name, "Owned") + "InPlace"
+	body, err := v1.BodyOf(name)
+	if err != nil || s.form.cb >= len(body.Params) || body.Params[s.form.cb].Func == nil {
+		return nil, "", v1.Body{}
+	}
+	last, ok := list[len(list)-1].(*syntax.ExprStmt)
+	if !ok {
+		return nil, "", v1.Body{}
+	}
+	isHeld := func(x syntax.Expr) bool {
+		id, ok := unparen(x).(*syntax.Ident)
+		return ok && fc.l.info.Uses[id] == check.Object(held)
+	}
+	ip := &inPlaceLit{held: held, elem: s.elem, tail: last.X}
+	switch len(body.Params[s.form.cb].Func.Results) {
+	case 0:
+		if !isHeld(last.X) {
+			return nil, "", v1.Body{}
+		}
+	case 1:
+		t, ok := unparen(last.X).(*syntax.TupleExpr)
+		if !ok || len(t.Elts) != 2 || !isHeld(t.Elts[1]) {
+			return nil, "", v1.Body{}
+		}
+		ip.result = fc.typeOf(t.Elts[0])
+		p := fc.l.bodyPkg()
+		if fc.l.isErrorValue(ip.result, p, p.OwnerOf(t.Elts[0])) {
+			return nil, "", v1.Body{}
+		}
+	default:
+		return nil, "", v1.Body{}
+	}
+	if !fc.l.takes("own-ref-in-place") {
+		return nil, "", v1.Body{}
+	}
+	fc.l.took("own-ref-in-place")
+	return ip, name, body
+}
+
+// adaptInPlace adapts fv, the in-place literal of the uniform shape
+// (funcLitClosure, with the parameter p *T), to the in-place body's
+// callback func(p *T) R, or func(p *T): it drops fv's error, which a
+// literal with no error row never returns, as adaptPlainFunc does.
+func (fc *funcCtx) adaptInPlace(fv string, ip *inPlaceLit, site syntax.Node) string {
+	fv = fc.bindFunc(fv)
+	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
+		p := fc.scope.alloc("p")
+		params = []string{p + " *" + fc.goType(ip.elem)}
+		ind := strings.Repeat("\t", fc.depth+1)
+		call := fv + "(" + env + ", " + p + ")"
+		if ip.result == nil {
+			return params, "", ind + "_, _ = " + call + "\n"
+		}
+		r := fc.scope.alloc("r")
+		return params, " " + fc.goType(ip.result), ind + r + ", _ := " + call + "\n" + ind + "return " + r + "\n"
+	})
 }
 
 // refSiteOf is the owned site of the call x, or nil.

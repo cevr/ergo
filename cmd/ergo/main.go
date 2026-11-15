@@ -140,13 +140,17 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// report is build's -report KIND: "copies" prints the form of each
+	// Append and Concat site (in place, one extender or copy, and why) on
+	// stderr (OWN1); empty prints none.
+	report string
 	// goText is build's -go-text DIR: build through IR and write the Go
 	// text of what was compiled into DIR (buildGoText).
 	goText string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o, --platform and -go-text DIR to build, -work to build and test,
+// to diagnostics, -o, --platform, -report copies and -go-text DIR to build, -work to build and test,
 // --seed N (or --seed=N) to check and test, --eval-steps N and
 // --eval-bytes N to check, and --states N, --law NAME, --skip-law NAME,
 // --run NAME (or --run=NAME), --receipt FILE and --explore to test; any
@@ -209,11 +213,13 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "-go-text":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "-report", "-go-text":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "-report":
+				opts.report = args[i+1]
 			case "--eval-steps":
 				opts.evalSteps, stepsGiven = args[i+1], true
 			case "--eval-bytes":
@@ -275,6 +281,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":
 		return opts, fmt.Errorf("--platform is only supported by build")
+	case opts.report != "" && command != "build":
+		return opts, fmt.Errorf("-report is only supported by build")
+	case opts.report != "" && opts.report != "copies":
+		return opts, fmt.Errorf("-report takes copies, not %q", opts.report)
 	case opts.goText != "" && command != "build":
 		return opts, fmt.Errorf("-go-text is only supported by build")
 	case opts.work && command != "build" && command != "test":

@@ -51,6 +51,9 @@ type frame struct {
 	// inline marks the frame of an inlined body (inline.go): a return
 	// assigns its site's variables and jumps past its block.
 	inline *inlineRet
+	// slot marks the body of a slot variant (slot.go): a return writes
+	// its variant through the slot pointers and returns the tag.
+	slot *scalarLocal
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -158,6 +161,9 @@ type funcCtx struct {
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
 	returned *syntax.Ident
+	// inPlaceTail is the last value of an in-place literal, s or (x, s)
+	// (refown.go, inPlaceLit): it returns x, or nothing.
+	inPlaceTail syntax.Expr
 	// Result positions of control expressions in a law frame. The selected
 	// branch writes its position alongside its value; ordinary subexpressions
 	// do not become the primary site of an enclosing comparison.
@@ -195,6 +201,14 @@ type funcCtx struct {
 	scalars   map[*check.Var]*scalarLocal
 	// joinAt is the join local each inlined call writes (scalar.go).
 	joinAt map[*syntax.CallExpr]*scalarLocal
+	// slotAt is the caller-frame slot each call may write instead of
+	// returning a box, and slotTemps the match subjects so written
+	// (slot.go).
+	slotAt    map[*syntax.CallExpr]*slotSite
+	slotTemps []*scalarLocal
+	// heapVars are the bindings of a Map entry (getmatch.go): their parts
+	// are boxes already on the heap (scalar.go, settled).
+	heapVars map[*check.Var]bool
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
@@ -444,7 +458,15 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 		op = strings.TrimSuffix(text, "=")
 	}
 	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
-		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		// A call may write the local's slots itself (slot.go).
+		v, _ := fc.l.info.Uses[unparen(s.Lhs[0]).(*syntax.Ident)].(*check.Var)
+		call := joinCall(s.Rhs[0])
+		site := fc.slotOffer(call, sl, fc.slotGathered(v))
+		before := fc.l.stats.Inlined
+		val := fc.assigned(s.Rhs[0])
+		if !fc.slotTaken(call, site, val) {
+			fc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go
+		}
 		return
 	}
 	if fc.mapStore(s) {
@@ -662,11 +684,23 @@ func (fc *funcCtx) failureValue(x syntax.Expr) bool {
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
 	f := fc.frame
+	if fc.inPlaceTail != nil && x == fc.inPlaceTail {
+		// The cell keeps what s holds (refown.go, inPlaceLit).
+		if f.result == nil {
+			fc.sourceReturn("nil")
+			return
+		}
+		x = unparen(x).(*syntax.TupleExpr).Elts[0]
+	}
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
 	if fc.failureValue(x) {
 		fc.fail(fc.value(x))
+		return
+	}
+	if f.slot != nil && fc.acquiring == nil {
+		fc.slotReturn(f.slot, x) // slot.go
 		return
 	}
 	if fc.fallibleExpr(x) {
@@ -794,6 +828,10 @@ func (fc *funcCtx) fail(err string) {
 	if in := f.inline; in != nil {
 		fc.line(in.err + " = " + err)
 		fc.line("goto " + in.label)
+		return
+	}
+	if f.slot != nil {
+		fc.line("return 0, " + err) // no slot written (slot.go)
 		return
 	}
 	if f.result != nil {
@@ -1242,7 +1280,7 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		saved := fc.pendingKnown
 		fc.pendingKnown = km
-		subject = fc.headerValue(s.Subjects[0].X)
+		subject = fc.matchSubject(s.Subjects[0], km) // slot.go
 		fc.pendingKnown = saved
 	}
 	if km != nil && km.taken {

@@ -102,6 +102,13 @@ type Body struct {
 	// first argument is consumed: no binding reads that storage after the
 	// call (docs/spec/types.md, Bindings 2, consumed arguments).
 	Owned string
+	// Check names the checking form of an owned form, from a directive
+	// line "//ergo:check Name" in its doc comment: a body of the same
+	// shape that a test build calls where the run build calls the owned
+	// form (lower/shortcuts.go). It copies as the plain body does and then
+	// poisons the storage the owned form would have taken over, so a read
+	// that the consumption proof missed reads poison.
+	Check string
 }
 
 // PureMark is the directive line that marks a body pure, in the doc
@@ -115,6 +122,10 @@ const HostMark = "//ergo:host"
 // OwnedMark starts the directive line that names a body's owned form
 // (Body.Owned): "//ergo:owned Name".
 const OwnedMark = "//ergo:owned "
+
+// CheckMark starts the directive line that names an owned form's checking
+// form (Body.Check): "//ergo:check Name".
+const CheckMark = "//ergo:check "
 
 // HostImports are the Go packages each of whose members reaches host
 // state. hostReach refuses an unmarked body that names one.
@@ -518,22 +529,29 @@ func (d goDecls) body(name string) (Body, error) {
 			return Body{}, fmt.Errorf("runtime/v1: %s reaches host state (%s) but is not marked %s", name, via, HostMark)
 		}
 	}
-	if owned := ownedForm(g.fn); owned != "" {
-		o, ok := d[owned]
+	for _, f := range []struct {
+		mark, what string
+		to         *string
+	}{{OwnedMark, "owned form", &b.Owned}, {CheckMark, "checking form", &b.Check}} {
+		form := directiveName(g.fn, f.mark)
+		if form == "" {
+			continue
+		}
+		o, ok := d[form]
 		if !ok || o.fn == nil || o.fn.Recv != nil || g.fn.Recv != nil {
-			return Body{}, fmt.Errorf("runtime/v1: %s names the owned form %s, which is no exported function", name, owned)
+			return Body{}, fmt.Errorf("runtime/v1: %s names the %s %s, which is no exported function", name, f.what, form)
 		}
 		ob, err := goShape(o.fn.Type, o.rt)
 		if err != nil {
-			return Body{}, fmt.Errorf("runtime/v1: %s: %w", owned, err)
+			return Body{}, fmt.Errorf("runtime/v1: %s: %w", form, err)
 		}
 		if ob.TypeParams, err = d.typeParams(o.fn); err != nil {
-			return Body{}, fmt.Errorf("runtime/v1: %s: %w", owned, err)
+			return Body{}, fmt.Errorf("runtime/v1: %s: %w", form, err)
 		}
 		if len(b.Params) == 0 || !sameShape(b, ob) {
-			return Body{}, fmt.Errorf("runtime/v1: the owned form %s of %s has another shape", owned, name)
+			return Body{}, fmt.Errorf("runtime/v1: the %s %s of %s has another shape", f.what, form, name)
 		}
-		b.Owned = owned
+		*f.to = form
 	}
 	return b, nil
 }
@@ -553,14 +571,14 @@ func sameShape(a, b Body) bool {
 	return true
 }
 
-// ownedForm is the name an //ergo:owned directive of fn's doc comment
-// gives, or "".
-func ownedForm(fn *ast.FuncDecl) string {
+// directiveName is the name a directive line of fn's doc comment that
+// starts with mark (OwnedMark, CheckMark) gives, or "".
+func directiveName(fn *ast.FuncDecl, mark string) string {
 	if fn.Doc == nil {
 		return ""
 	}
 	for _, c := range fn.Doc.List {
-		if name, ok := strings.CutPrefix(c.Text, OwnedMark); ok {
+		if name, ok := strings.CutPrefix(c.Text, mark); ok {
 			return strings.TrimSpace(name)
 		}
 	}
