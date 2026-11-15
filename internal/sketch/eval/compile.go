@@ -143,11 +143,12 @@ func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
 		if !ok || fr.info.Handoffs[id] != nil {
 			return nil
 		}
+		var hint int32
 		return func(in *interp, fr *frame) (Value, *abrupt) {
 			if ab := in.charge(fr, at, 1); ab != nil {
 				return nil, ab
 			}
-			if s := in.slotOf(fr, v); s != nil {
+			if s := in.slotAt(fr, v, &hint); s != nil {
 				s.lend()
 				return s.v, nil
 			}
@@ -381,8 +382,9 @@ func (in *interp) compilePeek(fr *frame, x syntax.Expr) fastPeek {
 			return nil
 		}
 		var at syntax.Node = x
+		var hint int32
 		return func(in *interp, fr *frame) (Value, *slot, *abrupt) {
-			if s := in.slotOf(fr, v); s != nil {
+			if s := in.slotAt(fr, v, &hint); s != nil {
 				if ab := in.charge(fr, at, 1); ab != nil {
 					return nil, nil, ab
 				}
@@ -634,11 +636,12 @@ func (in *interp) compileAssign(fr *frame, s *syntax.AssignStmt) fastStmt {
 	}
 	var at syntax.Node = s
 	rhs := in.operand(fr, s.Rhs[0], in.fx(fr, s.Rhs[0]))
+	var hint int32
 	return func(in *interp, fr *frame) *abrupt {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return ab
 		}
-		root, local := fr.vars.get(v)
+		root, local := fr.vars.getAt(v, &hint)
 		if !local {
 			return in.assign(fr, s) // a package let: assign says why it is not written
 		}
@@ -684,6 +687,7 @@ func (in *interp) compileLet(fr *frame, s *syntax.DeclStmt) fastStmt {
 	var at syntax.Node = s
 	x := in.operand(fr, spec.Values[0], in.fx(fr, spec.Values[0]))
 	rel := in.releasesOf(fr, spec)
+	var hint int32
 	return func(in *interp, fr *frame) *abrupt {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return ab
@@ -692,7 +696,7 @@ func (in *interp) compileLet(fr *frame, s *syntax.DeclStmt) fastStmt {
 		if ab != nil {
 			return escape(ab)
 		}
-		fr.vars.bind(v, val)
+		fr.vars.bindAt(v, val, &hint)
 		if rel != nil {
 			return rel(in, fr)
 		}
@@ -814,8 +818,9 @@ func (in *interp) binder(fr *frame, p syntax.Expr) func(in *interp, fr *frame, v
 			return nil
 		}
 		if w, ok := in.fx(fr, id).def.(*check.Var); ok && fr.info.OwnedVars[w] == nil {
+			var hint int32
 			return func(in *interp, fr *frame, v Value) *abrupt {
-				fr.vars.bind(w, v)
+				fr.vars.bindAt(w, v, &hint)
 				return nil
 			}
 		}

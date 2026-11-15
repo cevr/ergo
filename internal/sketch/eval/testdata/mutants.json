@@ -1680,6 +1680,24 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-o38-get-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\treturn t.at(i), true\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\treturn t.at(i), true\n",
+      "rule": "A compiled read of a local reads that local's slot: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-bind-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\t*t.at(i) = slot{v: val}\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\t*t.at(i) = slot{v: val}\n",
+      "rule": "A compiled let binds its own local: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",

@@ -261,6 +261,14 @@ func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 	return in.globals[v]
 }
 
+// slotAt is slotOf from a compiled form, with varTable.getAt's hint.
+func (in *interp) slotAt(fr *frame, v *check.Var, hint *int32) *slot {
+	if s, ok := fr.vars.getAt(v, hint); ok {
+		return s
+	}
+	return in.globals[v]
+}
+
 // peek reads x without lending: a local, a package let, a field of a
 // record or an element of a slice, array or string, through a path of
 // them. root is the local's slot at the path's root, nil when the path
