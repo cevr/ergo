@@ -8,7 +8,7 @@
       "from": "if len(names) == 0 {\n\t\t\t\t\tcontinue",
       "to": "if true {\n\t\t\t\t\tcontinue",
       "rule": "every exported constant of a drawing-layer package is mirrored",
-      "killers": ["drawing:TestMirrorsInternal"]
+      "killers": ["hosts/mygo/drawing:TestMirrorsInternal"]
     },
     {
       "name": "H3f-args-reordered",
@@ -17,7 +17,7 @@
       "from": "args = append(args, name)",
       "to": "args = append([]string{name}, args...)",
       "rule": "a wrapper calls the internal function with its parameters in order",
-      "killers": ["drawing:TestMirrorsInternal"]
+      "killers": ["hosts/mygo/drawing:TestMirrorsInternal"]
     },
     {
       "name": "H3f-layer-dropped",
@@ -26,7 +26,7 @@
       "from": "\"raster\",   // the CPU renderer",
       "to": "",
       "rule": "the export reaches every layer a host draws with",
-      "killers": ["mygo:TestContentOutsideMyGo"]
+      "killers": ["hosts/mygo:TestContentOutsideMyGo"]
     },
     {
       "name": "H3f-hand-edit",
@@ -35,7 +35,7 @@
       "from": "type Rect = impl.Rect",
       "to": "type Rect = impl.Color",
       "rule": "the drawing packages are what drawgen writes from the pinned MyGo",
-      "killers": ["drawing:TestFilesCurrent", "drawing:TestMirrorsInternal"]
+      "killers": ["hosts/mygo/drawing/internal/drawgen:TestFilesCurrent", "hosts/mygo/drawing:TestMirrorsInternal"]
     },
     {
       "name": "H2L-gap-after-last",
@@ -44,7 +44,7 @@
       "from": "if k > first {",
       "to": "if k >= first {",
       "rule": "a gap goes between children, not after the last",
-      "killers": ["mygo:TestLayoutMatchesMyGo"]
+      "killers": ["hosts/mygo:TestLayoutMatchesMyGo"]
     },
     {
       "name": "H2L-grow-by-count",
@@ -53,7 +53,7 @@
       "from": "t.items[k].base + free*t.nodes[n].style.Grow/sum",
       "to": "t.items[k].base + free/float32(end-first)",
       "rule": "free space is shared by grow weight, not by count",
-      "killers": ["mygo:TestLayoutMatchesMyGo"]
+      "killers": ["hosts/mygo:TestLayoutMatchesMyGo"]
     },
     {
       "name": "H2L-cross-padding-ignored",
@@ -62,7 +62,7 @@
       "from": "t.nodes[n].y = padTop + crossOff",
       "to": "t.nodes[n].y = crossOff",
       "rule": "a row places its children inside its padding across the line",
-      "killers": ["mygo:TestLayoutMatchesMyGo"]
+      "killers": ["hosts/mygo:TestLayoutMatchesMyGo"]
     },
     {
       "name": "H2L-dirty-not-propagated",
@@ -71,7 +71,7 @@
       "from": "k = t.nodes[k].parent",
       "to": "k = none",
       "rule": "a change forgets what the nodes up to the root computed",
-      "killers": ["mygo:TestLayoutMatchesMyGo", "mygo:TestLayoutRelaysOutAlongThePath"]
+      "killers": ["hosts/mygo:TestLayoutMatchesMyGo", "hosts/mygo:TestLayoutRelaysOutAlongThePath"]
     },
     {
       "name": "H2L-no-reuse",
@@ -80,7 +80,7 @@
       "from": "if t.nodes[i].laid && t.nodes[i].laidW == w",
       "to": "if false && t.nodes[i].laidW == w",
       "rule": "a box laid out at its size with nothing changed in it is kept, not computed again",
-      "killers": ["mygo:TestLayoutRelaysOutAlongThePath"]
+      "killers": ["hosts/mygo:TestLayoutRelaysOutAlongThePath"]
     },
     {
       "name": "H3g-hit-first",
@@ -89,7 +89,7 @@
       "from": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}",
       "to": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}\n\t\t\t\tbreak",
       "rule": "the hit test takes the node painted last under the point: a button over an Area takes the tap",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "H3g-tab-reversed",
@@ -98,7 +98,7 @@
       "from": "let next = if back { (at + n - 1) % n } else { (at + 1) % n }",
       "to": "let next = if back { (at + 1) % n } else { (at + n - 1) % n }",
       "rule": "Tab moves the focus forward in paint (tree) order, Shift+Tab back",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "H3g-fill-off-its-box",
@@ -107,7 +107,7 @@
       "from": "fill(d, b, 6, button)",
       "to": "fill(d, layout.Box{X: b.X, Y: b.Y + 6, W: b.W, H: b.H}, 6, button)",
       "rule": "a node's fill is painted on the box the layout gave it, where the hit test finds it",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "H3g-backspace-keeps-text",
@@ -116,7 +116,7 @@
       "from": "Text: withoutLast(x.Value)",
       "to": "Text: x.Value",
       "rule": "Backspace in the focused field removes its last rune",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "H3g-release-dropped",
@@ -125,7 +125,7 @@
       "from": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\ttry pointed(d, s.Value, ui.Up, x, y)\n\t\t\tcase None:",
       "to": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\tlet _ = s\n\t\t\tcase None:",
       "rule": "a release with no press goes to the Area under it",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "H3g-go-directive-dropped",
@@ -134,7 +134,7 @@
       "from": "\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"",
       "to": "\"\\n\\ngo \" + goVersion + \"\\n\"",
       "rule": "a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "X-gui-row-below-the-fold-not-scrolled-to",
@@ -143,7 +143,7 @@
       "from": "\ttry reveal(d, id)\n",
       "to": "",
       "rule": "a step on a row below its Scroll's fold scrolls to it first, as a person does, so it presses that row and not the one painted over its box",
-      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+      "killers": ["hosts/mygo:TestExamplesAgreeOnTheDesktop"]
     },
     {
       "name": "X-gui-window-binary-prints-the-start",
@@ -152,7 +152,7 @@
       "from": "counter.Summary(desktop.StateOf(&d))",
       "to": "counter.Summary(counter.Zero)",
       "rule": "the window binary prints the state the window's driver holds after each step",
-      "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+      "killers": ["hosts/mygo:TestExamplesAgreeOnTheDesktop"]
     },
     {
       "name": "GPh-row-at-the-written-index",
@@ -161,7 +161,7 @@
       "from": "Top: float32(l.Value.First+i) * rh}",
       "to": "Top: float32(i) * rh}",
       "rule": "a list's row shows at its index's place, counted from the list's First, not from the first row written",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-viewport-not-reported",
@@ -170,7 +170,7 @@
       "from": "\t\t\t\td.viewports[s.id] = v\n\t\t\t\ttry step(d, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})\n\t\t\t\treturn",
       "to": "\t\t\t\td.viewports[s.id] = v",
       "rule": "the window reports a list's viewport, so the next pass writes the rows it shows",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-list-gets-no-room",
@@ -179,7 +179,7 @@
       "from": "\t\t\t\t\tchanged = true",
       "to": "\t\t\t\t\tchanged = false",
       "rule": "a list with no height of its own takes the window below its top",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-list-not-stretched",
@@ -188,7 +188,7 @@
       "from": "\t\ts.Self = Some{Value: layout.Stretch}\n",
       "to": "",
       "rule": "a list is as wide as its parent, and its rows as wide as the list",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-scroll-on-does-nothing",
@@ -197,7 +197,7 @@
       "from": "let dy = dips(x.Offset) - scrolledBy(d, id)",
       "to": "let dy = float32(0) * dips(x.Offset)",
       "rule": "ScrollOn scrolls the list to its offset, or as far as its content goes",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-wheel-misses-lists",
@@ -206,7 +206,7 @@
       "from": "case ui.ScrollNode, ui.RowsNode:\n\t\t\t\ttarget = Some{Value: s}",
       "to": "case ui.ScrollNode:\n\t\t\t\ttarget = Some{Value: s}",
       "rule": "the wheel scrolls the list under the pointer",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-canvas-transform-dropped",
@@ -215,7 +215,7 @@
       "from": "\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, x.M)",
       "to": "\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, ui.Scale(x.M.A, x.M.D))",
       "rule": "a canvas paints under the transforms its list pushes",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPh-fill-spans-outside",
@@ -224,7 +224,7 @@
       "from": "if wind != 0 && i+1 < len(xs)",
       "to": "if wind == 0 && i+1 < len(xs)",
       "rule": "a path's fill covers where its winding number is not zero",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GP1c-page-keys-unnamed",
@@ -233,7 +233,7 @@
       "from": "\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n",
       "to": "",
       "rule": "the window names the page keys, so a program's OnKey gets PageDown",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP1c-keys-to-the-focused-button",
@@ -242,7 +242,7 @@
       "from": "if desktop.FocusId(d) == None {",
       "to": "if true {",
       "rule": "a key of the table's goes to the table, after a click on the list drops a button's focus",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP1c-list-not-followed",
@@ -251,7 +251,7 @@
       "from": "Offset: rh * ui.Length(float64(g.Top))",
       "to": "Offset: rh * ui.Length(0.0)",
       "rule": "the window's list scrolls to the table's window after each line",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP1c-typed-without-the-field",
@@ -260,7 +260,7 @@
       "from": "\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n",
       "to": "",
       "rule": "typed text goes into the field, which the window clicks first",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP1c-control-list-not-followed",
@@ -269,7 +269,7 @@
       "from": "\t\tp.list.ScrollTo(p.s.top, ui.Start)\n",
       "to": "",
       "rule": "the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP1c-control-list-unbounded",
@@ -278,7 +278,7 @@
       "from": "}).Height(560)",
       "to": "}).Grow(1)",
       "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
-      "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
     }
   ]
 }

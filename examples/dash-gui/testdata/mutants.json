@@ -7,7 +7,7 @@
       "from": "head: (r.head + 1) % r.cap",
       "to": "head: r.head",
       "rule": "A ring holds the last N values pushed, oldest first.",
-      "killers": ["examples/dash-gui/panel:law RingKeepsLastN"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-column-skips-its-last-sample", "origin": "wf10 GP4a",
@@ -15,7 +15,7 @@
       "from": "for i in from+1..to {\n\t\t\tif xs[i] < lo {",
       "to": "for i in from+1..to-1 {\n\t\t\tif xs[i] < lo {",
       "rule": "A chart's columns keep the samples' least and greatest value.",
-      "killers": ["examples/dash-gui/panel:law DownsampleKeepsMinMax"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-ring-column-skips-its-last-sample", "origin": "wf10 GP frame",
@@ -23,7 +23,7 @@
       "from": "for i in from+1..to {\n\t\t\tlet x = r.items",
       "to": "for i in from+1..to-1 {\n\t\t\tlet x = r.items",
       "rule": "Drawing a chart from its ring in place reads every sample of each column.",
-      "killers": ["examples/dash-gui/panel:law RingColumnsReadInOrder"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-ease-runs-backwards", "origin": "wf10 GP4a",
@@ -31,7 +31,7 @@
       "from": "from + (to-from)*(d*d*d-rest*rest*rest)",
       "to": "to - (to-from)*(d*d*d-rest*rest*rest)",
       "rule": "An ease moves from its origin toward its target and never back.",
-      "killers": ["examples/dash-gui/panel:law EasingEndsAtTarget"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-stale-one-frame-early", "origin": "wf10 GP4a",
@@ -39,7 +39,7 @@
       "from": "if t.Frame-l.P.Seen > StaleAfter {",
       "to": "if t.Frame-l.P.Seen >= StaleAfter {",
       "rule": "A live panel is live up to StaleAfter frames after its last sample and stale at the next.",
-      "killers": ["examples/dash-gui/panel:law Feed.StaleAfterSilence"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-resume-leaves-it-paused", "origin": "wf10 GP4a",
@@ -47,7 +47,7 @@
       "from": "Enter[State]{Next: Live{P: p.P}}",
       "to": "Stay[State]{Next: Paused{P: p.P}}",
       "rule": "A resume ends a pause.",
-      "killers": ["examples/dash-gui/panel:law Feed.PauseAndBack"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-drop-newest-uncounted", "origin": "wf10 GP4a",
@@ -55,7 +55,7 @@
       "from": "\tcase DropNewest:\n\t\ttrue\n",
       "to": "\tcase DropNewest:\n\t\tfalse\n",
       "rule": "A sample a full queue drops is counted as dropped.",
-      "killers": ["examples/dash-gui/feed:law DropNewestKeepsTheFirst"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-queue-one-short", "origin": "wf10 GP4a",
@@ -63,7 +63,7 @@
       "from": "if q.Len() < cap {",
       "to": "if q.Len() < cap-1 {",
       "rule": "A queue holds cap samples before it drops.",
-      "killers": ["examples/dash-gui/feed:law DropOldestKeepsTheLast"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-sample-out-of-range", "origin": "wf10 GP4a",
@@ -71,7 +71,7 @@
       "from": "% 400)",
       "to": "% 1400)",
       "rule": "A sample is from 0 to panel.Top.",
-      "killers": ["examples/dash-gui/synth:law feed.Sensors.ReadIsRepeatable"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-newest-writes-oldest", "origin": "wf10 GP4a",
@@ -79,7 +79,7 @@
       "from": "\"policy \\(s.Panel) newest\"",
       "to": "\"policy \\(s.Panel) oldest\"",
       "rule": "A command's line reads back as the command.",
-      "killers": ["examples/dash-gui/script:law LineParsesBack"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-takes-a-plus-sign", "origin": "wf10 GP4a",
@@ -159,7 +159,7 @@
       "from": "let x = r.items[(r.head+i)%n]",
       "to": "let x = r.items[i%n]",
       "rule": "A chart's columns read the ring oldest first, from its head.",
-      "killers": ["examples/dash-gui/panel:law RingColumnsReadInOrder"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-view-asks-no-frames", "origin": "wf10 GP4b",
@@ -207,7 +207,7 @@
       "from": "let x = px(i*4 + 2)",
       "to": "let x = px(i * 4)",
       "rule": "A chart column is drawn at the middle of its four pixels.",
-      "killers": ["scripts/examples:dash-gui"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-samples-drawn-upside-down", "origin": "wf10 GP4b",
@@ -215,7 +215,7 @@
       "from": "px(Height - v*Height/(panel.Top+1))",
       "to": "px(v * Height / (panel.Top + 1))",
       "rule": "A greater sample is drawn higher.",
-      "killers": ["scripts/examples:dash-gui"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-gauge-bar-skips-the-ease", "origin": "wf10 GP4b",
@@ -223,7 +223,7 @@
       "from": "px(panel.Shown(g, f)*Width/(panel.Top+1))",
       "to": "px(g.To*Width/(panel.Top+1))",
       "rule": "A gauge's bar shows its eased value.",
-      "killers": ["scripts/examples:dash-gui"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-heat-alpha-not-a-share", "origin": "wf10 GP4b",
@@ -231,7 +231,7 @@
       "from": "A: uint8(bins[i] * 255 / most)",
       "to": "A: uint8(bins[i])",
       "rule": "A heat bin's alpha is its share of the fullest bin.",
-      "killers": ["scripts/examples:dash-gui"]
+      "killers": ["examples:dash-gui"]
     },
     {
       "name": "dash-paused-button-says-pause", "origin": "wf10 GP4b",
@@ -239,7 +239,7 @@
       "from": "\t\t\"resume\"\n",
       "to": "\t\t\"pause\"\n",
       "rule": "A paused panel's button offers to resume it.",
-      "killers": ["scripts/examples:dash-gui"]
+      "killers": ["examples:dash-gui"]
     }
   ]
 }

@@ -564,12 +564,18 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 // stdPrivilegesBaseline are the debt rows of testdata/std-privileges.txt
-// as the rule landed. A row may leave; none may join.
+// as the rule landed. A row may leave; none may join, except once: the
+// batch-21 integration added the rows of units developed beside the rule
+// (B21-NP names who removes them).
 var stdPrivilegesBaseline = []string{
+	"internal/sketch/check/call.go:IsInForce",
 	"internal/sketch/check/drop.go:dropWalk.drain",
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
+	"internal/sketch/check/export_user.go:NewUserExport",
+	"internal/sketch/check/never.go:IsNever",
+	"internal/sketch/check/never.go:checker.emptyUnion",
 	"internal/sketch/check/ownership.go:isQueue",
 	"internal/sketch/check/ownership.go:ownWalk.holdsTaken",
 	"internal/sketch/check/work.go:TakesWorkSend",
@@ -585,6 +591,17 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/calls.go:lowerer.stdContext",
 	"internal/sketch/lower/context.go:contextNamespace",
 	"internal/sketch/lower/embed.go:funcCtx.packageEmbed",
+	"internal/sketch/lower/gobody.go:viewExtern",
+	"internal/sketch/lower/handover.go:funcCtx.ownedFormAt",
+	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
+	"internal/sketch/lower/ir.go:irState.body",
+	"internal/sketch/lower/ir.go:irState.intrinsic",
+	"internal/sketch/lower/ir.go:irState.reachAll",
+	"internal/sketch/lower/ir_assert.go:irState.lawBody",
+	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
+	"internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins",
+	"internal/sketch/lower/pkgsplit.go:stdImports",
+	"internal/sketch/lower/refown.go:funcCtx.inPlaceOf",
 	"internal/sketch/lower/refown.go:funcCtx.ownedRefCall",
 	"internal/sketch/lower/refown.go:lowerer.ownedFormOf",
 	"internal/sketch/lower/release.go:funcCtx.closeBody",

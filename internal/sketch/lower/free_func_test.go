@@ -10,7 +10,7 @@ import (
 
 // TestRuntimeRecordFunctionIsFree (FD1-g2): a function whose first
 // parameter is a record whose declaration names a runtime Go type
-// (`extern go …/runtime/v1.RPCMalformed type Malformed { Reason string }`,
+// (`extern go …/runtime/v1.RPCMalformed type Malformed { Name string, Reason string }`,
 // as std rpc writes Malformed) lowers as a Go function, never as a method:
 // Go takes a method only in its receiver's package, and that is runtime/v1.
 // The smallest repro is a trusted module's own binding, so the rule reads
@@ -18,12 +18,12 @@ import (
 // GoTypeOf check in methodReceiver dropped; Go refuses "cannot define new
 // methods on non-local type").
 func TestRuntimeRecordFunctionIsFree(t *testing.T) {
-	const src = `extern go ergo.local/prototype/runtime/v1.RPCMalformed type Malformed { Reason string }
+	const src = `extern go ergo.local/prototype/runtime/v1.RPCMalformed type Malformed { Name string, Reason string }
 
 func describe(m Malformed) string { "malformed: " + m.Reason }
 
 func main() needs Console {
-	Console.Println(Malformed{Reason: "x"}.describe())
+	Console.Println(Malformed{Name: "n", Reason: "x"}.describe())
 }
 `
 	f, err := syntax.Parse(src)
