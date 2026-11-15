@@ -281,6 +281,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 ## Runtime and providers
 
+**Lookup in flight**: In std `cache`, the call of a Get's lookup for a key while it runs. The cache holds one per key; every other Get of that key waits for it to end and then reads the entry it left, or, when it failed or its task stopped, runs its own. Go's `singleflight` call, Effect's pending `Deferred` of a `Cache` entry. See [stdlib](docs/spec/stdlib.md#cache).
+
 **Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
 **Lawful runtime contract**: The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.

@@ -17,6 +17,14 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
-    }
+    },
+    {"name":"c1-capacity-passed","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"for u.size > config.Capacity && u.head < len(u.order) {","to":"for u.size > config.Capacity + 1 && u.head < len(u.order) {","rule":"stdlib.md cache 2: a cache holds at most Capacity entries.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-life-ignored","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"(config.Life == 0s || time.Sub(now, r.born) < config.Life)","to":"(config.Life == 0s || true)","rule":"stdlib.md cache 3: no Get returns a value older than the life.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-idle-from-born","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"(config.Idle == 0s || time.Sub(now, r.used) < config.Idle)","to":"(config.Idle == 0s || time.Sub(now, r.born) < config.Idle)","rule":"stdlib.md cache 3: the idle time counts from the last read, not the lookup.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-evicts-recent","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"\t\t\t\tif r.stamp == m.stamp {\n\t\t\t\t\tu.slots = u.slots.Delete(m.key)","to":"\t\t\t\tif true {\n\t\t\t\t\tu.slots = u.slots.Delete(m.key)","rule":"stdlib.md cache 2: the entry that leaves is the one read least recently.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-waiter-loads-too","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"\t\tcase loading as l:\n\t\t\t(waiting{done: l.done}, u)","to":"\t\tcase loading as l:\n\t\t\t(loader[K, V]{id: l.id, done: queue.New[int](0), gone: []leaving[K, V]{}}, u)","rule":"stdlib.md cache 4: while one Get runs the lookup of a key, the others wait for it.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-replaced-not-released","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"\t\tlet mut all = old\n","to":"\t\tlet mut all = []leaving[K, V]{}\n","rule":"stdlib.md cache 5: an entry a Put replaces leaves, and is released once.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-hit-not-counted","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"\t\t\t\tu.hits += 1\n","to":"\t\t\t\tu.hits += 0\n","rule":"stdlib.md cache 6: Stats counts each Get answered from an entry as a hit.","killers":["lower:TestStdCacheLawsRun"]},
+    {"name":"c1-capacity-zero-admitted","origin":"wf10 std-spike C1","file":"internal/sketch/std/cache/cache.ergo","from":"if config.Capacity < 1 {","to":"if config.Capacity < 0 {","rule":"stdlib.md cache 1: New refuses a capacity under one.","killers":["lower:TestStdCacheLawsRun"]}
   ]
 }
