@@ -18,7 +18,7 @@
     {"name":"H3g-go-directive-dropped","origin":"H3g","file":"internal/sketch/lower/gomodule.go","from":"\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"","to":"\"\\n\\ngo \" + goVersion + \"\\n\"","rule":"a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"X-gui-row-below-the-fold-not-scrolled-to","origin":"X-gui","file":"hosts/mygo/desktop/play.ergo","from":"\ttry reveal(d, id)\n","to":"","rule":"a step on a row below its Scroll's fold scrolls to it first, as a person does, so it presses that row and not the one painted over its box","killers":["hosts/mygo:TestExamplesAgreeOnTheDesktop"]},
     {"name":"X-gui-window-binary-prints-the-start","origin":"X-gui","file":"hosts/mygo/cmd/counter-gui/main.ergo","from":"counter.Summary(desktop.StateOf(&d))","to":"counter.Summary(counter.Zero)","rule":"the window binary prints the state the window's driver holds after each step","killers":["hosts/mygo:TestExamplesAgreeOnTheDesktop"]},
-    {"name":"GPh-row-at-the-written-index","origin":"GP1c host","file":"hosts/mygo/desktop/paint.ergo","from":"Top: float32(l.Value.First+i) * rh}","to":"Top: float32(i) * rh}","rule":"a list's row shows at its index's place, counted from the list's First, not from the first row written","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"GPh-row-at-the-written-index","origin":"GP1c host","file":"hosts/mygo/desktop/keep.ergo","from":"Top: float32(l.Value.First+i) * rh}","to":"Top: float32(i) * rh}","rule":"a list's row shows at its index's place, counted from the list's First, not from the first row written","killers":["mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-viewport-not-reported","origin":"GP1c host","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\t\td.viewports[s.id] = v\n\t\t\t\ttry step(d, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})\n\t\t\t\treturn","to":"\t\t\t\td.viewports[s.id] = v","rule":"the window reports a list's viewport, so the next pass writes the rows it shows","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-list-gets-no-room","origin":"GP1c host","file":"hosts/mygo/desktop/paint.ergo","from":"\t\t\t\t\tchanged = true","to":"\t\t\t\t\tchanged = false","rule":"a list with no height of its own takes the window below its top","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-list-not-stretched","origin":"GP1c host","file":"hosts/mygo/desktop/paint.ergo","from":"\t\ts.Self = Some{Value: layout.Stretch}\n","to":"","rule":"a list is as wide as its parent, and its rows as wide as the list","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
@@ -26,59 +26,19 @@
     {"name":"GPh-wheel-misses-lists","origin":"GP1c host","file":"hosts/mygo/desktop/desktop.ergo","from":"case ui.ScrollNode, ui.RowsNode:\n\t\t\t\ttarget = Some{Value: s}","to":"case ui.ScrollNode:\n\t\t\t\ttarget = Some{Value: s}","rule":"the wheel scrolls the list under the pointer","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-canvas-transform-dropped","origin":"GP1c host","file":"hosts/mygo/desktop/canvas.ergo","from":"\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, x.M)","to":"\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, ui.Scale(x.M.A, x.M.D))","rule":"a canvas paints under the transforms its list pushes","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-fill-spans-outside","origin":"GP1c host","file":"hosts/mygo/desktop/canvas.ergo","from":"if wind != 0 && i+1 < len(xs)","to":"if wind == 0 && i+1 < len(xs)","rule":"a path's fill covers where its winding number is not zero","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {
-      "name": "GP1c-page-keys-unnamed",
-      "origin": "GP1c",
-      "file": "hosts/mygo/screen/screen.go",
-      "from": "\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n",
-      "to": "",
-      "rule": "the window names the page keys, so a program's OnKey gets PageDown",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    },
-    {
-      "name": "GP1c-keys-to-the-focused-button",
-      "origin": "GP1c",
-      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
-      "from": "if desktop.FocusId(d) == None {",
-      "to": "if true {",
-      "rule": "a key of the table's goes to the table, after a click on the list drops a button's focus",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    },
-    {
-      "name": "GP1c-list-not-followed",
-      "origin": "GP1c",
-      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
-      "from": "Offset: rh * ui.Length(float64(g.Top))",
-      "to": "Offset: rh * ui.Length(0.0)",
-      "rule": "the window's list scrolls to the table's window after each line",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    },
-    {
-      "name": "GP1c-typed-without-the-field",
-      "origin": "GP1c",
-      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
-      "from": "\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n",
-      "to": "",
-      "rule": "typed text goes into the field, which the window clicks first",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    },
-    {
-      "name": "GP1c-control-list-not-followed",
-      "origin": "GP1c",
-      "file": "hosts/mygo/controls/stars-gui/main.go",
-      "from": "\t\tp.list.ScrollTo(p.s.top, ui.Start)\n",
-      "to": "",
-      "rule": "the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    },
-    {
-      "name": "GP1c-control-list-unbounded",
-      "origin": "GP1c",
-      "file": "hosts/mygo/controls/stars-gui/main.go",
-      "from": "}).Height(560)",
-      "to": "}).Grow(1)",
-      "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
-      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    }
+    {"name":"GP1c-page-keys-unnamed","origin":"GP1c","file":"hosts/mygo/screen/screen.go","from":"\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n","to":"","rule":"the window names the page keys, so a program's OnKey gets PageDown","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GP1c-keys-to-the-focused-button","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"if desktop.FocusId(d) == None {","to":"if true {","rule":"a key of the table's goes to the table, after a click on the list drops a button's focus","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GP1c-list-not-followed","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"Offset: rh * ui.Length(float64(g.Top))","to":"Offset: rh * ui.Length(0.0)","rule":"the window's list scrolls to the table's window after each line","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GP1c-typed-without-the-field","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n","to":"","rule":"typed text goes into the field, which the window clicks first","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GP1c-control-list-not-followed","origin":"GP1c","file":"hosts/mygo/controls/stars-gui/main.go","from":"\t\tp.list.ScrollTo(p.s.top, ui.Start)\n","to":"","rule":"the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GP1c-control-list-unbounded","origin":"GP1c","file":"hosts/mygo/controls/stars-gui/main.go","from":"}).Height(560)","to":"}).Grow(1)","rule":"the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)","killers":["hosts/mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-rebuilt-every-paint","origin":"GPk","file":"hosts/mygo/desktop/desktop.ergo","from":"rebuild:   false,","to":"rebuild:   true,","rule":"the driver keeps its layout tree across paints: a pass lays out what it changed, not the tree","killers":["mygo:TestDesktopKeepsItsLayout"]},
+    {"name":"GPk-every-style-set","origin":"GPk","file":"hosts/mygo/desktop/keep.ergo","from":"if now != s {","to":"if now != s || true {","rule":"a box's style is set only where it differs, so its siblings keep what the kernel computed","killers":["mygo:TestDesktopKeepsItsLayout"]},
+    {"name":"GPk-kids-not-reordered","origin":"GPk","file":"hosts/mygo/desktop/keep.ergo","from":"if i >= from {","to":"if i >= len(old) {","rule":"a parent's boxes follow its children's order from the first that moved","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-set-not-learned","origin":"GPk","file":"hosts/mygo/desktop/keep.ergo","from":"\t\t\tlearn(&d.metrics, d.w, textOf(x.Node), textSize)\n\t\t\tmatch d.lparent.Get(x.Id) {","to":"\t\t\tmatch d.lparent.Get(x.Id) {","rule":"a node's new text is measured before the kept tree lays it out","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-set-parent-untouched","origin":"GPk","file":"hosts/mygo/desktop/keep.ergo","from":"\t\t\tcase Some[ui.Id[E]] as p:\n\t\t\t\ttouched[p.Value] = true\n","to":"\t\t\tcase Some[ui.Id[E]]:\n","rule":"a Set restyles its node (through its parent, which places it)","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-removed-box-stays","origin":"GPk","file":"hosts/mygo/desktop/desktop.ergo","from":"\tif !d.rebuild {\n\t\tmatch d.lids.Get(id) {","to":"\tif false {\n\t\tmatch d.lids.Get(id) {","rule":"a removed node's box leaves the kept tree","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-room-kept","origin":"GPk","file":"hosts/mygo/desktop/keep.ergo","from":"\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, s)\n","to":"\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, layout.StyleOf(&d.tree, l.Value) catch {\n\t\t\tcase arena.Stale:\n\t\t\t\ts\n\t\t\t})\n","rule":"a list given room at a paint goes back to its own style before the next layout, as the rebuilt tree has it (hostagree's list app moves the list with its note)","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]},
+    {"name":"GPk-metrics-learn-skipped","origin":"GPk","file":"hosts/mygo/desktop/metrics.ergo","from":"if !line && len(missing) == 0 {","to":"if !line {","rule":"learn measures each run of a text the table lacks, after the first text","killers":["mygo:TestMyGoHostAgreesWithTestHost","mygo:TestStarsGuiOnTheDesktop"]}
   ]
 }

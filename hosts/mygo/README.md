@@ -83,6 +83,20 @@ package of this Go module and the Ergo half binds it.
   `ui.Type` with the field's whole text; else each rune to `OnKey`),
   scrolling and pointer capture. `desktop.Run` runs a program in a window;
   call it from `main`, whose task runs on the main thread.
+- The layout tree is kept across passes (`desktop/keep.ergo`, GPk): a
+  pass's ops add and remove boxes, and restyle and reorder the children of
+  each parent they touched, a style set only where it differs, so the
+  kernel lays out again only those boxes and the ones around them up to the
+  root (`desktop.LaidOut` counts them), and keeps what it measured. Only
+  the texts a pass adds or changes are measured, and `Metrics` keeps its
+  table in a `sync.Ref`, so binding it as the paint's `layout.Measure`
+  copies nothing. The tree built anew at every paint, as before, stays the
+  reference: `desktop.Reference` lays out only that one, and
+  `desktop.Check` builds it beside the kept one at every paint and keeps
+  the first box where they differ (`desktop.Differs`). hostagree always
+  checks, and `TestStarsGuiOnTheDesktop` runs the window binary with
+  `-check`. `TestDesktopKeepsItsLayout` is the growth guard: adding a row
+  to the shelf app lays out the same few boxes after 10 rows as after 40.
 - A virtual list (`ui.Rows`, H5b) scrolls as a Scroll does, over its
   count of rows; each row it wrote is out of the flow at its index's place.
   A list with no height of its own takes the window below its top. After
