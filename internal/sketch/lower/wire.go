@@ -738,6 +738,13 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		b.WriteString(tc.wireDecode(base, env, r, raw, zero, scope))
 		b.WriteString(l.wireParseReturn(parse, env, tc.site, raw))
 	}
+	if p := l.info.WirePairOf(t); p != nil && p.Append {
+		// The append form's ParseX reads the bytes of the string event.
+		raw := scope.alloc("raw")
+		b.WriteString(tc.wireDecode(p.Base, env, r, raw, zero, scope))
+		b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, "[]byte("+raw+")"))
+		return
+	}
 	if p := l.info.WirePairOf(t); p != nil {
 		parsed(p.Base, p.Parse)
 		return

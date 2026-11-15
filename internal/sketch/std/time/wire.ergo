@@ -8,8 +8,9 @@
 
 import utf8
 
-// ParseTime is the instant an RFC 3339 text writes, as Parse(RFC3339, s).
-func ParseTime(s string) Time fails ParseError { try Parse(RFC3339, s) }
+// ParseTime is the instant the RFC 3339 text whose bytes are b writes, as
+// Parse(RFC3339, text).
+func ParseTime(b []byte) Time fails ParseError { try Parse(RFC3339, utf8.String(b)) }
 
 // Wire is into with t's RFC3339Nano text added: Format(t, RFC3339Nano)'s
 // bytes. An instant of the years 0 to 9999 is written into the buffer
@@ -40,7 +41,7 @@ law WireIsFormat(sec int64, nsec int64, near bool, pre []byte) {
 // WireRoundTrips: ParseTime reads back the instant Wire writes.
 law WireRoundTrips(sec int64, nsec int64) {
 	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
-	let back = ParseTime(utf8.String(t.Wire([]byte{}))) catch {
+	let back = ParseTime(t.Wire([]byte{})) catch {
 	case ParseError:
 		return false
 	}

@@ -22,6 +22,12 @@ import (
 //		try ParseX(x.Wire()) == x
 //	}
 //
+// The append form (GX10, GX11), ParseX(b []byte) X with Wire(x X, into
+// []byte) []byte, derives the same law over B = []byte, calling Wire with
+// an empty buffer: try ParseX(x.Wire([]byte{})) == x. Its halves are
+// symmetric in []byte, as Go's TextAppender and TextUnmarshaler are, so
+// the law needs no conversion between []byte and string.
+//
 // The dot form names X's own Wire when the package declares several (196m
 // rule 3). A ParseX that fails nothing gets the law without catch and try;
 // a ParseX with a needs clause derives none, since a law has no provider
@@ -66,7 +72,7 @@ func (p *parser) derivePairs(f *File) {
 		if !ok || wire.Name.Name != "Wire" {
 			continue
 		}
-		x, b, ok := wireHalf(wire)
+		x, b, appends, ok := p.wireHalf(wire)
 		if !ok {
 			continue
 		}
@@ -74,7 +80,7 @@ func (p *parser) derivePairs(f *File) {
 		if parse == nil || !p.parseHalf(parse, x.Name, b) {
 			continue
 		}
-		laws = append(laws, p.pairLaw(wire, x, b, openType(types, x.Name, 0), parseFails(parse)))
+		laws = append(laws, p.pairLaw(wire, x, b, appends, openType(types, x.Name, 0), parseFails(parse)))
 	}
 	f.Decls = append(f.Decls, laws...)
 }
@@ -143,24 +149,41 @@ func isExportedName(name string) bool {
 	return unicode.IsUpper(r)
 }
 
-// wireHalf reads Wire(x X) B: the named type X and B's type expression.
-func wireHalf(d *FuncDecl) (*Ident, Expr, bool) {
+// wireHalf reads Wire(x X) B, or the append form Wire(x X, into []byte)
+// []byte (appends): the named type X and B's type expression.
+func (p *parser) wireHalf(d *FuncDecl) (x *Ident, b Expr, appends, ok bool) {
 	t := d.Type
-	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || d.Body == nil || t == nil || t.Needs != nil {
-		return nil, nil, false
+	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || d.Body == nil || t == nil || t.Needs != nil || t.Params == nil {
+		return nil, nil, false, false
 	}
-	if t.Params == nil || len(t.Params.List) != 1 || len(t.Params.List[0].Names) > 1 {
-		return nil, nil, false
+	params := t.Params.List
+	if len(params) == 2 && len(params[0].Names) == 1 && len(params[1].Names) == 1 {
+		appends = true
+	} else if len(params) != 1 || len(params[0].Names) > 1 {
+		return nil, nil, false, false
 	}
-	x, ok := t.Params.List[0].Type.(*Ident)
+	x, ok = params[0].Type.(*Ident)
 	if !ok || t.Results == nil || len(t.Results.List) != 1 {
-		return nil, nil, false
+		return nil, nil, false, false
 	}
-	b := t.Results.List[0].Type
+	b = t.Results.List[0].Type
 	if _, isRow := b.(*ErrorRow); isRow || b == nil {
-		return nil, nil, false
+		return nil, nil, false, false
 	}
-	return x, b, true
+	if appends && (!p.byteSlice(params[1].Type) || !p.byteSlice(b)) {
+		return nil, nil, false, false
+	}
+	return x, b, appends, true
+}
+
+// byteSlice reports the type expression []byte.
+func (p *parser) byteSlice(t Expr) bool {
+	a, ok := t.(*ArrayType)
+	if !ok || a.Len != "" {
+		return false
+	}
+	e, ok := a.Elt.(*Ident)
+	return ok && e.Name == "byte"
 }
 
 // parseHalf reports whether d is ParseX(b B) X: one parameter of B's text
@@ -193,16 +216,21 @@ func parseFails(d *FuncDecl) bool {
 // pairLaw builds the round-trip law of the pair whose Wire is wire: over
 // a drawn x of an open type, else over a drawn b through ParseX. It calls
 // Wire in the dot form, x.Wire(), which names X's own Wire when the
-// package declares several (196m rule 3), and it writes catch and try
-// only when ParseX fails.
-func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool) *LawDecl {
+// package declares several (196m rule 3), with an empty buffer for the
+// append form (x.Wire([]byte{})), and it writes catch and try only when
+// ParseX fails.
+func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, appends, open, fails bool) *LawDecl {
 	at := wire.Func
 	id := func(name string) *Ident { return &Ident{NamePos: at, Name: name} }
 	call := func(fun Expr, args ...Expr) *CallExpr {
 		return &CallExpr{Fun: fun, Lparen: at, Args: args, Rparen: at}
 	}
 	parse := ParseName(x.Name)
-	var held Expr = &BinaryExpr{X: call(id(parse), call(&SelectorExpr{X: id("x"), Sel: id("Wire")})), OpPos: at, Op: EQL, Y: id("x")}
+	var into []Expr
+	if appends {
+		into = []Expr{&CompositeLit{Type: &ArrayType{Lbrack: at, Elt: id("byte")}, Lbrace: at, Rbrace: at}}
+	}
+	var held Expr = &BinaryExpr{X: call(id(parse), call(&SelectorExpr{X: id("x"), Sel: id("Wire")}, into...)), OpPos: at, Op: EQL, Y: id("x")}
 	if fails {
 		held = &TryExpr{Try: at, X: held}
 	}

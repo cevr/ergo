@@ -35,6 +35,8 @@
         "internal/sketch/syntax:TestPairLawDraws"
       ]
     },
+    {"name":"gx11-pair-append-no-law","origin":"wf10 GX11","file":"internal/sketch/syntax/pair.go","from":"\tif len(params) == 2 && len(params[0].Names) == 1 && len(params[1].Names) == 1 {\n\t\tappends = true","to":"\tif len(params) == 2 && len(params[0].Names) == 1 && len(params[1].Names) == 1 {\n\t\treturn nil, nil, false, false","rule":"types.md Codecs 7: the append form of a pair derives the round-trip law too (GX11).","killers":["internal/sketch/syntax:TestPairLawDraws"]},
+    {"name":"gx11-pair-append-no-into","origin":"wf10 GX11","file":"internal/sketch/syntax/pair.go","from":"\tif appends {\n\t\tinto = []Expr{","to":"\tif false {\n\t\tinto = []Expr{","rule":"types.md Codecs 7: the append form's law calls Wire with an empty buffer (GX11).","killers":["internal/sketch/syntax:TestPairLawDraws"]},
     {
       "name": "rc4b-format-drops-derive",
       "origin": "wf10 RC4b",

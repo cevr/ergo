@@ -60,11 +60,14 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 // encodes as Wire(x) and decodes through ParseX. Coherence: the pair is
 // looked up in X's own package only, as construction authority is.
 //
-// The append form (GX10) is ParseX(s string) X with Wire(x X, into
+// The append form (GX10, GX11) is ParseX(b []byte) X with Wire(x X, into
 // []byte) []byte: Wire appends the UTF-8 bytes of x's text to into and
 // returns it, so an encode lends Wire the buffer it writes the string
 // event from (the prelude Writer's StringBytes), and no string of the
-// text is made. Its Base is string.
+// text is made; a decode reads the string and gives ParseX its bytes. Its
+// Base is string, the wire event; both halves take []byte, as Go's
+// TextAppender and TextUnmarshaler do, so the parser derives its
+// round-trip law with no conversion (syntax/pair.go).
 type WirePair struct {
 	Parse, Wire *Func
 	Base        Type // B
@@ -91,14 +94,16 @@ func (c *checker) wirePair(t Type) *WirePair {
 		return nil
 	}
 	base, appends := ws.Results[0], len(ws.Params) == 2
+	read := base // the type ParseX reads
 	if appends {
-		// Wire(x X, into []byte) []byte: the text of a string base.
+		// Wire(x X, into []byte) []byte and ParseX(b []byte) X: the text
+		// of a string base.
 		if !isByteSlice(ws.Params[1].Type) || !isByteSlice(base) {
 			return nil
 		}
 		base = Typ[String]
 	}
-	if !c.identical(ps.Results[0], t) || !c.identical(ws.Params[0].Type, t) || !c.identical(ps.Params[0].Type, base) || !ws.Errors.Empty() {
+	if !c.identical(ps.Results[0], t) || !c.identical(ws.Params[0].Type, t) || !c.identical(ps.Params[0].Type, read) || !ws.Errors.Empty() {
 		return nil
 	}
 	return &WirePair{Parse: parse, Wire: wire, Base: base, Append: appends}
