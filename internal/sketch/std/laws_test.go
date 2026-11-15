@@ -244,43 +244,27 @@ func lawStatement(f *syntax.File, d *syntax.LawDecl) string {
 		return fmt.Sprintf("%s(v %s) { %s (%s) && try %s(it) == v }", d.Name.Name, td.Name.Name, binding, syntax.WhereText(f.Src, td.Where), syntax.ParseName(td.Name.Name))
 	}
 	if w := d.Pair; w != nil {
-		return pairStatement(f, d, w)
+		return pairStatement(d, w)
 	}
 	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
 }
 
 // pairStatement is the round-trip law the parser derives for the by-name
 // pair whose Wire is w (types.md, Codecs 7), as source: its nodes carry
-// Wire's position, not a source slice of their own. It states the forms
-// syntax/pair.go builds: over a drawn x or a drawn b, with an empty buffer
-// for the append form, and with catch and try when ParseX fails.
-func pairStatement(f *syntax.File, d *syntax.LawDecl, w *syntax.FuncDecl) string {
+// Wire's position, not a source slice of their own. It states the form
+// syntax/pair.go builds: over a drawn x, with an empty buffer for the
+// append form, and with try when ParseX fails.
+func pairStatement(d *syntax.LawDecl, w *syntax.FuncDecl) string {
 	x := w.Type.Params.List[0].Type.(*syntax.Ident).Name
-	parse := syntax.ParseName(x)
 	into := ""
 	if len(w.Type.Params.List) == 2 {
 		into = "[]byte{}"
 	}
-	fails := false
-	syntax.Inspect(d.Body, func(n syntax.Node) bool {
-		_, isCatch := n.(*syntax.CatchExpr)
-		fails = fails || isCatch
-		return true
-	})
-	held := fmt.Sprintf("%s(x.Wire(%s)) == x", parse, into)
-	if fails {
+	held := fmt.Sprintf("%s(x.Wire(%s)) == x", syntax.ParseName(x), into)
+	if _, fails := d.Body.List[0].(*syntax.ExprStmt).X.(*syntax.TryExpr); fails {
 		held = "try " + held
 	}
-	p := d.Params.List[0]
-	if p.Names[0].Name == "x" {
-		return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, x, held)
-	}
-	drawn := parse + "(b)"
-	if fails {
-		drawn += " catch { case _: return true }"
-	}
-	b := spaces.ReplaceAllString(f.Src[p.Type.Pos():p.Type.End()], " ")
-	return fmt.Sprintf("%s(b %s) { let x = %s %s }", d.Name.Name, b, drawn, held)
+	return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, x, held)
 }
 
 // sourceLaws are the laws of the std sources by ledger key, "pkg Law" for

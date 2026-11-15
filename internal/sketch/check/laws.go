@@ -353,6 +353,32 @@ func (c *checker) planLaws() {
 	}
 }
 
+// pairUngeneratable is why the round-trip law of a by-name pair over t
+// does not run, or "" (types.md, Codecs 7; GX11). The law draws x from t's
+// own generator: the values t's package makes, by its constructor New<T>,
+// or any value of a record or union that every package may build field by
+// field. A generator that only t's own authority makes, a record of an
+// unexported field built field by field or a defined type over a basic
+// type drawn as its base, makes values t's ParseX may refuse, so it is not
+// t's own: the law does not run, and the test build reports why, rather
+// than draw the base type, whose values ParseX almost never reads.
+func (c *checker) pairUngeneratable(t Type) string {
+	n, ok := t.(*Named)
+	if !ok {
+		return ""
+	}
+	if _, built := c.constructorWhy(n); built {
+		return ""
+	}
+	switch n.Underlying().(type) {
+	case *Struct, *Union:
+		if c.ungeneratableFrom(n, nil) == "" {
+			return ""
+		}
+	}
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare New" + n.Obj.Name + ", or make " + n.String() + " a record or union of exported fields"
+}
+
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
 	var slots []LawSlot
@@ -380,6 +406,12 @@ func (c *checker) planLaw(law *Law) {
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
+		}
+		if law.Decl.Pair != nil {
+			if why := c.pairUngeneratable(v.Type); why != "" {
+				law.Unrun = why
+				return
+			}
 		}
 	}
 	if law.Owner != nil {

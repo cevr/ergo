@@ -38,12 +38,6 @@ law WireIsFormat(sec int64, nsec int64, near bool, pre []byte) {
 	utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano)
 }
 
-// WireRoundTrips: ParseTime reads back the instant Wire writes.
-law WireRoundTrips(sec int64, nsec int64) {
-	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
-	let back = ParseTime(t.Wire([]byte{})) catch {
-	case ParseError:
-		return false
-	}
-	back == t
-}
+// The parser derives the pair's round-trip law, TimeRoundTrips: ParseTime
+// reads back the instant Wire writes, for each Time that NewTime, Time's
+// constructor, makes from two drawn integers (types.md, Codecs 7).
