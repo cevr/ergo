@@ -135,6 +135,12 @@ type Window struct {
 	sc   scene.Scene
 	sys  *text.System
 
+	// laid and lastLaid are the layouts of text the list being made and
+	// the one before used, by text and size, under tmu: a text the next
+	// list uses too is not shaped again, and one it does not use goes.
+	tmu            sync.Mutex
+	laid, lastLaid map[textKey]*text.Layout
+
 	// fake is the surface of a Headless window.
 	fake *fake.Surface
 	// app quits when a desktop window closes.
@@ -730,6 +736,7 @@ func (w *Window) Present() {
 	w.segs, w.prev = w.prev, w.segs
 	clear(w.segs)
 	w.painted++
+	w.turnLayouts()
 	field := w.field
 	w.publishAccess(false)
 	w.mu.Unlock()
@@ -769,8 +776,43 @@ func (w *Window) publishAccess(force bool) {
 // MyGo's ui lays text out), which keeps what recent frames used, not
 // shaped anew (Shape) each call.
 func (w *Window) TextWidth(s string, size float64) float64 {
-	l := w.sys.Layout(text.Params{Text: s, Style: text.Style{Size: float32(size)}, NoWrap: true, KeepSpaces: true})
+	l := w.layout(s, float32(size))
 	return float64(l.Width)
+}
+
+// textKey is a text set on one line at a size.
+type textKey struct {
+	s    string
+	size float32
+}
+
+// layout is s set on one line at size: from the layouts of the last two
+// lists, else shaped, as MyGo's text system shapes it.
+func (w *Window) layout(s string, size float32) *text.Layout {
+	k := textKey{s, size}
+	w.tmu.Lock()
+	defer w.tmu.Unlock()
+	if l, ok := w.laid[k]; ok {
+		return l
+	}
+	l, ok := w.lastLaid[k]
+	if !ok {
+		l = w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: size}, NoWrap: true, KeepSpaces: true})
+	}
+	if w.laid == nil {
+		w.laid = map[textKey]*text.Layout{}
+	}
+	w.laid[k] = l
+	return l
+}
+
+// turnLayouts starts the next list's layouts: the list made's are the
+// last, and those of the list before go.
+func (w *Window) turnLayouts() {
+	w.tmu.Lock()
+	clear(w.lastLaid)
+	w.laid, w.lastLaid = w.lastLaid, w.laid
+	w.tmu.Unlock()
 }
 
 // LineHeight is the distance between lines at font size size.
@@ -1086,7 +1128,7 @@ func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 	style := text.Style{Size: t.size}
 	ascent, _, lineHeight := w.sys.Metrics(style)
-	l := w.sys.Layout(text.Params{Text: t.s, Style: style, NoWrap: true, KeepSpaces: true})
+	l := w.layout(t.s, t.size)
 	shade := text.ShadeOf(t.color.R, t.color.G, t.color.B)
 	top := t.y + (float32(math.Ceil(float64(lineHeight)))-lineHeight)/2
 	baseline := w.sys.Baseline((top + ascent) * scale)

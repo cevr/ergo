@@ -6,6 +6,32 @@ import (
 	"testing"
 )
 
+// TestLayoutsOfOldListsGo: the window keeps the layouts of its last two
+// lists only: text that changes every frame, as a clock's, does not pile
+// up. It kills GPa-layouts-kept-forever (hosts/mygo/testdata/mutants.json),
+// which never lets a layout go.
+func TestLayoutsOfOldListsGo(t *testing.T) {
+	w, err := Headless(300, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 50 {
+		w.Begin()
+		w.Text(10, 10, fmt.Sprintf("frame %d", i), 13, 0x000000ff)
+		w.TextWidth(fmt.Sprintf("width %d", i), 13)
+		w.Present()
+		if !w.Render() {
+			t.Fatal("the window drew no frame")
+		}
+	}
+	w.tmu.Lock()
+	n := len(w.laid) + len(w.lastLaid)
+	w.tmu.Unlock()
+	if n > 4 {
+		t.Fatalf("after 50 lists of 2 texts each the window keeps %d layouts, want those of 2 lists", n)
+	}
+}
+
 // busy draws one list of a busy frame on w: 40 rectangles, 40 lines of
 // text, 40 accessibility nodes and a stroke of 40 points that moves by i
 // quarter pixels, so that its mask is rasterized anew; then renders it.
@@ -69,10 +95,11 @@ func TestBusyFrameAllocatesLittle(t *testing.T) {
 }
 
 // TestTextIsLaidOutOnce: text that does not change, measured and drawn
-// frame after frame, is laid out once; the text system's cache keeps it
-// (LayoutsMade counts each layout made). It kills GPa-measure-shapes and
-// GPa-draw-shapes (hosts/mygo/testdata/mutants.json), which shape it
-// anew at each TextWidth or each frame drawn.
+// frame after frame, is laid out once; the window keeps the layouts its
+// lists use (LayoutsMade counts each layout the text system makes). It
+// kills GPa-layout-not-kept and GPa-layouts-forgotten
+// (hosts/mygo/testdata/mutants.json), which shape it anew at each call or
+// each list.
 func TestTextIsLaidOutOnce(t *testing.T) {
 	w, err := Headless(300, 100)
 	if err != nil {

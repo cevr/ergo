@@ -551,24 +551,6 @@
       "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
     },
     {
-      "name": "GPa-measure-shapes",
-      "origin": "GPa (allocations)",
-      "file": "hosts/mygo/screen/screen.go",
-      "from": "\tl := w.sys.Layout(text.Params{Text: s, Style: text.Style{Size: float32(size)}",
-      "to": "\tl := w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: float32(size)}",
-      "rule": "TextWidth takes its layout from the text system's cache, not shaped anew each call",
-      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
-    },
-    {
-      "name": "GPa-draw-shapes",
-      "origin": "GPa (allocations)",
-      "file": "hosts/mygo/screen/screen.go",
-      "from": "\tl := w.sys.Layout(text.Params{Text: t.s, Style: style,",
-      "to": "\tl := w.sys.Shape(text.Params{Text: t.s, Style: style,",
-      "rule": "a frame's text takes its layout from the text system's cache, not shaped anew each frame",
-      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
-    },
-    {
       "name": "GPa-lists-new",
       "origin": "GPa (allocations)",
       "file": "hosts/mygo/screen/screen.go",
@@ -603,6 +585,33 @@
       "to": "\tpix := make([]byte, tw*th)",
       "rule": "a stroke's mask is rasterized into one buffer, which the text system copies into its atlas",
       "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+    },
+    {
+      "name": "GPa-layout-not-kept",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tw.laid[k] = l\n",
+      "to": "\t_ = l\n",
+      "rule": "a layout the window shaped is kept for the lists that use it",
+      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+    },
+    {
+      "name": "GPa-layouts-forgotten",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tw.laid, w.lastLaid = w.lastLaid, w.laid\n",
+      "to": "\tclear(w.laid)\n",
+      "rule": "the layouts of the list made stay for the next one",
+      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+    },
+    {
+      "name": "GPa-layouts-kept-forever",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tclear(w.lastLaid)\n\tw.laid, w.lastLaid",
+      "to": "\tw.laid, w.lastLaid",
+      "rule": "the window keeps the layouts of its last two lists only",
+      "killers": ["mygo/screen:TestLayoutsOfOldListsGo"]
     },
     {
       "name": "GPo-pass-offset-ignored",
