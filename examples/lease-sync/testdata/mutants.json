@@ -1,5 +1,5 @@
 {
-  "about": "lease-sync's application mutants: the program forms of models/replica's mutants, the RPO1 rows and RP3's (the rpc provider, the long poll, the loops); each is judged by the example's tests and laws (scripts/examples lease-sync), not by a compiler test. The law that kills each is named in its rule.",
+  "about": "lease-sync's application mutants: the program forms of models/replica's mutants, the RPO1 rows and RP3's (the rpc provider, the long poll, the loops) and RPG1's (the paged window); each is judged by the example's tests and laws (scripts/examples lease-sync), not by a compiler test. The law that kills each is named in its rule.",
   "mutants": [
     {
       "name": "rp1-resend-not-recognised",
@@ -328,6 +328,86 @@
       "from": "\t\tif !allow(p.By) {\n",
       "to": "\t\tif false {\n",
       "rule": "Pull runs the same authorization as Push, so a refused client gets no frame: replica/rpc RefusedClientNeedsSignIn.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-page-doubles-row",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\t\tif x.ID == r.ID || x.Key == r.Key {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A page that overlaps the window adds no row twice (rows are known by ID and key): replica/page WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-live-row-in-gap",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\tif w.end {\n\t\treturn Window[K, T]{..w, rows: insert(w.rows, r)}\n",
+      "to": "\tif true {\n\t\treturn Window[K, T]{..w, rows: insert(w.rows, r)}\n",
+      "rule": "A live row joins only a window that holds the list's last row; any other window holds it: replica/page LiveRowStaysAfterLoadedEnd, ConfirmedLocalRowIsNotTwice, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-failed-page-drops-window",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "{ Window[K, T]{..w, failed: true} }",
+      "to": "{ Window[K, T]{..w, rows: []Row[K, T]{}, failed: true} }",
+      "rule": "A failed page changes no row: replica/page FailedPageChangesNothing, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-confirmed-local-twice",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\t\tif !holds(w.rows, p.ID) {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A pending row whose confirmed row arrived is shown once: replica/page ConfirmedLocalRowIsNotTwice, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-page-leaves-gap",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\tif len(w.rows) > 0 && !(atMost",
+      "to": "\tif false && len(w.rows) > 0 && !(atMost",
+      "rule": "A page that does not touch the window changes nothing, so the rows have no gap: replica/page WindowIsTheListsWindow.",
       "anchor": {
         "tests": [
           "examples:lease-sync"
