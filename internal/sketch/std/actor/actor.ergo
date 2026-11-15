@@ -100,11 +100,13 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 // runs), its step, the step of a timer signal (fire), the delay of each
 // state's timer (noTimer() for none; one that is not positive is a
 // defect), each state's work (workOf gives it, hasWork says whether it is
-// one, and work runs it with the entry's send), the decision's kind
+// one, and work runs it with the entry's send), each state's exit action
+// (hasExit says whether the state has one, and leave runs it, masked, on
+// the actor's task, when an entry in that state ends), the decision's kind
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
 // state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh own func() S fails G needs R, limit int, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh own func() S fails G needs R, limit int, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // fired is the timer of the entry that opened in at, as it fires: m's
 // After under the firing mark, so a machines.Every timer's signal carries
@@ -112,6 +114,30 @@ extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W
 // delay reads only In.
 func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
 	machines.AfterFiring(m, at)
+}
+
+// exits is whether the state s has an exit action (m.Exit gives Some): the
+// runner reads it at each entry's end and enters the mask only when it
+// is true, so a machine with no exit action pays one call per entry end
+// (FK9-g1; runtime.md, Machines and actors 12a).
+func exits[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) bool {
+	match m.Exit(s) {
+	case Some[func() needs W]:
+		true
+	case None:
+		false
+	}
+}
+
+// exitOf runs the exit action of the state s, which the runner calls,
+// masked, after exits(m, s) was true: m.Exit is a function of the state,
+// so it gives the same action again.
+func exitOf[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) needs W {
+	match m.Exit(s) {
+	case Some[func() needs W] as x:
+		x.Value()
+	case None:
+	}
 }
 
 // noTimer is the delay start reads as "no timer" for a state whose After
@@ -190,7 +216,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 			wk.Value(send)
 		case None:
 		}
-	}, func(d Decision[S, O]) int {
+	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
 		match d {
 		case Enter[S]:
 			0
@@ -306,7 +332,7 @@ func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial own S, sa
 		case Done[O]:
 		}
 		d
-	}, After: m.After, Work: m.Work}
+	}, After: m.After, Work: m.Work, Exit: m.Exit}
 }
 
 // keep is save(prev, next, sig), with its failure a defect
@@ -317,7 +343,7 @@ extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save f
 // gets each decision with deliver, which gives a child output to the
 // parent as a signal of the entry that owns the child. host is the host
 // the child fills (ChildIn), or noHost() (Child).
-extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
@@ -410,7 +436,7 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m M
 			wk.Value(wsend)
 		case None:
 		}
-	}, func(d Decision[S, O]) int {
+	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
 		match d {
 		case Enter[S]:
 			0

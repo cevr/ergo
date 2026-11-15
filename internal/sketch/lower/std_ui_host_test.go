@@ -822,8 +822,10 @@ func shelfTimer(s shelf) Option[Timeout[int]] { None }
 
 func shelfWork(s shelf) Option[func(send func(e int))] { None }
 
+func shelfExit(s shelf) Option[func()] { None }
+
 func shelfMachine() Machine[shelf, int, int] {
-	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork}
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork, Exit: shelfExit}
 }
 
 func shelfView(f *ui.Frame[int], s shelf) {
@@ -915,8 +917,10 @@ func chosenTimer(s chosen) Option[Timeout[int]] { None }
 
 func chosenWork(s chosen) Option[func(send func(e int))] { None }
 
+func chosenExit(s chosen) Option[func()] { None }
+
 func chosenMachine() Machine[chosen, int, int] {
-	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork}
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork, Exit: chosenExit}
 }
 
 func valueOf(k int) int { k*10 + 7 }
@@ -1001,8 +1005,10 @@ func spinTimer(s spin) Option[Timeout[int]] { None }
 
 func spinWork(s spin) Option[func(send func(e int))] { None }
 
+func spinExit(s spin) Option[func()] { None }
+
 func spinMachine() Machine[spin, int, int] {
-	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork}
+	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork, Exit: spinExit}
 }
 
 func spinView(f *ui.Frame[int], s spin) {
@@ -1096,8 +1102,10 @@ func padTimer(s pad) Option[Timeout[int]] { None }
 
 func padWork(s pad) Option[func(send func(e int))] { None }
 
+func padExit(s pad) Option[func()] { None }
+
 func padMachine() Machine[pad, int, int] {
-	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork}
+	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork, Exit: padExit}
 }
 
 func onPad(s pad, p ui.PointerEvent) Option[int] {
@@ -1299,8 +1307,10 @@ func dialTimer(s int) Option[Timeout[int]] { None }
 
 func dialWork(s int) Option[func(send func(e int))] { None }
 
+func dialExit(s int) Option[func()] { None }
+
 func dialMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork}
+	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork, Exit: dialExit}
 }
 
 func canvasOf(shapes []ui.Shape[int]) ([]ui.PaintOp, bool) {
@@ -1374,12 +1384,14 @@ func rosterTimer(s roster) Option[Timeout[int]] { None }
 
 func rosterWork(s roster) Option[func(send func(e int))] { None }
 
+func rosterExit(s roster) Option[func()] { None }
+
 func rosterMachine(n int) Machine[roster, int, int] {
 	let mut items = []int{}
 	for k in 0..n {
 		items = items.Append(k)
 	}
-	Machine[roster, int, int]{Initial: roster{items: items, next: n}, Step: rosterStep, After: rosterTimer, Work: rosterWork}
+	Machine[roster, int, int]{Initial: roster{items: items, next: n}, Step: rosterStep, After: rosterTimer, Work: rosterWork, Exit: rosterExit}
 }
 
 func shownRows(count int, rh float64, off float64, height float64) []int {
@@ -1497,8 +1509,10 @@ func routeTimer(s int) Option[Timeout[int]] { None }
 
 func routeWork(s int) Option[func(send func(e int))] { None }
 
+func routeExit(s int) Option[func()] { None }
+
 func routeMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork}
+	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork, Exit: routeExit}
 }
 
 func home(u ui.URL) Option[int] { Some{Value: 0} }
@@ -1651,8 +1665,10 @@ func logTimer(s []int) Option[Timeout[int]] { None }
 
 func logWork(s []int) Option[func(send func(e int))] { None }
 
+func logExit(s []int) Option[func()] { None }
+
 func logMachine() Machine[[]int, int, int] {
-	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork}
+	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork, Exit: logExit}
 }
 
 func lawLoadUsesTheBoundService(seed int) bool {
@@ -1716,8 +1732,10 @@ func cursorTimer(s int) Option[Timeout[int]] { None }
 
 func cursorWork(s int) Option[func(send func(e int))] { None }
 
+func cursorExit(s int) Option[func()] { None }
+
 func cursorMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork}
+	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork, Exit: cursorExit}
 }
 
 func keptOffset(k int, rh float64, off float64, height float64) float64 {
@@ -2048,8 +2066,10 @@ func crashTimer(s int) Option[Timeout[int]] { None }
 
 func crashWork(s int) Option[func(send func(e int))] { None }
 
+func crashExit(s int) Option[func()] { None }
+
 func crashMachine() Machine[int, int, int, Boom] {
-	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork}
+	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork, Exit: crashExit}
 }
 
 func crashAppView(f *ui.Frame[int], s int) {
@@ -2486,6 +2506,8 @@ func slowTimer(s slowLog) Option[Timeout[slowSignal]] { None }
 
 func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
 
+func slowExit(s slowLog) Option[func()] { None }
+
 func lawSlowAboveTheBudget(seed int, bound int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2507,7 +2529,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	let posted = queue.New[ui.Event[slowSignal]](256)
-	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}}, Step: slowStep, After: slowTimer, Work: slowWork}, 1, func(o int) {})
+	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}}, Step: slowStep, After: slowTimer, Work: slowWork, Exit: slowExit}, 1, func(o int) {})
 	let (s, _) = ui.Start(a, view, func(ev ui.Event[slowSignal]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
@@ -2607,8 +2629,10 @@ func zoneTimer(s int) Option[Timeout[int]] { None }
 
 func zoneWork(s int) Option[func(send func(e int))] { None }
 
+func zoneExit(s int) Option[func()] { None }
+
 func zoneMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork}
+	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork, Exit: zoneExit}
 }
 
 func lawZoneHitNamesItsPath(seed int, n int) bool {

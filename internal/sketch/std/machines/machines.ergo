@@ -181,7 +181,7 @@ func Can[S, E, O](step func(s S, e E) Decision[S, O], s S, e E) bool {
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
 // a machine with an input.
 func Start[I, S, E, O, F, R, W](m InputMachine[I, S, E, O, F, R, W], input I) Machine[S, E, O, F, R, W] {
-	Machine[S, E, O, F, R, W]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
+	Machine[S, E, O, F, R, W]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work, Exit: m.Exit}
 }
 
 // Initial is m's initial state.

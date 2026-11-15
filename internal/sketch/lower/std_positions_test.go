@@ -218,7 +218,7 @@ func durableUseSource(plain, machine string) string {
 		panic("a durable runner's machine is " + machine + ": want Machine[S, E, O, F, R, W]")
 	}
 	s, e, o, f, r := targs[0], targs[1], targs[2], targs[3], targs[4]
-	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs[:5], ", ") + "], After: p0.After, Work: p0.Work}"
+	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs[:5], ", ") + "], After: p0.After, Work: p0.Work, Exit: p0.Exit}"
 	use := strings.Replace(plain, "(p0, ", "("+lit+", ", 1)
 	step := "func useStep[" + strings.Join(targs[:5], ", ") + "](s " + s + ", e " + e + ") Decision[" + s + ", " + o + "] fails " + f + " needs " + r + " {\n\tIgnore\n}\n"
 	return use + "\n" + step

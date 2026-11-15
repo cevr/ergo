@@ -1191,6 +1191,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `actor` | `DoneIsFinal` | `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }` | `TestStdActorLawsRun` | tested |
 | `actor` | `FailedIsExit` | `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }` | `TestStdActorLawsRun` | tested |
 | `actor` | `ExitIsShared` | `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }` | `TestStdActorLawsRun` | tested |
+| `actor` | `ExitRunsOncePerEntry` | `ExitRunsOncePerEntry(signals []int, drain bool) { exitsRan(signals, drain, drain) == exitsLeft(signals) }` | `TestStdActorLawsRun` | tested |
+| `actor` | `ExitSeesLastState` | `ExitSeesLastState(signals []int) { exitsRan(signals, false, false) == exitsLeft(signals) }` | `TestStdActorLawsRun` | tested |
 | `actor` | `EveryFiresWithTheReading` | `EveryFiresWithTheReading(n int) { let m = time.NewManual(0) with context { Scheduler: m, time.Clock: m } { pacedOn(m, n) } }` | `TestStdActorLawsRun` | tested |
 | `actor` | `FeedStepsInOrder` | `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }` | `TestStdActorLawsRun` | tested |
 | `actor` | `RejectKeepsState` | `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }` | `TestStdActorLawsRun` | tested |

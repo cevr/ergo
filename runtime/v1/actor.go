@@ -146,6 +146,20 @@ import (
 //     every output of the commits up to it. A child's sink is its
 //     toParent (rule 13), so a child's output is in its parent's inbox
 //     before the child's state is shown.
+//  18. Exit actions (FK9-g1; the model models/runner): each entry that
+//     opened (the first state, an Enter, an Emit, a restart's first state;
+//     open from its commit, so also one whose arm raised or that a stop
+//     overtook) ends once, and then the runner calls leave with the state
+//     the entry holds (its last commit), when hasExit says it has one: on
+//     an Enter and an Emit (the state the step saw), and at the actor's
+//     end and a supervised crash (a.state). A Stay, an Ignore and a Reject
+//     end no entry. The action runs after the entry's hosts closed, its
+//     children stopped and its timer and work ended, and before the next
+//     entry opens; on the runner's task, masked, through release, so a
+//     stop does not cut it and Stop and Drain return after it. Its defect
+//     is a release defect of the actor: it ends the actor (the crash's own
+//     is the crash's), and the end that follows does not run the action
+//     again. A signal the old entry sends while it runs is stale (rule 6).
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -165,6 +179,11 @@ type Actor[S, E, D any] struct {
 	// (rule 10): the program's workOf, hasWork and run bound together, so
 	// the Actor needs no type parameter for the program's Work value.
 	work func(S) (func(*rt.Task, func(E)), bool)
+	// hasExit and leave are each state's exit action (FK9-g1; rule 18):
+	// hasExit(s) reports whether s has one, and leave runs it. Both are nil
+	// for MachineStart, which runs none.
+	hasExit func(S) bool
+	leave   func(*rt.Task, S)
 
 	// spare is a reply channel no Ask or State read holds (takeReply).
 	spare   atomic.Pointer[replySlot[S, D]]
@@ -252,6 +271,10 @@ type Actor[S, E, D any] struct {
 	hostSlot  rt.Slot
 	epoch     uint64
 	bound     bool // the runner's task is in owners, as nil (runner)
+	// owed is whether the open entry has not run its exit action yet (rule
+	// 18): set when an entry is committed, cleared before the action runs,
+	// so no path runs one entry's action twice.
+	owed bool
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -318,7 +341,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
-	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, nil, nil, kind, next,
 		out, capacity, nil, nil, 0)
 }
 
@@ -334,7 +357,8 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph G
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
 		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
@@ -343,7 +367,7 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph G
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
 	}
-	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 		out, capacity, nil, fresh, limit)
 }
 
@@ -381,7 +405,8 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D, func(P)), capacity int) *Actor[S, E, D] {
 	owner, ok := ownerOf(t).(childOwner[P])
 	if !ok {
@@ -393,7 +418,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph Gr
 		cell = host
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
-		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
@@ -451,7 +476,8 @@ func (d *ActorChildDefect) String() string {
 func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
 	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
@@ -460,6 +486,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	a := &Actor[S, E, D]{
 		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
+		hasExit: hasExit, leave: leave,
 		done: make(chan struct{}), state: initial, version: 1,
 		report: report, fresh: fresh, limit: limit,
 		// A durable start's recovered hosts (DH1): this actor's first
@@ -602,6 +629,9 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action (rule 18); its defect is the crash's,
+	// as the children's are.
+	_ = a.leaveEntry(at, a.state)
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -658,6 +688,9 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	if at.Traced() {
 		a.traceStart(at, s)
 	}
+	// The first entry is open from here: a raise in its arm or its work
+	// still ends it with its exit action (rule 18).
+	a.owed = true
 	a.openKids()
 	a.openFirst(at, s)
 	if at.Traced() {
@@ -787,7 +820,13 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		}
 		a.stopTimer()
 		a.stopWork()
+		// The old entry's exit action runs last, with the state it holds
+		// now, before the next entry opens (rule 18).
+		if err := a.leaveEntry(at, s); err != nil {
+			raise(err)
+		}
 		s = a.next(s, d)
+		a.owed = true
 		a.epoch++
 		a.open(at, s)
 	}
@@ -1107,6 +1146,28 @@ func (a *Actor[S, E, D]) stopWork() {
 	}
 }
 
+// leaveEntry ends the open entry's exit action (rule 18), on the runner's
+// task at: when the entry owes it and its state s has one, it runs it
+// through the release boundary, masked, so a stop does not cut it, and
+// gives its defect, marked as a release's. It runs after the entry's
+// children, timer and work ended. owed is cleared first, so the end that
+// follows a defect in the action does not run it again. It is a call of
+// its own (noinline), so the runner's loop frame does not grow.
+//
+//go:noinline
+func (a *Actor[S, E, D]) leaveEntry(at *rt.Task, s S) error {
+	if !a.owed {
+		return nil
+	}
+	a.owed = false
+	if a.hasExit == nil || !a.hasExit(s) {
+		return nil
+	}
+	var c rt.Cause
+	release(at, &c, func() { a.leave(at, s) }, nil)
+	return c.Err()
+}
+
 // arm starts the timer child of the entry that opened in s, when delay(s)
 // is not negative. The child sleeps on the program's Scheduler, then
 // pushes the timer envelope with the entry's epoch; a stop ends it first.
@@ -1333,6 +1394,13 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action, with the state it holds (rule 18): a
+	// defect in it joins the exit. a.state is the runner's own write (a
+	// Stay's commit, or open's publish, also when a stop or a raise
+	// overtook the open).
+	if err := a.leaveEntry(a.task, a.state); err != nil {
+		exit = join(exit, err)
+	}
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
