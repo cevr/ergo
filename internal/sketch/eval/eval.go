@@ -123,6 +123,10 @@ type Result struct {
 	Evidence    string
 	Seed        uint64
 	Arguments   []Argument
+	// Schedule is the schedule seed of the case that decided the result
+	// when it started a task, else 0: the evaluator runs one schedule per
+	// seed (sched.go), and says which.
+	Schedule uint64
 	// Machine is a reachability law's search (machine.go), else nil.
 	Machine *MachineSearch
 }
@@ -268,10 +272,10 @@ func (in *interp) impure(pkg *check.Package, key syntax.Node) string {
 		ice("no footprint for the frame at %d", key.Pos())
 	}
 	switch {
-	case len(fp.Caps) > 0:
-		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Tasks:
 		return "it starts a task, which check-time evaluation never runs"
+	case len(fp.Caps) > 0:
+		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Opaque:
 		return "it calls code whose footprint is unknown (a function value, an operation or a Go function)"
 	}
@@ -285,16 +289,50 @@ func (in *interp) runBody(pkg *check.Package, decl syntax.Decl, body *syntax.Blo
 	return in.runBodyFrame(fr, body, law, res)
 }
 
+// rootTask runs body, fr's statements, as the root task of a schedule of
+// its own (sched.go), ends fr, and ends every task still running. It
+// returns the schedule's seed when body started a task (else 0) and the
+// exit: the stop of another task, or a deadlock, ends the root's too.
+func (in *interp) rootTask(fr *frame, name string, body func() *abrupt) (uint64, *abrupt) {
+	in.bodies++
+	s := in.newScheduler(scheduleSeed(in.budget.Seed, name, in.bodies))
+	in.sched, in.taskState = s, taskState{cur: s.root}
+	defer func() {
+		if r := recover(); r != nil {
+			if s.fatal == nil {
+				s.fatal = &abrupt{kind: ctlAbort, msg: "an internal error"}
+			}
+			s.panicked = nil
+			in.shutdown()
+			panic(r)
+		}
+	}()
+	ab := in.endFrame(fr, body())
+	started := s.nextID > 2
+	in.shutdown()
+	if s.fatal != nil && s.fatal.kind != ctlAbort {
+		ab = s.fatal
+	}
+	if !started {
+		return 0, ab
+	}
+	return s.seed, ab
+}
+
 func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
 	pkg, decl := fr.pkg, fr.decl
 	start := in.steps
 	var val Value
 	var ab *abrupt
-	if law {
-		val, ab = in.bodyValue(fr, body.List)
-	} else {
-		ab = in.stmts(fr, body.List)
-	}
+	res.Schedule, ab = in.rootTask(fr, res.Name, func() *abrupt {
+		var ab *abrupt
+		if law {
+			val, ab = in.bodyValue(fr, body.List)
+		} else {
+			ab = in.stmts(fr, body.List)
+		}
+		return ab
+	})
 	res.Steps = in.steps - start
 	if ab == nil {
 		if law && val != nil && !truth(val) {
@@ -326,6 +364,10 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 		res.Status, res.Reason = Incomplete, ab.msg
 	case ctlUnsupported:
 		res.Status, res.Reason = Skipped, ab.msg
+	case ctlInterrupt:
+		// Nothing stops the root task; an interruption that reaches it
+		// came from a task it waited for.
+		res.Status, res.Reason = Defect, "interrupted"
 	default:
 		ice("the control %d left the body", ab.kind)
 	}

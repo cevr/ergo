@@ -69,9 +69,27 @@ type sliceV struct {
 }
 
 // sliceRange observes element writes, not replacement of the ranged place.
+// The place is root and the path from it (fields, and indexes with their
+// values when the loop began); a write follows the view only through that
+// same place, since another place may share the store until it is written.
 type sliceRange struct {
 	root *slot
+	path []step
 	view *sliceV
+}
+
+// samePath reports whether a and b name one place: the same fields, and
+// the same index values.
+func samePath(a, b []step) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].field != b[i].field || a[i].index != b[i].index {
+			return false
+		}
+	}
+	return true
 }
 
 func newSlice(elems []Value) sliceV {
@@ -273,6 +291,14 @@ func describeColl(v Value) (string, bool) {
 		return "{" + strings.Join(parts, ", ") + "}", true
 	case *closure:
 		return fmt.Sprintf("a function literal at %d", v.lit.Pos()), true
+	case *funcRef:
+		return "the function " + v.fn.Name, true
+	case *nativeFunc:
+		return "the function " + v.name, true
+	case *machinePlan:
+		return v.tn.Name + "{}", true
+	case *ptrV:
+		return "a borrow", true
 	}
 	return "", false
 }
