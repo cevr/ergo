@@ -33,15 +33,13 @@ func View(f *ui.Frame[Signal], s Calm) {
 }
 
 // CrashView is what the window shows once the app crashed: what went
-// wrong, and a Reload button that starts the app afresh. A defect carries
-// no message to the crash view (ui.DefectCrash has no field), so the line
-// under the title names the kind of crash, where upstream shows the
-// thrown error's message (ledger row FK13-g1).
+// wrong (a defect's reason, as upstream shows the thrown error's
+// message), and a Reload button that starts the app afresh.
 func CrashView[F](f *ui.Frame[Signal], c ui.Crash[Calm, Signal, F]) {
 	ui.Text(f, "Something went wrong")
 	match c.Cause {
-	case ui.DefectCrash:
-		ui.Text(f, "A defect ended the app.")
+	case ui.DefectCrash as d:
+		ui.Text(f, d.Reason)
 	case ui.FailureCrash[F]:
 		ui.Text(f, "The app's step failed.")
 	}
@@ -71,10 +69,12 @@ func crashes[F](r Reports) ui.Crashes[Calm, Signal, F] {
 	ui.Crashes[Calm, Signal, F]{View: CrashView[F], Report: report[F](r)}
 }
 
-// report logs a crash in r.
+// report logs a crash in r, as upstream's report logs its error, model and
+// message: the kind of crash, the signal it crashed around, the state it
+// crashed in, and a defect's reason.
 func report[F](r Reports) func(c ui.Crash[Calm, Signal, F]) {
 	func(c ui.Crash[Calm, Signal, F]) {
-		r.log.Update(func(l []string) []string { l.Append("crash report: \(Kind(c))") })
+		r.log.Update(func(l []string) []string { l.Append("crash report: \(Kind(c)) on \(signalName(c.Signal)) in \(stateName(c.State))\(reasonOf(c.Cause))") })
 	}
 }
 
@@ -86,6 +86,36 @@ func State[F](c Option[ui.Crash[Calm, Signal, F]]) string {
 		"crashed: \(Kind(x.Value))"
 	case None:
 		"running"
+	}
+}
+
+// signalName names the signal a crash came around (upstream's message),
+// or says there was none in flight.
+func signalName(s Option[Signal]) string {
+	match s {
+	case Some[Signal] as x:
+		match x.Value {
+		case ClickedCrash:
+			"ClickedCrash"
+		case ClickedReload:
+			"ClickedReload"
+		}
+	case None:
+		"no signal"
+	}
+}
+
+// stateName names the state a crash came in (upstream's model, which is
+// null): Calm has no fields.
+func stateName(s Calm) string { "Calm" }
+
+// reasonOf is a defect's reason after a colon, or nothing for a failure.
+func reasonOf[F](c ui.CrashCause[F]) string {
+	match c {
+	case ui.DefectCrash as d:
+		": \(d.Reason)"
+	case ui.FailureCrash[F]:
+		""
 	}
 }
 
