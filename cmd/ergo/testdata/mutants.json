@@ -233,6 +233,7 @@
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },
+    {"name":"tl1-strip-keeps-symtab","origin":"wf10 TL1","file":"internal/sketch/build/action.go","from":"const stripFlags = `'-ldflags=-s -w'`","to":"const stripFlags = `'-ldflags=-w'`","rule":"A stripped link has no symbol table (-s) and no DWARF (-w), and keeps the pclntab.","killers":["internal/sketch/build:TestCacheInputs"]},
     {
       "name": "rc4b-inspect-engine-missing",
       "origin": "wf10 RC4b",

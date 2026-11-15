@@ -18,7 +18,7 @@ import (
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
 // [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE]
 // [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
-// [--schedule TOKEN] [-work] [--target go]`. --states is the
+// [--schedule TOKEN] [-work] [--debug] [--target go]`. --states is the
 // budget of states of each reachability law's search (machine laws;
 // 1,000,000 by default). --law runs only the law NAME and no test;
 // --skip-law runs all but that law, with a skip line. --run runs the one

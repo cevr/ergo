@@ -160,7 +160,7 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("an action change re-emitted: reused=%v emissions=%d err=%v", again.Reused, calls.Load(), err)
 			}
 			command := tc.Command(again, "/out/program")
-			if slices.Equal(command.Env, baseCommand.Env) && command.Path == baseCommand.Path {
+			if slices.Equal(command.Env, baseCommand.Env) && command.Path == baseCommand.Path && slices.Equal(command.Args, baseCommand.Args) {
 				t.Fatal("the action is unchanged")
 			}
 			binary, err := link(t, tc, again)
@@ -189,10 +189,33 @@ func TestCacheInputs(t *testing.T) {
 		t.Run("Strip", func(t *testing.T) {
 			// The stripped link reuses the module (bs4-cache-key: the flag
 			// is the action's, not the emission's) and drops the symbols.
+			// TL1: the stripped link has no symbol table and no DWARF, and
+			// keeps the pclntab a panic's trace reads; it runs the same.
+			// Mutant tl1-strip-keeps-symtab (stripFlags '-ldflags=-w').
 			covered["Toolchain.Strip"] = true
 			tc := hostToolchain()
 			tc.Strip = true
 			data := reuse(t, tc)
+			if runtime.GOOS == "linux" {
+				sections := func(data []byte) map[string]bool {
+					file, err := elf.NewFile(bytes.NewReader(data))
+					if err != nil {
+						t.Fatal(err)
+					}
+					names := map[string]bool{}
+					for _, s := range file.Sections {
+						names[s.Name] = true
+					}
+					return names
+				}
+				stripped, full := sections(data), sections(baseBytes)
+				if !full[".symtab"] || !full[".debug_info"] {
+					t.Fatalf("the base link has no symbols to strip: %v", full)
+				}
+				if stripped[".symtab"] || stripped[".debug_info"] || !stripped[".gopclntab"] {
+					t.Fatalf("the stripped link's sections are %v; want no .symtab or .debug_info, and .gopclntab", stripped)
+				}
+			}
 			binary := filepath.Join(t.TempDir(), "stripped")
 			if err := os.WriteFile(binary, data, 0o755); err != nil {
 				t.Fatal(err)
