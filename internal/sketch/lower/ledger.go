@@ -300,6 +300,16 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 	return d.sum(pkg, slots)
 }
 
+// TestDigest is the digest of every input of the verdict of test t of pkg
+// (TESTSPEED FT2), TargetDigest's rule for a test: the test's declaration
+// and every declaration it reaches, at any depth and in any package, and
+// the generator of every type it reached (its parameters' among them).
+func TestDigest(pkg *check.Package, t *check.Test) string {
+	d := newDigester()
+	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+	return d.sum(pkg, nil)
+}
+
 // ContextDigest is the digest of every input of the verdict of the run of
 // law under the named context lc in the test build of pkg (lawcache): the
 // law's owner's declaration, the context's declaration and those of the

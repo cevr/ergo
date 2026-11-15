@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/stage"
 )
@@ -13,6 +15,10 @@ import (
 // FT1, "the evidence is in the output"), where the law cache's mark
 // " (cached)" ends a stored one.
 const EvaluatedMark = " (evaluated)"
+
+// StoredMark ends each verdict line read from the verdict store (lawcache,
+// TESTSPEED FT2), as the test binary marks a law verdict it did not run.
+const StoredMark = " (cached)"
 
 // TestAnswer is a package's `ergo test` answered by the check-time
 // evaluator (tier 1, TESTSPEED FT1): what the native test binary would
@@ -30,6 +36,8 @@ type TestAnswer struct {
 	// and the evaluator's steps.
 	Obligations int
 	Steps       int64
+	// Stored is the count of verdicts read from the store, not run.
+	Stored int
 }
 
 // EvaluateTests answers the root package's full `ergo test` (no --law,
@@ -44,7 +52,13 @@ type TestAnswer struct {
 // words the native runner does not use (eval.VerdictLine), a defect (the
 // native runner stops there), or a set of obligations that is not the
 // native runner's. The native binary then answers the package (tier 2).
-func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string) (TestAnswer, bool) {
+//
+// With a store (lawcache), a test or law run whose verdict it holds under
+// an unchanged reach digest is not run and prints StoredMark; a pass is
+// stored. An obligation the evaluator leaves incomplete gets a route note
+// under its key, and while any obligation of the package has one the
+// package goes to the test binary with no evaluation (TESTSPEED FT2).
+func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string, store *lawcache.Store) (TestAnswer, bool) {
 	unit, err := analysisUnit(a, admitted)
 	if err != nil {
 		return TestAnswer{}, false
@@ -62,11 +76,34 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	}
 	b := eval.DefaultBudget()
 	b.Seed, b.States = seed, states
+	pkg := a.rootPackage()
+	var notes map[string]string
+	if store != nil && pkg != nil {
+		// A route note of an obligation whose inputs did not change
+		// sends the package to the test binary with no evaluation.
+		notes = routes(pkg, seed, states, b.Steps)
+		for _, name := range plan.Names {
+			if text, ok := store.Get(notes[name]); ok && text == routeNote {
+				stage.Add(stage.PackagesRouted, 1)
+				return TestAnswer{}, false
+			}
+		}
+		b.Verdicts = a.EvalVerdicts(store, seed, states)
+		b.Tests = &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}}
+	}
 	rep, err := a.Evaluate(b)
 	if err != nil {
 		return TestAnswer{}, false
 	}
 	stage.Add(stage.EvalSteps, rep.Steps)
+	// The obligations the evaluator gave up on get a route note.
+	for _, r := range rep.Results {
+		if r.Status == eval.Incomplete {
+			if k, ok := notes[r.Name]; ok {
+				store.Put(k, routeNote)
+			}
+		}
+	}
 	// The native runner's obligations, in its order: the evaluator's
 	// results must be the same list (eval.Summary relies on its order).
 	if len(rep.Results) != len(plan.Names) {
@@ -82,21 +119,27 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 		return TestAnswer{}, false
 	}
 	var out strings.Builder
+	stored := 0
 	for i, line := range lines {
 		if i == len(lines)-1 {
 			out.WriteString(line + "\n") // the summary
 			break
 		}
+		mark := EvaluatedMark
+		if rep.Results[i].Cached {
+			mark, stored = StoredMark, stored+1
+		}
 		first, rest, more := strings.Cut(line, "\n")
-		out.WriteString(first + EvaluatedMark + "\n")
+		out.WriteString(first + mark + "\n")
 		if more {
 			out.WriteString(rest + "\n")
 		}
 	}
-	answer := TestAnswer{Stdout: out.String(), Exit: exit, Obligations: len(rep.Results), Steps: rep.Steps}
+	answer := TestAnswer{Stdout: out.String(), Exit: exit, Obligations: len(rep.Results) - stored, Stored: stored, Steps: rep.Steps}
 	if stderr != "" {
 		answer.Stderr = stderr + "\n"
 	}
 	stage.Add(stage.ObligationsEvaluated, int64(answer.Obligations))
+	stage.Add(stage.ObligationsStored, int64(stored))
 	return answer, true
 }

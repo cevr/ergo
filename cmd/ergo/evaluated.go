@@ -29,7 +29,9 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 	if opts.states != "" {
 		states, _ = strconv.Atoi(opts.states)
 	}
-	answer, ok := l.analysis.EvaluateTests(seed, states, l.source.Admitted(), opts.file)
+	store := lawStore()
+	defer boundLaws(store)
+	answer, ok := l.analysis.EvaluateTests(seed, states, l.source.Admitted(), opts.file, store)
 	if !ok {
 		return false, nil
 	}

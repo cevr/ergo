@@ -72,6 +72,11 @@ const (
 	// or not the evaluator then decided the package.
 	ObligationsEvaluated
 	EvalSteps
+	// ObligationsStored counts the verdicts `ergo test` printed from the
+	// verdict store with no run (TESTSPEED FT2), and PackagesRouted the
+	// packages a route note sent to the test binary with no evaluation.
+	ObligationsStored
+	PackagesRouted
 	numCounters
 )
 
@@ -84,7 +89,7 @@ var names = [numCounters]string{
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
 	"shared_fallbacks", "binaries_ir", "binaries_text",
-	"obligations_evaluated", "eval_steps",
+	"obligations_evaluated", "eval_steps", "obligations_stored", "packages_routed",
 }
 
 var counts [numCounters]atomic.Int64

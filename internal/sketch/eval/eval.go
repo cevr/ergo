@@ -55,6 +55,33 @@ type Budget struct {
 	// run whose verdict it holds is not run, and a run that held is
 	// stored in it.
 	Verdicts Verdicts
+	// Tests, when set, is the store of test verdicts (TESTSPEED FT2): a
+	// test whose verdict it holds is not run, and a test that passed is
+	// stored in it.
+	Tests TestVerdicts
+}
+
+// TestVerdicts is a store of the verdicts of tests that passed, keyed by
+// every input of the run (the reach digest of the test, the seed): Cached
+// gives a passed test's verdict, Held stores one. A test the store does
+// not key gives none and stores nothing.
+type TestVerdicts interface {
+	Cached(t *check.Test) (Verdict, bool)
+	Held(t *check.Test, v Verdict)
+}
+
+// formOf is the case form of a passed run of evidence (a stored verdict
+// keeps its evidence, not its form).
+func formOf(evidence string) caseForm {
+	switch evidence {
+	case "evaluated":
+		return formSingle
+	case "proved":
+		return formListed
+	case "tested":
+		return formDrawn
+	}
+	return formNone
 }
 
 // Verdicts is a store of the verdicts of law runs that held, keyed by
@@ -303,8 +330,24 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
 		}
+		if b.Tests != nil {
+			if v, ok := b.Tests.Cached(t); ok {
+				add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos()), Status: Passed, Evidence: v.Evidence, Seed: b.Seed, Cases: v.Cases, TotalCases: v.TotalCases, Cached: true, form: formOf(v.Evidence)})
+				continue
+			}
+		}
 		in.begin()
-		add(in.runTest(pkg, t))
+		// A test that ranged over a Map is a verdict only if the other
+		// order agrees (Run), so it is never stored from one order.
+		before := in.mapRanged
+		in.mapRanged = false
+		out := in.runTest(pkg, t)
+		ranged := in.mapRanged
+		in.mapRanged = before || ranged
+		if b.Tests != nil && !ranged && out.Status == Passed && formOf(out.Evidence) != formNone {
+			b.Tests.Held(t, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases})
+		}
+		add(out)
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
@@ -319,6 +362,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
 					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true
 					res.Cases, res.TotalCases, res.Reason, res.Machine = v.Cases, v.TotalCases, v.Reason, v.Machine
+					if v.Machine == nil {
+						res.form = formOf(v.Evidence)
+					}
 					add(res)
 					continue
 				}
