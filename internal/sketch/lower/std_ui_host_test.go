@@ -2838,7 +2838,9 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	for _ in 0..6 {
 		texts = texts.Append(words[draw(&r, 4)])
 	}
+	let shift = sync.NewRef(0)
 	let view = func(f *ui.Frame[int], s int) {
+		let shown = (s + shift.Get()) % 6
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..6 {
 				if k.Name == "\(i)" {
@@ -2848,9 +2850,9 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			None
 		})
 		ui.Text(f, "at \(s)")
-		// At state 5 there is no live region, so the next state's is new.
-		if s != 5 {
-			ui.Announce(f, texts[s])
+		// At text 5 there is no live region, so the next text's is new.
+		if shown != 5 {
+			ui.Announce(f, texts[shown])
 		}
 	}
 	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
@@ -2862,12 +2864,13 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut prev Option[string] = Some{Value: texts[0]}
 	for _ in 0..(steps%12+12)%12+1 {
 		let s = draw(&r, 6)
-		if draw(&r, 2) == 0 {
+		let by = draw(&r, 3)
+		if by == 0 {
 			ui.PressKey(&h, ui.KeyPress{Name: "\(s)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 			case _:
 				return false
 			}
-		} else {
+		} else if by == 1 {
 			a.Send(s) catch {
 			case _:
 				return false
@@ -2876,18 +2879,25 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			case _:
 				return false
 			}
+		} else {
+			shift.Set(draw(&r, 6))
+			ui.Settle(&h) catch {
+			case _:
+				return false
+			}
 		}
+		let k = (ui.StateOf(&h) + shift.Get()) % 6
 		// prev is the region's text, None while there is no region.
-		if s == 5 {
+		if k == 5 {
 			prev = None
 		} else {
-			if prev != (Some{Value: texts[s]}) && texts[s] != "" {
-				want = want.Append(texts[s])
+			if prev != (Some{Value: texts[k]}) && texts[k] != "" {
+				want = want.Append(texts[k])
 			}
-			prev = Some{Value: texts[s]}
+			prev = Some{Value: texts[k]}
 		}
-		let regions = if s == 5 { 0 } else { 1 }
-		if len(ui.Locate(&h, ui.WithRole{Role: ui.Status, Name: texts[s]})) != regions {
+		let regions = if k == 5 { 0 } else { 1 }
+		if len(ui.Locate(&h, ui.WithRole{Role: ui.Status, Name: texts[k]})) != regions {
 			return false
 		}
 	}
