@@ -21,7 +21,7 @@ func main() needs Console {
 // field-less Month and Weekday are a tag, one byte, where they were
 // interfaces of a box each; the reference msb3Lowering "off" keeps them
 // interfaces. Each lowering type-checks (go/types). The run is the
-// examples' (cron's calendar, jsonv's wire kinds) under both.
+// examples' (cron's calendar, jsonv's decoded kinds) under both.
 // Mutants: msb3-std-sourced-only, msb3-std-layout-unknown,
 // msb3-fieldless-of-call.
 func TestStdUnionsAreFlat(t *testing.T) {
