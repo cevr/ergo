@@ -8,24 +8,24 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// A tuple let of an if or match (LWR-TUPLE-MATCH, a form of formLowering).
-// `let (a, b, c) = match f { … }` lowered as a value is a Go variable of an
-// anonymous struct that each arm assigns, then a copy of it and a read of
-// each field (letPattern). Here the names are Go variables declared first,
-// and each arm's tail writes them: a tuple literal element by element
-// (`a, b, c = x, y, z`, the elements evaluated in order as a struct
-// literal's are), a call the inliner writes in place by its returns, which
-// write the names as an arm does (inlineRet.tuple, tupleReturn), and any
-// other tail through its fields. No tuple value is
-// made or copied (T4b: civil's render, 2,207 → 1,494 instructions a call
-// by hand). The reference (formLowering "reference") keeps letPattern.
+// A tuple let of an if, a match or a call (LWR-TUPLE-MATCH, a form of
+// formLowering). `let (a, b, c) = match f { … }` lowered as a value is a Go
+// variable of an anonymous struct that each arm assigns, then a copy of it
+// and a read of each field (letPattern). Here the names are Go variables
+// declared first, and each arm's tail writes them: a tuple literal element
+// by element (`a, b, c = x, y, z`, the elements evaluated in order as a
+// struct literal's are), a call the inliner writes in place by its
+// returns, which write the names as an arm does (inlineRet.tuple,
+// tupleReturn), and any other tail through its fields. A let of a call is
+// a let of one tail. No tuple value is made or copied (T4b: civil's
+// render). The reference (formLowering "reference") keeps letPattern.
 //
 // The form takes only what writes the names as the reference's binding
-// does: a tuple pattern of names and _ over an if or match whose value no
-// implicit conversion changes, whose tails cannot fail, and which no
-// ownership of the value reaches (no owned name, no arm that holds, lends
-// or registers the value), outside a law's control expression (its result
-// site). Any other let keeps letPattern.
+// does: a tuple pattern of names and _ over an if, a match or a call whose
+// value no implicit conversion changes, whose tails cannot fail, and which
+// no ownership of the value reaches (no owned name, no arm that holds,
+// lends or registers the value), outside a law's control expression (its
+// result site). Any other let keeps letPattern.
 
 // tupleLet lowers spec, `let P = x` with p the checked tuple pattern P, by
 // the form when it fits, and reports whether it did.
@@ -39,6 +39,11 @@ func (fc *funcCtx) tupleLet(spec *syntax.VarSpec, p *check.Pattern) bool {
 	switch f := form.(type) {
 	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		s = f.(syntax.Stmt)
+	case *syntax.CallExpr:
+		// A call is one tail: inlined, its returns write the names.
+		if fc.fallibleExpr(x) {
+			return false
+		}
 	default:
 		return false
 	}
@@ -62,7 +67,7 @@ func (fc *funcCtx) tupleLet(spec *syntax.VarSpec, p *check.Pattern) bool {
 			return false
 		}
 	}
-	if fc.tailFallible(s) || info.ArmHeld[form] || info.ArmValues[form] != nil || info.HeldIn[form] != nil || info.OwnedTemps[form] != nil {
+	if (s != nil && fc.tailFallible(s)) || info.ArmHeld[form] || info.ArmValues[form] != nil || info.HeldIn[form] != nil || info.OwnedTemps[form] != nil {
 		return false
 	}
 	if fc.frame != nil && fc.frame.law {
@@ -77,7 +82,12 @@ func (fc *funcCtx) tupleLet(spec *syntax.VarSpec, p *check.Pattern) bool {
 			bound = append(bound, e.Var)
 		}
 	}
-	fc.yieldStmt(s, dest{kind: destTuple, names: names, typ: t})
+	d := dest{kind: destTuple, names: names, typ: t}
+	if s != nil {
+		fc.yieldStmt(s, d)
+	} else {
+		fc.tupleYield(x, d)
+	}
 	for _, v := range bound {
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])

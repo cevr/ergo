@@ -9,11 +9,11 @@ import (
 )
 
 // The seeded property of the tuple let (tuplelet.go). Each seed writes one
-// program whose loop over 0..11 destructures, at each step, an if or a
-// match over a three-variant union into three names with a tuple pattern,
-// and prints them. An arm yields a tuple literal, a call's tuple (some
-// calls inlined, whose returns then write the names), a nested
-// if of either, a block whose let comes first, or leaves with continue;
+// program whose loop over 0..11 destructures, at each step, an if, a match
+// over a three-variant union or a call into three names with a tuple
+// pattern, and prints them. An arm yields a tuple literal, a call's tuple
+// (some calls inlined, whose returns then write the names), a nested if of
+// either, a block whose let comes first, or leaves with continue;
 // some patterns bind _ for an element, and some arms read names that an
 // earlier let bound. The program runs under the new lowering and under the
 // reference (formLowering "reference"); stdout, stderr and the exit code
@@ -24,7 +24,7 @@ import (
 var tupleLetSeed = flag.Uint64("tuplelet.seed", 0, "run TestTupleLetsAgree on this seed alone")
 
 // tupleLetPaths are the generator's branches; the fixed seeds reach each.
-var tupleLetPaths = []string{"match", "if", "literal", "call", "nested", "block", "continue", "wildcard", "outer"}
+var tupleLetPaths = []string{"match", "if", "literal", "call", "nested", "block", "continue", "wildcard", "outer", "direct"}
 
 const tupleLetPrelude = `type Circle { r int }
 type Rect { w int, h int }
@@ -120,15 +120,19 @@ func (g *tupleLetGen) let(ind string) {
 	}
 	in := ind + "\t"
 	var form string
-	if g.r.IntN(2) == 0 {
+	switch g.r.IntN(3) {
+	case 0:
 		g.path("match")
 		form = "match pick(n) {\n" +
 			ind + "case Circle:\n" + g.arm(in, 0, false) +
 			ind + "case Rect:\n" + g.arm(in, 0, true) +
 			ind + "case Dot:\n" + g.arm(in, 0, true) + ind + "}"
-	} else {
+	case 1:
 		g.path("if")
 		form = fmt.Sprintf("if n > %d {\n", g.r.IntN(12)) + g.arm(in, 0, false) + ind + "} else {\n" + g.arm(in, 0, true) + ind + "}"
+	default:
+		g.path("direct")
+		form = fmt.Sprintf("%s(n + %d)", []string{"parts", "trio", "twice"}[g.r.IntN(3)], g.r.IntN(5))
 	}
 	g.b.WriteString(ind + "let " + pat + " = " + form + "\n")
 	g.b.WriteString(ind + "Console.Println(\"" + fmt.Sprint(g.k) + ": " + show + "\")\n")
