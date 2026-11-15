@@ -200,6 +200,9 @@ var declared = map[string][]allowance{
 		{".git", members, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone, one level deep)"},
 		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
+	"internal/sketch/facts": {
+		{"examples", subtree, "TestTablesAgreeWithScanOnExamples checks every example program (examples/*/cmd/*), and the loader reads each package it imports, so a changed example reruns it"},
+	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
 	},

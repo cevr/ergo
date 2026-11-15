@@ -326,7 +326,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// scripts/examples builds on the checker since d3-lawcheck-model
 	// (batch 9): its examples runner imports the checker. internal/gobind
 	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
-	// evaluator internal/sketch/eval (L7 EV1) import it too.
+	// evaluator internal/sketch/eval (L7 EV1) import it too, and so does
+	// the fact-table builder internal/sketch/facts (SEMTOOLS SEM0).
 	// internal/sketch/api projects the checked public contracts (L8 C3).
 	// tsproj projects the same checked contracts to TS. rpcgen projects
 	// them to RPC, but every test of it builds Go (fullTierOnly), as do
@@ -335,7 +336,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// internal/sketch/build's tests import no part of the checker. The
 	// ledger anchor check lives in internal/residue (main's eb40167a3), so
 	// scripts/mutants is not reached.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
@@ -366,7 +367,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 273.0 // 472.6 recorded (examples step 258.5), 2026-11-12: rpcgen's 1.1 left with fullTierOnly
+	fastCPUKnownGap = 274.0 // 473.6 recorded (examples step 258.5), 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts' 1.6 (SEMTOOLS SEM0) joined, a new package's go test floor
 	fastCPURatchet  = 0.10
 )
 

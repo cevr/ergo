@@ -28,7 +28,7 @@ import (
 // names the same symbol, of the same kind, in that package's table; the
 // build visits each node once and appends one row per name it resolves; a
 // references read costs the symbol's rows plus a logarithm per table; and
-// the tables encode to the same bytes at one and at four threads and
+// the tables encode to the same bytes at one thread and at the test's and
 // decode back.
 //
 // A program is a library package and a root package. The root holds an
@@ -327,7 +327,8 @@ func readsAreBounded(tables []*facts.Table, fail func(string, ...any)) {
 }
 
 // encodesAlike: the tables encode to the same bytes when the program is
-// checked again at one thread and at four, and decode to equal tables.
+// checked again at one thread, built again from that check, and decode to
+// equal tables.
 func encodesAlike(dir string, tables []*facts.Table, fail func(string, ...any)) {
 	var first [][]byte
 	for _, t := range tables {
@@ -341,21 +342,24 @@ func encodesAlike(dir string, tables []*facts.Table, fail func(string, ...any)) 
 		}
 		first = append(first, b)
 	}
-	for _, procs := range []int{1, 4} {
-		old := runtime.GOMAXPROCS(procs)
-		a, err := sketchfront.CheckDir(dir)
-		runtime.GOMAXPROCS(old)
-		if err != nil {
-			fail("load: %v", err)
+	// The first check ran at the test's GOMAXPROCS (four in the gate);
+	// check again at one, and build each table three times from that
+	// check, so a map's order cannot hide behind one lucky build.
+	old := runtime.GOMAXPROCS(1)
+	a, err := sketchfront.CheckDir(dir)
+	runtime.GOMAXPROCS(old)
+	if err != nil {
+		fail("load: %v", err)
+	}
+	for i, p := range a.Packages() {
+		var files []facts.File
+		for _, f := range p.Files {
+			files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
 		}
-		for i, p := range a.Packages() {
-			var files []facts.File
-			for _, f := range p.Files {
-				files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
-			}
+		for range 3 {
 			t, _ := facts.Build(p.Package, files)
 			if b := facts.Encode(t); string(b) != string(first[i]) {
-				fail("%s: the table's bytes differ at GOMAXPROCS=%d", p.Path, procs)
+				fail("%s: the table's bytes differ at GOMAXPROCS=1 from GOMAXPROCS=%d", p.Path, old)
 			}
 		}
 	}
