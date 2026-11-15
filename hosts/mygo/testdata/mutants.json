@@ -567,6 +567,24 @@
       "to": "",
       "rule": "a draw taken again keeps each line of text at its place among the ops",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "fk12c-control-always-last",
+      "origin": "FK12c",
+      "file": "hosts/mygo/controls/fk-flow/main.go",
+      "from": "status := play(os.Stdin, out, last, func(h *host) {",
+      "to": "status := play(os.Stdin, out, true, func(h *host) {",
+      "rule": "the MyGo control prints what fk-flow prints after each line, not only the last screen (TestFkFlowControlAgrees; the copy check does not see main.go)",
+      "killers": ["mygo:TestFkFlowControlAgrees"]
+    },
+    {
+      "name": "fk12c-opcount-control-drifts",
+      "origin": "FK12c",
+      "file": "examples/fk-flow/testdata/control/model.go",
+      "from": "\tg := channel(8.0, h, lig, c)\n",
+      "to": "\tg := channel(4.0, h, lig, c)\n",
+      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what fk-flow prints (TestFkFlowControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
+      "killers": ["mygo:TestFkFlowControlAgrees"]
     }
   ]
 }

@@ -762,7 +762,7 @@ type host struct {
 	frames int
 	// frame is called after each frame and each act, when the host shows
 	// the screen anew (the MyGo control lays out and paints its window).
-	frame func()
+	frame func(*host)
 }
 
 // advance moves the clock by d nanoseconds, a frame at the end of each
@@ -789,7 +789,7 @@ func (h *host) advance(d int64) {
 func (h *host) shown() {
 	h.paint.paintScene(h.p)
 	if h.frame != nil {
-		h.frame()
+		h.frame(h)
 	}
 }
 
@@ -930,7 +930,7 @@ func (h *host) line(line string) (string, error) {
 
 // play plays the script in input and writes what the screen shows; with
 // last, only the last screen. It returns the exit status.
-func play(input io.Reader, out *bufio.Writer, last bool, frame func()) int {
+func play(input io.Reader, out *bufio.Writer, last bool, frame func(*host)) int {
 	data, err := io.ReadAll(input)
 	if err != nil {
 		return 1
