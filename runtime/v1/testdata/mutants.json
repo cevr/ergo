@@ -195,10 +195,19 @@
       "name": "rpc-calls-stop",
       "origin": "wf10 R3b, moved by Rm",
       "file": "runtime/v1/rpc.go",
-      "from": "\t\tcase <-stop:\n\t\t\tpanic(rt.Interrupted)",
-      "to": "\t\tcase <-stop:\n\t\t\tstop = nil",
+      "from": "\t\t\tp.Unpark()\n\t\t\tpanic(rt.Interrupted)",
+      "to": "\t\t\tp.Unpark()\n\t\t\tstop = nil",
       "rule": "A stopped caller's Loopback Call (or a stopped request) ends with the stop, not with a defect read from an Interrupt exit, and after the call's release ran.",
       "killers": ["runtime/v1:TestRPCCallsStopWithTheCaller"]
+    },
+    {
+      "name": "rpc-wait-unseen",
+      "origin": "wf10/sync RPC-CLOCK",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\t\tp = rt.Park(t, s, stop, func() bool { return len(s.ended) > 0 })\n",
+      "to": "",
+      "rule": "A request's wait for its calls is a wait the clock sees: a Loopback call whose handler sleeps on a VirtualClock moves the time and returns (without the park the clock stays still and the call never ends; the test's deadline names it).",
+      "killers": ["runtime/v1:TestRPCLoopbackWaitIsSeen", "examples:lease-sync"]
     },
     {
       "name": "rpc-calls-join",

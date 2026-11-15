@@ -191,7 +191,9 @@ func (s *rpcRun) start(c *rpcCall) {
 		v, err := guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
 		c.exit = rpcExit(v, err)
 		<-ready // c.h is set
-		s.ended <- c
+		// The request's task may be parked on ended in a clock's domain
+		// (rpcCalls): it is unparked before the call becomes visible.
+		rt.Wake(s.t, s, func() { s.ended <- c })
 		return struct{}{}, nil
 	})
 	close(ready)
@@ -218,6 +220,11 @@ func (s *rpcRun) stopAll() {
 // gives each Exit line to each as its call ends, on t's goroutine. A stop
 // of t, a defect or a stop raised by each, and an error of each stop the
 // calls left and wait for them before rpcCalls ends: no call outlives it.
+// Its wait for the next call to end is one a clock sees (runtime.md,
+// Machines and actors 9.6; rt idle.go): in a VirtualClock's domain t
+// parks on the run while its calls run, so a call that sleeps on the
+// clock, or a long poll held on timeout.After, moves the time, and a
+// Manual's Advance settles past it.
 func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
 	t.Check()
 	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
@@ -241,13 +248,22 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 	}
 	stop := t.Done()
 	for len(s.live) > 0 {
+		var p rt.Parked
+		if t.InDomain() {
+			p = rt.Park(t, s, stop, func() bool { return len(s.ended) > 0 })
+		}
+		rt.Block(t)
 		select {
 		case c := <-s.ended:
+			rt.Unblock(t)
+			p.Unpark()
 			s.end(c)
 			if err := each(rpcExitLine(c.id, c.exit)); err != nil {
 				return err // the deferred stopAll stops the calls left
 			}
 		case <-stop:
+			rt.Unblock(t)
+			p.Unpark()
 			panic(rt.Interrupted)
 		}
 	}

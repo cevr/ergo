@@ -279,7 +279,7 @@
       "file": "examples/lease-sync/replica/server/server.ergo",
       "from": "\tif len(Records(s)) == from {\n",
       "to": "\tif false {\n",
-      "rule": "A pull with nothing new is held, so an idle log costs one call per wait: replica/server LongPollHolds, replica/rpc IdleCostsOneCallPerWait.",
+      "rule": "A pull with nothing new is held, so an idle log costs one call per wait: replica/rpc LongPollHolds and IdleCostsOneCallPerWait.",
       "anchor": {
         "tests": [
           "examples:lease-sync"
@@ -295,7 +295,7 @@
       "file": "examples/lease-sync/replica/server/server.ergo",
       "from": "\t\tring(s.bells)\n",
       "to": "",
-      "rule": "A kept record ends every held pull at once: replica/server LongPollHolds.",
+      "rule": "A kept record ends every held pull at once: replica/rpc LongPollHolds.",
       "anchor": {
         "tests": [
           "examples:lease-sync"
@@ -311,7 +311,7 @@
       "file": "examples/lease-sync/replica/server/handle.ergo",
       "from": "\t\tlet f = if p.Wait { Await(s, p.By, p.From, wait) } else { Pull(s, p.By, p.From) }\n",
       "to": "\t\tlet f = Pull(s, p.By, p.From)\n",
-      "rule": "A Pull call that asks to wait is the long poll: replica/server LongPollHolds.",
+      "rule": "A Pull call that asks to wait is the long poll: replica/rpc LongPollHolds.",
       "anchor": {
         "tests": [
           "examples:lease-sync"

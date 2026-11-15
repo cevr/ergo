@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
@@ -258,6 +259,39 @@ func TestRPCCallsStopWithTheCaller(t *testing.T) {
 		}
 	case <-testwait.After(t):
 		t.Fatal("the stopped caller's loopback call did not end")
+	}
+}
+
+// TestRPCLoopbackWaitIsSeen is rpc.md rule 6's "handle runs on a task
+// below the caller" under a VirtualClock: the request's wait for its calls
+// is a wait the clock sees, so a call held on the clock (a long poll held
+// on timeout.After, here a sleep of an hour) moves the time and ends, and
+// RPCExits returns at the instant the call ended. It catches
+// rpc-wait-unseen: without the park the clock never moves and the call
+// never ends, which the deadline reports. It waits on events.
+func TestRPCLoopbackWaitIsSeen(t *testing.T) {
+	caller := rt.Root("rpc loopback caller")
+	line := NewVirtualTimeline(caller, 0, 0)
+	handle := func(ct *rt.Task, tag, payload string) (string, error) {
+		line.Wait(ct, time.Hour)
+		return payload, nil
+	}
+	envs, err := RPCParse(RPCRequest("0", "Hold", `{"a":1}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan string, 1)
+	go func() { ended <- RPCExits("rpc clock test", caller, envs, handle) }()
+	select {
+	case out := <-ended:
+		if want := `[{"_tag":"Exit","requestId":0,"exit":{"_tag":"Success","value":{"a":1}}}]`; out != want {
+			t.Errorf("RPCExits = %s, want %s", out, want)
+		}
+		if mono := time.Duration(line.Read().Mono); mono != time.Hour {
+			t.Errorf("the call ended %v after the start, want the hour it slept", mono)
+		}
+	case <-testwait.After(t):
+		t.Fatal("a Loopback call held on the VirtualClock never ended: the request's wait for it is not one the clock sees")
 	}
 }
 

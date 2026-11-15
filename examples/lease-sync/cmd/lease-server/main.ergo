@@ -34,8 +34,6 @@ func main() fails Usage | http.ListenFailed | http.InvalidLimits needs Console |
 	let l = try http.Listen(args[0])
 	Console.Println("listening \(l.Addr())")
 	with context { time.Clock: time.NewHost(), Scheduler: NewLiveScheduler() } {
-		try rpc.Serve(l, limits, "/rpc", func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
-			try server.Handle(a, leaserpc.Codec(), allow, 25s, tag, payload)
-		})
+		try rpc.Serve(l, limits, "/rpc", leaserpc.Serve(a, allow, 25s))
 	}
 }

@@ -35,13 +35,12 @@ func Push(l Leases, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.U
 
 func Pull(l Leases, by replica.ClientID, from int) Frame fails replica.Unavailable | replica.Unauthorized { try Fetch(l.r, by, from) }
 
-// Serve is the handler of std rpc for the lease authority a: every
-// client allowed, a long poll held up to wait, stamped by clock.
-func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait duration, clock time.Manual) escaping func(tag string, payload string) string fails rpc.Failed {
-	func(tag string, payload string) string fails rpc.Failed {
-		with context { Scheduler: clock, time.Clock: clock } {
-			try server.Handle(a, Codec(), allow, wait, tag, payload)
-		}
+// Serve is the handler of std rpc for the lease authority a: the clients
+// allow takes, a long poll held up to wait, stamped and timed by the
+// clock the caller binds.
+func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait duration) escaping func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+	func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+		try server.Handle(a, Codec(), allow, wait, tag, payload)
 	}
 }
 
@@ -50,7 +49,13 @@ func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait dura
 // the provider the Authority laws run on here.
 func NewLeases() Leases {
 	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
-	Over(rpc.Loopback(Serve(a, everyone, 0s, time.NewManual(0))), false)
+	let serve = Serve(a, everyone, 0s)
+	let clock = time.NewManual(0)
+	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { Scheduler: clock, time.Clock: clock } {
+			try serve(tag, payload)
+		}
+	}), false)
 }
 
 func everyone(_ replica.ClientID) bool { true }
