@@ -289,3 +289,154 @@ func TimeCount(d time.Duration, unit time.Duration) int {
 func MachineTimerNotPositiveAt(now time.Duration, in time.Duration) {
 	panic(&MachineTimerDefect{At: now, In: in})
 }
+
+// isoDurationLayout is the Layout of a ParseError from TimeParseDurationISO.
+const isoDurationLayout = "ISO 8601 duration"
+
+// TimeDurationISO is d as ISO 8601's duration of time: a minus when d is
+// negative, PT, then the hours, minutes and seconds that are not zero
+// (the seconds with a fraction of up to nine digits, its trailing zeros
+// dropped): "PT1H30M", "-PT0.5S", "PT2562047H47M16.854775807S"; zero is
+// "PT0S", as Temporal writes it. Hours are not folded into days: a day is
+// not a fixed length (civil.PeriodText writes days).
+//
+//ergo:pure
+func TimeDurationISO(d time.Duration) string {
+	if d == 0 {
+		return "PT0S"
+	}
+	b := make([]byte, 0, 32)
+	if d < 0 {
+		b = append(b, '-')
+	}
+	b = append(b, "PT"...)
+	// Each part keeps d's sign; its size fits a uint64 even for the
+	// smallest duration.
+	size := func(x time.Duration) uint64 {
+		if x < 0 {
+			return uint64(-x)
+		}
+		return uint64(x)
+	}
+	h, m, s, ns := d/time.Hour, d%time.Hour/time.Minute, d%time.Minute/time.Second, d%time.Second
+	if h != 0 {
+		b = append(strconv.AppendUint(b, size(h), 10), 'H')
+	}
+	if m != 0 {
+		b = append(strconv.AppendUint(b, size(m), 10), 'M')
+	}
+	if s != 0 || ns != 0 {
+		b = strconv.AppendUint(b, size(s), 10)
+		if ns != 0 {
+			f := strconv.AppendUint(make([]byte, 0, 10), size(ns)+1e9, 10)[1:]
+			for f[len(f)-1] == '0' {
+				f = f[:len(f)-1]
+			}
+			b = append(append(b, '.'), f...)
+		}
+		b = append(b, 'S')
+	}
+	return string(b)
+}
+
+// TimeParseDurationISO is the duration s writes as ISO 8601's duration of
+// time: an optional sign, PT, then one or more of hours, minutes and
+// seconds, each a decimal number and its letter H, M or S, in that order,
+// each once; only the seconds take a fraction (. or ,, one to nine
+// digits). A date part ("P1M", a month; "P1D") fails, since a month or a
+// day has no fixed length (civil.ParsePeriod reads it), as does lower
+// case, an empty part and a duration past the range.
+//
+//ergo:pure
+func TimeParseDurationISO(s string) (time.Duration, error) {
+	fail := func(msg string) (time.Duration, error) {
+		return 0, ParseError{Layout: isoDurationLayout, Value: s, Message: msg}
+	}
+	i, neg := 0, false
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		neg, i = s[i] == '-', i+1
+	}
+	if i >= len(s) || s[i] != 'P' {
+		return fail("want P")
+	}
+	i++
+	if i >= len(s) || s[i] != 'T' {
+		return fail("want T: a duration of years, months, weeks or days has no fixed length; civil.ParsePeriod reads it")
+	}
+	i++
+	if i >= len(s) {
+		return fail("want a number after PT")
+	}
+	limit := uint64(math.MaxInt64)
+	if neg {
+		limit++
+	}
+	var total uint64
+	units := "HMS"
+	for i < len(s) {
+		start := i
+		var v uint64
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			if v > limit/10 {
+				return fail("out of range")
+			}
+			v = v*10 + uint64(s[i]-'0')
+			i++
+		}
+		if i == start {
+			return fail("want a digit")
+		}
+		var frac uint64
+		hasFrac := false
+		if i < len(s) && (s[i] == '.' || s[i] == ',') {
+			i++
+			k := 0
+			for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+				if k == 9 {
+					return fail("a fraction has at most nine digits")
+				}
+				frac = frac*10 + uint64(s[i]-'0')
+				k++
+				i++
+			}
+			if k == 0 {
+				return fail("want a digit after the point")
+			}
+			for ; k < 9; k++ {
+				frac *= 10
+			}
+			hasFrac = true
+		}
+		if i >= len(s) {
+			return fail("want H, M or S")
+		}
+		k := strings.IndexByte(units, s[i])
+		if k < 0 {
+			return fail("want H, M or S, in that order, each once")
+		}
+		units = units[k+1:]
+		if hasFrac && s[i] != 'S' {
+			return fail("only seconds take a fraction")
+		}
+		unit := uint64(time.Second)
+		switch s[i] {
+		case 'H':
+			unit = uint64(time.Hour)
+		case 'M':
+			unit = uint64(time.Minute)
+		}
+		if v > (limit-total)/unit {
+			return fail("out of range")
+		}
+		total += v * unit
+		if frac > limit-total {
+			return fail("out of range")
+		}
+		total += frac
+		i++
+	}
+	if neg {
+		return time.Duration(-total), nil
+	}
+	return time.Duration(total), nil
+}

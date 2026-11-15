@@ -307,6 +307,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeTimes":         {},
 	"TimeDivide":        {},
 	"TimeCount":         {},
+	// std-spike T5: ISO 8601 durations of time.
+	"TimeDurationISO":      {},
+	"TimeParseDurationISO": {},
 	// NewTimeline makes the calling task the first member of the manual
 	// clock's domain (fua-b), as NewVirtualTimeline does for an auto one.
 	"NewTimeline":   {wait: memberTask},
