@@ -305,6 +305,12 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Trace evidence**: The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
 
+**Civil date**: A day of the calendar with no zone, `civil.Date`: ISO 8601's proleptic Gregorian calendar, years 1 to 9999. It holds the count of days from 1970-01-01, and only package `civil` builds one, so it is always a real day. Temporal's `PlainDate`; Go's `cloud.google.com/go/civil.Date`. See [stdlib](docs/spec/stdlib.md#civil).
+
+**Period**: An amount of calendar units, `civil.Period { Years, Months, Weeks, Days }`. Adding one moves the years and months as one count of months, with the day clamped to the new month's last day, then the weeks and days. A period is not a duration: a month has no fixed length.
+
+**Span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
+
 ## Earlier `.ef` language
 
 These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
