@@ -236,8 +236,16 @@ func TestSweepCatchesUpWithABacklog(t *testing.T) {
 	}
 	youngEntries := plantEntries("young", sweepEntries+76, time.Hour)
 	unused := plantEntries("unused", 3*sweepRemovals+10, 2*unusedLimit)
-	if p := f.c.trim(time.Now(), 0); p.complete || p.examined > sweepEntries || p.removed != sweepRemovals {
-		t.Fatalf("one pass over the backlog: %+v; want an unfinished pass within %d names and %d removals", p, sweepEntries, sweepRemovals)
+	// One pass, checked in a way that holds for any listing order (the
+	// file system's readdir order is not the sweep's to choose): a pass
+	// at a time before every name was made reclaims nothing, so it ends
+	// at the names bound; a pass now ends at whichever bound it meets
+	// first, within both.
+	if p := f.c.trim(time.Now().Add(-1000*unusedLimit), 0); p.complete || p.examined != sweepEntries || p.removed != 0 {
+		t.Fatalf("one pass that reclaims nothing: %+v; want an unfinished pass of %d names", p, sweepEntries)
+	}
+	if p := f.c.trim(time.Now(), 0); p.complete || p.examined > sweepEntries || p.removed > sweepRemovals || p.examined != sweepEntries && p.removed != sweepRemovals {
+		t.Fatalf("one pass over the backlog: %+v; want an unfinished pass that met one bound, within %d names and %d removals", p, sweepEntries, sweepRemovals)
 	}
 	f.due()
 	builds = 0

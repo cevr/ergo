@@ -158,6 +158,8 @@
       "to": "if strings.HasPrefix(arg, \"-test.\") && false {",
       "rule": "A Go test binary of another name is known by its testing flags.",
       "killers": ["internal/sketch/build:TestTestBinaryIsNamedOrFlagged"]
-    }
+    },
+    {"name":"fu-sweep-no-names-bound","origin":"wf10 FU-sweep-order (batch 18)","file":"internal/sketch/build/trim.go","from":"\t\t\t\tif p.examined == sweepEntries || p.removed == sweepRemovals {","to":"\t\t\t\tif p.removed == sweepRemovals {","rule":"A sweep pass examines at most sweepEntries names, whatever the directory's listing order.","killers":["internal/sketch/build:TestSweepCatchesUpWithABacklog"]},
+    {"name":"fu-sweep-no-removals-bound","origin":"wf10 FU-sweep-order (batch 18)","file":"internal/sketch/build/trim.go","from":"\t\t\t\tif p.examined == sweepEntries || p.removed == sweepRemovals {","to":"\t\t\t\tif p.examined == sweepEntries {","rule":"A sweep pass removes at most sweepRemovals entries, whatever the directory's listing order.","killers":["internal/sketch/build:TestSweepCatchesUpWithABacklog"]}
   ]
 }
