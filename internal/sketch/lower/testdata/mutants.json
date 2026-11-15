@@ -4630,6 +4630,17 @@
     {"name":"forms-const-divisor","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\treturn []syntax.Expr{n.X}\n\t\t\t}","to":"\t\t\tif true {\n\t\t\t\treturn []syntax.Expr{n.X, n.Y}\n\t\t\t}","rule":"A package let read as a divisor stays a Go variable: a constant zero divisor is a Go build error, where Ergo raises the run's defect.","killers":["lower:TestFormsAgree"]},
     {"name":"forms-const-fold","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\tout = append(out, n.X)","to":"\t\t\tif true {\n\t\t\t\tout = append(out, n.X)","rule":"A package let added to a constant stays a Go variable: Go folds two constants at build time, where an overflow is an error, not the run's wrap.","killers":["lower:TestFormsAgree"]},
     {"name":"start-gomod-eager","origin":"wf10 compile-speed process start","file":"internal/sketch/lower/module.go","from":"// moduleFiles are the emitted module's files: go.mod, go.sum when the\n","to":"var _ = goModFile(GoModule{})\n\n// moduleFiles are the emitted module's files: go.mod, go.sum when the\n","rule":"No package-level value reads the runtime sources: every ergo process, a warm answer included, would copy them at start.","killers":["cmd/ergo:TestStartBuildsNoTables"],"anchor":{"tests":["cmd/ergo:TestStartBuildsNoTables"]}},
-    {"name":"start-bindings-eager","origin":"wf10 compile-speed process start","file":"internal/sketch/lower/blocking.go","from":"\t}\n})\n","to":"\t}\n})\n\nvar _ = runtimeBindings()\n","rule":"The std Go binding catalog is built on first use, by lowering, never at process start.","killers":["cmd/ergo:TestStartBuildsNoTables"],"anchor":{"tests":["cmd/ergo:TestStartBuildsNoTables"]}}
+    {"name":"start-bindings-eager","origin":"wf10 compile-speed process start","file":"internal/sketch/lower/blocking.go","from":"\t}\n})\n","to":"\t}\n})\n\nvar _ = runtimeBindings()\n","rule":"The std Go binding catalog is built on first use, by lowering, never at process start.","killers":["cmd/ergo:TestStartBuildsNoTables"],"anchor":{"tests":["cmd/ergo:TestStartBuildsNoTables"]}},
+    {
+      "name": "law-values-not-analyzed",
+      "origin": "wf10 fu-law-values",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "then a write through &b).\n\tl.analyzeValues(d, l.info)\n",
+      "to": "then a write through &b).\n",
+      "rule": "A law body's copies are decided by the value analysis, as a test's are: an Append to a fresh local writes in place (FD3a slow law).",
+      "killers": [
+        "lower:TestLawBodyAppendsInPlace"
+      ]
+    }
   ]
 }
