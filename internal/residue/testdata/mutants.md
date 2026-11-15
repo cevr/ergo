@@ -53,3 +53,12 @@ Each applied by hand as above, 2026-11-12: all killed. Red at the base (19e38b73
 | --- | --- | --- |
 | `runtime/rt/trace.go identOf` unlisted (the line renamed); the runtime/v1-only scan of STD-sh lets it survive | TestUnsafeBodiesListed | `runtime/rt/trace.go identOf uses package unsafe and is not in …` |
 | `goPackageFile` reads testdata and `_`/`.` directories too | TestUnsafeBodiesListed | 270 uses flagged, the bindc fixtures' generated code among them |
+# Private emission cache mutants (wf10 CACHE-bound)
+
+Judged by hand: the edit applied, `go test -count=1 -run TestTestsUseAPrivateErgoCache ./internal/residue` run, the file restored. The rule: no test process resolves the emission cache to the user's (docs/tooling.md, Emission cache bound).
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| `cache-bound-tests-share-user-cache`: `run = withPrivateCache(run)` removed from `testinputs.MainFunc` | TestTestsUseAPrivateErgoCache | Fails: "the test process resolves the emission cache to /home/exedev/.cache/ergo". |
+| `cache-bound-forgotten-not-refused` (in `internal/sketch/build`'s ledger): `DefaultRoot` skips the test rule | TestTestsUseAPrivateErgoCache, and TestForgottenCacheIsRefused there | Fails: "with ERGO_CACHE cleared a test process resolves "/home/exedev/.cache/ergo" (<nil>)" (round 2). |
+| `cache-bound-root-variable-ignored` (in `internal/sketch/build`'s ledger): `DefaultRoot` ignores `ERGO_CACHE` | TestTestsUseAPrivateErgoCache, and TestDefaultRoot there | The private directory is set but never resolved, so the process resolves the user's. |

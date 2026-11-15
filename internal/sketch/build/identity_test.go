@@ -23,12 +23,21 @@ import (
 // TestDefaultRoot: an absolute XDG_CACHE_HOME holds the cache; a relative
 // one is ignored, as the XDG base directory specification requires, and
 // the cache falls back to the platform default, which on Linux is
-// $HOME/.cache.
+// $HOME/.cache. ERGO_CACHE comes before both, and only an absolute one.
 func TestDefaultRoot(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", xdg)
+	t.Setenv(RootVariable, home)
+	if got, err := DefaultRoot(); err != nil || got != home {
+		t.Fatalf("absolute %s: %s %v", RootVariable, got, err)
+	}
+	t.Setenv(RootVariable, "relative/cache")
+	if got, err := DefaultRoot(); err == nil {
+		t.Fatalf("relative %s gave %s", RootVariable, got)
+	}
+	t.Setenv(RootVariable, "")
 	if got, err := DefaultRoot(); err != nil || got != filepath.Join(xdg, "ergo") {
 		t.Fatalf("absolute XDG_CACHE_HOME: %s %v", got, err)
 	}
