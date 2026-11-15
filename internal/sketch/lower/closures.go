@@ -79,9 +79,11 @@ const envFrom = "from"
 // Ergo body on the host's task: it binds e to an environment whose task
 // is task and whose capabilities are outer's. That is outer itself when
 // the host calls back on outer's task (actor.ActorKeep, a release on the
-// releasing task); else the copy the task holds (rt.Task.EnvMemo) when it
-// was made from outer (an actor's step on the actor's task, from the
-// second signal on); else a new copy, which the task then holds. Without
+// releasing task); else the copy kept for the task (rt.Task.EnvMemo) when
+// it is that task's and was made from outer (an actor's step on the
+// actor's task, from the second signal on); else a new copy, which is then
+// kept. The runtime's slot may hold another task's copy, so both are
+// checked. Without
 // it every call copies the environment, and the copy, which the callee
 // takes by pointer, is on the heap. Sharing a copy is sound because no
 // lowering writes an environment once a body can see it: every write is
@@ -92,7 +94,7 @@ func envMemoText(ind, e, outer, task, envType, c string) string {
 	return ind + e + " := " + outer + "\n" +
 		ind + "if " + taskOf(e) + " != " + task + " {\n" +
 		ind + "\t" + e + ", _ = " + task + ".EnvMemo().(*" + envType + ")\n" +
-		ind + "\tif " + e + " == nil || " + e + "." + envFrom + " != " + outer + " {\n" +
+		ind + "\tif " + e + " == nil || " + taskOf(e) + " != " + task + " || " + e + "." + envFrom + " != " + outer + " {\n" +
 		ind + "\t\t" + c + " := *" + outer + "\n" +
 		ind + "\t\t" + taskOf(c) + ", " + c + "." + envFrom + " = " + task + ", " + outer + "\n" +
 		ind + "\t\t" + e + " = &" + c + "\n" +
