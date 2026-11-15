@@ -5,7 +5,8 @@ import maps
 // catch discharges it, from the tables' rows: each function's needs and
 // fails rows as the checker derived them (Need, Failing), what each call
 // charges its caller (Call.Brings, Call.Raises), what a with or a catch
-// around it discharges (Call.Discharged, Call.Caught), and the provider a
+// around it discharges (Call.Discharged, Call.Caught; a call whose
+// failure a catch takes only some values of raises it too), and the provider a
 // with binds each discharged capability to (Call.Bound).
 
 // Need is one capability of a function's derived needs row; a function
@@ -220,7 +221,8 @@ func reachByScan(t Tables, q ReachQuery, x string) ReachPage {
 // the reader, and its chain is a chain of calls that each bring what was
 // asked about, from the function to a declaration whose own calls bring
 // it no further, or back to a declaration of the chain; no discharge
-// brings it.
+// brings a capability (a failure a catch takes only some values of is
+// both caught and raised at its call, and a chain may pass it).
 func reachChainsAreCalls(pick int) bool needs Reader {
 	match picked(pick) {
 	case None:
@@ -248,7 +250,7 @@ func reachChainsAreCalls(pick int) bool needs Reader {
 			}
 		}
 		for c in page.Discharges {
-			ok = ok && stops(c, page.Of) && !carries(c, page.Of)
+			ok = ok && stops(c, page.Of) && !has(c.Brings, page.Of)
 		}
 		ok
 	}

@@ -187,7 +187,7 @@ type Reader {
 	law CallsAreSteps(pick int, depth int, inbound bool) { callsAreSteps(pick, depth, inbound) },
 	// ReachChainsAreCalls: a reach answer's chains are chains of calls
 	// that each bring the capability, from the function to a declaration
-	// that brings it no further; a discharge does not bring it.
+	// that brings it no further; a discharge does not bring a capability.
 	law ReachChainsAreCalls(pick int) { reachChainsAreCalls(pick) },
 	// MachineArmsStopAtAWholeArm: the arms of each reachable pair take
 	// it, in match order, and each but the last is partial.

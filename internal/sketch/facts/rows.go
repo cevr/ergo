@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The rows relations (SEMTOOLS SEM2b, SEM2c): each function's derived
+// The rows relations (SEMTOOLS SEM2b, SEM2c, SEM2e): each function's derived
 // needs and fails rows, and what each call site charges its declaration.
 // A call charges the capabilities of its callee's row at the site
 // (check.Call.Needs); those a with around the call discharges (its block
@@ -17,7 +17,9 @@ import (
 // error row at the site (check.Call.Fails); those a catch around it
 // handles (the catch's expression holds the call, and the catch is total
 // or an arm tests the failure's type or matches a record pattern of it)
-// are Caught, the rest Raises. A call in a function literal is charged to
+// are Caught, the rest Raises. A failure an arm takes only some values of
+// (a record pattern that tests a field) is both: the rest still
+// propagate. A call in a function literal is charged to
 // the declaration that holds the literal, and a with or a catch around
 // the literal discharges it.
 
@@ -41,12 +43,33 @@ type withBlock struct {
 }
 
 // catchBlock is a catch's expression, by file and offsets, with the
-// failure ids its arms catch, or all for a total catch.
+// failure ids its arms catch every value of, or all for a total catch,
+// and those an arm catches only some values of (partly).
 type catchBlock struct {
 	file     uint16
 	from, to uint32
 	all      bool
 	fails    []uint32
+	partly   []uint32
+}
+
+// irrefutable is whether p matches every value of its type: a wildcard or
+// a name, or a tuple or an as of such. A record pattern, a literal or a
+// type test inside a pattern tests its value, so the pattern takes only
+// some values (a nested record pattern may name a variant of a union).
+func irrefutable(p *check.Pattern) bool {
+	switch p.Kind {
+	case check.PatWildcard, check.PatBind:
+		return true
+	case check.PatAs, check.PatTuple:
+		for _, e := range p.Elems {
+			if e == nil || !irrefutable(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // callName is the name a call's site is at: the called name of x.Fun.
@@ -211,8 +234,21 @@ func (b *builder) noteCatch(x *syntax.CatchExpr) {
 			// An arm that catches the rest makes the catch total (all
 			// above); an arm that tests a type, or matches a record
 			// pattern of it, catches that failure, or each of a union's.
+			whole := p.Kind == check.PatTypeTest
+			if p.Kind == check.PatRecord {
+				whole = true
+				for _, fp := range p.Fields {
+					whole = whole && fp.Pattern != nil && irrefutable(fp.Pattern)
+				}
+			}
 			switch p.Kind {
-			case check.PatTypeTest, check.PatRecord:
+			case check.PatRecord:
+				if id, ok := b.capability(p.Type); ok && whole {
+					cb.fails = append(cb.fails, id)
+				} else if ok {
+					cb.partly = append(cb.partly, id)
+				}
+			case check.PatTypeTest:
 				if id, ok := b.capability(p.Type); ok {
 					cb.fails = append(cb.fails, id)
 				}
@@ -260,7 +296,8 @@ func (b *builder) needs() {
 // caller to each capability the call charges (Brings, or Discharges when
 // a with around the call discharges it, with an edge from each provider
 // of the innermost such with to the capability, Provided) and to each
-// failure it raises (Raises, or Caught when a catch around it handles it).
+// failure it raises (Raises, or Caught when a catch around it handles it;
+// both when catches around it take only some of its values).
 func (b *builder) chargeEdges() {
 	type at struct {
 		file uint16
@@ -297,16 +334,17 @@ func (b *builder) chargeEdges() {
 			}
 		}
 		for _, f := range ch.fails {
-			caught := false
+			caught, partly := false, false
 			for _, cb := range b.catches {
-				if cb.file == s.File && cb.from <= s.Off && s.Off < cb.to && (cb.all || slices.Contains(cb.fails, f)) {
-					caught = true
-					break
+				if cb.file == s.File && cb.from <= s.Off && s.Off < cb.to {
+					caught = caught || cb.all || slices.Contains(cb.fails, f)
+					partly = partly || slices.Contains(cb.partly, f)
 				}
 			}
-			if caught {
+			if caught || partly {
 				t.Caught = append(t.Caught, Edge{From: e.From, To: f, Site: e.Site})
-			} else {
+			}
+			if !caught {
 				t.Raises = append(t.Raises, Edge{From: e.From, To: f, Site: e.Site})
 			}
 		}

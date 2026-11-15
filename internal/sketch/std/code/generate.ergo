@@ -77,7 +77,15 @@ func Generated(seed int) Tables {
 			for j in 0..roll(seed, 700 + i, 9) {
 				let salt = 2000 + i*100 + j*3
 				let (brings, discharged) = charged(seed, salt + 2, capabilities)
-				let (raises, caught) = charged(seed, 90000 + salt, failures)
+				let (raised, caught) = charged(seed, 90000 + salt, failures)
+				// Now and then a catch takes only some values of a failure:
+				// the call raises it too.
+				let mut raises = raised
+				for k, f in caught {
+					if roll(seed, 93000 + salt * 7 + k, 3) == 0 {
+						raises = raises.Append(f)
+					}
+				}
 				let mut bound = []Binding{}
 				for k, c in discharged {
 					if len(providers) > 0 && roll(seed, 95000 + salt * 7 + k, 2) == 0 {

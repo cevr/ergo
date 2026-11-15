@@ -441,16 +441,19 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 //     record pattern of it), and for a provider the calls whose
 //     capability the innermost with that discharges it binds to the
 //     provider, read in the package that declares the with's context;
-//     all found by walking each
-//     with's block and each catch's expression (the tables find them by
-//     offsets);
-//   - each call of a chain charges it and is not one of them, and a
-//     function whose own call charges it and is not one of them has a
+//     all found by walking each with's block and each catch's expression
+//     (the tables find them by offsets);
+//   - a record pattern that tests a field, as written (a field's pattern
+//     other than a name or _), takes only some values: unless another
+//     catch around the call takes them all, the call still brings the
+//     failure;
+//   - each call of a chain charges it and does not stop it, and a
+//     function whose own call charges it and does not stop it has a
 //     chain.
 //
 // Mutants reach-with-ignored, reach-catch-ignored, reach-provider-dropped,
-// reach-catch-record-ignored, reach-provider-other-package
-// (cmd/ergo/testdata/mutants.json).
+// reach-catch-record-ignored, reach-provider-other-package,
+// reach-catch-record-partial-whole (cmd/ergo/testdata/mutants.json).
 func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand, fail func(string, ...any)) {
 	t.Helper()
 	root := ""
@@ -497,12 +500,17 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 	needers := map[string]map[string]bool{}
 	charged := map[string]map[string]bool{}
 	discharged := map[string]map[string]bool{}
+	// whole and someOf: failure → the calls a catch takes every value of
+	// it at, and some values only; a call it is only some of still raises.
+	whole := map[string]map[string]bool{}
+	someOf := map[string]map[string]bool{}
 	add := func(m map[string]map[string]bool, k, v string) {
 		if m[k] == nil {
 			m[k] = map[string]bool{}
 		}
 		m[k][v] = true
 	}
+	stopped := func(k, p string) bool { return discharged[k][p] && (!someOf[k][p] || whole[k][p]) }
 	var withCaps []string
 	// callsIn is each call of a function that charges it something.
 	type inCall struct{ what, fn, call string }
@@ -614,17 +622,34 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 				if x, ok := n.(*syntax.CatchExpr); ok {
 					m := info.Matches[x]
 					all := m == nil || !m.Partial
-					var handled []string
+					var handled, partly []string
 					for _, arm := range x.Arms {
 						for _, te := range arm.Types {
 							if as, ok := te.(*syntax.AsPattern); ok {
 								te = as.X
 							}
 							pt := info.Patterns[te]
+							// A record pattern whose every field is a name or
+							// _, as written, takes every value; one that
+							// tests a field takes some.
+							some := false
+							if lit, ok := te.(*syntax.CompositeLit); ok {
+								for _, el := range lit.Elts {
+									v := el
+									if kv, ok := el.(*syntax.KeyValueExpr); ok {
+										v = kv.Value
+									}
+									vp := info.Patterns[v]
+									_, isName := v.(*syntax.Ident)
+									some = some || !isName || vp == nil || vp.Kind != check.PatWildcard && vp.Kind != check.PatBind
+								}
+							}
 							switch {
 							case pt == nil:
 							case pt.Kind == check.PatWildcard || pt.Kind == check.PatBind:
 								all = true
+							case some:
+								partly = append(partly, capOf(pt.Type))
 							case pt.Kind == check.PatTypeTest || pt.Kind == check.PatRecord:
 								handled = append(handled, capOf(pt.Type))
 								if n, ok := pt.Type.(*check.Named); ok {
@@ -644,11 +669,20 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 						}
 						if name := callName(y.Fun); name != nil {
 							for _, ty := range info.Calls[y].Fails.Elems() {
-								if k := capOf(ty); k != "" && (all || slices.Contains(handled, k)) {
-									add(discharged, k, at(name.NamePos))
-									if !slices.Contains(withCaps, k) {
-										withCaps = append(withCaps, k)
-									}
+								k := capOf(ty)
+								if k == "" {
+									continue
+								}
+								if all || slices.Contains(handled, k) {
+									add(whole, k, at(name.NamePos))
+								} else if slices.Contains(partly, k) {
+									add(someOf, k, at(name.NamePos))
+								} else {
+									continue
+								}
+								add(discharged, k, at(name.NamePos))
+								if !slices.Contains(withCaps, k) {
+									withCaps = append(withCaps, k)
 								}
 							}
 						}
@@ -772,14 +806,14 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 			got = append(got, fp)
 			if len(rc.Chain) == 0 {
 				for _, c := range callsIn {
-					if c.what == k && c.fn == fp && !discharged[k][c.call] {
+					if c.what == k && c.fn == fp && !stopped(k, c.call) {
 						fail("reach --of %s: %s has no chain, but its call at %s brings it", k, rc.Function, c.call)
 					}
 				}
 			}
 			for _, c := range rc.Chain {
 				p := fmt.Sprintf("%s:%d:%d", c.File, c.Line, c.Column)
-				if !charged[k][p] || discharged[k][p] {
+				if !charged[k][p] || stopped(k, p) {
 					fail("reach --of %s: the chain of %s passes %s, which does not bring it (charged %v, discharged %v)", k, rc.Function, p, charged[k][p], discharged[k][p])
 				}
 			}
