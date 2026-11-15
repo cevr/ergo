@@ -344,8 +344,10 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// direct build path's identity test lives in internal/sketchfront, so
 	// internal/sketch/build's tests import no part of the checker. The
 	// ledger anchor check lives in internal/residue (main's eb40167a3), so
-	// scripts/mutants is not reached.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
+	// scripts/mutants is not reached. scripts/bootstrap's capstone rows
+	// walk the Go compiler packages to count their files (S0), so it is
+	// reached by its declared reads, not by an import.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
