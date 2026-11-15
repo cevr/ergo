@@ -1,0 +1,39 @@
+// Package memory holds the pipeline's external systems in memory.
+// Flaky is a pipeline.Runner whose stages fail their first tries, as a
+// flaky build does, and which counts the tries it ran.
+
+import pipeline/pipeline
+import sync
+
+// Flaky is a pipeline.Runner. A stage s fails its first failing[s] tries;
+// a negative failing[s] makes the runner Offline for the first -failing[s]
+// tries of s; a stage with no entry fails its first `rest` tries. Every
+// copy of a Flaky counts in one counter.
+type Flaky { failing Map[int, int], rest int, ran sync.Ref[int] }
+
+// New is a Flaky: each stage s of failing fails its first failing[s] tries,
+// and any other stage passes at once.
+func New(failing Map[int, int]) Flaky { Flaky{failing: failing, rest: 0, ran: sync.NewRef[int](0)} }
+
+// NewFlaky is a Flaky whose every stage fails its first try; ergo test
+// runs the pipeline.Runner laws against it.
+func NewFlaky() Flaky { Flaky{failing: Map[int, int]{}, rest: 1, ran: sync.NewRef[int](0)} }
+
+// Run is the answer to try attempt of stage stage: it depends on the
+// stage and the try only, never on the calls before it.
+func Run(f Flaky, id string, stage int, attempt int) bool fails pipeline.Offline {
+	f.ran.Update() func(n int) int { n + 1 }
+	let n = match f.failing.Get(stage) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		f.rest
+	}
+	if n < 0 && attempt <= -n {
+		return pipeline.Offline{Why: "the runner of stage \(stage + 1) does not answer"}
+	}
+	attempt > n
+}
+
+// Ran is how many tries f was asked to run.
+func Ran(f Flaky) int { f.ran.Get() }

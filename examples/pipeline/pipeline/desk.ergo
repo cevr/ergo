@@ -1,0 +1,243 @@
+// The context's machine. One actor holds every run of the context (an
+// actor per run has no direct form yet: children live in one entry of
+// their parent). It takes the operators' commands at any time, and runs
+// one stage at a time, in the order the runs were submitted: the stage's
+// try is the work of the Busy state; a failed try waits in Waiting for
+// the retry saga's timer.
+
+import machines
+import pipeline/board
+import pipeline/retry
+import pipeline/run
+import slices
+
+// Envelope is a command for the run Run, named ID. The command's context
+// travels in it as data, so Decide needs nothing.
+type Envelope { ID string, Run string, Command run.Command }
+
+// Entry is one event of the context's log: the run and the event.
+type Entry { Run string, Event run.Event }
+
+// Book is what every state of the desk holds: each run by name, the runs
+// that wait for the runner (in submission order), the log, the receipt
+// of each command taken (by its ID), and the board.
+type Book {
+	Runs  Map[string, run.Run],
+	Queue []string,
+	Log   []Entry,
+	Seen  Map[string, Receipt],
+	Board board.View,
+}
+
+// Job is the stage the desk runs: the run, the stage, and the retry
+// saga's attempt at it.
+type Job { Run string, Stage int, Attempt retry.Attempt }
+
+// Desk is the context's state:
+//
+//	Idle     no stage runs; no run waits
+//	Busy     the runner runs the job's try (the state's work)
+//	Waiting  the job's try failed; the saga's timer runs
+type Desk = Idle{Book Book} | Busy{Book Book, Job Job} | Waiting{Book Book, Job Job}
+
+// Signal is what the desk reads: a command, the end of the runner's try,
+// or the end of a wait.
+type Signal = Ask{Env Envelope} | Ran{OK bool} | Due{}
+
+// Fresh is the desk with no run.
+let Fresh = Idle{Book: Book{Runs: Map[string, run.Run]{}, Queue: []string{}, Log: []Entry{}, Seen: Map[string, Receipt]{}, Board: board.Empty}}
+
+// BookOf is d's book.
+func BookOf(d Desk) Book {
+	match d {
+	case Idle as i:
+		i.Book
+	case Busy as b:
+		b.Book
+	case Waiting as w:
+		w.Book
+	}
+}
+
+// Busy reports whether the runner runs a try in d.
+func IsBusy(d Desk) bool {
+	match d {
+	case Busy:
+		true
+	case Idle, Waiting:
+		false
+	}
+}
+
+// RunIn is the state of the run id in b.
+func RunIn(b Book, id string) run.Run {
+	match b.Runs.Get(id) {
+	case Some[run.Run] as r:
+		r.Value
+	case None:
+		run.Unsubmitted
+	}
+}
+
+// apply is b after the command c of the run id, through the run's step.
+func apply(b Book, id string, c run.Command) Book fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	let d = try run.Handle(RunIn(b, id), c)
+	match d {
+	case Emit[run.Run, []run.Event] as e:
+		let mut log = b.Log
+		let mut v = b.Board
+		for ev in e.Output {
+			log = log.Append(Entry{Run: id, Event: ev})
+			v = board.Apply(v, id, ev)
+		}
+		Book{..b, Runs: b.Runs.Put(id, e.Next), Log: log, Board: v}
+	case Enter[run.Run], Stay[run.Run], Ignore, Reject, Done[[]run.Event]:
+		b
+	}
+}
+
+// settle is the desk with the book b and no job: it starts the first run
+// of the queue that still waits, or is idle.
+func settle(b Book) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	for i, id in b.Queue {
+		match RunIn(b, id) {
+		case run.Queued:
+			let left = slices.Slice(b.Queue, i+1, len(b.Queue))
+			let started = try apply(Book{..b, Queue: left}, id, run.Start)
+			return Enter[Desk]{Next: Busy{Book: started, Job: Job{Run: id, Stage: 0, Attempt: retry.First(retry.Standard)}}}
+		case run.Unsubmitted, run.Running, run.Failing, run.Done:
+		}
+	}
+	Enter[Desk]{Next: Idle{Book: Book{..b, Queue: []string{}}}}
+}
+
+// ask is the desk after the command env. A command whose ID was taken
+// changes nothing. A command for a run that does not exist (other than a
+// submit) is NoSuchRun; a command the run refuses fails with its
+// rejection, and the desk does not change.
+func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	let b = BookOf(d)
+	match b.Seen.Get(env.ID) {
+	case Some[Receipt]:
+		return Ignore
+	case None:
+	}
+	match (RunIn(b, env.Run), env.Command) {
+	case (run.Unsubmitted, run.Submit):
+	case (run.Unsubmitted, _):
+		return NoSuchRun{Run: env.Run}
+	case (_, _):
+	}
+	let mut next = try apply(b, env.Run, env.Command)
+	next = Book{..next, Seen: next.Seen.Put(env.ID, Receipt{Command: env.ID, Position: len(next.Log)})}
+	match env.Command {
+	case run.Submit:
+		next = Book{..next, Queue: next.Queue.Append(env.Run)}
+	case run.Start, run.Finish, run.Retry, run.GiveUp, run.Cancel:
+	}
+	match d {
+	case Idle:
+		try settle(next)
+	case Busy as w:
+		if w.Job.Run == env.Run && run.IsDone(RunIn(next, env.Run)) {
+			return try settle(next)
+		}
+		Stay[Desk]{Next: Busy{Book: next, Job: w.Job}}
+	case Waiting as w:
+		if w.Job.Run != env.Run {
+			return Stay[Desk]{Next: Waiting{Book: next, Job: w.Job}}
+		}
+		match RunIn(next, env.Run) {
+		case run.Running:
+			let n = retry.TryOf(w.Job.Attempt) + 1
+			Enter[Desk]{Next: Busy{Book: next, Job: Job{..w.Job, Attempt: retry.Trying{P: retry.Standard, Try: n}}}}
+		case run.Done:
+			try settle(next)
+		case run.Unsubmitted, run.Queued, run.Failing:
+			Stay[Desk]{Next: Waiting{Book: next, Job: w.Job}}
+		}
+	}
+}
+
+// ran is the desk after the job's try ended: passed (ok) or failed.
+func ran(b Book, j Job, ok bool) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	let next = try apply(b, j.Run, run.Finish{Stage: j.Stage, OK: ok})
+	match RunIn(next, j.Run) {
+	case run.Running as r:
+		Enter[Desk]{Next: Busy{Book: next, Job: Job{Run: j.Run, Stage: r.Next, Attempt: retry.First(retry.Standard)}}}
+	case run.Failing:
+		match retry.Step(j.Attempt, retry.Failed) {
+		case Enter[retry.Attempt] as e:
+			Enter[Desk]{Next: Waiting{Book: next, Job: Job{..j, Attempt: e.Next}}}
+		case Done[retry.Order]:
+			try settle(try apply(next, j.Run, run.GiveUp{Stage: j.Stage}))
+		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Ignore, Reject:
+			Unreachable("a failed try either waits or gives up")
+		}
+	case run.Unsubmitted, run.Queued, run.Done:
+		try settle(next)
+	}
+}
+
+// due is the desk after the job's wait ended: the saga orders the next
+// try, and the run retries the stage.
+func due(b Book, j Job) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	match retry.Step(j.Attempt, retry.Due) {
+	case Emit[retry.Attempt, retry.Order] as e:
+		let next = try apply(b, j.Run, run.Retry{Stage: j.Stage})
+		Enter[Desk]{Next: Busy{Book: next, Job: Job{..j, Attempt: e.Next}}}
+	case Enter[retry.Attempt], Stay[retry.Attempt], Done[retry.Order], Ignore, Reject:
+		Ignore
+	}
+}
+
+// Step is the desk's transition. A try's end or a wait's end in a state
+// that has none is Ignore (the runner drops a signal of an ended entry
+// anyway).
+func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	match (d, s) {
+	case (_, Ask as a):
+		try ask(d, a.Env)
+	case (Busy as b, Ran as r):
+		try ran(b.Book, b.Job, r.OK)
+	case (Waiting as w, Due):
+		try due(w.Book, w.Job)
+	case (_, _):
+		Ignore
+	}
+}
+
+// Work is the work of a state: Busy asks the runner for its try. An
+// Offline runner is a failed try.
+func Work(d Desk) Option[machines.Work[Signal, Runner]] {
+	match d {
+	case Busy as b:
+		let j = b.Job
+		Some{machines.Work{Run: func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, OnSuccess: func(ok bool) Signal { Ran{OK: ok} }, OnFailure: func(u Offline) Signal { Ran{OK: false} }}}
+	case Idle, Waiting:
+		None
+	}
+}
+
+// Timer is the timer of a state: Waiting's is the saga's.
+func Timer(d Desk) Option[Timeout[Signal]] {
+	match d {
+	case Waiting as w:
+		match retry.Timer(w.Job.Attempt) {
+		case Some[Timeout[retry.Signal]] as t:
+			Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.Value.In, Signal: Due}}
+		case None:
+			None
+		}
+	case Idle, Busy:
+		None
+	}
+}
+
+// Dispatch is the context as a machine.
+type Dispatch machine[Desk, Signal] {
+	initial: Fresh,
+	step:    Step,
+	after:   Timer,
+	work:    Work,
+}

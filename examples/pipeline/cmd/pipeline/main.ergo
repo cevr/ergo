@@ -1,0 +1,297 @@
+// pipeline runs a build pipeline in this process. It reads an operator's
+// script on standard input (submit, cancel and retry runs; let an hour
+// pass; show a run or the board) and prints what the pipeline does. Its
+// runner is a memory runner whose stages fail their first tries as -fail
+// says; its clock is a manual clock that only `wait` moves, so a run
+// prints the same lines on every host. Package pipeline is the Api and
+// the context; this binary is the only place that chooses the providers:
+// the runner, the journal (std's memory journal) and the clock.
+
+import flag
+import io
+import journal
+import journal/memory
+import os
+import runners pipeline/memory
+import pipeline/notify
+import pipeline/pipeline
+import pipeline/run
+import strconv
+import strings
+import time
+
+let failFlag = flag.String("fail", "", "STAGE:TRIES: stage STAGE (1 is the first) fails its first TRIES tries; a negative TRIES makes the runner offline for them").Repeated()
+
+let set = flag.Set{
+	Name:  "pipeline",
+	Usage: "pipeline runs a build pipeline over a script of commands on standard input.",
+	Flags: []flag.Flag{failFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+// BadLine is a line of the script or a -fail value that pipeline cannot
+// read.
+type BadLine { Line int, Why string }
+
+// Order is a line of the script.
+type Order = Submitting{Run string, Stages int} | Cancelling{Run string, Why string} | Retrying{Run string, Stage int} | Resending{Line int} | Waiting{} | Showing{Run string} | Boarding{}
+
+func wordInt(n int, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Line: n, Why: "\(word) is not a number"}
+	}
+}
+
+// orderOf reads the line n, split into its words w:
+//
+//	submit RUN STAGES   a new run of STAGES stages
+//	cancel RUN WHY...   stop the run
+//	retry RUN STAGE     try the failed stage STAGE (1 is the first) now
+//	resend N            send the command of line N again, with its ID
+//	wait                an hour passes
+//	show RUN            the state of the run
+//	board               the board
+func orderOf(n int, w []string) Order fails BadLine {
+	match w[0] {
+	case "submit":
+		if len(w) != 3 {
+			return BadLine{Line: n, Why: "submit is submit RUN STAGES"}
+		}
+		Submitting{Run: w[1], Stages: try wordInt(n, w[2])}
+	case "cancel":
+		if len(w) < 3 {
+			return BadLine{Line: n, Why: "cancel is cancel RUN WHY"}
+		}
+		Cancelling{Run: w[1], Why: strings.Join(w[2:], " ")}
+	case "retry":
+		if len(w) != 3 {
+			return BadLine{Line: n, Why: "retry is retry RUN STAGE"}
+		}
+		Retrying{Run: w[1], Stage: try wordInt(n, w[2]) - 1}
+	case "resend":
+		if len(w) != 2 {
+			return BadLine{Line: n, Why: "resend is resend LINE"}
+		}
+		Resending{Line: try wordInt(n, w[1])}
+	case "wait":
+		Waiting
+	case "show":
+		if len(w) != 2 {
+			return BadLine{Line: n, Why: "show is show RUN"}
+		}
+		Showing{Run: w[1]}
+	case "board":
+		Boarding
+	case _:
+		BadLine{Line: n, Why: "unknown word \(w[0])"}
+	}
+}
+
+// Read is the orders of a script, by line number. A blank line or a line
+// that starts with # is no order.
+func Read(lines []string) Map[int, Order] fails BadLine {
+	let mut out = Map[int, Order]{}
+	for i, line in lines {
+		let text = strings.TrimSpace(line)
+		let w = strings.Fields(text)
+		if len(w) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		out[i+1] = try orderOf(i+1, w)
+	}
+	out
+}
+
+// failing is the runner's table from the -fail values: stage (0 is the
+// first) to tries.
+func failing(values []string) Map[int, int] fails BadLine {
+	let mut out = Map[int, int]{}
+	for v in values {
+		let parts = strings.Split(v, ":")
+		if len(parts) != 2 {
+			return BadLine{Line: 0, Why: "-fail takes STAGE:TRIES, not \(v)"}
+		}
+		out[try wordInt(0, parts[0])-1] = try wordInt(0, parts[1])
+	}
+	out
+}
+
+// eventText is an event as the script shows it.
+func eventText(e run.Event) string {
+	match e {
+	case run.Submitted as s:
+		"submitted (stages: \(s.Stages))"
+	case run.Started:
+		"started"
+	case run.StagePassed as p:
+		"stage \(p.Stage + 1) passed"
+	case run.StageFailed as f:
+		"stage \(f.Stage + 1) failed"
+	case run.Retried as r:
+		"stage \(r.Stage + 1) is tried again"
+	case run.Finished:
+		"finished"
+	case run.Abandoned as a:
+		"gave up at stage \(a.Stage + 1)"
+	case run.Stopped as s:
+		"cancelled: \(s.Why)"
+	}
+}
+
+func column(name string, ids []string) string {
+	if len(ids) == 0 {
+		return "  \(name): -"
+	}
+	"  \(name): \(strings.Join(ids, " "))"
+}
+
+// send is the command of the order o, named id, through the Api, as a
+// line: its receipt or its rejection. An order that is no command is
+// None.
+func send(id string, o Order) Option[string] needs pipeline.Pipeline {
+	let receipt = match o {
+	case Submitting as s:
+		pipeline.Pipeline.Submit(pipeline.SubmitRun{ID: id, Run: s.Run, Stages: s.Stages})
+	case Cancelling as c:
+		pipeline.Pipeline.Cancel(pipeline.CancelRun{ID: id, Run: c.Run, Why: c.Why})
+	case Retrying as r:
+		pipeline.Pipeline.Retry(pipeline.RetryRun{ID: id, Run: r.Run, Stage: r.Stage})
+	case Resending, Waiting, Showing, Boarding:
+		return None
+	} catch {
+	case run.WrongState as e:
+		return Some[string]{Value: "  refused: the run is \(e.Status), which takes no \(e.Command)"}
+	case run.WrongStage as e:
+		return Some[string]{Value: "  refused: the run is at stage \(e.Expected + 1), not \(e.Got + 1)"}
+	case run.Closed as e:
+		return Some[string]{Value: "  refused: the run has ended (\(e.Status))"}
+	case run.BadLength as e:
+		return Some[string]{Value: "  refused: a run has 1 to \(run.MaxStages) stages, not \(e.Stages)"}
+	case pipeline.NoSuchRun as e:
+		return Some[string]{Value: "  refused: no run is named \(e.Run)"}
+	case pipeline.Unavailable:
+		return Some[string]{Value: "  refused: the pipeline does not run"}
+	}
+	Some[string]{Value: "  taken as \(receipt.Command) at log position \(receipt.Position)"}
+}
+
+// Play runs the orders against the context m, line by line, and is what
+// it shows: each line, the answer, then what the pipeline did until the
+// runner runs no try: each new event of the log and each notice it gives
+// (!). The clock moves only for wait.
+func Play(lines []string, orders Map[int, Order], m pipeline.Model, clock time.Manual) []string fails pipeline.Unavailable needs pipeline.Pipeline {
+	let mut out = []string{}
+	let mut shown = 0
+	for i, line in lines {
+		let n = i + 1
+		let o = match orders.Get(n) {
+		case Some[Order] as v:
+			v.Value
+		case None:
+			continue
+		}
+		out = out.Append("> " + strings.TrimSpace(line))
+		match o {
+		case Resending as r:
+			match orders.Get(r.Line) {
+			case Some[Order] as first:
+				match send("c\(r.Line)", first.Value) {
+				case Some[string] as said:
+					out = out.Append(said.Value)
+				case None:
+					out = out.Append("  line \(r.Line) is no command")
+				}
+			case None:
+				out = out.Append("  line \(r.Line) is no command")
+			}
+		case Waiting:
+			clock.Advance(1h)
+		case Showing as s:
+			let r = pipeline.Pipeline.RunOf(s.Run) catch {
+			case pipeline.NoSuchRun:
+				out = out.Append("  no run is named \(s.Run)")
+				continue
+			}
+			out = out.Append("  \(s.Run): \(run.StatusOf(r))")
+		case Boarding:
+			let v = pipeline.Pipeline.Board()
+			out = out.Append(column("queued", v.Queued))
+			out = out.Append(column("running", v.Running))
+			out = out.Append(column("failing", v.Failing))
+			out = out.Append(column("passed", v.Passed))
+			out = out.Append(column("stopped", v.Stopped))
+		case Submitting, Cancelling, Retrying:
+			match send("c\(n)", o) {
+			case Some[string] as said:
+				out = out.Append(said.Value)
+			case None:
+			}
+		}
+		let _ = try pipeline.Settle(m)
+		let log = pipeline.Log(m)
+		for k in shown..len(log) {
+			let e = log[k]
+			out = out.Append("  \(e.Run): \(eventText(e.Event))")
+			for note in notify.React(e.Run, e.Event) {
+				out = out.Append("  " + notify.Text(note))
+			}
+		}
+		shown = len(log)
+	}
+	out
+}
+
+func main() fails os.Exit needs Ambient | Console {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	let v = with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+		flag.Parse(set, args) catch {
+		case err:
+			try flag.Exit(err, flag.Usage(set))
+			return
+		}
+	}
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewStdin() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let (orders, table) = prepare(lines, failFlag.Get(v)) catch {
+	case BadLine as b:
+		if b.Line == 0 {
+			return os.Exit{Code: 2, Message: "pipeline: \(b.Why)"}
+		}
+		return os.Exit{Code: 2, Message: "pipeline: line \(b.Line): \(b.Why)"}
+	}
+	let shown = session(lines, orders, table) catch {
+	case journal.Failed as f:
+		return os.Exit{Code: 1, Message: "pipeline: the journal failed: \(f.Reason)"}
+	case journal.Diverged as d:
+		return os.Exit{Code: 1, Message: "pipeline: the journal diverged at signal \(d.At)"}
+	case pipeline.Unavailable:
+		return os.Exit{Code: 1, Message: "pipeline: the context stopped"}
+	}
+	for l in shown {
+		Console.Println(l)
+	}
+}
+
+// prepare reads the script and the -fail values.
+func prepare(lines []string, values []string) (Map[int, Order], Map[int, int]) fails BadLine {
+	(try Read(lines), try failing(values))
+}
+
+// session binds the providers: a memory runner of the table, a manual
+// clock and a memory journal. It plays the script and ends with the
+// number of tries the runner ran.
+func session(lines []string, orders Map[int, Order], table Map[int, int]) []string fails journal.Failed | journal.Diverged | pipeline.Unavailable {
+	let runner = runners.New(table)
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, pipeline.Runner: runner } {
+		let m = try pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]())
+		let said = with context { pipeline.Pipeline: m } { try Play(lines, orders, m, clock) }
+		pipeline.Stop(m)
+		said.Append("the runner ran \(runners.Ran(runner)) tries")
+	}
+}

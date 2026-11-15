@@ -1,0 +1,24 @@
+// The Api's laws against the live context. ergo test cannot build a
+// Model for the member laws of Pipeline (it is an actor that a context
+// opens), so this law opens one, with a scripted runner and a manual
+// clock, and runs the member law's body against it.
+
+import journal
+import journal/memory
+import testing
+import time
+
+// ModelTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for Model.
+law ModelTakesEachCommandOnce(c SubmitRun) {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
+	with context { Scheduler: time.NewManual(0), Runner: s } {
+		let m = Open(memory.New[Desk, Signal]()) catch {
+		case journal.Failed, journal.Diverged:
+			return false
+		}
+		let ok = with context { Pipeline: m } { DuplicateIsNoop(c) }
+		Stop(m)
+		ok
+	}
+}

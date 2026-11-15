@@ -1,0 +1,40 @@
+> submit build 3
+  taken as c2 at log position 1
+  build: submitted (stages: 3)
+  build: started
+  build: stage 1 passed
+  build: stage 2 failed
+> submit docs 1
+  taken as c3 at log position 5
+  docs: submitted (stages: 1)
+> board
+  queued: docs
+  running: -
+  failing: build
+  passed: -
+  stopped: -
+> wait
+  build: stage 2 is tried again
+  build: stage 2 failed
+  build: stage 2 is tried again
+  build: stage 2 passed
+  build: stage 3 passed
+  build: finished
+  ! build passed
+  docs: started
+  docs: stage 1 passed
+  docs: finished
+  ! docs passed
+> board
+  queued: -
+  running: -
+  failing: -
+  passed: build docs
+  stopped: -
+> show build
+  build: passed
+> resend 2
+  taken as c2 at log position 1
+> cancel docs late
+  refused: the run has ended (passed)
+the runner ran 6 tries

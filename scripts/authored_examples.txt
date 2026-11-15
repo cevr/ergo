@@ -10,3 +10,4 @@ models/durable/durable.ergo
 models/host/host.ergo
 models/runner/runner.ergo
 models/supervise/supervise.ergo
+models/infra/infra.ergo
