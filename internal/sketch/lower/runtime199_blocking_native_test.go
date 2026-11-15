@@ -173,7 +173,16 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stopped caller's Lines, Chunks and Wait end with the stop and leave the
 // program to its owner's release, and TestExecStartStopped that a stopped
 // caller's Start starts nothing.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
+// ExecSpawn and ExecKill (std exec's Host, IA2) wait on a host process:
+// Spawn until the program started (runtime/v1/exec TestExecSpawnStarter,
+// TestExecSpawnOutlivesItsStarter), Kill for its group's end within the
+// grace, which a stop of the caller ends early (its select on Done).
+// HTTPFetchLocal and HTTPFetchLocalInto (std http.InMemoryNetwork, FK3-g3)
+// are HTTPFetch's and HTTPFetchInto's exchange (httpDoVia) over an
+// in-memory server: runtime/v1/http TestHTTPLocalMatchesLoopback holds
+// them to the loopback's answers. Their stop laws are a follow-up of the
+// batch-21 units (batch-19 combined integration, 2026-11-15).
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true, "ExecSpawn": true, "ExecKill": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

@@ -7,6 +7,9 @@
 
 # TestMain removes testCLI.dir.
 cmd/ergo/main_test.go	buildTestCLI
+# TestMain removes fixture.dir (LINT3; added by the batch-19 combined
+# integration, the rule and the pack having landed apart).
+lint/run_test.go	fixturePack
 # The run's scratch.remove (removeTree).
 internal/closure/sandbox_test.go	newScratch
 # runPlan: defer removeTree(cache).

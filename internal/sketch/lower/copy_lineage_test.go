@@ -35,10 +35,10 @@ func TestNamedTailsSettle(t *testing.T) {
 		"func cb(o Option[[]int]) []int {\n\tmatch o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}\n}\n\n" +
 		"func main() needs Console {\n\tlet mut m = Map[string, []int]{\"a\": []int{1}}\n\tm = maps.Update(m, \"a\", cb)\n\tConsole.Println(\"\\(len(m)) \\(len(keep(State{Log: []int{}})))\")\n}\n"
 	mainGo := mustLower(t, "namedtails", src).mainGo()
-	if body := goFuncBody(t, mainGo, "keep"); !strings.Contains(body, "LineageAppend(") {
+	if body := goFuncBody(t, mainGo, "keep"); !strings.Contains(body, "LineageAppend[") {
 		t.Errorf("a function only called lost its one-extender site:\n%s", body)
 	}
-	if body := goFuncBody(t, mainGo, "cb"); strings.Contains(body, "LineageAppend(") {
+	if body := goFuncBody(t, mainGo, "cb"); strings.Contains(body, "LineageAppend[") {
 		t.Errorf("a callback by name keeps its one-extender site, so its result is not fresh:\n%s", body)
 	}
 }
@@ -60,10 +60,10 @@ func TestNamedTailsSettleAcrossPackages(t *testing.T) {
 	root.Imports = []Unit{lib}
 	src := mustLowerUnit(t, "namedtailspkg", root, false).mainGo()
 	keep, start := goFuncNamed(t, src, "Keep"), goFuncNamed(t, src, "Start")
-	if !strings.Contains(keep, "LineageAppend(") {
+	if !strings.Contains(keep, "LineageAppend[") {
 		t.Errorf("a library function only called lost its one-extender site:\n%s", keep)
 	}
-	if strings.Contains(start, "LineageAppend(") {
+	if strings.Contains(start, "LineageAppend[") {
 		t.Errorf("a library callback passed by name from the root keeps its one-extender site:\n%s", start)
 	}
 	if body := goFuncNamed(t, src, "main_1"); strings.Contains(body, "maps.Clone(") {

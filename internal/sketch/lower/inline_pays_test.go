@@ -69,8 +69,6 @@ func huge[T number](xs []T) T {
 
 func held(t Tok) Tok { t }
 
-func viaHeld() int { weight(held(tiny(0))) }
-
 func first[T](xs []T, d T) T {
 	if len(xs) == 0 {
 		return d
@@ -144,6 +142,8 @@ func weight(t Tok) int {
 		s.at
 	}
 }
+
+func viaHeld() int { weight(held(tiny(0))) }
 
 type Count { n int }
 type Halt {}

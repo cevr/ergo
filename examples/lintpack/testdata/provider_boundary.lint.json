@@ -21,7 +21,7 @@
       "message": "main.named binds main.Disk; only [main.compose] may bind it",
       "span": {
         "file": "",
-        "offset": 875,
+        "offset": 909,
         "length": 20,
         "line": 37,
         "column": 2
@@ -31,7 +31,7 @@
           "message": "the context entry that binds it",
           "span": {
             "file": "",
-            "offset": 629,
+            "offset": 663,
             "length": 10,
             "line": 23,
             "column": 9
@@ -45,7 +45,7 @@
       "message": "main.aliased binds main.Disk; only [main.compose] may bind it",
       "span": {
         "file": "",
-        "offset": 1000,
+        "offset": 1034,
         "length": 40,
         "line": 43,
         "column": 2

@@ -21,7 +21,7 @@
       "message": "failure main.Denied can escape main.fetch",
       "span": {
         "file": "",
-        "offset": 939,
+        "offset": 956,
         "length": 5,
         "line": 35,
         "column": 6
@@ -31,7 +31,7 @@
           "message": "main.Denied enters the body here",
           "span": {
             "file": "",
-            "offset": 1003,
+            "offset": 1020,
             "length": 15,
             "line": 36,
             "column": 6
@@ -45,7 +45,7 @@
       "message": "failure main.Denied can escape main.forwards",
       "span": {
         "file": "",
-        "offset": 1082,
+        "offset": 1099,
         "length": 8,
         "line": 40,
         "column": 6
@@ -55,7 +55,7 @@
           "message": "main.Denied enters the body here",
           "span": {
             "file": "",
-            "offset": 1149,
+            "offset": 1166,
             "length": 10,
             "line": 41,
             "column": 6
@@ -69,7 +69,7 @@
       "message": "failure main.Denied can escape main.relay",
       "span": {
         "file": "",
-        "offset": 1270,
+        "offset": 1279,
         "length": 5,
         "line": 46,
         "column": 6
@@ -79,7 +79,7 @@
           "message": "main.Denied enters the body here",
           "span": {
             "file": "",
-            "offset": 1311,
+            "offset": 1343,
             "length": 10,
             "line": 47,
             "column": 6

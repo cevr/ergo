@@ -123,17 +123,26 @@ debt	internal/tsproj/project.go:stdJSON	json's wire forms by name	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 seam	internal/sketch/check/export.go:stdSnapshotNow	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/check/export_user.go:NewUserExport	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/check/never.go:IsNever	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/check/never.go:checker.emptyUnion	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/handover.go:funcCtx.ownedFormAt	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir.go:irState.body	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir.go:irState.intrinsic	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir.go:irState.reachAll	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/pkgsplit.go:stdImports	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/lintfacts.go:IsSchedulerSleep	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:IsTimeoutPackage	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:ProgramType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:RoleOf	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/facts.go:programUnit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_banned_words.go:checkBannedWords	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_complexity.go:checkCap	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_concept_file_names.go:checkConceptFileNames	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_deprecated.go:checkDeprecated	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_foreign_error_public.go:checkForeignErrorPublic	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_known_value_widening.go:checkKnownValueWidening	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_race_for_timeout.go:checkRaceForTimeout	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_unbounded_collect.go:checkUnboundedCollect	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_with_at_entry.go:checkWithAtEntry	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP

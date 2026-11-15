@@ -52,7 +52,7 @@ func buildPolicyLint(t *testing.T, dir string) {
 // expectation fails (exit 1) and names the fixture. `ergo lint` merges
 // the same findings and fails policy on them; a configured function the
 // program does not declare fails the rule, an L000 lint-runner error and
-// exit 1. Mutants: lint3-cli-test-ignores-mismatch, lint3-pack-failure-silent.
+// exit 1. Mutants: lint3-cli-test-ignores-mismatch, lint3-runner-rule-failure-silent.
 func TestLintTestRunsThePolicyPack(t *testing.T) {
 	dir := examplePack(t)
 	buildPolicyLint(t, dir)

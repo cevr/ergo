@@ -184,7 +184,7 @@
       "to": "\tvar v T\n\tvar err error\n\tran := make(chan struct{})\n\tgo func() { v, err = Run(t, body); close(ran) }()\n\t<-ran\n",
       "rule": "std http Serve (GX4): a request's task runs on the goroutine that read the request.",
       "killers": [
-        "runtime/v1:TestHTTPHandlerRunsOnTheConnection"
+        "runtime/v1/http:TestHTTPHandlerRunsOnTheConnection"
       ]
     },
     {

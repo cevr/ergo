@@ -41,9 +41,9 @@ func forwards(key string) int fails Denied | Missing needs Store {
 	try fetch(key) + 1
 }
 
-// relay writes no fails clause: the checker infers its row, which holds
-// what fetch passes on.
-func relay(key string) int needs Store {
+// relay writes the row of what fetch passes on in its fails clause, as
+// forwards does.
+func relay(key string) int fails Denied | Missing needs Store {
 	try fetch(key)
 }
 

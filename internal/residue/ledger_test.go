@@ -29,6 +29,7 @@ type ledgerFile struct {
 		Rule    string   `json:"rule"`
 		Killers []string `json:"killers"`
 		Gap     string   `json:"gap"`
+		Refused string   `json:"refused"` // scripts/mutants Mutant.Refused
 		Anchor  *struct {
 			File  string   `json:"file"`
 			Text  string   `json:"text"`

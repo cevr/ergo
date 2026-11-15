@@ -133,8 +133,8 @@ func TestUIViewNeeds(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S102 13:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it",
-		"S102 32:10 this call requires Store, which is not in the capability row of function main and no with provides it",
+		"S102 13:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f *ui.Frame[int], s int) needs Store",
+		"S102 32:10 this call requires Store, which is not in the capability row of function main and no with provides it; write: func main() needs Store",
 		"S108 35:8 cannot use func(*ui.Frame[int], int) needs Store as func(*ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

@@ -204,8 +204,9 @@ reuse waits on references by name (CS5b).
 
 `TestIncrementalCheckDecides` runs seeded edit sequences over a
 three-package program, `a ← b ← c`. The edits are a comment, a body, a
-signature, an export added or removed, a written row, an inferred row, a
-law, a `where`, a constraint, a file added or removed, and an import added.
+signature, an export added or removed, a written row, a helper's row that
+a function value carries, a law, a `where`, a constraint, a file added or
+removed, and an import added.
 At every step, each package the decision names has the check it had last
 time: the same diagnostics, function types, expression types, lets, law runs
 with their text, and tests. The from-scratch check is the reference. A

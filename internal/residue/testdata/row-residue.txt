@@ -61,9 +61,7 @@ internal/sketch/std/actor/actor.ergo	sink own func(o O) needs R, policy tasks.Re
 internal/sketch/std/rpc/rpc.ergo	fails Failed needs R, emit func(line string)
 internal/sketch/std/machines/machines.ergo	run own func() T fails F needs R, onSuccess own func(t T) E needs R, onFailure
 internal/sketch/std/machines/machines.ergo	run func() T fails F needs R, onSuccess func(t T) E needs R)
-internal/sketch/std/actor/actor.ergo	recover func() Option[S] fails G needs R, initial S)
 internal/sketch/std/actor/actor.ergo	recover func() S fails G needs R, start func(s S) A needs Q)
-internal/sketch/std/journal/journal.ergo	step func(s S, e E) Decision[S, O] fails F needs R, s S
 internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int
 internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int
 
@@ -137,3 +135,5 @@ internal/sketch/check/testdata/corpus/corpus-10.txtar	*
 internal/sketch/std/gostd/src/bytes/bytes.ergo	mapping func(rune) rune needs CR, s []byte
 internal/sketch/std/gostd/src/strings/strings.ergo	mapping func(rune) rune needs CR, s string
 internal/sketch/fix/property_test.go	// Impl declares each capability it provides (types.md, Interface
+internal/sketch/std/actor/actor.ergo	func recovered[S, G, R](recover func() Option[S] fails G needs R, initial own S) S fails G needs R {
+internal/sketch/std/journal/journal.ergo	func replay[S, E, O, F, R](step func(s S, e E) Decision[S, O] fails F needs R, s own S, signals []E) S fails Diverged needs R {
