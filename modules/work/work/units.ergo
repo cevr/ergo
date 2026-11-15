@@ -65,9 +65,44 @@ type seq { Text string, Conflicts []string }
 // mergedSeq merges three runs of units by key, in ours' order, each unit
 // theirs alone added after the unit before it in theirs. parent is ""
 // for a file's units, else the key of the unit whose members they are.
+//
+// A side that moved units (the units both it and the base hold are in
+// another order) while the other kept the base's order is carried: the
+// run is merged in the moving side's order, when that merge is clean.
 func mergedSeq(base []Unit, oursAsIs []Unit, theirsAsIs []Unit, parent string) seq {
 	let ours = renamed(base, oursAsIs, theirsAsIs)
 	let theirs = renamed(base, theirsAsIs, oursAsIs)
+	if keptOrder(base, ours) && !keptOrder(base, theirs) {
+		let moved = inOrder(base, theirs, ours, parent)
+		if len(moved.Conflicts) == 0 {
+			return moved
+		}
+	}
+	inOrder(base, ours, theirs, parent)
+}
+
+// keptOrder reports whether the units base and side both hold are in one
+// order in each.
+func keptOrder(base []Unit, side []Unit) bool {
+	let b = byKey(base)
+	let s = byKey(side)
+	let mut x = []string{}
+	for u in base {
+		if s.Get(u.Key) != None {
+			x = x.Append(u.Key)
+		}
+	}
+	let mut y = []string{}
+	for u in side {
+		if b.Get(u.Key) != None {
+			y = y.Append(u.Key)
+		}
+	}
+	x == y
+}
+
+// inOrder merges the runs by key in ours' order.
+func inOrder(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
 	let b = byKey(base)
 	let o = byKey(ours)
 	let t = byKey(theirs)

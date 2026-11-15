@@ -887,3 +887,42 @@ law RenamedUnitTakesTheOtherSidesChange(units Map[int, int], which int, value in
 	}
 	len(got.Conflicts) == 0 && got.Text == file(changed, r)
 }
+
+// UnitsCarryAMove: theirs only moves the units (reversed), ours edits
+// them: the merge is clean, holds ours' values, and writes the units the
+// base had in theirs' order.
+law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let ours = scripted(base, ourEdits)
+	let mut reversed = ""
+	for key in 0..6 {
+		match base.Get(5 - key) {
+		case Some[int] as v:
+			reversed = reversed + "unit k\(5 - key)\n  v\(v.Value)\n"
+		case None:
+		}
+	}
+	let got = work.MergeUnits(NewLines(), "f.lines", unitFile(base), unitFile(ours), reversed) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let merged = NewLines().Units("f.lines", got.Text) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let mut last = 6
+	for u in merged {
+		let key = strconv.Atoi(strings.TrimPrefix(u.Key, "k")) catch {
+		case _:
+			return false
+		}
+		if base.Get(key) != None {
+			if key > last {
+				return false
+			}
+			last = key
+		}
+	}
+	let (want, _) = picked(base, ours, base)
+	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want}
+}

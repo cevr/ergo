@@ -1216,6 +1216,22 @@
       "to": "\t\tif b.Get(u.Key) != None || (o.Get(u.Key) != None && false) {",
       "rule": "A key the other side has is no rename (memory's MembersMergeIsTheReference).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-move-dropped", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tif keptOrder(base, ours) && !keptOrder(base, theirs) {",
+      "to": "\tif keptOrder(base, ours) && !keptOrder(base, theirs) && false {",
+      "rule": "A side that moved units is carried (memory's UnitsCarryAMove; mergereplay's moved imports and types).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-text-no-slide", "origin": "wf10/semws WG4",
+      "file": "modules/work/classes/text.ergo",
+      "from": "\tfor e > 0 {\n",
+      "to": "\tfor e > 0 && false {\n",
+      "rule": "Each side's insertion is slid to one place before the line merge, so a block both sides added is once (classes' OneBlockBothAddedIsOnce; mergereplay's duplicated test and client methods).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
