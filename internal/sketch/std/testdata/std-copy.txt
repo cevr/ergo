@@ -52,7 +52,7 @@ sync	differs	lower: no exported function a caller can take as a value	follow-up 
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 term	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-testing	differs	check: S108 a record with no fields is written bare: Script[probe] (script.go derives Script for testing.Script only)	NP3d
+testing	same
 text	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
