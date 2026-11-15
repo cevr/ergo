@@ -174,6 +174,30 @@ table's window the frame does not show.
 scripts (`-stars.seed=N` replays one). The receipts per line, at 100,000
 rows, are in the run's `receipts/stars-gui-c/`.
 
+## The editor's window: `cmd/editor-gui` (GP2d)
+
+`examples/editor-gui` (module `ergo.local/prototype/examples/editorgui`)
+is required the same way. `cmd/editor-gui [-headless [-check]] FILE`
+shows its editor, app and view on the desktop driver, saving to the host's
+files with a clipboard in memory. Headless, it plays the example's script
+lines as a person gives them: a key after a click beside the toolbar (so
+a focused field or button does not take it), a shortcut as the key with
+Ctrl (`Window.Chord`; the window now gives a program a letter or digit
+pressed with Ctrl, Alt or the system key, which it dropped before), a
+click on each button, the text input and the replacement field typed
+after a click, a press on the page where the scene presses; after each
+line it settles the save or clipboard task the view asked for.
+
+`controls/editor-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/editor-gui/control`, copied, with the window on
+MyGo's widgets and the page's lines in a `ui.TextArea`. Headless, a line
+goes to the model (a move of N as N moves, as a window's keys make it)
+and `ui.Tester` lays out and paints the window after it.
+
+`TestEditorGuiOnTheDesktop` holds both to the example's own
+`editor-gui scene` on 60 seeded documents and scripts, output and saved
+file (`-editor.seed=N` replays one).
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.

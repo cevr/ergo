@@ -4,7 +4,7 @@
 // stage c). The editor's save is its output; here it becomes a write the
 // view asks the host for (ui.Load), whose end comes back as a signal.
 
-import editor/edit
+import ergo.local/prototype/examples/editorgui/edit
 
 // Signal is what the view sends the app: a signal of the editor (a key,
 // a button, committed text, a click), the end of a save the host ran, a

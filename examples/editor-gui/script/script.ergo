@@ -5,7 +5,7 @@
 // clipboard; a paste types the clipboard's text, and a click puts the
 // caret at a row and column of the window.
 
-import editor/edit
+import ergo.local/prototype/examples/editorgui/edit
 import io
 import strconv
 import strings

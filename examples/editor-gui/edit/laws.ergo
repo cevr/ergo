@@ -1,6 +1,6 @@
 // The Editor as a machine, and its laws.
 
-import editor/piece
+import ergo.local/prototype/examples/editorgui/piece
 import strings
 
 // Editor is the editor as a machine, started on a text.

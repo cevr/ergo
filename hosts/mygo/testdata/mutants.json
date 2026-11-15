@@ -360,6 +360,60 @@
       "to": "if !line {",
       "rule": "learn measures each run of a text the table lacks, after the first text",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-shortcut-without-ctrl",
+      "origin": "GP2d",
+      "file": "hosts/mygo/desktop/play.ergo",
+      "from": "d.w.Chord(x.Press.Name, m.Shift, m.Ctrl, m.Alt, m.Meta)",
+      "to": "d.w.Chord(x.Press.Name, m.Shift, false, m.Alt, m.Meta)",
+      "rule": "a script's shortcut is the key pressed with its Ctrl",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-shortcut-letters-unnamed",
+      "origin": "GP2d",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\t\t\tname = chordName(ev.Key)\n",
+      "to": "\t\t\tname = \"\"\n",
+      "rule": "the window gives a program a letter pressed with Ctrl, Alt or the system key (a shortcut types nothing)",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-keys-to-the-focused-field",
+      "origin": "GP2d",
+      "file": "hosts/mygo/cmd/editor-gui/main.ergo",
+      "from": "if desktop.FocusId(d) == None {",
+      "to": "if true {",
+      "rule": "a key of the editor's goes to the editor, after a click beside the toolbar drops a field's or a button's focus",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-tasks-not-settled",
+      "origin": "GP2d",
+      "file": "hosts/mygo/cmd/editor-gui/main.ergo",
+      "from": "play(&d, w, acts.Append(ui.SettleAll))",
+      "to": "play(&d, w, acts)",
+      "rule": "after each line the window settles the save or clipboard task the view asked for",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-control-status-hidden",
+      "origin": "GP2d",
+      "file": "hosts/mygo/controls/editor-gui/main.go",
+      "from": "\t\tui.Text(c, w.status)\n",
+      "to": "",
+      "rule": "the control's window shows the status line its frame measures",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP2d-control-moves-whole",
+      "origin": "GP2d",
+      "file": "hosts/mygo/controls/editor-gui/main.go",
+      "from": "if (word == \"left\" || word == \"right\"",
+      "to": "if false && (word == \"left\" || word == \"right\"",
+      "rule": "the control plays a move of N as N keys, as a window does (up and down keep the column of each line they leave)",
+      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
     }
   ]
 }
