@@ -1480,6 +1480,22 @@
       "to": "Why: text}",
       "rule": "An Unsupported refusal is the first line of cp's error and a count, not a line for every file of the tree (row UnsupportedSaysOneLine).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "t3-trash-no-id", "origin": "wf10/semws darwin JOB 1 r2 T3",
+      "file": "modules/work/work/api.ergo",
+      "from": "if id == \"\" { stamp } else { stamp + \".\" + id }",
+      "to": "if id == \"\" || true { stamp } else { stamp + \".\" + id }",
+      "rule": "A name made and removed again in one second gets a trash of its own (memory's RemovedAgainInOneSecond).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "u1-clonefile-any-fs", "origin": "wf10/semws darwin JOB 1 r2 U1",
+      "file": "modules/work/clonefile/clonefile.ergo",
+      "from": "\tif fs != \"apfs\" {\n",
+      "to": "\tif false {\n",
+      "rule": "clonefile is Unsupported off APFS, where cp -c copies silently (row HFSIsNotCloned; the Mac's u1-mac.sh runs the whole new on HFS+).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
