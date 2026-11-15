@@ -896,6 +896,15 @@ func (g *gate) run(out io.Writer) int {
 	first := writerPath(g.steps, index)
 	times := readStepTimes(g.cacheDir)
 	priority := stepPriorities(g.steps, index, times)
+	// The steps that wait for nothing ask for a slot at once; the pool
+	// hands the first slots out by priority once they all have.
+	ready := 0
+	for i, step := range g.steps {
+		if len(step.Needs) == 0 && len(after[i]) == 0 {
+			ready++
+		}
+	}
+	slots.holdFor(ready)
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])

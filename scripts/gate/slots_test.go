@@ -93,17 +93,51 @@ func TestSlotPoolServesTheHeaviestFirst(t *testing.T) {
 	}
 }
 
+// TestSlotPoolHoldsTheStartForEveryReadyStep: a pool of one slot held for
+// two requests gives no slot to the light step that asks first, and gives
+// it to the heavy step once both have asked (GS22). It catches
+// gs22-hold-ignored and gs22-hold-dispatches (scripts/gate's ledger).
+func TestSlotPoolHoldsTheStartForEveryReadyStep(t *testing.T) {
+	pool := newSlotPool(1)
+	pool.holdFor(2)
+	order := make(chan string, 2)
+	ask := func(name string, weight float64) {
+		go func() {
+			pool.acquireWeighted(false, weight)
+			order <- name
+			pool.release()
+		}()
+	}
+	ask("light", 1)
+	// The light step either queues or, wrongly, gets the slot at once.
+	testwait.Until(t, func() bool { _, r := pool.waiting(); return r == 1 || len(order) > 0 })
+	if _, r := pool.waiting(); r != 1 {
+		t.Fatal("the light step took the held slot")
+	}
+	ask("heavy", 100)
+	if got := []string{<-order, <-order}; !slices.Equal(got, []string{"heavy", "light"}) {
+		t.Fatalf("slots went to %v, want heavy then light", got)
+	}
+}
+
 // TestLongestStepTakesTheFirstFreedSlot: in a gate of one slot, seven steps
-// queue at once, the heaviest declared last. One of them takes the free
-// slot; the others then run heaviest first, where a queue in arrival order
-// runs them in the order the scheduler started their goroutines.
+// queue at once, the heaviest declared first and the lightest last. They
+// run heaviest first, the
+// first of them too: the pool holds its slot until every step ready at
+// the start has asked (holdFor), where a first come took it whatever its
+// weight (GS22: build bin/ergo started at 15.8 s of a fast tier, behind
+// four test packages). A queue in arrival order runs them in the order the
+// scheduler started their goroutines. It catches gs22-start-unheld
+// (scripts/gate's ledger).
 func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 	root := fixture(t)
 	t.Setenv(cpuVariable, "1")
 	order := filepath.Join(t.TempDir(), "order")
 	var steps []*Step
-	for i, name := range []string{"s1", "s2", "s3", "s4", "s5", "s6", "heavy"} {
-		weight := float64(i + 1)
+	// The lightest is declared last: Go runs the goroutine started last
+	// first, so without the hold it is the likeliest first come.
+	for i, name := range []string{"heavy", "s6", "s5", "s4", "s3", "s2", "s1"} {
+		weight := float64(7 - i)
 		if name == "heavy" {
 			weight = 100
 		}
@@ -121,16 +155,8 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 	if len(ran) != 7 {
 		t.Fatalf("the steps ran %v; want seven", ran)
 	}
-	// After the step that found the slot free, the queue is served
-	// heaviest first.
-	var want []string
-	for _, name := range []string{"heavy", "s6", "s5", "s4", "s3", "s2", "s1"} {
-		if name != ran[0] {
-			want = append(want, name)
-		}
-	}
-	if !slices.Equal(ran[1:], want) {
-		t.Fatalf("the steps ran in the order %v; want %s, then %v", ran, ran[0], want)
+	if want := []string{"heavy", "s6", "s5", "s4", "s3", "s2", "s1"}; !slices.Equal(ran, want) {
+		t.Fatalf("the steps ran in the order %v; want %v", ran, want)
 	}
 }
 
