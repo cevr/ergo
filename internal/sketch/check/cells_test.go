@@ -38,26 +38,11 @@ func seal(b Box) {}
 // cellReader seals Src, the prelude Reader's operations and seal, and
 // provides it through src, whose reads move its place on *src.
 const cellReader = `type Src {
-	TakeNull() bool,
-	Peek() WireKind,
-	Number() string fails WireWrongKind,
-	Path() string,
-	Bool() bool fails WireWrongKind,
-	Int() int64 fails WireWrongKind,
-	Uint() uint64 fails WireWrongKind,
-	Float() float64 fails WireWrongKind,
-	String() string fails WireWrongKind,
-	BeginList() fails WireWrongKind,
-	BeginObject() fails WireWrongKind,
-	Tag() string fails WireMissingField,
-	More() bool,
-	Key() string,
-	Skip(),
-	End(),
+	..Reader,
 	seal(),
 }
 
-type src { at int }
+type src { at int } implements Src
 
 func TakeNull(s src) bool { false }
 func Peek(s src) WireKind { WireNumber }
