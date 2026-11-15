@@ -367,7 +367,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 274.0 // 473.6 recorded (examples step 258.5), 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts' 1.6 (SEMTOOLS SEM0) joined, a new package's go test floor
+	fastCPUKnownGap = 274.0 // 473.6 recorded (examples step 258.5), 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts (SEMTOOLS SEM0) joined at one seed under -short, which is its go test floor (1.0-1.7 recorded at one seed or none; the headroom was 0.9)
 	fastCPURatchet  = 0.10
 )
 

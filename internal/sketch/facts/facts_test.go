@@ -46,7 +46,9 @@ import (
 func TestTablesAgreeWithScan(t *testing.T) {
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
 	if testing.Short() {
-		seeds = seeds[:3]
+		// The fast tier runs one seed: its CPU budget has no room for
+		// more (scripts/gate/tier_test.go, fastCPUKnownGap).
+		seeds = seeds[:1]
 	}
 	if s := os.Getenv("ERGO_FACTS_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -236,6 +238,16 @@ func handlesAgree(tables []*facts.Table, fail func(string, ...any)) {
 		byPath[t.Path] = t
 	}
 	for _, t := range tables {
+		// The operation edges come from the checker's maps; the table
+		// holds them in the order of their ends' handles.
+		for i := 1; i < len(t.Ops); i++ {
+			a, b := t.Ops[i-1], t.Ops[i]
+			ka := t.Symbols[a.From].Handle + "\x00" + t.Symbols[a.To].Handle
+			kb := t.Symbols[b.From].Handle + "\x00" + t.Symbols[b.To].Handle
+			if ka >= kb {
+				fail("%s: the operation edges %d and %d are out of handle order", t.Path, i-1, i)
+			}
+		}
 		// A local has a handle only when no other local of its declaration
 		// has its name.
 		type declName struct {
