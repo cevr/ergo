@@ -244,6 +244,64 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}, true
 }
 
+// countLoop is the for-in s over a prelude Range[T] of an integer T, as
+// the emitter's rangeStmt writes it: the Range evaluated once into a
+// temporary r, then
+//
+//	for v := r.Start; v < r.End; v++ { body }
+//
+// v the loop's binding (or a temporary), Go's per-iteration variable. A
+// continue runs the increment, as the emitter's for clause does.
+func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
+	n, ok := b.l.info.Types[s.X].(*check.Named)
+	if !ok {
+		irNo("for-in over a Range of no named type")
+	}
+	if bound(s.Key) {
+		irNo("for-in over a Range with a position")
+	}
+	if bt := b.scalarBasic(lp.Elem); bt == nil || !isInteger(bt) {
+		irNo("for-in over a Range of a non-integer")
+	}
+	p := b.pos(s, s.Pos())
+	td := b.l.typeDecl(n.Obj, s.X)
+	var pre []*irStmt
+	var x *irExpr
+	if bx, ok := unparen(s.X).(*syntax.BinaryExpr); ok && bx.Op.String() == ".." && len(td.fields) == 2 {
+		// a..b is Range{Start: a, End: b}, its operands in order (the
+		// emitter's rangeValue); the operator elsewhere is G1's.
+		var parts []*irExpr
+		pre, parts = b.operands([]syntax.Expr{bx.X, bx.Y})
+		x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
+	} else {
+		pre, x = b.value(s.X)
+	}
+	if len(pre) > 0 {
+		irNo("operation call in a range")
+	}
+	r := b.temp("r", b.goType(n, s.X), p)
+	var v int
+	if bound(s.Value) {
+		id, ok := s.Value.(*syntax.Ident)
+		if !ok {
+			irNo("for-in pattern")
+		}
+		bv, ok := b.l.info.Defs[id].(*check.Var)
+		if !ok {
+			irNo("for-in binding without a variable")
+		}
+		v = b.local(bv, id)
+	} else {
+		v = b.temp("i", b.goType(lp.Elem, s), p)
+	}
+	field := func(name string) *irExpr {
+		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
+	}
+	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
+	loop.Body = b.loopBody(s, s.Body)
+	return []*irStmt{{K: "def", Pos: p, Local: r, X: x}, loop}
+}
+
 // passesPointer reports whether the call x of a *T function passes its
 // receiver as a pointer value. A dot call on an addressable T takes the
 // receiver's address where it is evaluated (the emitter's callArgsAddr,
