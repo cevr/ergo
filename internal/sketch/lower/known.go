@@ -132,6 +132,9 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// TupleLets is the lets of a tuple pattern whose if or match arms
+	// write the names straight, with no tuple value (tuplelet.go).
+	TupleLets int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
