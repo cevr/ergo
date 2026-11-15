@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -12,19 +13,22 @@ import (
 
 // TestObservedTimesMoveSlowTestsToTheFullTier is the size rule over the
 // observed store (gate-speed GS33b), against a reference model, over
-// seeded runs: each run selects with the store (observedRow, fastSelection),
-// then observes a time for each test it ran (observeTests). After every
-// run a test is large exactly when the model's time is at least sizeCutoff:
-// the largest of its last observedKeep observed times, else its recorded
-// time, else none (it runs in the fast tier once and is observed). And a
-// test once large stays large, so the tiers do not flap. A failing seed
-// prints the replay. It catches gs33b-store-ignored, gs33b-last-time and
-// gs33b-keep-first.
+// seeded runs. Each run is fast or full: it selects with the store
+// (observedRow, fastSelection), then observes a time (observeTests) for
+// each test it ran, the fast selection's tests in a fast run and every
+// test in a full run. Before every run a test is large exactly when the
+// model's time is at least sizeCutoff: the largest of its last
+// observedKeep observed times, else its recorded time, else none (it runs
+// in the fast tier once and is observed). So a test leaves the fast tier on
+// one time over the cutoff and comes back after observedKeep times under
+// it, from full runs. A failing seed prints the replay. It catches
+// gs33b-store-ignored, gs33b-keep-first and gs33b-last-time.
 func TestObservedTimesMoveSlowTestsToTheFullTier(t *testing.T) {
 	seed := uint64(time.Now().UnixNano())
 	random := rand.New(rand.NewPCG(seed, seed^0x33b))
 	const importPath = "example.test/observed"
-	for trial := range 200 {
+	returned := 0
+	for trial := range 300 {
 		cacheDir := t.TempDir()
 		var names []string
 		recorded := map[string]float64{}
@@ -40,7 +44,7 @@ func TestObservedTimesMoveSlowTestsToTheFullTier(t *testing.T) {
 		}
 		model := map[string][]float64{}
 		wasLarge := map[string]bool{}
-		for run := range 1 + random.IntN(8) {
+		for run := range 1 + random.IntN(12) {
 			fast, large := fastSelection(names, observedRow(cacheDir, importPath, recorded))
 			for _, name := range names {
 				want := false
@@ -50,13 +54,20 @@ func TestObservedTimesMoveSlowTestsToTheFullTier(t *testing.T) {
 					want = d >= sizeCutoff
 				}
 				got := slices.Contains(large, name)
-				if got != want || wasLarge[name] && !got || got == slices.Contains(fast, name) {
-					t.Fatalf("seed %d trial %d run %d: %s large %t, want %t (was large %t; observed %v, recorded %v)\nreplay: set seed to %d in TestObservedTimesMoveSlowTestsToTheFullTier", seed, trial, run, name, got, want, wasLarge[name], model[name], recorded, seed)
+				if got != want || got == slices.Contains(fast, name) {
+					t.Fatalf("seed %d trial %d run %d: %s large %t, want %t (observed %v, recorded %v)\nreplay: set seed to %d in TestObservedTimesMoveSlowTestsToTheFullTier", seed, trial, run, name, got, want, model[name], recorded, seed)
+				}
+				if wasLarge[name] && !got {
+					returned++
 				}
 				wasLarge[name] = got
 			}
+			ran := fast
+			if random.IntN(3) == 0 {
+				ran = names
+			}
 			times := map[string]float64{}
-			for _, name := range fast {
+			for _, name := range ran {
 				s := math2(random.Float64() * sizeCutoff)
 				if random.IntN(4) == 0 {
 					s += sizeCutoff
@@ -70,18 +81,39 @@ func TestObservedTimesMoveSlowTestsToTheFullTier(t *testing.T) {
 			}
 		}
 	}
+	if returned == 0 {
+		t.Errorf("seed %d: no large test came back to the fast tier; the runs reach no return", seed)
+	}
 }
 
-// TestAnObservedSlowTestLeavesTheFastTier: the fast tier the gate declares
-// reads the store. Each fast-tier test step runs go test -json and names
-// its package (Step.Observe), so its times reach the store; and a test of
-// the checkout the store has seen at sizeCutoff runs in no fast step of
-// the next declaration, while it ran in one before. It catches
-// gs33b-json-dropped, gs33b-observe-unset and gs33b-declared-from-seed.
+// TestAnObservedSlowTestLeavesTheFastTier: the tiers the gate declares
+// observe and read the store. Each fast-tier test step and each full-tier
+// package test step runs go test -json with Step.Observe set, so its times
+// reach the store; and a test of the checkout the store has seen at
+// sizeCutoff runs in no fast step of the next declaration, while it ran in
+// one before. It catches gs33b-json-dropped, gs33b-observe-unset,
+// gs33b-declared-from-seed and gs34-full-unobserved.
 func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 	root := checkoutRoot(t)
 	cacheDir := t.TempDir()
 	module := modulePath(root)
+	full, err := gateSteps(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := 0
+	for _, step := range full {
+		if !fullPackageStep.MatchString(step.Name) && step.Name != "go test (other packages)" {
+			continue
+		}
+		observed++
+		if !step.Observe || !slices.Contains(step.Argv, "-json") {
+			t.Errorf("full tier %s: observe %t, argv %q; want it observed with -json", step.Name, step.Observe, step.Argv)
+		}
+	}
+	if observed == 0 {
+		t.Error("the full tier declares no package test step")
+	}
 	steps, err := fastStepsSelected(root, cacheDir, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -92,8 +124,8 @@ func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 		if step.Package == nil || step.Sweep != "" {
 			continue
 		}
-		if want := module + "/" + step.Package.Dir; step.Observe != want || !slices.Contains(step.Argv, "-json") {
-			t.Errorf("%s: observes %q with argv %q, want %q and -json", step.Name, step.Observe, step.Argv, want)
+		if !step.Observe || !slices.Contains(step.Argv, "-json") {
+			t.Errorf("%s: observe %t, argv %q; want it observed with -json", step.Name, step.Observe, step.Argv)
 		}
 		if probe != nil {
 			continue
@@ -112,7 +144,7 @@ func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 	if probe == nil {
 		t.Fatal("no fast step runs a test")
 	}
-	if err := observeTests(cacheDir, probe.Observe, map[string]float64{test: sizeCutoff}); err != nil {
+	if err := observeTests(cacheDir, module+"/"+probe.Package.Dir, map[string]float64{test: sizeCutoff}); err != nil {
 		t.Fatal(err)
 	}
 	steps, err = fastStepsSelected(root, cacheDir, nil)
@@ -120,11 +152,16 @@ func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, step := range steps {
-		if step.Observe == probe.Observe && runsIn(testSelection(step.Argv), test) {
+		if step.Package != nil && step.Package.Dir == probe.Package.Dir && runsIn(testSelection(step.Argv), test) {
 			t.Errorf("%s observed at %.1fs still runs in %s: %q", test, sizeCutoff, step.Name, step.Argv)
 		}
 	}
 }
+
+// fullPackageStep names a full-tier step of one shard of a package's tests;
+// a host package's steps ("(host, every run)") have no fast step to return
+// to and are not observed.
+var fullPackageStep = regexp.MustCompile(`^go test \./\S+ \[\d+/\d+\]$`)
 
 // math2 rounds to the hundredths a time is kept at.
 func math2(s float64) float64 { return float64(int(s*100)) / 100 }

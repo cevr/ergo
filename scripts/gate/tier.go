@@ -68,9 +68,9 @@ const fullBuildStep = "go test build"
 // sizeCutoff is the size rule (gate-fast decision D3): a test whose
 // recorded serial wall time (durationsFile) is this long or longer is large
 // and runs only in the full tier. The fast tier reads the times its own
-// runs observed over the record (testSeconds, GS33b): a test with no time
-// runs in the fast tier once, and a test that grows leaves it at the next
-// run.
+// and full runs observed over the record (testSeconds, GS33b): a test with
+// no time runs in the fast tier once, a test that grows leaves it at the
+// next run, and one whose last full runs are under the cutoff comes back.
 const sizeCutoff = 2.0
 
 // fastFlag is what every fast-tier test step adds: properties and growth
@@ -490,7 +490,7 @@ func fastStepsSelected(root, cacheDir string, choose selector) ([]*Step, error) 
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Observe: p.importPath, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Observe: true, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}

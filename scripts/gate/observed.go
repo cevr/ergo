@@ -16,18 +16,21 @@ import (
 	"time"
 )
 
-// Observed test times (gate-speed GS33b). A fast-tier test step runs `go
-// test -json`; the gate keeps each top-level test's wall time in the gate
-// cache, the last observedKeep times per test, and the size rule
-// (sizeCutoff) reads the largest of them. durationsFile is only the seed:
+// Observed test times (gate-speed GS33b). A fast-tier test step, and a
+// full-tier step that runs package tests uncached, runs `go test -json`;
+// the gate keeps each top-level test's wall time in the gate cache, the
+// last observedKeep times per test, and the size rule (sizeCutoff) reads
+// the largest of them. durationsFile is only the seed:
 // a test with no observation keeps its recorded time, and a test with
 // neither runs in the fast tier once and is observed. So a test that takes
 // sizeCutoff or longer in a fast run leaves the fast tier at the next run,
 // with no file a lane has to re-record by hand (the record had no time for
 // 37 of internal/sketchfront's 58 tests, and TestStdSnapshotAgrees, 147 s,
-// ran in every fast run). The store never shrinks a time below the
-// largest kept one, so a test near the cutoff does not flap between tiers:
-// once large it is not run in a fast run again, and its times stay.
+// ran in every fast run). A large test is not run by a fast run again, but
+// each full run observes it (without -short, so its time is the larger
+// one): once its last observedKeep times are all under the cutoff it
+// comes back to the fast tier. One time over the cutoff keeps it out for
+// observedKeep runs, so a test near the cutoff does not flap.
 
 // observedKeep is how many times of one test the store keeps.
 const observedKeep = 3
@@ -143,29 +146,35 @@ func observedRow(cacheDir, importPath string, recorded map[string]float64) map[s
 
 // testEvent is the part of a `go test -json` event the gate reads.
 type testEvent struct {
-	Time   time.Time
-	Action string
-	Test   string
-	Output string
+	Time    time.Time
+	Action  string
+	Package string
+	Test    string
+	Output  string
 }
 
 // testWallSeconds are the top-level tests' wall times of a `go test
-// -json` stream, as writeDurations measures them: Elapsed omits time a
-// test spends waiting for its parallel subtests, so a test's time runs from
-// its start or, for a parallel test, from when it resumes, to its end.
-func testWallSeconds(stream io.Reader) (map[string]float64, error) {
-	measured := map[string]float64{}
-	started := map[string]time.Time{}
+// -json` stream, by package, as writeDurations measures them: Elapsed
+// omits time a test spends waiting for its parallel subtests, so a test's
+// time runs from its start or, for a parallel test, from when it resumes,
+// to its end.
+func testWallSeconds(stream io.Reader) (map[string]map[string]float64, error) {
+	measured := map[string]map[string]float64{}
+	started := map[[2]string]time.Time{}
 	err := eachTestEvent(stream, func(event testEvent) {
 		if event.Test == "" || strings.Contains(event.Test, "/") {
 			return
 		}
+		key := [2]string{event.Package, event.Test}
 		switch event.Action {
 		case "run", "cont":
-			started[event.Test] = event.Time
+			started[key] = event.Time
 		case "pass", "fail", "skip":
-			if at, ok := started[event.Test]; ok {
-				measured[event.Test] = math.Round(event.Time.Sub(at).Seconds()*100) / 100
+			if at, ok := started[key]; ok {
+				if measured[event.Package] == nil {
+					measured[event.Package] = map[string]float64{}
+				}
+				measured[event.Package][event.Test] = math.Round(event.Time.Sub(at).Seconds()*100) / 100
 			}
 		}
 	}, nil)
@@ -201,8 +210,8 @@ func eachTestEvent(stream io.Reader, event func(testEvent), other func(string)) 
 // crash), without the lines -json's implied -v adds. A line that is not
 // JSON (stderr) passes as it is.
 func renderTestText(stream io.Reader, out io.Writer) error {
-	held := map[string]*bytes.Buffer{}
-	var order []string
+	held := map[[2]string]*bytes.Buffer{}
+	var order [][2]string
 	var werr error
 	write := func(text string) {
 		if werr == nil {
@@ -218,9 +227,10 @@ func renderTestText(stream io.Reader, out io.Writer) error {
 		return false
 	}
 	err := eachTestEvent(stream, func(event testEvent) {
-		top, _, _ := strings.Cut(event.Test, "/")
+		name, _, _ := strings.Cut(event.Test, "/")
+		top := [2]string{event.Package, name}
 		switch {
-		case event.Action == "output" && top == "":
+		case event.Action == "output" && name == "":
 			if event.Output != "PASS\n" {
 				write(event.Output)
 			}
@@ -233,9 +243,9 @@ func renderTestText(stream io.Reader, out io.Writer) error {
 				order = append(order, top)
 			}
 			held[top].WriteString(event.Output)
-		case event.Test == top && (event.Action == "pass" || event.Action == "skip"):
+		case event.Test == name && (event.Action == "pass" || event.Action == "skip"):
 			delete(held, top)
-		case event.Test == top && event.Action == "fail":
+		case event.Test == name && event.Action == "fail":
 			if b := held[top]; b != nil {
 				write(b.String())
 				delete(held, top)
@@ -253,11 +263,11 @@ func renderTestText(stream io.Reader, out io.Writer) error {
 	return werr
 }
 
-// observeStep reads the -json output in spool of a fast-tier test step of
-// the package importPath: it adds the tests' times to the store and
-// returns a spool of the text plain go test prints, which the gate prints
-// and records instead. spool is closed.
-func observeStep(cacheDir, spoolDir, importPath string, spool *os.File) (*os.File, error) {
+// observeStep reads the -json output in spool of a test step: it adds the
+// tests' times to the store, by package, and returns a spool of the text
+// plain go test prints, which the gate prints and records instead. spool
+// is closed.
+func observeStep(cacheDir, spoolDir string, spool *os.File) (*os.File, error) {
 	defer spool.Close()
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -266,8 +276,10 @@ func observeStep(cacheDir, spoolDir, importPath string, spool *os.File) (*os.Fil
 	if err != nil {
 		return nil, err
 	}
-	if err := observeTests(cacheDir, importPath, seconds); err != nil {
-		return nil, fmt.Errorf("observed test times: %w", err)
+	for importPath, times := range seconds {
+		if err := observeTests(cacheDir, importPath, times); err != nil {
+			return nil, fmt.Errorf("observed test times: %w", err)
+		}
 	}
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return nil, err

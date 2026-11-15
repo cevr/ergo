@@ -370,15 +370,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		groups := shard(names, measured, n)
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
-			argv := append([]string{"go", "test", testTimeoutFor(weights[i])}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i], Class: classHeavy})
+			argv := append([]string{"go", "test", "-json", testTimeoutFor(weights[i])}, selection...)
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Observe: true, Weight: weights[i], Class: classHeavy})
 		}
 	}
 	others := 0.0
 	for _, pkg := range unsharded {
 		others += packageSeconds(durations[pkg])
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", "-json", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Observe: true, Weight: others, Class: classHeavy})
 	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
@@ -865,7 +865,8 @@ func writeDurations(root string, limit limiter, packages []string) error {
 		if err != nil {
 			return err
 		}
-		durations[module+"/"+strings.TrimPrefix(pkg, "./")] = measured
+		importPath := module + "/" + strings.TrimPrefix(pkg, "./")
+		durations[importPath] = measured[importPath]
 	}
 	data, err := json.MarshalIndent(durations, "", "  ")
 	if err != nil {
