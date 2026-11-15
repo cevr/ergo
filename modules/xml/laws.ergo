@@ -1,0 +1,119 @@
+// The laws of the XML codec. The law runner draws each law's values, so a
+// law over a sample type is a seeded property of the derived codec through
+// XML text: records, unions, Option, slices, Maps (any key text), tuples,
+// every integer width, floats and strings with any bytes.
+
+import strings
+
+type up { Host string, Port int, Tags []string, Load float64 }
+type down {}
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
+
+func codecOf() Codec[fleet] { Codec[fleet]{Root: "fleet", MaxBytes: 0, MaxDepth: 0} }
+
+// heldFleet is v with each of its texts as XML holds it (held): a
+// character XML cannot hold as U+FFFD.
+func heldFleet(v fleet) fleet {
+	let mut states = []state{}
+	for s in v.States {
+		states = states.Append(match s {
+		case up as u:
+			heldUp(u)
+		case down:
+			down
+		})
+	}
+	let spare = match v.Spare {
+	case None:
+		None
+	case Some[up] as s:
+		Some[up]{Value: heldUp(s.Value)}
+	}
+	let mut meta = Map[string, int]{}
+	for k, n in v.Meta {
+		meta[held(k)] = n
+	}
+	let mut pairs = Map[string, (string, int64)]{}
+	for k, p in v.Pairs {
+		let s, n = p
+		pairs[held(k)] = (held(s), n)
+	}
+	fleet{Name: held(v.Name), States: states, Spare: spare, Meta: meta, Sizes: v.Sizes, Pairs: pairs, Nested: v.Nested}
+}
+
+func heldUp(u up) up {
+	let mut tags = []string{}
+	for t in u.Tags {
+		tags = tags.Append(held(t))
+	}
+	up{Host: held(u.Host), Port: u.Port, Tags: tags, Load: u.Load}
+}
+
+// RoundTrips: Decode reads back the value whose text Encode writes, for
+// every value whose texts XML can hold (every drawn value, its texts made
+// holdable by heldFleet).
+law RoundTrips(v fleet) {
+	let w = heldFleet(v)
+	let back = Decode(codecOf(), Encode(codecOf(), w)) catch {
+	case _:
+		return false
+	}
+	back == w
+}
+
+// OutputIsWellFormed: every text Encode writes is a well-formed document
+// whose root is the codec's Root.
+law OutputIsWellFormed(v fleet) {
+	let root = Check(Encode(codecOf(), v), 0) catch {
+	case _:
+		return false
+	}
+	root == "fleet"
+}
+
+// pointsAt reports a failure at offset whose line and column are the
+// offset's place in text.
+func pointsAt(m Malformed, text string, offset int) bool {
+	let want = At(text, offset, m.Reason)
+	m.Offset == offset && m.Line == want.Line && m.Column == want.Column
+}
+
+// ControlCharacterIsRejectedWhereItIs: a control character put anywhere
+// in a document Encode wrote of texts XML holds makes it malformed, and
+// Check names its byte, with its line and column; put inside a UTF-8
+// sequence, the sequence's first byte, which is no longer UTF-8.
+law ControlCharacterIsRejectedWhereItIs(v fleet, at int) {
+	let text = Encode(codecOf(), heldFleet(v))
+	let i = if at < 0 { -(at % (len(text) + 1)) } else { at % (len(text) + 1) }
+	let bad = strings.Slice(text, 0, i) + "\x01" + strings.Slice(text, i, len(text))
+	match Check(bad, 0) catch {
+	case Malformed as m:
+		let split = m.Offset < i && i-m.Offset < 4 && bad[m.Offset] >= 0xC0
+		return (m.Offset == i || split) && pointsAt(m, bad, m.Offset)
+	} {
+	case _:
+		false
+	}
+}
+
+// TruncationIsRejectedInsideTheText: every proper prefix of a document
+// Encode wrote of texts XML holds is malformed, at an offset inside the
+// prefix, with its line and column.
+law TruncationIsRejectedInsideTheText(v fleet, cut int) {
+	let text = Encode(codecOf(), heldFleet(v))
+	let k = if cut < 0 { -(cut % len(text)) } else { cut % len(text) }
+	let part = strings.Slice(text, 0, k)
+	match Check(part, 0) catch {
+	case Malformed as m:
+		return m.Offset <= k && pointsAt(m, part, m.Offset)
+	} {
+	case _:
+		false
+	}
+}
+
+// Text's own law RawJoins is checked where it is declared (text.ergo).

@@ -32,6 +32,8 @@
 // become constant text. The law FastAgreesWithWriter holds that it writes
 // what the Writer operations write.
 
+import strings
+
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
@@ -75,7 +77,7 @@ type Text {
 	floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish() string,
+	finish(hint int) string,
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -112,11 +114,6 @@ extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out [
 
 // bytesText is the bytes of out as a string.
 extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(out []byte) string
-
-// take is an empty buffer from a pool; recycle puts out's buffer back, so
-// nothing may use it after (Encode only).
-extern go ergo.local/prototype/runtime/v1.JSONTake func take() []byte
-extern go ergo.local/prototype/runtime/v1.JSONRecycle func recycle(out []byte) []byte
 
 func raw(t *text, s string) { t.out = appendString(t.out, s) }
 
@@ -254,9 +251,9 @@ func Key(t *text, k string) {
 
 func Written(t *text) string { bytesText(t.out) }
 
-func finish(t *text) string {
-	let s = bytesText(t.out)
-	t.out = recycle(t.out)
+func finish(t *text, hint int) string {
+	let s = strings.FromBytes(t.out)
+	t.out = strings.Give(t.out, hint)
 	s
 }
 
@@ -410,12 +407,14 @@ func End(r Reader) { r.c.End() }
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
-// (Its Text's buffer is pooled, take and recycle, as encoding/json keeps its
-// encodeState: no other code sees it.)
+// (Its Text's buffer is borrowed, strings.Borrow and Give, as
+// encoding/json keeps its encodeState: no other code sees it. The hint
+// is T's, so an encode after a GC allocates one buffer of T's last size.)
 func Encode[T wire](c Codec[T], v T) string {
-	let t Text = text{comma: false, html: false, out: take()}
+	let hint = strings.Hint[text, T]()
+	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
 	encode(v, t)
-	t.finish()
+	t.finish(hint)
 }
 
 // Decode is the T that text writes: Malformed when the text breaks

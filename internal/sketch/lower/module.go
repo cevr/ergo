@@ -126,7 +126,7 @@ func Lower(u Unit) ([]File, error) {
 // withRecord is files with the producer record of a run build that read a
 // ledger: it names the ledgers and the rewrites applied (ledger.go).
 func (l *lowerer) withRecord(u Unit, files []File) []File {
-	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
 		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
 	}
 	return files

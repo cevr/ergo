@@ -197,9 +197,19 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 		c.silentArgs(x)
 		return bad(x)
 	}
-	if !c.argument(x.Args[0], preludeType(WireReaderName), x) {
+	// The reader operand is lent to decode, which keeps no reader, as
+	// encode keeps no writer: a value that holds a cell (a module's
+	// sealed reader) converts to the Reader here and nowhere else
+	// (encodeLend), so a provider's reader holds its place in its own
+	// fields, as std's runtime reader does.
+	rt := preludeType(WireReaderName)
+	r, ok := c.argValue(x.Args[0], rt, x)
+	if !ok {
 		return bad(x)
 	}
+	c.encodeLend = true
+	c.assign(&r, rt, "argument")
+	c.encodeLend = false
 	if !c.wireOperand(x, t, "decode") {
 		return bad(x)
 	}

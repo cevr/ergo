@@ -1,0 +1,25 @@
+{
+  "about": "The CBOR codec's mutants. Killers are the examples suite (examples:cborpack: its tests, the RFC 8949 Appendix A examples, and its cases); each rule names the test that kills it.",
+  "mutants": [
+    {
+      "name": "npj-head-edge-24",
+      "origin": "wf10 REF NOPRIV-JSON",
+      "file": "examples/cborpack/cbor/cbor.ergo",
+      "from": "\tif n < 24 {\n\t\tt.raw(byteText(major*32 + int(n)))",
+      "to": "\tif n <= 24 {\n\t\tt.raw(byteText(major*32 + int(n)))",
+      "rule": "HeadsAtTheirEdges: an argument of 24 takes the one-byte form 0x18 24; no case of the program writes one.",
+      "anchor": {"tests": ["examples:cborpack"]},
+      "killers": ["examples:cborpack"]
+    },
+    {
+      "name": "npj-negative-off-by-one",
+      "origin": "wf10 REF NOPRIV-JSON",
+      "file": "examples/cborpack/cbor/cbor.ergo",
+      "from": "\t\tt.head(1, uint64(-1-n))",
+      "to": "\t\tt.head(1, uint64(-n))",
+      "rule": "NegativesAndOtherItems: a negative n is major type 1 with argument -1-n; the program's sample has no negative.",
+      "anchor": {"tests": ["examples:cborpack"]},
+      "killers": ["examples:cborpack"]
+    }
+  ]
+}

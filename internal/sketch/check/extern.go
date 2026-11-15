@@ -230,7 +230,7 @@ func (c *checker) runtimeDoor(f *Func) string {
 		if c.pkg.module == "" {
 			return fmt.Sprintf("extern go %s binds the Ergo runtime, which a package binds only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)", target)
 		}
-		return fmt.Sprintf("extern go %s binds the Ergo runtime, which a package binds only when the root module trusts its Go; write the line `trust %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
+		return fmt.Sprintf("extern go %s binds the Ergo runtime, which a package binds only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
 	}
 	if predeclaredExtern(f) {
 		return ""
@@ -265,7 +265,7 @@ func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 	}
 	target := path + "." + name
 	if !c.pkg.trusted {
-		return fmt.Sprintf("extern go %s binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module), true
+		return fmt.Sprintf("extern go %s binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module), true
 	}
 	bodies, err := v1.ReadBodies(fsys)
 	if err != nil {

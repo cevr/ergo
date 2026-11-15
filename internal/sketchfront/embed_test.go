@@ -44,7 +44,7 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 				case "Tree":
 					imports = "extern go ergo.local/prototype/runtime/v1.FS type Tree { runtimeOnly() }\n"
 					pattern = "data"
-					mod = "module app\ntrust app\n"
+					mod = "module app\ntrust go app\n"
 				}
 				source := imports + fmt.Sprintf("let Asset = embedded[%s](%q)\n", kind, pattern)
 				payload := make([]byte, 97+rng.IntN(4096))

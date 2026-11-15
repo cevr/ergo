@@ -511,7 +511,7 @@ func copyMain(path string, refs []string) string {
 }
 
 // copyTrust is the importer of a copy: std, and the root module's trust
-// line for the copy's module, `trust copy` (docs/spec/interop.md, Trusted
+// line for the copy's module, `trust go copy` (docs/spec/interop.md, Trusted
 // Go), so the copy binds the runtime as std does (NP4e).
 type copyTrust struct{}
 

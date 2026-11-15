@@ -8,7 +8,7 @@ import (
 )
 
 // trustingImporter is std, for a package of module app whose root trusts
-// app's Go (ergo.mod `trust app`; docs/spec/interop.md, Trusted Go).
+// app's Go (ergo.mod `trust go app`; docs/spec/interop.md, Trusted Go).
 type trustingImporter struct{}
 
 func (trustingImporter) Import(path string) (*Package, error) { return Std.Import(path) }

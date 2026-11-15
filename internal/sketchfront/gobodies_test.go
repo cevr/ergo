@@ -46,9 +46,9 @@ func Unmarked(t *rt.Task) int { return 0 }
 			"func main() needs Console {\n\tConsole.Println(mark(\"here\"))\n\tConsole.Println(strconv.Itoa(poll(41)))\n}\n",
 	}
 	for _, c := range []struct{ mod, extra, want string }{
-		{"module app\ntrust app\n", "", ""},
-		{"module app\n", "", "main.ergo S108 3:1 extern go example.com/app/gohost.Mark binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust app` in the root module's ergo.mod"},
-		{"module app\ntrust app\n", "extern go example.com/app/gohost.Unmarked func unmarked() int\n", "main.ergo S108 3:1 extern go example.com/app/gohost.Unmarked: Unmarked states no //ergo:wait KIND"},
+		{"module app\ntrust go app\n", "", ""},
+		{"module app\n", "", "main.ergo S108 3:1 extern go example.com/app/gohost.Mark binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust go app` in the root module's ergo.mod"},
+		{"module app\ntrust go app\n", "extern go example.com/app/gohost.Unmarked func unmarked() int\n", "main.ergo S108 3:1 extern go example.com/app/gohost.Unmarked: Unmarked states no //ergo:wait KIND"},
 	} {
 		files["ergo.mod"] = c.mod
 		main := files["main.ergo"]

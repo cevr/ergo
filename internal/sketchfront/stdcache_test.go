@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,13 +27,15 @@ func resetStdCache(t *testing.T) {
 	stdCache.once = sync.Once{}
 	stdCache.mu.Lock()
 	stdCache.compiler = ""
+	stdCache.modules = ""
+	stdCache.taken = 0
 	stdCache.mu.Unlock()
 }
 
 // TestStdCacheWork is the disk-cache acceptance guard. The cold process
 // writes a snapshot, the warm process checks zero std packages, and a corrupt
-// file or a failed write falls back to source. It also guards both cache key
-// inputs and excludes process-only producer identities. Source-only checks
+// file or a failed write falls back to source. It also guards the cache key
+// (the compiler's identity) and excludes process-only producer identities. Source-only checks
 // cannot catch any of these mutants (testdata/mutants.json).
 func TestStdCacheWork(t *testing.T) {
 	savedIdentity := compilerIdentity
@@ -46,22 +49,10 @@ func TestStdCacheWork(t *testing.T) {
 	})
 	compiler := "sha256:" + strings.Repeat("a", 64)
 	compilerIdentity = func() (string, error) { return compiler, nil }
-	deps := stdDependencies()
-	key := stdSnapshotKey(compiler, deps)
-	if stdSnapshotKey(compiler+"b", deps) == key {
+	// The compiler's identity keys std: its bytes embed the std sources.
+	key := stdSnapshotKey(compiler)
+	if stdSnapshotKey(compiler+"b") == key {
 		t.Fatal("compiler identity is not keyed")
-	}
-	for i := range deps {
-		edited := slices.Clone(deps)
-		edited[i].Implementation += "edit"
-		if stdSnapshotKey(compiler, edited) == key {
-			t.Fatalf("std source %s is not keyed", deps[i].Name)
-		}
-		edited = slices.Clone(deps)
-		edited[i].Name += "edit"
-		if stdSnapshotKey(compiler, edited) == key {
-			t.Fatalf("std package identity %s is not keyed", deps[i].Name)
-		}
 	}
 	root := t.TempDir()
 	UseStdCache(root)
@@ -105,7 +96,7 @@ func TestStdCacheWork(t *testing.T) {
 	run(true) // fallback repairs the cache
 	compiler = "process:" + strings.Repeat("b", 64)
 	run(false)
-	privatePath := filepath.Join(root, "std", stdSnapshotKey(compiler, deps)+".snap")
+	privatePath := filepath.Join(root, "std", stdSnapshotKey(compiler)+".snap")
 	if _, err := os.Stat(privatePath); !os.IsNotExist(err) {
 		t.Fatalf("process-only compiler published a snapshot: %v", err)
 	}
@@ -215,7 +206,7 @@ func TestStdSnapshotAgrees(t *testing.T) {
 	}
 	for _, snap := range snapshots {
 		resetStdCache(t)
-		if err := check.InstallStd(snap.data); err != nil {
+		if err := check.InstallStd(bytes.NewReader(snap.data), int64(len(snap.data))); err != nil {
 			t.Fatalf("%s: %v", snap.name, err)
 		}
 		for i, c := range cases {
@@ -275,6 +266,15 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		out["error"] = err.Error()
 		return out
 	}
+	return analysisOutcome(t, a, c.dir, c.brief)
+}
+
+// analysisOutcome is every output of a: its diagnostics and, for a program
+// that checks, its inspect envelope, both lowered modes and its evaluation
+// (brief: the diagnostics alone).
+func analysisOutcome(t *testing.T, a Analysis, dir string, brief bool) map[string]string {
+	t.Helper()
+	out := map[string]string{}
 	marshal := func(x any) string {
 		b, err := json.Marshal(x)
 		if err != nil {
@@ -283,7 +283,7 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		return string(b)
 	}
 	out["diagnostics"] = marshal(a.Diagnostics)
-	if len(a.Diagnostics) > 0 || c.brief {
+	if len(a.Diagnostics) > 0 || brief {
 		return out
 	}
 	out["inspect"] = marshal(InspectGo(a.Checked()))
@@ -304,7 +304,7 @@ func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 		}
 		out["lower-"+mode.name] = b.String()
 	}
-	ev, err := a.Evaluation(eval.DefaultBudget(), c.dir)
+	ev, err := a.Evaluation(eval.DefaultBudget(), dir)
 	out["eval"] = fmt.Sprintf("%s %v", marshal(ev), err)
 	return out
 }

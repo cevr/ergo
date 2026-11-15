@@ -397,6 +397,7 @@ func (e *encoder) encFieldsField(v *Field) {
 	e.encExpr(v.Where)
 	e.encT4(v.Pure)
 	e.encPos(v.PurePos)
+	e.encPtrWord(v.Own)
 }
 
 func (e *encoder) encField(v Field) { e.encFieldsField(&v) }
@@ -601,6 +602,7 @@ func (e *encoder) encPtrIndexExpr(v *IndexExpr) {
 
 func (e *encoder) encFieldsInterfaceType(v *InterfaceType) {
 	e.encPos(v.Lbrace)
+	e.encT9(v.Includes)
 	e.encT9(v.Methods)
 	e.encT14(v.Laws)
 	e.encT2(v.Union)
@@ -992,6 +994,8 @@ func (e *encoder) encFieldsTypeDecl(v *TypeDecl) {
 	e.encPos(v.DerivePos)
 	e.encExpr(v.Derive)
 	e.encPtrTypeDecl(v.Origin)
+	e.encPos(v.ImplementsPos)
+	e.encT2(v.Implements)
 }
 
 func (e *encoder) encTypeDecl(v TypeDecl) { e.encFieldsTypeDecl(&v) }
@@ -1186,6 +1190,20 @@ func (e *encoder) encT8(v []*Ident) {
 	for _, x := range v {
 		e.encPtrIdent(x)
 	}
+}
+
+func (e *encoder) encFieldsWord(v *Word) {
+	e.encPos(v.At)
+}
+
+func (e *encoder) encWord(v Word) { e.encFieldsWord(&v) }
+
+func (e *encoder) encPtrWord(v *Word) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
 }
 
 func (e *encoder) encT9(v []*Field) {
@@ -1477,6 +1495,8 @@ func objTag(x any) uint64 {
 		return 64
 	case *VariantSpec:
 		return 65
+	case *Word:
+		return 66
 	}
 	return 0
 }
@@ -1614,6 +1634,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsVarSpec(x)
 	case *VariantSpec:
 		e.encFieldsVariantSpec(x)
+	case *Word:
+		e.encFieldsWord(x)
 	}
 }
 
@@ -2080,6 +2102,7 @@ func (d *decoder) decFieldsField(v *Field) {
 	v.Where = d.decExpr()
 	v.Pure = d.decT4()
 	v.PurePos = d.decPos()
+	v.Own = d.decPtrWord()
 }
 
 func (d *decoder) decField() (v Field) {
@@ -2320,6 +2343,7 @@ func (d *decoder) decPtrIndexExpr() *IndexExpr {
 
 func (d *decoder) decFieldsInterfaceType(v *InterfaceType) {
 	v.Lbrace = d.decPos()
+	v.Includes = d.decT9()
 	v.Methods = d.decT9()
 	v.Laws = d.decT14()
 	v.Union = d.decT2()
@@ -2777,6 +2801,8 @@ func (d *decoder) decFieldsTypeDecl(v *TypeDecl) {
 	v.DerivePos = d.decPos()
 	v.Derive = d.decExpr()
 	v.Origin = d.decPtrTypeDecl()
+	v.ImplementsPos = d.decPos()
+	v.Implements = d.decT2()
 }
 
 func (d *decoder) decTypeDecl() (v TypeDecl) {
@@ -2998,6 +3024,23 @@ func (d *decoder) decT8() []*Ident {
 		v[i] = d.decPtrIdent()
 	}
 	return v
+}
+
+func (d *decoder) decFieldsWord(v *Word) {
+	v.At = d.decPos()
+}
+
+func (d *decoder) decWord() (v Word) {
+	d.decFieldsWord(&v)
+	return v
+}
+
+func (d *decoder) decPtrWord() *Word {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*Word)
 }
 
 func (d *decoder) decT9() []*Field {
@@ -3303,6 +3346,8 @@ func newObj(tag uint64) any {
 		return new(VarSpec)
 	case 65:
 		return new(VariantSpec)
+	case 66:
+		return new(Word)
 	}
 	return nil
 }
@@ -3440,5 +3485,7 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsVarSpec(x)
 	case *VariantSpec:
 		d.decFieldsVariantSpec(x)
+	case *Word:
+		d.decFieldsWord(x)
 	}
 }

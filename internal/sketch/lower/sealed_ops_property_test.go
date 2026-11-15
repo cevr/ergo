@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -148,10 +149,13 @@ func stdOpTypes(t *testing.T) []stdOpType {
 // program's own (a generated operation type with the source's members),
 // which the checker must refuse: std declares none of a program's
 // operation types (EXC1, q170). A target std declares is admitted exactly
-// when the source includes it.
+// when the source includes it. A must case is a sealed operation type the
+// program declares, which includes the target: it converts as a plain
+// interface would.
 type sealedCase struct {
 	name, src string
 	program   bool
+	must      bool
 }
 
 // sealedSource is the Go-free program of one conversion: target is the
@@ -266,13 +270,19 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	// its value converts as a plain interface would (check.sealedStd's Std
 	// term; batch-17 round 2 TS-1).
 	user := []string{"Next() int", "Add(n int) int", "Name() string"}
-	userDecl := "type Counter {\n" + strings.Join(user, ",\n") + ",\nreset(),\n}\n\ntype C { n int }\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
 	for i, members := range append([][]string{user}, [][]string{{user[0]}, {user[1]}, {user[2]}}...) {
 		name := "main.Counter/all"
 		if i > 0 {
 			name = "main.Counter/" + members[0][:strings.Index(members[0], "(")]
 		}
-		cases = append(cases, sealedCase{name: name, src: "\n" + userDecl + "\ntype Op {\n" + strings.Join(members, ",\n") + ",\n}\n\nfunc Conv(s Counter) Op { s }\n", must: true})
+		own := []string{"..Op"}
+		for _, m := range user {
+			if !slices.Contains(members, m) {
+				own = append(own, m)
+			}
+		}
+		decl := "type Counter {\n" + strings.Join(own, ",\n") + ",\nreset(),\n}\n\ntype C { n int } implements Counter\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
+		cases = append(cases, sealedCase{name: name, src: "\n" + decl + "\ntype Op {\n" + strings.Join(members, ",\n") + ",\n}\n\nfunc Conv(s Counter) Op { s }\n", must: true})
 	}
 	var programs []*lowered
 	admitted := map[string]bool{}
@@ -285,6 +295,9 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 		case o.err != nil:
 			t.Errorf("%s: %v\n%s", c.name, o.err, c.src)
 		case len(o.diags) > 0:
+			if c.must {
+				t.Errorf("%s: the checker refuses a conversion into an operation type with the source's own members: %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
+			}
 			if c.program && (len(o.diags) != 1 || !strings.Contains(o.diags[0].Message, "does not include")) {
 				t.Errorf("%s: want the one refusal of the declared relation, got %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
 			}

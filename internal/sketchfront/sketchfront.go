@@ -65,7 +65,7 @@ func Check(source string) Analysis {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
-	prepareStd()
+	prepareStd(nil)
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
 	stage.Add(stage.PackagesChecked, 1)
 	stage.Add(stage.DeclsChecked, int64(len(file.Decls)))
@@ -469,7 +469,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ev.HasRules() {
+	if !lower.HasRewriteLaws(unit) {
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev

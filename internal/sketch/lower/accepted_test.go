@@ -45,6 +45,9 @@ var implementedFamilies = []string{
 	// machine.go; TestMachinePlanValues), and the value converts to the
 	// prelude's Machine (ConvMachine).
 	"MachineType", "MachineEntry", "conv:Machine",
+	// encode(v, w) lowers to the codec functions of v's type over w
+	// (types.md, Laws 14); examples/cborpack's codec is a witness.
+	"call:Encode",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,

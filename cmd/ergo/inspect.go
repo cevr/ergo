@@ -43,6 +43,9 @@ func inspectCommand(args []string) error {
 		}
 		return inspectAPICommand(args[1:])
 	}
+	if len(args) > 0 && args[0] == "deps" {
+		return inspectDepsCommand(args[1:])
+	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)
 	}

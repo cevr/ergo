@@ -1,0 +1,39 @@
+// The codec against the examples of RFC 8949, Appendix A: each head size
+// at its edges, both integer major types, a float, a text string, an
+// array, and the map form a record takes here.
+
+import hex
+
+// hexOf is the CBOR of v in hex, as the RFC writes its examples.
+func hexOf[T wire](v T) string { hex.Encode(Encode(v)) }
+
+type Pair { A int, B []int }
+
+test HeadsAtTheirEdges {
+	assert hexOf(0) == "00"
+	assert hexOf(23) == "17"
+	assert hexOf(24) == "1818"
+	assert hexOf(255) == "18ff"
+	assert hexOf(256) == "190100"
+	assert hexOf(65535) == "19ffff"
+	assert hexOf(65536) == "1a00010000"
+	assert hexOf(1000000) == "1a000f4240"
+	assert hexOf(int64(1000000000000)) == "1b000000e8d4a51000"
+	let most uint64 = 18446744073709551615
+	assert hexOf(most) == "1bffffffffffffffff"
+}
+
+test NegativesAndOtherItems {
+	assert hexOf(-1) == "20"
+	assert hexOf(-1000) == "3903e7"
+	let least int64 = -9223372036854775808
+	assert hexOf(least) == "3b7fffffffffffffff"
+	assert hexOf(1.1) == "fb3ff199999999999a"
+	assert hexOf(true) == "f5"
+	assert hexOf(false) == "f4"
+	assert hexOf("IETF") == "6449455446"
+	assert hexOf("") == "60"
+	assert hexOf("a long text string of 30 bytes") == "781e61206c6f6e67207465787420737472696e67206f66203330206279746573"
+	assert hexOf([]int{1, 2, 3}) == "83010203"
+	assert hexOf(Pair{A: 1, B: []int{2, 3}}) == "bf61610161628202"+"03ff"
+}

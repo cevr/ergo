@@ -628,15 +628,20 @@ func (e *LedgerEvidence) record(l *lowerer, applied int) []byte {
 // LedgerEntries are the ledger's entries from the check runs of ev, the
 // evidence RewriteChecks returned for u, whose packages names names: for
 // each rewrite or post law and provider whose run printed a verdict, one
-// with no instance and one per site instance the run took. A law no run
-// took writes nothing.
+// with no instance and one per site instance the run took, for the root's
+// providers and its imports' (importRules). A law no run took writes
+// nothing.
 func LedgerEntries(u Unit, names LedgerNames, ev RewriteEvidence) []LedgerEntry {
 	c, ok := ev.(*checkedEvidence)
 	if !ok {
 		return nil
 	}
 	var out []LedgerEntry
-	for prov, rules := range newRewriter(u.Package, nil).rules {
+	all := newRewriter(u.Package, nil).rules
+	for prov, rules := range importRules(u) {
+		all[prov] = append(all[prov], rules...)
+	}
+	for prov, rules := range all {
 		for _, r := range rules {
 			if !c.ran[r.law] {
 				continue

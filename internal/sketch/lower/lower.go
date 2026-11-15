@@ -57,6 +57,13 @@ type Unit struct {
 	// before the law, so a fact holds after its operation from every
 	// state, as the lowering uses it. The run build ignores them.
 	Posts []*check.Law
+	// ImportLaws are law runs of imported units' packages that the test
+	// build runs beside the root's own: the laws the run build asked of a
+	// provider an import declares (a module's own codec, a cell writer),
+	// which the root's test build checks at the root's site instances,
+	// since a library has no sites of its own (RewriteChecks). The run
+	// build ignores them.
+	ImportLaws []check.LawRun
 	// Rewrite is the evidence of the law runs the run build may rewrite
 	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
 	Rewrite RewriteEvidence

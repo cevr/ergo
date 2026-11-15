@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -77,7 +78,7 @@ func embeddedSnapshot(deps []build.Dependency) []byte {
 // did. A snapshot that does not decode is refused, never half installed.
 func installEmbedded() bool {
 	data := embeddedSnapshot(stdDependencies())
-	return data != nil && check.InstallStd(data) == nil
+	return data != nil && check.InstallStd(bytes.NewReader(data), int64(len(data))) == nil
 }
 
 // stdSourcesDigest is the digest of the std sources: every package's name

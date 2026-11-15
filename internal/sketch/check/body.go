@@ -223,7 +223,7 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		if c.pkg.module == "" {
 			return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)", target)
 		}
-		return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; write the line `trust %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
+		return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
 	}
 	path, name := tn.Decl.Extern.Split()
 	if path != runtimeModule+"/v1" {
