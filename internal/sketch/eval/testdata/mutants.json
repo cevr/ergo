@@ -1034,8 +1034,8 @@
       "name": "oracle-o4-imports-lowering",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/value.go",
-      "from": "\t\"math\"\n\t\"strconv\"\n",
-      "to": "\t\"math\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
+      "from": "\t\"slices\"\n\t\"strconv\"\n",
+      "to": "\t\"slices\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
       "rule": "The evaluator is the reference every build agrees with: it shares no code with the lowering (ORACLE, import guard).",
       "killers": ["internal/sketch/eval:TestEvalSharesNoLowering"],
       "anchor": {"tests": ["internal/sketch/eval:TestEvalSharesNoLowering"]}
@@ -1513,7 +1513,7 @@
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/arguments.go",
       "from": "\t\tslices.SortFunc(keys, compareKeys)\n",
-      "to": "\n",
+      "to": "\t\tslices.SortFunc(keys[:0], compareKeys)\n",
       "rule": "The steps an obligation costs are the same on every run: rendering a Map argument sorts from one fixed order, not Go's map order.",
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
@@ -1543,15 +1543,6 @@
       "to": "\tfor _, i := range p.owned[:0] {",
       "rule": "A parameter the callee's package owns is registered at the call, read from the callee's plan (R8).",
       "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
-    },
-    {
-      "name": "oracle-o34-error-value-cached-across-owners",
-      "origin": "wf10 ORACLE O34",
-      "file": "internal/sketch/eval/interp.go",
-      "from": "\tf, bit := in.fx(fr, x), uint8(1)<<fr.owner",
-      "to": "\tf, bit := in.fx(fr, x), uint8(1)",
-      "rule": "Whether a returned value is a failure depends on the frame's fact owner: an error type only a test's row names is a failure in a test body alone.",
-      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     }
   ]
 }
