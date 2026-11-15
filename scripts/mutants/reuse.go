@@ -36,8 +36,9 @@ import (
 // -fresh judges every row (the reference), and -all, which names every
 // killer, reuses nothing.
 
-// reuseVersion names the store's format and the meaning of its keys.
-const reuseVersion = "ergo-mutants-reuse-v1"
+// reuseVersion names the store's format and the meaning of its keys. v2
+// (GT-COMPILE): a v1 killed verdict may rest on a compile error.
+const reuseVersion = "ergo-mutants-reuse-v2"
 
 // reuseCacheVariable names the store's directory.
 const reuseCacheVariable = "ERGO_MUTANTS_CACHE"

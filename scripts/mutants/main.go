@@ -70,7 +70,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write, fresh, measureOnly bool
+	var write, fresh, measureOnly, compileOnly bool
+	flags.BoolVar(&compileOnly, "compiles", false, "apply each selected row and compile it, and run no test: list the rows that do not compile (invalid)")
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
 	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
 	flags.BoolVar(&measureOnly, "measure", false, "measure the coverage of the ledgers' suites into the coverage store and judge nothing (run on main's head after a landing)")
@@ -128,6 +129,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		jobs = append(jobs, Job{Path: path, Ledger: l, Select: sel})
 		addScope(&cfg, scopeOf(cfg.Root, path))
+	}
+	if compileOnly {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		start := time.Now()
+		results, err := CompileRows(ctx, cfg, jobs)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		code := report(stdout, jobs, results, &coverage{})
+		fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
+		if jsonOut != "" {
+			if werr := writeResults(jsonOut, results); werr != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", werr)
+				return 2
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return code
 	}
 	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
@@ -484,6 +508,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	}
 	counts := map[string]int{}
 	var newSurvivors, gaps, closed, moved, only, owners, unjudged []string
+	invalid := 0
 	for _, r := range results {
 		if r.Status == "" {
 			continue // not judged: the run was interrupted
@@ -515,6 +540,9 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			}
 		case Stale, Invalid:
 			owners = append(owners, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, r.Status, m.Origin, firstLine(r.Detail)))
+			if r.Status == Invalid {
+				invalid++
+			}
 		case Unjudged:
 			unjudged = append(unjudged, fmt.Sprintf("%s (%s): %s", r.Name, where, r.Detail))
 		}
@@ -530,7 +558,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	section(w, "gaps closed (now killed: clear the gap)", closed)
 	section(w, "killer moved", moved)
 	section(w, "killed only by", only)
-	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build)", owners)
+	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build, or the mutated file does not compile; an invalid row fails the run)", owners)
 	var broken []string
 	for _, t := range cov.Tests {
 		if t.Failed {
@@ -539,7 +567,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	}
 	section(w, "tests that fail on the unmutated tree (they kill nothing)", broken)
 	section(w, "NOT JUDGED (a test that covers them fails on the unmutated tree: fix it, then run again)", unjudged)
-	if len(newSurvivors) > 0 || len(unjudged) > 0 {
+	if len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {
 		return 1
 	}
 	return 0

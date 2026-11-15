@@ -26,7 +26,9 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // functions and asserts a random part of them; one test fails on the
 // unmutated tree, so a mutant it covers or that names it is unjudged
 // (FT11b: a red baseline judges nothing). Its ledger holds one value mutant per function (known
-// killers drawn at random, some wrong), a mutant that does not build, one
+// killers drawn at random, some wrong), a mutant that does not build, a
+// mutant of a package no test binary imports that no longer compiles, whose
+// named killer builds that package (invalid, not killed: GT-COMPILE), one
 // that no longer applies, a string-literal mutant with an anchor and one
 // without (no block of one runs it, but two:TestReadsOne reads one/f.go:
 // its test log selects it for every mutant of that file, and it kills this
@@ -189,6 +191,26 @@ func (m fakeModule) testSource(pkg string) string {
 	return b.String()
 }
 
+// genTest builds package gen, which no test binary imports.
+const genTest = `package two_test
+
+import (
+	"os/exec"
+	"testing"
+
+	"fake.test/m/internal/fakelog"
+)
+
+func TestBuildsGen(t *testing.T) {
+	fakelog.Ran(t)
+	cmd := exec.Command("go", "build", "./gen")
+	cmd.Dir = ".."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./gen: %v\n%s", err, out)
+	}
+}
+`
+
 const fakelog = `package fakelog
 
 import (
@@ -219,6 +241,7 @@ type expect struct {
 	killers  []string
 	covering []string
 	reason   string
+	detail   string // a prefix of the runner's detail
 }
 
 func (m fakeModule) model(target string, invalid bool) expect {
@@ -298,6 +321,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"two/f.go":                    m.source("two"),
 		"one/f_test.go":               m.testSource("one"),
 		"two/f_test.go":               m.testSource("two"),
+		// No test binary imports gen; TestBuildsGen builds it, as lower's
+		// tests build a lowered program against runtime/v1.
+		"gen/g.go":        "package gen\n\nfunc G() int { return 1 }\n",
+		"two/gen_test.go": genTest,
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -337,6 +364,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// reader): it runs and kills.
 		{&Mutant{Name: "literal-named", File: "one/f.go", From: `"bye"`, To: `"by"`, Killers: []string{"two:TestReadsOne (reads one's source)"}},
 			expect{status: Killed, killers: []string{"two:TestReadsOne"}, covering: []string{"two:TestReadsOne"}}},
+		// Its named test fails only because gen no longer compiles: the
+		// suites build, and the mutant is invalid, not killed (GT-COMPILE).
+		{&Mutant{Name: "gen-does-not-compile", File: "gen/g.go", From: "return 1 }", To: "return \"x\" }", Killers: []string{"two:TestBuildsGen"}},
+			expect{status: Invalid, detail: "does not compile: gen/g.go:3:"}},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {
@@ -431,6 +462,9 @@ func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLi
 		}
 		if all && res.Status == Killed && !sameSet(res.Killers, w.killers) {
 			bad("killers %v, model %v", res.Killers, w.killers)
+		}
+		if w.detail != "" && !strings.HasPrefix(res.Detail, w.detail) {
+			bad("detail %q, want %q first", res.Detail, w.detail)
 		}
 		if w.reason != "" && res.Reason != w.reason {
 			bad("killed by %q, want %q", res.Reason, w.reason)

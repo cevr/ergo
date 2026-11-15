@@ -111,8 +111,9 @@ const (
 	Survived  = "survived"
 	Uncovered = "uncovered" // no test runs its lines, and the ledger names none
 	Stale     = "stale"     // its edit does not apply: report it to its origin
-	Invalid   = "invalid"   // the mutated tree does not build: report it to its origin
+	Invalid   = "invalid"   // the mutated tree does not build or the mutated file does not compile: report it to its origin
 	Unjudged  = "unjudged"  // a test that covers it or the ledger names fails on the unmutated tree
+	Compiles  = "compiles"  // -compiles only: the mutated file compiles, and no test ran
 )
 
 // Result is the verdict on one mutant.
@@ -179,12 +180,13 @@ func covered(ctx context.Context, cfg Config, jobs []Job) (*engine, error) {
 }
 
 type engine struct {
-	cfg    Config
-	module string
-	files  []treeFile
-	key    string
-	cov    *coverage
-	logMu  sync.Mutex
+	cfg         Config
+	compileOnly bool // CompileRows: each row is applied and compiled, no test runs
+	module      string
+	files       []treeFile
+	key         string
+	cov         *coverage
+	logMu       sync.Mutex
 }
 
 type treeFile struct {
@@ -941,6 +943,19 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	}
 	at := strings.Index(string(original), m.From)
 	r.Line = 1 + strings.Count(string(original[:at]), "\n")
+	if w.e.compileOnly {
+		restore, detail := w.apply(m, path, original)
+		if restore == nil {
+			r.Status, r.Detail = Invalid, detail
+			return r
+		}
+		defer restore()
+		r.Status = Compiles
+		if detail := w.compiles(ctx, m, path, original); detail != "" {
+			r.Status, r.Detail = Invalid, detail
+		}
+		return r
+	}
 	file, lo, hi := m.File, r.Line, r.Line+strings.Count(m.From, "\n")
 	header := headerLine(string(original), at)
 	// The tests the ledger names, its killers and its anchor's tests, run
@@ -989,23 +1004,18 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
 		return r
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
+	restore, detail := w.apply(m, path, original)
+	if restore == nil {
+		r.Status, r.Detail = Invalid, detail
 		return r
 	}
-	w.touched[m.File] = true
-	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
+	defer restore()
+	// A test that fails because the mutated file does not compile kills
+	// nothing the ledger can trust (compiles.go, GT-COMPILE).
+	if detail := w.compiles(ctx, m, path, original); detail != "" {
+		r.Status, r.Detail = Invalid, detail
 		return r
 	}
-	defer func() {
-		if err := os.WriteFile(path, original, info.Mode().Perm()); err != nil {
-			w.err = errors.Join(w.err, fmt.Errorf("restore %s: %w", m.File, err))
-		}
-	}()
 	built := map[string]bool{}
 	for _, id := range w.e.cov.order(covering, killerIDs(m)) {
 		if ctx.Err() != nil {
