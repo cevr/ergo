@@ -1084,8 +1084,8 @@
     {
       "name": "wg4-units-theirs-at-the-end", "origin": "wf10/semws WG4",
       "file": "modules/work/work/units.ergo",
-      "from": "\t\t\torder = placed(order, after, u.Key)",
-      "to": "\t\t\torder = placed(order, Some[string]{Value: textOf(after) + \" none\"}, u.Key)",
+      "from": "\t\t\torder = placed(order, after, u.Key, func(k string) bool { b.Get(k) == None && t.Get(k) == None })",
+      "to": "\t\t\torder = placed(order, Some[string]{Value: textOf(after) + \" none\"}, u.Key, func(k string) bool { b.Get(k) == None && t.Get(k) == None })",
       "rule": "A unit theirs added goes after the unit before it in theirs (memory's UnitsMergeIsTheReference keeps theirs' order).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1175,6 +1175,14 @@
       "from": "\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
       "to": "\tif false {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
       "rule": "merge-file fails MergeConflict with the units that clash (memory's MergeByLanguageIsMergeUnits).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-theirs-splits-ours", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tfor at < len(order) && oursOnly(order[at]) {",
+      "to": "\tfor at < len(order) && oursOnly(order[at]) && false {",
+      "rule": "Where both sides added units after one unit, ours' come first, as Git writes them (memory's AMergeThatDoesNotParseIsTheLineMerge: k2 then k1).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

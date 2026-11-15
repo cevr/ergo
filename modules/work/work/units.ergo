@@ -76,7 +76,7 @@ func mergedSeq(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
 	let mut after Option[string] = None
 	for u in theirs {
 		if o.Get(u.Key) == None {
-			order = placed(order, after, u.Key)
+			order = placed(order, after, u.Key, func(k string) bool { b.Get(k) == None && t.Get(k) == None })
 		}
 		after = Some[string]{Value: u.Key}
 	}
@@ -90,21 +90,27 @@ func mergedSeq(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
 	seq{Text: strings.Join(texts, ""), Conflicts: conflicts}
 }
 
-// placed is order with key after the key after (first when None).
-func placed(order []string, after Option[string], key string) []string {
-	if after == None {
-		return slices.Concat([]string{key}, order)
-	}
-	let mut out = []string{}
-	let mut done = false
-	for k in order {
-		out = out.Append(k)
-		if !done && after == (Some[string]{Value: k}) {
-			out = out.Append(key)
-			done = true
+// placed is order with key after the key after (at the start when
+// None) and after the keys ours alone added there (oursOnly), as Git
+// writes ours' lines before theirs' where both added: a theirs' unit
+// never splits a run ours added.
+func placed(order []string, after Option[string], key string, oursOnly func(k string) bool) []string {
+	let mut at = 0
+	match after {
+	case Some[string] as a:
+		at = len(order)
+		for i, k in order {
+			if k == a.Value {
+				at = i + 1
+				break
+			}
 		}
+	case None:
 	}
-	if done { out } else { out.Append(key) }
+	for at < len(order) && oursOnly(order[at]) {
+		at = at + 1
+	}
+	slices.Concat(slices.Concat(order[0:at], []string{key}), order[at:])
 }
 
 func textOfUnit(u Option[Unit]) Option[string] {

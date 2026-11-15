@@ -790,8 +790,8 @@ func Units(p Picky, file string, text string) []work.Unit fails work.Unreadable 
 // that does not parse is the line merge, with the conflict Unparsed.
 test AMergeThatDoesNotParseIsTheLineMerge {
 	let base = "unit c\n  m k3 v1\n  end\n"
-	let ours = "unit c\n  m k1 v1\n  m k3 v1\n  end\n"
-	let theirs = "unit c\n  m k2 v1\n  m k3 v1\n  end\n"
+	let ours = "unit c\n  m k2 v1\n  m k3 v1\n  end\n"
+	let theirs = "unit c\n  m k1 v1\n  m k3 v1\n  end\n"
 	let lines = work.MergeUnits(NewLines(), "f.lines", base, ours, theirs) catch {
 	case work.Unreadable, work.Unanswered:
 		return
