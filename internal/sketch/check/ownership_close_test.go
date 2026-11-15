@@ -12,11 +12,13 @@ import (
 // a method value of Close (`let f = r.Close`) could be called twice or
 // never. The address form now takes h (a later use is S108); the method
 // value is refused with its text and position (resources R33: a function
-// value owns no resource).
+// value owns no resource). A user operation type's `Close()` takes the
+// value it is called on, so a resource's written Close implements it.
 //
 // Mutants it catches that nothing else does: a Close through `&h` that
 // takes nothing (the borrowed() UnaryExpr arm removed); a method value of
-// Close admitted.
+// Close admitted; an operation type's Close that takes nothing (L8-B2,
+// closeOpTakes: Pipe's clause would be S106).
 func TestCloseFormsTakeOnce(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
 	src := ofPrelude + `// r is a Closer, which Res declares.
@@ -32,6 +34,16 @@ func value() {
 	let f = r.Close
 	f()
 }
+
+// Stream lists its own Close(), which takes the value it is called on,
+// as Pipe's Close does: the clause holds.
+type Stream { Close(), Get() int }
+
+type Pipe { n int } implements Stream, Closer
+
+func Get(p Pipe) int { p.n }
+
+func Close(p Pipe) {}
 
 func main() {}
 `
