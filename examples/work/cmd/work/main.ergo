@@ -17,7 +17,8 @@
 // The base is WORK_BASE when it is set; else, from the working folder
 // up, the base of the workspace it is in (its folder in a .work/REPO/
 // beside the base, the default storage), or the first
-// folder with a .git; else the working folder. A relative WORK_BASE
+// folder with a .git (or the base whose registry holds that folder: an
+// adopted copy); else the working folder. A relative WORK_BASE
 // stays relative, so every path the tool prints is relative to the
 // working folder (the cases print the same lines on every host), and "."
 // is the working folder itself. WORK_NOW, a Unix second, fixes the clock
@@ -42,8 +43,11 @@ import strconv
 import strings
 import time
 
-// baseOf is the base of the working folder cwd, as the head says.
-func baseOf(files fs.Files, cwd string) string {
+// baseOf is the base of the working folder cwd, as the head says; a
+// folder with a .git that a registered base's registry holds as a
+// workspace (an adopted copy) has that base (journal.BaseHolding over
+// the list of bases in data, "" for none).
+func baseOf(files fs.Files, cwd string, data string) string {
 	let mut dir = filepath.Clean(cwd)
 	for {
 		let home = filepath.Dir(dir)
@@ -55,7 +59,8 @@ func baseOf(files fs.Files, cwd string) string {
 			fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
 		}
 		if found.Name != "" {
-			return dir
+			let held = if data == "" { "" } else { journal.BaseHolding(files, data, dir) }
+			return if held != "" { held } else { dir }
 		}
 		if home == dir {
 			return filepath.Clean(cwd)
@@ -102,16 +107,7 @@ func main() fails os.Exit needs Ambient | Console {
 		return os.Exit{Code: 1, Message: "work: \(n.Message)"}
 	}
 	let files = fs.NewHost()
-	let base = match process.Getenv("WORK_BASE") {
-	case Some[string] as b:
-		// "." is the working folder: its storage beside it must not be
-		// inside it.
-		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
-	case None:
-		baseOf(files, cwd)
-	}
-	let home = work.Home(base, work.StorageOf(files, base))
-	let data = match process.Getenv("XDG_DATA_HOME") {
+	let shared = match process.Getenv("XDG_DATA_HOME") {
 	case Some[string] as x:
 		filepath.Join([]string{x.Value, "work"})
 	case None:
@@ -119,9 +115,19 @@ func main() fails os.Exit needs Ambient | Console {
 		case Some[string] as h:
 			filepath.Join([]string{h.Value, ".local", "share", "work"})
 		case None:
-			filepath.Join([]string{home, ".data"})
+			""
 		}
 	}
+	let base = match process.Getenv("WORK_BASE") {
+	case Some[string] as b:
+		// "." is the working folder: its storage beside it must not be
+		// inside it.
+		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
+	case None:
+		baseOf(files, cwd, shared)
+	}
+	let home = work.Home(base, work.StorageOf(files, base))
+	let data = if shared != "" { shared } else { filepath.Join([]string{home, ".data"}) }
 	let run = exec.NewHost()
 	let p = work.Providers{
 		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
