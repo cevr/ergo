@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/build"
 )
 
 // readStageReport reads the counters a command wrote to ERGO_STAGE_REPORT.
@@ -34,11 +36,14 @@ func readStageReport(t *testing.T, path string) map[string]int64 {
 //     neither builds nor runs anything; the failing one, never cached,
 //     runs again from the binary the action store holds: no compile, no
 //     link, one process;
-//   - --count 1 runs every package again with no compile and no link, and
-//     its output and exit status are the cached run's.
+//   - --count 1 runs every package again from the module's one test binary
+//     (TEST-one), linked by the first such run; the next has no compile
+//     and no link, and the output and exit status of each are the cached
+//     run's.
 //
-// A run that differs in what it reads (a --run name, a GO* variable, the go
-// command) is no hit. It kills the g-b2 cache mutants (cache-*), which no
+// A run that differs in what it reads (a --run name, a GO* variable) is no
+// hit; a go wrapper of the same release links with the same patched go,
+// so it is one. It kills the g-b2 cache mutants (cache-*), which no
 // other test reaches: none runs a package twice.
 // It builds Go because the claim is about the compiles, links and
 // processes of real test builds.
@@ -83,11 +88,19 @@ func TestTestResultCache(t *testing.T) {
 	if warm.links != 0 || warm.reused != 1 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing {
 		t.Fatalf("warm run: %+v; want no link, 1 reused link and 1 process (the failing package: a result is found before the link), no compile, %d replays", warm, passing)
 	}
+	// --count 1 keeps no warm answer, so it tests the module with one test
+	// binary of every package (TEST-one, docs/testing.md), not the
+	// packages' own: the first such run links that binary once, and the
+	// next reuses it.
+	first := run(nil, "./...", "--count", "1")
+	if first.notes != 0 || first.links != 1 {
+		t.Fatalf("first --count 1 run: %+v; want no replay and one link (the module's test binary)", first)
+	}
 	again := run(nil, "./...", "--count", "1")
 	if again.notes != 0 || again.links != 0 || again.compiles != 0 || again.processes != passing+1 {
 		t.Fatalf("--count 1 run: %+v; want no replay, no link, no compile, %d processes", again, passing+1)
 	}
-	for _, o := range []outcome{warm, again} {
+	for _, o := range []outcome{warm, first, again} {
 		if o.stdout != cold.stdout || o.code != cold.code {
 			t.Fatalf("a cached verdict differs from a run:\nexit %d\n%s\nwant exit %d\n%s", o.code, o.stdout, cold.code, cold.stdout)
 		}
@@ -111,7 +124,35 @@ func TestTestResultCache(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wrapper, "go"), []byte("#!/bin/sh\nexec "+goCommand+" \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if o := run([]string{"PATH=" + wrapper + string(os.PathListSeparator) + os.Getenv("PATH")}, "./p0"); o.notes != 0 || o.code != 0 {
-		t.Fatalf("another go command replayed: %+v", o)
+	// The go command that links is the patched release of the selected Go
+	// (buildAction, IRT0b), not the PATH entry: a wrapper that runs the
+	// same release links with the same go, so its run replays.
+	// TestTestResultKeysTheLinkingGo keys a reinstalled linking go.
+	if o := run([]string{"PATH=" + wrapper + string(os.PathListSeparator) + os.Getenv("PATH")}, "./p0"); o.notes != 1 || o.code != 0 {
+		t.Fatalf("a go wrapper of the same release did not replay: %+v", o)
+	}
+}
+
+// TestTestResultKeysTheLinkingGo: a test result is keyed by the go command
+// that links the binary (its path, size and modification time), so a
+// reinstalled Go misses. It kills cache-go-unkeyed, which the process test
+// cannot reach since IRT0b: the linking go is the patched release in
+// ergo's cache, which no test may replace.
+func TestTestResultKeysTheLinkingGo(t *testing.T) {
+	goPath := filepath.Join(t.TempDir(), "go")
+	if err := os.WriteFile(goPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tc := build.Toolchain{Go: goPath, Root: "/nonexistent/goroot", GOOS: "linux", GOARCH: "amd64"}
+	ledger := filepath.Join(t.TempDir(), "no-ledger")
+	before := testResultKey(fileOptions{}, tc, []string{"-run", "A"}, 0, ledger)
+	if before == "" || before != testResultKey(fileOptions{}, tc, []string{"-run", "A"}, 0, ledger) {
+		t.Fatalf("the key of one run is %q, then another", before)
+	}
+	if err := os.WriteFile(goPath, []byte("#!/bin/sh\n# reinstalled\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if after := testResultKey(fileOptions{}, tc, []string{"-run", "A"}, 0, ledger); after == before {
+		t.Fatal("a reinstalled go command keeps the test result's key")
 	}
 }

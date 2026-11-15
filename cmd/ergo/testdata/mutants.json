@@ -340,8 +340,8 @@
       "from": "\twrite(goPath)\n\twrite(strconv.FormatInt(info.Size(), 10))\n\twrite(strconv.FormatInt(info.ModTime().UnixNano(), 10))\n",
       "to": "\t_ = info\n",
       "rule": "A test result is keyed by the go command that links the binary, so another or a reinstalled Go misses.",
-      "killers": ["cmd/ergo:TestTestResultCache"],
-      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+      "killers": ["cmd/ergo:TestTestResultKeysTheLinkingGo"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultKeysTheLinkingGo"]}
     },
     {
       "name": "cache-count-ignored",
