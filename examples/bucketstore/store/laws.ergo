@@ -1,0 +1,21 @@
+// The store's rules as laws.
+
+// BumpCounts: a counter bumped n times counts n, and its neighbours stay 0.
+law BumpCounts(b int, c int, n int) {
+	let s = New()
+	let times = 1 + (if n < 0 { -(n + 1) } else { n })%6
+	let mut last = 0
+	for _ in 0..times {
+		last = Bump(s, "b\(b)", "c\(c)")
+	}
+	last == times && Count(s, "b\(b)", "c\(c)") == times && Count(s, "b\(b)", "other") == 0 && Buckets(s) == 1
+}
+
+// BucketsApart: a bump of one bucket leaves another unchanged.
+law BucketsApart(b int, c int) {
+	let s = New()
+	let _ = Bump(s, "x\(b)", "c\(c)")
+	let _ = Bump(s, "y\(b)", "c\(c)")
+	let _ = Bump(s, "y\(b)", "c\(c)")
+	Count(s, "x\(b)", "c\(c)") == 1 && Count(s, "y\(b)", "c\(c)") == 2 && Buckets(s) == 2
+}

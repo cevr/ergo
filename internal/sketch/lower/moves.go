@@ -18,6 +18,9 @@ import (
 //   - a reslice: `P = P[a:b]` (any depth of slicing) on one place P. The
 //     old value of P is overwritten by a part of itself, so the array
 //     stays held by P alone (`c.free = c.free[:n-1]`, `xs = xs[1:]`).
+//     The reslice is OWN1's own-reslice (storeread.go, reslices), one
+//     rule: its bounds write no part of the root, and a test build lowers
+//     it to the checking form (shortcuts.go).
 //
 // P is a place: a variable, its fields, or a borrow's pointee (no index:
 // an element's place moves with its index). By the rule's invariant, a
@@ -54,7 +57,7 @@ func (w *valueWalk) decideMoves() {
 			if o.kind != occEscape {
 				continue
 			}
-			if w.takeOf(vv, o) || w.resliceOf(vv, o) {
+			if w.takeOf(vv, o) || w.reslices(o.path, vv) {
 				w.vf.moved[o.path] = true
 				w.l.stats.Moves++
 			}
@@ -136,30 +139,4 @@ func (w *valueWalk) plainFresh(e syntax.Expr, v *check.Var) bool {
 		return ok
 	})
 	return ok
-}
-
-// resliceOf reports o, a kept read of the root vv, as the value of
-// `P = P[a:b]` on one place P.
-func (w *valueWalk) resliceOf(vv *vvar, o *vocc) bool {
-	s, ok := unparen(o.path).(*syntax.SliceExpr)
-	if !ok {
-		return false
-	}
-	base := syntax.Expr(s)
-	for {
-		x, ok := unparen(base).(*syntax.SliceExpr)
-		if !ok {
-			break
-		}
-		base = x.X
-	}
-	if !w.placeOf(base, vv.v) {
-		return false
-	}
-	parent, child := w.unparenParent(o.path)
-	stmt, ok := parent.(*syntax.AssignStmt)
-	if !ok || stmt.Tok != syntax.ASSIGN || len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || syntax.Node(stmt.Rhs[0]) != child {
-		return false
-	}
-	return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)
 }

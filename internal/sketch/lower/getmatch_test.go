@@ -151,8 +151,13 @@ func lowerCopyMode(t *testing.T, name, src string, element bool) *lowered {
 // that value only, so a read costs one value and not the whole Map (std
 // ui's composer read its sibling index this way on every node: 13.9M
 // instructions a dash-gui frame, 3.84M with the element copy). The
-// reference copies the receiver.
+// reference copies the receiver. The value rule copies such a Map only
+// under copyLowering "whole": the entry rule (V8, MAPCOPY) copies no
+// receiver of a Get, so this read copies nothing at all there.
 func TestGetMatchCopiesTheValueNotTheMap(t *testing.T) {
+	saved := copyLowering
+	defer func() { copyLowering = saved }()
+	copyLowering = "whole"
 	src := `type Box { m Map[int, []int] }
 
 func look(b *Box, k int) int {

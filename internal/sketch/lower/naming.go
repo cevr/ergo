@@ -109,6 +109,7 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
+	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
@@ -253,7 +254,7 @@ func (l *lowerer) nameAll() {
 		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
 	})
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
-		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
+		generated = append(generated, entry{key, key.kind + " " + key.obj.(string), cloneBase(t)})
 	})
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})

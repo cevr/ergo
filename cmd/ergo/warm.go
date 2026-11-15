@@ -32,7 +32,7 @@ type warm struct {
 // tc is the toolchain a build (build or run) links with; check passes none.
 func startWarm(opts fileOptions, tc *build.Toolchain) *warm {
 	building := opts.command != "check"
-	if !sketchfront.WarmEnabled() || opts.work || !isPackageFolder(opts.file) || building && tc == nil {
+	if !sketchfront.WarmEnabled() || opts.work || opts.goText != "" || opts.report != "" || !isPackageFolder(opts.file) || building && tc == nil {
 		return nil
 	}
 	source, err := receipt.LocateSource(opts.file)
@@ -84,7 +84,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 
 // warmOptions are the options that change a build's or a check's answer.
 func warmOptions(opts fileOptions) string {
-	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json),
+	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
 		opts.seed, opts.evalSteps, opts.evalBytes})
 }
 

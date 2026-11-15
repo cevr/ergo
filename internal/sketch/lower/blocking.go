@@ -3,8 +3,8 @@ package lower
 import (
 	"reflect"
 	"strings"
-	"time"
 	"sync"
+	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"

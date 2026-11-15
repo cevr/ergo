@@ -266,6 +266,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// owning with has not ended (a panic value, no wait), then calls
 		// the generated copier of its row, a method of the program's own.
 		"HeldLive": true, "copyEnv": true,
+		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
+		// appends under at most one uncontended lock, no wait.
+		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
