@@ -119,6 +119,7 @@ extern go net/url.URL.ResolveReference func (u own *URL) ResolveReference(ref ow
 extern go net/url.URL.String func (u own *URL) String() string needs go.Foreign
 
 // ergo:go func (*URL).UnmarshalBinary(text []byte) error
+// ergo:reads text
 extern go net/url.URL.UnmarshalBinary func (u own *URL) UnmarshalBinary(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func User(username string) *Userinfo

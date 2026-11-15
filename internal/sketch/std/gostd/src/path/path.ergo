@@ -21,6 +21,7 @@ extern go path.IsAbs func IsAbs(path string) bool needs go.Foreign
 
 // ergo:go func Join(elem ...string) string
 // ergo:variadic
+// ergo:reads elem
 extern go path.Join func Join(elem []string) string needs go.Foreign
 
 // ergo:go func Match(pattern string, name string) (matched bool, err error)
