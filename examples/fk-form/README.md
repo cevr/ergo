@@ -1,6 +1,6 @@
 # fk-form
 
-A subscription form for a project's release notes: a name, an email address and a note. Each field is checked as it is typed; a well-formed address is also checked against the list of subscribers; a submit sends the subscription. It is a port of Foldkit's `form` example (`conformance/upstream/foldkit-d21db423/examples/form`, MIT), stage a of FK5: the model, with no view yet. Upstream's form is a waitlist subscription; the port keeps its fields, rules and flow, with neutral texts. The program plays a script of form events against the form, run as an actor, and shows the form after each event.
+A subscription form for a project's release notes: a name, an email address and a note. Each field is checked as it is typed; a well-formed address is also checked against the list of subscribers; a submit sends the subscription. It is a port of Foldkit's `form` example (`conformance/upstream/foldkit-d21db423/examples/form`, MIT), stage b of FK5: the model and its view, on std ui's test host. Upstream's form is a waitlist subscription; the port keeps its fields, rules and flow, with neutral texts. The program plays a script of form events on the form's screen and shows the screen after each event.
 
 Tag: `default`.
 
@@ -13,9 +13,24 @@ Tag: `default`.
   - An edit of the name or the note is a `Stay`: it keeps the entry, so a check under way goes on. An edit of the email is an `Enter`: it opens a new entry, so a check of an older address ends, and the runner drops its answer. Upstream carries the address in the answer and compares it with the field; here the old answer never arrives.
   - A submit starts only when the name is valid or empty (upstream's name is optional) and the email has passed its check. During a submit the form takes no edit (see the ledger: one work per state).
   - `subscribe` declares the contract it needs, `Subscribers { Taken(e) bool, Join(s) fails JoinFailed }`, with the law `TakenIgnoresCase`.
-- Package `memory` is `List`, the three addresses of upstream's waitlist; it refuses a subscription in the `.invalid` domain, which takes no mail.
-- Package `script` reads lines `name TEXT`, `email TEXT`, `note TEXT` and `submit` and plays them against the actor. After each event it prints `> EVENT` and the form, or `(ignored)` when the event changed nothing; when the event started a check or a submit, it also prints the form once the answer has come.
-- `cmd/fk-form` binds `memory.List` (the `Subscribers` context) and is the only place that chooses it.
+- Package `memory` has two providers:
+  - `List`: the three addresses of upstream's waitlist. It refuses a subscription in the `.invalid` domain, which takes no mail.
+  - `Slow`: answers as `List` does, after a wait that `main` gives it (a sleep on the script's clock).
+- Package `screen` is upstream's view:
+  - the heading;
+  - the three fields. Each is a `ui.Input` named by its label (its placeholder) in a `ui.Fieldset` whose description is what its check says: the error, or `Checking...` while the list checks the address;
+  - the button, `Subscribe`, disabled until the form is `Ready`, and `Subscribing...` while a submit is under way;
+  - the answer: a `Status` region with the welcome text, or an `Alert` region with the refusal.
+  - Enter in the form (`ui.OnKey`) submits whatever the button shows, as a form's implicit submission does, and the step refuses a form that is not ready.
+- Package `script` plays lines on `ui.NewTestHost`:
+  - `name TEXT`, `email TEXT` and `note TEXT` fill that field;
+  - `submit` clicks `Subscribe`;
+  - `enter` presses Enter;
+  - `wait MS` moves the clock, so `Slow` answers (upstream's `Command.resolve`);
+  - `stats` prints the work of the act before it.
+
+  After each line it prints the screen: `LABEL<TEXT> (DESCRIPTION)`, `[button]` or `[button, disabled]`, and `status{…}` or `alert{…}`.
+- `cmd/fk-form` is the only place that chooses the provider: `memory.Slow`, which waits 300 ms on the manual clock. That clock is also the test host's clock and the actor's Scheduler. The `Subscribers` context (`memory.List`) is where the contract's law runs.
 
 ## Upstream tests
 
@@ -27,12 +42,13 @@ Each upstream story and scene test, and what restates it, is a line of `origin/t
 - `StaleCheckIsDropped`: an email edit opens a new entry, a name or note edit keeps it, and a check's answer when no check is under way changes nothing.
 - `SubmitOnlyWhenAllValid`: over forms the user can reach, a submit starts exactly when the form is not sending, the name is valid or empty, and the email has passed its check.
 - `EmailIsThePattern`: an address built of clean parts parses back; a space of any kind, a second `@`, or a domain with no inner dot is `Malformed`.
-- `NameWhere` (derived from the where), `Subscribers.TakenIgnoresCase` (contract; runs for `memory.List`, and under the `Subscribers` context in `cmd/fk-form`).
+- `NameWhere` (derived from the where), `Subscribers.TakenIgnoresCase` (contract; runs for `memory.List`, and under the `Subscribers` context in `cmd/fk-form`; `memory.Slow` holds a function, which the law runner cannot build, so `expected-skips` lists its skip).
 
 The mutants these kill are in `testdata/mutants.json`.
 
 ## Cases
 
+- `scenes`: upstream's nine scene tests, in order on one screen.
 - `subscribe`: upstream's flow: an ignored empty submit, a short and a long name, a malformed and an empty address, an address on the list (in another case), a new address, a submit and a second submit, then an empty name and a refused subscription.
 - `invalid`: a short name blocks a checked address; six addresses the pattern refuses; a two-byte name, then a checked address, and the form is sent.
 - `badscript`: an unknown line; the program says which line and exits 1.
