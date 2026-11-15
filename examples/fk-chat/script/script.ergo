@@ -1,0 +1,211 @@
+// Package script is the host of stage a: it runs the chat as an actor on
+// an in-process echo server (memory.Echo), plays a script of the user's
+// acts and the server's, waits after each until the chat has taken it,
+// and shows the chat. A line is one of:
+//
+//	connect          Connect (or Try again)
+//	type TEXT        the field's text (the rest of the line)
+//	submit           Send
+//	push TEXT        the server sends TEXT unasked
+//	hangup           the server closes the line
+//	break WHY        the line fails with WHY
+//	refuse WHY       the server refuses the next dial with WHY
+//	vanish           the server drops the line without a word
+//
+// A blank line or one that starts with # is skipped. The echo of a sent
+// text is held until the send is done (memory.Hold), so the conversation
+// reads the same on every run.
+
+import actor
+import fkchat/memory
+import fkchat/talk
+import io
+import strings
+
+// Chat is the running chat.
+type Chat = actor.Actor[talk.Session, talk.Signal, Decision[talk.Session, Never]]
+
+// Bad is a script line the host cannot read.
+type Bad { Line int, Why string }
+
+// Run plays the script on standard input and prints what the chat does.
+// It returns the exit status: 0, or 1 for a line it cannot read.
+func Run() int needs Console | io.Stdin | Scheduler {
+	let echo = memory.NewEcho()
+	memory.Hold(echo)
+	with context { talk.Channel: echo } {
+		let chat = actor.StartMachine(talk.Chat{}, 16, func(n Never) {})
+		let mut shown = talk.Blank
+		let mut n = 0
+		for raw in io.Stdin.Lines() {
+			n = n + 1
+			let line = strings.TrimSpace(raw)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			Console.Println("> " + line)
+			act(chat, echo, line, raw) catch {
+			case Bad as b:
+				Console.Println("? line \(n): \(b.Why)")
+				chat.Stop()
+				return 1
+			}
+			let now = chat.State()
+			for l in Changes(shown, now) {
+				Console.Println("  " + l)
+			}
+			Console.Println("  lines held: \(memory.Held(echo))")
+			shown = now
+		}
+		chat.Stop()
+		Console.Println("> stop")
+		Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
+		0
+	}
+}
+
+// act does a script line and waits until the chat has taken it.
+func act(chat Chat, echo memory.Echo, line string, raw string) fails Bad needs talk.Channel {
+	let w = strings.Fields(line)
+	// The rest is the raw line after the word and one space, spaces and all.
+	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
+	match w[0] {
+	case "connect":
+		ask(chat, talk.Connect)
+		wait(chat, func(s talk.Session) bool { !connecting(s) })
+	case "type":
+		ask(chat, talk.Typed{Text: rest})
+	case "submit":
+		ask(chat, talk.Submit)
+		// Send the outbox, first text first; each echo comes after its send.
+		for text in talk.Outbox(chat.State()) {
+			let before = heard(chat.State())
+			memory.Send(echo, text) catch {
+			case talk.Unavailable:
+				ask(chat, talk.Unsent{Why: "Socket unavailable"})
+				return
+			}
+			ask(chat, talk.Sent{Text: text})
+			memory.Flush(echo)
+			wait(chat, func(s talk.Session) bool { heard(s) > before || !online(s) })
+		}
+	case "push":
+		let before = heard(chat.State())
+		memory.Push(echo, rest) catch {
+		case talk.Unavailable:
+			return
+		}
+		wait(chat, func(s talk.Session) bool { heard(s) > before || !online(s) })
+	case "hangup":
+		memory.Hangup(echo) catch {
+		case talk.Unavailable:
+			return
+		}
+		wait(chat, func(s talk.Session) bool { !online(s) })
+	case "break":
+		memory.Break(echo, rest) catch {
+		case talk.Unavailable:
+			return
+		}
+		wait(chat, func(s talk.Session) bool { !online(s) })
+	case "refuse":
+		memory.Refuse(echo, rest)
+	case "vanish":
+		memory.Vanish(echo)
+	case _:
+		return Bad{Line: 0, Why: "unknown word \(w[0])"}
+	}
+}
+
+// ask steps sig on the chat and waits for it.
+func ask(chat Chat, sig talk.Signal) {
+	let _ = chat.Ask(sig) catch {
+	case actor.Stopped:
+		return
+	}
+}
+
+// wait waits for a state that done accepts, the chat's state now
+// included: the news of the line's work comes on its own.
+func wait(chat Chat, done func(s talk.Session) bool) {
+	let _ = actor.WaitFor(chat, done) catch {
+	case actor.Stopped:
+		return
+	}
+}
+
+func connecting(s talk.Session) bool {
+	match s.Link {
+	case talk.Connecting:
+		true
+	case talk.Offline, talk.Online, talk.Broken:
+		false
+	}
+}
+
+func online(s talk.Session) bool {
+	match s.Link {
+	case talk.Online:
+		true
+	case talk.Offline, talk.Connecting, talk.Broken:
+		false
+	}
+}
+
+// heard is how many lines of the conversation the server sent.
+func heard(s talk.Session) int {
+	match s.Link {
+	case talk.Online as o:
+		let mut n = 0
+		for x in o.Log {
+			if !x.Mine {
+				n = n + 1
+			}
+		}
+		n
+	case talk.Offline, talk.Connecting, talk.Broken:
+		0
+	}
+}
+
+// Changes is what changed from before to now: the link, the field, and
+// the conversation's new lines ("< " the server's, "> " this side's).
+func Changes(before talk.Session, now talk.Session) []string {
+	let mut out = []string{}
+	if Word(before.Link) != Word(now.Link) {
+		out = out.Append("chat: " + Word(now.Link))
+	}
+	if before.Input != now.Input {
+		out = out.Append("field: \"\(now.Input)\"")
+	}
+	let was = match before.Link {
+	case talk.Online as o:
+		len(o.Log)
+	case talk.Offline, talk.Connecting, talk.Broken:
+		0
+	}
+	match now.Link {
+	case talk.Online as o:
+		let from = if Word(before.Link) == "online" { was } else { 0 }
+		for i in from..len(o.Log) {
+			let said = o.Log[i]
+			out = out.Append((if said.Mine { "> " } else { "< " }) + said.Text)
+		}
+	case talk.Offline, talk.Connecting, talk.Broken:
+	}
+	out
+}
+
+// Word is how the link shows.
+func Word(l talk.Link) string {
+	match l {
+	case talk.Offline:
+		"offline"
+	case talk.Connecting:
+		"connecting"
+	case talk.Online:
+		"online"
+	case talk.Broken as b:
+		"broken: " + b.Why
+	}
+}
