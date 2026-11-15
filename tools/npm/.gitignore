@@ -1,0 +1,3 @@
+# The platform packages' binaries are built at publish (scripts/npmwork.sh).
+work-*/bin/
+*.tgz
