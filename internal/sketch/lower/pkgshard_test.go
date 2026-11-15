@@ -149,18 +149,22 @@ func TestShardsTypecheck(t *testing.T) {
 }
 
 // everyShard cuts after every component: each is its own shard.
-var everyShard = &shardOpts{min: 1, max: 1}
+var everyShard = &shardOpts{min: 1, one: 1}
 
-// genShardProgram is one Ergo package of n functions that call one
-// another, some of them in cycles, and a main.
+// genShardProgram is n functions of one Ergo package: each calls one or
+// two later ones, and one in eight also the one before it, which makes
+// small cycles (a random graph of more edges is one giant cycle).
 func genShardProgram(r *rand.Rand, n int) []string {
 	var decls []string
 	for i := range n {
 		var calls []string
 		for range 1 + r.IntN(2) {
-			if j := r.IntN(n); j != i {
-				calls = append(calls, fmt.Sprintf("f%d(n - 1)", j))
+			if i+1 < n {
+				calls = append(calls, fmt.Sprintf("f%d(n - 1)", i+1+r.IntN(n-i-1)))
 			}
+		}
+		if i > 0 && r.IntN(8) == 0 {
+			calls = append(calls, fmt.Sprintf("f%d(n - 1)", i-1))
 		}
 		calls = append(calls, strconv.Itoa(i))
 		decls = append(decls, fmt.Sprintf("func f%d(n int) int {\n\tif n <= 0 {\n\t\treturn %d\n\t}\n\t%s\n}\n", i, i, strings.Join(calls, " + ")))
@@ -168,7 +172,7 @@ func genShardProgram(r *rand.Rand, n int) []string {
 	return decls
 }
 
-// shardPlacement is each declared Go name of files and the Go package
+// shardPlacement is each declared Go function of files and the Go package
 // folder that declares it, the exported spelling (X+name) undone.
 func shardPlacement(t *testing.T, files []File) map[string]string {
 	t.Helper()
@@ -196,10 +200,13 @@ func shardPlacement(t *testing.T, files []File) map[string]string {
 // function with no callers, inserted at a seeded place of a generated
 // package of many shards, changes the declarations of at most three Go
 // packages: the shard that takes it, one its hashed cut makes, and the
-// next one when the insert moves a cut at the maximum size. Every other
+// next one when the bytes it adds move the next cut past min. Every other
 // shard keeps its folder and its declarations, and Go reuses its compile.
-// A failing seed prints both placements and the replay command
-// (ERGO_SHARD_SEED=n). Mutants: ft9-shard-cut-count, ft9-shard-name-index.
+// Both placements type-check (law ShardsAreAcyclic on shards of several
+// components, some of them cycles). A failing seed prints both placements
+// and the replay command (ERGO_SHARD_SEED=n). Mutants:
+// ft9-shard-cut-count, ft9-shard-name-index, ft9-shard-scc-split,
+// ft9-shard-order-source.
 func TestShardsLocalUnderInsert(t *testing.T) {
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
 	if s := os.Getenv("ERGO_SHARD_SEED"); s != "" {
@@ -209,13 +216,18 @@ func TestShardsLocalUnderInsert(t *testing.T) {
 		}
 		seeds = []uint64{n}
 	}
-	opts := &shardOpts{min: 200, max: 800}
+	opts := &shardOpts{min: 4000, one: 4}
 	const main = "\nfunc main() needs Console { Console.Println(\"\\(f0(4))\") }\n"
+	const n = 50
 	for _, seed := range seeds {
 		r := rand.New(rand.NewPCG(seed, 0x5a4d))
-		decls := genShardProgram(r, 60)
-		at := r.IntN(len(decls) + 1)
-		edited := slices.Insert(slices.Clone(decls), at, "func extra(n int) int { n + 1 }\n")
+		decls := genShardProgram(r, n)
+		// A function as big as the others (it calls two of them), so a
+		// cut by size would move; its name is the seed's, so its hash
+		// cuts in some seeds and not in others.
+		at := r.IntN(n / 2)
+		extra := fmt.Sprintf("extra%d", seed)
+		edited := slices.Insert(slices.Clone(decls), at, fmt.Sprintf("func %s(n int) int {\n\tif n <= 0 {\n\t\treturn 0\n\t}\n\tf%d(n - 1) + f%d(n - 1)\n}\n", extra, at+r.IntN(n-at), at+r.IntN(n-at)))
 		place := func(decls []string) (map[string]string, SplitReport) {
 			src := strings.Join(decls, "\n") + main
 			u := checkPackage(t, "main", []pkgSource{{"/shard/main.ergo", src}}, pkgImporter{})
@@ -231,13 +243,13 @@ func TestShardsLocalUnderInsert(t *testing.T) {
 		}
 		before, rep := place(decls)
 		after, _ := place(edited)
-		if rep.Shards < 8 {
-			t.Fatalf("seed %d: %d shards, want 8 or more (the law would be vacuous): %+v", seed, rep.Shards, rep)
+		if rep.Shards < 6 {
+			t.Fatalf("seed %d: %d shards, want 6 or more (the law would be vacuous): %+v", seed, rep.Shards, rep)
 		}
 		members := func(p map[string]string) map[string][]string {
 			out := map[string][]string{}
 			for name, dir := range p {
-				if name != "extra" {
+				if name != extra {
 					out[dir] = append(out[dir], name)
 				}
 			}

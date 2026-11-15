@@ -80,13 +80,12 @@ func TestShardsLeaveTheRootUnimported(t *testing.T) {
 			if rep.Shards < 1 {
 				t.Fatalf("%s tests=%v: the root is not cut: %+v", c.dir, tests, rep)
 			}
-			root := strconv.Quote("ergo.local/program") // the lowered module's path
 			for _, f := range files {
 				if !strings.HasSuffix(f.Path, ".go") || !strings.HasPrefix(f.Path, "shard/") {
 					continue
 				}
 				text := string(f.Data)
-				if strings.Contains(text, " "+root+"\n") {
+				if importsRoot.MatchString(text) {
 					t.Errorf("%s tests=%v: %s imports the root", c.dir, tests, f.Path)
 				}
 				if strings.Contains(text, "//go:embed") || strings.Contains(text, "\nfunc init() {") {
@@ -96,6 +95,10 @@ func TestShardsLeaveTheRootUnimported(t *testing.T) {
 		}
 	}
 }
+
+// importsRoot matches an import of the lowered module's root package,
+// ergo.local/program (the split spells it with a trailing slash).
+var importsRoot = regexp.MustCompile(`(?m)^\s*\w+ "ergo\.local/program/?"$`)
 
 // bodyLiteral finds integer literals in indented lines of Ergo source
 // (inside a body), outside comments and lines with a string.

@@ -22,9 +22,11 @@ import (
 // order with every callee before its callers, so a shard only names the
 // shards before it and the shards have no import cycle (law
 // ShardsAreAcyclic). The cuts are content-defined: a shard ends after a
-// component whose first name hashes to 0 mod shardCutOne once it holds
-// min bytes, or at max bytes, so an inserted or a removed declaration
-// moves only the cuts near it (law ShardsLocalUnderInsert); and a shard is
+// component whose first name hashes to 0 mod one once it holds min bytes,
+// so an inserted or a removed declaration moves only the cuts near it
+// (law ShardsLocalUnderInsert), as in content-defined chunking (rsync,
+// LBFS), where a cut by size or count would move every later one; and a
+// shard is
 // named by its first name, not by its index. The last shard stays in the
 // package itself. In the root, the pinned groups (main, every init, an
 // embedded asset) and every group that reaches one stay in the root,
@@ -39,18 +41,19 @@ import (
 // compiler. Gleam, ReScript and Elixir emit one host module per source
 // module and leave the host's unit as is.
 
-// shardOpts are the sizes of the cut: a shard ends at a hashed cut once it
-// holds min bytes of declarations, and at the latest at max bytes.
-type shardOpts struct{ min, max int }
+// shardOpts are the cut: a shard ends after a component whose first name
+// hashes to 0 mod one, once it holds min bytes of declarations. A shard
+// past min thus takes four more components on average at one = 4; one = 1
+// cuts after every component past min.
+type shardOpts struct {
+	min int
+	one uint32
+}
 
-// devShards are the shard sizes of a test build: a 144 KB test program
-// makes about eight shards, each of which pays the compile's process
-// start and imports (58 M to 107 M instructions, plan §3.5).
-var devShards = &shardOpts{min: 8 << 10, max: 32 << 10}
-
-// shardCutOne is the inverse rate of a hashed cut: one component in four
-// may end a shard.
-const shardCutOne = 4
+// devShards is the cut of a test build: a 144 KB test program makes about
+// eight shards, each of which pays the compile's process start and
+// imports (58 M to 107 M instructions, plan §3.5).
+var devShards = &shardOpts{min: 8 << 10, one: 4}
 
 // shardDir is the folder of the shards of every package.
 const shardDir = "shard"
@@ -180,7 +183,7 @@ func cutShards(groups []splitGroup, members []int, o *shardOpts, name func(g int
 		for _, g := range c {
 			bytes += size(g)
 		}
-		if bytes >= o.max || bytes >= o.min && fnv32(name(c[0]))%shardCutOne == 0 {
+		if bytes >= o.min && fnv32(name(c[0]))%o.one == 0 {
 			runs = append(runs, run)
 			run, bytes = nil, 0
 		}
