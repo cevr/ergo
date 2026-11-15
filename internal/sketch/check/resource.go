@@ -439,22 +439,35 @@ func (c *checker) providerAssignability(v, t Type) (assignment, string) {
 // when this package declares it, in its package otherwise, and a type
 // that includes it when the target has no declaration of its own.
 func (c *checker) resourceIntoCrossingText(v, t Type) string {
-	repair := fmt.Sprintf("convert it to an operation type that includes Closer instead of %s", t)
-	if n, ok := t.(*Named); ok && n.origin().Obj != nil {
-		tn := n.origin().Obj
-		switch {
-		case tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:
-			line, col := tn.file.syntax.Position(tn.Decl.Name.Pos())
-			at := fmt.Sprintf("%d:%d", line, col)
-			if name := tn.file.syntax.Name; name != "" {
-				at = name + ":" + at
-			}
-			repair = fmt.Sprintf("add ..Closer to %s (%s)", tn.Name, at)
-		case tn.Pkg != nil:
-			repair = fmt.Sprintf("add ..Closer to %s in package %s", tn.Name, tn.Pkg.Path)
-		}
+	repair, ok := c.closerRepair(t)
+	if !ok {
+		repair = fmt.Sprintf("convert it to an operation type that includes Closer instead of %s", t)
 	}
 	return fmt.Sprintf("%s is a resource and %s does not include Closer, so the value would never be released (resources R22); %s", v, t, repair)
+}
+
+// closerRepair is the repair of an operation type t that releases nothing
+// because it does not include Closer (R1; R13, R22): `..Closer` in t, at
+// its declaration when this package declares it, in its package otherwise.
+// ok is false when t has no declaration of its own.
+func (c *checker) closerRepair(t Type) (string, bool) {
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil {
+		return "", false
+	}
+	tn := n.origin().Obj
+	switch {
+	case tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:
+		line, col := tn.file.syntax.Position(tn.Decl.Name.Pos())
+		at := fmt.Sprintf("%d:%d", line, col)
+		if name := tn.file.syntax.Name; name != "" {
+			at = name + ":" + at
+		}
+		return fmt.Sprintf("add ..Closer to %s (%s)", tn.Name, at), true
+	case tn.Pkg != nil:
+		return fmt.Sprintf("add ..Closer to %s in package %s", tn.Name, tn.Pkg.Path), true
+	}
+	return "", false
 }
 
 // R22 at an instantiation (16a fix r4). A type parameter whose

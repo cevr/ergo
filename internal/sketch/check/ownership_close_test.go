@@ -139,8 +139,11 @@ func TestArrayOwnership(t *testing.T) {
 // no Close() (resources R1, R13). The std queue has its drain; this one
 // has nothing that could release what it keeps.
 //
-// Mutant it catches that nothing else does: such a value admitted (its
-// resources leak silently).
+// The repair it names is `..Closer` at Keeper's declaration (R1: only an
+// operation type that includes Closer releases).
+//
+// Mutants it catches that nothing else does: such a value admitted (its
+// resources leak silently); the repair that names no declaration.
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
 	src := ofPrelude + `type Keeper[T] { Put(v T) takes v }
@@ -155,9 +158,9 @@ func main() {
 }
 `
 	_, diags := checkFor(src)
-	want := "Keeper[Res] has no release: it holds Keeper[Res], an operation type that keeps the values it takes and has no Close() operation"
-	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+8 || diags[0].Column != 6 || !strings.Contains(diags[0].Message, want) {
-		t.Errorf("got %+v, want one S108 at %d:6 containing %q", diags, base+8, want)
+	want := "Keeper[Res] has no release: it holds Keeper[Res], an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); add ..Closer to Keeper (" + strconv.Itoa(base+1) + ":6)"
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+8 || diags[0].Column != 6 || diags[0].Message != want {
+		t.Errorf("got %+v, want one S108 at %d:6: %q", diags, base+8, want)
 	}
 }
 

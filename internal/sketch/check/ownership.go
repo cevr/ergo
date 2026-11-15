@@ -473,7 +473,11 @@ func (w *ownWalk) owned(l ownLocal) {
 		return // a taken parameter whose type has no release: refused where it is made
 	}
 	if d == nil {
-		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and has no Close() operation, so nothing could release them (resources R1, R13); give it a Close() operation", t, bad)
+		repair, ok := w.c.closerRepair(bad)
+		if !ok {
+			repair = "use an operation type that includes Closer"
+		}
+		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); %s", t, bad, repair)
 		return
 	}
 	if l.v != nil {

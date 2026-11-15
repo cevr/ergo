@@ -87,19 +87,19 @@ func (d *Drop) Glue() bool {
 // dropOf is the generated release of t, a type that holds a resource, or
 // nil with the reason when a part has no release this checker can derive
 // (a queue's drain and a task's are B3).
-func (c *checker) dropOf(t Type) (*Drop, string) {
+func (c *checker) dropOf(t Type) (*Drop, Type) {
 	w := dropWalk{c: c, seen: map[int32]*Drop{}}
 	d := w.visit(t)
-	if w.bad != "" {
+	if w.bad != nil {
 		return nil, w.bad
 	}
-	return d, ""
+	return d, nil
 }
 
 type dropWalk struct {
 	c    *checker
 	seen map[int32]*Drop
-	bad  string
+	bad  Type
 }
 
 // drain is the release of the values an operation type t holds through a
@@ -149,7 +149,7 @@ func (w *dropWalk) drain(t Type, it *Interface) *Drop {
 
 // visit returns t's release, nil when t crosses.
 func (w *dropWalk) visit(t Type) *Drop {
-	if w.bad != "" || !w.c.holdsResource(t) {
+	if w.bad != nil || !w.c.holdsResource(t) {
 		return nil
 	}
 	id, _ := w.c.types.intern(t)
@@ -216,13 +216,13 @@ func (w *dropWalk) visit(t Type) *Drop {
 		// values left, Q7).
 		d.Drain = w.drain(t, u)
 		if d.Close == nil && d.Drain == nil {
-			w.bad = t.String()
+			w.bad = t
 		}
 	}
-	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && d.Drain == nil && w.bad == "" {
+	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && d.Drain == nil && w.bad == nil {
 		// Holds a resource the walk cannot reach: a phantom type argument
 		// or a part no rule above releases.
-		w.bad = t.String()
+		w.bad = t
 	}
 	return d
 }
