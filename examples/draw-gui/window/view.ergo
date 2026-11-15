@@ -3,7 +3,7 @@
 // lines, written once for every ui host (ui.TestHost here; the desktop
 // host at stage c). The tool machine runs under it as an actor.
 
-import draw/canvas
+import ergo.local/prototype/examples/drawgui/canvas
 import ui
 
 // App is the tool as an app: it opens on a picture.

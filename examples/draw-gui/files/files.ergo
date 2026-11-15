@@ -2,7 +2,7 @@
 // host's disk. A save writes a new file beside the old one and renames it
 // over it (fs.WriteFile), so a reader sees the old text or the new text.
 
-import draw/canvas
+import ergo.local/prototype/examples/drawgui/canvas
 import fs
 
 // Disk keeps pictures in the host's files. Only New makes one.
