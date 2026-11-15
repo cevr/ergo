@@ -101,13 +101,13 @@ func value(buf []byte, at int, depth int) Frame fails Incomplete | Malformed {
 		}
 		let width = if kind == '%' { 2 * int(n) } else { int(n) }
 		let mut items = []Value{}
-		let mut pos = e + 2
+		let mut next = e + 2
 		for _ in 0..width {
-			let f = try value(buf, pos, depth+1)
+			let f = try value(buf, next, depth+1)
 			items = items.Append(f.Value)
-			pos = f.Used
+			next = f.Used
 		}
-		Frame{Value: aggregate(kind, items), Used: pos}
+		Frame{Value: aggregate(kind, items), Used: next}
 	case _:
 		Malformed{At: at, Reason: "unknown type byte"}
 	}
@@ -191,17 +191,17 @@ func integer(buf []byte, from int, to int) int64 fails Malformed {
 // Reader frames values out of the bytes of a connection, given in chunks
 // of any size: a value cut across two chunks is read once its last byte
 // arrives. It keeps one buffer and reads in place.
-type Reader { buf []byte, pos int }
+type Reader { buf []byte, next int }
 
 // NewReader is a reader with no bytes.
-func NewReader() Reader { Reader{buf: []byte{}, pos: 0} }
+func NewReader() Reader { Reader{buf: []byte{}, next: 0} }
 
 // Feed gives r the next chunk. The bytes of values already read are
 // dropped then.
 func Feed(r *Reader, chunk []byte) {
-	if r.pos > 0 {
-		r.buf = slices.Concat(r.buf[r.pos:], chunk)
-		r.pos = 0
+	if r.next > 0 {
+		r.buf = slices.Concat(r.buf[r.next:], chunk)
+		r.next = 0
 		return
 	}
 	r.buf = slices.Concat(r.buf, chunk)
@@ -210,10 +210,10 @@ func Feed(r *Reader, chunk []byte) {
 // Next is the next value of r. Incomplete leaves r as it was, to read
 // again after the next Feed.
 func Next(r *Reader) Value fails Incomplete | Malformed {
-	let f = try value(r.buf, r.pos, 0)
-	r.pos = f.Used
+	let f = try value(r.buf, r.next, 0)
+	r.next = f.Used
 	f.Value
 }
 
 // Buffered is the count of bytes r holds that no value has used yet.
-func Buffered(r Reader) int { len(r.buf) - r.pos }
+func Buffered(r Reader) int { len(r.buf) - r.next }

@@ -75,7 +75,7 @@ type Engine {
 		let until = now.Add(Span(ttl))
 		let before = until.Add(-1ms)
 		let after = until.Add(Gap(later))
-		Put(key, value, Always, Some[time.Time]{Value: until}, now) && Lookup(key, before) == Some[string]{Value: value} && Left(key, before) == Some[Expiry]{Value: Until{At: until}} && Lookup(key, after) == None && Left(key, after) == None && !Remove(key, after) && Put(key, value, IfAbsent, None, after)
+		Put(key, value, Always, Some[time.Time]{Value: until}, now) && Lookup(key, before) == Some[string]{Value: value} && Left(key, before) == Some[Expiry]{Value: Until{At: until}} && Lookup(key, until) == None && Lookup(key, after) == None && Left(key, after) == None && !Remove(key, after) && Put(key, value, IfAbsent, None, after)
 	},
 
 	// SetClearsTheExpiry: a Set without a time keeps the value for ever,

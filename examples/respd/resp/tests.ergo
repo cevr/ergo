@@ -1,7 +1,7 @@
 // What the laws cannot tell apart: RESP2's own bytes. A RESP2 writer that
-// wrote RESP3's null, boolean or map would read back as the same value
-// (ParseInvertsAppend), but a RESP2 client cannot read them
-// (testdata/mutants.json: resp2-writes-resp3-types).
+// wrote RESP3's null (_) would read back as the same value
+// (ParseInvertsAppend), but a RESP2 client cannot read it
+// (testdata/mutants.json: resp2-writes-resp3-null).
 
 import strings
 

@@ -10,7 +10,7 @@
 // null bulk string ($-1) and null array (*-1) both read as it.
 type Value = Simple{Text string} | Fault{Text string} | Integer{N int64} | Bulk{Data string} | Null{} | Array{Items []Value} | Boolean{Truth bool} | Dict{Pairs []Pair} | Set{Items []Value}
 
-// Pair is one entry of a Dict: RESP3 writes a map as its pairs in order,
+// Pair is one entry of a Dict: RESP3 writes a map as its pairs one after another,
 // and so does Dict.
 type Pair { Key Value, Value Value }
 
@@ -54,7 +54,7 @@ func Down(v Value) Value {
 }
 
 // Equal is whether a and b are the same value: the same variant, and the
-// same parts in the same order.
+// same parts in the same places.
 func Equal(a Value, b Value) bool {
 	match (a, b) {
 	case (Simple as x, Simple as y):
