@@ -5,7 +5,8 @@ import strings
 // of them (an Ambiguous address), member handles (Type.Member), a local
 // named by its position, sites of every kind that name declarations of
 // their own package and of another, positions that two sites share, and
-// a package that does not check. The same seed gives the same tables.
+// a package that does not check, and contracts of exported functions.
+// The same seed gives the same tables.
 func Generated(seed int) Tables {
 	let names = []string{"Run", "Parse", "Token", "Token.Kind", "Token.Text", "Load", "Check#law"}
 	let kinds = []string{"func", "func", "type", "field", "field", "func", "law"}
@@ -28,7 +29,7 @@ func Generated(seed int) Tables {
 		decls = decls.Append(local)
 		handles = handles.Append(local.Handle)
 		let complete = roll(seed, 300 + i, 5) != 0
-		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}})
+		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}})
 	}
 	let mut filled = []Package{}
 	for i, p in out {
@@ -40,9 +41,9 @@ func Generated(seed int) Tables {
 			// Lines 30..34 and columns 1..3: some sites share a position.
 			sites = sites.Append(Site{Symbol: h, Kind: kind, Package: p.Path, File: p.Path + "/a.ergo", Line: 30 + roll(seed, salt + 2, 5), Column: 1 + roll(seed, salt + 3, 3), In: ""})
 		}
-		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites})
+		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls)})
 	}
-	Tables{Revision: "gen-\(seed)", Packages: filled}
+	Tables{Revision: "gen-\(seed)", Root: "gen/p\(packages - 1)", Packages: filled}
 }
 
 // roll is a number in 0..n-1 that seed and salt pick: a hash, enough to
@@ -60,4 +61,33 @@ func roll(seed int, salt int, n int) int {
 func lastPart(name string) string {
 	let at = strings.LastIndex(name, ".")
 	if at < 0 { name } else { strings.Slice(name, at+1, len(name)) }
+}
+
+// contractsOf is a contract for each exported function of decls, drawn
+// from seed and salt: a signature, type parameters, rows, takes (written
+// or inferred, "self" too) and copy sites.
+func contractsOf(seed int, salt int, decls []Decl) []Contract {
+	let sigs = []string{"()", "(s string) int", "(xs []T) T fails Empty", "(r *Reader) bool needs Console"}
+	let mut out = []Contract{}
+	for j, d in decls {
+		if d.Kind != "func" || !d.Exported {
+			continue
+		}
+		let k = 3000 + salt * 50 + j * 7
+		let generic = roll(seed, k, 3) == 0
+		let taking = roll(seed, k + 1, 3)
+		let self = roll(seed, k + 2, 4) == 0
+		let mut names = []string{}
+		let mut indexes = []int{}
+		if self {
+			names = names.Append("self")
+		}
+		for t in 0..taking {
+			names = names.Append("p\(t)")
+			indexes = indexes.Append(t)
+		}
+		let copies = if generic && roll(seed, k + 3, 2) == 0 { []CopySite{CopySite{ParameterIndex: 0, Parameter: "T", Where: if roll(seed, k + 4, 2) == 0 { "" } else { "a.ergo:\(3 + j)" }, What: "a map key", Key: roll(seed, k + 5, 2) == 0}} } else { []CopySite{} }
+		out = out.Append(Contract{Name: d.Name, Signature: sigs[roll(seed, k + 6, len(sigs))], TypeParameters: if generic { []string{"T"} } else { []string{} }, Fails: "", Needs: "", Takes: names, TakesParameters: indexes, TakesSelf: self, TakesInferred: roll(seed, k + 7, 2) == 0, Copies: copies})
+	}
+	out
 }

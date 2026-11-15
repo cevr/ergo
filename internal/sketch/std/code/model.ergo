@@ -19,7 +19,10 @@ import strings
 //     that package does not declare NAME;
 //   - `?x` is the diagnostic M1, whose fix writes x in its place;
 //   - `!x` is the diagnostic M2, whose fix writes the whole line as `x`;
-//   - any other word names nothing.
+//   - any other word names nothing;
+//   - a line `sig WORDS` is the declaration's signature, `(WORDS)`, and
+//     `needs WORDS` its needs row: an exported func's contract (api.ergo)
+//     is its name, signature and row.
 //
 // A second declaration of a name in one package is the diagnostic M4 and
 // has no row. The lowered code is the declarations' handles and words,
@@ -185,6 +188,7 @@ func modelCheck(sources []Source) Report {
 		let names = maps.GetOr(declared, p, Map[string, string]{})
 		let mut pd = []Decl{}
 		let mut ps = []Site{}
+		let mut cs = []Contract{}
 		let mut errs = 0
 		for d in decls {
 			if d.Pkg != p {
@@ -214,6 +218,8 @@ func modelCheck(sources []Source) Report {
 			code = code + handle + ":"
 			let files = maps.GetOr(aliases, d.File, Map[string, string]{})
 			let mut locals = []string{}
+			let mut sig = "()"
+			let mut row = ""
 			for l in d.Lines {
 				let ws = wordsOf(beforeComment(l.Text), l.At)
 				if len(ws) == 0 {
@@ -259,6 +265,18 @@ func modelCheck(sources []Source) Report {
 				}
 				if first == "let" && len(ws) >= 2 {
 					locals = locals.Append(ws[1].Text)
+					continue
+				}
+				if first == "sig" || first == "needs" {
+					let mut rest = []string{}
+					for w in slices.Slice(ws, 1, len(ws)) {
+						rest = rest.Append(w.Text)
+					}
+					if first == "sig" {
+						sig = "(" + strings.Join(rest, " ") + ")"
+					} else {
+						row = strings.Join(rest, " | ")
+					}
 					continue
 				}
 				for w in ws {
@@ -331,15 +349,18 @@ func modelCheck(sources []Source) Report {
 				}
 			}
 			code = code + "\n"
+			if d.Kind == "func" && owner == "" && exportedName(name) {
+				cs = cs.Append(Contract{Name: name, Signature: sig, TypeParameters: []string{}, Fails: "", Needs: row, Takes: []string{}, TakesParameters: []int{}, TakesSelf: false, TakesInferred: false, Copies: []CopySite{}})
+			}
 		}
 		for x in diags {
 			if packageOf(x.File) == p && x.Code == "M4" {
 				errs = errs + 1
 			}
 		}
-		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps})
+		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps, Contracts: cs})
 	}
-	Report{Tables: Tables{Revision: revisionOf(sources), Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
+	Report{Tables: Tables{Revision: revisionOf(sources), Root: if len(pkgs) > 0 { pkgs[len(pkgs) - 1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
 }
 
 // siteKindOf is the kind of a site that names a declaration of kind k.

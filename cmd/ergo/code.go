@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/linked/code"
+	"ergo.local/prototype/internal/sketch/api"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/facts"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
@@ -92,14 +94,38 @@ func codeCommand(args []string) error {
 type (
 	codeTables struct {
 		Revision string        `json:"revision"`
+		Root     string        `json:"root"`
 		Packages []codePackage `json:"packages"`
 	}
 	codePackage struct {
-		Path        string     `json:"path"`
-		Complete    bool       `json:"complete"`
-		Diagnostics int        `json:"diagnostics"`
-		Decls       []codeDecl `json:"decls"`
-		Sites       []codeSite `json:"sites"`
+		Path        string         `json:"path"`
+		Complete    bool           `json:"complete"`
+		Diagnostics int            `json:"diagnostics"`
+		Decls       []codeDecl     `json:"decls"`
+		Sites       []codeSite     `json:"sites"`
+		Contracts   []codeContract `json:"contracts"`
+	}
+	// codeContract is api.Function with code.Contract's keys; an answer's
+	// JSON decodes back into api.Function, whose field names match them
+	// but for case.
+	codeContract struct {
+		Name            string         `json:"name"`
+		Signature       string         `json:"signature"`
+		TypeParameters  []string       `json:"typeParameters"`
+		Fails           string         `json:"fails"`
+		Needs           string         `json:"needs"`
+		Takes           []string       `json:"takes"`
+		TakesParameters []int          `json:"takesParameters"`
+		TakesSelf       bool           `json:"takesSelf"`
+		TakesInferred   bool           `json:"takesInferred"`
+		Copies          []codeCopySite `json:"copies"`
+	}
+	codeCopySite struct {
+		ParameterIndex int    `json:"parameterIndex"`
+		Parameter      string `json:"parameter"`
+		Where          string `json:"where"`
+		What           string `json:"what"`
+		Key            bool   `json:"key"`
 	}
 	codeDecl struct {
 		Handle   string `json:"handle"`
@@ -123,10 +149,11 @@ type (
 )
 
 // codeTablesOf is the fact tables of the program a checked, one package
-// per checked package in dependency order. A package with diagnostics
-// gives the rows the checker resolved and Complete false; a package the
-// loader did not check (it imports a broken one) gives none. The revision
-// is a digest of the files' names and texts.
+// per checked package in dependency order, the root last (one package for
+// a source text). A package with diagnostics gives the rows the checker
+// resolved and Complete false, and no contracts; a package the loader did
+// not check (it imports a broken one) gives none. The revision is a digest
+// of the files' names and texts.
 func codeTablesOf(a sketchfront.Analysis) codeTables {
 	diags := map[string]int{}
 	for _, d := range a.Diagnostics {
@@ -134,8 +161,13 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 	}
 	h := sha256.New()
 	out := codeTables{Packages: []codePackage{}}
-	for _, p := range a.Packages() {
-		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}}
+	pkgs := a.Packages()
+	if pkgs == nil {
+		pkgs = []sketchfront.CheckedPackage{a.Root()}
+	}
+	for _, p := range pkgs {
+		out.Root = p.Path
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package)}
 		syn := map[string]*syntax.File{}
 		var files []facts.File
 		for _, f := range p.Files {
@@ -154,6 +186,23 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 		out.Packages = append(out.Packages, cp)
 	}
 	out.Revision = hex.EncodeToString(h.Sum(nil))[:16]
+	return out
+}
+
+// codeContractsOf is the contracts of a checked package's exported
+// functions; none for nil.
+func codeContractsOf(p *check.Package) []codeContract {
+	out := []codeContract{}
+	if p == nil {
+		return out
+	}
+	for _, f := range api.Functions(p) {
+		c := codeContract{Name: f.Name, Signature: f.Signature, TypeParameters: f.TypeParameters, Fails: f.Fails, Needs: f.Needs, Takes: f.Takes, TakesParameters: f.TakesParameters, TakesSelf: f.TakesSelf, TakesInferred: f.TakesInferred, Copies: []codeCopySite{}}
+		for _, cp := range f.Copies {
+			c.Copies = append(c.Copies, codeCopySite(cp))
+		}
+		out = append(out, c)
+	}
 	return out
 }
 

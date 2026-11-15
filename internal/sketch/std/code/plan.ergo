@@ -126,7 +126,9 @@ type FileChange { File string, Old string, New string, Text string }
 
 // Planned is a plan: its id, the change it is for, every file it read
 // (each must be at its revision when Apply writes), the files it changes,
-// the patch (a line diff per changed file) and the verdict.
+// the patch (a line diff per changed file), the verdict, and the contract
+// impact: each public contract of the workspace the change alters, as
+// `ergo inspect api --diff` gives it, its package path before its name.
 type Planned {
 	ID      string,
 	Change  string,
@@ -134,6 +136,7 @@ type Planned {
 	Files   []FileChange,
 	Patch   string,
 	Verdict Verdict,
+	Impact  []ApiChange,
 }
 
 // BadChange is a change that cannot be planned: an address that names
@@ -295,7 +298,7 @@ func planChange(sources []Source, c Change, checker Checker) Planned fails BadCh
 	for r in reads {
 		key = key + "\n" + r.File + " " + r.Revision
 	}
-	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Verdict: match c {
+	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Impact: impactOf(base.Tables, report.Tables, base.Workspace), Verdict: match c {
 	case Rename:
 		renameVerdict(base, report)
 	case _:
@@ -514,12 +517,13 @@ func SampleChange(pick int, word int) Change {
 	let name = names[slot(pick / 7, len(names))]
 	let h = "gen/p\(slot(pick / 59, 3)).\(name)"
 	let w = words[slot(word, len(words))]
-	let body = "func \(name)\n   use \(w)   \n"
+	let sig = if slot(word / 6, 3) == 0 { "\tsig s string\n" } else { "" }
+	let body = "func \(name)\n   use \(w)   \n" + sig
 	match slot(pick, 7) {
 	case 0:
 		Replace{Of: h, Text: body}
 	case 1:
-		Insert{After: h, Text: "func Extra\(slot(word, 9))\n\tuse \(w)\n"}
+		Insert{After: h, Text: "func Extra\(slot(word, 9))\n\tuse \(w)\n" + sig}
 	case 2:
 		Delete{Of: h}
 	case 3:
@@ -548,7 +552,7 @@ type Trial {
 // trialOf plans c over sources with the Model checker.
 func trialOf(sources []Source, c Change) Trial {
 	let store = NewStore()
-	let empty = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}}
+	let empty = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
 	let p = Plan(Open(sources, Model, store), c) catch {
 	case _:
 		return Trial{Ok: false, Sources: sources, Store: store, Plan: empty}

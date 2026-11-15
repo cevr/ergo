@@ -271,7 +271,7 @@ func differing(a []string, b []string) []string {
 // a word (bad, taken, outside, capture, alpha, ready, blocked), and the
 // plan when there is one.
 func renameOutcome(sources []Source, c Change) (string, Planned) {
-	let none = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}}
+	let none = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
 	let p = Plan(Open(sources, Model, NewStore()), c) catch {
 	case BadChange:
 		return ("bad", none)

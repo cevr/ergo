@@ -12,6 +12,8 @@ func NewScan(seed int) Scan { ScanOf(Generated(seed)) }
 
 func Describe(s Scan) Summary { summaryOf(s.tables) }
 
+func Api(s Scan, q ApiQuery) ApiView fails NoPackage { apiOf(s.tables, q) }
+
 func Symbols(s Scan, q SymbolQuery) SymbolPage {
 	let mut fit = []Decl{}
 	for p in s.tables.Packages {

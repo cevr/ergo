@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+
+	"ergo.local/prototype/internal/linked/code"
 
 	"ergo.local/prototype/internal/sketch/api"
 	"ergo.local/prototype/internal/sketch/machinegraph"
@@ -54,12 +58,12 @@ func inspectCommand(args []string) error {
 }
 
 func inspectAPICommand(args []string) error {
-	json, diff := false, false
+	asJSON, diff := false, false
 	var paths []string
 	for _, arg := range args {
 		switch arg {
 		case "--json":
-			json = true
+			asJSON = true
 		case "--diff":
 			diff = true
 		default:
@@ -72,7 +76,7 @@ func inspectAPICommand(args []string) error {
 	if (!diff && len(paths) != 1) || (diff && len(paths) != 2) {
 		return invalidInvocation(fmt.Errorf("inspect api: supply FILE|DIR, or --diff OLD NEW"))
 	}
-	var views [][]api.Function
+	var tables []string
 	for _, path := range paths {
 		opts, err := parseFileOptions("inspect api", []string{path})
 		if err != nil {
@@ -85,34 +89,68 @@ func inspectAPICommand(args []string) error {
 		if !l.result.Checked {
 			return refuseUnchecked(l, opts)
 		}
-		fs := api.Functions(l.analysis.Root().Package)
+		t := codeTablesOf(l.analysis)
 		// A single-file check has no file name in the syntax snapshot.
 		if !isPackageFolder(path) {
-			for i := range fs {
-				for j := range fs[i].Copies {
-					if fs[i].Copies[j].Where != "" {
-						fs[i].Copies[j].Where = path + ":" + fs[i].Copies[j].Where
+			root := &t.Packages[len(t.Packages)-1]
+			for i := range root.Contracts {
+				for j := range root.Contracts[i].Copies {
+					if c := &root.Contracts[i].Copies[j]; c.Where != "" {
+						c.Where = path + ":" + c.Where
 					}
 				}
 			}
 		}
-		views = append(views, fs)
+		b, err := json.Marshal(t)
+		if err != nil {
+			return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+		}
+		tables = append(tables, string(b))
 	}
-	var text string
+	// The view is std code's Api (ApiText, ApiDiff, ApiDiffText), linked
+	// from internal/linked/code; --json reads its answer back into the
+	// api types, so the JSON keeps their field names.
+	var out []string
+	var err error
 	if diff {
-		changes := api.Diff(views[0], views[1])
-		if json {
-			return printJSON(changes)
-		}
-		text = api.DiffText(changes)
+		out, err = code.ApiDiff(context.Background(), tables[0], tables[1], asJSON)
 	} else {
-		if json {
-			return printJSON(views[0])
-		}
-		text = api.Text(views[0])
+		out, err = code.Api(context.Background(), tables[0], asJSON)
 	}
-	_, err := os.Stdout.WriteString(text)
-	return err
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+	}
+	if len(out) != 3 || out[0] != "0" {
+		return exitStatusError{code: 1, message: "inspect api: " + strings.Join(out, " ")}
+	}
+	if !asJSON {
+		_, err = os.Stdout.WriteString(out[1])
+		return err
+	}
+	if !diff {
+		var fs []api.Function
+		if err := json.Unmarshal([]byte(out[1]), &fs); err != nil {
+			return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+		}
+		return printJSON(fs)
+	}
+	type side struct {
+		Tag   string        `json:"_tag"`
+		Value *api.Function `json:"value"`
+	}
+	var changes []struct {
+		Name                  string
+		Old, New              side
+		BreaksResourceCallers bool
+	}
+	if err := json.Unmarshal([]byte(out[1]), &changes); err != nil {
+		return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+	}
+	list := []api.Change{}
+	for _, c := range changes {
+		list = append(list, api.Change{Name: c.Name, Old: c.Old.Value, New: c.New.Value, BreaksResourceCallers: c.BreaksResourceCallers})
+	}
+	return printJSON(list)
 }
 
 // inspectMachineCommand prints the machine graphs of the root package.

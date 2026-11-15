@@ -56,6 +56,8 @@ func NewIndex(seed int) Index { IndexOf(Generated(seed)) }
 
 func Describe(x Index) Summary { x.summary }
 
+func Api(x Index, q ApiQuery) ApiView fails NoPackage { apiOf(x.tables, q) }
+
 func Symbols(x Index, q SymbolQuery) SymbolPage {
 	let mut fit = []Decl{}
 	for d in x.decls {

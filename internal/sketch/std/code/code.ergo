@@ -63,20 +63,25 @@ type Site {
 }
 
 // Package is one package's tables, as the checker wrote them: its
-// declarations and its sites, each in table order. Complete is false when
-// the package does not check: its rows are the ones the checker resolved,
-// and Diagnostics counts its errors.
+// declarations and its sites, each in table order, and the contracts of
+// its exported functions (api.ergo; none when it does not check).
+// Complete is false when the package does not check: its rows are the
+// ones the checker resolved, and Diagnostics counts its errors.
 type Package {
 	Path        string,
 	Complete    bool,
 	Diagnostics int,
 	Decls       []Decl,
 	Sites       []Site,
+	Contracts   []Contract,
 }
 
-// Tables are a workspace's fact tables at one revision.
+// Tables are a workspace's fact tables at one revision. Root is the path
+// of the program's own package, the one a question about "the program"
+// means.
 type Tables {
 	Revision string,
+	Root     string,
 	Packages []Package,
 }
 
@@ -146,6 +151,8 @@ type Reader {
 	Symbol(a string) Decl fails NoSymbol | Ambiguous,
 	// References is a page of the sites of the declaration at q.Of.
 	References(q RefQuery) SitePage fails NoSymbol | Ambiguous,
+	// Api is the contracts of a package's exported functions.
+	Api(q ApiQuery) ApiView fails NoPackage,
 
 	// HandleRoundTrips: the declaration at a declaration's handle is that
 	// declaration, so a handle printed by one answer addresses it in the
