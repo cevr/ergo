@@ -148,6 +148,64 @@ func TestShardsTypecheck(t *testing.T) {
 	}
 }
 
+// TestShardCutFollowsCost counts the shards of a synthetic package: 20
+// functions that instantiate a 5,000-byte generic declared in another
+// package, and 20 plain ones, 100 bytes each, cut at the first component
+// past 1,000 bytes of cost. A package under the threshold makes no shard;
+// over it, every instantiating function is a shard of its own (its cost
+// counts the generic, so it ends a run alone), and no shard of plain
+// functions holds more than the minimum and one function. Mutants:
+// ft9-shard-pkg-threshold-ignored, ft9-shard-cost-bytes-only.
+func TestShardCutFollowsCost(t *testing.T) {
+	const n, small, big = 20, 100, 5000
+	setup := func() (*splitPlan, []splitGroup) {
+		plan := &splitPlan{pkgs: []splitPkg{{dir: sharedDir, name: "ergoshared", sees: map[int]bool{}}, {name: "main", sees: map[int]bool{0: true}}}}
+		groups := []splitGroup{{pkg: 0, generic: true}} // the generic, in another package
+		for i := range 2 * n {
+			g := splitGroup{pkg: 1}
+			if i%2 == 0 {
+				g.refs = []int{0}
+			}
+			groups = append(groups, g)
+		}
+		return plan, groups
+	}
+	name := func(g int) string { return "g" + strconv.Itoa(g) }
+	size := func(g int) int {
+		if g == 0 {
+			return big
+		}
+		return small
+	}
+	plan, groups := setup()
+	if made := plan.shard(groups, &shardOpts{pkg: 2*n*small + 1, min: 1000, one: 1}, name, size); made != 0 {
+		t.Errorf("a package under the threshold makes %d shards, want 0", made)
+	}
+	plan, groups = setup()
+	made := plan.shard(groups, &shardOpts{pkg: 1, min: 1000, one: 1}, name, size)
+	if made < 2 {
+		t.Fatalf("a package over the threshold makes %d shards, want 2 or more", made)
+	}
+	insts, plain := map[int]int{}, map[int]int{}
+	for g := 1; g < len(groups); g++ {
+		if len(groups[g].refs) > 0 {
+			insts[groups[g].pkg]++
+		} else {
+			plain[groups[g].pkg] += small
+		}
+	}
+	for k, c := range insts {
+		if c > 1 {
+			t.Errorf("package %d holds %d functions that instantiate the generic: its cost passed the minimum at the first", k, c)
+		}
+	}
+	for k, b := range plain {
+		if k != 1 && b > 1000+small {
+			t.Errorf("shard %d holds %d bytes of plain functions, over the minimum and one function", k, b)
+		}
+	}
+}
+
 // everyShard cuts after every component: each is its own shard.
 var everyShard = &shardOpts{pkg: 1, min: 1, one: 1}
 
