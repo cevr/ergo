@@ -15,3 +15,5 @@ skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generato
 # git.Vcs runs git through a host exec.Runner, as the Cloners do; the law
 # runs against memory.Vcs, and the rm cases run git on the host.
 skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case

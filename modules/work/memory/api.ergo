@@ -10,7 +10,7 @@ func NewWorkspaces() Workspaces { Workspaces{tool: world(true).tool} }
 
 func Init(w Workspaces) string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed { try w.tool.Init() }
 
-func New(w Workspaces, name string, o work.NewOptions) string fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.WarmFailed {
+func New(w Workspaces, name string, o work.NewOptions) string fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.WarmFailed {
 	try w.tool.New(name, o)
 }
 
@@ -27,3 +27,13 @@ func Rm(w Workspaces, name string, o work.RmOptions) work.Workspace fails work.N
 func Gc(w Workspaces, o work.GcOptions) []string fails work.NoBase | work.BadAge | work.Missing | work.CloneFailed | work.Unkept { try w.tool.Gc(o) }
 
 func Du(w Workspaces) []work.Space fails work.NoBase | work.Unsupported | work.Missing | work.CloneFailed | work.Unkept { try w.tool.Du() }
+
+func Ready(w Workspaces, o work.ReadyOptions) work.Handed fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.NotFastForward | work.Moved | work.Unkept | work.VcsFailed {
+	try w.tool.Ready(o)
+}
+
+func Sync(w Workspaces, o work.SyncOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.Dirty | work.Conflicted | work.Unkept | work.VcsFailed {
+	try w.tool.Sync(o)
+}
+
+func Env(w Workspaces, o work.EnvOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept { try w.tool.Env(o) }

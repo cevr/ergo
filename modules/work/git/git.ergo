@@ -1,8 +1,11 @@
-// Package git is a work.Vcs by the git command. Every call reads: it
+// Package git is a work.Vcs by the git command. A call that only reads
 // passes --no-optional-locks, so a status in a workspace never takes the
-// index lock another process is using.
+// index lock another process is using. A snapshot builds its tree in an
+// index file of its own (GIT_INDEX_FILE), as git stash create does, so
+// the user's index, branch and files stay as they are.
 
 import exec
+import filepath
 import github.com/cevr/ergo/modules/work/work
 import strings
 
@@ -12,13 +15,27 @@ type Vcs { run exec.Runner } implements work.Vcs
 // New is the Vcs over a Runner.
 func New(run exec.Runner) Vcs { Vcs{run: run} }
 
-// git runs git in the checkout at root with args.
-func git(v Vcs, root string, args []string) exec.Result fails work.VcsFailed {
-	let mut all = []string{"--no-optional-locks", "-C", root}
+// Guard is the push URL Start gives a checkout's origin, as lane-rift.sh
+// does: a push to origin fails, so a workspace hands its work only to its
+// parent.
+let Guard = "no-push:workspaces-never-push-origin"
+
+// SnapshotIndex is the index file a snapshot builds its tree in, inside
+// the checkout's Git folder.
+let SnapshotIndex = "ergo-work-index"
+
+// git runs git in the checkout at root with args, and the environment
+// entries env (key, value, key, value, ...).
+func git(v Vcs, root string, args []string, env []string) exec.Result fails work.VcsFailed {
+	let mut all = []string{"-C", root}
 	for a in args {
 		all = all.Append(a)
 	}
-	v.run.Run(exec.New("git", all)) catch {
+	let mut c = exec.New("git", all)
+	for i in 0..len(env)/2 {
+		c = c.WithEnv(env[2*i], env[2*i+1])
+	}
+	v.run.Run(c) catch {
 	case exec.NotFound:
 		return work.VcsFailed{Reason: "git is not on PATH"}
 	case exec.Denied:
@@ -28,20 +45,47 @@ func git(v Vcs, root string, args []string) exec.Result fails work.VcsFailed {
 	}
 }
 
-// answer is the trimmed standard output of a git call that ended with
+// reads runs a git call that only reads: with --no-optional-locks.
+func reads(v Vcs, root string, args []string) exec.Result fails work.VcsFailed {
+	let mut all = []string{"--no-optional-locks"}
+	for a in args {
+		all = all.Append(a)
+	}
+	try git(v, root, all, []string{})
+}
+
+// answer is the trimmed standard output of a reading git call that ended
+// with status 0.
+func answer(v Vcs, root string, args []string) string fails work.VcsFailed { try ok(try reads(v, root, args), root, args) }
+
+// ok is the trimmed standard output of r, which must have ended with
 // status 0.
-func answer(v Vcs, root string, args []string) string fails work.VcsFailed {
-	let r = try git(v, root, args)
+func ok(r exec.Result, root string, args []string) string fails work.VcsFailed {
 	if r.Status != 0 {
 		return work.VcsFailed{Reason: "git \(strings.Join(args, " ")) in \(root): \(strings.TrimSpace(r.Stderr))"}
 	}
 	strings.TrimSpace(r.Stdout)
 }
 
+// writes runs a git call that writes and is its output.
+func writes(v Vcs, root string, args []string) string fails work.VcsFailed { try ok(try git(v, root, args, []string{}), root, args) }
+
+// other is path as a git call in root names it: as it is when absolute,
+// else relative to root (both are relative to this process's folder).
+func other(root string, path string) string fails work.VcsFailed {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	filepath.Rel(root, path) catch {
+	case filepath.NotRelative:
+		return work.VcsFailed{Reason: "\(path) has no path from \(root)"}
+	}
+}
+
 func Head(v Vcs, root string) string fails work.VcsFailed { try answer(v, root, []string{"rev-parse", "--verify", "HEAD"}) }
 
 func Branch(v Vcs, root string) string fails work.VcsFailed {
-	let r = try git(v, root, []string{"symbolic-ref", "--quiet", "--short", "HEAD"})
+	let r = try reads(v, root, []string{"symbolic-ref", "--quiet", "--short", "HEAD"})
 	if r.Status != 0 {
 		return ""
 	}
@@ -55,9 +99,131 @@ func Clean(v Vcs, root string) bool fails work.VcsFailed {
 // Holds asks the parent for the branches that contain commit; a commit
 // the parent has never seen is held by none.
 func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
-	let known = try git(v, parent, []string{"cat-file", "-e", commit + "^{commit}"})
+	let known = try reads(v, parent, []string{"cat-file", "-e", commit + "^{commit}"})
 	if known.Status != 0 {
 		return false
 	}
 	try answer(v, parent, []string{"branch", "--contains", commit, "--format=%(refname)"}) != ""
+}
+
+func Snapshot(v Vcs, root string) string fails work.VcsFailed {
+	let dir = try answer(v, root, []string{"rev-parse", "--absolute-git-dir"})
+	let env = []string{"GIT_INDEX_FILE", filepath.Join([]string{dir, SnapshotIndex})}
+	let head = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", "HEAD"})
+	let start = if head.Status == 0 { []string{"read-tree", "HEAD"} } else { []string{"read-tree", "--empty"} }
+	let _ = try ok(try git(v, root, start, env), root, start)
+	let add = []string{"add", "--all", "--", "."}
+	let _ = try ok(try git(v, root, add, env), root, add)
+	let tree = []string{"write-tree"}
+	try ok(try git(v, root, tree, env), root, tree)
+}
+
+func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {
+	let mut files = Map[string, string]{}
+	for line in exec.Split(try answer(v, root, []string{"ls-tree", "-r", "--full-tree", tree})) {
+		let (meta, path) = match strings.Cut(line, "\t") {
+		case Some[strings.Halves] as h:
+			(h.Value.Before, h.Value.After)
+		case None:
+			return work.VcsFailed{Reason: "git ls-tree: \(line)"}
+		}
+		let words = strings.Fields(meta)
+		if len(words) != 3 || words[1] != "blob" {
+			continue
+		}
+		let blob = try reads(v, root, []string{"cat-file", "blob", words[2]})
+		files[path] = try rawOk(blob, root)
+	}
+	files
+}
+
+// rawOk is the untrimmed standard output of r, which must have ended
+// with status 0.
+func rawOk(r exec.Result, root string) string fails work.VcsFailed {
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "git cat-file in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+	r.Stdout
+}
+
+func Keep(v Vcs, root string, tree string) string fails work.VcsFailed {
+	try writes(v, root, []string{"commit-tree", tree, "-p", "HEAD", "-m", "ergo work snapshot"})
+}
+
+func Ref(v Vcs, root string, ref string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", ref})
+	if r.Status != 0 {
+		return ""
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func SetRef(v Vcs, root string, ref string, old string, value string) fails work.Moved | work.VcsFailed {
+	let r = try git(v, root, []string{"update-ref", ref, value, old}, []string{})
+	if r.Status != 0 {
+		let have = try Ref(v, root, ref)
+		if have != old {
+			return work.Moved{Ref: ref, Want: old, Have: have}
+		}
+		return work.VcsFailed{Reason: "git update-ref \(ref) in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+func Resolve(v Vcs, root string, rev string) string fails work.NoRevision | work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", rev + "^{commit}"})
+	if r.Status != 0 {
+		return work.NoRevision{Rev: rev}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func Contains(v Vcs, root string, commit string, ancestor string) bool fails work.VcsFailed {
+	let r = try reads(v, root, []string{"merge-base", "--is-ancestor", ancestor, commit})
+	match r.Status {
+	case 0:
+		true
+	case 1:
+		false
+	case _:
+		work.VcsFailed{Reason: "git merge-base in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+func Start(v Vcs, root string, branch string, commit string) fails work.VcsFailed {
+	let _ = try writes(v, root, []string{"switch", "--quiet", "--no-track", "-C", branch, commit})
+	let origin = try reads(v, root, []string{"remote", "get-url", "origin"})
+	if origin.Status == 0 {
+		let _ = try writes(v, root, []string{"config", "remote.origin.pushurl", Guard})
+	}
+}
+
+func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {
+	let mut args = []string{"push", "--atomic", "--porcelain", try other(root, parent)}
+	for p in refs {
+		let force = if p.Force { "+" } else { "" }
+		args = args.Append(force + p.From + ":" + p.To)
+	}
+	let r = try git(v, root, args, []string{})
+	if r.Status != 0 {
+		for p in refs {
+			if strings.Contains(r.Stdout, ":"+p.To+"\t[rejected]") || strings.Contains(r.Stdout, p.To+"\t[rejected]") {
+				return work.NotFastForward{Ref: p.To, Parent: parent}
+			}
+		}
+		return work.VcsFailed{Reason: "git push in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
+	}
+}
+
+func Merge(v Vcs, root string, parent string, branch string) string fails work.Conflicted | work.VcsFailed {
+	let _ = try writes(v, root, []string{"fetch", "--quiet", "--no-tags", try other(root, parent), "refs/heads/" + branch})
+	let theirs = try answer(v, root, []string{"rev-parse", "--verify", "FETCH_HEAD^{commit}"})
+	let r = try git(v, root, []string{"merge", "--quiet", "--no-edit", theirs}, []string{})
+	if r.Status != 0 {
+		let files = exec.Split(try answer(v, root, []string{"diff", "--name-only", "--diff-filter=U"}))
+		if len(files) > 0 {
+			return work.Conflicted{Files: files}
+		}
+		return work.VcsFailed{Reason: "git merge in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
+	}
+	theirs
 }

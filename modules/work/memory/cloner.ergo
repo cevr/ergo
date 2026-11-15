@@ -241,6 +241,22 @@ func Write(c Cloner, root string, path string, t string) bool {
 	true
 }
 
+// Unlink removes the file path from the tree at root. It is false when
+// no tree is at root.
+func Unlink(c Cloner, root string, path string) bool {
+	let d = c.disk.Get()
+	let tree = match d.trees.Get(root) {
+	case Some[Map[string, int]] as found:
+		found.Value
+	case None:
+		return false
+	}
+	let mut trees = d.trees
+	trees[root] = tree.Delete(path)
+	c.disk.Set(Disk{..d, trees: trees})
+	true
+}
+
 // Files is the tree at root: each file's path and text (empty when no
 // tree is there).
 func Files(c Cloner, root string) Map[string, string] {

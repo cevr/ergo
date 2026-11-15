@@ -1,21 +1,37 @@
 // The model property of work.Tool: random command sequences against the
 // memory providers, held to a reference written apart from the Tool (a
-// list of names, states, kept flags and ages).
+// list of names, states, parents, kept flags and ages).
 
 import exec
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
+import maps
 import slices
 import time
 
-// Op is one step of a sequence: a command, an edit or a land in a
-// workspace, a crash between the registry's record and the clone, or
-// time passing. Each picks its name from three by Name.
-type Op = NewOp{Name int, Copy bool} | RmOp{Name int, Abandon bool} | EditOp{Name int} | LandOp{Name int} | CrashOp{Name int} | GcOp{Older int} | WaitOp{Seconds int}
+// Op is one step of a sequence: a command, an edit, a land or a commit in
+// a workspace, a commit in the base, a crash between the registry's
+// record and the clone, or time passing. Each picks its names from three
+// by Name (and On).
+type Op =
+	| NewOp{Name int, Copy bool}
+	| OnOp{Name int, On int}
+	| RmOp{Name int, Abandon bool}
+	| EditOp{Name int}
+	| LandOp{Name int}
+	| ReadyOp{Name int}
+	| SyncOp{Name int}
+	| BaseOp{}
+	| CrashOp{Name int}
+	| GcOp{Older int}
+	| WaitOp{Seconds int}
 
-// Expected is the reference's record of one name.
-type Expected { Name string, State string, Kept bool, Since int64, Path string }
+// Expected is the reference's record of one name. Kept is whether its
+// work is in its parent; Sure is false after a step whose effect on that
+// the reference does not decide (a stack's clone of a changed parent, a
+// sync), and then rm's outcome is the Tool's to tell.
+type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string }
 
 // pick is one of three names, so sequences reuse them.
 func pick(n int) string { []string{"a", "b", "wf/c"}[((n%3)+3)%3] }
@@ -29,13 +45,14 @@ let theBase = "/w/base"
 let otherBase = "/w/other"
 
 // World is a Tool over memory providers and the handles the driver uses.
-type World { tool work.Tool, trees Cloner, registry Registry, clock time.Manual }
+type World { tool work.Tool, trees Cloner, vcs Vcs, registry Registry, clock time.Manual }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World {
 	let trees = NewCloner()
-	Repo(trees, theBase, "main", Map[string, string]{"main.ergo": "func main() {}\n"}, "c0")
+	let vcs = VcsOver(trees)
+	Repo(vcs, theBase, "main", Map[string, string]{"main.ergo": "func main() {}\n"}, "c0")
 	let cloner = if sharing { trees } else { Refusing(trees) }
 	let registry = NewRegistry()
 	let disk = fstest.NewMemory()
@@ -44,22 +61,27 @@ func world(sharing bool) World {
 		Unreachable("a folder of a memory disk")
 	}
 	let clock = time.NewManual(1000)
-	let tool = work.NewTool(theBase, []work.Cloner{cloner}, Beside(trees, false), registry, NewVcs(trees), disk, disk, exec.Script{Results: Map[string, exec.Result]{}}, clock)
+	let tool = work.NewTool(theBase, []work.Cloner{cloner}, Beside(trees, false), registry, vcs, disk, disk, exec.Script{Results: Map[string, exec.Result]{}}, clock, "/")
 	let _ = tool.Init() catch {
 	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:
 		Unreachable("init of a memory base")
 		""
 	}
-	World{tool: tool, trees: trees, registry: registry, clock: clock}
+	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock}
 }
 
+// fresh are new's options with only the copy flag.
+func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, Branch: None, On: None} }
+
 // ToolAgreesWithTheReference: after every step, List names the records
-// the reference holds, in its order and states; every live workspace's
-// tree is at its path, and a deleted one's is gone. A second base's trash
-// is never touched.
+// the reference holds, in its order, states and parents; every live
+// workspace's tree is at its path, and a deleted one's is gone; a
+// workspace ready handed is held by its parent's branch; a sync records
+// the commit it merged as the base. A second base's trash is never
+// touched.
 law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 	let w = world(sharing)
-	Repo(w.trees, "/w/.ergo-work/other/.ergo-trash/x.1", "x", Map[string, string]{"f": "other"}, "o1")
+	Repo(w.vcs, "/w/.ergo-work/other/.ergo-trash/x.1", "x", Map[string, string]{"f": "other"}, "o1")
 	let mut want = []Expected{}
 	let mut gone = []string{}
 	let mut commits = 0
@@ -68,26 +90,47 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 		match op {
 		case NewOp as o:
 			let name = pick(o.Name)
-			let _ = w.tool.New(name, work.NewOptions{Copy: o.Copy}) catch {
+			let _ = w.tool.New(name, fresh(o.Copy)) catch {
 			case _:
 				""
 			}
 			if !named(want, name) && (sharing || o.Copy) {
-				want = want.Append(Expected{Name: name, State: "active", Kept: true, Since: at, Path: work.Home(theBase) + "/" + work.FolderOf(name)})
+				want = want.Append(Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase) + "/" + work.FolderOf(name)})
+			}
+		case OnOp as o:
+			let name = pick(o.Name)
+			let on = pick(o.On)
+			let made = w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}}) catch {
+			case _:
+				""
+			}
+			match find(want, on) {
+			case Some[Expected] as parent:
+				let can = !named(want, name) && parent.Value.State == "active"
+				if made != "" && !can {
+					return false
+				}
+				if made != "" {
+					want = want.Append(Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made})
+				}
+			case None:
+				if made != "" {
+					return false
+				}
 			}
 		case RmOp as o:
 			let name = pick(o.Name)
-			let _ = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon}) catch {
+			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon}) catch {
 			case _:
-				work.Workspace{Name: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Active, Since: 0}
+				work.Workspace{Name: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Active, Since: 0, Base: "", Latest: ""}
 			}
-			want = removed(want, name, o.Abandon, at)
+			want = removed(want, name, o.Abandon, at, out.Name == name)
 		case EditOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
 			case Some[Expected] as e:
 				if e.Value.State == "active" && Write(w.trees, e.Value.Path, "edit.ergo", "// edit \(at)\n") {
-					want = replaced(want, Expected{..e.Value, Kept: false})
+					want = replaced(want, Expected{..e.Value, Kept: false, Sure: true})
 				}
 			case None:
 			}
@@ -97,20 +140,61 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 			case Some[Expected] as e:
 				if e.Value.State == "active" {
 					commits = commits + 1
-					let _ = Commit(w.trees, e.Value.Path, "c\(commits)") && Land(w.trees, e.Value.Path, theBase)
-					want = replaced(want, Expected{..e.Value, Kept: true})
+					let landed = Commit(w.vcs, e.Value.Path, "c\(commits)") && Land(w.vcs, e.Value.Path, e.Value.Parent)
+					want = replaced(want, Expected{..e.Value, Kept: landed, Sure: landed})
 				}
 			case None:
 			}
+		case ReadyOp as o:
+			let name = pick(o.Name)
+			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}}) catch {
+			case _:
+				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
+			}
+			match find(want, name) {
+			case Some[Expected] as e:
+				if e.Value.State == "active" && parentLive(want, e.Value) {
+					if handed.Name != name || !handedHeld(w, e.Value, handed) {
+						return false
+					}
+					want = replaced(want, Expected{..e.Value, Kept: true, Sure: true})
+				} else if handed.Name != "" {
+					return false
+				}
+			case None:
+				if handed.Name != "" {
+					return false
+				}
+			}
+		case SyncOp as o:
+			let name = pick(o.Name)
+			let theirs = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: name}}) catch {
+			case _:
+				""
+			}
+			if theirs != "" {
+				if !synced(w, name, theirs) {
+					return false
+				}
+				match find(want, name) {
+				case Some[Expected] as e:
+					want = replaced(want, Expected{..e.Value, Sure: false})
+				case None:
+					return false
+				}
+			}
+		case BaseOp:
+			commits = commits + 1
+			let _ = Write(w.trees, theBase, "main.ergo", "// base \(commits)\n") && Commit(w.vcs, theBase, "c\(commits)")
 		case CrashOp as o:
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase) + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at}) catch {
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: ""}) catch {
 				case work.Unkept:
 				}
 				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
-				want = want.Append(Expected{Name: name, State: "creating", Kept: false, Since: at, Path: path})
+				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path})
 			}
 		case GcOp as o:
 			let older = small(o.Older, 7200)
@@ -131,6 +215,39 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool) {
 	w.trees.Has("/w/.ergo-work/other/.ergo-trash/x.1")
 }
 
+// handedHeld reports whether the parent's branch holds the workspace's
+// head, as ready said, and the parent keeps the snapshot it named.
+func handedHeld(w World, e Expected, h work.Handed) bool {
+	let head = w.vcs.Head(e.Path) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let snapshot = w.vcs.Ref(e.Parent, work.SnapshotRef(e.Name)) catch {
+	case work.VcsFailed:
+		return false
+	}
+	h.Commit == head && h.Parent == e.Parent && snapshot != "" && maps.GetOr(w.vcs.store.Get().commits, snapshot, Node{Tree: "", Parents: []string{}}).Tree == h.Snapshot
+}
+
+// synced reports whether a sync of name that merged theirs left it
+// recorded as the workspace's base, and its head contains it.
+func synced(w World, name string, theirs string) bool {
+	let all = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		return false
+	}
+	for r in all {
+		if r.Name == name {
+			let head = w.vcs.Head(r.Path) catch {
+			case work.VcsFailed:
+				return false
+			}
+			return r.Base == theirs && reaches(w.vcs.store.Get(), head, theirs)
+		}
+	}
+	false
+}
+
 // agrees reports whether the Tool's list and trees are the reference's.
 func agrees(w World, want []Expected, gone []string) bool {
 	let got = w.tool.List() catch {
@@ -142,7 +259,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 	}
 	for i, g in got {
 		let e = want[i]
-		if g.Name != e.Name || work.StateName(g.State) != e.State {
+		if g.Name != e.Name || work.StateName(g.State) != e.State || g.Parent != e.Parent {
 			return false
 		}
 		if !w.trees.Has(g.Path) {
@@ -164,11 +281,13 @@ func agrees(w World, want []Expected, gone []string) bool {
 
 // removed is the reference after rm of name at the second at: a creating
 // workspace, or an active one whose work is kept or that is abandoned,
-// goes to the trash; any other stays.
-func removed(want []Expected, name string, abandon bool, at int64) []Expected {
+// goes to the trash; any other stays. Where the reference is not sure of
+// the kept flag, trashed (the Tool's answer) decides.
+func removed(want []Expected, name string, abandon bool, at int64, trashed bool) []Expected {
 	match find(want, name) {
 	case Some[Expected] as e:
-		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (e.Value.Kept || abandon))
+		let keptNow = if e.Value.Sure && parentLive(want, e.Value) { e.Value.Kept } else { trashed }
+		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (keptNow || abandon))
 		if goes {
 			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at)})
 		}
@@ -193,6 +312,12 @@ func collected(want []Expected, older int64, at int64) ([]Expected, []string) {
 		}
 	}
 	(kept, dropped)
+}
+
+// parentLive reports whether e's parent is the base or a workspace the
+// reference holds at that path and has not trashed.
+func parentLive(want []Expected, e Expected) bool {
+	e.Parent == theBase || slices.IndexFunc(want, func(p Expected) bool { p.Path == e.Parent && p.State != "trashed" }) >= 0
 }
 
 func named(want []Expected, name string) bool { find(want, name) != None }

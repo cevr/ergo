@@ -1,10 +1,31 @@
 // VcsFailed is a version-control call that could not run or answer.
 type VcsFailed { Reason string }
 
-// Vcs is what work needs of version control: the commit and branch a
-// checkout is at, whether it holds uncommitted or untracked changes, and
-// whether its parent already holds a commit. WS1 adds snapshots, refs and
-// compare-and-set, with their laws.
+// Moved is a compare-and-set that lost: the ref holds Have, not the Want
+// the writer read.
+type Moved { Ref string, Want string, Have string }
+
+// NoRevision is a revision the checkout does not know.
+type NoRevision { Rev string }
+
+// NotFastForward is a push whose ref in the parent holds a commit the
+// pushed one does not contain: the parent's branch moved; sync first.
+type NotFastForward { Ref string, Parent string }
+
+// Conflicted is a merge that changed the same files on both sides.
+type Conflicted { Files []string }
+
+// Pushed is one ref a push writes in the parent: From in the checkout (a
+// ref, or HEAD) to the parent's ref To; only a Force push may replace a
+// commit To holds that From does not contain.
+type Pushed { From string, To string, Force bool }
+
+// Vcs is what work needs of version control, for the checkout at root:
+// its commit and branch, whether it holds changes, snapshots of its
+// working files, refs with compare-and-set, a branch started at a commit,
+// a push of refs into the parent's repository and a merge of the parent's
+// branch. Every law runs on the checkout ".": the one the provider was
+// built over.
 type Vcs {
 	// Head is the commit at the HEAD of the checkout at root.
 	Head(root string) string fails VcsFailed,
@@ -16,35 +37,136 @@ type Vcs {
 	// Holds reports whether a branch of the checkout at parent contains
 	// commit.
 	Holds(parent string, commit string) bool fails VcsFailed,
+	// Snapshot is the tree of the working files: every tracked and
+	// untracked file that is not ignored, as it is now. It writes the tree
+	// to the object store and changes no file, no branch and no index.
+	Snapshot(root string) string fails VcsFailed,
+	// Read is each file of a snapshot tree and its text.
+	Read(root string, tree string) Map[string, string] fails VcsFailed,
+	// Keep is a commit of tree on top of HEAD that no branch holds.
+	Keep(root string, tree string) string fails VcsFailed,
+	// Ref is what ref holds, or "" when the checkout has no such ref.
+	Ref(root string, ref string) string fails VcsFailed,
+	// SetRef sets ref to value when it holds old ("" for no ref), at once:
+	// a writer that read an older value is Moved.
+	SetRef(root string, ref string, old string, value string) fails Moved | VcsFailed,
+	// Resolve is the commit of a revision: a commit, a branch, a tag or a
+	// full ref.
+	Resolve(root string, rev string) string fails NoRevision | VcsFailed,
+	// Contains reports whether commit is ancestor or ancestor's
+	// descendant.
+	Contains(root string, commit string, ancestor string) bool fails VcsFailed,
+	// Start makes branch at commit and switches the checkout to it,
+	// carrying its uncommitted and untracked files, and stops pushes to
+	// the checkout's origin.
+	Start(root string, branch string, commit string) fails VcsFailed,
+	// Push writes refs of the checkout into the repository at parent, all
+	// or none.
+	Push(root string, parent string, refs []Pushed) fails NotFastForward | VcsFailed,
+	// Merge brings the parent's branch into the checkout's branch (a
+	// fast-forward when it can) and is the parent's commit it merged.
+	Merge(root string, parent string, branch string) string fails Conflicted | VcsFailed,
 
 	// OwnBranchHoldsItsHead: a checkout on a branch holds its own head,
 	// so a workspace cloned from a base and not changed since is kept in
 	// it.
-	law OwnBranchHoldsItsHead(root string) {
-		let branch = Branch(root) catch {
+	law OwnBranchHoldsItsHead() {
+		let branch = Branch(".") catch {
 		case VcsFailed:
 			return true
 		}
 		if branch == "" {
 			return true
 		}
-		let head = Head(root) catch {
+		let head = Head(".") catch {
 		case VcsFailed:
 			return true
 		}
-		Holds(root, head) catch {
+		Holds(".", head) catch {
 		case VcsFailed:
 			false
 		}
 	},
+
+	// SnapshotChangesNoBranch: a snapshot (and a commit of it) leaves the
+	// head, the branch and what is uncommitted as they were.
+	law SnapshotChangesNoBranch() {
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let before = Outline{Head: head, Branch: try Branch("."), Clean: try Clean(".")}
+		let tree = try Snapshot(".")
+		let _ = try Keep(".", tree)
+		before == Outline{Head: try Head("."), Branch: try Branch("."), Clean: try Clean(".")}
+	},
+
+	// CompareAndSetIsAtomic: two writers, each setting a ref from the
+	// value it last read, agree with one register: a set succeeds exactly
+	// when the ref still holds what its writer read, and the ref ends
+	// holding the last set that succeeded.
+	law CompareAndSetIsAtomic(steps []Write) {
+		let ref = "refs/work/law"
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let values = []string{head, try Keep(".", try Snapshot("."))}
+		let mut register = try Ref(".", ref)
+		let mut first = register
+		let mut second = register
+		for s in steps {
+			let one = s.Writer%2 == 0
+			if s.Read {
+				let now = try Ref(".", ref)
+				if one {
+					first = now
+				} else {
+					second = now
+				}
+				continue
+			}
+			let read = if one { first } else { second }
+			let value = values[((s.Value%2)+2)%2]
+			let mut won = true
+			SetRef(".", ref, read, value) catch {
+			case Moved:
+				won = false
+			case VcsFailed:
+				return false
+			}
+			if won != (register == read) {
+				return false
+			}
+			if won {
+				register = value
+				if one {
+					first = value
+				} else {
+					second = value
+				}
+			}
+		}
+		(try Ref(".", ref)) == register
+	},
 }
 
+// Outline is what a snapshot must not change: the head, the branch and
+// whether the checkout is clean.
+type Outline { Head string, Branch string, Clean bool }
+
+// Write is one step of a writer of CompareAndSetIsAtomic: Writer reads the
+// ref, or sets it to one of two values from what it last read.
+type Write { Writer int, Read bool, Value int }
+
 // Kept reports whether the work of the checkout at root is safe in its
-// parent: it is clean and its head is on a branch of the parent. A
-// workspace whose work is not kept is removed only when it is abandoned.
-func Kept(root string, parent string) bool fails VcsFailed needs Vcs {
-	if !try Vcs.Clean(root) {
-		return false
+// parent: it is clean and its head is on a branch of the parent, or its
+// snapshot is the one ready last handed to the parent (latest, which the
+// parent's ref snapshotRef still names). A workspace whose work is not
+// kept is removed only when it is abandoned.
+func Kept(root string, parent string, latest string, snapshotRef string) bool fails VcsFailed needs Vcs {
+	if try Vcs.Clean(root) && try Vcs.Holds(parent, try Vcs.Head(root)) {
+		return true
 	}
-	try Vcs.Holds(parent, try Vcs.Head(root))
+	latest != "" && try Vcs.Snapshot(root) == latest && try Vcs.Ref(parent, snapshotRef) != ""
 }

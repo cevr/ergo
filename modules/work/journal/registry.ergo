@@ -4,8 +4,11 @@
 // line is a word and tab-separated fields, each Go-quoted (a tab in a
 // field is \t, so a tab only separates):
 //
-//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800
+//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"
 //	drop	"name"
+//
+// A put of seven fields (before the base and the latest snapshot were
+// recorded) reads with both empty.
 //
 // A reader replays every whole line; the last put of a name is its
 // record, a drop forgets it. Each write is one append of one line, so two
@@ -64,7 +67,7 @@ func appendLine(r Registry, line string) fails work.Unkept {
 
 // PutLine is the journal line of a put of w.
 func PutLine(w work.Workspace) string {
-	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10)}
+	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest)}
 	strings.Join(fields, "\t") + "\n"
 }
 
@@ -80,8 +83,8 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 		let fields = strings.Split(line, "\t")
 		match fields[0] {
 		case "put":
-			if len(fields) != 8 {
-				return bad(i, "a put has 7 fields")
+			if len(fields) != 8 && len(fields) != 10 {
+				return bad(i, "a put has 7 or 9 fields")
 			}
 			let state = match work.StateNamed(fields[6]) {
 			case Some[work.State] as s:
@@ -93,7 +96,10 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 			case strconv.Malformed, strconv.OutOfRange:
 				return bad(i, "the time \(fields[7]) is not a number")
 			}
-			let w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since}
+			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: ""}
+			if len(fields) == 10 {
+				w = work.Workspace{..w, Base: try field(i, fields[8]), Latest: try field(i, fields[9])}
+			}
 			records = memory.Kept(records, w)
 		case "drop":
 			if len(fields) != 2 {
