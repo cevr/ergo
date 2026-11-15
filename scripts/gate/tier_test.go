@@ -379,7 +379,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 274.0 // 473.6 recorded (examples step 258.5), 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts (SEMTOOLS SEM0) joined at one seed under -short, which is its go test floor (1.0-1.7 recorded at one seed or none; the headroom was 0.9)
+	fastCPUKnownGap = 280.0 // 479.8 at the examples step's 258.5, 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts (SEMTOOLS SEM0) joined at one seed under -short, which is its go test floor (1.0-1.7 recorded at one seed or none; the headroom was 0.9); irspike (2.7) and fix (2.3) joined at batch 20's integration (I20). The batch 19+20+21 combined head records 782.0, the examples step 560.7 (585.7 CPU-s measured in its fast gate): that excess is a defect (GS29 follow-up), not a gap, and this test fails until it is fixed
 	fastCPURatchet  = 0.10
 )
 
