@@ -87,7 +87,7 @@ func New[T]() Table[T] { Table[T]{rows: []T{}} }
 // exist: a table's room never passes that, so Put checks for a full store
 // only when it grows (SL2b).
 func WithCap[T](n int) Table[T] {
-	if n > int(none) {
+	if n > int(limit) {
 		Unreachable(full)
 	}
 	Table[T]{rows: slices.WithCapacity[T](n)}
@@ -107,18 +107,18 @@ func Put[T](t *Table[T], v T) ID[T] {
 	// A table's room is at most one per id (WithCap, and the regrowth
 	// below), so a store with room left is not full: only a Put that grows
 	// the table checks (SL2b).
-	if grows && n >= int(none) {
+	if grows && n >= int(limit) {
 		Unreachable(full)
 	}
 	t.rows = t.rows.Append(v)
-	if grows && (room(t.rows) > int(none) || (n > 1 && room(t.rows) == n+1)) {
+	if grows && (room(t.rows) > int(limit) || (n > 1 && room(t.rows) == n+1)) {
 		// Room past one per id is cut back to it. And only rows of no size
 		// grow to exactly one more than they hold: Go grows any other full
 		// slice of two rows or more to at least twice, or a quarter more.
 		// Go grows a slice of rows of no size on every append, so the
 		// table takes room for every id at once; rows of no size take no
 		// memory (SL2b).
-		let mut all = slices.WithCapacity[T](int(none))
+		let mut all = slices.WithCapacity[T](int(limit))
 		all = slices.AppendAll(all, t.rows)
 		t.rows = all
 	}
