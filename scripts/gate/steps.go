@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // durationsFile records measured per-test seconds for the sharded packages.
@@ -862,31 +861,9 @@ func writeDurations(root string, limit limiter, packages []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		output := stdout.Bytes()
-		// Elapsed omits time a test spends waiting for its parallel
-		// subtests, so a test's weight is its wall time to finish, counted
-		// from its start or, for a parallel test, from when it resumes.
-		measured := map[string]float64{}
-		started := map[string]time.Time{}
-		decoder := json.NewDecoder(bytes.NewReader(output))
-		for decoder.More() {
-			var event struct {
-				Time   time.Time
-				Action string
-				Test   string
-			}
-			if err := decoder.Decode(&event); err != nil {
-				return err
-			}
-			if event.Test == "" || strings.Contains(event.Test, "/") {
-				continue
-			}
-			switch event.Action {
-			case "run", "cont":
-				started[event.Test] = event.Time
-			case "pass", "fail", "skip":
-				measured[event.Test] = math.Round(event.Time.Sub(started[event.Test]).Seconds()*100) / 100
-			}
+		measured, err := testWallSeconds(&stdout)
+		if err != nil {
+			return err
 		}
 		durations[module+"/"+strings.TrimPrefix(pkg, "./")] = measured
 	}

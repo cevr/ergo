@@ -353,7 +353,7 @@ func selectionVerdicts(t *testing.T, root string, env []string, dir string, name
 func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 	root := checkoutRoot(t)
 	skipped := "TestNoSuchTestTheSelectorSkips"
-	steps, err := fastStepsSelected(root, func(p testPackage, env, names []string) selection {
+	steps, err := fastStepsSelected(root, "", func(p testPackage, env, names []string) selection {
 		return selection{skip: []string{skipped}, note: "selected for " + p.dir}
 	})
 	if err != nil {
