@@ -1,6 +1,7 @@
 package closure
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -33,5 +34,21 @@ func TestRunDeadlineFollowsRecordedCPU(t *testing.T) {
 	}
 	if floor, err := runDeadline(20); err != nil || (floor < 30*time.Minute && want == 50*time.Minute) {
 		t.Errorf("runDeadline(20) = %v, %v; want at least 30m", floor, err)
+	}
+}
+
+// TestUnmeasuredRunHasTheBinaryDeadline: a run with a test that has no
+// recorded time is bounded by the test binary's own deadline, which the
+// gate sets from the package's record, not by the 30 minute floor (CS1:
+// TestDirectMatchesGoBuild, new and unrecorded, outran it). runDeadline
+// then takes the binary's (TestRunDeadlineFollowsRecordedCPU). Mutants
+// sweep-unmeasured-floored and sweep-unmeasured-hang-floored (this
+// package's ledger).
+func TestUnmeasuredRunHasTheBinaryDeadline(t *testing.T) {
+	plan := withDeadlineCosts([]sweepRun{
+		{tests: []string{"TestNew", "TestOld"}, cost: 45, unmeasured: []string{"TestNew"}},
+	}, map[string]float64{"TestOld": 10})
+	if got := hangDeadline(plan[0].deadlineCost); got != math.MaxInt64 {
+		t.Fatalf("the unmeasured run's own bound is %v (cost %v); want none", got, plan[0].deadlineCost)
 	}
 }
