@@ -4,9 +4,9 @@ import strings
 // (H4r): it comes from the node's kind alone, as an accessibility tree
 // gives it. A Pressable is a Button, a Check a Checkbox, a Toggle a
 // Switch, an Input a TextBox, a Text Static, a Fieldset a Group, an Area
-// a Region, a Canvas an Image, a list of Rows a List, and a Box, Row,
-// Column or Scroll Generic.
-type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Generic
+// a Region, a Canvas an Image, a list of Rows a List, a live region
+// (Announce) a Status, and a Box, Row, Column, Scroll or Zone Generic.
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic
 
 // Button is the role of a Pressable (and a Submit).
 type Button {}
@@ -35,6 +35,9 @@ type Image {}
 // List is the role of a list of Rows.
 type List {}
 
+// Status is the role of a live region (Announce), as ARIA's "status".
+type Status {}
+
 // Generic is the role of a layout container: Box, Row, Column, Scroll.
 type Generic {}
 
@@ -49,9 +52,9 @@ type Access { Role Role, Name string, Disabled bool, Description string, Checked
 // Locator finds nodes on a screen, as Testing Library's queries do: by
 // role and name (an empty Name matches any), by the label a primitive
 // was given (a Pressable's, Check's, Toggle's, Area's, Canvas's or
-// list's), by an Input's placeholder, or by a Text's value. Names match
-// exactly.
-type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string}
+// list's), by an Input's placeholder, by a Text's value, or by a Zone's
+// key (H5g). Names match exactly.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key}
 
 // Matcher is what a scene expects of a locator's nodes, after
 // Playwright's and Testing Library's matchers: that some node matches,
@@ -190,6 +193,9 @@ func access[E](n Node[E], off bool, desc string) Access {
 	case RowsNode as x:
 		a.Role = List
 		a.Name = x.Label
+	case LiveNode as x:
+		a.Role = Status
+		a.Name = x.Text
 	case _:
 	}
 	a
@@ -228,6 +234,13 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 		match n {
 		case TextNode as t:
 			t.Value == x.Text
+		case _:
+			false
+		}
+	case WithZone as x:
+		match n {
+		case ZoneNode as z:
+			z.Key == x.Key
 		case _:
 			false
 		}
@@ -328,6 +341,20 @@ func locatorText(loc Locator) string {
 		"placeholder \"\(x.Text)\""
 	case WithText as x:
 		"text \"\(x.Text)\""
+	case WithZone as x:
+		"zone \(keyText(x.Key))"
+	}
+}
+
+// keyText is a key as a locator's message writes it.
+func keyText(k Key) string {
+	match k {
+	case IntKey as x:
+		"\(x.Value)"
+	case TextKey as x:
+		"\"\(x.Value)\""
+	case NoKey:
+		"none"
 	}
 }
 
@@ -351,6 +378,8 @@ func roleText(r Role) string {
 		"image"
 	case List:
 		"list"
+	case Status:
+		"status"
 	case Generic:
 		"generic"
 	}

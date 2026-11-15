@@ -771,6 +771,10 @@ func kindOf[E](n Node[E]) int {
 		11
 	case FieldsetNode:
 		12
+	case ZoneNode:
+		13
+	case LiveNode:
+		14
 	}
 }
 

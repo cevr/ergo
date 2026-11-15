@@ -487,7 +487,14 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: a.Signal}
 		}
 	case Point[E] as p:
-		out.Signal = pointed(f, p.Id, p.Pointer)
+		let mut pe = p.Pointer
+		pe.Zone = None
+		match p.Over {
+		case Some[ZoneBox[E]] as o:
+			pe.Zone = zoneHit(f, p.Id, o.Value, p.Pointer)
+		case None:
+		}
+		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
 	case URLChanged as u:

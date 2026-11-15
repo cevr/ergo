@@ -10,7 +10,7 @@ import actor
 // back, or to an address), or a state the actor committed that no event
 // of the loop's sent (Committed: a reply its work sent, a timer), which the
 // session's watcher posts, at most one at a time before the next pass.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
@@ -19,7 +19,16 @@ type Closed {}
 // Host shows patches and reports events. Providers: the desktop host, the
 // terminal host; cmd/<name>/main.ergo chooses one. TestHost drives the
 // same Session in process instead.
-// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event) need a running host and its screen; they run against each provider, not here.
+//
+// A host's pointer rules (H5g): a pointer event goes to the topmost Area
+// under the pointer, with Over the topmost Zone under it in that Area and
+// the zone's box in the Area's box; after a Down on an Area, every pointer
+// event goes to that Area, in its box's coordinates, wherever the pointer
+// is, until an Up (capture); and while an Area holds the pointer near an
+// edge of a Scroll, the host scrolls it by EdgeScroll each frame. A
+// LiveNode is its live region: the host says each text a pass newly shows
+// in it. TestHost does the same (PointAt, PointOver, Captured, Announced).
+// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event, its pointer rules) need a running host and its screen; they run against each provider, not here.
 type Host[E] {
 	// Show applies one pass's changes.
 	Show(ops []Op[E]),

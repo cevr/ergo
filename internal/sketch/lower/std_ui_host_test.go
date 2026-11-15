@@ -707,6 +707,9 @@ func wants(loc ui.Locator, x seen) bool {
 		x.a.Role == ui.TextBox && x.a.Name == l.Text
 	case ui.WithText as l:
 		x.a.Role == ui.Static && x.a.Name == l.Text
+	case ui.WithZone:
+		// The generated programs write no zone.
+		false
 	}
 }
 
@@ -1183,7 +1186,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = ui.Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = ui.PointerEvent{Phase: phase, X: x, Y: y}
+			let ev = ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
 			act = ui.PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
@@ -2523,8 +2526,15 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
 			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
 			// the law takes the posted events until it shows it.
+			// A ui.Slow is one commit, so it shows within a few posted
+			// events; a loop that judges its own passes never settles.
 			let mut shown = false
+			let mut taken = 0
 			for !shown {
+				taken = taken + 1
+				if taken > 16 {
+					return false
+				}
 				let ev = posted.Pop() catch {
 				case queue.Closed:
 					return false
@@ -2553,6 +2563,346 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	true
+}
+
+func sameHit(a Option[ui.ZoneHit], b Option[ui.ZoneHit]) bool {
+	match a {
+	case Some[ui.ZoneHit] as x:
+		match b {
+		case Some[ui.ZoneHit] as y:
+			if len(x.Value.Path) != len(y.Value.Path) || x.Value.Box != y.Value.Box || x.Value.X != y.Value.X || x.Value.Y != y.Value.Y {
+				return false
+			}
+			for i, k in x.Value.Path {
+				if k != y.Value.Path[i] {
+					return false
+				}
+			}
+			true
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[ui.ZoneHit]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+func foundId[S, D, F](h *ui.TestHost[S, int, D, F], label string) ui.Id[int] {
+	match ui.Find(h, label) {
+	case Some[ui.Id[int]] as id:
+		id.Value
+	case None:
+		Unreachable("ui laws: no node \(label)")
+	}
+}
+
+func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func zoneTimer(s int) Option[Timeout[int]] { None }
+
+func zoneWork(s int) Option[func(send func(e int))] { None }
+
+func zoneMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork}
+}
+
+func lawZoneHitNamesItsPath(seed int, n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		zoneFollows(seed, n, m)
+	}
+}
+
+func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let ncols = draw(&r, 3) + 1
+	let mut cards = []int{}
+	for _ in 0..ncols {
+		cards = cards.Append(draw(&r, 3) + 1)
+	}
+	let got = sync.NewRef[Option[ui.ZoneHit]](None)
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Pressable(f, "drop", 1) {
+			ui.Text(f, "drop")
+		}
+		ui.Area(f, "board", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+			got.Set(p.Zone)
+			None
+		}) {
+			for c in 0..ncols {
+				ui.Zone(f, ui.ByInt(c), ui.Plain()) {
+					ui.Text(f, "col \(c)")
+					// A pass at state 1 drops column 0's cards.
+					let shown = if s == 1 && c == 0 { 0 } else { cards[c] }
+					for k in 0..shown {
+						ui.Box(f, ui.Plain()) {
+							ui.Zone(f, ui.ByText("\(c)-\(k)"), ui.Plain()) {
+								ui.Text(f, "card \(c)-\(k)")
+							}
+						}
+					}
+				}
+			}
+		}
+		ui.Zone(f, ui.ByInt(99), ui.Plain()) {
+			ui.Text(f, "outside")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let board = foundId(&h, "board")
+	let gone = ui.Locate(&h, ui.WithZone{Key: ui.ByText("0-0")})[0]
+	for i in 0..(n%16+16)%16+1 {
+		if i == 1 {
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: "drop"}}) catch {
+			case _:
+				return false
+			}
+		}
+		let box = ui.Rect{X: ui.Length(float64(draw(&r, 50))), Y: ui.Length(float64(draw(&r, 50))), W: 40, H: 20}
+		// A host sends a ui.Zone of its own, which the composer replaces.
+		let p = ui.PointerEvent{Phase: ui.Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ui.ZoneHit{Path: []ui.Key{ui.ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let c = draw(&r, ncols)
+		let k = draw(&r, cards[c])
+		let hit = Some{Value: ui.ZoneHit{Path: []ui.Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
+		let mut want Option[ui.ZoneHit] = None
+		let mut over Option[ui.Id[int]] = None
+		match draw(&r, 6) {
+		case 0:
+			over = Some{Value: ui.Locate(&h, ui.WithZone{Key: ui.ByInt(c)})[0]}
+			want = Some{Value: ui.ZoneHit{..hit.Value, Path: []ui.Key{ui.ByInt(c)}}}
+		case 1:
+			if c == 0 && ui.StateOf(&h) == 1 {
+				over = Some{Value: gone}
+			} else {
+				over = Some{Value: ui.Locate(&h, ui.WithZone{Key: ui.ByText("\(c)-\(k)")})[0]}
+				want = Some{Value: ui.ZoneHit{..hit.Value, Path: []ui.Key{ui.ByInt(c), ui.ByText("\(c)-\(k)")}}}
+			}
+		case 2:
+			over = Some{Value: ui.Locate(&h, ui.WithZone{Key: ui.ByInt(99)})[0]}
+		case 3:
+			over = Some{Value: foundId(&h, "col \(c)")}
+		case 4:
+			// Card 0-0, which the drop at the second event removes.
+			over = Some{Value: gone}
+			if ui.StateOf(&h) != 1 {
+				want = Some{Value: ui.ZoneHit{..hit.Value, Path: []ui.Key{ui.ByInt(0), ui.ByText("0-0")}}}
+			}
+		case _:
+		}
+		got.Set(Some{Value: ui.ZoneHit{Path: []ui.Key{ui.ByInt(-1)}, Box: box, X: 0.0, Y: 0.0}})
+		match over {
+		case Some[ui.Id[int]] as o:
+			ui.PointOver(&h, board, o.Value, box, p) catch {
+			case _:
+				return false
+			}
+		case None:
+			ui.PointAt(&h, board, p) catch {
+			case _:
+				return false
+			}
+		}
+		if !sameHit(got.Get(), want) {
+			return false
+		}
+	}
+	true
+}
+
+func lawCaptureKeepsThePointer(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		captureFollows(seed, steps, m)
+	}
+}
+
+func phaseCode(p ui.Phase) int {
+	match p {
+	case ui.Down:
+		1
+	case ui.Moved:
+		2
+	case ui.Up:
+		3
+	case ui.Wheel:
+		4
+	}
+}
+
+func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Pressable(f, "hide", 99) {
+			ui.Text(f, "hide")
+		}
+		ui.Text(f, "top")
+		if s != 99 {
+			ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { Some{Value: 10 + phaseCode(p.Phase)} }) {
+				ui.Text(f, "in a")
+			}
+		}
+		ui.Area(f, "b", ui.Plain(), func(p ui.PointerEvent) Option[int] { Some{Value: 20 + phaseCode(p.Phase)} }) {
+			ui.Text(f, "in b")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	// The model: the ui.Area holding the pointer (0 none, 10 a, 20 b) and the
+	// actor's state.
+	let mut held = 0
+	let mut state = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let shownA = state != 99
+		if draw(&r, 8) == 0 {
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: "hide"}}) catch {
+			case _:
+				return false
+			}
+			state = 99
+			if held == 10 {
+				held = 0
+			}
+		} else {
+			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}}
+			let phase = phases[draw(&r, 4)]
+			// The node under the pointer: a (when shown), b or the ui.Text.
+			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			if at == 10 && !shownA {
+				at = 0
+			}
+			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
+			let id = foundId(&h, label)
+			ui.PointAt(&h, id, ui.PointerEvent{Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			case _:
+				return false
+			}
+			let to = if held != 0 { held } else { at }
+			match phase {
+			case ui.Down:
+				if to != 0 {
+					held = to
+				}
+			case ui.Up:
+				held = 0
+			case _:
+			}
+			if to != 0 {
+				state = to + phaseCode(phase)
+			}
+		}
+		if ui.StateOf(&h) != state {
+			return false
+		}
+		let want = if held == 10 { ui.Find(&h, "a") } else if held == 20 { ui.Find(&h, "b") } else { None }
+		if ui.Captured(&h) != want {
+			return false
+		}
+	}
+	true
+}
+
+func lawAnnounceSaysEachNewText(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		announceFollows(seed, steps, m)
+	}
+}
+
+func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let words = []string{"", "moved", "dropped", "cancelled"}
+	let mut texts = []string{}
+	for _ in 0..6 {
+		texts = texts.Append(words[draw(&r, 4)])
+	}
+	let view = func(f *ui.Frame[int], s int) {
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			for i in 0..6 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		ui.Text(f, "at \(s)")
+		// At state 5 there is no live region, so the next state's is new.
+		if s != 5 {
+			ui.Announce(f, texts[s])
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut want = []string{}
+	let mut prev Option[string] = Some{Value: texts[0]}
+	for _ in 0..(steps%12+12)%12+1 {
+		let s = draw(&r, 6)
+		ui.PressKey(&h, ui.KeyPress{Name: "\(s)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		// prev is the region's text, None while there is no region.
+		if s == 5 {
+			prev = None
+		} else {
+			if prev != (Some{Value: texts[s]}) && texts[s] != "" {
+				want = want.Append(texts[s])
+			}
+			prev = Some{Value: texts[s]}
+		}
+		let regions = if s == 5 { 0 } else { 1 }
+		if len(ui.Locate(&h, ui.WithRole{Role: ui.Status, Name: texts[s]})) != regions {
+			return false
+		}
+	}
+	let said = ui.Announced(&h)
+	if len(said) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if said[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+func posMod(x int, m int) int { (x%m + m) % m }
+
+func lawEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) bool {
+	let height = ui.Length(float64(posMod(hh, 500) + 1))
+	let content = ui.Length(float64(posMod(c, 2000)))
+	let offset = ui.Length(float64(posMod(o, 2500)))
+	let y = ui.Length(float64(posMod(yy, 700) - 100))
+	let edge = ui.Length(float64(posMod(e, 60)))
+	let step = ui.Length(float64(posMod(st, 40) + 1))
+	let most = if content > height { content - height } else { ui.Length(0.0) }
+	let at = if offset > most { most } else { offset }
+	let next = ui.EdgeScroll(offset, height, content, y, edge, step)
+	if next < ui.Length(0.0) || next > most {
+		return false
+	}
+	if edge > ui.Length(0.0) && y < edge {
+		return next < at || at == ui.Length(0.0)
+	}
+	if edge > ui.Length(0.0) && y > height-edge {
+		return next > at || at == most
+	}
+	next == at
 }
 
 test UiScriptShowsTheView(seed int, steps int) {
@@ -2635,6 +2985,22 @@ test UiSlowAboveTheBudget(seed int, bound int) {
 	assert lawSlowAboveTheBudget(seed, bound)
 }
 
+test UiZoneHitNamesItsPath(seed int, n int) {
+	assert lawZoneHitNamesItsPath(seed, n)
+}
+
+test UiCaptureKeepsThePointer(seed int, steps int) {
+	assert lawCaptureKeepsThePointer(seed, steps)
+}
+
+test UiAnnounceSaysEachNewText(seed int, steps int) {
+	assert lawAnnounceSaysEachNewText(seed, steps)
+}
+
+test UiEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
+	assert lawEdgeScrollStaysInRange(o, hh, c, yy, e, st)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -2692,6 +3058,10 @@ var stdUIHostStatements = map[string]string{
 	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
 	"ui StatsCountEveryPhase":          `StatsCountEveryPhase(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { statsFollow(seed, steps) } }`,
 	"ui SlowAboveTheBudget":            `SlowAboveTheBudget(seed int, bound int) { let m = time.NewManual(0) with context { Scheduler: m } { slowFollow(seed, (bound%5+5)%5+1) } }`,
+	"ui ZoneHitNamesItsPath":           `ZoneHitNamesItsPath(seed int, n int) { let m = time.NewManual(0) with context { Scheduler: m } { zoneFollows(seed, n, m) } }`,
+	"ui CaptureKeepsThePointer":        `CaptureKeepsThePointer(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { captureFollows(seed, steps, m) } }`,
+	"ui AnnounceSaysEachNewText":       `AnnounceSaysEachNewText(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { announceFollows(seed, steps, m) } }`,
+	"ui EdgeScrollStaysInRange":        `EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) { let height = Length(float64(posMod(hh, 500) + 1)) let content = Length(float64(posMod(c, 2000))) let offset = Length(float64(posMod(o, 2500))) let y = Length(float64(posMod(yy, 700) - 100)) let edge = Length(float64(posMod(e, 60))) let step = Length(float64(posMod(st, 40) + 1)) let most = if content > height { content - height } else { Length(0.0) } let at = if offset > most { most } else { offset } let next = EdgeScroll(offset, height, content, y, edge, step) if next < Length(0.0) || next > most { return false } if edge > Length(0.0) && y < edge { return next < at || at == Length(0.0) } if edge > Length(0.0) && y > height-edge { return next > at || at == most } next == at }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
