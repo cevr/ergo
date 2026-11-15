@@ -82,6 +82,24 @@ func TestModuleProgramWorkload(t *testing.T) {
 	}
 }
 
+// A package folder named workload is a package, not opcount's workload
+// file: the bug was examples/vt's workload package read as a workload
+// file that is not a regular file (SL1, merging opcount with DT1).
+func TestModuleProgramWorkloadPackage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	f.write(dir+"/workload/load.ergo", "func f() {}\n")
+	if code, out := f.run(); code != 0 || !strings.Contains(out, "ok walker: test workload") {
+		t.Errorf("a workload package folder: exit %d\n%s", code, out)
+	}
+}
+
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
 // cmd holds nothing else, and a package folder holds .ergo files and
 // package folders only.

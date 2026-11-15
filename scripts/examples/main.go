@@ -323,9 +323,10 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if strings.HasSuffix(file, ".ergo") {
 				p.sources = append(p.sources, filepath.Join(p.dir, file))
 			}
-		case file == opcount.WorkloadFile:
+		case file == opcount.WorkloadFile && !entry.IsDir():
 			// scripts/opcount's sizes and arguments (examples/README.md,
-			// "Workload"); the runner checks it and does not run it.
+			// "Workload"); the runner checks it and does not run it. A
+			// folder of that name is a package (examples/vt's workload).
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
