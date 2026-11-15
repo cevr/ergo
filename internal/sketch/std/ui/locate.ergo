@@ -90,27 +90,33 @@ type Mismatch { Want string, Got string }
 // LocateIn is the nodes of m that loc finds, in tree order. The root is
 // the host's, not the view's, and is never found.
 func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
-	locateUnder(m, m.root, loc, false, "", []Id[E]{})
+	match entryOf(m, m.root) {
+	case Some[mirrored[E]] as r:
+		locateFrom(m, r.Value.first, loc, false, "", []Id[E]{})
+	case None:
+		[]Id[E]{}
+	}
 }
 
-func locateUnder[E](m *Mirror[E], id Id[E], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+// locateFrom walks the siblings from at and their subtrees, in tree
+// order, reading each node once (MirrorReads).
+func locateFrom[E](m *Mirror[E], at Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
 	let mut out = acc
-	match m.nodes.Get(id) {
-	case Some[mirrored[E]] as n:
-		for k in n.Value.kids {
-			match m.nodes.Get(k) {
-			case Some[mirrored[E]] as c:
-				let (o, d) = within(c.Value.node, off, desc)
-				if finds(loc, c.Value.node, access(c.Value.node, o, d)) {
-					out = out.Append(k)
-				}
-				out = locateUnder[E](m, k, loc, o, d, out)
-			case None:
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			let (o, d) = within(e.node, off, desc)
+			if finds(loc, e.node, access(e.node, o, d)) {
+				out = out.Append(x.Value)
 			}
+			out = locateFrom[E](m, e.first, loc, o, d, out)
+			c = e.next
+		case None:
+			return out
 		}
-	case None:
 	}
-	out
 }
 
 // within is the disabled state and description a node passes to the
@@ -136,7 +142,7 @@ func AccessOf[E](m *Mirror[E], id Id[E]) Access {
 	let mut path = []Node[E]{}
 	let mut at = id
 	for at != m.root {
-		match m.nodes.Get(at) {
+		match entryOf(m, at) {
 		case Some[mirrored[E]] as n:
 			path = path.Append(n.Value.node)
 			at = n.Value.parent
@@ -250,7 +256,7 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 // TextIn is the values of the Texts in the subtree of id on m (id's own
 // included), in tree order, run together: a node's text content.
 func TextIn[E](m *Mirror[E], id Id[E]) string {
-	match m.nodes.Get(id) {
+	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
 		let mut out = ""
 		match n.Value.node {
@@ -258,7 +264,7 @@ func TextIn[E](m *Mirror[E], id Id[E]) string {
 			out = t.Value
 		case _:
 		}
-		for k in n.Value.kids {
+		for k in childIds(m, n.Value) {
 			out = out + TextIn[E](m, k)
 		}
 		out

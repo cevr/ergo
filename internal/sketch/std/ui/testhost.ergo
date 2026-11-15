@@ -275,10 +275,10 @@ func Find[S, E, D, F](h *TestHost[S, E, D, F], label string) Option[Id[E]] {
 }
 
 func findIn[E](m *Mirror[E], id Id[E], label string) Option[Id[E]] {
-	match m.nodes.Get(id) {
+	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
-		for k in n.Value.kids {
-			match m.nodes.Get(k) {
+		for k in childIds(m, n.Value) {
+			match entryOf(m, k) {
 			case Some[mirrored[E]] as c:
 				if labelOf(c.Value.node) == (Some{Value: label}) {
 					return Some{Value: k}
