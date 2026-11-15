@@ -105,6 +105,7 @@ type (
 		Sites       []codeSite     `json:"sites"`
 		Contracts   []codeContract `json:"contracts"`
 		Calls       []codeCall     `json:"calls"`
+		Needs       []codeNeed     `json:"needs"`
 	}
 	// codeContract is api.Function with code.Contract's keys; an answer's
 	// JSON decodes back into api.Function, whose field names match them
@@ -150,11 +151,18 @@ type (
 	// codeCall is a call edge of the tables (facts.Table.Calls) with its
 	// site's position: code.Call.
 	codeCall struct {
-		From   string `json:"from"`
-		To     string `json:"to"`
-		File   string `json:"file"`
-		Line   int    `json:"line"`
-		Column int    `json:"column"`
+		From       string   `json:"from"`
+		To         string   `json:"to"`
+		File       string   `json:"file"`
+		Line       int      `json:"line"`
+		Column     int      `json:"column"`
+		Brings     []string `json:"brings"`
+		Discharged []string `json:"discharged"`
+	}
+	// codeNeed is a needs edge of the tables (facts.Table.Needs): code.Need.
+	codeNeed struct {
+		Of         string `json:"of"`
+		Capability string `json:"capability"`
 	}
 )
 
@@ -177,7 +185,7 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 	}
 	for _, p := range pkgs {
 		out.Root = p.Path
-		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}}
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}, Needs: []codeNeed{}}
 		syn := map[string]*syntax.File{}
 		var files []facts.File
 		for _, f := range p.Files {
@@ -216,7 +224,8 @@ func codeContractsOf(p *check.Package) []codeContract {
 	return out
 }
 
-// addCodeRows adds the declarations, sites and call edges of t to cp.
+// addCodeRows adds the declarations, sites, call edges (with what each
+// brings and what a with discharges) and needs rows of t to cp.
 // The checker names the root package main; its handles take the
 // package's path.
 func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*syntax.File) {
@@ -259,13 +268,35 @@ func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*s
 		}
 		cp.Sites = append(cp.Sites, codeSite{Symbol: handles[s.Sym], Kind: s.Kind.String(), Package: path, File: file, Line: line, Column: col, In: in})
 	}
+	charges := func(edges []facts.Edge) map[uint32][]string {
+		out := map[uint32][]string{}
+		for _, e := range edges {
+			if h := handles[e.To]; h != "" {
+				out[e.Site] = append(out[e.Site], h)
+			}
+		}
+		return out
+	}
+	brings, discharged := charges(t.Brings), charges(t.Discharges)
 	for _, e := range t.Calls {
 		if handles[e.From] == "" || handles[e.To] == "" {
 			continue
 		}
 		s := t.Sites[e.Site]
 		file, line, col := pos(s.File, s.Off)
-		cp.Calls = append(cp.Calls, codeCall{From: handles[e.From], To: handles[e.To], File: file, Line: line, Column: col})
+		c := codeCall{From: handles[e.From], To: handles[e.To], File: file, Line: line, Column: col, Brings: brings[e.Site], Discharged: discharged[e.Site]}
+		if c.Brings == nil {
+			c.Brings = []string{}
+		}
+		if c.Discharged == nil {
+			c.Discharged = []string{}
+		}
+		cp.Calls = append(cp.Calls, c)
+	}
+	for _, e := range t.Needs {
+		if handles[e.From] != "" && handles[e.To] != "" {
+			cp.Needs = append(cp.Needs, codeNeed{Of: handles[e.From], Capability: handles[e.To]})
+		}
 	}
 }
 

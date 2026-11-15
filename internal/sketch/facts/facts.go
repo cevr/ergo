@@ -148,6 +148,13 @@ type Table struct {
 	// function, an operation type's operation implemented by a package
 	// function at a conversion (Site is NoSym).
 	Variants, Calls, Ops []Edge
+	// Needs are function → capability, each operation type of the
+	// function's needs row as the checker derived it (Site is NoSym).
+	// Brings and Discharges are caller → capability, one per call site
+	// and capability the call charges (Site is the call's site, as in
+	// Calls): Discharges when a with around the call discharges it,
+	// Brings otherwise (rows.go).
+	Needs, Brings, Discharges []Edge
 	// Machines are the package's machine declarations, in source order.
 	Machines []MachineGraph
 }

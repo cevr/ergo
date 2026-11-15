@@ -14,6 +14,11 @@ func Describe(s Scan) Summary { summaryOf(s.tables) }
 
 func Api(s Scan, q ApiQuery) ApiView fails NoPackage { apiOf(s.tables, q) }
 
+func Reach(s Scan, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
+	let capability = try with context { Reader: s } { capabilityOf(q, s.tables) }
+	reachByScan(s.tables, q, capability)
+}
+
 func Calls(s Scan, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {
 	let d = try callTarget(q, try s.Symbol(q.Of))
 	callPage(s.tables, q, callsByRounds(edgesOf(s.tables), d.Handle, depthOf(q), inward(q)))

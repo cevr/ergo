@@ -1,0 +1,185 @@
+import maps
+
+// Reach (SEMTOOLS SEM2b): who needs a capability, by which chain of calls
+// it arrives, and where a with discharges it, from the tables' rows: each
+// function's needs row as the checker derived it (Need), and what each
+// call charges its caller (Call.Brings, Call.Discharged).
+
+// Need is one capability of a function's derived needs row; a function
+// has one Need per capability of its row.
+type Need { Of string, Capability string }
+
+// ReachQuery asks who needs the capability at the address Capability (an
+// operation type), a page of functions at a time.
+type ReachQuery {
+	Capability string,
+	Offset     Option[int],
+	Limit      Option[int],
+}
+
+// Reached is a function whose row holds the capability, with one shortest
+// chain of calls that brings it there: the first call is in Function,
+// each next call is in the declaration the one before calls, every call
+// brings the capability, and the last calls a declaration that brings it
+// no further (an operation, a function value, a function whose row is
+// written). The chain is empty when no call of Function brings it.
+type Reached { Function string, Chain []Call }
+
+// ReachPage is a page of the functions that need the capability, in table
+// order, and every call where a with discharges it, in table order.
+type ReachPage {
+	Revision   string,
+	Complete   bool,
+	Capability string,
+	Reached    []Reached,
+	Discharges []Call,
+	Total      int,
+	Next       int,
+}
+
+// capabilityOf is the handle of the capability at q's address: the
+// declaration Symbol finds there; or, for a type the tables do not declare
+// (a predeclared one, Console), the address itself when a row or a charge
+// names it.
+func capabilityOf(q ReachQuery, t Tables) string fails NoSymbol | Ambiguous needs Reader {
+	let d = Reader.Symbol(q.Capability) catch {
+	case NoSymbol as n:
+		for x in needsOf(t) {
+			if x.Capability == q.Capability {
+				return q.Capability
+			}
+		}
+		for c in edgesOf(t) {
+			if has(c.Brings, q.Capability) || has(c.Discharged, q.Capability) {
+				return q.Capability
+			}
+		}
+		return n
+	case Ambiguous as a:
+		return a
+	}
+	d.Handle
+}
+
+// needsOf is every need of the tables, in table order.
+func needsOf(t Tables) []Need {
+	let mut out = []Need{}
+	for p in t.Packages {
+		for n in p.Needs {
+			out = out.Append(n)
+		}
+	}
+	out
+}
+
+// chainOf is a shortest chain that brings capability to f, by steps over
+// out: each declaration's calls that bring it, in table order. Each
+// declaration is followed once, so a cycle ends.
+func chainOf(out Map[string, []Call], f string, capability string) []Call {
+	let mut paths = Map[string, []Call]{}
+	let mut seen = Map[string, bool]{}
+	seen[f] = true
+	paths[f] = []Call{}
+	let mut frontier = []string{f}
+	for len(frontier) > 0 {
+		let mut next = []string{}
+		for h in frontier {
+			for c in maps.GetOr(out, h, []Call{}) {
+				let path = maps.GetOr(paths, h, []Call{}).Append(c)
+				if len(maps.GetOr(out, c.To, []Call{})) == 0 {
+					return path
+				}
+				if !maps.GetOr(seen, c.To, false) {
+					seen[c.To] = true
+					paths[c.To] = path
+					next = next.Append(c.To)
+				}
+			}
+		}
+		frontier = next
+	}
+	[]Call{}
+}
+
+// reachPage is the page of q's window over the functions that need
+// capability, each with its chain over out, and the discharges.
+func reachPage(t Tables, q ReachQuery, capability string, functions []string, out Map[string, []Call], discharges []Call) ReachPage {
+	let (start, end, next) = window(len(functions), q.Offset, q.Limit)
+	let mut reached = []Reached{}
+	for f in functions[start:end] {
+		reached = reached.Append(Reached{Function: f, Chain: chainOf(out, f, capability)})
+	}
+	ReachPage{Revision: t.Revision, Complete: summaryOf(t).Complete, Capability: capability, Reached: reached, Discharges: discharges, Total: len(functions), Next: next}
+}
+
+// reachByScan is Scan's answer, the reference: every row read for the
+// question.
+func reachByScan(t Tables, q ReachQuery, capability string) ReachPage {
+	let mut functions = []string{}
+	for n in needsOf(t) {
+		if n.Capability == capability {
+			functions = functions.Append(n.Of)
+		}
+	}
+	let mut out = Map[string, []Call]{}
+	let mut discharges = []Call{}
+	for c in edgesOf(t) {
+		if has(c.Brings, capability) {
+			out[c.From] = maps.GetOr(out, c.From, []Call{}).Append(c)
+		}
+		if has(c.Discharged, capability) {
+			discharges = discharges.Append(c)
+		}
+	}
+	reachPage(t, q, capability, functions, out, discharges)
+}
+
+// ReachChainsAreCalls: each function of a reach answer is a declaration of
+// the reader, and its chain is a chain of calls that each bring the
+// capability, from the function to a declaration whose own calls bring it
+// no further; no discharge brings it.
+func reachChainsAreCalls(pick int) bool needs Reader {
+	match picked(pick) {
+	case None:
+		true
+	case Some[Decl] as d:
+		let page = Reader.Reach(ReachQuery{Capability: d.Value.Handle, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		case _:
+			return false
+		}
+		let mut ok = true
+		for r in page.Reached {
+			let _ = Reader.Symbol(r.Function) catch {
+			case _:
+				return false
+			}
+			let mut at = r.Function
+			for c in r.Chain {
+				ok = ok && c.From == at && has(c.Brings, page.Capability)
+				at = c.To
+			}
+			if len(r.Chain) > 0 {
+				ok = ok && !bringsFurther(at, page.Capability)
+			}
+		}
+		for c in page.Discharges {
+			ok = ok && has(c.Discharged, page.Capability) && !has(c.Brings, page.Capability)
+		}
+		ok
+	}
+}
+
+// bringsFurther is whether a call of the declaration at h brings
+// capability.
+func bringsFurther(h string, capability string) bool needs Reader {
+	let page = Reader.Calls(CallQuery{Of: h, Direction: None, Depth: None, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+	case _:
+		return false
+	}
+	for hop in page.Hops {
+		if has(hop.Call.Brings, capability) {
+			return true
+		}
+	}
+	false
+}

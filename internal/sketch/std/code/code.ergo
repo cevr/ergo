@@ -76,6 +76,7 @@ type Package {
 	Sites       []Site,
 	Contracts   []Contract,
 	Calls       []Call,
+	Needs       []Need,
 }
 
 // Tables are a workspace's fact tables at one revision. Root is the path
@@ -158,6 +159,9 @@ type Reader {
 	Calls(q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable,
 	// Api is the contracts of a package's exported functions.
 	Api(q ApiQuery) ApiView fails NoPackage,
+	// Reach is a page of the functions whose row holds a capability, each
+	// with a chain of calls that brings it, and where withs discharge it.
+	Reach(q ReachQuery) ReachPage fails NoSymbol | Ambiguous,
 
 	// HandleRoundTrips: the declaration at a declaration's handle is that
 	// declaration, so a handle printed by one answer addresses it in the
@@ -176,6 +180,10 @@ type Reader {
 	// before and adds only hops of the new depth; at depth 1 each hop is a
 	// call of (or, in, to) the declaration asked about.
 	law CallsAreSteps(pick int, depth int, inbound bool) { callsAreSteps(pick, depth, inbound) },
+	// ReachChainsAreCalls: a reach answer's chains are chains of calls
+	// that each bring the capability, from the function to a declaration
+	// that brings it no further; a discharge does not bring it.
+	law ReachChainsAreCalls(pick int) { reachChainsAreCalls(pick) },
 }
 
 // DefaultLimit is a page's size when a query sets none; MaxLimit is the

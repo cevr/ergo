@@ -361,10 +361,10 @@ func modelCheck(sources []Source) Report {
 		let mut calls = []Call{}
 		for s in ps {
 			if s.Kind == "call" {
-				calls = calls.Append(Call{From: s.In, To: s.Symbol, File: s.File, Line: s.Line, Column: s.Column})
+				calls = calls.Append(Call{From: s.In, To: s.Symbol, File: s.File, Line: s.Line, Column: s.Column, Brings: []string{}, Discharged: []string{}})
 			}
 		}
-		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps, Contracts: cs, Calls: calls})
+		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps, Contracts: cs, Calls: calls, Needs: []Need{}})
 	}
 	Report{Tables: Tables{Revision: revisionOf(sources), Root: if len(pkgs) > 0 { pkgs[len(pkgs) - 1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
 }

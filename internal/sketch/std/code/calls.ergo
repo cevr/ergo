@@ -6,13 +6,17 @@ import maps
 // local that holds a function value).
 
 // Call is one call site: the declaration it is in, the declaration it
-// calls, and where.
+// calls, where, and the capabilities of the callee's row it charges the
+// caller (Brings) and those a with around it discharges (Discharged), by
+// handle (reach.ergo).
 type Call {
-	From   string,
-	To     string,
-	File   string,
-	Line   int,
-	Column int,
+	From       string,
+	To         string,
+	File       string,
+	Line       int,
+	Column     int,
+	Brings     []string,
+	Discharged []string,
 }
 
 // CallQuery asks for the calls out of the declaration at Of (Direction

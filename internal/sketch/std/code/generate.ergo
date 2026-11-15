@@ -7,7 +7,9 @@ import strings
 // their own package and of another, positions that two sites share, and
 // a package that does not check, contracts of exported functions, and
 // calls between functions, laws and locals (cycles and calls to self
-// included).
+// included), each charging capabilities (types of the tables, and Console,
+// which none declares) that it brings or a with discharges, and rows that
+// hold what the calls bring and sometimes more.
 // The same seed gives the same tables.
 func Generated(seed int) Tables {
 	let names = []string{"Run", "Parse", "Token", "Token.Kind", "Token.Text", "Load", "Check#law"}
@@ -31,7 +33,15 @@ func Generated(seed int) Tables {
 		decls = decls.Append(local)
 		handles = handles.Append(local.Handle)
 		let complete = roll(seed, 300 + i, 5) != 0
-		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}})
+		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}, Needs: []Need{}})
+	}
+	let mut capabilities = []string{"Console"}
+	for p in out {
+		for d in p.Decls {
+			if d.Kind == "type" {
+				capabilities = capabilities.Append(d.Handle)
+			}
+		}
 	}
 	let mut filled = []Package{}
 	for i, p in out {
@@ -53,10 +63,11 @@ func Generated(seed int) Tables {
 		if len(callers) > 0 {
 			for j in 0..roll(seed, 700 + i, 9) {
 				let salt = 2000 + i*100 + j*3
-				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2})
+				let (brings, discharged) = charged(seed, salt + 2, capabilities)
+				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged})
 			}
 		}
-		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls})
+		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities)})
 	}
 	Tables{Revision: "gen-\(seed)", Root: "gen/p\(packages - 1)", Packages: filled}
 }
@@ -103,6 +114,51 @@ func contractsOf(seed int, salt int, decls []Decl) []Contract {
 		}
 		let copies = if generic && roll(seed, k + 3, 2) == 0 { []CopySite{CopySite{ParameterIndex: 0, Parameter: "T", Where: if roll(seed, k + 4, 2) == 0 { "" } else { "a.ergo:\(3 + j)" }, What: "a map key", Key: roll(seed, k + 5, 2) == 0}} } else { []CopySite{} }
 		out = out.Append(Contract{Name: d.Name, Signature: sigs[roll(seed, k + 6, len(sigs))], TypeParameters: if generic { []string{"T"} } else { []string{} }, Fails: "", Needs: "", Takes: names, TakesParameters: indexes, TakesSelf: self, TakesInferred: roll(seed, k + 7, 2) == 0, Copies: copies})
+	}
+	out
+}
+
+// charged is a call's capabilities: each of caps it brings or a with
+// discharges, or neither.
+func charged(seed int, salt int, caps []string) ([]string, []string) {
+	let mut brings = []string{}
+	let mut discharged = []string{}
+	for k, c in caps {
+		match roll(seed, salt * 7 + k, 4) {
+		case 0:
+			brings = brings.Append(c)
+		case 1:
+			discharged = discharged.Append(c)
+		case _:
+		}
+	}
+	(brings, discharged)
+}
+
+// needsIn is the rows of a package's callers: what their calls bring, and
+// now and then a capability no call brings (a written row).
+func needsIn(calls []Call, callers []string, seed int, i int, caps []string) []Need {
+	let mut out = []Need{}
+	for j, f in callers {
+		let mut row = []string{}
+		for c in calls {
+			if c.From == f {
+				for k in c.Brings {
+					if !has(row, k) {
+						row = row.Append(k)
+					}
+				}
+			}
+		}
+		if len(caps) > 0 && roll(seed, 2700 + i*10 + j, 3) == 0 {
+			let k = caps[roll(seed, 2800 + i*10 + j, len(caps))]
+			if !has(row, k) {
+				row = row.Append(k)
+			}
+		}
+		for k in row {
+			out = out.Append(Need{Of: f, Capability: k})
+		}
 	}
 	out
 }

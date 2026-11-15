@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/linked/code"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/facts"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
@@ -287,6 +288,212 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 					fail("symbol %s: status %d %q %q; want Ambiguous with %v", name, status, out, errText, candidates)
 				}
 			}
+		}
+	}
+	reachAgrees(t, a, text, r, fail)
+}
+
+// reachAgrees holds `ergo code reach` to the checker on the program a,
+// for each capability a with of it discharges and up to three more the
+// seed draws:
+//   - the functions answered are those whose derived needs row
+//     (Signature.Uses) holds the capability, by their declaring name;
+//   - the discharges are the calls in a with's block whose row at the
+//     site (Info.Calls) holds a capability the with discharges, found by
+//     walking each with's block (the tables find them by offsets);
+//   - each call of a chain charges the capability and is not one of them.
+//
+// Mutant reach-with-ignored (cmd/ergo/testdata/mutants.json).
+func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand, fail func(string, ...any)) {
+	t.Helper()
+	root := ""
+	for _, p := range a.Packages() {
+		root = p.Path
+	}
+	capOf := func(ty check.Type) string {
+		if p, ok := ty.(*check.Pointer); ok {
+			ty = p.Elem
+		}
+		n, _ := ty.(*check.Named)
+		if n != nil && n.Orig != nil {
+			n = n.Orig
+		}
+		if n == nil || n.Obj == nil {
+			return ""
+		}
+		if n.Obj.Pkg == nil || n.Obj.Pkg.Path == "" {
+			return n.Obj.Name
+		}
+		if n.Obj.Pkg.Path == "main" {
+			return root + "." + n.Obj.Name
+		}
+		return n.Obj.Pkg.Path + "." + n.Obj.Name
+	}
+	callName := func(x syntax.Expr) *syntax.Ident {
+		for {
+			switch e := x.(type) {
+			case *syntax.Ident:
+				return e
+			case *syntax.SelectorExpr:
+				return e.Sel
+			case *syntax.IndexExpr:
+				x = e.X
+			case *syntax.ParenExpr:
+				x = e.X
+			default:
+				return nil
+			}
+		}
+	}
+	// needers: capability → "file:line:col" of each function's name;
+	// charged and discharged: capability → call positions.
+	needers := map[string]map[string]bool{}
+	charged := map[string]map[string]bool{}
+	discharged := map[string]map[string]bool{}
+	add := func(m map[string]map[string]bool, k, v string) {
+		if m[k] == nil {
+			m[k] = map[string]bool{}
+		}
+		m[k][v] = true
+	}
+	var withCaps []string
+	for _, p := range a.Packages() {
+		if p.Package == nil {
+			continue
+		}
+		info := p.Package.Info
+		for _, cf := range p.Files {
+			if cf.Syntax == nil {
+				continue
+			}
+			at := func(pos syntax.Pos) string {
+				line, col := cf.Syntax.Position(pos)
+				return fmt.Sprintf("%s:%d:%d", cf.Rel, line, col)
+			}
+			for _, fn := range p.Package.Funcs {
+				if fn.Decl == nil || fn.Sig == nil || !slices.Contains(cf.Syntax.Decls, syntax.Decl(fn.Decl)) {
+					continue
+				}
+				for _, ty := range fn.Sig.Uses.Elems() {
+					if c := capOf(ty); c != "" {
+						add(needers, c, at(fn.Decl.Name.NamePos))
+					}
+				}
+			}
+			syntax.Inspect(cf.Syntax, func(n syntax.Node) bool {
+				x, ok := n.(*syntax.CallExpr)
+				if !ok {
+					return true
+				}
+				if c := info.Calls[x]; c != nil {
+					if name := callName(x.Fun); name != nil {
+						for _, ty := range c.Needs.Elems() {
+							if k := capOf(ty); k != "" {
+								add(charged, k, at(name.NamePos))
+							}
+						}
+					}
+				}
+				w := info.Withs[x]
+				if w == nil || x.Trailing == nil {
+					return true
+				}
+				var caps []string
+				for ; w != nil; w = w.Next {
+					for _, ty := range w.Discharged {
+						if k := capOf(ty); k != "" {
+							caps = append(caps, k)
+						}
+					}
+				}
+				syntax.Inspect(x.Trailing, func(n syntax.Node) bool {
+					y, ok := n.(*syntax.CallExpr)
+					if !ok || info.Calls[y] == nil {
+						return true
+					}
+					name := callName(y.Fun)
+					if name == nil {
+						return true
+					}
+					for _, ty := range info.Calls[y].Needs.Elems() {
+						if k := capOf(ty); k != "" && slices.Contains(caps, k) {
+							add(discharged, k, at(name.NamePos))
+							if !slices.Contains(withCaps, k) {
+								withCaps = append(withCaps, k)
+							}
+						}
+					}
+					return true
+				})
+				return true
+			})
+		}
+	}
+	all := make([]string, 0, len(needers))
+	for k := range needers {
+		all = append(all, k)
+	}
+	slices.Sort(all)
+	asked := slices.Clone(withCaps)
+	for range min(3, len(all)) {
+		asked = append(asked, all[r.IntN(len(all))])
+	}
+	for _, k := range asked {
+		status, out, errText := codeRunOn(t, text, "reach", "--capability", k, "--limit", "1000")
+		var page struct {
+			Reached []struct {
+				Function string
+				Chain    []struct {
+					File         string
+					Line, Column int
+				}
+			}
+			Discharges []struct {
+				File         string
+				Line, Column int
+			}
+		}
+		if status != 0 || json.Unmarshal([]byte(out), &page) != nil {
+			fail("reach --capability %s: status %d %q %q", k, status, out, errText)
+		}
+		var got, want []string
+		for _, rc := range page.Reached {
+			st, o, e := codeRunOn(t, text, "symbol", rc.Function)
+			var d struct {
+				File         string
+				Line, Column int
+			}
+			if st != 0 || json.Unmarshal([]byte(o), &d) != nil {
+				fail("reach --capability %s: function %s: status %d %q %q", k, rc.Function, st, o, e)
+			}
+			got = append(got, fmt.Sprintf("%s:%d:%d", d.File, d.Line, d.Column))
+			for _, c := range rc.Chain {
+				p := fmt.Sprintf("%s:%d:%d", c.File, c.Line, c.Column)
+				if !charged[k][p] || discharged[k][p] {
+					fail("reach --capability %s: the chain of %s passes %s, which does not bring it (charged %v, discharged %v)", k, rc.Function, p, charged[k][p], discharged[k][p])
+				}
+			}
+		}
+		for p := range needers[k] {
+			want = append(want, p)
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			fail("reach --capability %s: functions\n got %v\nwant %v", k, got, want)
+		}
+		got, want = nil, nil
+		for _, c := range page.Discharges {
+			got = append(got, fmt.Sprintf("%s:%d:%d", c.File, c.Line, c.Column))
+		}
+		for p := range discharged[k] {
+			want = append(want, p)
+		}
+		slices.Sort(got)
+		got = slices.Compact(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			fail("reach --capability %s: discharges\n got %v\nwant %v", k, got, want)
 		}
 	}
 }

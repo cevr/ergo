@@ -21,6 +21,12 @@ type Index {
 	// table order.
 	callsOut Map[string, []Call],
 	callsIn  Map[string, []Call],
+	// needers is the functions whose row holds each capability, brings
+	// each capability's bringing calls by caller, and discharges each
+	// capability's discharging calls, in table order.
+	needers    Map[string, []string],
+	brings     Map[string, Map[string, []Call]],
+	discharges Map[string, []Call],
 }
 
 // IndexOf is the indexed reader of t.
@@ -57,7 +63,23 @@ func IndexOf(t Tables) Index {
 		callsOut[c.From] = maps.GetOr(callsOut, c.From, []Call{}).Append(c)
 		callsIn[c.To] = maps.GetOr(callsIn, c.To, []Call{}).Append(c)
 	}
-	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn}
+	let mut needers = Map[string, []string]{}
+	for n in needsOf(t) {
+		needers[n.Capability] = maps.GetOr(needers, n.Capability, []string{}).Append(n.Of)
+	}
+	let mut brings = Map[string, Map[string, []Call]]{}
+	let mut discharges = Map[string, []Call]{}
+	for c in edgesOf(t) {
+		for k in c.Brings {
+			let mut by = maps.GetOr(brings, k, Map[string, []Call]{})
+			by[c.From] = maps.GetOr(by, c.From, []Call{}).Append(c)
+			brings[k] = by
+		}
+		for k in c.Discharged {
+			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
+		}
+	}
+	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges}
 }
 
 // NewIndex is the indexed reader of the tables Generated(seed) makes: the
@@ -67,6 +89,11 @@ func NewIndex(seed int) Index { IndexOf(Generated(seed)) }
 func Describe(x Index) Summary { x.summary }
 
 func Api(x Index, q ApiQuery) ApiView fails NoPackage { apiOf(x.tables, q) }
+
+func Reach(x Index, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
+	let capability = try with context { Reader: x } { capabilityOf(q, x.tables) }
+	reachPage(x.tables, q, capability, maps.GetOr(x.needers, capability, []string{}), maps.GetOr(x.brings, capability, Map[string, []Call]{}), maps.GetOr(x.discharges, capability, []Call{}))
+}
 
 func Calls(x Index, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {
 	let d = try callTarget(q, try x.Symbol(q.Of))
@@ -137,7 +164,8 @@ func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
 // prefix, part, kind and package, a page at a time; Symbol, References
 // and Calls (in and out, to depth 3) at every handle, every short name (an
 // Ambiguous one included), every position of a site, and addresses that
-// name nothing; Api of every package, of the root and of none.
+// name nothing; Api of every package, of the root and of none; Reach of
+// every address and of Console, which no package declares.
 law IndexIsScan(seed int, size int) { indexIsScan(seed, size) }
 
 func indexIsScan(seed int, size int) bool {
@@ -158,13 +186,14 @@ type Outcome {
 	Summary    Option[Summary],
 	Calls      Option[CallPage],
 	Api        Option[ApiView],
+	Reach      Option[ReachPage],
 	Failure    string,
 	Candidates []string,
 }
 
 // asked is the outcome of question with no answer yet.
 func asked(question string) Outcome {
-	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Failure: "", Candidates: []string{}}
+	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Reach: None, Failure: "", Candidates: []string{}}
 }
 
 // answers is the reader's answer to each question about the tables t,
@@ -200,7 +229,33 @@ func answers(t Tables, size int) []Outcome needs Reader {
 	}
 	out = out.Append(apiAt(None))
 	out = out.Append(apiAt(Some[string]{Value: "gen/none"}))
+	for a in addresses {
+		out = out.Append(reachAt(a, step))
+	}
+	out = out.Append(reachAt("Console", step))
 	out
+}
+
+// reachAt is the reach answer for the capability at a, read a page of
+// step at a time.
+func reachAt(a string, step int) Outcome needs Reader {
+	let q = "reach " + a
+	let mut reached = []Reached{}
+	let mut at = 0
+	let mut last = ReachPage{Revision: "", Complete: true, Capability: "", Reached: []Reached{}, Discharges: []Call{}, Total: 0, Next: -1}
+	for at >= 0 {
+		last = Reader.Reach(ReachQuery{Capability: a, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		case NoSymbol:
+			return Outcome{..asked(q), Failure: "NoSymbol"}
+		case Ambiguous as m:
+			return Outcome{..asked(q), Failure: "Ambiguous", Candidates: m.Candidates}
+		}
+		for r in last.Reached {
+			reached = reached.Append(r)
+		}
+		at = last.Next
+	}
+	Outcome{..asked(q), Reach: Some[ReachPage]{Value: ReachPage{..last, Reached: reached, Next: -1}}}
 }
 
 // callsAt is the calls answer at a, read a page of step at a time.

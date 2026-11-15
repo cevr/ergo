@@ -8,7 +8,7 @@ import (
 // Version is the format version of an encoded table. The check snapshot
 // stores a package's table as a section of its own under this version
 // (the snapshot format is the CS lane's; this is the section's body).
-const Version = 1
+const Version = 2
 
 // Encode writes t as bytes: uvarints and length-prefixed strings in the
 // tables' own order, so equal tables give equal bytes.
@@ -39,7 +39,7 @@ func Encode(t *Table) []byte {
 		e.u(uint64(s.Kind))
 		e.u(uint64(s.Flag))
 	}
-	for _, edges := range [][]Edge{t.Variants, t.Calls, t.Ops} {
+	for _, edges := range [][]Edge{t.Variants, t.Calls, t.Ops, t.Needs, t.Brings, t.Discharges} {
 		e.u(uint64(len(edges)))
 		for _, x := range edges {
 			e.u(uint64(x.From))
@@ -130,6 +130,7 @@ func Decode(data []byte) (*Table, error) {
 		return out
 	}
 	t.Variants, t.Calls, t.Ops = edges(), edges(), edges()
+	t.Needs, t.Brings, t.Discharges = edges(), edges(), edges()
 	for range d.n() {
 		m := MachineGraph{Sym: uint32(d.u()), States: d.ss(), Signals: d.ss(), Initial: d.s()}
 		for range d.n() {
