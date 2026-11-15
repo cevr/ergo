@@ -315,8 +315,9 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 	return true
 }
 
-// constFold reports whether the package let v, whose value is a checked
-// constant, is written as a Go const: Go then reads its value from the
+// constFold reports whether the let v (a package let, or a local let:
+// localConst), whose value is a checked constant, is written as a Go
+// const. For a package let, Go then reads its value from the
 // instruction, not from memory (lru's occupied mark, read at every
 // generation check). Go folds an expression whose operands are all
 // constants at compile time, where a division by zero, an overflow, a
@@ -341,13 +342,13 @@ func (l *lowerer) constFold(v *check.Var) bool {
 			}
 			seen[p] = true
 			l.info = p.Info
-			for _, o := range l.info.Uses {
-				if u, ok := o.(*check.Var); ok {
-					if _, pkgLet := l.vars[u]; pkgLet {
-						c := l.letUses[u]
-						c[0]++
-						l.letUses[u] = c
-					}
+			for id, o := range l.info.Uses {
+				// Every name's reads: a package let's, and a local let's
+				// (localConst), whose declaring name is a Uses entry too.
+				if u, ok := o.(*check.Var); ok && l.info.Defs[id] == nil {
+					c := l.letUses[u]
+					c[0]++
+					l.letUses[u] = c
 				}
 			}
 			// A read is counted once, though it may be both a place's
@@ -373,6 +374,66 @@ func (l *lowerer) constFold(v *check.Var) bool {
 	}
 	c := l.letUses[v]
 	return c[0] == c[1]
+}
+
+// localConst reports whether the local let v is written as a Go const
+// (funcCtx.let): a let, not a let mut, of one name whose initializer is a
+// checked constant of a boolean, string or integer type (constLet's kinds),
+// every read of it in a place where no Go fold can fail (constFold). gc
+// propagates such a variable's value as it does a constant's, but counts
+// its declaration against the inlining budget (`var k int = 3` costs 5,
+// `const k int = 3` nothing: LOCAL-CONST red-check.md).
+func (l *lowerer) localConst(v *check.Var) bool {
+	if _, ok := l.localLets()[v]; !ok {
+		return false
+	}
+	return l.constFold(v)
+}
+
+// localLets are the local lets of every package of the program that may be
+// Go constants, by their values: constLike treats a read of one as a
+// constant, as it treats a package let, whether or not it becomes one.
+func (l *lowerer) localLets() map[*check.Var]constant.Value {
+	if l.localVals != nil {
+		return l.localVals
+	}
+	l.localVals = map[*check.Var]constant.Value{}
+	if !formsOn() {
+		return l.localVals // the OPT5 reference keeps every let a variable
+	}
+	saved := l.info
+	defer func() { l.info = saved }()
+	seen := map[*check.Package]bool{}
+	for _, p := range append(l.libraries(), l.pkg) {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		l.info = p.Info
+		for _, f := range p.Files() {
+			for _, d := range f.Decls {
+				if _, pkgLet := d.(*syntax.VarDecl); pkgLet {
+					continue
+				}
+				syntax.Inspect(d, func(n syntax.Node) bool {
+					d, ok := n.(*syntax.VarDecl)
+					if !ok || d.Mut.IsValid() {
+						return true
+					}
+					for _, spec := range d.Specs {
+						if len(spec.Names) != 1 {
+							continue
+						}
+						if v, ok := l.info.Defs[spec.Names[0]].(*check.Var); ok && spec.Names[0].Name != "_" && l.constLet(spec, v) {
+							l.localVals[v] = l.info.Values[spec.Values[0]]
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
+	return l.localVals
 }
 
 // constUses are the operands of n that a constant may take with no
@@ -465,7 +526,8 @@ func (l *lowerer) constUses(n syntax.Node) []syntax.Expr {
 }
 
 // constLike reports whether Go may see x as a constant: a checked
-// constant, a package let, or an operator, len or conversion over such.
+// constant, a package let, a local let of a constant (localLets), or an
+// operator, len or conversion over such.
 func (l *lowerer) constLike(x syntax.Expr) bool {
 	if _, ok := l.info.Values[x]; ok {
 		return true
@@ -474,7 +536,8 @@ func (l *lowerer) constLike(x syntax.Expr) bool {
 	case *syntax.Ident:
 		v, ok := l.info.Uses[x].(*check.Var)
 		_, pkgLet := l.vars[v]
-		return ok && pkgLet
+		_, local := l.localLets()[v]
+		return ok && (pkgLet || local)
 	case *syntax.ParenExpr:
 		return l.constLike(x.X)
 	case *syntax.UnaryExpr:
@@ -618,6 +681,8 @@ func (l *lowerer) constValue(x syntax.Expr) constant.Value {
 	case *syntax.Ident:
 		if v, ok := l.info.Uses[x].(*check.Var); ok && l.consts[v] {
 			return l.constVals[v]
+		} else if ok {
+			return l.localLets()[v] // nil for any other name
 		}
 	case *syntax.BinaryExpr:
 		a, b := l.constValue(x.X), l.constValue(x.Y)
