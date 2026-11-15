@@ -10,9 +10,10 @@ import (
 // CLI (MU4; runtime.md, Machines and actors 12): the conversion of a
 // machine's `work` entry gives the Machine's Work the Start of each
 // state's machines.Work, and the actor runs it. maps.ergo makes a result
-// and each typed failure a signal through OnSuccess and OnFailure;
-// listen.ergo has a Run whose result and failure are signals (no maps)
-// and a Listen whose ticks the step reads until it leaves the state.
+// and each typed failure a signal through machines.Attempt's onSuccess and
+// onFailure; listen.ergo has an Attempt whose failure is a signal and a
+// listener (Start written) whose ticks the step reads until it leaves the
+// state.
 func TestErgoRunMachineWork(t *testing.T) {
 	needsBuild(t)
 	for name, want := range map[string]string{

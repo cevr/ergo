@@ -15,7 +15,7 @@ func answer(status int, body string) http.Response { http.Response{Status: statu
 
 // over is the forecast over a network of the two services, under Live's
 // policy and budget, that answers with handle.
-func over(handle escaping func(origin string, r http.Request) http.Response needs http.Streaming) OpenMeteo {
+func over(handle own func(origin string, r http.Request) http.Response needs http.Streaming) OpenMeteo {
 	let n = http.InMemoryNetwork(Services, Budget, http.NoRedirects, handle) catch {
 	case http.InvalidClient, http.InvalidLimits:
 		Unreachable("Services and Budget are valid")

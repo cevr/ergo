@@ -251,11 +251,11 @@ func (d *TypeDecl) Pos() Pos {
 	return d.Type
 }
 func (d *TypeDecl) End() Pos {
-	if len(d.Implements) > 0 {
-		return d.Implements[len(d.Implements)-1].End()
-	}
 	if d.Derive != nil {
 		return d.Derive.End() // derive.go: the bundle stands at the derive
+	}
+	if len(d.Implements) > 0 {
+		return d.Implements[len(d.Implements)-1].End()
 	}
 	if d.Where != nil {
 		return d.Where.End()
@@ -666,6 +666,12 @@ type (
 	// is the position of `escaping`, or NoPos.
 	FuncType struct {
 		Escaping Pos
+		// Entry marks `entry func(…)`, the type of an entry's send
+		// (grammar.md, Types; runtime.md, Machines and actors 14), written
+		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
+		// built with neither has no clause.
+		Entry    bool
+		EntryPos Pos
 		Func     Pos
 		Params   *FieldList
 		Results  *FieldList
@@ -820,6 +826,8 @@ func (x *FuncType) Pos() Pos {
 	switch {
 	case x.Escaping.IsValid():
 		return x.Escaping
+	case x.Entry:
+		return x.EntryPos
 	case x.Func.IsValid():
 		return x.Func
 	}

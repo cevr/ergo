@@ -125,7 +125,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Pointer:
 		return &Pointer{Elem: c.subst(t.Elem, m)}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Takes: t.Takes, TakesSelf: t.TakesSelf}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf}
 		for _, p := range t.Params {
 			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
@@ -216,7 +216,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	}
 	as, ok := a.(*Signature)
 	bs, ok2 := b.(*Signature)
-	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping {
+	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry {
 		return false
 	}
 	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
@@ -345,10 +345,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		cell := false
 		if why := c.undeclared(v, t, "conversion"); why != "" {
 			return assignment{}, why
 		}
-		cell := false
 		if why := c.implementsCapturing(v, it, !c.hostLendArg(t), capture); why != "" {
 			if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {
 				// The clause failed at the type (S106 there).
@@ -369,6 +369,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			// A cell stays where its confinement rules see it.
 			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
+		if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {
+			// Keeping is the release's contract (R13): a type includes it,
+			// and its one operation, sealed, is the runtime's; no value
+			// is converted to it.
+			return assignment{}, fmt.Sprintf("%s is the release's contract for a type that keeps values (resources R13): a type includes it with ..%s, and no value converts to it", t, t)
+		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
@@ -387,7 +393,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// representation (lower/std.go runtimeType).
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
 			}
-			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {
 				// An Ergo operation type's operations take Ergo's calling
 				// convention (the task they run on), not the Go method
 				// shapes of a Go interface, so Go would refuse the
@@ -464,6 +470,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if hasName(v) && hasName(t) {
 		// Two named function types cross only by conversion (D-B7).
 		return assignment{}, ""
+	}
+	if ts.Entry && !vs.Entry {
+		// Only the runner makes an entry's send (Signature.Entry).
+		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
 	if !c.sameShape(vs, ts) {
 		return assignment{}, "the parameters or results differ"

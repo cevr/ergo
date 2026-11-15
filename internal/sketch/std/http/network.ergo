@@ -146,7 +146,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPFetchInto func fetchInto(origins [
 // Local is a Network with no socket: a test binds it so a client of many
 // origins is checked against its servers in memory. Only InMemoryNetwork
 // makes one.
-type Local { net netPolicy, handle escaping func(origin string, r Request) Response needs Streaming }
+type Local { net netPolicy, handle func(origin string, r Request) Response needs Streaming }
 
 // InMemoryNetwork is a Network that answers each exchange with handle,
 // given the URL's origin (scheme://host[:port], as the policy reads it)
@@ -162,7 +162,7 @@ type Local { net netPolicy, handle escaping func(origin string, r Request) Respo
 // server refuses (Transport, after Go's retry of an idempotent request on
 // a kept-alive connection, so handle runs twice) and every rule of Serve's
 // answers. It needs no Ambient: it reaches no host.
-func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolicy, handle escaping func(origin string, r Request) Response needs Streaming) Local fails InvalidClient | InvalidLimits {
+func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolicy, handle own func(origin string, r Request) Response needs Streaming) Local fails InvalidClient | InvalidLimits {
 	Local{net: try policyOf(policy, limits, redirects), handle: handle}
 }
 

@@ -64,15 +64,13 @@ func needsClause(on bool) string {
 
 func (p insParams) prelude() string {
 	var b strings.Builder
-	b.WriteString("type Res { id int }\n\n")
+	b.WriteString("type Res { id int } implements Closer\n\n")
 	if p.closeNeeds {
 		b.WriteString("func Close(r Res) needs Console { Console.Println(\"close \\(r.id)\") }\n\n")
 	} else {
 		b.WriteString("func Close(r Res) {}\n\n")
 	}
 	b.WriteString(`type Pair { a Res, b Res }
-
-type Closer { Close() }
 
 func mk(id int) Res { Res{id: id} }
 
@@ -398,7 +396,7 @@ func insInstance(r *rand.Rand, name string) insSite {
 		}
 	default: // hold
 		helper = func(t string) string {
-			return fmt.Sprintf("func %s(x %s, use escaping func(v %s)) func() {\n\tfunc() { use(x) }\n}\n\n", mono, t, t)
+			return fmt.Sprintf("func %s(x %s, use own func(v %s)) func() {\n\tfunc() { use(x) }\n}\n\n", mono, t, t)
 		}
 		switch arg {
 		case "int":
