@@ -635,6 +635,8 @@ func planOfAppliedIsEmpty(seed int, pick int, word int) bool {
 		return true
 	case Delete:
 		return true
+	case Rename:
+		return true
 	case _:
 	}
 	let t = readyTrial(seed, pick, word)

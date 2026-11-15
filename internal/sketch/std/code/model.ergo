@@ -1,4 +1,5 @@
 import maps
+import slices
 import strings
 
 // Model is the memory Checker the laws of plans and apply run over: a
@@ -124,14 +125,18 @@ func modelCheck(sources []Source) Report {
 	let mut decls = []mdecl{}
 	let mut diags = []Diagnostic{}
 	let mut pkgs = []string{}
-	// declared is each package's names: the handle's kind, by name.
+	// declared is each package's names: the kind, by name; a type's
+	// members and methods are named `T.n`.
 	let mut declared = Map[string, Map[string, string]]{}
+	// aliases is each file's imports: the package, by alias.
+	let mut aliases = Map[string, Map[string, string]]{}
 	for src in sources {
 		let pkg = packageOf(src.File)
 		if !has(pkgs, pkg) {
 			pkgs = pkgs.Append(pkg)
 			declared[pkg] = Map[string, string]{}
 		}
+		aliases[src.File] = importsOf(src.Text)
 		for d in parsed(src) {
 			let names = maps.GetOr(declared, pkg, Map[string, string]{})
 			match names.Get(d.Name) {
@@ -140,6 +145,20 @@ func modelCheck(sources []Source) Report {
 			case None:
 				let mut next = names
 				next[d.Name] = d.Kind
+				if d.Kind == "type" {
+					for l in d.Lines {
+						let ws = wordsOf(beforeComment(l.Text), l.At)
+						if len(ws) >= 2 && (ws[0].Text == "field" || ws[0].Text == "op") {
+							let key = d.Name + "." + ws[1].Text
+							match next.Get(key) {
+							case Some[string]:
+								diags = diags.Append(Diagnostic{Code: "M4", Message: "\(key) is declared twice", File: d.File, Line: l.Line, Column: ws[1].Column, Fix: None})
+							case None:
+								next[key] = if ws[0].Text == "field" { "field" } else { "operation" }
+							}
+						}
+					}
+				}
 				declared[pkg] = next
 				decls = decls.Append(d)
 			}
@@ -156,8 +175,14 @@ func modelCheck(sources []Source) Report {
 	}
 	let mut packages = []Package{}
 	let mut extents = []Extent{}
+	let mut binds = []Bind{}
+	let mut workspace = []string{}
 	let mut code = ""
 	for p in pkgs {
+		if !strings.HasPrefix(p, "dep/") {
+			workspace = workspace.Append(p)
+		}
+		let names = maps.GetOr(declared, p, Map[string, string]{})
 		let mut pd = []Decl{}
 		let mut ps = []Site{}
 		let mut errs = 0
@@ -167,24 +192,80 @@ func modelCheck(sources []Source) Report {
 			}
 			let handle = p + "." + d.Name
 			let col = len(d.Kind) + 2
-			pd = pd.Append(Decl{Handle: handle, Kind: d.Kind, Name: d.Name, Package: p, Exported: exportedName(d.Name), File: d.File, Line: d.Line, Column: col})
-			ps = ps.Append(Site{Symbol: handle, Kind: "def", Package: p, File: d.File, Line: d.Line, Column: col, In: handle})
+			let owner = match strings.Cut(d.Name, ".") {
+			case Some[strings.Halves] as h:
+				h.Value.Before
+			case None:
+				""
+			}
+			let name = if owner == "" { d.Name } else { strings.Slice(d.Name, len(owner) + 1, len(d.Name)) }
+			let at = if owner == "" { col } else { col + len(owner) + 1 }
+			pd = pd.Append(Decl{Handle: handle, Kind: d.Kind, Name: name, Package: p, Exported: exportedName(name), File: d.File, Line: d.Line, Column: at})
+			ps = ps.Append(Site{Symbol: handle, Kind: "def", Package: p, File: d.File, Line: d.Line, Column: at, In: handle})
+			if owner != "" {
+				if maps.GetOr(names, owner, "") == "type" {
+					ps = ps.Append(Site{Symbol: p + "." + owner, Kind: "typeuse", Package: p, File: d.File, Line: d.Line, Column: col, In: handle})
+				} else {
+					diags = diags.Append(Diagnostic{Code: "M3", Message: "\(owner) is not a type", File: d.File, Line: d.Line, Column: col, Fix: None})
+					errs = errs + 1
+				}
+			}
 			extents = extents.Append(Extent{Handle: handle, File: d.File, Start: d.Start, End: d.End})
 			code = code + handle + ":"
+			let files = maps.GetOr(aliases, d.File, Map[string, string]{})
+			let mut locals = []string{}
 			for l in d.Lines {
-				let mut col0 = 1
-				for w in strings.Split(l.Text, " ") {
-					let word = strings.TrimSpace(w)
-					let lead = len(w) - len(trimLeft(w))
-					let at = l.At + col0 - 1 + lead
-					let column = col0 + lead
-					col0 = col0 + len(w) + 1
-					if word == "" {
+				let ws = wordsOf(beforeComment(l.Text), l.At)
+				if len(ws) == 0 {
+					continue
+				}
+				for w in ws {
+					code = code + " " + w.Text
+				}
+				let first = ws[0].Text
+				if d.Kind == "type" && len(ws) >= 2 && (first == "field" || first == "op") {
+					let mh = handle + "." + ws[1].Text
+					let mk = if first == "field" { "field" } else { "operation" }
+					pd = pd.Append(Decl{Handle: mh, Kind: mk, Name: ws[1].Text, Package: p, Exported: exportedName(ws[1].Text), File: d.File, Line: l.Line, Column: ws[1].Column})
+					ps = ps.Append(Site{Symbol: mh, Kind: "def", Package: p, File: d.File, Line: l.Line, Column: ws[1].Column, In: handle})
+					continue
+				}
+				if d.Kind == "type" && len(ws) >= 2 && first == "provides" {
+					let w = ws[1]
+					let (q, n, c) = match strings.Cut(w.Text, ".") {
+					case Some[strings.Halves] as h:
+						(maps.GetOr(files, h.Value.Before, maps.GetOr(byElement, h.Value.Before, "")), h.Value.After, w.Column + len(h.Value.Before) + 1)
+					case None:
+						(p, w.Text, w.Column)
+					}
+					let theirs = maps.GetOr(declared, q, Map[string, string]{})
+					if q == "" || maps.GetOr(theirs, n, "") != "type" {
+						diags = diags.Append(Diagnostic{Code: "M3", Message: "\(w.Text) is not a type", File: d.File, Line: l.Line, Column: w.Column, Fix: None})
+						errs = errs + 1
 						continue
 					}
-					code = code + " " + word
+					ps = ps.Append(Site{Symbol: q + "." + n, Kind: "provides", Package: p, File: d.File, Line: l.Line, Column: c, In: handle})
+					binds = binds.Append(Bind{Op: q + "." + n, By: handle})
+					for key in slices.Sorted(maps.Keys(theirs)) {
+						if strings.HasPrefix(key, n + ".") && maps.GetOr(theirs, key, "") == "operation" {
+							let op = strings.Slice(key, len(n) + 1, len(key))
+							if maps.GetOr(names, d.Name + "." + op, "") != "func" {
+								diags = diags.Append(Diagnostic{Code: "M6", Message: "\(d.Name) provides \(n) but has no \(op)", File: d.File, Line: l.Line, Column: w.Column, Fix: None})
+								errs = errs + 1
+							}
+						}
+					}
+					continue
+				}
+				if first == "let" && len(ws) >= 2 {
+					locals = locals.Append(ws[1].Text)
+					continue
+				}
+				for w in ws {
+					let word = w.Text
+					let column = w.Column
 					if strings.HasPrefix(word, "?") && len(word) > 1 {
-						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: Some[Edit]{Value: Edit{File: d.File, Start: at, End: at + len(word), Text: strings.Slice(word, 1, len(word))}}})
+						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: Some[Edit]{Value: Edit{File: d.File, Start: w.At, End: w.At + len(word), Text: strings.Slice(word, 1, len(word))}}})
 						errs = errs + 1
 						continue
 					}
@@ -193,24 +274,57 @@ func modelCheck(sources []Source) Report {
 						errs = errs + 1
 						continue
 					}
-					let names = maps.GetOr(declared, p, Map[string, string]{})
-					match names.Get(word) {
-					case Some[string] as k:
-						ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
+					if has(locals, word) {
+						continue
+					}
+					match strings.Cut(word, "{") {
+					case Some[strings.Halves] as h:
+						let t = h.Value.Before
+						let f = strings.TrimSuffix(h.Value.After, "}")
+						if maps.GetOr(names, t, "") != "type" {
+							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(t) is not a type", File: d.File, Line: l.Line, Column: column, Fix: None})
+							errs = errs + 1
+							continue
+						}
+						ps = ps.Append(Site{Symbol: p + "." + t, Kind: "construct", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
+						if maps.GetOr(names, t + "." + f, "") == "field" {
+							ps = ps.Append(Site{Symbol: p + "." + t + "." + f, Kind: "write", Package: p, File: d.File, Line: l.Line, Column: column + len(t) + 1, In: handle})
+						} else {
+							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + len(t) + 1, Fix: None})
+							errs = errs + 1
+						}
+						continue
 					case None:
-						match strings.Cut(word, ".") {
-						case Some[strings.Halves] as h:
-							match byElement.Get(h.Value.Before) {
-							case Some[string] as q:
-								match maps.GetOr(declared, q.Value, Map[string, string]{}).Get(h.Value.After) {
-								case Some[string] as k:
-									ps = ps.Append(Site{Symbol: q.Value + "." + h.Value.After, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(h.Value.Before) + 1, In: handle})
-								case None:
-									diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: None})
-									errs = errs + 1
-								}
+					}
+					match strings.Cut(word, ".") {
+					case Some[strings.Halves] as h:
+						let before = h.Value.Before
+						if maps.GetOr(names, before, "") == "type" {
+							match names.Get(word) {
+							case Some[string] as k:
+								ps = ps.Append(Site{Symbol: p + "." + before, Kind: "typeuse", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
+								ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
 							case None:
+								diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: None})
+								errs = errs + 1
 							}
+							continue
+						}
+						let q = maps.GetOr(files, before, maps.GetOr(byElement, before, ""))
+						if q == "" {
+							continue
+						}
+						match maps.GetOr(declared, q, Map[string, string]{}).Get(h.Value.After) {
+						case Some[string] as k:
+							ps = ps.Append(Site{Symbol: q + "." + h.Value.After, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
+						case None:
+							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: None})
+							errs = errs + 1
+						}
+					case None:
+						match names.Get(word) {
+						case Some[string] as k:
+							ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
 						case None:
 						}
 					}
@@ -225,10 +339,67 @@ func modelCheck(sources []Source) Report {
 		}
 		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps})
 	}
-	Report{Tables: Tables{Revision: revisionOf(sources), Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code)}
+	Report{Tables: Tables{Revision: revisionOf(sources), Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
 }
 
-func siteKindOf(declKind string) string { if declKind == "func" { "call" } else { "typeuse" } }
+// siteKindOf is the kind of a site that names a declaration of kind k.
+func siteKindOf(k string) string {
+	match k {
+	case "type":
+		"typeuse"
+	case "field":
+		"read"
+	case _:
+		"call"
+	}
+}
+
+// mword is one word of a body line: its text, its column and its offset
+// in the file.
+type mword {
+	Text   string,
+	Column int,
+	At     int,
+}
+
+// wordsOf is the words of a line that starts at offset at.
+func wordsOf(text string, at int) []mword {
+	let mut out = []mword{}
+	let mut col0 = 1
+	for w in strings.Split(text, " ") {
+		let word = strings.TrimSpace(w)
+		let lead = len(w) - len(trimLeft(w))
+		let column = col0 + lead
+		col0 = col0 + len(w) + 1
+		if word != "" {
+			out = out.Append(mword{Text: word, Column: column, At: at + column - 1})
+		}
+	}
+	out
+}
+
+// beforeComment is a line up to its comment, `//` to its end.
+func beforeComment(text string) string {
+	let at = strings.Index(text, "//")
+	if at < 0 { text } else { strings.Slice(text, 0, at) }
+}
+
+// importsOf is the imports a file's header declares, `import PATH as
+// ALIAS`: the package, by alias.
+func importsOf(text string) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for line in strings.Split(text, "\n") {
+		let (kind, _) = declLine(line)
+		if kind != "" {
+			return out
+		}
+		let ws = wordsOf(line, 0)
+		if len(ws) == 4 && ws[0].Text == "import" && ws[2].Text == "as" {
+			out[ws[3].Text] = ws[1].Text
+		}
+	}
+	out
+}
 
 // exportedName is whether a name starts with a capital letter.
 func exportedName(name string) bool {
@@ -345,4 +516,252 @@ func trimRight(s string) string {
 		j = j - 1
 	}
 	strings.Slice(s, 0, j)
+}
+
+// prog is a Model workspace as a tree, for the rename laws: its files,
+// and each symbol's name, kind and owner (the type a field, an operation
+// or a method belongs to), by the symbol's id. An id is the symbol's
+// handle in Program's names, so a rename of the tree is a change of
+// Names alone, and render writes the renamed text: the reference a
+// plan's rename is held to.
+type prog {
+	Files  []pfile,
+	Names  Map[string, string],
+	Kinds  Map[string, string],
+	Owners Map[string, string],
+	Binds  []Bind,
+}
+
+// pfile is one file: its path, its imports (`PATH as ALIAS`) and its
+// declarations.
+type pfile {
+	Path    string,
+	Imports []string,
+	Decls   []pdecl,
+}
+
+// pdecl is a declaration: its symbol and its body lines.
+type pdecl {
+	Symbol string,
+	Lines  [][]tok,
+}
+
+// tok is one word of a body line: a word that names no symbol, a symbol
+// by its name, a symbol of another package under a qualifier, a member
+// (`T.n`), or a record literal's key (`T{n}`).
+type tok = tword{Text string}
+	| tuse{Symbol string}
+	| tqual{Prefix string, Symbol string}
+	| tmember{Symbol string}
+	| tkey{Symbol string}
+
+// Program is a workspace drawn from seed: a dependency `dep/lib` with an
+// operation type; package gen/p0 with an operation type, a type that
+// provides it, record types with fields and, when seed picks it, a type
+// that provides the dependency's operation type; package gen/p1 with a
+// type that provides gen/p0's, imported under an alias when seed picks
+// it; and functions whose bodies name functions, fields (read and in
+// record literals), operations and methods, declare a local, use a word
+// that names nothing, and carry comments that name symbols.
+func Program(seed int) prog {
+	let mut kinds = Map[string, string]{}
+	for id in []string{"dep/lib.Store", "gen/p0.Files", "gen/p0.Mem", "gen/p0.Disk", "gen/p1.Fake", "gen/p1.Node"} {
+		kinds[id] = "type"
+	}
+	for id in []string{"dep/lib.Store.Get", "dep/lib.Store.Put", "gen/p0.Files.Read", "gen/p0.Files.Write"} {
+		kinds[id] = "operation"
+	}
+	for id in []string{"gen/p0.Mem.Path", "gen/p0.Disk.Path", "gen/p1.Node.Kind"} {
+		kinds[id] = "field"
+	}
+	for id in []string{"dep/lib.Helper", "gen/p0.Mem.Read", "gen/p0.Mem.Write", "gen/p1.Fake.Read", "gen/p1.Fake.Write"} {
+		kinds[id] = "func"
+	}
+	let mut binds = []Bind{Bind{Op: "gen/p0.Files", By: "gen/p0.Mem"}, Bind{Op: "gen/p0.Files", By: "gen/p1.Fake"}}
+	let sized = roll(seed, 1, 2) == 0
+	if sized {
+		kinds["gen/p0.Disk.Size"] = "field"
+	}
+	let cached = roll(seed, 2, 2) == 0
+	if cached {
+		kinds["gen/p0.Cache"] = "type"
+		kinds["gen/p0.Cache.Get"] = "func"
+		kinds["gen/p0.Cache.Put"] = "func"
+		binds = binds.Append(Bind{Op: "dep/lib.Store", By: "gen/p0.Cache"})
+	}
+	let aliased = roll(seed, 3, 2) == 0
+	let pre = if aliased { "zero" } else { "p0" }
+	let pool0 = []string{"Run", "Parse", "Load", "Emit"}
+	let pool1 = []string{"Run", "Walk", "Load"}
+	let mut f0 = []string{}
+	for k in 0..2 + roll(seed, 4, 2) {
+		let id = "gen/p0." + pool0[k]
+		kinds[id] = "func"
+		f0 = f0.Append(id)
+	}
+	let mut f1 = []string{}
+	for k in 0..1 + roll(seed, 5, 3) {
+		let id = "gen/p1." + pool1[k]
+		kinds[id] = "func"
+		f1 = f1.Append(id)
+	}
+	let mut names = Map[string, string]{}
+	let mut owners = Map[string, string]{}
+	for id in maps.Keys(kinds) {
+		let dot = strings.Index(id, ".")
+		let rest = strings.Slice(id, dot + 1, len(id))
+		let last = strings.LastIndex(id, ".")
+		names[id] = strings.Slice(id, last + 1, len(id))
+		if strings.Contains(rest, ".") {
+			owners[id] = strings.Slice(id, 0, last)
+		}
+	}
+	let op = func(id string) []tok { []tok{tword{Text: "op"}, tuse{Symbol: id}} }
+	let field = func(id string) []tok { []tok{tword{Text: "field"}, tuse{Symbol: id}} }
+	let keep = [][]tok{[]tok{tword{Text: "keep"}}}
+	let lib = pfile{Path: "dep/lib/lib.ergo", Imports: []string{}, Decls: []pdecl{
+		pdecl{Symbol: "dep/lib.Store", Lines: [][]tok{op("dep/lib.Store.Get"), op("dep/lib.Store.Put")}},
+		pdecl{Symbol: "dep/lib.Helper", Lines: keep},
+	}}
+	let mut types0 = []pdecl{
+		pdecl{Symbol: "gen/p0.Files", Lines: [][]tok{op("gen/p0.Files.Read"), op("gen/p0.Files.Write")}},
+		pdecl{Symbol: "gen/p0.Mem", Lines: [][]tok{field("gen/p0.Mem.Path"), []tok{tword{Text: "provides"}, tuse{Symbol: "gen/p0.Files"}}}},
+		pdecl{Symbol: "gen/p0.Mem.Read", Lines: [][]tok{[]tok{tword{Text: "get"}, tmember{Symbol: "gen/p0.Mem.Path"}}}},
+		pdecl{Symbol: "gen/p0.Mem.Write", Lines: keep},
+		pdecl{Symbol: "gen/p0.Disk", Lines: if sized { [][]tok{field("gen/p0.Disk.Path"), field("gen/p0.Disk.Size")} } else { [][]tok{field("gen/p0.Disk.Path")} }},
+	}
+	if cached {
+		types0 = types0.Append(pdecl{Symbol: "gen/p0.Cache", Lines: [][]tok{[]tok{tword{Text: "provides"}, tqual{Prefix: "lib", Symbol: "dep/lib.Store"}}}})
+		types0 = types0.Append(pdecl{Symbol: "gen/p0.Cache.Get", Lines: keep})
+		types0 = types0.Append(pdecl{Symbol: "gen/p0.Cache.Put", Lines: [][]tok{[]tok{tword{Text: "call"}, tqual{Prefix: "lib", Symbol: "dep/lib.Helper"}}}})
+	}
+	let mut funcs0 = []pdecl{}
+	for k, id in f0 {
+		funcs0 = funcs0.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 100 + k * 17, f0, k, "p1", f1, []string{"gen/p0.Disk.Path", "gen/p0.Files.Read", "gen/p0.Mem.Write"}, "gen/p0.Disk.Path", names)})
+	}
+	let types1 = []pdecl{
+		pdecl{Symbol: "gen/p1.Fake", Lines: [][]tok{[]tok{tword{Text: "provides"}, tqual{Prefix: pre, Symbol: "gen/p0.Files"}}}},
+		pdecl{Symbol: "gen/p1.Fake.Read", Lines: keep},
+		pdecl{Symbol: "gen/p1.Fake.Write", Lines: [][]tok{[]tok{tword{Text: "get"}, tmember{Symbol: "gen/p1.Node.Kind"}}}},
+		pdecl{Symbol: "gen/p1.Node", Lines: [][]tok{field("gen/p1.Node.Kind")}},
+	}
+	let mut funcs1 = []pdecl{}
+	for k, id in f1 {
+		funcs1 = funcs1.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 300 + k * 17, f1, k, pre, f0, []string{"gen/p1.Node.Kind", "gen/p1.Fake.Read"}, "gen/p1.Node.Kind", names)})
+	}
+	// The order of declarations in a file is drawn too.
+	let files = []pfile{
+		lib,
+		pfile{Path: "gen/p0/types.ergo", Imports: []string{}, Decls: types0},
+		pfile{Path: "gen/p0/funcs.ergo", Imports: []string{}, Decls: if roll(seed, 6, 2) == 0 { funcs0 } else { slices.Reverse(funcs0) }},
+		pfile{Path: "gen/p1/p1.ergo", Imports: if aliased { []string{"gen/p0 as zero"} } else { []string{} }, Decls: if roll(seed, 7, 2) == 0 { slices.Concat(types1, funcs1) } else { slices.Concat(funcs1, types1) }},
+	}
+	prog{Files: files, Names: names, Kinds: kinds, Owners: owners, Binds: binds}
+}
+
+// bodyOf is the body of function k of mine, drawn from seed and salt: a
+// local first when drawn, uses of the functions before it (some with a
+// comment that names them), a call of a function of the other package
+// under the qualifier theirs, member uses, a record literal of key, the
+// local used, a word that names nothing, a comment line, and a call of
+// the dependency.
+func bodyOf(seed int, salt int, mine []string, k int, theirs string, other []string, members []string, key string, names Map[string, string]) [][]tok {
+	let mut lines = [][]tok{}
+	let local = roll(seed, salt, 3) == 0
+	if local {
+		lines = lines.Append([]tok{tword{Text: "let"}, tword{Text: "Tmp"}})
+	}
+	for j in 0..len(mine) {
+		if j != k && roll(seed, salt + 1 + j, 2) == 0 {
+			let mut line = []tok{tword{Text: "use"}, tuse{Symbol: mine[j]}}
+			if roll(seed, salt + 5 + j, 2) == 0 {
+				line = line.Append(tword{Text: "// " + maps.GetOr(names, mine[j], "") + " runs first"})
+			}
+			lines = lines.Append(line)
+		}
+	}
+	if len(other) > 0 {
+		let id = other[roll(seed, salt + 9, len(other))]
+		let mut line = []tok{tword{Text: "call"}, tqual{Prefix: theirs, Symbol: id}}
+		if roll(seed, salt + 10, 3) == 0 {
+			line = line.Append(tword{Text: "// see \(theirs).\(maps.GetOr(names, id, ""))"})
+		}
+		lines = lines.Append(line)
+	}
+	for j, m in members {
+		if roll(seed, salt + 11 + j, 2) == 0 {
+			lines = lines.Append([]tok{tword{Text: "get"}, tmember{Symbol: m}})
+		}
+	}
+	if roll(seed, salt + 14, 2) == 0 {
+		lines = lines.Append([]tok{tword{Text: "make"}, tkey{Symbol: key}})
+	}
+	if local {
+		lines = lines.Append([]tok{tword{Text: "use"}, tword{Text: "Tmp"}})
+	}
+	if roll(seed, salt + 15, 3) == 0 {
+		lines = lines.Append([]tok{tword{Text: "note"}, tword{Text: "Zap"}})
+	}
+	if roll(seed, salt + 16, 3) == 0 {
+		lines = lines.Append([]tok{tword{Text: "// Run, Path and Read are names here"}})
+	}
+	if roll(seed, salt + 17, 3) == 0 {
+		lines = lines.Append([]tok{tword{Text: "call"}, tqual{Prefix: "lib", Symbol: "dep/lib.Helper"}})
+	}
+	if len(lines) == 0 {
+		lines = lines.Append([]tok{tword{Text: "keep"}})
+	}
+	lines
+}
+
+// render is the text of p's files.
+func render(p prog) []Source {
+	let mut out = []Source{}
+	for f in p.Files {
+		let mut text = "// \(f.Path)\n"
+		for im in f.Imports {
+			text = text + "import " + im + "\n"
+		}
+		for d in f.Decls {
+			text = text + "\n" + headOf(p, d.Symbol) + "\n"
+			for line in d.Lines {
+				let mut ws = []string{}
+				for t in line {
+					ws = ws.Append(tokText(p, t))
+				}
+				text = text + "\t" + strings.Join(ws, " ") + "\n"
+			}
+		}
+		out = out.Append(Source{File: f.Path, Text: text})
+	}
+	out
+}
+
+// nameOf is a symbol's name in p.
+func nameOf(p prog, id string) string { maps.GetOr(p.Names, id, "") }
+
+// headOf is the line that declares a symbol.
+func headOf(p prog, id string) string {
+	match p.Owners.Get(id) {
+	case Some[string] as o:
+		"func " + nameOf(p, o.Value) + "." + nameOf(p, id)
+	case None:
+		maps.GetOr(p.Kinds, id, "") + " " + nameOf(p, id)
+	}
+}
+
+// tokText is a word as p writes it.
+func tokText(p prog, t tok) string {
+	match t {
+	case tword as w:
+		w.Text
+	case tuse as u:
+		nameOf(p, u.Symbol)
+	case tqual as q:
+		q.Prefix + "." + nameOf(p, q.Symbol)
+	case tmember as m:
+		nameOf(p, maps.GetOr(p.Owners, m.Symbol, "")) + "." + nameOf(p, m.Symbol)
+	case tkey as k:
+		nameOf(p, maps.GetOr(p.Owners, k.Symbol, "")) + "{" + nameOf(p, k.Symbol) + "}"
+	}
 }

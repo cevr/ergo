@@ -27,14 +27,22 @@ type Diagnostic {
 type Extent { Handle string, File string, Start int, End int }
 
 // Report is what a check of some sources gives: their fact tables, the
-// extent of each declaration, the diagnostics, and Code, a digest of the
-// lowered program with positions left out.
+// extent of each declaration, the diagnostics, Code (a digest of the
+// lowered program with positions left out), the Provides edges, and the
+// packages of the workspace (the others, std and dependencies, are read
+// only).
 type Report {
 	Tables      Tables,
 	Extents     []Extent,
 	Diagnostics []Diagnostic,
 	Code        string,
+	Binds       []Bind,
+	Workspace   []string,
 }
+
+// Bind is a Provides edge: the type By provides the operation type Op,
+// so each operation of Op binds to the function of By with its name.
+type Bind { Op string, By string }
 
 // CheckFailed is a check or a format that could not run at all.
 type CheckFailed { Reason string }
@@ -90,13 +98,17 @@ func checkIsDeterministic(seed int) bool needs Checker {
 //     code when Rules is empty), applied and checked again until none is
 //     left (at most 8 rounds); fixes that overlap are refused.
 //   - Script: Steps in order, each on the sources the one before made.
+//   - Rename: the declaration at Of, and every site that names it, takes
+//     the name To (rename.ergo).
 type Change = Replace{Of string, Text string}
 	| Insert{After string, Text string}
 	| Delete{Of string}
 	| Fixes{Rules []string}
 	| Script{Steps []Change}
+	| Rename{Of string, To string}
 
-// Proof is what a plan claims about behaviour: Alpha, a rename (SEM5);
+// Proof is what a plan claims about behaviour: Alpha, a rename whose
+// tables equal the first under the name map;
 // SameCode, the lowered program is unchanged; Checked, the result checks
 // and nothing is claimed.
 type Proof = Alpha{} | SameCode{} | Checked{}
@@ -135,7 +147,7 @@ type NoPlan { ID string }
 // Planner computes plans. It writes no source file: a plan is stored by
 // its id, and only Writer.Apply writes one.
 type Planner {
-	Plan(c Change) Planned fails BadChange,
+	Plan(c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture,
 	PlanOf(id string) Planned fails NoPlan,
 
 	// PlanIsDeterministic: the same change at the same revision is the
@@ -147,24 +159,29 @@ type Planner {
 
 func planIsDeterministic(pick int, word int) bool needs Planner {
 	let c = SampleChange(pick, word)
-	let a = Planner.Plan(c) catch {
+	attempted(c) == attempted(c)
+}
+
+// attempt is a plan, or the refusal of one as text.
+type attempt = made{Plan Planned} | refused{Reason string}
+
+func attempted(c Change) attempt needs Planner {
+	let p = Planner.Plan(c) catch {
 	case BadChange as x:
-		let _ = Planner.Plan(c) catch {
-		case BadChange as y:
-			return x == y
-		}
-		return false
+		return refused{Reason: "BadChange " + x.Reason}
+	case NameTaken as x:
+		return refused{Reason: "NameTaken \(x.Handle) \(x.To) \(x.By)"}
+	case OutsideWorkspace as x:
+		return refused{Reason: "OutsideWorkspace " + x.Handle}
+	case Capture as x:
+		return refused{Reason: "Capture \(x.Handle) \(x.To) " + strings.Join(x.Rows, "; ")}
 	}
-	let b = Planner.Plan(c) catch {
-	case BadChange:
-		return false
-	}
-	a == b
+	made{Plan: p}
 }
 
 func planOfIsThePlan(pick int, word int) bool needs Planner {
 	let p = Planner.Plan(SampleChange(pick, word)) catch {
-	case BadChange:
+	case _:
 		return true
 	}
 	let back = Planner.PlanOf(p.ID) catch {
@@ -221,7 +238,7 @@ func Open(sources []Source, checker Checker, store Store) Session {
 // NewSession is the session over Sample(seed) and the Model checker.
 func NewSession(seed int) Session { Open(Sample(seed), Model, NewStore()) }
 
-func Plan(s Session, c Change) Planned fails BadChange {
+func Plan(s Session, c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture {
 	let p = try planChange(s.sources, c, s.checker)
 	keep(s.store, p)
 	p
@@ -258,7 +275,7 @@ func formatWith(checker Checker, text string) string fails BadChange {
 
 // planChange is a plan of c over sources: the edits, the overlay check,
 // the verdict, the patch and the id. It writes nothing.
-func planChange(sources []Source, c Change, checker Checker) Planned fails BadChange {
+func planChange(sources []Source, c Change, checker Checker) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture {
 	let base = try checkWith(checker, sources)
 	let after = try changed(sources, base, c, checker)
 	let report = try checkWith(checker, after)
@@ -278,7 +295,12 @@ func planChange(sources []Source, c Change, checker Checker) Planned fails BadCh
 	for r in reads {
 		key = key + "\n" + r.File + " " + r.Revision
 	}
-	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Verdict: verdictOf(base, report)}
+	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Verdict: match c {
+	case Rename:
+		renameVerdict(base, report)
+	case _:
+		verdictOf(base, report)
+	}}
 }
 
 // verdictOf: Blocked by each diagnostic the overlay adds (by code and
@@ -310,7 +332,7 @@ func verdictOf(base Report, after Report) Verdict {
 }
 
 // changed is sources after c, with report their check.
-func changed(sources []Source, report Report, c Change, checker Checker) []Source fails BadChange {
+func changed(sources []Source, report Report, c Change, checker Checker) []Source fails BadChange | NameTaken | OutsideWorkspace | Capture {
 	match c {
 	case Replace as r:
 		let e = try extentAt(report, r.Of)
@@ -361,6 +383,8 @@ func changed(sources []Source, report Report, c Change, checker Checker) []Sourc
 			cur = try changed(cur, r, step, checker)
 		}
 		cur
+	case Rename as r:
+		try renamed(sources, report, r, checker)
 	}
 }
 
@@ -384,12 +408,7 @@ func deletion(sources []Source, e Extent) Edit {
 
 // extentAt is the extent of the declaration at address a in report.
 func extentAt(report Report, a string) Extent fails BadChange {
-	let d = with context { Reader: IndexOf(report.Tables) } { Reader.Symbol(a) } catch {
-	case NoSymbol:
-		return BadChange{Reason: "\(a) names no declaration"}
-	case Ambiguous as m:
-		return BadChange{Reason: "\(a) names several declarations: " + strings.Join(m.Candidates, ", ")}
-	}
+	let d = try declOf(report, a)
 	for e in report.Extents {
 		if e.Handle == d.Handle {
 			return e
@@ -481,11 +500,14 @@ func describe(c Change) string {
 			parts = parts.Append(describe(step))
 		}
 		"script (" + strings.Join(parts, "; ") + ")"
+	case Rename as r:
+		"rename \(r.Of) to " + quoted(r.To)
 	}
 }
 
 // SampleChange is a change that pick and word draw over Sample's names:
-// a Replace, an Insert or a Delete of a handle, Fixes, or a Script of two.
+// a Replace, an Insert, a Delete or a Rename of a handle, Fixes, or a
+// Script of two.
 func SampleChange(pick int, word int) Change {
 	let names = []string{"Run", "Parse", "Token", "Load", "Emit", "Walk"}
 	let words = []string{"Run", "Token", "p1.Load", "keep", "?gone", "!loud"}
@@ -493,7 +515,7 @@ func SampleChange(pick int, word int) Change {
 	let h = "gen/p\(slot(pick / 59, 3)).\(name)"
 	let w = words[slot(word, len(words))]
 	let body = "func \(name)\n   use \(w)   \n"
-	match slot(pick, 6) {
+	match slot(pick, 7) {
 	case 0:
 		Replace{Of: h, Text: body}
 	case 1:
@@ -504,6 +526,8 @@ func SampleChange(pick int, word int) Change {
 		Fixes{Rules: if slot(word, 2) == 0 { []string{} } else { []string{"M1"} }}
 	case 4:
 		Script{Steps: []Change{Fixes{Rules: []string{"M1"}}, Replace{Of: h, Text: body}}}
+	case 5:
+		Rename{Of: h, To: if slot(word, 2) == 0 { "Fresh\(slot(word, 5))" } else { names[slot(word / 2, len(names))] }}
 	case _:
 		Replace{Of: name, Text: body}
 	}
@@ -526,7 +550,7 @@ func trialOf(sources []Source, c Change) Trial {
 	let store = NewStore()
 	let empty = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}}
 	let p = Plan(Open(sources, Model, store), c) catch {
-	case BadChange:
+	case _:
 		return Trial{Ok: false, Sources: sources, Store: store, Plan: empty}
 	}
 	Trial{Ok: true, Sources: sources, Store: store, Plan: p}
@@ -656,6 +680,8 @@ func untouchedKeepsBytes(seed int, pick int, word int) bool {
 	case Fixes:
 		return true
 	case Script:
+		return true
+	case Rename:
 		return true
 	}
 	let t = trialOf(sources, c)

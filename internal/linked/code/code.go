@@ -3892,7 +3892,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 			_ = v_60
 			if ok_3 {
 			} else {
-				v_61 := nameOf(f_1)
+				v_61 := nameOf_1(f_1)
 				return *new(Values), Missing_1{Name: v_61}
 			}
 		}
@@ -5620,7 +5620,7 @@ inl:
 	}
 }
 
-func nameOf(f Flag) string {
+func nameOf_1(f Flag) string {
 	var v scalarFlag
 	{
 		switch v_1 := f.(type) {
