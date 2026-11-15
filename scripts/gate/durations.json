@@ -1851,6 +1851,10 @@
   "ergo.local/prototype/scripts/migrate196": {
     "TestWriteKeepsRowComments": 0
   },
+  "ergo.local/prototype/scripts/gs25-move-std-api": {
+    "TestCheckoutKeepsStdALeaf": 0.49,
+    "TestMoveAppliesToTheOldLayout": 0.4
+  },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
   },

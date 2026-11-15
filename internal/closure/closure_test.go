@@ -97,6 +97,9 @@ var declared = map[string][]allowance{
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
+	"scripts/gs25-move-std-api": {
+		{".", subtree, "TestCheckoutKeepsStdALeaf walks every Go file of the checkout for importers of internal/sketch/std (GS25)"},
+	},
 	"internal/testinputs/guard": {
 		{".", subtree, "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
 	},
