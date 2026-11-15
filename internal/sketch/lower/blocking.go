@@ -241,6 +241,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesReverse":        {},
 	"SlicesClone":          {},
 	"SlicesConcat":         {},
+	"SlicesInsert":         {},
+	"SlicesDelete":         {},
 	"SlicesRepeat":         {},
 	"SlicesSlice":          {},
 	"MapsClone":            {},

@@ -95,6 +95,25 @@ func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
 //ergo:pure
 func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
 
+// SlicesInsert is xs with ys before index i, in a new array: Go's
+// slices.Insert(xs, i, ys...) writes xs's array when it has room, so the
+// body concatenates instead, and the result shares no array with xs or
+// ys. An i outside 0..len(xs) panics, as Go's does: a defect.
+//
+//ergo:pure
+func SlicesInsert[T any](xs []T, i int, ys []T) []T { return slices.Concat(xs[:i:i], ys, xs[i:]) }
+
+// SlicesDelete is xs without xs[i:j], in a new array: Go's
+// slices.Delete(xs, i, j) shifts xs's own elements and zeroes its tail, so
+// the body concatenates instead. A bound outside 0..len(xs), or an i after
+// j, panics: a defect.
+//
+//ergo:pure
+func SlicesDelete[T any](xs []T, i int, j int) []T {
+	_ = xs[i:j]
+	return slices.Concat(xs[:i:i], xs[j:])
+}
+
 // SlicesRepeat is slices.Repeat(xs, n): xs n times over, in a new array.
 // A negative n, or a length past int, panics, as Go's does: a defect.
 //

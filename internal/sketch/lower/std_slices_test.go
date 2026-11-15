@@ -457,6 +457,30 @@ test SlicesSliceHasNoRoom(xs []int, i int, x int) {
 	assert slices.Equal(xs, before) && slices.Equal(slices.Slice(grown, 0, j), slices.Slice(xs, 0, j)) && grown[j] == x
 }
 
+test SlicesInsertPlaces(xs []int, ys []int, i int, x int) {
+	let n = len(xs) + 1
+	let k = (i%n + n) % n
+	let mut roomy = slices.WithCapacity[int](len(xs) + len(ys) + 1)
+	for v in xs {
+		roomy = roomy.Append(v)
+	}
+	let r = slices.Insert(roomy, k, ys)
+	let before = slices.Clone(r)
+	let grown = roomy.Append(x)
+	assert len(r) == len(xs)+len(ys) && slices.Equal(slices.Slice(r, 0, k), slices.Slice(xs, 0, k)) && slices.Equal(slices.Slice(r, k, k+len(ys)), ys) && slices.Equal(slices.Slice(r, k+len(ys), len(r)), slices.Slice(xs, k, len(xs))) && slices.Equal(r, before) && slices.Equal(slices.Slice(grown, 0, len(xs)), xs)
+}
+
+test SlicesDeleteUndoesInsert(xs []int, i int, j int) {
+	let n = len(xs) + 1
+	let a = (i%n + n) % n
+	let b = (j%n + n) % n
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let before = slices.Clone(xs)
+	let d = slices.Delete(xs, lo, hi)
+	assert len(d) == len(xs)-(hi-lo) && slices.Equal(xs, before) && slices.Equal(slices.Slice(d, 0, lo), slices.Slice(xs, 0, lo)) && slices.Equal(slices.Insert(d, lo, slices.Slice(before, lo, hi)), before)
+}
+
 test SlicesLenAndAtReadItems(xs []int) {
 	let a = slices.Ascend(xs)
 	let items = a.Items()
@@ -548,6 +572,8 @@ var stdSlicesLawStatements = map[string]string{
 	"slices ConcatIsIsolated":          `ConcatIsIsolated(a []int, b []int, x int) { let mut roomy = WithCapacity[int](len(a) + len(b) + 1) for v in a { roomy = roomy.Append(v) } let c = Concat(roomy, b) let before = Clone(c) let grown = roomy.Append(x) Equal(c, before) && len(grown) == len(a)+1 && Equal(Slice(c, len(a), len(c)), b) }`,
 	"slices RepeatRepeats":             `RepeatRepeats(xs []int, n int) { let k = (n%8 + 8) % 8 let r = Repeat(xs, k) let mut ok = len(r) == len(xs)*k for i, v in r { ok = ok && v == xs[i%len(xs)] } ok }`,
 	"slices SliceHasNoRoom":            `SliceHasNoRoom(xs []int, i int, x int) { if len(xs) == 0 { return true } let j = (i%len(xs) + len(xs)) % len(xs) let before = Clone(xs) let grown = Slice(xs, 0, j).Append(x) Equal(xs, before) && Equal(Slice(grown, 0, j), Slice(xs, 0, j)) && grown[j] == x }`,
+	"slices InsertPlaces":              `InsertPlaces(xs []int, ys []int, i int, x int) { let n = len(xs) + 1 let k = (i%n + n) % n let mut roomy = WithCapacity[int](len(xs) + len(ys) + 1) for v in xs { roomy = roomy.Append(v) } let r = Insert(roomy, k, ys) let before = Clone(r) let grown = roomy.Append(x) len(r) == len(xs)+len(ys) && Equal(Slice(r, 0, k), Slice(xs, 0, k)) && Equal(Slice(r, k, k+len(ys)), ys) && Equal(Slice(r, k+len(ys), len(r)), Slice(xs, k, len(xs))) && Equal(r, before) && Equal(Slice(grown, 0, len(xs)), xs) }`,
+	"slices DeleteUndoesInsert":        `DeleteUndoesInsert(xs []int, i int, j int) { let n = len(xs) + 1 let a = (i%n + n) % n let b = (j%n + n) % n let lo = if a < b { a } else { b } let hi = if a < b { b } else { a } let before = Clone(xs) let d = Delete(xs, lo, hi) len(d) == len(xs)-(hi-lo) && Equal(xs, before) && Equal(Slice(d, 0, lo), Slice(xs, 0, lo)) && Equal(Insert(d, lo, Slice(before, lo, hi)), before) }`,
 	"slices LenAndAtReadItems":         `LenAndAtReadItems(xs []int) { let a = Ascend(xs) let items = Items(a) let mut ok = Len(a) == len(items) for i, v in items { ok = ok && At(a, i) == v } ok }`,
 	"maps CloneIsIndependent":          `CloneIsIndependent(m Map[string, int], k string) { let size = len(m) let had = m.Get(k) let mut c = Clone(m) let mut same = len(c) == size for key, v in m { same = same && c.Get(key) == Some[int]{Value: v} } c[k] = 7 same && len(m) == size && m.Get(k) == had }`,
 	"maps UpdateSeesTheOldValue":       `UpdateSeesTheOldValue(m Map[string, int], k string, v int) { let before = m.Get(k) let mut seen Option[int] = Some[int]{Value: v + 1} let out = Update(Clone(m), k, func(old Option[int]) int { seen = old v }) let grew = if before == None { 1 } else { 0 } seen == before && out.Get(k) == Some[int]{Value: v} && len(out) == len(m)+grew }`,
