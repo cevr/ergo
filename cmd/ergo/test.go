@@ -158,23 +158,17 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	// The direct path links nothing for an unchanged module (its action
 	// store holds the executable, build/direct.go); a cached passing
 	// result skips even that.
-	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:   build.ModeTest,
-		Source: l.source.Admitted(),
-		Output: binary,
-		Reuse: func(m build.Module) bool {
-			if key == "" {
-				return false
-			}
-			data, ok := cache.Result(m, key)
-			cached, hit = data, ok
-			return ok
-		},
-		Cache:     cache,
-		Toolchain: tc,
-		IR:        true,
-		Stderr:    buildStderr,
-	})
+	req := emissionRequest(opts, l, build.ModeTest)
+	req.Output, req.Cache, req.Toolchain, req.Stderr = binary, cache, tc, buildStderr
+	req.Reuse = func(m build.Module) bool {
+		if key == "" {
+			return false
+		}
+		data, ok := cache.Result(m, key)
+		cached, hit = data, ok
+		return ok
+	}
+	module, err := sketchfront.Build(l.analysis, req)
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
 	}

@@ -119,7 +119,7 @@ func emittedLineOf(opts fileOptions, path string, l loaded, shared bool) (emitte
 			return line, true, nil
 		}
 	}
-	digest, err := sketchfront.EmittedDigest(alone.analysis, sketchfront.BuildRequest{Mode: build.ModeTest, Source: alone.source.Admitted()})
+	digest, err := sketchfront.EmittedDigest(alone.analysis, emissionRequest(opts, alone, build.ModeTest))
 	if err != nil {
 		line.Error = fmt.Sprintf("test: %v", err)
 		return line, true, nil
@@ -128,7 +128,7 @@ func emittedLineOf(opts fileOptions, path string, l loaded, shared bool) (emitte
 	if !hasMain(alone) {
 		return line, fail, nil
 	}
-	if digest, err = sketchfront.EmittedDigest(alone.analysis, sketchfront.BuildRequest{Mode: build.ModeBuild, Source: alone.source.Admitted()}); err != nil {
+	if digest, err = sketchfront.EmittedDigest(alone.analysis, emissionRequest(opts, alone, build.ModeBuild)); err != nil {
 		line.Error = fmt.Sprintf("build: %v", err)
 		return line, true, nil
 	}
