@@ -849,6 +849,9 @@ func wants(loc Locator, x seen) bool {
 	case WithZone:
 		// The generated programs write no zone.
 		false
+	case First as l:
+		// LocateIn takes the first of what l.At finds.
+		wants(l.At, x)
 	}
 }
 

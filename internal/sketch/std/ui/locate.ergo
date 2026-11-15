@@ -103,8 +103,10 @@ type Access { Role Role, Name string, Disabled bool, Description string, Checked
 // role and name (an empty Name matches any), by the label a primitive
 // was given (a Pressable's, Check's, Toggle's, Area's, Canvas's or
 // list's), by an Input's placeholder, by a Text's value, or by a Zone's
-// key (H5g). Names match exactly.
-type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key}
+// key (H5g). Names match exactly. First{At} finds the first node At
+// finds, in tree order, or none: an act on a locator that finds more than
+// one node fails Ambiguous (NS7), and First says which one is meant.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator}
 
 // Matcher is what a scene expects of a locator's nodes, after
 // Playwright's and Testing Library's matchers: that some node matches,
@@ -152,6 +154,15 @@ type Mismatch { Want string, Got string }
 // LocateIn is the nodes of m that loc finds, in tree order. The root is
 // the host's, not the view's, and is never found.
 func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
+	match loc {
+	case First as x:
+		let all = LocateIn[E](m, x.At)
+		if len(all) == 0 {
+			return all
+		}
+		return []Id[E]{all[0]}
+	case _:
+	}
 	match entryOf(m, m.root) {
 	case Some[mirrored[E]] as r:
 		locateFrom(m, r.Value.first, loc, false, "", []Id[E]{})
@@ -328,6 +339,9 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 		case _:
 			false
 		}
+	case First as x:
+		// LocateIn takes the first; a node it finds is one At finds.
+		finds[E](x.At, n, a)
 	}
 }
 
@@ -439,6 +453,8 @@ func locatorText(loc Locator) string {
 		"text \"\(x.Text)\""
 	case WithZone as x:
 		"zone \(keyText(x.Key))"
+	case First as x:
+		"first \(locatorText(x.At))"
 	}
 }
 

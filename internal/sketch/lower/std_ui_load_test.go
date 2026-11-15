@@ -701,6 +701,9 @@ func wants(loc ui.Locator, x seen) bool {
 	case ui.WithZone:
 		// The generated programs write no zone.
 		false
+	case ui.First as l:
+		// ui.LocateIn takes the first of what l.At finds.
+		wants(l.At, x)
 	}
 }
 

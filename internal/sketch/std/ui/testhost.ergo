@@ -35,6 +35,11 @@ type TestHost[S, E, D, F] {
 // screen.
 type NoNode { Label string }
 
+// Ambiguous is the failure of a script step whose label or locator
+// finds more than one node (NS7, as Playwright's strict locators): what
+// it named and how many nodes it found. First names one.
+type Ambiguous { At string, Count int }
+
 // NewTestHost shows view of a's state. clock is the time the program's
 // tasks sleep on (a test binds it as their Scheduler); only Advance moves
 // it. A fetch's result waits in a queue of room results until the host
@@ -403,7 +408,7 @@ func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails 
 }
 
 // Act is one step of a scene script: by label (TapOn, TypeInto, PointOn,
-// ScrollOn), or by locator (ClickOn and FillIn act on the first node it
+// ScrollOn), or by locator (ClickOn and FillIn act on the one node it
 // finds; ExpectOn checks a matcher), or on the host (NavigateTo and
 // GoBack are the user's navigations).
 type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length} | ClickOn{At Locator} | FillIn{At Locator, Text string} | ExpectOn{At Locator, Is Matcher} | NavigateTo{Href string} | GoBack
@@ -415,9 +420,10 @@ type SettleAll {}
 type GoBack {}
 
 // Play runs a script in order. A step whose label or locator names no
-// node fails NoNode with that label or locator, and an ExpectOn that does
-// not hold fails Mismatch.
-func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Mismatch | actor.Stopped | BadPatch {
+// node fails NoNode with that label or locator, one that names more than
+// one node fails Ambiguous (a locator in First names the first), and an
+// ExpectOn that does not hold fails Mismatch.
+func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
 	for act in script {
 		match act {
 		case TapOn as x:
@@ -435,9 +441,9 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 		case ScrollOn as x:
 			try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
 		case ClickOn as x:
-			try Tap(h, try first(h, x.At))
+			try Tap(h, try only(h, x.At))
 		case FillIn as x:
-			try TypeText(h, try first(h, x.At), x.Text)
+			try TypeText(h, try only(h, x.At), x.Text)
 		case ExpectOn as x:
 			try Expect(h, x.At, x.Is)
 		case NavigateTo as x:
@@ -452,7 +458,7 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 // act, "step N <act>: <CountsLine of its step>", counted from 1. An act
 // that is no input (SettleAll, AdvanceBy, ExpectOn) adds to the step
 // before it, and its line shows that step's counts so far.
-func PlayTrace[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) []string fails NoNode | Mismatch | actor.Stopped | BadPatch {
+func PlayTrace[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) []string fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
 	let mut out = []string{}
 	for i, act in script {
 		try Play(h, []Act{act})
@@ -491,21 +497,52 @@ func actText(a Act) string {
 	}
 }
 
-func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
+// only is the one node loc finds.
+func only[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode | Ambiguous {
 	let ids = Locate(h, loc)
 	if len(ids) == 0 {
 		return NoNode{Label: locatorText(loc)}
 	}
+	if len(ids) > 1 {
+		return Ambiguous{At: locatorText(loc), Count: len(ids)}
+	}
 	ids[0]
 }
 
-func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode {
-	match Find(h, label) {
-	case Some[Id[E]] as id:
-		id.Value
-	case None:
-		NoNode{Label: label}
+// found is the one node whose label is label (as Find matches it).
+func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode | Ambiguous {
+	let ids = withLabel(&h.mirror, h.mirror.root, label, []Id[E]{})
+	if len(ids) == 0 {
+		return NoNode{Label: label}
 	}
+	if len(ids) > 1 {
+		return Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// withLabel is acc and the nodes under id whose label is label, in tree
+// order, each with none under it: a match inside a match is the same
+// target (a Pressable "go" around a Text "go" is one), as Find takes the
+// outer one.
+func withLabel[E](m *Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] {
+	let mut out = acc
+	match entryOf(m, id) {
+	case Some[mirrored[E]] as n:
+		for k in childIds(m, n.Value) {
+			match entryOf(m, k) {
+			case Some[mirrored[E]] as c:
+				if labelOf(c.Value.node) == (Some{Value: label}) {
+					out = out.Append(k)
+					continue
+				}
+			case None:
+			}
+			out = withLabel[E](m, k, label, out)
+		}
+	case None:
+	}
+	out
 }
 
 // Screenshot is the screen as text, one node a line, indented by depth:
@@ -710,5 +747,90 @@ law CountsAreTheStep(n int) {
 		}
 		let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
 		pressed.Set == 1 && pressed.Ran == 1 && settled.Set == 1 && settled.Ran > pressed.Ran && trace == []string{line}
+	}
+}
+
+// lastStep keeps the last signal. (a law's helper)
+func lastStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: e}
+}
+
+// lastTimer is the law's timer: none. (a law's helper)
+func lastTimer(s int) Option[Timeout[int]] {
+	None
+}
+
+// lastWork is the law's work: none. (a law's helper)
+func lastWork(s int) Option[func(send func(e int))] {
+	None
+}
+
+// AmbiguousActFails (NS7): over screens with k of 2 to 5 buttons labelled
+// "dup" and k inputs whose placeholder is "dupi", among unique ones, each
+// act that names them (TapOn and TypeInto by label, ClickOn and FillIn
+// by role, label or placeholder) fails Ambiguous with its count k and
+// sends nothing; First names the first one, which the act then reaches;
+// and Find still gives that first one.
+law AmbiguousActFails(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (seed%4+4)%4 + 2
+		let view = func(f *Frame[int], s int) {
+			Column(f, Plain()) {
+				Text(f, "at \(s)")
+				for i in 0..k {
+					Pressable(f, "dup", i+1) {
+						Text(f, "x")
+					}
+					Pressable(f, "one\(i)", 50+i) {
+						Text(f, "y")
+					}
+					Input(f, "", "dupi", func(t string) int { 100 + i })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}}
+		for act in acts {
+			let mut count = -1
+			Play(&h, []Act{act}) catch {
+			case Ambiguous as e:
+				count = e.Count
+			case _:
+				return false
+			}
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+			if count != k || StateOf(&h) != 0 {
+				return false
+			}
+		}
+		// A unique label acts, and First names the first match.
+		Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != 51 {
+			return false
+		}
+		Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != 1 {
+			return false
+		}
+		Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}})
+		StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]})
 	}
 }

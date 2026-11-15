@@ -41,8 +41,8 @@ func shelfMachine() Machine[shelf, int, int] {
 }
 
 // shelfView shows the count, an add button, and each row with a delete
-// button: every row's button has the label "del", so a press by label
-// takes the first row on the screen.
+// button: every row's button has the label "del", so a press of the
+// first row's names it by First (NS7).
 func shelfView(f *Frame[int], s shelf) {
 	Column(f, Plain()) {
 		Text(f, "\(len(s.rows)) rows")
@@ -67,11 +67,11 @@ func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
 	FrameShape(&g)
 }
 
-// ScriptShowsTheView: after each step of a drawn script of presses by
-// label ("add", or "del", the first row's), the test host's screen is the
-// view of the actor's state, and that state is the model's: a press of
-// "del" removes the first row on the screen. The clock never moves. Half
-// the presses are by locator, and the expectations of a scene hold.
+// ScriptShowsTheView: after each step of a drawn script of presses ("add"
+// by label or by locator, or the first "del" by First of a locator), the
+// test host's screen is the view of the actor's state, and that state is
+// the model's: a press of the first "del" removes the first row on the
+// screen. The clock never moves, and the expectations of a scene hold.
 law ScriptShowsTheView(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -99,7 +99,12 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		// Half the presses go by locator, and each step expects the count
 		// the model shows and the number of delete buttons (H4r).
 		let mut tap Act = TapOn{Label: label}
-		if draw(&r, 2) == 0 {
+		let byRole = draw(&r, 2) == 0
+		if label == "del" && byRole {
+			tap = ClickOn{At: First{At: WithRole{Role: Button, Name: label}}}
+		} else if label == "del" {
+			tap = ClickOn{At: First{At: WithLabel{Label: label}}}
+		} else if byRole {
 			tap = ClickOn{At: WithRole{Role: Button, Name: label}}
 		}
 		let expect = []Act{ExpectOn{At: WithText{Text: "\(len(model.rows)) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows)}}}
