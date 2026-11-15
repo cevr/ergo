@@ -3,16 +3,16 @@ import lease-sync/replica
 import rpc
 import time
 
-// Pushed is a command on the wire: its envelope without At, which the
+// Pushed is a command as rpc carries it: its envelope without At, which the
 // authority stamps (the client's At is a prediction; the record's wins).
 type Pushed[C] { ID domain.CommandID, By string, Command C }
 
-// Pulling is a pull on the wire. Wait asks for the long poll (Await).
+// Pulling is a pull as rpc carries it. Wait asks for the long poll (Await).
 type Pulling { By replica.ClientID, From int, Wait bool }
 
-// Codec is the wire form of a source's commands and frames, written where
+// Codec is the JSON form of a source's commands and frames, written where
 // their types are known (a generic function cannot encode a type that is
-// not wire, and Server's parameters are comparable, not wire): both ends
+// that has no codec, and Server's parameters are only comparable): both ends
 // of the rpc provider use it.
 type Codec[S, C, E, F] {
 	WritePush  func(p Pushed[C]) string,

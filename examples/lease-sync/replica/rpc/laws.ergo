@@ -50,8 +50,8 @@ func envelope(op int, next func(origin replica.ClientID) int) domain.Envelope[le
 
 // AgreesWithMemory: for any pushes (resends, commands out of order and
 // conflicts among them) and pulls from any position, the rpc provider over
-// the whole wire gives the same answers and the same frames as the memory
-// provider, and none of them is Unavailable: the wire carries every
+// std rpc end to end gives the same answers and the same frames as the memory
+// provider, and none of them is Unavailable: rpc carries every
 // receipt, failure and frame of the protocol both ways.
 law AgreesWithMemory(ops []int, froms []int) {
 	let remote = NewLeases()
@@ -87,7 +87,7 @@ law AgreesWithMemory(ops []int, froms []int) {
 	true
 }
 
-// loopback is a lease authority served through the wire for the
+// loopback is a lease authority served through std rpc for the
 // clients allow takes, with long polls; a test of it pulls only where the
 // log has something new (rpc.Loopback's call is not a wait that a
 // VirtualClock or a Manual's Advance sees, so the long poll's own tests

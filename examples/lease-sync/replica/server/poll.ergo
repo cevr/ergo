@@ -12,7 +12,7 @@ import time
 type LeaseServer = Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
 type LeaseFrame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
 
-// codec is the lease pool's wire form, as replica/rpc's Codec writes it.
+// codec is the lease pool's JSON form, as replica/rpc's Codec writes it.
 func codec() Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
 	Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{
 		WritePush:  func(p Pushed[lease.Cmd]) string { rpc.Encode(p) },

@@ -311,7 +311,7 @@
       "file": "examples/lease-sync/replica/server/handle.ergo",
       "from": "\t\tlet f = if p.Wait { Await(s, p.By, p.From, wait) } else { Pull(s, p.By, p.From) }\n",
       "to": "\t\tlet f = Pull(s, p.By, p.From)\n",
-      "rule": "A Pull on the wire that asks to wait is the long poll: replica/server LongPollHolds.",
+      "rule": "A Pull call that asks to wait is the long poll: replica/server LongPollHolds.",
       "anchor": {
         "tests": [
           "examples:lease-sync"

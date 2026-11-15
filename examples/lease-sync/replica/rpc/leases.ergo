@@ -8,7 +8,7 @@ import time
 type Frame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
 type Authority = server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
 
-// Codec is the lease pool's wire form: std rpc's derived JSON of its
+// Codec is the lease pool's JSON form: std rpc's derived JSON of its
 // commands and frames.
 func Codec() server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
 	server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{
@@ -19,7 +19,7 @@ func Codec() server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
 	}
 }
 
-// Leases is a lease pool's authority over the wire: the provider of
+// Leases is a lease pool's authority over rpc: the provider of
 // replica.Authority that a client binary chooses for a server it dials.
 type Leases { r Remote[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] }
 
@@ -46,7 +46,7 @@ func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait dura
 }
 
 // NewLeases is a fresh lease authority (a capacity of 2, a delta tail of
-// 8) served in this process through the whole wire, with no long poll:
+// 8) served in this process through std rpc end to end, with no long poll:
 // the provider the Authority laws run on here.
 func NewLeases() Leases {
 	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
