@@ -69,7 +69,10 @@ func DraftOf(text string) Draft fails json.Malformed | BadBody {
 func DraftText(d Draft) string { json.Encode(draftCodec(), d) }
 
 // ViewText, ListingText and ProblemText are the JSON texts of the bodies.
-func ViewText(v View) string { json.Encode(json.Codec[View]{MaxBytes: 0, MaxDepth: 0}, v) }
+func ViewText(v View) string { json.Encode(viewCodec, v) }
+
+// viewCodec is View's codec, for ViewText and http.SuccessJSON.
+let viewCodec = json.Codec[View]{MaxBytes: 0, MaxDepth: 0}
 
 func ListingText(l Listing) string { json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, l) }
 

@@ -247,7 +247,7 @@ func Disagreement(store jobs.Store, moves []int) string {
 			case Send as s:
 				let r = s.Request
 				log = log + r.Method + " " + r.Path + "\n"
-				let got = answerOf(Handle(r))
+				let got = answerOf(with context { http.Streaming: http.NewRecorder() } { Handle(r) })
 				let (want, next) = Expect(model, r)
 				if got != want {
 					return log + "handle: " + AnswerText(got) + "\nmodel:  " + AnswerText(want)
