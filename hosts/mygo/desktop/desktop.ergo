@@ -67,6 +67,19 @@ type Driver[S, E, D, F] {
 	differ  Option[string],
 	work    int,
 	history ui.MemoryHistory,
+	// The damage paint (paint.ergo): the nodes a pass, a scroll or the
+	// focus changed since the last paint, what each node's last draw was
+	// given and gave, each node's key in the window's list, the spots of
+	// the last paint, the focus it showed, and how many nodes it drew
+	// anew (Drawn).
+	soiled   Map[ui.Id[E], bool],
+	drew     Map[ui.Id[E], drawn],
+	keys     Map[ui.Id[E], int],
+	keyed    int,
+	lastSpot []spot[E],
+	lastCanv []spot[E],
+	shownFoc Option[ui.Id[E]],
+	drawn    int,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -131,6 +144,14 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		differ:    None,
 		work:      0,
 		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+		soiled:    Map[ui.Id[E], bool]{},
+		drew:      Map[ui.Id[E], drawn]{},
+		keys:      Map[ui.Id[E], int]{},
+		keyed:     0,
+		lastSpot:  []spot[E]{},
+		lastCanv:  []spot[E]{},
+		shownFoc:  None,
+		drawn:     0,
 	}
 	learn(&d.metrics, w, "", textSize)
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
@@ -146,12 +167,20 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 		case ui.Insert[E] as x:
 			d.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
 			place(d, x.Id, x.Parent, x.Before)
+			d.soiled[x.Parent] = true
 		case ui.Move[E] as x:
 			unplace(d, x.Parent, x.Id)
 			place(d, x.Id, x.Parent, x.Before)
+			d.soiled[x.Parent] = true
 		case ui.Remove[E] as x:
+			match d.lparent.Get(x.Id) {
+			case Some[ui.Id[E]] as p:
+				d.soiled[p.Value] = true
+			case None:
+			}
 			drop(d, x.Id)
 		case ui.Set[E] as x:
+			d.soiled[x.Id] = true
 			match d.nodes.Get(x.Id) {
 			case Some[held[E]] as h:
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
@@ -283,6 +312,11 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	d.lparent = d.lparent.Delete(id)
 	d.lists = d.lists.Delete(id)
 	d.roomed = d.roomed.Delete(id)
+	d.boxes = d.boxes.Delete(id)
+	d.extents = d.extents.Delete(id)
+	d.drew = d.drew.Delete(id)
+	d.keys = d.keys.Delete(id)
+	d.soiled = d.soiled.Delete(id)
 	if d.focus == (Some{Value: id}) {
 		d.focus = None
 	}
@@ -429,6 +463,7 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 		let next = fmin(fmax(at+dy, 0), most)
 		if next != at {
 			d.scrolled[s.Value.id] = next
+			d.soiled[s.Value.id] = true
 			paint(d)
 			try report(d)
 		}
@@ -625,7 +660,8 @@ func Reference[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 }
 
 // Check makes d build the reference tree beside the kept one at every
-// paint and compare every node's box (Differs).
+// paint and compare every node's box, and draw every node beside the
+// damage paint and compare the two lists and their spots (Differs).
 func Check[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.check = true
 	paint(d)
@@ -647,6 +683,12 @@ func LaidOut[S, E, D, F](d *Driver[S, E, D, F]) int {
 
 // Painted is how many paint lists the driver has given the window.
 func Painted[S, E, D, F](d *Driver[S, E, D, F]) int { d.painted }
+
+// Drawn is how many nodes the last paint drew anew: the nodes a pass, a
+// scroll or the focus changed, those around them whose boxes moved, and
+// their ancestors; every node takes its last draw again otherwise. It is
+// every node under Reference, which draws the whole tree each paint.
+func Drawn[S, E, D, F](d *Driver[S, E, D, F]) int { d.drawn }
 
 // FocusId is the focused node, None for none.
 func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }

@@ -14,7 +14,9 @@ package screen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"time"
 
@@ -92,6 +94,17 @@ type Window struct {
 	height  float64
 	painted int
 
+	// The damage paint (Mark, Seal, Again): the parts of the list being
+	// made and of the shown one each key drew, the parts still open, and
+	// the shown list's accessibility nodes. ref is the list Hold put
+	// aside, which Differs holds the list made since to.
+	segs, prev  map[int]seg
+	open        []seg
+	shownAccess []platform.AccessNode
+	refOps      []scene.Op
+	refGlyphs   []glyphText
+	refAccess   []platform.AccessNode
+
 	conn *surface.Conn
 	r    raster.Renderer
 	sc   scene.Scene
@@ -114,8 +127,17 @@ type glyphText struct {
 	transformed bool
 }
 
+// seg is the part of a list one key drew: its ops, its lines of text and
+// its accessibility nodes, each from the first index to the one past the
+// last.
+type seg struct {
+	key                int
+	op0, op1, gl0, gl1 int
+	ac0, ac1           int
+}
+
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared()}
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -382,9 +404,103 @@ func rect(x, y, width, height float64) scene.Rect {
 // Begin starts the next display list; Present shows it.
 func (w *Window) Begin() {
 	w.mu.Lock()
+	w.begin()
+	w.mu.Unlock()
+}
+
+// begin is Begin with w.mu held.
+func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
 	w.focus, w.field = 0, platform.TextInputState{}
+	clear(w.segs)
+	w.open = w.open[:0]
+}
+
+// Mark starts the part of the list that key draws; Seal ends it. Marks
+// nest as the tree does. The next list may take the part again (Again).
+func (w *Window) Mark(key int) {
+	w.mu.Lock()
+	w.open = append(w.open, seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access)})
 	w.mu.Unlock()
+}
+
+// Seal ends the part of the list key's Mark started.
+func (w *Window) Seal(key int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := len(w.open) - 1
+	if n < 0 || w.open[n].key != key {
+		return
+	}
+	s := w.open[n]
+	w.open = w.open[:n]
+	s.op1, s.gl1, s.ac1 = len(w.pending), len(w.glyphs), len(w.access)
+	w.segs[key] = s
+}
+
+// Again draws again what key drew in the list shown now, as it was, and
+// reports whether there was such a part: the damage paint's way to leave a
+// box whose inputs did not change as it is.
+func (w *Window) Again(key int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	s, ok := w.prev[key]
+	if !ok {
+		return false
+	}
+	t := seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access)}
+	w.pending = append(w.pending, w.shown[s.op0:s.op1]...)
+	for _, g := range w.texts[s.gl0:s.gl1] {
+		g.at += t.op0 - s.op0
+		w.glyphs = append(w.glyphs, g)
+	}
+	w.access = append(w.access, w.shownAccess[s.ac0:s.ac1]...)
+	t.op1, t.gl1, t.ac1 = len(w.pending), len(w.glyphs), len(w.access)
+	w.segs[key] = t
+	return true
+}
+
+// Hold puts the list made since Begin aside as the reference and begins
+// another; Differs then compares the two.
+func (w *Window) Hold() {
+	w.mu.Lock()
+	w.refOps = append(w.refOps[:0], w.pending...)
+	w.refGlyphs = append(w.refGlyphs[:0], w.glyphs...)
+	w.refAccess = append(w.refAccess[:0], w.access...)
+	w.begin()
+	w.mu.Unlock()
+}
+
+// Differs is where the list made since Hold differs from the one Hold put
+// aside, "" when they are the same.
+func (w *Window) Differs() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.pending) != len(w.refOps) {
+		return fmt.Sprintf("%d ops, the reference %d", len(w.pending), len(w.refOps))
+	}
+	for i := range w.pending {
+		if w.pending[i] != w.refOps[i] {
+			return fmt.Sprintf("op %d is %+v, the reference's %+v", i, w.pending[i], w.refOps[i])
+		}
+	}
+	if len(w.glyphs) != len(w.refGlyphs) {
+		return fmt.Sprintf("%d lines of text, the reference %d", len(w.glyphs), len(w.refGlyphs))
+	}
+	for i := range w.glyphs {
+		if w.glyphs[i] != w.refGlyphs[i] {
+			return fmt.Sprintf("text %d is %+v, the reference's %+v", i, w.glyphs[i], w.refGlyphs[i])
+		}
+	}
+	if len(w.access) != len(w.refAccess) {
+		return fmt.Sprintf("%d accessibility nodes, the reference %d", len(w.access), len(w.refAccess))
+	}
+	for i := range w.access {
+		if !reflect.DeepEqual(w.access[i], w.refAccess[i]) {
+			return fmt.Sprintf("accessibility node %d is %+v, the reference's %+v", i, w.access[i], w.refAccess[i])
+		}
+	}
+	return ""
 }
 
 // Fill paints a rectangle of color 0xRRGGBBAA with corners of radius.
@@ -492,6 +608,9 @@ func (w *Window) Present() {
 	}
 	w.shown = append(w.shown[:0], w.pending...)
 	w.texts = w.glyphs
+	w.shownAccess = w.access
+	w.segs, w.prev = w.prev, w.segs
+	clear(w.segs)
 	w.painted++
 	field := w.field
 	w.publishAccess()

@@ -495,6 +495,78 @@
       "to": "\tcmd.Env = os.Environ()\n",
       "rule": "a js/wasm binary under node runs without the gate's GOMAXPROCS: the Go runtime on js/wasm dies in its start with newosproc when GOMAXPROCS is over 1",
       "killers": ["mygo:TestWasmRunsUnderAnInheritedGOMAXPROCS"]
+    },
+    {
+      "name": "GPd-draws-every-node",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "was.line == line && d.w.Again(key) {",
+      "to": "was.line == line && d.w.Again(key) && was.dy != was.dy {",
+      "rule": "a paint draws anew only the nodes whose inputs changed; the rest take their last draw again",
+      "killers": ["mygo:TestDesktopDrawsOnlyWhatChanged"]
+    },
+    {
+      "name": "GPd-box-not-compared",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "if was.box == b && was.dy == dy",
+      "to": "if was.dy == dy",
+      "rule": "a node whose box moved is drawn anew",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-old-focus-kept",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "{d.focus, d.shownFoc}",
+      "to": "{d.focus, d.focus}",
+      "rule": "the node that lost the focus is drawn anew, without its ring",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-set-not-soiled",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\td.soiled[x.Id] = true\n",
+      "to": "",
+      "rule": "a node a pass set is drawn anew",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-insert-parent-not-soiled",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\tcase ui.Move[E] as x:",
+      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\tcase ui.Move[E] as x:",
+      "rule": "a parent a node was inserted under is drawn anew, with the new node",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-scroll-not-soiled",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\td.soiled[s.Value.id] = true\n",
+      "to": "",
+      "rule": "a Scroll that moved is drawn anew at its offset",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-spots-not-kept",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "for i in was.s0..was.s1 {",
+      "to": "for i in was.s0..was.s0 {",
+      "rule": "a node that takes its last draw again keeps the spots it added, so hit tests find its nodes",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPd-text-not-moved",
+      "origin": "GP damage redraw",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\t\tg.at += t.op0 - s.op0\n",
+      "to": "",
+      "rule": "a draw taken again keeps each line of text at its place among the ops",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
     }
   ]
 }

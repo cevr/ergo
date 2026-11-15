@@ -97,6 +97,18 @@ package of this Go module and the Ergo half binds it.
   checks, and `TestStarsGuiOnTheDesktop` runs the window binary with
   `-check`. `TestDesktopKeepsItsLayout` is the growth guard: adding a row
   to the shelf app lays out the same few boxes after 10 rows as after 40.
+- The paint is a damage paint (`desktop/paint.ergo`): a node no pass,
+  scroll or focus change touched, itself or below it, whose box, offset,
+  clip and line height are those of its last draw takes that draw again
+  from the window's last list (`Window.Again`: its ops, its lines of text
+  and its accessibility nodes, as `Mark` and `Seal` bounded them), with
+  the spots it added. Only the rest is drawn anew (`desktop.Drawn` counts
+  them). The full paint stays the reference: `desktop.Reference` draws
+  every node, and `desktop.Check` draws the full list first, puts it aside
+  (`Window.Hold`) and holds the damage paint's list and spots to it
+  (`Window.Differs`). `TestDesktopDrawsOnlyWhatChanged` is the growth
+  guard: adding a row to the shelf app draws the same few nodes after 10
+  rows as after 40.
 - A virtual list (`ui.Rows`, H5b) scrolls as a Scroll does, over its
   count of rows; each row it wrote is out of the flow at its index's place.
   A list with no height of its own takes the window below its top. After

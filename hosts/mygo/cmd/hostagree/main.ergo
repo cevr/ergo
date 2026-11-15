@@ -19,11 +19,15 @@
 //	settle            settle the loads
 //	work              print "work N": the boxes the driver's last paint
 //	                  laid out (desktop.LaidOut)
+//	drawn             print "drawn N": the nodes the driver's last paint
+//	                  drew anew (desktop.Drawn)
 //
 // The driver checks its kept layout against the tree built anew at every
-// paint (desktop.Check); a box where they differ is a differing step.
+// paint, and its damage paint against the full one (desktop.Check); a box
+// or a paint where they differ is a differing step.
 //
-// Output: "ok N" or "differ N: …" per step (or "work N"), then "end".
+// Output: "ok N" or "differ N: …" per step (or "work N", "drawn N"),
+// then "end".
 
 import io
 import slices

@@ -45,6 +45,10 @@ func agree[E comparable, S](m Machine[S, E, int], view escaping func(f *ui.Frame
 			Console.Println("work \(desktop.LaidOut(&d))")
 			continue
 		}
+		if line == "drawn" {
+			Console.Println("drawn \(desktop.Drawn(&d))")
+			continue
+		}
 		let (a, b) = run(&h, &d, w, line)
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), desktop \(said(b))")
