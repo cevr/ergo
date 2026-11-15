@@ -93,18 +93,8 @@ func lintLoaded(l loaded, presets []string) (lint.Result, error) {
 // lintInput is the program as lint reads it: each package's checked facts
 // and parsed files, dependencies first.
 func lintInput(l loaded) lint.Input {
-	in := lint.Input{Checked: l.result.Checked && l.analysis.Checked() != nil}
-	packages := l.analysis.Packages()
-	if packages == nil {
-		packages = append(packages, l.analysis.Root())
-	}
-	for _, p := range packages {
-		unit := lint.Unit{Package: p.Package}
-		for _, f := range p.Files {
-			unit.Files = append(unit.Files, lint.File{Rel: f.Rel, Syntax: f.Syntax})
-		}
-		in.Units = append(in.Units, unit)
-	}
+	in := lint.InputOf(l.analysis)
+	in.Checked = l.result.Checked && l.analysis.Checked() != nil
 	return in
 }
 

@@ -11,8 +11,10 @@
 package lint
 
 import (
+	"encoding/json"
 	"fmt"
 
+	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -52,12 +54,18 @@ const (
 // Rule is one built-in rule: its unqualified name, its code (L1xx), its
 // documentation, its default severity and its check. A pack rule (LINT3)
 // joins the registry under namespace/name with the same metadata.
+//
+// SafeFix marks a rule whose fixes keep the program's behaviour, so
+// `ergo fix --lint` applies them. Options decodes the rule's options (nil
+// raw for none set: the defaults); a rule with no Options takes none.
 type Rule struct {
 	Name    string
 	Code    string
 	Doc     string
 	Default Severity
 	Check   func(*Pass)
+	SafeFix bool
+	Options func(raw json.RawMessage) (any, error)
 }
 
 // File is one source file of a package as the loader read it: Rel is its
@@ -88,14 +96,31 @@ type Pass struct {
 	Package *check.Package
 	Info    *check.Info
 	File    *syntax.File
+	// Options are the rule's decoded options (Rule.Options), nil for a
+	// rule that takes none.
+	Options any
 	rel     string
 	found   []Finding
 	bad     error
 }
 
+// Rel is the file's path relative to the module root, "" for a program of
+// one source text.
+func (p *Pass) Rel() string { return p.rel }
+
 // Report records a finding of the rule from from to to (byte offsets in
 // the pass's file).
-func (p *Pass) Report(from, to syntax.Pos, message string) {
+func (p *Pass) Report(from, to syntax.Pos, message string) { p.ReportFix(from, to, message, nil) }
+
+// ReportFix is Report with the edit that fixes the finding (EX1's shape;
+// its offsets are in the pass's file). The runner names the rule on it.
+func (p *Pass) ReportFix(from, to syntax.Pos, message string, fix *report.Fix) {
+	if fix != nil && (fix.InsertAt < 0 || fix.Replace < 0 || fix.InsertAt+fix.Replace > len(p.File.Src)) {
+		if p.bad == nil {
+			p.bad = fmt.Errorf("a fix edits %d..%d outside its file of %d bytes", fix.InsertAt, fix.InsertAt+fix.Replace, len(p.File.Src))
+		}
+		return
+	}
 	if from < 0 || to < from || int(to) > len(p.File.Src) {
 		if p.bad == nil {
 			p.bad = fmt.Errorf("reported %d..%d outside its file of %d bytes", from, to, len(p.File.Src))
@@ -103,7 +128,7 @@ func (p *Pass) Report(from, to syntax.Pos, message string) {
 		return
 	}
 	line, column := p.File.Position(from)
-	p.found = append(p.found, Finding{File: p.rel, Offset: int(from), Length: int(to - from), Line: line, Column: column, Message: message})
+	p.found = append(p.found, Finding{File: p.rel, Offset: int(from), Length: int(to - from), Line: line, Column: column, Message: message, Fix: fix})
 }
 
 // Finding is one lint finding. Rule is empty for the runner's own codes.
@@ -117,6 +142,8 @@ type Finding struct {
 	Length   int
 	Line     int
 	Column   int
+	// Fix is the finding's edit, nil when the rule offers none.
+	Fix *report.Fix
 }
 
 // Rule statuses.

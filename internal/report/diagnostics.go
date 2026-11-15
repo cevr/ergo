@@ -11,9 +11,10 @@ import (
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
-// dropped the lint fields and the suppression list (#205); version 3 brings
-// them back on the new checker (LINT0): a finding's rule, lintComplete and
-// suppressions, and a diagnostic's fix (Fix, EX1): both changes are version 3.
+// dropped the lint fields and the suppression list (#205). Version 3 makes two
+// changes in one step: the lint fields return on the new checker (LINT0: a
+// finding's rule, lintComplete and suppressions), and a diagnostic carries its
+// fix (EX1: Fix).
 const DiagnosticReportSchemaVersion = 3
 
 // SourceSnapshot identifies the exact text a result was computed from. The
@@ -83,6 +84,8 @@ type DiagnosticFinding struct {
 	Span              Span           `json:"span"`
 	LocationAvailable bool           `json:"locationAvailable"`
 	LSP               *LSPDiagnostic `json:"lsp,omitempty"`
+	// Fix is the edit ergo fix applies for the finding, when it has one.
+	Fix *Fix `json:"fix,omitempty"`
 }
 
 // DiagnosticCounts counts findings by severity.
@@ -162,7 +165,7 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 			continue
 		}
 		seen[key] = true
-		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span}
+		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span, Fix: diagnostic.Fix}
 		lsp := &LSPDiagnostic{Severity: 1, Code: diagnostic.Code, Source: "ergo", Message: diagnostic.Message}
 		// A zero Span is the no-location value, such as the EF110 refusal.
 		// A real span carries one-based coordinates, also when it is empty.

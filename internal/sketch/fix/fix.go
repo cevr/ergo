@@ -64,6 +64,8 @@ type Result struct {
 	Remaining []Diagnostic
 	// Rounds counts the checks of the loop, the inference pass excluded.
 	Rounds int
+	// Linted lists the lint fixes RunLint applied, in round order.
+	Linted []Linted
 }
 
 // Run writes the missing clauses of the program texts, which check reads.

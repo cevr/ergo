@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -78,15 +79,34 @@ func (r *Registry) admit(name string, s Setting) error {
 		return fmt.Errorf("unknown rule %s", name)
 	}
 	if len(s.Options) > 0 {
-		return fmt.Errorf("rule %s takes no options", name)
+		decode := r.byName[name].Options
+		if decode == nil {
+			return fmt.Errorf("rule %s takes no options", name)
+		}
+		if _, err := decode(s.Options); err != nil {
+			return fmt.Errorf("rule %s: invalid options: %w", name, err)
+		}
 	}
 	return nil
 }
 
-// Configuration is a registry with every rule's effective severity.
+// Configuration is a registry with every rule's effective severity and
+// options.
 type Configuration struct {
 	registry *Registry
 	severity map[string]Severity
+	options  map[string]json.RawMessage
+}
+
+// optionsOf decodes the rule's effective options; nil for a rule that
+// takes none. The registry admitted them, so decoding cannot fail here
+// unless a rule's decoder refuses its own defaults, which the run reports
+// as the rule's failure.
+func (c *Configuration) optionsOf(rule *Rule) (any, error) {
+	if rule.Options == nil {
+		return nil, nil
+	}
+	return rule.Options(c.options[rule.Name])
 }
 
 // Configure layers the settings: the base preset, then the document's
@@ -99,11 +119,14 @@ func (r *Registry) Configure(doc Config, presets []string) (*Configuration, erro
 	if doc.Version != ConfigVersion {
 		return nil, fmt.Errorf("lint configuration version %d is not supported; write \"version\": %d", doc.Version, ConfigVersion)
 	}
-	c := &Configuration{registry: r, severity: map[string]Severity{}}
+	c := &Configuration{registry: r, severity: map[string]Severity{}, options: map[string]json.RawMessage{}}
 	for _, rule := range r.rules {
 		c.severity[rule.Name] = Off
 	}
 	apply := func(name string, s Setting) {
+		if len(s.Options) > 0 {
+			c.options[name] = s.Options
+		}
 		switch {
 		case s.HasSeverity:
 			c.severity[name] = s.Severity
