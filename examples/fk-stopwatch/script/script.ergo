@@ -152,11 +152,8 @@ func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console
 			continue
 		}
 		try ui.Tap(h, ids[0])
-		// A click of Start or Stop is answered by the entry's work, on a task
-		// of its own: advancing the manual clock by nothing waits until every
-		// task of the clock waits again, so the work has read the clock and the
-		// actor has taken its press.
-		try ui.Advance(h, 0s)
+		// A click of Start or Stop is answered by the entry's work; Settle
+		// runs started work (uc-g6), so the press is on the screen after it.
 		try ui.Settle(h)
 		Console.Println("@\(time.Count(now, 1ms)) \(Shown(h))")
 	}
