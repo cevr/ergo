@@ -254,6 +254,23 @@ The fact export (FACT0; `internal/sketch/lower/facts.go`, [facts](docs/spec/fact
 | --- | --- | --- | --- |
 | [LLVM Language Reference, `llvm.assume`](https://llvm.org/docs/LangRef.html#llvm-assume-intrinsic) (LLVM 24.0.0git docs, read 2026-11-12) | "The intrinsic allows the optimizer to assume that the provided condition is always true whenever the control flow reaches the intrinsic call", and "if the condition is violated during execution, the behavior is undefined". One statement carries any boolean fact to every pass. Ergo's export has the same shape: a condition at a point, which FACT1 gives Go's prove pass. | Assumptions that a front end writes without a proof (C's `__builtin_assume`, Rust's `assert_unchecked`): Ergo exports only proved or checked facts, through one admission function, and its test build checks each one with a defect that names it, as Zig's safe builds check an assumption. | How Go's prove pass takes an outside fact, and whether a fact may cross an inlined call (FACT1). |
 
+### Benchmark referees, 2026-11-12
+
+These sources inform `ergo bench` ([specs/bench.md](docs/specs/bench.md); owner, 2026-11-12: "something like hona/strobe for ergo - if we could either add support for strobe or just copy it"). A source marked (inferred) was not fetched and supports no claim beyond its row.
+
+| Source | What it does | What Ergo takes or leaves |
+| --- | --- | --- |
+| strobe 0.32.0 (`b2d2718`, MIT; `SPEC.md` §9.1 to §9.4, §10.1, `src/stats.rs`) | Paired blocks of fresh launches, base and head in turn, one warm-up block per side discarded; Wilcoxon signed-rank with the exact tied distribution, Hodges-Lehmann, the Walsh interval; Pocock looks at 8, 12, 18, 26 and 40 pairs; refusals; exact counters held in CI. Rule 5: "No automated tests. Ever." | The method and the refusals. Not the targets, not the no-tests rule, not the CPU reservation; the bound made symmetric in log space; no normal approximation. |
+| rustc-perf (its docs and K. Beránek's 2023 article on its benchmarks) | The Rust compiler's suite takes `instructions:u` as its primary metric, the one with the least variation; wall time is checked beside it; inlining thresholds cause "codegen noise" in counts. | Instructions as the primary counter for a compiler that will compile itself, with CPU and wall time as paired secondaries. |
+| Go `testing.B` and `golang.org/x/perf/benchstat` (inferred) | Benchmarks are functions in test files; `b.ReportAllocs` and `b.ReportMetric` add counters; a separate tool compares two sets of unpaired samples (Mann-Whitney). | A bench in the toolchain; Ergo's referee judges in the same tool and pairs the samples, which a drifting host needs. |
+| MoonBit `moon bench` (its command reference and update notes) | A `test` block with a `@bench.T` parameter is a benchmark; the output is a mean, a deviation and a range; no comparison of two builds. | A declaration in source, erased elsewhere; Ergo adds sides, claims and verdicts. |
+| Elixir Benchee; Erlang `erlperf` (inferred) | Library harnesses with warm-up and summary statistics; no A/B verdict. | Nothing new for the method. |
+| Gleam; ReScript (inferred) | No bench in the toolchain; Gleam libraries wrap Benchee. | Nothing. |
+| OCaml `core_bench` (inferred) | Fits time against the batch size, so fixed costs fall out. | The same idea as Ergo's two-size slope per bench unit. |
+| Criterion.rs, iai-callgrind, hyperfine (inferred) | Bootstrap intervals against a saved baseline; instruction counts under Valgrind for CI; A/B of commands with warm-up. | Counts for shared runners, as iai; Ergo pairs in one run and keeps no saved baseline. |
+
+Lowering paths: no compile-to-host language here lowers a benchmark construct in a special way. MoonBit and Go compile benchmarks into the test driver; Ergo compiles them into one harness binary per side and erases them from every other build.
+
 ## Patterns
 
 | Pattern | Adopted direction | Boundary / receipt |
