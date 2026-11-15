@@ -167,8 +167,8 @@
       "name": "R2-shared-iterator",
       "file": "examples/regex/nfa/workspace.ergo",
       "from": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tSeq[string](func(yield func(v string) bool) {\n\t\tlet mut w = NewWorkspace(c.program.Len())",
-      "to": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tlet mut w = NewWorkspace(c.program.Len())\n\tSeq[string](func(yield func(v string) bool) {",
-      "rule": "Scratch belongs inside the iterator invocation. The existing S108 mutable-capture rule rejects this mutant before execution; no new test duplicates that checker guard.",
+      "to": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tlet shared = NewWorkspace(c.program.Len())\n\tSeq[string](func(yield func(v string) bool) {\n\t\tlet mut w = shared",
+      "rule": "Scratch belongs inside the iterator invocation. (GT-COMPILE-b: the row's first edit, the let mut hoisted out of the iterator, never compiled: S108; the edit now makes one workspace outside and copies it into each invocation.)",
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
     },

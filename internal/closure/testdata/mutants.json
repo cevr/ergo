@@ -112,7 +112,7 @@
       "origin": "wf10 batch-16 16b gate-fix-2 r3",
       "file": "internal/closure/stdcache_test.go",
       "from": "build.Dir = work",
-      "to": "build.Dir = root",
+      "to": "build.Dir = \".\"",
       "rule": "The code is in a test file, which the cover tool does not instrument. The store's builds run outside the checkout.",
       "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
       "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
