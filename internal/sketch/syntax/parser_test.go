@@ -218,7 +218,7 @@ func TestAdmittedForms(t *testing.T) {
 	}
 	// R fails A | B needs S is the result plus the old row; escaping;
 	// a tuple result; Map[K, V].
-	fn := parse("func f(g escaping func() int64) (int64, string) fails A | B needs S {}\n").Decls[0].(*FuncDecl)
+	fn := parse("func f(g own func() int64) (int64, string) fails A | B needs S {}\n").Decls[0].(*FuncDecl)
 	res := fn.Type.Results
 	if res.Opening.IsValid() || len(res.List) != 2 {
 		t.Fatalf("results %+v", res)

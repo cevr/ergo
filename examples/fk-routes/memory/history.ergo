@@ -6,7 +6,7 @@ import sync
 
 // History is the addresses visited and the current one's place. Its
 // fields are shared handles, so every copy is the same history.
-type History { entries sync.Ref[[]string], at sync.Ref[int] }
+type History { entries sync.Ref[[]string], at sync.Ref[int] } implements app.Location
 
 // NewHistory is a history at "/" with nothing behind it.
 func NewHistory() History { At("/") }

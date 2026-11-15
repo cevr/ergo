@@ -4,7 +4,7 @@
 import onebrc/weather
 
 // Texts holds the inputs by name.
-type Texts { Inputs Map[string, string] }
+type Texts { Inputs Map[string, string] } implements weather.Readings
 
 // Text is the input named path.
 func Text(t Texts, path string) string fails weather.Unreadable {

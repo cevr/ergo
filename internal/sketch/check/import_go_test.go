@@ -124,7 +124,7 @@ func TestImportGoUses(t *testing.T) {
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
 		// EXC1: an Ergo record whose functions fit a Go interface is not
 		// one until it declares it (interop.md, Go calls Ergo 1).
-		{"record-into-go-interface-undeclared", "import go fmt\ntype R {}\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n",
+		{"record-into-go-interface-undeclared", "import go fmt\ntype R {} implements fmt.Stringer\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n",
 			"4:28:S108 cannot use R as fmt.Stringer in the body's tail value: R does not declare that it implements fmt.Stringer: write implements fmt.Stringer after R's body (types.md, Interface assignability 1)"},
 		{"record-into-go-interface", "import go fmt\ntype R {} implements fmt.Stringer\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n", ""},
 		// wf10 defects D2: a Go function is a value only when its type

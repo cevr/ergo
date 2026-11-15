@@ -8,20 +8,7 @@ import utf8
 // calls text's functions directly, and the build joins constant bytes by
 // the law RawJoins, which ergo test proves.
 type Text {
-	Null(),
-	// Number writes a number's spelling as it is.
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	..Writer,
 	// Written is the text written so far.
 	Written() string,
 
@@ -43,7 +30,7 @@ type Text {
 // text is Text's provider. stack[0:depth] are the elements open,
 // innermost last. The stack keeps its length past its top, so a
 // document's writing allocates it once, or again only past eight deep.
-type text { out []byte, stack []element, depth int }
+type text { out []byte, stack []element, depth int } implements Text
 
 // element is an element open: its name, and whether it holds a list,
 // whose values each take an item element. An object or a list is the

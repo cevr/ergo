@@ -64,13 +64,13 @@ func id[T](x T) T { x }
 
 func use(c Counter) int { c.Bump() }
 
-func run(f escaping func() int) int { f() }
+func run(f own func() int) int { f() }
 
 func each(f func() int) int { f() }
 
 type Box[T] { V T }
 
-func hold[T](x T, use escaping func(v T) int) func() int { func() int { use(x) } }
+func hold[T](x T, use own func(v T) int) func() int { func() int { use(x) } }
 
 func later[T](x T) func() T { func() T { x } }
 
@@ -90,15 +90,15 @@ func local[T](x T) int {
 	1
 }
 
-func via[T](x T, use escaping func(v T) int) func() int { hold(x, use) }
+func via[T](x T, use own func(v T) int) func() int { hold(x, use) }
 
-func spawn[T](x T, use escaping func(v T) int) int { task.Go() { use(x) }.Wait() }
+func spawn[T](x T, use own func(v T) int) int { task.Go() { use(x) }.Wait() }
 
 func apply[T](x T, use func(v T) int) int { use(x) }
 
 func put[T](out *T, x T) { *out = x }
 
-func relay[T](x T, use escaping func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
+func relay[T](x T, use own func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
 
 func waited() int { task.Go() { 1 }.Wait() }
 
@@ -462,7 +462,7 @@ type Counter {
 	Bump() int,
 }
 
-type Tally { n int }
+type Tally { n int } implements Counter
 
 func Bump(t *Tally) int { t.n }
 

@@ -206,7 +206,7 @@ func give2(a int, b int, log sync.Ref[string], n int, c int) (Res, Res) fails Ba
 	return (open(a, false, log), try openf(b, false, log, n, c))
 }
 
-func pass(r Res) Res takes r {
+func pass(r own Res) Res {
 	r
 }
 
@@ -214,7 +214,7 @@ func swap(r Res, id int, log sync.Ref[string]) Res {
 	open(id, false, log)
 }
 
-func slotOf(s Slot) Slot takes s {
+func slotOf(s own Slot) Slot {
 	s
 }
 
@@ -246,25 +246,25 @@ func lendGuard(g Guard) { g.R.Use() }
 func lendBox(b Box) { b.C.Use() }
 func lendSlot(s Slot) {}
 
-func keepRes(r Res) takes r {}
-func keepCloser(c Closer) takes c {}
-func keepPair(p Pair) takes p {}
-func keepTup(t (Res, Res)) takes t {}
-func keepGuard(g Guard) takes g {}
-func keepBox(b Box) takes b {}
-func keepSlot(s Slot) takes s {}
+func keepRes(r own Res) {}
+func keepCloser(c own Closer) {}
+func keepPair(p own Pair) {}
+func keepTup(t own (Res, Res)) {}
+func keepGuard(g own Guard) {}
+func keepBox(b own Box) {}
+func keepSlot(s own Slot) {}
 
 type Core { R Res }
 type Wide { ..Core, X Res }
 type Thin { ..Core, n int }
 
-func wideOf(w Wide) Wide takes w {
+func wideOf(w own Wide) Wide {
 	w
 }
 
 func lendThin(t Thin) { t.R.Use() }
-func keepThin(t Thin) takes t {}
-func keepTwo(a Res, b Res) takes a, b {}
+func keepThin(t own Thin) {}
+func keepTwo(a own Res, b own Res) {}
 
 `
 
@@ -275,7 +275,7 @@ const ogFilePrelude = `func lendFile(f go.Ref[os.File]) {
 	_ = f.Name()
 }
 
-func keepFile(f go.Ref[os.File]) takes f {}
+func keepFile(f own go.Ref[os.File]) {}
 
 func fdCount() int needs go.Foreign {
 	let mut n = 0

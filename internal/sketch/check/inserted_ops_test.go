@@ -145,7 +145,7 @@ func pass[T](x T) T { x }
 
 func wrap[T](x T) []T { []T{x} }
 
-func hold[T](x T, use escaping func(v T)) func() {
+func hold[T](x T, use own func(v T)) func() {
 	func() { use(x) }
 }
 

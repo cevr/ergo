@@ -19,7 +19,7 @@ type Counter {
 	Total() Digit,
 	law AddJoins(a Digit, b Digit) { Add(a); Add(b) } == { Add(plus(a, b)) },
 }
-type Wheel { at Digit }
+type Wheel { at Digit } implements Counter
 func NewWheel() Wheel { Wheel{at: 0} }
 func plus(a Digit, b Digit) Digit {
 	match (int(a) + int(b)) % 10 {

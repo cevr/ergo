@@ -14,7 +14,7 @@ let ForecastOrigin = "https://api.open-meteo.com"
 // OpenMeteo is a weather.Forecast over two http.Nets: one to the
 // geocoding service, which finds the place of a zip, and one to the
 // forecast service, which gives the current weather at that place.
-type OpenMeteo { geocoding http.Net, forecast http.Net }
+type OpenMeteo { geocoding http.Net, forecast http.Net } implements weather.Forecast
 
 // NewOpenMeteo is the forecast over the two Nets given; a test gives
 // http.InMemory ones.

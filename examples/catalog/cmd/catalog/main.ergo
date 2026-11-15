@@ -91,7 +91,7 @@ func jsonRead(text string) int {
 }
 
 // allocs is the heap allocations of one call of f, after a first call.
-func allocs(f escaping func()) int needs go.Foreign {
+func allocs(f own func()) int needs go.Foreign {
 	f()
 	int(testing.AllocsPerRun(20, f))
 }

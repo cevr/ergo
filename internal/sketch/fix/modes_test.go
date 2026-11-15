@@ -111,24 +111,24 @@ func modesProgram(r *rand.Rand) (string, string, map[string]bool) {
 	var o, n strings.Builder
 	both := func(s string) { o.WriteString(s); n.WriteString(s) }
 	both("type R { n int } implements Closer\n\n")
-	o.WriteString("func Close(r R) takes r {}\n\n")
+	o.WriteString("func Close(r own R) {}\n\n")
 	n.WriteString("func Close(r own R) {}\n\n")
 	// A field's and a result's function type is escaping already: fix
 	// deletes the word there.
 	if r.IntN(2) == 0 {
 		reached["field"] = true
-		o.WriteString("type Hold { run escaping func() int }\n\n")
+		o.WriteString("type Hold { run func() int }\n\n")
 		n.WriteString("type Hold { run func() int }\n\n")
 	}
 	// A law's parameter is a parameter: escaping there becomes own.
 	if r.IntN(2) == 0 {
 		reached["law"] = true
-		o.WriteString("law Kept(g escaping func() int, h func() int) { g() == h() }\n\n")
+		o.WriteString("law Kept(g own func() int, h func() int) { g() == h() }\n\n")
 		n.WriteString("law Kept(g own func() int, h func() int) { g() == h() }\n\n")
 	}
 	if r.IntN(2) == 0 {
 		reached["result"] = true
-		o.WriteString("func give() escaping func() {\n\tfunc() {}\n}\n\n")
+		o.WriteString("func give() func() {\n\tfunc() {}\n}\n\n")
 		n.WriteString("func give() func() {\n\tfunc() {}\n}\n\n")
 	}
 	// draw writes a parameter list's shape, named or (only for function
