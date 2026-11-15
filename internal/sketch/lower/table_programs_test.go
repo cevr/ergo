@@ -35,6 +35,7 @@ var (
 	_ = declarePrograms("TestStdCivilMatchesModel", entryProgram("civilModel", civilModelProgram))
 	_ = declarePrograms("TestStdCivilLawsRun", testBuildProgram("stdcivil", stdCivilLawsProbe))
 	_ = declarePrograms("TestStdTzMatchesGo", entryProgram("tzModel", tzModelProgram))
+	_ = declarePrograms("TestStdCivilFormatMatchesGo", entryProgram("civilFormat", civilFormatProgram))
 	_ = declarePrograms("TestStdTzLawsRun", testBuildProgram("stdtz", stdTzLawsProbe))
 	_ = declarePrograms("TestStdTzIanaLawsRun", testBuildProgram("stdtziana", stdIanaLawsProbe))
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))

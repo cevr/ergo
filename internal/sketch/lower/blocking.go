@@ -265,6 +265,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TzHostZone":    {},
 	"TzLawNames":    {},
 	"TzLawZone":     {},
+	"CivilBuffer":   {},
+	"CivilText":     {},
 	"TimeRound":     {},
 	"TimeSub":       {},
 	"TimeSubMono":   {},

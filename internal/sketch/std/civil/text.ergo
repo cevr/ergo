@@ -18,7 +18,7 @@ func Text(d Date) string {
 }
 
 // pair is n, 0 to 99, in two digits.
-func pair(n int64) string { strings.Slice(digitPairs, int(n) * 2, int(n) * 2 + 2) }
+func pair(n int64) string { digitPairs[int(n) * 2:int(n) * 2 + 2] }
 
 // digitPairs is the two-digit texts 00 to 99 in a row, so Text is one
 // concatenation (one allocation) of slices of a constant.

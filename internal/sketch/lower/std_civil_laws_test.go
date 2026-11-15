@@ -66,6 +66,183 @@ func anySpan(x int64, k int64) civil.Span {
 	}
 }
 
+func draw(x int64) int64 { ((x % 2147483646 + 2147483646) % 2147483646 + 1) * 48271 % 2147483647 }
+
+func pick(x int64, n int) int { int(x / 7 % int64(n)) }
+
+func anyPad(x int64) civil.Pad { []civil.Pad{civil.ZeroPad, civil.SpacePad, civil.NoPad}[pick(x, 3)] }
+
+func anyWidth(x int64) civil.Width { []civil.Width{civil.Full, civil.Short}[pick(x, 2)] }
+
+func anyFormat(seed int64) civil.DateTimeFormat {
+	let mut x = draw(seed)
+	let ys = []civil.YearDigits{civil.AllDigits, civil.FourDigits, civil.TwoDigits{Pivot: 1 + pick(draw(x), 9900)}}
+	let year = civil.YearNumber{Digits: ys[pick(x, 3)]}
+	x = draw(draw(x))
+	let month = if pick(x, 2) == 0 { civil.MonthNumber{Pad: anyPad(draw(x))} } else { civil.MonthName{Width: anyWidth(draw(x))} }
+	x = draw(draw(x))
+	let day = civil.DayOfMonth{Pad: anyPad(x)}
+	x = draw(x)
+	let order = pick(x, 3)
+	let mut all = if pick(draw(x), 2) == 0 { []civil.Field{} } else { []civil.Field{civil.WeekdayName{Width: anyWidth(draw(draw(x)))}} }
+	all = if order == 0 { all.Append(year).Append(month).Append(day) } else if order == 1 { all.Append(day).Append(month).Append(year) } else { all.Append(month).Append(day).Append(year) }
+	x = draw(draw(draw(x)))
+	if pick(x, 3) == 0 {
+		all = all.Append(civil.DayOfYear{Pad: anyPad(draw(x))})
+	}
+	x = draw(draw(x))
+	if pick(x, 3) == 0 {
+		all = all.Append(civil.ISOWeekYear).Append(civil.ISOWeekNumber{Pad: anyPad(draw(x))})
+	}
+	x = draw(draw(x))
+	let hours = pick(x, 3)
+	if hours == 1 {
+		all = all.Append(civil.Hour24{Pad: anyPad(draw(x))})
+	} else if hours == 2 {
+		all = all.Append(civil.Hour12{Pad: anyPad(draw(x))})
+	}
+	x = draw(draw(x))
+	if pick(x, 2) == 0 {
+		all = all.Append(civil.MinuteNumber{Pad: anyPad(draw(x))})
+	}
+	x = draw(draw(x))
+	if pick(x, 2) == 0 {
+		all = all.Append(civil.SecondNumber{Pad: anyPad(draw(x))})
+	}
+	x = draw(draw(x))
+	if pick(x, 2) == 0 {
+		all = all.Append(civil.Fraction{Digits: 1 + pick(draw(x), 9), Trim: pick(draw(draw(x)), 2) == 0})
+	}
+	if hours == 2 {
+		all = all.Append(civil.Meridiem)
+	}
+	let seps = []string{"-", "/", ":", "T", ",", "|", "at", "_"}
+	let mut fields = []civil.Field{}
+	for i in 0..len(all) {
+		if i > 0 {
+			x = draw(x)
+			fields = fields.Append(civil.Literal{Text: seps[pick(x, len(seps))]})
+		}
+		fields = fields.Append(all[i])
+	}
+	civil.Fields(fields, civil.English()) catch {
+	case civil.BadPattern:
+		civil.ISODateTime()
+	}
+}
+
+func yearDays(f civil.DateTimeFormat) (int64, int64) {
+	for x in civil.FormatFields(f) {
+		match x {
+		case civil.YearNumber as y:
+			match y.Digits {
+			case civil.TwoDigits as t:
+				let last = if t.Pivot + 99 > 9999 { 9999 } else { t.Pivot + 99 }
+				let lo = civil.NewDate(t.Pivot, time.January, 1) catch {
+				case civil.NoSuchDate:
+					civil.MinDate()
+				}
+				let hi = civil.NewDate(last, time.December, 31) catch {
+				case civil.NoSuchDate:
+					civil.MaxDate()
+				}
+				return (civil.UnixDays(lo), civil.UnixDays(hi))
+			case civil.AllDigits, civil.FourDigits:
+			}
+		case civil.Literal, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Hour24, civil.Hour12, civil.MinuteNumber, civil.SecondNumber, civil.Fraction, civil.Meridiem:
+		}
+	}
+	(civil.UnixDays(civil.MinDate()), civil.UnixDays(civil.MaxDate()))
+}
+
+func held(dt civil.DateTime, f civil.DateTimeFormat) civil.DateTime {
+	let mut h = 0
+	let mut m = 0
+	let mut s = 0
+	let mut ns = 0
+	for x in civil.FormatFields(f) {
+		match x {
+		case civil.Hour24, civil.Hour12:
+			h = civil.Hour(dt.Time)
+		case civil.MinuteNumber:
+			m = civil.Minute(dt.Time)
+		case civil.SecondNumber:
+			s = civil.Second(dt.Time)
+		case civil.Fraction as q:
+			let mut unit = 1
+			for _ in q.Digits..9 {
+				unit = unit * 10
+			}
+			ns = civil.Nanosecond(dt.Time) / unit * unit
+		case civil.Literal, civil.YearNumber, civil.MonthNumber, civil.MonthName, civil.DayOfMonth, civil.DayOfYear, civil.WeekdayName, civil.ISOWeekYear, civil.ISOWeekNumber, civil.Meridiem:
+		}
+	}
+	let t = civil.NewTimeOfDay(h, m, s, ns) catch {
+	case civil.NoSuchTime:
+		civil.Midnight()
+	}
+	civil.DateTime{Date: dt.Date, Time: t}
+}
+
+func anyHeld(f civil.DateTimeFormat, n int64, ns int64) civil.DateTime {
+	let (lo, hi) = yearDays(f)
+	civil.AddDuration(civil.DateTime{Date: civil.FromUnixDays(within(n, lo, hi)), Time: civil.Midnight()}, duration(within(ns, 0, 86399999999999)))
+}
+
+func lastFixed(f civil.DateTimeFormat) bool {
+	let fields = civil.FormatFields(f)
+	match fields[len(fields) - 1] {
+	case civil.YearNumber as y:
+		match y.Digits {
+		case civil.AllDigits:
+			false
+		case civil.FourDigits, civil.TwoDigits:
+			true
+		}
+	case civil.MonthNumber as x:
+		padded(x.Pad)
+	case civil.DayOfMonth as x:
+		padded(x.Pad)
+	case civil.DayOfYear as x:
+		padded(x.Pad)
+	case civil.ISOWeekNumber as x:
+		padded(x.Pad)
+	case civil.Hour24 as x:
+		padded(x.Pad)
+	case civil.Hour12 as x:
+		padded(x.Pad)
+	case civil.MinuteNumber as x:
+		padded(x.Pad)
+	case civil.SecondNumber as x:
+		padded(x.Pad)
+	case civil.Fraction as x:
+		!x.Trim
+	case civil.Literal, civil.MonthName, civil.WeekdayName, civil.ISOWeekYear, civil.Meridiem:
+		true
+	}
+}
+
+func padded(p civil.Pad) bool {
+	match p {
+	case civil.NoPad:
+		false
+	case civil.ZeroPad, civil.SpacePad:
+		true
+	}
+}
+
+func refused(f civil.DateTimeFormat, s string) bool {
+	let _ = civil.ParseDateTime(f, s) catch {
+	case civil.ParseError:
+		return true
+	}
+	false
+}
+
+func ldmlPairs() []string { []string{"HH:mm:ss", "h:m:s a", "hh:mm a", "MMM d, EEE", "MMMM d EEEE", "EEE, d MMM", "HH:mm:ss.SSS", "HH:mm:ss,SSSSSS", "'at' HH'h'"} }
+
+func goPairs() []string { []string{"15:04:05", "3:4:5 PM", "03:04 PM", "Jan 2, Mon", "January 2 Monday", "Mon, 2 Jan", "15:04:05.000", "15:04:05,000000", "at 15h"} }
+
 test CivilAddDaysInverts(x int64, k int64) {
 	let d = anyDay(x)
 	let n = int(within(k, -4000000, 4000000))
@@ -205,6 +382,49 @@ test CivilCompareIsTotalOrder(x int64, y int64) {
 	assert civil.Compare(a, b) == -civil.Compare(b, a) && (civil.Compare(a, b) < 0) == civil.Before(a, b) && (civil.Compare(a, b) == 0) == (a == b) && civil.Clamp(b, a, a) == a
 }
 
+test CivilFormatParseRoundTrips(seed int64, n int64, ns int64) {
+	let f = anyFormat(seed)
+	let dt = anyHeld(f, n, ns)
+	let back = civil.ParseDateTime(f, civil.FormatDateTime(dt, f)) catch {
+	case civil.ParseError:
+		assert false
+		return
+	}
+	assert back == held(dt, f)
+}
+
+test CivilParseIsStrict(seed int64, n int64, ns int64) {
+	let f = anyFormat(seed)
+	let s = civil.FormatDateTime(anyHeld(f, n, ns), f)
+	assert refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1)))
+}
+
+test CivilTextIsISO(n int64) {
+	let d = anyDay(n)
+	let back = civil.ParseDate(civil.ISODate(), civil.Text(d)) catch {
+	case civil.ParseError:
+		assert false
+		return
+	}
+	assert civil.FormatDate(d, civil.ISODate()) == civil.Text(d) && back == d
+}
+
+test CivilPatternAgreesWithLayout(seed int64, n int64, ns int64) {
+	let k = pick(draw(seed), len(ldmlPairs()))
+	let p = civil.Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch {
+	case civil.BadPattern:
+		assert false
+		return
+	}
+	let l = civil.FromLayout("2006-01-02 " + goPairs()[k]) catch {
+	case civil.BadPattern:
+		assert false
+		return
+	}
+	let dt = anyHeld(p, n, ns)
+	assert civil.FormatDateTime(dt, p) == civil.FormatDateTime(dt, l)
+}
+
 test CivilSpanDaysCount(x int64, k int64) {
 	let from = anyDay(x)
 	let to = civil.AddDays(from, int(within(k, -3, 400)))
@@ -312,6 +532,10 @@ var stdCivilLawStatements = map[string]string{
 	"civil WeekdayStepsByDay":        `WeekdayStepsByDay(n int64) { let d = anyDay(n) d == MaxDate() || time.WeekdayNumber(Weekday(AddDays(d, 1))) == (time.WeekdayNumber(Weekday(d))+1)%7 }`,
 	"civil ISOWeekIsThursdays":       `ISOWeekIsThursdays(n int64) { let d = anyDay(n) let w = ISOWeek(d) let thursday = AddDays(StartOf(d, Weeks{First: time.Monday}), 3) w.Year == Year(thursday) && w.Week == (YearDay(thursday)+6)/7 && w.Week >= 1 && w.Week <= 53 && Weekday(thursday) == time.Thursday }`,
 	"civil CompareIsTotalOrder":      `CompareIsTotalOrder(x int64, y int64) { let a = anyDay(x) let b = FromUnixDays(UnixDays(a) + within(y, -2, 2)) Compare(a, b) == -Compare(b, a) && (Compare(a, b) < 0) == Before(a, b) && (Compare(a, b) == 0) == (a == b) && Clamp(b, a, a) == a }`,
+	"civil FormatParseRoundTrips":    `FormatParseRoundTrips(seed int64, n int64, ns int64) { let f = anyFormat(seed) let dt = anyHeld(f, n, ns) let back = ParseDateTime(f, FormatDateTime(dt, f)) catch { case ParseError: return false } back == held(dt, f) }`,
+	"civil ParseIsStrict":            `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1))) }`,
+	"civil TextIsISO":                `TextIsISO(n int64) { let d = anyDay(n) let back = ParseDate(ISODate(), Text(d)) catch { case ParseError: return false } FormatDate(d, ISODate()) == Text(d) && back == d }`,
+	"civil PatternAgreesWithLayout":  `PatternAgreesWithLayout(seed int64, n int64, ns int64) { let k = pick(draw(seed), len(ldmlPairs())) let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch { case BadPattern: return false } let l = FromLayout("2006-01-02 " + goPairs()[k]) catch { case BadPattern: return false } let dt = anyHeld(p, n, ns) FormatDateTime(dt, p) == FormatDateTime(dt, l) }`,
 	"civil SpanDaysCount":            `SpanDaysCount(x int64, k int64) { let from = anyDay(x) let to = AddDays(from, int(within(k, -3, 400))) let s = NewSpan(from, to) catch { case Reversed: return Before(to, from) } let days = slices.Collect(Dates(s)) let mut ok = !Before(to, from) && len(days) == Len(s) && days[0] == From(s) && days[len(days)-1] == To(s) for i in 1..len(days) { ok = ok && DaysBetween(days[i-1], days[i]) == 1 } ok }`,
 	"civil SpanDatesStops":           `SpanDatesStops(x int64, k int64, stop int64) { let s = anySpan(x, within(k, 0, 10)) let at = int(within(stop, 1, 12)) let mut calls = 0 Dates(s)(func(d Date) bool { calls = calls + 1 calls < at }) calls == (if at < Len(s) { at } else { Len(s) }) }`,
 	"civil SplitTiles":               `SplitTiles(x int64, k int64, u int64, w int64) { let s = anySpan(x, k) let unit = anyUnit(u, w) let parts = slices.Collect(Split(s, unit)) let mut ok = len(parts) > 0 && From(parts[0]) == From(s) && To(parts[len(parts)-1]) == To(s) let mut total = 0 for i in 0..len(parts) { let p = parts[i] total = total + Len(p) ok = ok && StartOf(From(p), unit) == StartOf(To(p), unit) if i > 0 { ok = ok && AddDays(To(parts[i-1]), 1) == From(p) } } ok && total == Len(s) }`,

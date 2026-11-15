@@ -62,6 +62,8 @@ var bodyTable = map[string]bodyFact{
 	"Call":                      {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "context.Context"}, {Type: "string"}, {Type: "func(*rt.Task) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"T", "error"}}}}, Results: []string{"T", "error"}}},
 	"CallbackKeeper":            {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"int", "bool"}}},
 	"Capture":                   {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "any"}}, Results: []string{"error"}}},
+	"CivilBuffer":               {body: Body{Params: []Param{{Type: "int"}}, Results: []string{"[]byte"}, Pure: true}},
+	"CivilText":                 {body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"string"}, Pure: true}},
 	"CloseFailed":               {body: Body{Params: []Param{{Type: "string"}, {Type: "error"}}}},
 	"Closed.Error":              {body: Body{Results: []string{"string"}}},
 	"CmpCompare":                {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "ordered"}}, Params: []Param{{Type: "T"}, {Type: "T"}}, Results: []string{"int"}, Pure: true}},

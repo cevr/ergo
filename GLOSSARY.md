@@ -311,6 +311,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Civil span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
 
+**Civil format**: A format of dates and times as a value, `civil.DateFormat` or `civil.DateTimeFormat`: a list of `civil.Field` values, built once by `Pattern` (LDML letters), `FromLayout` (Go's layout) or `Fields`, and checked when built. Go's layout is a string read on each call. See [stdlib](docs/spec/stdlib.md#civil).
+
 **Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
 
 **Zone database**: The zones by IANA name, the operation type `tz.Zones` in a function's row. Std's own copy of one IANA release (`tz/iana`) is the default provider; the host's zone files (`tz/host`) are an explicit choice.
