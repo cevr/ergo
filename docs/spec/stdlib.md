@@ -1136,7 +1136,9 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `code` | `PlanWritesNothing` | `PlanWritesNothing(seed int, pick int, word int) { planWritesNothing(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.CallsAreSteps` | `CallsAreSteps(pick int, depth int, inbound bool) { callsAreSteps(pick, depth, inbound) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.HandleRoundTrips` | `HandleRoundTrips(pick int) { handleRoundTrips(pick) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Reader.MachineArmsStopAtAWholeArm` | `MachineArmsStopAtAWholeArm(pick int) { machineArmsStopAtAWholeArm(pick) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.PagesPartition` | `PagesPartition(pick int, size int) { pagesPartition(pick, size) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Reader.ReachChainsAreCalls` | `ReachChainsAreCalls(pick int) { reachChainsAreCalls(pick) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.ReferencesAreComplete` | `ReferencesAreComplete() { referencesAreComplete() }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.ReferencesAreSound` | `ReferencesAreSound(pick int, kinds []string) { referencesAreSound(pick, kinds) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `ReformatIsSameCode` | `ReformatIsSameCode(seed int, pick int) { reformatIsSameCode(seed, pick) }` | `TestStdCodeLawsRun` | tested |
