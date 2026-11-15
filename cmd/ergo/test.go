@@ -55,7 +55,7 @@ func testCommand(args []string) error {
 			// One process for every package: the std packages they
 			// import are checked once, not once per package (the
 			// examples runner's key, gate-speed GS27).
-			return recursiveCommand(opts, func(one fileOptions) error { return printEmitted(one, build.ModeTest) })
+			return recursiveCommand(opts, nil, func(one fileOptions) error { return printEmitted(one, build.ModeTest) })
 		}
 		return recursiveTestCommand(opts)
 	}
