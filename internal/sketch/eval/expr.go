@@ -797,7 +797,8 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
 		p := in.planAt(xf, c.Func)
-		if x.Trailing != nil && !(c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil) && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
+		ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if p.collection {

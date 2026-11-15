@@ -1509,12 +1509,12 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
-      "name": "oracle-o34-body-tail-unreleased",
+      "name": "oracle-o34-body-prefix-skipped",
       "origin": "wf10 ORACLE O34",
       "file": "internal/sketch/eval/compile.go",
-      "from": "\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n\t\treturn v, ab",
-      "to": "\t\t_ = rel\n\t\treturn v, ab",
-      "rule": "A compiled body releases its final statement's temporaries (R43).",
+      "from": "\t\tif ab := prefix(in, fr); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n",
+      "to": "\t\t_ = prefix\n",
+      "rule": "A compiled body runs every statement before the one that yields its result.",
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
