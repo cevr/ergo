@@ -1,6 +1,7 @@
 package build
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,12 +72,14 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
 	}
-	if ir := ergoIR(module); ir != nil {
+	for _, rel := range irDirs(module) {
 		// The pattern "." is the package in the module directory, the
-		// root; the quotes keep a path with a space one word. Go's
-		// action cache keys the compile on the flag and on main.go,
-		// which holds the IR file's digest.
-		args = append(args, "-gcflags=.='"+ir[0]+"="+ir[1]+"'")
+		// root, and "./D" the package in its folder D; the quotes keep a
+		// path with a space one word. Go's action cache keys the compile
+		// on the flag, whose path is in the module's folder, named by
+		// the module's key.
+		ir := ergoIR(filepath.Join(module.Dir, rel))
+		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+ir[1]+"'")
 	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
@@ -89,19 +92,43 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	return child
 }
 
-// IRFile is the typed IR of a module's root package (lower.IRFileName),
-// beside its go.mod.
+// IRFile is the typed IR of a package of a module (lower.IRFileName), in
+// the package's folder: the root's beside its go.mod.
 const IRFile = "ergoir.json"
 
-// ergoIR is the root package's compiler flag that reads the module's IR
-// bodies, `-ergoir FILE`, which only ergo's patched compile knows
-// (internal/toolchain, Patch); nil for a module without IR.
-func ergoIR(module Module) []string {
-	file := filepath.Join(module.Dir, IRFile)
+// ergoIR is the compiler flag of the package in folder dir that reads its
+// IR bodies, `-ergoir FILE`, which only ergo's patched compile knows
+// (internal/toolchain, Patch); nil for a package without IR.
+func ergoIR(dir string) []string {
+	file := filepath.Join(dir, IRFile)
 	if _, err := os.Stat(file); err != nil {
 		return nil
 	}
 	return []string{"-ergoir", file}
+}
+
+// irDirs are the folders of the module's packages that have an IR file,
+// relative to the module's folder ("." the root), in path order.
+func irDirs(module Module) []string {
+	var dirs []string
+	filepath.WalkDir(module.Dir, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && e.Name() == IRFile {
+			if rel, err := filepath.Rel(module.Dir, filepath.Dir(p)); err == nil {
+				dirs = append(dirs, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	slices.Sort(dirs)
+	return dirs
+}
+
+// irPattern is the go command's package pattern of the folder rel.
+func irPattern(rel string) string {
+	if rel == "." {
+		return "."
+	}
+	return "./" + rel
 }
 
 // env is the environment of the go command for this toolchain: the

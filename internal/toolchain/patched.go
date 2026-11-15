@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/pinset"
+	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/toolchain/ir"
 )
 
@@ -294,6 +295,8 @@ func runBuildCompile(source, overlay, out string, target []string) error {
 	cmd.Env = append(cmd.Env, target...)
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stderr, &stderr
+	stage.Add(stage.GoCommands, 1)
+	stage.Add(stage.Processes, 1)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("go build cmd/compile: %v\n%s", err, stderr.String())
 	}
@@ -334,10 +337,22 @@ func SourceOf(t Toolchain, cache string, goMod []byte) (string, error) {
 			return "", err
 		}
 	}
+	// The answer is kept under the go command's identity, so a build
+	// after the first starts no go command (compile-speed CS10).
+	key := probeKey(t.Go)
+	known := filepath.Join(probe, "goroot-"+key)
+	if data, err := os.ReadFile(known); key != "" && err == nil {
+		root := string(data)
+		if info, err := os.Stat(filepath.Join(root, "bin", "go"+exe())); err == nil && !info.IsDir() {
+			return root, nil
+		}
+	}
 	cmd := exec.Command(t.Go, "env", "GOROOT")
 	cmd.Dir = probe
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	stage.Add(stage.GoCommands, 1)
+	stage.Add(stage.Processes, 1)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s env GOROOT: %v: %s", t.Go, err, strings.TrimSpace(stderr.String()))
@@ -346,7 +361,66 @@ func SourceOf(t Toolchain, cache string, goMod []byte) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("%s env GOROOT is empty", t.Go)
 	}
+	if key == "" {
+		return root, nil
+	}
+	if tmp, err := os.CreateTemp(probe, "tmp-"); err == nil {
+		_, err = tmp.WriteString(root)
+		if cerr := tmp.Close(); err == nil {
+			err = cerr
+		}
+		if err == nil {
+			err = os.Rename(tmp.Name(), known)
+		}
+		if err != nil {
+			os.Remove(tmp.Name())
+		}
+	}
 	return root, nil
+}
+
+// probeKey keys a go command's GOROOT answer on what chooses it: the
+// command's file and its status, the go.env beside it, the go variables
+// of the environment and the user's go env file. Any change asks the go
+// command again; "" when the key cannot be made, and then nothing is kept.
+func probeKey(goCmd string) string {
+	h := sha256.New()
+	path, err := exec.LookPath(goCmd)
+	if err == nil {
+		path, err = filepath.Abs(path)
+	}
+	if err == nil {
+		path, err = filepath.EvalSymlinks(path)
+	}
+	var info os.FileInfo
+	if err == nil {
+		info, err = os.Stat(path)
+	}
+	if err != nil {
+		return ""
+	}
+	fmt.Fprintf(h, "go %s %d %d\n", path, info.Size(), info.ModTime().UnixNano())
+	goEnv, _ := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(path)), "go.env"))
+	fmt.Fprintf(h, "go.env %q\n", goEnv)
+	var vars []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "HOME=") || strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			vars = append(vars, kv)
+		}
+	}
+	slices.Sort(vars)
+	fmt.Fprintf(h, "env %q\n", vars)
+	envFile := os.Getenv("GOENV")
+	if envFile == "" {
+		if dir, err := os.UserConfigDir(); err == nil {
+			envFile = filepath.Join(dir, "go", "env")
+		}
+	}
+	if envFile != "" && envFile != "off" {
+		data, _ := os.ReadFile(envFile)
+		fmt.Fprintf(h, "GOENV %q\n", data)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // port is the patch toolchain/ir/lock ports to one release.

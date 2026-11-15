@@ -461,7 +461,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 	unit.Rewrite = ev
 	var files []lower.File
 	if split {
-		files, _, err = lower.LowerSplit(unit, false)
+		files, err = splitLowerer(false, req.IR)(unit)
 	} else {
 		lowering := lower.Lower
 		if req.IR {
@@ -486,9 +486,9 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 }
 
 // emission is the unit a build of req lowers, the lowering it uses and
-// whether that lowering splits the program by package: Build's and
-// EmittedDigest's one reading of a request. An IR build lowers the one way
-// the IR has, the single lowering (splitLowering).
+// whether that lowering splits the program by package (splitLowering; an
+// IR build too, CS10): Build's and EmittedDigest's one reading of a
+// request.
 func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), bool, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return lower.Unit{}, nil, false, &BuildError{Diagnostics: a.Diagnostics}
@@ -511,15 +511,24 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, false, err
 	}
-	split := splitLowering() && !req.IR
+	split := splitLowering()
 	if split {
-		test := req.Mode == build.ModeTest
-		lowering = func(u lower.Unit) ([]lower.File, error) {
-			files, _, err := lower.LowerSplit(u, test)
-			return files, err
-		}
+		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)
 	}
 	return unit, lowering, split, nil
+}
+
+// splitLowerer is the package split (CS4) of a build or test lowering, of
+// IR bodies when ir (CS10).
+func splitLowerer(test, ir bool) func(lower.Unit) ([]lower.File, error) {
+	return func(u lower.Unit) ([]lower.File, error) {
+		if ir {
+			files, _, _, err := lower.LowerIRSplit(u, test)
+			return files, err
+		}
+		files, _, err := lower.LowerSplit(u, test)
+		return files, err
+	}
 }
 
 // lowerUnit lowers unit, a refusal as the analysis's diagnostics.
