@@ -505,7 +505,7 @@ func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string)
 // and rune are Go's uint8 and int32. A name before or after a dot is
 // another package's, as it stands.
 func rtSpelling(s, rt string, subst map[string]string) string {
-	var out strings.Builder
+	var w strings.Builder
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
@@ -526,14 +526,14 @@ func rtSpelling(s, rt string, subst map[string]string) string {
 			case c >= 'A' && c <= 'Z':
 				id = rt + "." + id
 			}
-			out.WriteString(id)
+			w.WriteString(id)
 			i = j
 			continue
 		}
-		out.WriteByte(c)
+		w.WriteByte(c)
 		i++
 	}
-	return out.String()
+	return w.String()
 }
 
 // hidden is the hidden arguments of the std body called at x, as the
