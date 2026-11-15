@@ -25,7 +25,8 @@
       "from": "{\"-lc\", file, \"GNU ld's cwd lookup while the Go toolchain links a cgo dependency\"},",
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
-      "killers": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"]
+      "killers": [],
+      "gap": "the runner cannot kill it: only internal/closure:TestEveryPackageRecordsOnlyItsClosure with ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled and a cold per-package cache sees the cgo link input; the runner runs no sweep (GT-COMPILE-b)"
     },
     {
       "name": "g16fix2-alone-shares-a-run",

@@ -273,7 +273,7 @@
     },
     {
       "name": "R1-overlap",
-      "file": "examples/regex/nfa/search.ergo",
+      "file": "examples/regex/nfa/workspace.ergo",
       "from": "let resume = i + 1",
       "to": "let resume = i + len(c.prefix.Text)",
       "rule": "After a candidate, another prefix may start inside it.",
