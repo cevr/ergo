@@ -32,8 +32,8 @@
       "name": "ps2-read-of-written-field-stale",
       "origin": "wf10 PS2",
       "file": "internal/sketch/eval/stmt.go",
-      "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
-      "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "from": "\t\t\treturn c.s, \"\", nil",
+      "to": "\t\t\treturn &slot{v: c.s.v}, \"\", nil",
       "rule": "A write through a provider's cell is what every later read and the end state see.",
       "killers": ["lower:TestSymbolicProofsSound"]
     },
@@ -789,8 +789,8 @@
       "name": "oracle-o31-reported-arguments-dropped",
       "origin": "wf10 ORACLE O31",
       "file": "internal/sketch/eval/cases.go",
-      "from": "\t\t\tout.Case, out.Arguments = k+1, shown(shows)",
-      "to": "\t\t\tout.Case, out.Arguments = k+1, nil",
+      "from": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn",
+      "to": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, nil, result.Drawn",
       "rule": "A refuted case reports the arguments it ran with, written when it is reported.",
       "killers": ["internal/sketch/eval:TestCasePlansRun"]
     },
@@ -1521,8 +1521,8 @@
       "name": "oracle-o4-imports-lowering",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/value.go",
-      "from": "\t\"slices\"\n\t\"strconv\"\n",
-      "to": "\t\"slices\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
+      "from": "\t\"math\"\n\t\"strconv\"\n",
+      "to": "\t\"math\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
       "rule": "The evaluator is the reference every build agrees with: it shares no code with the lowering (ORACLE, import guard).",
       "killers": ["internal/sketch/eval:TestEvalSharesNoLowering"],
       "anchor": {"tests":["internal/sketch/eval:TestEvalSharesNoLowering"]}
