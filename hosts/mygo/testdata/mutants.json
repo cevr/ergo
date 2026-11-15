@@ -166,7 +166,7 @@
     {
       "name": "GPh-row-at-the-written-index",
       "origin": "GP1c host",
-      "file": "hosts/mygo/desktop/paint.ergo",
+      "file": "hosts/mygo/desktop/keep.ergo",
       "from": "Top: float32(l.Value.First+i) * rh}",
       "to": "Top: float32(i) * rh}",
       "rule": "a list's row shows at its index's place, counted from the list's First, not from the first row written",
@@ -288,6 +288,78 @@
       "to": "}).Grow(1)",
       "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
       "killers": ["mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-rebuilt-every-paint",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "rebuild:   false,",
+      "to": "rebuild:   true,",
+      "rule": "the driver keeps its layout tree across paints: a pass lays out what it changed, not the tree",
+      "killers": ["mygo:TestDesktopKeepsItsLayout"]
+    },
+    {
+      "name": "GPk-every-style-set",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/keep.ergo",
+      "from": "if now != s {",
+      "to": "if now != s || true {",
+      "rule": "a box's style is set only where it differs, so its siblings keep what the kernel computed",
+      "killers": ["mygo:TestDesktopKeepsItsLayout"]
+    },
+    {
+      "name": "GPk-kids-not-reordered",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/keep.ergo",
+      "from": "if i >= from {",
+      "to": "if i >= len(old) {",
+      "rule": "a parent's boxes follow its children's order from the first that moved",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-set-not-learned",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/keep.ergo",
+      "from": "\t\t\tlearn(&d.metrics, d.w, textOf(x.Node), textSize)\n\t\t\tmatch d.lparent.Get(x.Id) {",
+      "to": "\t\t\tmatch d.lparent.Get(x.Id) {",
+      "rule": "a node's new text is measured before the kept tree lays it out",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-set-parent-untouched",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/keep.ergo",
+      "from": "\t\t\tcase Some[ui.Id[E]] as p:\n\t\t\t\ttouched[p.Value] = true\n",
+      "to": "\t\t\tcase Some[ui.Id[E]]:\n",
+      "rule": "a Set restyles its node (through its parent, which places it)",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-removed-box-stays",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\tif !d.rebuild {\n\t\tmatch d.lids.Get(id) {",
+      "to": "\tif false {\n\t\tmatch d.lids.Get(id) {",
+      "rule": "a removed node's box leaves the kept tree",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-room-kept",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/keep.ergo",
+      "from": "\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, s)\n",
+      "to": "\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, layout.StyleOf(&d.tree, l.Value) catch {\n\t\t\tcase arena.Stale:\n\t\t\t\ts\n\t\t\t})\n",
+      "rule": "a list given room at a paint goes back to its own style before the next layout, as the rebuilt tree has it (hostagree's list app moves the list with its note)",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GPk-metrics-learn-skipped",
+      "origin": "GPk",
+      "file": "hosts/mygo/desktop/metrics.ergo",
+      "from": "if !line && len(missing) == 0 {",
+      "to": "if !line {",
+      "rule": "learn measures each run of a text the table lacks, after the first text",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
     }
   ]
 }

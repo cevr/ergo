@@ -213,22 +213,26 @@ func padView(f *ui.Frame[int], s pad) {
 }
 
 // list: a virtual list (ui.Rows) of n rows, a button each; "more" adds
-// 25 rows (-1), "less" takes 25 (-2), a row's button names its row. The
-// list has no height of its own, so it takes the window below it.
-type rowsApp { n int, last int }
+// 25 rows (-1), "less" takes 25 (-2), "note" shows or hides a line above
+// the list (-3), a row's button names its row. The list has no height of
+// its own, so it takes the window below it, which the note moves.
+type rowsApp { n int, last int, note bool }
 
 func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
 	if e == -1 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last}}
+		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note}}
 	}
 	if e == -2 {
-		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last}}
+		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note}}
 	}
-	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e}}
+	if e == -3 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note}}
+	}
+	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note}}
 }
 
 func rowsMachine() Machine[rowsApp, int, int] {
-	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int]}
+	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int]}
 }
 
 func rowsView(f *ui.Frame[int], s rowsApp) {
@@ -241,6 +245,12 @@ func rowsView(f *ui.Frame[int], s rowsApp) {
 			ui.Pressable(f, "less", -2) {
 				ui.Text(f, "Less")
 			}
+			ui.Pressable(f, "note", -3) {
+				ui.Text(f, "Note")
+			}
+		}
+		if s.note {
+			ui.Text(f, "a note above the list")
 		}
 		ui.Rows(f, "list", s.n, ui.Length(32.0), func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
 			ui.Pressable(f, "row \(i)", i) {

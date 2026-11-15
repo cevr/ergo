@@ -1,8 +1,9 @@
 // The look of every node, the layout of the window's tree and its paint
-// list. Each paint lays the tree out anew from the nodes (the kernel's
-// own caches are for a kept tree; keeping one across passes is P-ui's),
-// then paints it in tree order, so a later sibling paints over an earlier
-// one and is hit first.
+// list. Each paint lays out the kept tree (keep.ergo), which the passes
+// changed where their ops changed the window's tree, or, as the
+// reference, a tree built anew from the nodes; then it paints the tree in
+// tree order, so a later sibling paints over an earlier one and is hit
+// first.
 
 import arena
 import go ergo.local/prototype/hosts/mygo/screen
@@ -203,26 +204,22 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 // paint lays the window's tree out at the window's size and gives the
 // window its paint list.
 func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
-	learn(&d.metrics, d.w, "", textSize)
-	for _, h in d.nodes {
-		learn(&d.metrics, d.w, textOf(h.node), textSize)
+	if d.rebuild {
+		learn(&d.metrics, d.w, "", textSize)
+		for _, h in d.nodes {
+			learn(&d.metrics, d.w, textOf(h.node), textSize)
+		}
 	}
 	let line = lineHeight(d.metrics, textSize)
-	let mut t = layout.New()
-	let mut rs = plainStyle()
-	rs.Width = layout.Px{Value: d.width}
-	rs.Height = layout.Px{Value: d.height}
-	let top = layout.Add(&t, rs)
-	let ids = build(d, &t, d.root, top, Map[ui.Id[E], layout.Id]{}, line)
-	let m = d.metrics
-	with context { layout.Measure: m } {
-		layout.Layout(&t, top, d.width, d.height) catch {
-		case arena.Stale:
-		}
-		if roomForLists(d, &t, ids) {
-			layout.Layout(&t, top, d.width, d.height) catch {
-			case arena.Stale:
-			}
+	if d.rebuild {
+		let (t, top, ids) = rebuilt(d, line)
+		d.tree = t
+		d.top = top
+		d.lids = ids
+	} else {
+		layOutKept(d)
+		if d.check {
+			checkKept(d, line)
 		}
 	}
 	d.w.Begin()
@@ -231,91 +228,115 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
 	for k in kidsOf(d, d.root) {
-		draw(d, &t, ids, k, 0, full, line)
+		draw(d, k, 0, full, line)
 	}
 	d.w.Present()
 	d.painted = d.painted + 1
 }
 
-// roomForLists gives each list that laid out no taller than 0 the
-// window's room below its top, at least one row, as a list with no height
-// of its own fills the window under it. It is whether it gave one any.
-func roomForLists[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id]) bool {
-	let mut changed = false
-	for k, h in d.nodes {
-		match h.node {
-		case ui.RowsNode as x:
-			match ids.Get(k) {
-			case Some[layout.Id] as l:
-				let b = boxOf(t, l.Value)
-				if b.H <= 0 {
-					let mut s = styleOf(h.node, 0)
-					s.Height = layout.Px{Value: fmax(d.height-b.Y, dips(x.RowHeight))}
-					s.Shrink = 0
-					layout.SetStyle(t, l.Value, s) catch {
-					case arena.Stale:
-					}
+// rebuilt is the reference layout: a tree built anew from the window's
+// nodes, laid out at the window's size, each list that laid out no taller
+// than 0 given the window's room below its top and the tree laid out
+// again; with its window's box and each node's box.
+func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
+	let mut t = layout.New()
+	let mut rs = plainStyle()
+	rs.Width = layout.Px{Value: d.width}
+	rs.Height = layout.Px{Value: d.height}
+	let top = layout.Add(&t, rs)
+	let mut ids = Map[ui.Id[E], layout.Id]{}
+	build(d, &t, d.root, top, &ids, line)
+	with context { layout.Measure: d.metrics } {
+		layout.Layout(&t, top, d.width, d.height) catch {
+		case arena.Stale:
+		}
+		let mut changed = false
+		for k, h in d.nodes {
+			match (ids.Get(k), h.node) {
+			case (Some[layout.Id] as l, ui.RowsNode as x):
+				if giveRoom(&t, l.Value, d.height, dips(x.RowHeight)) != None {
 					changed = true
 				}
-			case None:
+			case _:
 			}
-		case _:
+		}
+		if changed {
+			layout.Layout(&t, top, d.width, d.height) catch {
+			case arena.Stale:
+			}
 		}
 	}
-	changed
+	(t, top, ids)
 }
 
-// build adds id's children under into, in order, and their subtrees. A
-// list's row is out of the flow, at its index's place below the list's
-// top (from the list's First), as wide as the list and one row high.
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids Map[ui.Id[E], layout.Id], line float32) Map[ui.Id[E], layout.Id] {
-	let mut out = ids
-	let list = match d.nodes.Get(id) {
-	case Some[held[E]] as p:
-		match p.Value.node {
-		case ui.RowsNode as x:
-			Some{Value: x}
-		case _:
-			None
-		}
-	case None:
-		None
+// checkKept builds the reference tree beside the kept one and keeps the
+// first box where they differ (Differs), once.
+func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
+	if d.differ != None {
+		return
 	}
+	let (t, _, ids) = rebuilt(d, line)
+	let mut ref = t
+	if len(ids) != len(d.lids) {
+		d.differ = Some{Value: "the kept tree has \(len(d.lids)) boxes, the reference \(len(ids)) (paint \(d.painted))"}
+		return
+	}
+	for k, l in ids {
+		let want = boxOf(&ref, l)
+		match d.lids.Get(k) {
+		case Some[layout.Id] as kl:
+			let got = boxOf(&d.tree, kl.Value)
+			if got != want {
+				let what = match d.nodes.Get(k) {
+				case Some[held[E]] as h:
+					match labelOf(h.Value.node) {
+					case Some[string] as s:
+						s.Value
+					case None:
+						"a box"
+					}
+				case None:
+					"a box"
+				}
+				d.differ = Some{Value: "\(what): kept \(got.X),\(got.Y) \(got.W)x\(got.H), reference \(want.X),\(want.Y) \(want.W)x\(want.H) (paint \(d.painted))"}
+				return
+			}
+		case None:
+			d.differ = Some{Value: "a node has no kept box (paint \(d.painted))"}
+			return
+		}
+	}
+}
+
+// build adds id's children under into, in order, and their subtrees, in
+// the styles styleIn gives them, and names each one's box in ids.
+func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
+	let list = listOf(d, id)
 	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
 		case Some[held[E]] as h:
-			let mut st = styleOf(h.Value.node, line)
-			match list {
-			case Some[ui.RowsNode] as l:
-				let rh = dips(l.Value.RowHeight)
-				st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
-				st.Width = layout.Percent{Value: 100}
-				st.Height = layout.Px{Value: rh}
-			case None:
-			}
-			let n = layout.Add(t, st)
+			let n = layout.Add(t, styleIn(list, i, h.Value.node, line))
 			layout.Append(t, into, n) catch {
 			case arena.Stale:
 			}
-			out[k] = n
-			out = build[S, E, D, F](d, t, k, n, out, line)
+			(*ids)[k] = n
+			build[S, E, D, F](d, t, k, n, ids, line)
 		case None:
 		}
 	}
-	out
 }
 
 // draw paints id, lifted by dy (its Scrolls' offsets), within clip.
-func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
+func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
 	let n = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
 	case None:
 		return
 	}
-	let laid = match ids.Get(id) {
+	let laid = match d.lids.Get(id) {
 	case Some[layout.Id] as l:
-		boxOf(t, l.Value)
+		boxOf(&d.tree, l.Value)
 	case None:
 		return
 	}
@@ -325,14 +346,14 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	match n {
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode:
-		drawKids(d, t, ids, id, dy, clip, line)
+		drawKids(d, id, dy, clip, line)
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)
 		let mut reach = float32(0)
 		for k in kidsOf(d, id) {
-			match ids.Get(k) {
+			match d.lids.Get(k) {
 			case Some[layout.Id] as l:
-				let kb = boxOf(t, l.Value)
+				let kb = boxOf(&d.tree, l.Value)
 				reach = fmax(reach, kb.Y+kb.H-laid.Y)
 			case None:
 			}
@@ -340,7 +361,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 		d.extents[id] = reach
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, t, ids, id, dy+scrolledBy(d, id), inner, line)
+		drawKids(d, id, dy+scrolledBy(d, id), inner, line)
 		d.w.Unclip()
 	case ui.RowsNode as x:
 		// A list scrolls its rows as a Scroll does, over Count rows of
@@ -355,7 +376,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, t, ids, id, dy+scrolledBy(d, id), inner, line)
+		drawKids(d, id, dy+scrolledBy(d, id), inner, line)
 		d.w.Unclip()
 	case ui.CanvasNode as x:
 		d.canvases = d.canvases.Append(s)
@@ -363,7 +384,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	case ui.AreaNode as x:
 		d.spots = d.spots.Append(s)
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
-		drawKids(d, t, ids, id, dy, clip, line)
+		drawKids(d, id, dy, clip, line)
 	case ui.TextNode as x:
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
@@ -375,7 +396,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 			ring(d, b, 6)
 		}
 		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
-		drawKids(d, t, ids, id, dy, clip, line)
+		drawKids(d, id, dy, clip, line)
 	case ui.CheckNode[E] as x:
 		d.spots = d.spots.Append(s)
 		let at = layout.Box{X: b.X, Y: b.Y + (b.H-mark)/2, W: mark, H: mark}
@@ -428,9 +449,9 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 }
 
 // drawKids paints id's children in order.
-func drawKids[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
+func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
 	for k in kidsOf(d, id) {
-		draw(d, t, ids, k, dy, clip, line)
+		draw(d, k, dy, clip, line)
 	}
 }
 

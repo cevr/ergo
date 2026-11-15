@@ -134,7 +134,12 @@ func TestStarsGuiOnTheDesktop(t *testing.T) {
 		}
 		lines += strings.Count(want, "\n")
 		for _, leg := range [][2]string{{"desktop", bins[1]}, {"control", bins[2]}} {
-			got, err := play(leg[1], script, "-headless", "-rows", height, cat)
+			args := []string{"-headless", "-rows", height, cat}
+			if leg[0] == "desktop" {
+				// The kept layout, held to the rebuilt tree at every paint.
+				args = append([]string{"-check"}, args...)
+			}
+			got, err := play(leg[1], script, args...)
 			if err == nil && got == want {
 				continue
 			}
