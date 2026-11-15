@@ -5,8 +5,10 @@ import "testing"
 // BenchmarkStdDecimal is std-spike D2's hand-Go control: an invoice of
 // 4,096 lines, each a price in cents times a quantity, summed, and a tax
 // of 8.25% rounded half-even to the cent. Ergo's decimal against the same
-// 128-bit algorithm written in Go on math/bits (the fair control, D2b),
-// and against Go on int64 cents and on math/big.Rat. Reported either
+// 128-bit algorithm written in Go on math/bits, twice: as a Go programmer
+// first writes it, whose decMul and decAdd Go does not inline (D2b), and
+// with small inlinable fast paths and the full functions on the cold path,
+// the best hand Go (D3); and against Go on int64 cents and math/big.Rat. Reported either
 // way; the program's TestInvoicesAgree holds the three to one answer.
 func BenchmarkStdDecimal(b *testing.B) {
 	const src = `import decimal
@@ -291,6 +293,55 @@ func u128Side() {
 	sink = decText(r)
 }
 
+// The best hand Go of the same algorithm: each operation has a small
+// inlinable fast path (both coefficients under 2^64, one scale, one sign)
+// that reports whether it applied, and the caller takes the full function
+// above on the cold path, so Go's inliner budget admits the fast paths.
+func mulFast(a, b u128Dec) (u128Dec, bool) {
+	if a.c.hi|b.c.hi != 0 || a.scale+b.scale > 38 {
+		return u128Dec{}, false
+	}
+	h, l := bits.Mul64(a.c.lo, b.c.lo)
+	return u128Dec{a.neg != b.neg && h|l != 0, h128{h, l}, a.scale + b.scale}, true
+}
+
+func addFast(a, b u128Dec) (u128Dec, bool) {
+	if a.scale != b.scale || a.neg != b.neg {
+		return u128Dec{}, false
+	}
+	lo, c := bits.Add64(a.c.lo, b.c.lo, 0)
+	hi, out := bits.Add64(a.c.hi, b.c.hi, c)
+	return u128Dec{a.neg && hi|lo != 0, h128{hi, lo}, a.scale}, out == 0
+}
+
+func u128FastSide() {
+	rate, _ := newDec(825, 4)
+	total := u128Dec{}
+	for _, x := range xs {
+		price, err := newDec(int64(x), 2)
+		if err != nil {
+			price = u128Dec{}
+		}
+		q, _ := newDec(int64(x%7+1), 0)
+		line, ok := mulFast(price, q)
+		if !ok {
+			if line, err = decMul(price, q); err != nil {
+				line = u128Dec{}
+			}
+		}
+		sum, ok := addFast(total, line)
+		if !ok {
+			if sum, err = decAdd(total, line); err != nil {
+				sum = u128Dec{}
+			}
+		}
+		total = sum
+	}
+	tax, _ := decMul(total, rate)
+	r, _ := decRoundHalfEven(tax, 2)
+	sink = decText(r)
+}
+
 func BenchmarkInvoiceErgo(b *testing.B) {
 	for range b.N {
 		sink = ` + emittedCall(mainGo, "Invoice", "xs") + `
@@ -300,6 +351,12 @@ func BenchmarkInvoiceErgo(b *testing.B) {
 func BenchmarkInvoiceGoU128(b *testing.B) {
 	for range b.N {
 		u128Side()
+	}
+}
+
+func BenchmarkInvoiceGoU128Inl(b *testing.B) {
+	for range b.N {
+		u128FastSide()
 	}
 }
 
@@ -316,12 +373,17 @@ func BenchmarkInvoiceGoRat(b *testing.B) {
 }
 
 func TestInvoicesAgree(t *testing.T) {
+	u128FastSide()
+	fast := sink
 	u128Side()
+	if sink != fast {
+		t.Fatalf("Go u128 %s, Go u128 inlined %s", sink, fast)
+	}
 	if e, c, r := ` + emittedCall(mainGo, "Invoice", "xs") + `, cents(), rat(); e != c || c != r || sink != e {
 		t.Fatalf("Ergo %s, Go u128 %s, Go cents %s, big.Rat %s", e, sink, c, r)
 	}
 }
 `
 	}
-	emittedBench(b, "std_decimal", src, gen, "InvoiceErgo", "InvoiceGoU128", "InvoiceGoCents", "InvoiceGoRat")
+	emittedBench(b, "std_decimal", src, gen, "InvoiceErgo", "InvoiceGoU128", "InvoiceGoU128Inl", "InvoiceGoCents", "InvoiceGoRat")
 }
