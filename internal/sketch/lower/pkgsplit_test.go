@@ -60,7 +60,7 @@ func Area(s Shape) int {
 
 type Read { Get() int }
 
-type Q { N int }
+type Q { N int } implements Read
 
 func Get(q Q) int { q.N }
 

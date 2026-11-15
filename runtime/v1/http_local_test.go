@@ -232,6 +232,14 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 				t.Fatalf("seed %d: EncodeQuery(%q) = %q arrives as %q", seed, c.query, c.rawQuery, got)
 			}
 		}
+		// Whether a redirect's connection is back in the pool when the
+		// client follows it is a race inside net/http, so whether a refused
+		// /final is retried on it is too; after a redirect a retried
+		// arrival counts once. The retry itself is held without a redirect
+		// (sawRetry).
+		if c.redirect {
+			want.Arrivals, got.Arrivals = slices.CompactFunc(want.Arrivals, localSameArrival), slices.CompactFunc(got.Arrivals, localSameArrival)
+		}
 		if !reflect.DeepEqual(want, got) {
 			t.Fatalf("seed %d (replay ERGO_HTTP_LOCAL_SEED=%d go test -run TestHTTPLocalMatchesLoopback ./runtime/v1):\ncase     %+v\nloopback %+v\nlocal    %+v", seed, seed, c, want, got)
 		}
@@ -316,3 +324,6 @@ func localCaseOf(r *rand.Rand) localCase {
 	c.warm = r.IntN(2) == 0
 	return c
 }
+
+// localSameArrival reports whether two arrivals are the same request.
+func localSameArrival(a, b localArrival) bool { return reflect.DeepEqual(a, b) }

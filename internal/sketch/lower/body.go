@@ -1248,7 +1248,10 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		// (scalar.go); a case binds its slot before its body writes.
 		subject = sl.name
 	} else {
-		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 {
+		// A subject the ownership pass owns (a call whose value holds a
+		// resource, PO1) is registered and released after the arms, so
+		// its value must be built: it keeps the switch.
+		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 && fc.l.info.OwnedTemps[s.Subjects[0].X] == nil {
 			var types [][]string
 			var defs, binds []bool
 			for _, a := range arms {

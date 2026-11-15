@@ -226,10 +226,10 @@ func pairAdmits(site string, s, t pairKind) bool {
 // a function named id that prints id, and the text of the line a refusal
 // is reported on.
 // kept is the type of a parameter the function returns: a function type
-// keeps its value only when written escaping (types.md, Function values 2).
+// keeps its value only when written own (types.md, Function values 2).
 func kept(ty string) string {
 	if strings.HasPrefix(ty, "func(") {
-		return "escaping " + ty
+		return "own " + ty
 	}
 	return ty
 }

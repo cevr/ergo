@@ -277,7 +277,7 @@ func lowerings(u Unit) map[string]string {
 // r8Program generates a program of n files and main.ergo. File k declares
 // the error type Ak with a function that fails it, a function whose
 // written failure is E over a function type with a parameter of a mode
-// the seed chooses (escaping or not), a function whose row is inferred
+// the seed chooses (own or not), a function whose row is inferred
 // from boxing fail[T] for a T the seed chooses (a delayed row
 // substitution), and two more declaration kinds the seed chooses (a
 // machine with inline variants, tests with a property and a law, a
@@ -301,7 +301,7 @@ func r8Program(seed int64, n int, refuse bool) []pkgSource {
 	for k := 0; k < n; k++ {
 		mode := ""
 		if r.Intn(2) == 0 {
-			mode = "escaping "
+			mode = "own "
 		}
 		var text strings.Builder
 		fmt.Fprintf(&text, "type A%[1]d { N int }\nfunc a%[1]d(n int) int fails A%[1]d {\n\tif n == %[1]d {\n\t\treturn A%[1]d{N: %[1]d}\n\t}\n\tn\n}\n", k)

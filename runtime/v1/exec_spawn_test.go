@@ -121,3 +121,56 @@ func TestExecStartTimeReadsTheHost(t *testing.T) {
 		t.Errorf("a program started after this process has the start time %d, before this process's %d", c, self)
 	}
 }
+
+// TestExecSpawnStopped: a stopped caller's Spawn starts nothing and raises
+// the stop (lower TestRuntime199BlockingProperty's host-wait law for
+// Spawn). Mutant spawn-stopped-starts (no t.Check before the start).
+func TestExecSpawnStopped(t *testing.T) {
+	stopped := rt.Root("stopped spawner")
+	stopped.Interrupt()
+	made := t.TempDir() + "/out"
+	func() {
+		defer func() {
+			if q := recover(); q != rt.Interrupted {
+				t.Errorf("a stopped Spawn raised %v, want rt.Interrupted", q)
+			}
+		}()
+		_, _ = ExecSpawn(stopped, "true", nil, nil, "", "", execToFile, made, false, execDiscard, "", false)
+	}()
+	if _, err := os.Stat(made); err == nil {
+		t.Errorf("a stopped Spawn made its file sink")
+	}
+}
+
+// TestExecKillStopped: a stop of the caller during Kill's grace ends the
+// wait and goes on to SIGKILL, so a group that ignores SIGTERM ends
+// although the grace is an hour (lower TestRuntime199BlockingProperty's
+// host-wait law for Kill). Mutant kill-stop-waits-grace (the stop case
+// dropped from the wait). The test waits on Kill's return; the deadline
+// only names a hung Kill.
+func TestExecKillStopped(t *testing.T) {
+	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if execRunning(d.Pid, d.Start) {
+			_ = syscall.Kill(-d.Pid, syscall.SIGKILL)
+		}
+	})
+	stopped := rt.Root("stopped killer")
+	stopped.Interrupt()
+	done := make(chan struct{})
+	go func() {
+		ExecKill(stopped, d.Pid, d.Start, time.Hour)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Minute):
+		t.Fatal("Kill with a stopped caller is hung in its hour of grace")
+	}
+	if ExecAlive(d.Pid, d.Start) {
+		t.Errorf("the program %d, which ignores SIGTERM, is alive after a stopped caller's Kill", d.Pid)
+	}
+}
