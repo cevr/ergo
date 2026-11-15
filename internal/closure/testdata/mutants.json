@@ -164,8 +164,8 @@
       "name": "gf3-run-deadline-from-wall",
       "origin": "wf10 batch-16b gate16b-fix3",
       "file": "internal/closure/split_test.go",
-      "from": "plan[i].deadlineCost = max(sum, plan[i].cost)",
-      "to": "plan[i].deadlineCost = max(0*sum, plan[i].cost)",
+      "from": "plan[i].deadlineCost = max(sum, plan[i].cost, recorded.Run)",
+      "to": "plan[i].deadlineCost = max(0*sum, plan[i].cost, recorded.Run)",
       "rule": "A swept run's deadline reads the CPU its tests record, not only their wall.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
     },
