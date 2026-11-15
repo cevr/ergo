@@ -57,6 +57,9 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// SharedFallbacks counts the `ergo test DIR/...` runs whose module test
+	// binary (TEST-one) did not build, so each package was tested alone.
+	SharedFallbacks
 	numCounters
 )
 
@@ -68,6 +71,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"shared_fallbacks",
 }
 
 var counts [numCounters]atomic.Int64

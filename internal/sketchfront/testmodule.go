@@ -149,7 +149,9 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 		}
 		prog := &program{root: root, imports: imports, texts: texts, module: l.module, modRoot: l.root, dir: l.root}
 		if l.goMod != nil {
-			prog.goModule = l.goMod.lowerModule(l.root, l.goSum)
+			// go.mod merged with the runtime's requirement and replacement,
+			// as a package loaded alone emits it.
+			prog.goModule = l.goModule
 		}
 		out[i] = Analysis{program: prog, pkg: root.pkg}
 	}
@@ -258,6 +260,7 @@ func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
 		if err != nil {
 			return nil, err
 		}
+		countLowered(files)
 		out := make([]build.File, len(files))
 		for i, f := range files {
 			out[i] = build.File{Path: f.Path, Data: f.Data}

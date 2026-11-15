@@ -48,6 +48,12 @@ type Toolchain struct {
 	// Pins are the pin archive sets the direct path may take std's and
 	// the runtime's archives from (pin.go); the zero value is none.
 	Pins Pins
+	// Stored builds only from the direct path's store: a compile or a
+	// link the store does not hold, or a refusal of the direct path, ends
+	// the build with ErrNotStored, and no tool or go command runs
+	// (TEQ: `ergo test --count 1 ./...` reuses the packages' own stored
+	// test binaries).
+	Stored bool
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go

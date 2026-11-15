@@ -352,6 +352,10 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		}
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
+		if req.Toolchain.Stored {
+			// A build from the store lowers nothing either.
+			return nil, build.ErrNotStored
+		}
 		files := ledgered
 		if files == nil {
 			var err error

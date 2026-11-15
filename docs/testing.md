@@ -107,7 +107,12 @@ another package imports is checked a second time, as `main`, because the
 builder rule reads its path. `ergo test` links one test binary that
 holds every selected package's test build and runs it once per package, so each
 package prints what `ergo test` of that package alone prints, with the same
-receipt and the same exit status rule (TEST-one). When the packages cannot share
+receipt and the same exit status rule (TEST-one). When the store already holds
+every package's own test binary (an earlier `ergo test DIR/...` linked them),
+each package runs its own and nothing is lowered, compiled or linked. When the
+build of the one binary fails, `ergo test` says so once on stderr with the go
+error's first line, and with `ERGO_SHARED_FALLBACK=fail` (set by the tests and
+the gate) the run fails instead. When the packages cannot share
 one load or one build (a diagnostic, a lowering refusal, a Go build failure, a
 module binding in `ergo.bind`), and for `-work`, `--explore` and a schedule
 search, each package is checked and built alone, as before, so a failure is
