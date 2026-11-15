@@ -34,24 +34,41 @@ func main() {
 		sketchfront.UseStdCache(root)
 	}
 	if err := command(os.Args[1:]); err != nil {
-		if exit, ok := err.(exitStatusError); ok {
-			if !exit.handled && exit.message != "" {
-				fmt.Fprintln(os.Stderr, exit.message)
-			}
-			os.Exit(exit.code)
+		if exit, ok := err.(exitStatusError); !ok || !exit.handled && exit.message != "" {
+			fmt.Fprintln(os.Stderr, err)
 		}
-		fmt.Fprintln(os.Stderr, err)
-		if _, usage := err.(usageError); usage {
-			os.Exit(2)
-		}
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// exitCode is the process exit code of a command's error: an
+// exitStatusError's code, 2 for an invalid invocation (usageError), and 1
+// for every other failure.
+func exitCode(err error) int {
+	switch e := err.(type) {
+	case nil:
+		return 0
+	case exitStatusError:
+		return e.code
+	case usageError:
+		return 2
+	}
+	return 1
 }
 
 // usageError is an invalid invocation: exit 2.
 type usageError struct{ message string }
 
 func (e usageError) Error() string { return e.message }
+
+// unknownOption is the one refusal of an option a command does not take:
+// an invalid invocation, so every command exits 2 on it.
+func unknownOption(command, option string) error {
+	if command == "" {
+		return usageError{message: "unknown option " + option}
+	}
+	return usageError{message: command + ": unknown option " + option}
+}
 
 // exitStatusError exits with code, printing message unless the command
 // already reported the failure (handled).
@@ -62,6 +79,16 @@ type exitStatusError struct {
 }
 
 func (e exitStatusError) Error() string { return e.message }
+
+// flagError is the refusal of a flag set's parse error: an option the set
+// does not define is the one unknown-option refusal, and any other parse
+// error (an option without its value) is usage.
+func flagError(err error, usage string) error {
+	if option, ok := strings.CutPrefix(err.Error(), "flag provided but not defined: "); ok {
+		return unknownOption("", option)
+	}
+	return usageError{message: usage}
+}
 
 func invalidInvocation(err error) error {
 	if err == nil {
@@ -95,7 +122,7 @@ func requireSourceExtension(path string) error {
 	return nil
 }
 
-const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [--target go]\n" +
+const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]\n" +
 	"Locations: one-based UTF-16 lines/columns in text; zero-based UTF-16 ranges and original UTF-8 byte spans in JSON.\n" +
 	"A DIR is a package: each finding names its file relative to the module root (file in JSON).\n" +
 	"Lint advice (ergo lint) follows the compiler's findings, under the module's ergo.lint.json; --strict fails policy on a warning too.\n" +
@@ -155,7 +182,22 @@ type fileOptions struct {
 // before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
+//
+// Every refusal here is an invalid invocation (exit 2), whatever the
+// command: an unknown option, an option given to a command that does not
+// take it, a missing or extra source, a source without the extension, and
+// an unsupported target or platform. A source that names no file is found
+// later, by load: an operational failure (exit 1).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
+	opts, err := fileOptionsOf(command, args)
+	if err != nil {
+		return opts, invalidInvocation(err)
+	}
+	return opts, nil
+}
+
+// fileOptionsOf is parseFileOptions before its refusal is classified.
+func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
 	var positional []string
 	seeded, searched := false, false
@@ -256,7 +298,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.debug = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return opts, fmt.Errorf("unknown option %s", args[i])
+				return opts, unknownOption("", args[i])
 			}
 			positional = append(positional, args[i])
 		}
@@ -574,7 +616,14 @@ func inspectGoCommand(args []string) error {
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1
 // when the policy fails, 2 on an invalid invocation.
 func diagnosticsCommand(args []string) error {
-	opts, err := parseFileOptions("diagnostics", args)
+	presets, sel, rest, err := lintFlags(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if len(presets) > 0 {
+		return invalidInvocation(fmt.Errorf("--preset belongs to ergo lint"))
+	}
+	opts, err := parseFileOptions("diagnostics", rest)
 	if err != nil {
 		return invalidInvocation(err)
 	}
@@ -582,7 +631,7 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	run, err := lintLoaded(l, nil)
+	run, err := lintLoaded(l, nil, sel)
 	if err != nil {
 		return invalidInvocation(err)
 	}

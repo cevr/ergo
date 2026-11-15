@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+
+	sdk "ergo.local/prototype/lint"
 )
 
 // ConfigVersion is the version of the configuration document.
@@ -19,13 +22,38 @@ const ConfigFile = "ergo.lint.json"
 const MaxConfigBytes = 1 << 20
 
 // Config is a configuration document (docs/specs/custom-lint.md, version
-// 1): presets to extend, in order, and rule settings that apply last.
-// Rule packs (packs) return with LINT3.
+// 1): the rule packs it selects, presets to extend, in order, and rule
+// settings that apply last. A pack is named by its manifest's path,
+// relative to Dir, the document's directory. A preset or rule named
+// namespace/name belongs to a selected pack.
 type Config struct {
 	Version int
+	Packs   []sdk.PackSelection
 	Extends []string
 	Rules   map[string]Setting
+	Dir     string
 }
+
+// Builtins is the document without its rule packs: the packs, and every
+// preset and rule setting of a pack, left out. `ergo fix --lint` reads it,
+// since it applies built-in fixes only and starts no pack.
+func (c Config) Builtins() Config {
+	out := Config{Version: c.Version, Rules: map[string]Setting{}, Dir: c.Dir}
+	for _, p := range c.Extends {
+		if !qualified(p) {
+			out.Extends = append(out.Extends, p)
+		}
+	}
+	for name, s := range c.Rules {
+		if !qualified(name) {
+			out.Rules[name] = s
+		}
+	}
+	return out
+}
+
+// qualified reports a namespace/name.
+func qualified(name string) bool { return strings.Contains(name, "/") }
 
 // DefaultConfig is the configuration of a module with no document: the
 // base preset alone.
@@ -114,10 +142,10 @@ func ParseConfig(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("invalid %s: %w", ConfigFile, err)
 	}
 	var doc struct {
-		Version *int               `json:"version"`
-		Packs   json.RawMessage    `json:"packs"`
-		Extends []string           `json:"extends"`
-		Rules   map[string]Setting `json:"rules"`
+		Version *int                `json:"version"`
+		Packs   []sdk.PackSelection `json:"packs"`
+		Extends []string            `json:"extends"`
+		Rules   map[string]Setting  `json:"rules"`
 	}
 	if err := decodeStrict(data, &doc); err != nil {
 		return Config{}, fmt.Errorf("invalid %s: %w", ConfigFile, err)
@@ -125,10 +153,12 @@ func ParseConfig(data []byte) (Config, error) {
 	if doc.Version == nil {
 		return Config{}, fmt.Errorf("invalid %s: version is required", ConfigFile)
 	}
-	if doc.Packs != nil {
-		return Config{}, fmt.Errorf("invalid %s: rule packs return with LINT3; remove packs", ConfigFile)
+	for _, p := range doc.Packs {
+		if len(p.Manifest) == 0 {
+			return Config{}, fmt.Errorf("invalid %s: a selected pack needs a manifest path", ConfigFile)
+		}
 	}
-	return Config{Version: *doc.Version, Extends: doc.Extends, Rules: doc.Rules}, nil
+	return Config{Version: *doc.Version, Packs: doc.Packs, Extends: doc.Extends, Rules: doc.Rules}, nil
 }
 
 // decodeStrict decodes one JSON value with no unknown field and nothing

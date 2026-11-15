@@ -1,0 +1,55 @@
+{
+  "complete": true,
+  "rules": [
+    {
+      "rule": "policy/forbidden-failure",
+      "code": "policy/forbidden-failure",
+      "severity": "off",
+      "status": "off"
+    },
+    {
+      "rule": "policy/provider-boundary",
+      "code": "policy/provider-boundary",
+      "severity": "error",
+      "status": "completed"
+    }
+  ],
+  "findings": [
+    {
+      "code": "policy/provider-boundary",
+      "severity": "error",
+      "message": "main.named binds main.Disk; only [main.compose] may bind it",
+      "span": {
+        "file": "",
+        "offset": 875,
+        "length": 20,
+        "line": 37,
+        "column": 2
+      },
+      "related": [
+        {
+          "message": "the context entry that binds it",
+          "span": {
+            "file": "",
+            "offset": 629,
+            "length": 10,
+            "line": 23,
+            "column": 9
+          }
+        }
+      ]
+    },
+    {
+      "code": "policy/provider-boundary",
+      "severity": "error",
+      "message": "main.aliased binds main.Disk; only [main.compose] may bind it",
+      "span": {
+        "file": "",
+        "offset": 1000,
+        "length": 40,
+        "line": 43,
+        "column": 2
+      }
+    }
+  ]
+}

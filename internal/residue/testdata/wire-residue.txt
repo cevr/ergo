@@ -88,6 +88,24 @@ docs/spec/patterns.md	of strings is wire by its structure
 docs/spec/patterns.md	and a derive adds no `Wire`
 docs/spec/patterns.md	A `Wire(x T) string`
 docs/spec/patterns.md	}: wire by its structure; no ParseUsers
+docs/spec/stdlib.md	`ParseX` and `Wire` are each union's name pair
+docs/spec/stdlib.md	| `OptionsOf[T wire](options json.Value) T fails
+docs/spec/stdlib.md	{ try ParseFamily(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseTypeKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseCallableKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseCallKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseImportKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseSeverity(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseOptionType(x.Wire()) == x }
+docs/spec/stdlib.md	with its name pair (`ParseCallKind`, `Wire`), matched exhaustively
+internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\t\tcase json.Present[string] as p:
+internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\tcase json.Present[Span] as p:
+internal/sketch/lower/std_lint_test.go	*
+internal/sketch/lower/catch_wired_test.go	*
+internal/sketch/std/laws_test.go	*
+internal/sketch/std/lint/facts.ergo	*
+internal/sketch/std/lint/laws.ergo	*
+internal/sketch/std/lint/pack.ergo	*
 docs/specs/absence-and-host-boundaries.md	JSON null or explicitly tagged wire data.
 docs/specs/absence-and-host-boundaries.md	## Wire and JavaScript boundaries
 docs/specs/absence-and-host-boundaries.md	JSON null is wire data. A codec may map it to None

@@ -17,6 +17,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	sdk "ergo.local/prototype/lint"
 )
 
 // Severity is a configured severity. Off is a rule that does not run.
@@ -53,7 +54,7 @@ const (
 
 // Rule is one built-in rule: its unqualified name, its code (L1xx), its
 // documentation, its default severity and its check. A pack rule (LINT3)
-// joins the registry under namespace/name with the same metadata.
+// is configured and run beside them under namespace/name (packs.go).
 //
 // SafeFix marks a rule whose fixes keep the program's behaviour, so
 // `ergo fix --lint` applies them. Options decodes the rule's options (nil
@@ -144,6 +145,10 @@ type Finding struct {
 	Column   int
 	// Fix is the finding's edit, nil when the rule offers none.
 	Fix *report.Fix
+	// Related and Suggestions are a pack finding's related places and
+	// suggested edits (previews, never applied).
+	Related     []sdk.Related
+	Suggestions []sdk.Suggestion
 }
 
 // Rule statuses.

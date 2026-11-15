@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	sdk "ergo.local/prototype/lint"
 )
 
 // Preset is a named set of rule settings. A built-in preset names built-in
@@ -91,11 +93,12 @@ func (r *Registry) admit(name string, s Setting) error {
 }
 
 // Configuration is a registry with every rule's effective severity and
-// options.
+// options, and the rule packs it selects with theirs.
 type Configuration struct {
 	registry *Registry
 	severity map[string]Severity
 	options  map[string]json.RawMessage
+	packs    *packSet
 }
 
 // optionsOf decodes the rule's effective options; nil for a rule that
@@ -115,11 +118,40 @@ func (c *Configuration) optionsOf(rule *Rule) (any, error) {
 // severity replaces the earlier one, and a setting with no severity turns
 // an off rule on at its default and keeps an enabled rule's severity.
 // Every problem refuses the whole configuration.
+//
+// A document that selects rule packs is configured by ConfigureWith; here
+// a pack, or a namespace/name preset or rule, is refused.
 func (r *Registry) Configure(doc Config, presets []string) (*Configuration, error) {
+	return r.ConfigureWith(doc, presets, nil)
+}
+
+// ConfigureWith is Configure with the rule packs the document selects,
+// loaded (LoadPacks), and any the command line adds. Built-in names
+// configure built-in rules as Configure does. Every namespace/name preset,
+// in the document's extends and then presets, and every namespace/name
+// rule configure the packs as custom-lint.md states (the SDK's
+// Registry.Configure): a stated severity or options replace the earlier
+// ones, and an omitted one keeps them. Nothing runs.
+func (r *Registry) ConfigureWith(doc Config, presets []string, packs []sdk.SelectedPack) (*Configuration, error) {
 	if doc.Version != ConfigVersion {
 		return nil, fmt.Errorf("lint configuration version %d is not supported; write \"version\": %d", doc.Version, ConfigVersion)
 	}
-	c := &Configuration{registry: r, severity: map[string]Severity{}, options: map[string]json.RawMessage{}}
+	if len(doc.Packs) > 0 && len(packs) == 0 {
+		return nil, fmt.Errorf("the configuration selects rule packs that were not loaded")
+	}
+	set, err := configurePacks(doc, presets, packs)
+	if err != nil {
+		return nil, err
+	}
+	var builtinPresets []string
+	for _, p := range presets {
+		if !qualified(p) {
+			builtinPresets = append(builtinPresets, p)
+		}
+	}
+	presets = builtinPresets
+	doc = doc.Builtins()
+	c := &Configuration{registry: r, severity: map[string]Severity{}, options: map[string]json.RawMessage{}, packs: set}
 	for _, rule := range r.rules {
 		c.severity[rule.Name] = Off
 	}
@@ -174,6 +206,9 @@ func (c *Configuration) Statuses() []RuleStatus {
 	var out []RuleStatus
 	for _, rule := range c.registry.rules {
 		out = append(out, RuleStatus{Rule: rule.Name, Code: rule.Code, Severity: c.severity[rule.Name].String()})
+	}
+	if c.packs != nil {
+		out = append(out, c.packs.statuses()...)
 	}
 	return out
 }

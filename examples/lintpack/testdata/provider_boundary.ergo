@@ -1,0 +1,61 @@
+// Fixture of the policy/provider-boundary rule: the configuration lets only
+// compose bind the Disk provider. The rule reads which provider each with
+// binds, so Disk is found through a local of another name and through a
+// named context, and not where a local spelled Disk holds a Memory or a
+// capability value is passed on.
+
+// Store keeps one count.
+type Store {
+	Count() int,
+}
+
+// Disk is the live store: the provider the configuration restricts.
+type Disk { N int }
+
+func Count(d Disk) int { d.N }
+
+// Memory is a store for tests.
+type Memory { N int }
+
+func Count(m Memory) int { m.N }
+
+let Live = context {
+	Store: Disk{N: 1},
+}
+
+func read() int needs Store {
+	Store.Count()
+}
+
+// compose is the composition function the configuration allows.
+func compose() int {
+	with Live { read() }
+}
+
+// named binds Disk through the named context Live.
+func named() int {
+	with Live { read() }
+}
+
+// aliased binds Disk through a local of another name.
+func aliased() int {
+	let store = Disk{N: 2}
+	with context { Store: store } { read() }
+}
+
+// shadowed has a local spelled Disk that holds a Memory: "Disk" in this
+// comment, the local and this string bind no Disk.
+func shadowed() string {
+	let Disk = Memory{N: 3}
+	let n = with context { Store: Disk } { read() }
+	"Disk \(n)"
+}
+
+// passed binds a Store value it was given: it picks no provider.
+func passed(s Store) int {
+	with context { Store: s } { read() }
+}
+
+func main() needs Console {
+	Console.Println("\(compose()) \(named()) \(aliased()) \(shadowed()) \(passed(Memory{N: 4}))")
+}

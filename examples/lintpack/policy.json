@@ -1,0 +1,80 @@
+{
+  "manifestVersion": 1,
+  "namespace": "policy",
+  "version": "0.2.0",
+  "description": "Example project policies over resolved Ergo facts.",
+  "factSchema": {
+    "name": "ergo.lint.facts",
+    "versions": [
+      2
+    ]
+  },
+  "executable": {
+    "path": "bin/policy-lint"
+  },
+  "rules": [
+    {
+      "name": "provider-boundary",
+      "version": "2",
+      "description": "Only the configured composition functions may bind the configured provider.",
+      "defaultSeverity": "error",
+      "requires": [
+        "declarations",
+        "callables",
+        "withs"
+      ],
+      "options": [
+        {
+          "name": "provider",
+          "type": "string",
+          "description": "The provider type, as PKG.Name.",
+          "required": true
+        },
+        {
+          "name": "allow",
+          "type": "string-list",
+          "description": "The functions, as PKG.Name, that may bind it.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "forbidden-failure",
+      "version": "2",
+      "description": "The configured failure must not escape the selected functions.",
+      "defaultSeverity": "error",
+      "requires": [
+        "callables",
+        "calls"
+      ],
+      "options": [
+        {
+          "name": "failure",
+          "type": "string",
+          "description": "The failure type, as PKG.Name.",
+          "required": true
+        },
+        {
+          "name": "functions",
+          "type": "string-list",
+          "description": "The functions, as PKG.Name, it must not escape.",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "strict",
+      "description": "Both policies as warnings.",
+      "rules": {
+        "forbidden-failure": {
+          "severity": "warning"
+        },
+        "provider-boundary": {
+          "severity": "warning"
+        }
+      }
+    }
+  ]
+}

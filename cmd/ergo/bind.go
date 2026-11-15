@@ -38,8 +38,12 @@ func bindCommand(args []string) error {
 	fs := flag.NewFlagSet("bind", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	out := fs.String("o", "", "")
-	if err := fs.Parse(args[1:]); err != nil || fs.NArg() == 0 {
-		return usageError{message: "usage: ergo bind go [-o DIR] PACKAGE..."}
+	const usage = "usage: ergo bind go [-o DIR] PACKAGE..."
+	if err := fs.Parse(args[1:]); err != nil {
+		return flagError(err, usage)
+	}
+	if fs.NArg() == 0 {
+		return usageError{message: usage}
 	}
 	dir, module, err := bindRoot()
 	if err != nil {

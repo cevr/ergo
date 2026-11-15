@@ -8,13 +8,16 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	sdk "ergo.local/prototype/lint"
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
 // dropped the lint fields and the suppression list (#205). Version 3 makes two
 // changes in one step: the lint fields return on the new checker (LINT0: a
 // finding's rule, lintComplete and suppressions), and a diagnostic carries its
-// fix (EX1: Fix).
+// fix (EX1: Fix). A rule pack finding's related places and suggestions
+// (LINT3) join version 3 before it is published: one version for the step.
 const DiagnosticReportSchemaVersion = 3
 
 // SourceSnapshot identifies the exact text a result was computed from. The
@@ -86,6 +89,11 @@ type DiagnosticFinding struct {
 	LSP               *LSPDiagnostic `json:"lsp,omitempty"`
 	// Fix is the edit ergo fix applies for the finding, when it has one.
 	Fix *Fix `json:"fix,omitempty"`
+	// Related and Suggestions are a rule pack finding's related places and
+	// suggested edits, in the shape an `ergo lint test` expectation holds
+	// (LINT3); omitted when the finding has none.
+	Related     []sdk.Related    `json:"related,omitempty"`
+	Suggestions []sdk.Suggestion `json:"suggestions,omitempty"`
 }
 
 // DiagnosticCounts counts findings by severity.

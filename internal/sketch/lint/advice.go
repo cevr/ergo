@@ -10,7 +10,7 @@ func (r Result) Advice() *report.LintAdvice {
 		if f.Line > 0 {
 			span = report.Span{Offset: f.Offset, Length: f.Length, Line: f.Line, Column: f.Column}
 		}
-		advice.Findings = append(advice.Findings, report.LintFinding{Code: f.Code, Rule: f.Rule, Severity: f.Severity.String(), Message: f.Message, File: f.File, Span: span, Fix: f.Fix})
+		advice.Findings = append(advice.Findings, report.LintFinding{Code: f.Code, Rule: f.Rule, Severity: f.Severity.String(), Message: f.Message, File: f.File, Span: span, Fix: f.Fix, Related: f.Related, Suggestions: f.Suggestions})
 	}
 	for _, s := range r.Suppressions {
 		advice.Suppressions = append(advice.Suppressions, report.SuppressionStatus{

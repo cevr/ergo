@@ -31,8 +31,12 @@ func genCommand(args []string) error {
 	fs := flag.NewFlagSet("gen", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	checkOnly := fs.Bool("check", false, "")
-	if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 1 {
-		return usageError{message: "usage: ergo gen rpc [--check] DIR.OPTYPE"}
+	const usage = "usage: ergo gen rpc [--check] DIR.OPTYPE"
+	if err := fs.Parse(args[1:]); err != nil {
+		return flagError(err, usage)
+	}
+	if fs.NArg() != 1 {
+		return usageError{message: usage}
 	}
 	arg := fs.Arg(0)
 	i := strings.LastIndex(arg, ".")

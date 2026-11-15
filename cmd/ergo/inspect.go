@@ -64,7 +64,7 @@ func inspectAPICommand(args []string) error {
 			diff = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return invalidInvocation(fmt.Errorf("inspect api: unknown option %s", arg))
+				return unknownOption("inspect api", arg)
 			}
 			paths = append(paths, arg)
 		}

@@ -188,8 +188,6 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 		want string
 	}{
 		{[]string{"diagnostics", path, "--unknown"}, "unknown option --unknown"},
-		{[]string{"diagnostics", path, "--lint-config", "lint.json"}, "unknown option --lint-config"},
-		{[]string{"diagnostics", path, "--rules", "rules.json"}, "unknown option --rules"},
 		{[]string{"diagnostics", path, "--target", "llvm"}, "EF110: unsupported target llvm; the only target is go"},
 		{[]string{"diagnostics", path, "--target"}, "--target requires a value"},
 		{[]string{"diagnostics", path, clean}, "incorrect arguments for diagnostics"},
@@ -208,8 +206,9 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 	}
 }
 
-// The other file commands report an invalid invocation with exit 1, and
-// their options are the ones the command table names.
+// The other file commands report an invalid invocation with exit 2, as
+// diagnostics does, and their options are the ones the command table
+// names; an -o that names a directory is a failed build, exit 1.
 func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 	binary := buildTestCLI(t)
 	root := t.TempDir()
@@ -236,9 +235,13 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"build", path, "-o", root + string(filepath.Separator)}, "names a directory"},
 		{[]string{"build", path, "-o", root}, "is a directory"},
 	} {
+		want := 2
+		if strings.Contains(c.want, "directory") {
+			want = 1
+		}
 		stdout, stderr, code := runTestCLIDir(t, binary, root, "", c.args...)
-		if code != 1 || len(stdout) != 0 || !strings.Contains(string(stderr), c.want) {
-			t.Fatalf("ergo %v: code=%d stdout=%q stderr=%q; want exit 1 and %q", c.args, code, stdout, stderr, c.want)
+		if code != want || len(stdout) != 0 || !strings.Contains(string(stderr), c.want) {
+			t.Fatalf("ergo %v: code=%d stdout=%q stderr=%q; want exit %d and %q", c.args, code, stdout, stderr, want, c.want)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "dist")); err == nil {

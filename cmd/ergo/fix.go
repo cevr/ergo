@@ -51,7 +51,10 @@ func fixCommand(args []string) error {
 		case "--lint":
 			withLint = true
 		default:
-			if path != "" || len(a) > 1 && a[0] == '-' {
+			if len(a) > 1 && a[0] == '-' {
+				return unknownOption("", a)
+			}
+			if path != "" {
 				return usageError{message: fixUsage}
 			}
 			path = a
@@ -70,7 +73,8 @@ func fixCommand(args []string) error {
 		if err != nil {
 			return invalidInvocation(err)
 		}
-		conf, err := lint.Builtin().Configure(doc, nil)
+		// fix applies built-in fixes only and never starts a rule pack.
+		conf, err := lint.Builtin().Configure(doc.Builtins(), nil)
 		if err != nil {
 			return invalidInvocation(fmt.Errorf("%s: %w", lint.ConfigFile, err))
 		}

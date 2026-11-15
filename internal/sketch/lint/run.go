@@ -47,6 +47,10 @@ func (c *Configuration) Run(in Input) Result {
 		}
 		res.Rules = append(res.Rules, st)
 	}
+	packFindings, packStatuses, packsComplete := c.runPacks(in)
+	findings = append(findings, packFindings...)
+	res.Rules = append(res.Rules, packStatuses...)
+	res.Complete = res.Complete && packsComplete
 	statuses := map[string]*RuleStatus{}
 	for i := range res.Rules {
 		statuses[res.Rules[i].Rule] = &res.Rules[i]
@@ -97,9 +101,11 @@ func (c *Configuration) suppress(d directive, checked bool, statuses map[string]
 		if reservedNamespace(d.namespace) {
 			return fmt.Sprintf("unknown lint rule %s: the namespace %s is reserved", d.rule, d.namespace)
 		}
-		s.Status, s.Reason = NotEvaluated, ReasonPackNotSelected
-		res.Suppressions = append(res.Suppressions, s)
-		return ""
+		if !c.packs.selects(d.namespace) {
+			s.Status, s.Reason = NotEvaluated, ReasonPackNotSelected
+			res.Suppressions = append(res.Suppressions, s)
+			return ""
+		}
 	}
 	st := statuses[d.rule]
 	if st == nil {
@@ -110,6 +116,8 @@ func (c *Configuration) suppress(d directive, checked bool, statuses map[string]
 		s.Status, s.Reason = NotEvaluated, ReasonUnchecked
 	case st.Status == StatusOff:
 		s.Status, s.Reason = NotEvaluated, ReasonRuleOff
+	case d.form == formQualified && st.Status != StatusCompleted:
+		s.Status, s.Reason = NotEvaluated, notEvaluatedReason(st)
 	case st.Status == StatusFailed:
 		s.Status, s.Reason = NotEvaluated, ReasonFactsUnavailable
 	default:

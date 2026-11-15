@@ -1,0 +1,115 @@
+{
+  "complete": true,
+  "rules": [
+    {
+      "rule": "policy/forbidden-failure",
+      "code": "policy/forbidden-failure",
+      "severity": "error",
+      "status": "completed"
+    },
+    {
+      "rule": "policy/provider-boundary",
+      "code": "policy/provider-boundary",
+      "severity": "off",
+      "status": "off"
+    }
+  ],
+  "findings": [
+    {
+      "code": "policy/forbidden-failure",
+      "severity": "error",
+      "message": "failure main.Denied can escape main.fetch",
+      "span": {
+        "file": "",
+        "offset": 939,
+        "length": 5,
+        "line": 35,
+        "column": 6
+      },
+      "related": [
+        {
+          "message": "main.Denied enters the body here",
+          "span": {
+            "file": "",
+            "offset": 1003,
+            "length": 15,
+            "line": 36,
+            "column": 6
+          }
+        }
+      ]
+    },
+    {
+      "code": "policy/forbidden-failure",
+      "severity": "error",
+      "message": "failure main.Denied can escape main.forwards",
+      "span": {
+        "file": "",
+        "offset": 1082,
+        "length": 8,
+        "line": 40,
+        "column": 6
+      },
+      "related": [
+        {
+          "message": "main.Denied enters the body here",
+          "span": {
+            "file": "",
+            "offset": 1149,
+            "length": 10,
+            "line": 41,
+            "column": 6
+          }
+        }
+      ]
+    },
+    {
+      "code": "policy/forbidden-failure",
+      "severity": "error",
+      "message": "failure main.Denied can escape main.relay",
+      "span": {
+        "file": "",
+        "offset": 1270,
+        "length": 5,
+        "line": 46,
+        "column": 6
+      },
+      "related": [
+        {
+          "message": "main.Denied enters the body here",
+          "span": {
+            "file": "",
+            "offset": 1311,
+            "length": 10,
+            "line": 47,
+            "column": 6
+          }
+        }
+      ]
+    }
+  ],
+  "suppressions": [
+    {
+      "rule": "policy/forbidden-failure",
+      "status": "applied",
+      "line": 74
+    },
+    {
+      "rule": "policy/forbidden-failure",
+      "status": "unused",
+      "line": 83
+    },
+    {
+      "rule": "policy/provider-boundary",
+      "status": "not-evaluated",
+      "reason": "rule-off",
+      "line": 84
+    },
+    {
+      "rule": "acme/no-todo",
+      "status": "not-evaluated",
+      "reason": "pack-not-selected",
+      "line": 85
+    }
+  ]
+}

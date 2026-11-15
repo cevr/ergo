@@ -1,0 +1,116 @@
+// Fixture of the policy/forbidden-failure rule (failure.lint.json): the
+// configuration forbids main.Denied in fetch, forwards, relay, recovers,
+// timed, foreign, legacy and spelled. The rule reads each callable's checked error
+// row, so Denied is found where a function passes it on, and not where it
+// recovers it or only spells it.
+
+import go strconv
+import timeout
+
+// Denied is a refused request: the failure the configuration forbids.
+type Denied { Reason string }
+
+// Missing is an absent key.
+type Missing { Key string }
+
+// Store reads values by key.
+type Store {
+	Read(key string) int fails Denied | Missing,
+}
+
+// Table is a Store of fixed values.
+type Table {}
+
+func Read(_ Table, key string) int fails Denied | Missing {
+	if key == "secret" {
+		return Denied{Reason: "a secret key"}
+	}
+	if key == "" {
+		return Missing{Key: key}
+	}
+	len(key)
+}
+
+// fetch reads through the Store capability: its row passes Denied on.
+func fetch(key string) int fails Denied | Missing needs Store {
+	try Store.Read(key)
+}
+
+// forwards passes Denied on through the helper fetch.
+func forwards(key string) int fails Denied | Missing needs Store {
+	try fetch(key) + 1
+}
+
+// relay writes no fails clause: the checker infers its row, which holds
+// what fetch passes on.
+func relay(key string) int needs Store {
+	try fetch(key)
+}
+
+// recovers handles Denied, so only Missing escapes.
+func recovers(key string) int fails Missing needs Store {
+	try fetch(key) catch {
+	case Denied:
+		0
+	}
+}
+
+// timed lets the deadline's failure, timeout.Expired, escape through
+// timeout.After's declared row; Denied is recovered inside.
+func timed(key string) int fails timeout.Expired | Missing needs Store | Scheduler {
+	timeout.After(1s) { recovers(key) }
+}
+
+// foreign lets the Go binding's go.Error escape, and nothing else.
+func foreign(text string) int fails go.Error {
+	try strconv.Atoi(text)
+}
+
+// Reply holds a field named Denied.
+type Reply { Denied bool, Note string }
+
+// legacy lets Denied escape too; the directive acknowledges it (applied).
+// ergo-lint-disable-next-line policy/forbidden-failure -- legacy entry point, kept for old callers
+func legacy(key string) int fails Denied | Missing needs Store {
+	try fetch(key)
+}
+
+// spelled has a local, a field and a string named Denied, and fails with
+// none of them. The first directive is unused: the rule completed and
+// found nothing here. The second names a rule configured off, the third a
+// pack that is not selected: neither is evaluated.
+// ergo-lint-disable-next-line policy/forbidden-failure -- spelled never fails
+// ergo-lint-disable-next-line policy/provider-boundary -- no provider is bound here
+// ergo-lint-disable-next-line acme/no-todo -- the acme pack is not selected here
+func spelled() Reply {
+	let Denied = true
+	Reply{Denied: Denied, Note: "Denied"}
+}
+
+// Timed runs timed under a with of the caller's Scheduler.
+func Timed(key string) int needs Scheduler {
+	with context { Store: Table } {
+		timed(key) catch {
+		case timeout.Expired:
+			0
+		case Missing:
+			0
+		}
+	}
+}
+
+func main() needs Console {
+	let value = with context { Store: Table } {
+		forwards("a") catch {
+		case Denied:
+			0
+		case Missing:
+			0
+		}
+	}
+	let n = foreign("7") catch {
+	case go.Error:
+		0
+	}
+	Console.Println("\(value) \(n) \(spelled().Note)")
+}
