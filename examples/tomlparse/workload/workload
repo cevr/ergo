@@ -3,7 +3,7 @@
 # of one record is the slope between the two sizes. The control is the
 # hand Go parser of the same design.
 unit record
-sizes 20000 160000
+sizes 10000 80000
 input self gen -seed 1 -n {n}
 args check {input}
 control cmd/ergo/testdata/tomlparse/control
