@@ -30,7 +30,21 @@ func init() {
 		panic(err)
 	}
 	processCache = dir
+	if store := os.Getenv(goStoreVariable); store != "" {
+		if err := os.MkdirAll(filepath.Join(dir, "ergo"), 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.Symlink(store, filepath.Join(dir, "ergo", "go")); err != nil {
+			panic(err)
+		}
+	}
 }
+
+// goStoreVariable names a Go action store (the direct path's content-keyed
+// plans, actions and blobs) that this process's emission caches use in
+// place of their own: TestPackageNeverWritesUnderHome gives its inner run
+// the outer run's store, which lies outside the HOME it watches.
+const goStoreVariable = "ERGO_CMD_TEST_GO_STORE"
 
 // processCache is the emission cache root (XDG_CACHE_HOME) of this test
 // process (init).
@@ -100,7 +114,11 @@ const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
 // mode is off in the witnessed HOME (goTelemetryOff), so the compile and
 // link that Ergo runs itself count nothing there either. The inner run's temporary directory is
 // reached through a symbolic link, with GOTMPDIR unset, so its tests see
-// a logical path that differs from the physical one, as on darwin.
+// a logical path that differs from the physical one, as on darwin. Its
+// emission caches use this process's Go action store (goStoreVariable),
+// which lies outside the witnessed HOME, so its builds may be cached ones;
+// a write under HOME that only a cached build makes is still witnessed
+// (mutant gs26b-cached-build-writes-home).
 //
 // HOME is checked whatever the inner run's exit status: a failing test
 // there is reported by this package's own run and must not hide a write
@@ -132,6 +150,18 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	env = append(env, "HOME="+home, innerRunVariable+"=1", "TMPDIR="+linkedTemp,
 		"PATH="+wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GOCACHE="+goEnv["GOCACHE"], "GOMODCACHE="+goEnv["GOMODCACHE"], "GOPATH="+goEnv["GOPATH"], "GOENV="+goEnv["GOENV"])
+	// The inner run's emission caches use this process's Go action store,
+	// outside the witnessed HOME: the claim is where the package writes, not
+	// that it builds from cold, and its cached builds still run every write
+	// a build makes outside that store (GS26b).
+	store, err := filepath.EvalSymlinks(filepath.Join(processCache, "ergo", "go"))
+	if err != nil {
+		if err := os.MkdirAll(filepath.Join(processCache, "ergo", "go"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		store = filepath.Join(processCache, "ergo", "go")
+	}
+	env = append(env, goStoreVariable+"="+store)
 	child := exec.Command(os.Args[0], "-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$")
 	child.Env = env
 	stdout, stderr, code := runSmokeCommand(t, child)
