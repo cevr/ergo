@@ -337,8 +337,8 @@
       "name": "cache-go-unkeyed",
       "origin": "wf10 g-b2",
       "file": "cmd/ergo/testcache.go",
-      "from": "\twrite(goPath)\n\twrite(strconv.FormatInt(info.Size(), 10))\n\twrite(strconv.FormatInt(info.ModTime().UnixNano(), 10))\n",
-      "to": "\t_ = info\n",
+      "from": "\tparts := []string{goPath, strconv.FormatInt(info.Size(), 10), strconv.FormatInt(info.ModTime().UnixNano(), 10), tc.Root,",
+      "to": "\t_, _ = info, goPath\n\tparts := []string{tc.Root,",
       "rule": "A test result is keyed by the go command that links the binary, so another or a reinstalled Go misses.",
       "killers": ["cmd/ergo:TestTestResultKeysTheLinkingGo"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultKeysTheLinkingGo"]}
