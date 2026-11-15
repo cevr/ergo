@@ -65,7 +65,10 @@ import (
 // count (the build and the report's site still run) until that unit
 // deletes the mark; OWN_GROWTH_KNOWN_RED=1 counts it too, so a unit shows
 // its rows red at its base. Measured at RU0's head (2026-11-15): g4, f2,
-// f3, r1, r2, r3, u1 and fv copy the Set at each step.
+// f3, r1, r2, r3, u1 and fv copy the Set at each step. A unit that turns
+// a row green also gives it 200,000 steps: linear, a step costs a few
+// instructions, and at 2,000 or 20,000 steps the runtime's own work (a
+// collection, a heap growth) is as large as the difference counted.
 //
 // SL3's mutant mapcopy-sl3-reslice-never (own-reslice never taken) is
 // caught here as a growth and in TestHandoverAgrees by trim's copy.
@@ -152,12 +155,12 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}, ""},
 		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
-		{"reuse-g4", reuse, 2000, "", shape("g4"), ""},
+		{"reuse-g4", reuse, 200000, "", shape("g4"), ""},
 		{"reuse-f2", reuse, 2000, "", shape("f2"), "RU2"},
 		{"reuse-f3", reuse, 2000, "", shape("f3"), "RU2"},
-		{"reuse-r1", reuse, 2000, "", shape("r1"), ""},
-		{"reuse-r2", reuse, 2000, "", shape("r2"), ""},
-		{"reuse-r3", reuse, 2000, "", shape("r3"), ""},
+		{"reuse-r1", reuse, 200000, "", shape("r1"), ""},
+		{"reuse-r2", reuse, 200000, "", shape("r2"), ""},
+		{"reuse-r3", reuse, 200000, "", shape("r3"), ""},
 		{"reuse-u1", reuse, 2000, "", shape("u1"), "RU3"},
 		{"reuse-fv", reuse, 2000, "", shape("fv"), "RU4 (a known callback takes the owning form; plan §2, Indirect calls)"},
 		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
