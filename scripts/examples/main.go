@@ -70,6 +70,8 @@ type config struct {
 	// modules; without it a run with no names runs every module too.
 	modules bool
 	names   []string
+	// cache is the verdict cache's directory (cache.go), or "" for none.
+	cache string
 	// jobs is how many programs run at once (runAll).
 	jobs int
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
@@ -168,6 +170,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	defer l.removeDir(scratch)
 	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, install: &tsInstall{}}
+	if !cfg.record {
+		r.cache = openCache(cfg.cache, cfg)
+	}
 	return r.runAll(selected)
 }
 
@@ -222,6 +227,9 @@ func (r *runner) runAll(selected []*program) int {
 		r.cases += pr.cases
 		r.failures = append(r.failures, pr.failures...)
 	}
+	if r.cache != nil {
+		fmt.Fprintf(r.out, "examples: cache %s: %d programs replayed, %d run\n", r.cache.dir, r.cache.hits, r.cache.misses)
+	}
 	return r.finish()
 }
 
@@ -231,13 +239,13 @@ func (r *runner) runAll(selected []*program) int {
 func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
-	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install}
+	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, cache: r.cache}
 	if p.library {
 		one.runModule(p)
 	} else if r.cfg.record {
 		one.recordProgram(p)
 	} else {
-		one.runProgram(p)
+		one.runCached(p)
 	}
 	pr.cases, pr.failures = one.cases, one.failures
 }
@@ -268,6 +276,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
+	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -755,6 +764,8 @@ type runner struct {
 	// program's runner.
 	ts      *tsRun
 	install *tsInstall
+	// cache is the run's verdict cache, or nil (cache.go).
+	cache *verdictCache
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
