@@ -149,8 +149,8 @@
       "name": "b18-nested-coverdir",
       "origin": "wf10 batch-18 r4 M2",
       "file": "scripts/mutants/runner.go",
-      "from": "\tif s.Package != \"\" && s.Module == \"\" {",
-      "to": "\tif s.Package != \"\" {",
+      "from": "\tif s.Package != \"\" && s.Module == \"\" && len(e.cfg.Cover) > 0 {",
+      "to": "\tif s.Package != \"\" && len(e.cfg.Cover) > 0 {",
       "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
       "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
     },
@@ -356,8 +356,8 @@
       "name": "gt7-env-dropped",
       "origin": "wf10 GATE2 GT7",
       "file": "scripts/mutants/runner.go",
-      "from": "e.env(append(env, \"GOCOVERDIR=\"+dir, coverGoVariable+\"=\"+k.ergo.dir)...)",
-      "to": "e.env(append(env, \"GOCOVERDIR=\"+dir)...)",
+      "from": "e.env(append(env, \"GOCOVERDIR=\"+dir, coverGoVariable+\"=\"+k.ergo.dir, embedReadsVariable+\"=1\")...)",
+      "to": "e.env(append(env, \"GOCOVERDIR=\"+dir, embedReadsVariable+\"=1\")...)",
       "rule": "The coverage pass's children build the programs they lower as coverage builds, so .ergo lines are covered.",
       "gap": "Only an end-to-end coverage pass that builds the ergo CLI with coverage and runs a lowered example sees it (GT7 acceptance, gate2/GT7/accept.ts); no test of the package builds the CLI.",
       "killers": []
