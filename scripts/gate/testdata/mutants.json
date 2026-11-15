@@ -1,6 +1,10 @@
 {
   "about": "Focused scheduler regression mutants, run with their named killers. Model searches reserve all scheduler slots for memory isolation.",
   "mutants": [
+    {"name":"gs21-vet-bases-ignored","origin":"wf10 GS21","file":"scripts/gate/main.go","from":"path.Match(pattern, path.Base(name)); ok {","to":"path.Match(pattern, path.Base(name)); ok && pattern == \"\" {","rule":"A file whose base name matches Bases is keyed by its content: a Go edit runs vet again.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
+    {"name":"gs21-vet-unlisted","origin":"wf10 GS21","file":"scripts/gate/main.go","from":"\t\t\tfmt.Fprintf(hash, \"listed\\x00%s\\x00\", name)\n","to":"","rule":"Listed keys every other file's name: adding or removing an embedded file runs vet again.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
+    {"name":"gs21-vet-go-dropped","origin":"wf10 GS21","file":"scripts/gate/steps.go","from":"\t\tListed: true,\n\t\tTools:  []string{\"go\"},\n","to":"\t\tListed: true,\n","rule":"go vet's key holds Go's version and settings.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
+    {"name":"gs21-vet-every-content","origin":"wf10 GS21","file":"scripts/gate/steps.go","from":"\t\tBases:  []string{\"*.go\", \"*.s\", \"go.mod\", \"go.sum\", \"go.work\"},\n","to":"\t\tBases:  []string{\"*\"},\n","rule":"go vet does not key the content of a file it does not read: an embedded .ergo edit replays it.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
     {
       "name": "b15-r8-run-memory-reservation-disconnected",
       "origin": "wf10 batch-15 fix-r8, verifier v7-main-held-one",

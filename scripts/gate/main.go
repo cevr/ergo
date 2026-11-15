@@ -183,6 +183,15 @@ type Inputs struct {
 	// selects every file.
 	Paths   []string
 	Exclude []string
+	// Bases selects, beside Paths, every file whose base name matches one
+	// of these path.Match patterns ("*.go"): the files of one kind in
+	// every folder.
+	Bases []string
+	// Listed keys the name of every file the inputs do not select, though
+	// not its content: adding, removing or renaming any file runs the step
+	// again, and editing one it does not read replays it. go vet reads the
+	// Go files' content, and the embed patterns' matches only by name.
+	Listed bool
 	// Tools names executables whose fingerprint (toolVersion) is an input.
 	Tools []string
 	// Env names environment variables whose values are inputs.
@@ -1508,7 +1517,15 @@ func selected(name string, inputs *Inputs) bool {
 		}
 		return false
 	}
-	if len(inputs.Paths) > 0 && !match(inputs.Paths) {
+	base := func() bool {
+		for _, pattern := range inputs.Bases {
+			if ok, _ := path.Match(pattern, path.Base(name)); ok {
+				return true
+			}
+		}
+		return false
+	}
+	if (len(inputs.Paths) > 0 || len(inputs.Bases) > 0) && !match(inputs.Paths) && !base() {
 		return false
 	}
 	return !match(inputs.Exclude)
@@ -1534,6 +1551,8 @@ func (g *gate) key(step *Step) (string, error) {
 			}
 			fmt.Fprintf(hash, "file\x00%s\x00%s\x00", name, digest)
 			files++
+		} else if inputs.Listed {
+			fmt.Fprintf(hash, "listed\x00%s\x00", name)
 		}
 	}
 	if files == 0 {
