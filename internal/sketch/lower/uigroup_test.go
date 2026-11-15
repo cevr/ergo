@@ -495,6 +495,62 @@ func fixed() needs Console {
 	pressLast(&g)
 	let _ = ui.Render(&g, fenced, St{A: 1, It: it, Items: []Item{}})
 	pressLast(&g)
+	let mut h = ui.NewFrame[int]()
+	let _ = ui.Render(&h, fencedTwo, St{A: 0, It: it, Items: []Item{}})
+	pressLast(&h)
+	let _ = ui.Render(&h, fencedTwo, St{A: 1, It: it, Items: []Item{}})
+	pressLast(&h)
+	for a in 0..3 {
+		step(&h, cutKept, St{A: a, It: it, Items: []Item{}}, -1)
+	}
+}
+
+// checks writes two checks at one site: tops that do not each take the
+// first count of their identity, so a group of them is never deferred.
+func checks(f *ui.Frame[int], n int) {
+	for k in 0..2 {
+		ui.Check(f, "c", false, n+k)
+	}
+}
+
+// fencedTwo is fenced over checks: the disabled state is checked on the
+// path that takes each top's count. Mutant ui-group-off-unchecked.
+func fencedTwo(f *ui.Frame[int], s St) {
+	ui.Fieldset(f, s.A%2 == 1, "") {
+		checks(f, 7)
+	}
+}
+
+// boundShown is a boundary whose body writes shown(f, 1) and, when more,
+// a text after it, then stops when stop: a cut that takes back a kept
+// group, written again in that pass, whose counts are deferred (and taken
+// by the text when more). Two calls of one boundary share their counts.
+func boundShown(f *ui.Frame[int], stop bool, more bool) {
+	ui.Boundary(f) {
+		shown(f, 1)
+		if more {
+			ui.Text(f, "more")
+		}
+		try stopIf(stop, 0)
+	} catch {
+	case Stop:
+		ui.Text(f, "stopped")
+	}
+}
+
+// cutKept is two columns of two boundShown calls; the first of each stops
+// when a is 1. In that pass its shown is written again and cut, so the
+// second's shown takes the counts its nodes take when nothing is kept.
+// Mutants ui-pending-cut-kept and ui-pending-cut-counts-kept.
+func cutKept(f *ui.Frame[int], s St) {
+	ui.Column(f, ui.Plain()) {
+		boundShown(f, s.A == 1, false)
+		boundShown(f, false, false)
+	}
+	ui.Column(f, ui.Plain()) {
+		boundShown(f, s.A == 1, true)
+		boundShown(f, false, true)
+	}
 }
 
 // pointers renders the counter at each of ns, through one pointer: a
@@ -757,7 +813,9 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-ns2b-whole-record, ui-ns2b-field-unread, ui-ns2c-off,
 // ui-ns2c-same-length, ui-ns2c-keep-aliases, ui-ns2c-fields-unkept,
 // ui-prior-place-uncounted, ui-cut-nkids-kept, ui-group-seen-unpassed,
-// ui-keep-sweep-always, ui-keep-sweep-never, ui-keep-nheld-drift.
+// ui-keep-sweep-always, ui-keep-sweep-never, ui-keep-nheld-drift,
+// ui-pending-untaken, ui-pending-each-unchecked, ui-pending-not-alone,
+// ui-pending-cut-kept, ui-pending-cut-counts-kept, ui-pending-off-unchecked.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	var seeds []uint64
