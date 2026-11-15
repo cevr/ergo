@@ -1,0 +1,28 @@
+// The work.Vcs law on the host, in a folder of each case's own
+// (testing.Ambient): git runs for real, confined to the folder, with
+// GIT_CEILING_DIRECTORIES above it.
+
+import exec
+import testing
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs testing.Ambient {
+	work.Vcs:    New(exec.NewTestHost()),
+	exec.Runner: exec.NewTestHost(),
+}
+
+// run runs a git command in the folder and gives its status.
+func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New("git", args)).Status
+}
+
+test OwnBranchHoldsItsHeadInARepository {
+	with onHost {
+		assert try run([]string{"init", "-q", "-b", "main", "repo"}) == 0
+		assert try run([]string{"-C", "repo", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "first"}) == 0
+		assert try work.Vcs.Branch("repo") == "main"
+		let head = try work.Vcs.Head("repo")
+		assert try work.Vcs.Holds("repo", head)
+		assert try work.Vcs.Clean("repo")
+	}
+}
