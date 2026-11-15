@@ -58,6 +58,13 @@ const paramCarry = true
 // useBytes is the memory bound of a union flat by use (above).
 const useBytes = 128
 
+// msb3Lowering "off" is the reference of MSB3: a machine's signal keeps
+// the bounds (stateFlat), a union with a variant that is an error type is
+// an interface (flatunion.go's flatShape), and so is every std union, as
+// before MSB3. Set by a test or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.msb3Lowering=off.
+var msb3Lowering string
+
 // A machine's state is flat past both bounds (MSB2). A step is a function
 // value std's run calls, so its state is carried by every step, and each
 // step that returns a new state of a variant with fields boxed it: one
@@ -68,8 +75,13 @@ const useBytes = 128
 // which bounds a slice's waste, does not apply; a slice of states pays
 // the widest form per element, as Rust's and Swift's enums do.
 //
-// The reference is unionBound "register" too: there a state follows the
-// register bound alone, as before R3b and MSB2.
+// A machine's signal is flat past both bounds too (MSB3): std's run sends
+// each signal through the actor's mailbox and hands it to a step, a
+// function value, so it is carried, and each signal of a variant with
+// fields boxed (router's Told{Delivered}, three strings).
+//
+// The reference is unionBound "register" too: there a state or a signal
+// follows the register bound alone, as before R3b and MSB2.
 func (l *lowerer) stateFlat(tn *check.TypeName, states map[*check.TypeName]bool) bool {
 	return unionBound != "register" && states[tn]
 }

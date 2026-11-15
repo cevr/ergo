@@ -79,10 +79,13 @@ func (fc *funcCtx) workLit(x *syntax.CompositeLit, lit *check.WorkLit, t check.T
 			b.WriteString(in + "return struct{}{}, " + err + "\n")
 		default:
 			if fu := fc.l.flatUnionOf(lit.Signal); fu != nil {
-				// The failure is a variant of the signal, an error value: a
-				// flat signal union holds no error value, so the signal
-				// keeps its interface (flatunion.go; MU4 x MU8b).
-				flatBail(x, fu)
+				// The failure is a variant of the signal, an error value,
+				// and a flat signal is no error value: a switch on the
+				// failure's type puts each variant in its slot (MSB3; MU4
+				// x MU8b bailed here).
+				b.WriteString(fc.flatFailureSignal(x, fu, lit, in, err, e, signal))
+				b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n")
+				break
 			}
 			b.WriteString(in + e + " := " + err + ".(" + signal + ")\n")
 			b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n")
@@ -101,4 +104,28 @@ func (fc *funcCtx) workLit(x *syntax.CompositeLit, lit *check.WorkLit, t check.T
 		return []string{send + " " + fc.goType(lit.Send)}, " (struct{}, error)", b.String()
 	})
 	return fc.goType(t) + "{Start: " + start + "}"
+}
+
+// flatFailureSignal declares e, the flat signal fu that the failure err of
+// a work is: each type of the work's error row is a variant of the signal
+// (check/work.go), so a switch on err's type puts it in its variant's slot.
+// A type the switch does not name is no failure of the row (a defect or
+// an interruption is a panic, not an error), so the default passes err on
+// as Go's assertion of the interface form does, by a panic.
+func (fc *funcCtx) flatFailureSignal(x syntax.Node, fu *flatUnion, lit *check.WorkLit, in, err, e, signal string) string {
+	v := fc.scope.alloc("v")
+	var b strings.Builder
+	b.WriteString(in + "var " + e + " " + signal + "\n")
+	b.WriteString(in + "switch " + v + " := " + err + ".(type) {\n")
+	for _, t := range lit.Failures.Elems() {
+		k := fu.tagOf(t)
+		if k < 0 {
+			flatBail(x, fu)
+		}
+		b.WriteString(in + "case " + fc.goType(t) + ":\n")
+		b.WriteString(in + "\t" + e + " = " + fu.flatValue(&fc.typeCtx, signal, k, v) + "\n")
+	}
+	b.WriteString(in + "default:\n" + in + "\tpanic(" + err + ")\n")
+	b.WriteString(in + "}\n")
+	return b.String()
 }

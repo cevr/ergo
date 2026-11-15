@@ -43,10 +43,13 @@ import (
 //     and no Go extern's signature names it. A machine's state and signal
 //     are unions like any other (MSB1): an enum state is a tag, a byte,
 //     and a state with fields a struct a step returns by value.
-//  2. Its variants are records that are neither generic nor error types:
-//     a row value is a Go error, which ConvRow and catch test by type. A
-//     union that is a failure has its variants as failures, so this keeps
-//     it an interface too.
+//  2. Its variants are records that are not generic, and not all of them
+//     error types: a row value is a Go error, which ConvRow and catch test
+//     by type, and a union that names a row has every variant an error
+//     type, so this keeps it an interface. A union with only some error
+//     variants names no row and is flat (MSB3); a work whose failure is
+//     one of them makes its signal by a switch on the failure's type
+//     (work.go, flatFailureSignal).
 //  3. Its Go value does not hold itself: a variant field reaches the
 //     union again by value, through records, tuples, arrays, Options or
 //     other flat unions (Go refuses a recursive struct; the interface box
@@ -57,9 +60,10 @@ import (
 //     more than one element. Above it, a value carried through a call goes
 //     through memory and costs 10x a box's pass (union-repr.md §5). Past
 //     it, a union no call carries stays flat up to a memory bound (R3b,
-//     carry.go), and a machine's state stays flat at any size (MSB2,
-//     carry.go's stateFlat). A field whose Go form the rule does not know
-//     (a Go type, a std type) keeps the union an interface.
+//     carry.go), and a machine's state and its signal stay flat at any
+//     size (MSB2, MSB3; carry.go's stateFlat). A field whose Go form the
+//     rule does not know (a Go type, a std type) keeps the union an
+//     interface.
 //
 // Steps 3 and 4 repeat until no union changes: a union that becomes an
 // interface changes the size of the unions that hold it.
@@ -342,8 +346,9 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	// form, as before MSB1: the old rule step 1.
 	states := map[*check.TypeName]bool{}
 	signals := map[*check.TypeName]bool{}
-	// machineStates are the program's machines' states, whatever the
-	// reference: a state past the register bound stays flat (MSB2, below).
+	// machineStates are the program's machines' states and signals,
+	// whatever the reference: either past the register bound stays flat
+	// (MSB2, MSB3; carry.go's stateFlat).
 	machineStates := map[*check.TypeName]bool{}
 	for _, p := range l.sourcedPkgs() {
 		for _, tn := range l.canon.types(p) {
@@ -367,8 +372,13 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 					states[s.Obj] = true
 				}
 			}
-			if e, ok := m.Signal.(*check.Named); ok && stateLowering == "interface" {
-				signals[e.Obj] = true
+			if e, ok := m.Signal.(*check.Named); ok {
+				if msb3Lowering != "off" {
+					machineStates[e.Obj] = true // MSB3: a signal too
+				}
+				if stateLowering == "interface" {
+					signals[e.Obj] = true
+				}
 			}
 		}
 	}
@@ -627,10 +637,17 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		return nil
 	}
 	fu := &flatUnion{tn: n.Obj, canShare: unionLowering != "slots"}
+	errs := 0 // the variants that are error types
 	for _, v := range u.Variants {
 		vn, ok := v.(*check.Named)
-		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || vn.Obj.Decl == nil || l.errorType(vn) {
+		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || vn.Obj.Decl == nil {
 			return nil
+		}
+		if l.errorType(vn) {
+			if msb3Lowering == "off" {
+				return nil
+			}
+			errs++
 		}
 		st, ok := vn.Underlying().(*check.Struct)
 		if !ok {
@@ -638,6 +655,15 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		}
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
+	}
+	// A union whose every variant is an error type may name a row, a Go
+	// error that catch and ConvRow test by type: it stays an interface.
+	// A union of which only some variants are error types (router's Signal
+	// holds Unknown, the registry's failure) is no row (a row makes every
+	// variant an error type), and its error variants are records in its
+	// slots like any other (MSB3).
+	if errs == len(fu.variants) {
+		return nil
 	}
 	if fu.canShare {
 		fu.shareSlots()
