@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,49 @@ func TestPatternKeyCoversEveryTarget(t *testing.T) {
 		if why := coveredPackages(p, targets, out); why == "" {
 			t.Errorf("%s: the key was accepted", name)
 		}
+	}
+}
+
+// TestPatternReachingAnotherPackageIsNotCached: a program of packages whose
+// DIR/... names a package that is not one of its targets runs, is not
+// replayed, and says why; the same program replays while the pattern names
+// exactly its targets (GS27). It catches gs27-coverage-unchecked.
+func TestPatternReachingAnotherPackageIsNotCached(t *testing.T) {
+	t.Setenv(cacheVariable, "")
+	t.Setenv("FAKE_ERGO_PATTERN_EXTRA", "")
+	t.Setenv("GOWORK", "off")
+	f := newFixture(t)
+	// A root with a driver to list, so the key is the early cutoff's.
+	f.write("go.mod", "module example.test/pattern\n\ngo 1.24\n")
+	f.write("cmd/ergo/main.go", "package main\n\nfunc main() {}\n")
+	f.write("scripts/examples/main.go", "package main\n\nfunc main() {}\n")
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/walk/tests.ergo", "test Walks {\n}\n")
+	f.write(dir+"/frame/frame.ergo", "func g() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	cache := filepath.Join(t.TempDir(), "cache")
+	timeout := caseTimeout(t)
+	run := func(want string) string {
+		t.Helper()
+		code, out := f.run("-timeout", timeout, "-budget", "1h", "-cache", cache)
+		if code != 0 || !strings.Contains(out, want) {
+			t.Fatalf("exit %d; want %q\n%s", code, want, out)
+		}
+		return out
+	}
+	run("0 programs replayed, 1 run")
+	if !slices.Contains(readCalls(t, f), "test --emitted "+filepath.Join(f.root, dir, "...")) {
+		t.Fatalf("the key made no pattern call: %q", readCalls(t, f))
+	}
+	run("1 programs replayed, 0 run")
+	t.Setenv("FAKE_ERGO_PATTERN_EXTRA", "extra")
+	out := run("0 programs replayed, 1 run")
+	if !strings.Contains(out, "walker: not cached: ergo test --emitted over the program named packages") {
+		t.Errorf("no reason the program was not cached\n%s", out)
 	}
 }
 
