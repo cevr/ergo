@@ -114,17 +114,17 @@ import queue
 
 type A { Use() }
 type B { Use() }
-type Pa {}
+type Pa {} implements A
 func Use(_ Pa) {}
-type Pb {}
+type Pb {} implements B
 func Use(_ Pb) {}
-type R0 { id int }
+type R0 { id int } implements Closer
 func Close(r R0) {}
-type RA { id int }
+type RA { id int } implements Closer
 func Close(r RA) needs A { A.Use() }
-type RB { id int }
+type RB { id int } implements Closer
 func Close(r RB) needs B { B.Use() }
-type RAB { id int }
+type RAB { id int } implements Closer
 func Close(r RAB) needs A | B {
 	A.Use()
 	B.Use()
@@ -154,18 +154,17 @@ func Wire(l lw) string needs B {
 	B.Use()
 	l.name
 }
-type Closer { Close() }
 func lendC(c Closer) {}
 type C { Use() }
-type PcA { id int }
+type PcA { id int } implements C, Closer
 func Use(_ PcA) {}
 func Close(_ PcA) needs A { A.Use() }
-type PcB { id int }
+type PcB { id int } implements C, Closer
 func Use(_ PcB) {}
 func Close(_ PcB) needs B { B.Use() }
-type PcBox { r RB, id int }
+type PcBox { r RB, id int } implements C
 func Use(_ PcBox) {}
-type PcCon { id int }
+type PcCon { id int } implements C, Closer
 func Use(_ PcCon) {}
 func Close(_ PcCon) needs Console { Console.Println("closed") }
 `)
@@ -175,7 +174,7 @@ func Close(_ PcCon) needs Console { Console.Println("closed") }
 			row = " needs " + rowText(kd.needs)
 		}
 		fmt.Fprintf(&b, "func lend%d(r %s) {}\nfunc keep%d(r %s)%s takes r {}\n", k, kd.name, k, kd.name, row)
-		fmt.Fprintf(&b, "type W%d { inner %s }\nfunc Close(w W%d) {}\n", k, kd.name, k)
+		fmt.Fprintf(&b, "type W%d { inner %s } implements Closer\nfunc Close(w W%d) {}\n", k, kd.name, k)
 	}
 	return b.String()
 }()

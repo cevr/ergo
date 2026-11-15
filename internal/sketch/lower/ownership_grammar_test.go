@@ -150,11 +150,11 @@ var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "
 const ogPrelude = `import sync
 import tasks
 
-type Res { id int, bad bool, log sync.Ref[string] }
+type Res { id int, bad bool, log sync.Ref[string] } implements Usable
 type Bad { n int }
 type Closer { Use(), Close() }
 type Pair { R Res, S Res }
-type Guard { R Res }
+type Guard { R Res } implements Closer
 type Box { C Closer, n int }
 type Full { R Res }
 type Vacant {}

@@ -149,6 +149,8 @@ func MachineFiringOff(t *rt.Task) { t.SetFiring(false) }
 
 // MachineFiringNow reports whether t runs a state's After for a timer that
 // fires (MachineFiringOn).
+//
+//ergo:wait none
 func MachineFiringNow(t *rt.Task) bool { return t.Firing() }
 
 // TextList is a list's text from its elements' texts: [a b c].

@@ -281,7 +281,7 @@ func hop(c KidActor, k int) {
 func nestWork(s Nest) Option[machines.Work[NestSig, Scheduler]] {
 	match s {
 	case Busy as b:
-		Some{machines.Work{Listen: func(send func(e NestSig)) needs Scheduler {
+		Some{machines.Work[NestSig, Scheduler]{Start: func(send entry func(e NestSig)) needs Scheduler {
 			let c = actor.ChildIn(send, b.kid, machines.Start(Kids{}, b.n), 2, func(o int) NestSig { Got{v: o} })
 			hop(c, b.n + 1)
 		}}}

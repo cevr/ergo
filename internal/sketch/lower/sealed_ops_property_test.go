@@ -279,7 +279,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	// under EXC1, only into an operation type it includes: a member subset
 	// it does not include is the one refusal of the declared relation.
 	user := []string{"Next() int", "Add(n int) int", "Name() string"}
-	userDecl := "type Counter {\n" + strings.Join(user, ",\n") + ",\nreset(),\n}\n\ntype C { n int }\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
+	userDecl := "type Counter {\n" + strings.Join(user, ",\n") + ",\nreset(),\n}\n\ntype C { n int } implements Counter\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
 	for i, members := range append([][]string{user}, [][]string{{user[0]}, {user[1]}, {user[2]}}...) {
 		name := "main.Counter/all"
 		if i > 0 {
@@ -316,9 +316,10 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	// The known pair: a std runtime type into a prelude operation type.
 	// json.Text into the Writer was it until LR3, where Text became a
 	// provider cell, which converts to the Writer only as encode's operand
-	// (types.md, Interface assignability 6).
-	if only == "" && !admitted["rand.Stream->prelude.Random"] {
-		t.Errorf("rand.Stream into the prelude's Random is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
+	// (types.md, Interface assignability 6); rand.Stream into Random was it
+	// until std rand's providers became records over a Stream (PCG, Host).
+	if only == "" && !admitted["prelude.Task->prelude.Closer"] {
+		t.Errorf("the prelude's Task into its Closer is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
 	}
 	t.Logf("%d sealed std protocols, %d cases, %d admitted", sealedSeen, len(cases), len(admitted))
 	typecheckGo(t, programs)

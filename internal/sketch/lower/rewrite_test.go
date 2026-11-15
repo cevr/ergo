@@ -524,7 +524,7 @@ func TestRewriteDeepFalseLaw(t *testing.T) {
 // used").
 func TestRewriteEmptyWindow(t *testing.T) {
 	src := "import sync\n\ntype T {\n\tTouch(n int),\n\tRead() int,\n\n\tlaw Idle(n int) { Touch(n) } == { },\n}\n\n" +
-		"type P { s sync.Ref[int] }\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
+		"type P { s sync.Ref[int] } implements T\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
 		"func Touch(p P, n int) { }\n\nfunc Read(p P) int { p.s.Get() }\n\n" +
 		"func site(x int) needs Console {\n\tlet c = NewP()\n\tc.Touch(x)\n\tConsole.Println(\"\\(c.Read())\")\n}\n\nfunc main() needs Console { site(1) }\n"
 	file, err := syntax.Parse(src)
@@ -560,7 +560,7 @@ func TestRewriteWorkBound(t *testing.T) {
 		src := "import sync\n\ntype T {\n\tAdd(n int),\n\tInc(),\n\tRead() int,\n\n" +
 			"\tlaw Swap(a int) { Inc(); Add(a) } == { Add(a); Inc() },\n" +
 			"\tlaw Back(a int) { Add(a); Inc() } == { Inc(); Add(a) },\n}\n\n" +
-			"type P { s sync.Ref[int] }\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
+			"type P { s sync.Ref[int] } implements T\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
 			"func Add(p P, n int) { p.s.Set(p.s.Get() + n) }\n\nfunc Inc(p P) { p.s.Set(p.s.Get() + 1) }\n\nfunc Read(p P) int { p.s.Get() }\n\n" +
 			"func site(x int) needs Console {\n\tlet c = NewP()\n\t" + strings.Join(calls, "\n\t") + "\n\tConsole.Println(\"\\(c.Read())\")\n}\n\nfunc main() needs Console { site(1) }\n"
 		file, err := syntax.Parse(src)

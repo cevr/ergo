@@ -658,6 +658,10 @@ var goBoundStated = []struct {
 	// reflect.TypeFor, reflect.TypeAssert: T is only in the result, so a
 	// call must write its type arguments (D6).
 	{regexp.MustCompile(`cannot infer \w+`), "D6"},
+	// encoding/base64.NewEncoder, encoding/hex.Dumper: the result is an
+	// io.WriteCloser, a resource (Go's Close, R19), which a plain use
+	// discards (R42).
+	{regexp.MustCompile(`is discarded, and a resource has one owner`), "R42"},
 }
 
 // goBoundDrop fails the property when u, at form f after a fault text,

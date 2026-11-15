@@ -27,7 +27,7 @@ type Open {
 	Total() int,
 }
 
-type Box { n int }
+type Box { n int } implements Bag, Open
 
 func NewBox() Box { Box{n: 0} }
 func Add(b *Box, n int) { b.n = b.n + n }
@@ -75,7 +75,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		} else {
 			op, fn = "\tTotal() int,\n", "func Total(k Kept) int { k.n }\n"
 		}
-		return "type Bag {\n\tAdd(n int),\n" + op + "\tseal(),\n}\ntype Res { id int }\nfunc Close(r Res) {}\ntype Kept { r Res, n int }\nfunc Add(k *Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
+		return "type Bag {\n\tAdd(n int),\n" + op + "\tseal(),\n}\ntype Res { id int } implements Closer\nfunc Close(r Res) {}\ntype Kept { r Res, n int } implements Bag\nfunc Add(k *Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
 	}
 	for _, row := range []struct {
 		name, src string
@@ -162,7 +162,7 @@ type Bag {
 	seal(),
 }
 
-type Box { n int }
+type Box { n int } implements Bag
 
 func Add(b *Box, n int) { b.n = b.n + n }
 func seal(b Box) {}

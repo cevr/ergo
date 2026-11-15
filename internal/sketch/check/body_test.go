@@ -29,12 +29,14 @@ import (
 func TestBodyFactsFollowTheBody(t *testing.T) {
 	pkgs := stdPackages(t)
 	stdFacts := map[string]check.Body{}
+	stdPaths := map[string]string{}
 	type op struct{ typ, name string }
 	stdOps := map[op]check.OpBody{}
 	for _, p := range pkgs {
 		for _, f := range p.Funcs {
 			if b := check.BodyOf(f); b.Runtime != "" {
 				stdFacts[b.Runtime] = b
+				stdPaths[b.Runtime], _ = f.Decl.Extern.Split() // runtime/v1 or its leaf (BS8)
 			}
 		}
 		for _, tn := range p.Types {
@@ -63,7 +65,7 @@ func TestBodyFactsFollowTheBody(t *testing.T) {
 	sort.Strings(names)
 	var src strings.Builder
 	for i, name := range names {
-		fmt.Fprintf(&src, "extern go ergo.local/prototype/runtime/v1.%s func body%d()\n", name, i)
+		fmt.Fprintf(&src, "extern go %s.%s func body%d()\n", stdPaths[name], name, i)
 	}
 	opsOf := map[string][]string{}
 	for k := range stdOps {
@@ -85,7 +87,7 @@ func TestBodyFactsFollowTheBody(t *testing.T) {
 		}
 		seen++
 		if got, want := check.BodyOf(f), stdFacts[names[i]]; !reflect.DeepEqual(got, want) {
-			t.Errorf("a user extern of runtime/v1.%s gets the facts\n\t%+v\nstd's extern of the same body gets\n\t%+v", names[i], got, want)
+			t.Errorf("a user extern of %s.%s gets the facts\n\t%+v\nstd's extern of the same body gets\n\t%+v", stdPaths[names[i]], names[i], got, want)
 		}
 	}
 	if seen != len(names) {

@@ -140,7 +140,7 @@ var reachAdditions = []string{
 	"type MarkRec%[1]d { N int }\n\nfunc markLabel%[1]d(r MarkRec%[1]d) string { \"mark-method-%[1]d\" }\n",
 	"let markLet%[1]d = \"mark-let-%[1]d\"\n",
 	"let markCall%[1]d = len(\"mark-call-%[1]d\") + markHelp%[1]d()\n\nfunc markHelp%[1]d() int { 1 }\n",
-	"type MarkOps%[1]d { MarkRead%[1]d(n string) int }\n\ntype MarkProv%[1]d {}\n\nfunc MarkRead%[1]d(_ MarkProv%[1]d, n string) int { len(\"mark-provider-%[1]d\" + n) }\n\nlet MarkCtx%[1]d = context {\n\tMarkOps%[1]d: MarkProv%[1]d,\n}\n",
+	"type MarkOps%[1]d { MarkRead%[1]d(n string) int }\n\ntype MarkProv%[1]d {} implements MarkOps%[1]d\n\nfunc MarkRead%[1]d(_ MarkProv%[1]d, n string) int { len(\"mark-provider-%[1]d\" + n) }\n\nlet MarkCtx%[1]d = context {\n\tMarkOps%[1]d: MarkProv%[1]d,\n}\n",
 	"type MarkIdle%[1]d { tag string }\ntype MarkStop%[1]d {}\ntype MarkSt%[1]d = MarkIdle%[1]d | MarkStop%[1]d\ntype MarkGo%[1]d {}\ntype MarkHalt%[1]d {}\ntype MarkSig%[1]d = MarkGo%[1]d | MarkHalt%[1]d\n\nfunc markStep%[1]d(s MarkSt%[1]d, e MarkSig%[1]d) Decision[MarkSt%[1]d, int] { Ignore }\n\ntype MarkLoop%[1]d machine[MarkSt%[1]d, MarkSig%[1]d] {\n\tinitial: MarkIdle%[1]d{tag: \"mark-machine-%[1]d\"},\n\tstep:    markStep%[1]d,\n}\n",
 }
 

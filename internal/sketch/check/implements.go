@@ -397,7 +397,20 @@ func (c *checker) clauseUnmet(v Type, it *Interface) bool {
 	if !ok || asInterface(n) != nil || len(n.origin().impls) == 0 || n.origin().Obj.Pkg.Host() {
 		return false
 	}
-	return c.implements(&Pointer{Elem: v}, it, true) != ""
+	// The release contract's clause checks only the Close function's
+	// shape at the type (checkImplementsClauses), so a refusal of the
+	// conversion itself, a release that needs a capability (R5), is
+	// reported at the use.
+	if cl := c.closer(); cl != nil && asInterface(cl) == it {
+		return false
+	}
+	for _, d := range c.declaredOps(v) {
+		if isGoCloser(d) && asInterface(d) == it {
+			return false
+		}
+	}
+	foreign := false // as checkImplementsClauses reads the clause
+	return c.implementsCapturing(&Pointer{Elem: v}, it, true, &foreign) != ""
 }
 
 // checkImplementsClauses checks each written clause of the package at its
@@ -437,7 +450,19 @@ func (c *checker) checkImplementsClauses() {
 				}
 				continue
 			}
-			if why := c.implements(&Pointer{Elem: self}, it, true); why != "" {
+			// A method that needs go.Foreign beyond the operation's row
+			// implements it: the build of a value as the operation type
+			// holds go.Foreign, and that conversion charges it (README
+			// Gap 17), so the declaration admits what the conversion does.
+			foreign := false
+			// A Go interface's method may keep the value it is called on
+			// (resources R19), so a value that may hold a resource meets it
+			// only by taking it. A generic type's parameters hold a resource
+			// in some instances and not in others: the clause leaves the
+			// receiver to each conversion, which checks it at the instance
+			// (assignableTo, implementsCapturing).
+			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
+			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}

@@ -114,7 +114,7 @@ func (g *gen) program() string {
 	fmt.Fprintf(&g.b, "let Base = %d\n\nlet Label = %q\n\n", g.n(9), []string{"L", "lab", ""}[g.n(3)])
 	g.b.WriteString("type Rec { A int, B bool, S string, L []int }\n\n")
 	g.b.WriteString("type Op {\n\tApply(a int, b int) int,\n}\n\n")
-	g.b.WriteString("type Prov {}\n\n")
+	g.b.WriteString("type Prov {} implements Op\n\n")
 	k := 1 + g.n(4)
 	fmt.Fprintf(&g.b, "func Apply(_ Prov, a int, b int) int {\n\ta*%d - b\n}\n\n", k)
 	g.b.WriteString("func viaOp(a int, b int) int needs Op {\n\tOp.Apply(a, b)\n}\n\n")

@@ -57,7 +57,7 @@ func TestRaytraceAgreesWithControl(t *testing.T) {
 			t.Fatalf("seed %d %v: exit %d, control %d\n%s", seed, args, code, wantCode, replay)
 		}
 		if !bytes.Equal(got, want) {
-			t.Fatalf("seed %d %v: the images differ (%s)\n%s", seed, args, firstDiff(got, want), replay)
+			t.Fatalf("seed %d %v: the images differ (%s)\n%s", seed, args, firstByteDiff(got, want), replay)
 		}
 	}
 }
@@ -79,8 +79,8 @@ func runRaytrace(t *testing.T, bin string, args []string) ([]byte, int) {
 	return stdout.Bytes(), 0
 }
 
-// firstDiff names the first byte where a and b differ.
-func firstDiff(a, b []byte) string {
+// firstByteDiff names the first byte where a and b differ.
+func firstByteDiff(a, b []byte) string {
 	for i := range min(len(a), len(b)) {
 		if a[i] != b[i] {
 			return fmt.Sprintf("byte %d: %d, control %d", i, a[i], b[i])
