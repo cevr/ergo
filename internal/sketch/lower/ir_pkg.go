@@ -70,9 +70,10 @@ func (b *irBuilder) spelling(s string) string {
 			continue
 		}
 		q := b.qualifiedName(s, s[i:j])
-		if q != s[i:j] {
+		if strings.Contains(s[i:j], ".") {
 			// The whole Go type keeps the import used: a generic type
-			// (ergo.Ref) is no type without its arguments.
+			// (ergo.Ref) is no type without its arguments. A path that
+			// is its own name (time) needs it too.
 			b.keepImport("var _ " + s)
 		}
 		out.WriteString(q)
