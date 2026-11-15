@@ -453,11 +453,23 @@ func TestExecFailures(t *testing.T) {
 	}
 	t.Setenv("ERGO_EXEC_HOST", "host")
 	t.Setenv("ERGO_EXEC_OVER", "host")
-	res, err := ExecRun(task, "sh", []string{"-c", `printf '%s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd)"; cat; echo oops >&2; exit 7`},
+	// The child runs in dir (its physical path, pwd -P: darwin's
+	// t.TempDir is under /var, a link to /private/var) and its PWD names
+	// dir as given, though env sets entries of its own.
+	physical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ExecRun(task, "sh", []string{"-c", `printf '%s %s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd -P)" "$PWD"; cat; echo oops >&2; exit 7`},
 		map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "in\nput", 0)
-	want := ExecResult{Status: 7, Stdout: "host set " + dir + "|in\nput", Stderr: "oops\n"}
+	want := ExecResult{Status: 7, Stdout: "host set " + physical + " " + dir + "|in\nput", Stderr: "oops\n"}
 	if err != nil || res != want {
 		t.Errorf("ExecRun = %#v, %v; want %#v", res, err, want)
+	}
+	// A shell replaces a PWD that does not name its directory; printenv
+	// reports the PWD the program was given.
+	if res, err := ExecRun(task, "printenv", []string{"PWD"}, map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "", 0); err != nil || res.Stdout != dir+"\n" {
+		t.Errorf("printenv PWD in %s = %#v, %v; want the dir", dir, res, err)
 	}
 	if e := (ExecFailed{Name: "a", Reason: "b"}).Error(); e != "exec.Failed{Name:a Reason:b}" {
 		t.Errorf("Failed text %q", e)
