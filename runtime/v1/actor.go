@@ -182,6 +182,9 @@ type Actor[S, E, D any] struct {
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
 	subs     map[*changes[S]]struct{}
+	// spareSub is the last ended Changes subscription, which the next one
+	// reuses (ACT-CH), or nil.
+	spareSub *changes[S]
 	// latest is the decision of the last signal stepped (rule 12), and
 	// final the Done decision that ended the actor, when one did.
 	latest    D
@@ -1675,8 +1678,15 @@ func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 // that does not read keeps every state in its buffer.
 func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
-		c := &changes[S]{}
 		a.mu.Lock()
+		// ACT-CH: a subscription that ended leaves its buffer and wake
+		// channel to the next one (a.spareSub), so a loop that subscribes per
+		// signal (WaitFor) makes none after its first.
+		c := a.spareSub
+		a.spareSub = nil
+		if c == nil || changesReuse == "off" {
+			c = &changes[S]{}
+		}
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
 		if a.subs == nil {
@@ -1687,6 +1697,8 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		defer func() {
 			a.mu.Lock()
 			delete(a.subs, c)
+			c.reset()
+			a.spareSub = c
 			a.mu.Unlock()
 		}()
 		for {
@@ -1702,22 +1714,50 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 // changes is one Changes subscription: the committed states it has not
 // given yet, guarded by the actor's mu.
 type changes[S any] struct {
+	// buf[head:] are the states not given yet; once all are given, buf
+	// is emptied in place, so its array takes the next states.
 	buf   []S
+	head  int
 	ended bool
-	wake  chan struct{}
+	// wake holds at most one token: signal sends it while the subscriber
+	// waits (waiting). The channel lives as long as the subscription and
+	// its successors (a.spareSub); a token left by a wait that a stop ended
+	// is taken by reset.
+	wake    chan struct{}
+	waiting bool
 	// task is the subscriber while it waits in a clock's domain (fua-b).
 	task *rt.Task
 }
 
+// changesReuse, when "off", gives each Changes subscription a new buffer
+// and wake channel, as before ACT-CH: the reference of the allocation
+// guard (TestActorChangesReuse).
+var changesReuse string
+
 // signal wakes the subscriber's wait; in a clock's domain it is unparked
 // first (rt idle.go). The actor's mu is held.
 func (c *changes[S]) signal() {
-	if c.wake != nil {
+	if c.waiting {
+		c.waiting = false
 		if c.task != nil {
 			rt.Waking(c.task, c).Done()
 		}
-		close(c.wake)
-		c.wake = nil
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// reset readies an ended subscription for the next (a.spareSub): no states,
+// no waiter, no token. The actor's mu is held.
+func (c *changes[S]) reset() {
+	clear(c.buf)
+	c.buf, c.head = c.buf[:0], 0
+	c.ended, c.waiting, c.task = false, false, nil
+	select {
+	case <-c.wake:
+	default:
 	}
 }
 
@@ -1726,11 +1766,14 @@ func (c *changes[S]) signal() {
 func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 	a.mu.Lock()
 	for {
-		if len(c.buf) > 0 {
-			s := c.buf[0]
+		if c.head < len(c.buf) {
+			s := c.buf[c.head]
 			var zero S
-			c.buf[0] = zero
-			c.buf = c.buf[1:]
+			c.buf[c.head] = zero
+			c.head++
+			if c.head == len(c.buf) {
+				c.buf, c.head = c.buf[:0], 0
+			}
 			a.mu.Unlock()
 			return s, true
 		}
@@ -1740,8 +1783,9 @@ func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 			return zero, false
 		}
 		if c.wake == nil {
-			c.wake = make(chan struct{})
+			c.wake = make(chan struct{}, 1)
 		}
+		c.waiting = true
 		ch := c.wake
 		// In a clock's domain the subscriber parks under a.mu, which
 		// signal holds too (fua-b).
