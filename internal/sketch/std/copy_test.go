@@ -274,8 +274,8 @@ var stdCopyBaseline = []string{
 	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",
 	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
 	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",
-	"sync", "task", "tasks", "term", "testing", "time", "timeout", "toml",
-	"trace", "utf8",
+	"sync", "task", "tasks", "term", "testing", "text", "time", "timeout",
+	"toml", "trace", "utf8",
 }
 
 // copySource is one std file of a package under test.

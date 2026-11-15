@@ -158,6 +158,32 @@ var shortcuts = []shortcut{
 		mutant:     "own-lineage-result-fresh",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		// MONO1: a call of a generic function whose type arguments are
+		// known Go types goes to a plain copy for them (mono.go). The
+		// proof is the checker's instantiation; the test build takes the
+		// stenciled Go generic.
+		name:       "mono-instance",
+		class:      valueClass,
+		admission:  "monoAt",
+		reference:  "genericLowering=stencil",
+		agreement:  "TestGenericLoweringsAgree",
+		mutant:     "mono-shares-unequal-bodies",
+		referenced: func() bool { return genericLowering == "stencil" },
+	},
+	{
+		// NOSCAN1: a record's Go struct lists its pointer-holding fields
+		// first (layout.go). No value fact: the order is a function of the
+		// declaration; the admission is that no Go code outside the
+		// program sees the struct. The test build keeps the declared order.
+		name:       "layout-pointers-first",
+		class:      valueClass,
+		admission:  "layoutOrder",
+		reference:  "layoutLowering=declared",
+		agreement:  "TestLayoutsAgree",
+		mutant:     "layout-codec-reads-reordered-field",
+		referenced: func() bool { return layoutLowering == "declared" },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

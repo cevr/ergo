@@ -50,6 +50,7 @@ task	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 tasks	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 term	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 testing	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+text	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 time	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 timeout	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 toml	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e

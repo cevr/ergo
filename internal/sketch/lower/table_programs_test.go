@@ -24,6 +24,7 @@ var (
 	_ = declarePrograms("TestUILoadModel", testBuildProgram("stduiload", stdUILoadProbe))
 	_ = declarePrograms("TestUIHostModel", testBuildProgram("stduihost", stdUIHostProbe))
 	_ = declarePrograms("TestUITextModel", testBuildProgram("stduitext", stdUITextProbe))
+	_ = declarePrograms("TestStdTextLawsRun", testBuildProgram("stdtext", stdTextLawsProbe))
 	_ = declarePrograms("TestSyncLaws", testBuildProgram("synclaws", syncLawsProbe))
 	_ = declarePrograms("TestStdTimeLawsRun", testBuildProgram("stdtime", stdTimeLawsProbe))
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))

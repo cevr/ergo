@@ -598,7 +598,11 @@ func (l *lowerer) emitType(td *typeDecl) {
 	switch td.kind {
 	case kindRecord:
 		b.WriteString("type " + td.name + tparams + " struct {\n")
-		for _, f := range td.fields {
+		// The Go field order is the lowering's (layout.go); every use reads
+		// a field by its Go name.
+		order := l.layoutOrder(td)
+		l.layoutReport(td, order)
+		for _, f := range order {
 			b.WriteString("\t" + td.fieldName[f.Name] + " " + tc.goType(f.Type) + "\n")
 		}
 		b.WriteString("}\n\n")
@@ -1067,7 +1071,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
 
-	if fd.method != nil {
+	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
 		for _, tp := range own {
@@ -1088,10 +1092,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		recvName = paramNames[0]
 		typeArgs = nil // the receiver binds them
 	} else if sp != nil {
-		// A copy for a known record (record.go): one instance, its type
-		// parameters the call's Go types.
-		if fd.method != nil || owned || known {
-			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
+		// A copy for a known record (record.go) or a monomorphic copy
+		// (mono.go): one instance, its type parameters the call's Go
+		// types. A method's copy is a plain function of its receiver.
+		if (fd.method != nil && sp.rec != nil) || owned || known {
+			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 		head.WriteString("func " + sp.name + "(")
@@ -1129,7 +1134,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
-		if fd.method != nil && i == 0 {
+		if fd.method != nil && sp == nil && i == 0 {
 			continue
 		}
 		paramNames[i] = name(i)
@@ -1142,7 +1147,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
-	if sp != nil && params[sp.param] != nil {
+	if sp != nil && sp.rec != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}

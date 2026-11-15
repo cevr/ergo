@@ -138,6 +138,8 @@ type knownStats struct {
 	// Copies is the form of each Append and owned-form site
 	// (handover.go, the copy report).
 	Copies []CopySite
+	// Layouts is the layout report: a row per record emitted (layout.go).
+	Layouts []LayoutRow
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

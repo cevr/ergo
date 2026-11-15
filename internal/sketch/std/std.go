@@ -32,6 +32,7 @@ import (
 //go:embed atomic/*.ergo
 //go:embed arena/*.ergo
 //go:embed ui/*.ergo
+//go:embed text/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo
