@@ -1,0 +1,111 @@
+import testing
+
+// TestHost is the host file system confined to the case's folder
+// (testing.Ambient; docs/spec/rows.md, Entry 5): Files and Writes on the
+// real disk, for a test. A relative path is relative to the folder; an
+// absolute path must lie in it. A path that leads out of the folder, by
+// "..", by an absolute path elsewhere or through a symbolic link that
+// points out, is refused with Denied of the path as written, before
+// anything is read or written. Its field gives this package the
+// construction authority, so only NewTestHost makes one.
+type TestHost { root string } implements Files, Writes, Confined
+
+// NewTestHost is the file system of the case's folder. It needs the test's
+// ambient, which only the test runner provides, to a context that states
+// it: `context needs testing.Ambient { fs.Files: fs.NewTestHost() }`.
+func NewTestHost() TestHost needs testing.Ambient { TestHost{root: testing.Folder()} }
+
+// Confined is a file system confined to one folder, a fresh one for each
+// case: what it writes stays in it, and it starts empty. Its laws hold for
+// TestHost under any context that binds it.
+type Confined {
+	// Folder is the absolute path of the folder.
+	Folder() string,
+	ReadFile(path string) string fails NotFound | Denied | Failed,
+	ReadDir(path string) []string fails NotFound | Denied | Failed,
+	WriteFile(path string, text string) fails NotFound | Denied | Failed,
+
+	// OutsideIsDenied: a write to a path out of the folder, relative or
+	// absolute, is Denied and writes nothing.
+	law OutsideIsDenied(name string) {
+		WriteFile("../"+name, "probe") catch {
+		case Denied:
+			WriteFile(Folder()+"/../"+name, "probe") catch {
+			case Denied:
+				return true
+			case NotFound, Failed:
+				return false
+			}
+			return false
+		case NotFound, Failed:
+			return false
+		}
+		false
+	},
+
+	// InsideIsWritten: a write to a path in the folder, absolute or
+	// relative, is read back by the other spelling.
+	law InsideIsWritten(text string) {
+		try WriteFile(Folder()+"/inside", text)
+		try ReadFile("inside") == text
+	},
+
+	// EachCaseStartsEmpty: the folder holds nothing when a case starts, so
+	// no case sees the files of another. Each case leaves a file behind,
+	// which the next case does not see.
+	law EachCaseStartsEmpty(text string) {
+		let names = try ReadDir(".")
+		try WriteFile("left-by-a-case", text)
+		len(names) == 0
+	},
+}
+
+// Folder is the case's folder.
+func Folder(h TestHost) string { h.root }
+
+// confine is path resolved in the folder, or Denied of path.
+extern go ergo.local/prototype/runtime/v1.FSConfine func confine(root string, path string) string fails Denied
+
+func ReadFile(h TestHost, path string) string fails NotFound | Denied | Failed {
+	try hostReadFile(try confine(h.root, path))
+}
+
+func ReadDir(h TestHost, path string) []string fails NotFound | Denied | Failed {
+	try hostReadDir(try confine(h.root, path))
+}
+
+func Stat(h TestHost, path string) Info fails NotFound | Denied | Failed {
+	try hostStat(try confine(h.root, path))
+}
+
+func WriteFile(h TestHost, path string, text string) fails NotFound | Denied | Failed {
+	try hostWriteFile(try confine(h.root, path), text)
+}
+
+func MkdirAll(h TestHost, path string) fails Denied | Failed {
+	try hostMkdirAll(try confine(h.root, path))
+}
+
+func WriteFileMode(h TestHost, path string, text string, mode Mode) fails NotFound | Denied | Failed {
+	try hostWriteFileMode(try confine(h.root, path), text, Perm(mode))
+}
+
+func MkdirAllMode(h TestHost, path string, mode Mode) fails Denied | Failed {
+	try hostMkdirAllMode(try confine(h.root, path), Perm(mode))
+}
+
+func AppendFile(h TestHost, path string, text string) fails NotFound | Denied | Failed {
+	try hostAppendFile(try confine(h.root, path), text)
+}
+
+func Chmod(h TestHost, path string, mode Mode) fails NotFound | Denied | Failed {
+	try hostChmod(try confine(h.root, path), Perm(mode))
+}
+
+func Rename(h TestHost, from string, to string) fails NotFound | Denied | Failed {
+	try hostRename(try confine(h.root, from), try confine(h.root, to))
+}
+
+func Remove(h TestHost, path string) fails NotFound | Denied | Failed {
+	try hostRemove(try confine(h.root, path))
+}

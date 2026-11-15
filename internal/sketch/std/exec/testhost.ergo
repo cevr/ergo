@@ -1,0 +1,40 @@
+import testing
+
+// TestHost is the host's Runner confined to the case's folder
+// (testing.Ambient; docs/spec/rows.md, Entry 5), for a test. A command
+// runs in the folder when its Dir is "", and its Dir must lie in it. Each
+// argument is read as a path relative to that directory and must stay in
+// the folder too: a flag or a word does, and "/", "..", an absolute path
+// elsewhere or a path through a symbolic link that points out does not. A
+// file sink's path is relative to the folder and must lie in it. A command that fails the check is refused
+// with Denied naming the directory, argument or path, and nothing runs.
+// HOME and TMPDIR are the folder, and GIT_CEILING_DIRECTORIES its parent,
+// so git finds no repository above it. What a program computes for itself
+// is not seen: the check is over what the caller gives it. Its field gives
+// this package the construction authority, so only NewTestHost makes one.
+type TestHost { root string } implements Runner
+
+// NewTestHost is the Runner of the case's folder. It needs the test's
+// ambient, which only the test runner provides, to a context that states
+// it: `context needs testing.Ambient { exec.Runner: exec.NewTestHost() }`.
+func NewTestHost() TestHost needs testing.Ambient { TestHost{root: testing.Folder()} }
+
+extern go ergo.local/prototype/runtime/v1.ExecConfine func confine(root string, dir string, args []string) string fails Denied
+
+extern go ergo.local/prototype/runtime/v1.ExecConfineSink func confineSink(root string, path string) string fails Denied
+
+extern go ergo.local/prototype/runtime/v1.ExecTestEnv func testEnv(root string, env Map[string, string]) Map[string, string]
+
+// Run runs c to its end in the folder, as Host runs it.
+func Run(h TestHost, c Command) Result fails NotFound | Denied | Failed {
+	let dir = try confine(h.root, c.Dir, c.Args)
+	try hostRun(c.Name, c.Args, testEnv(h.root, c.Env), dir, c.Stdin, c.Grace)
+}
+
+// Start starts c in the folder, as Host starts it.
+func Start(h TestHost, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	let dir = try confine(h.root, c.Dir, c.Args)
+	let out = try confineSink(h.root, sinkPath(s.Stdout))
+	let errs = try confineSink(h.root, sinkPath(s.Stderr))
+	try hostStart(c.Name, c.Args, testEnv(h.root, c.Env), dir, c.Stdin, c.Grace, sinkKind(s.Stdout), out, sinkAppends(s.Stdout), sinkKind(s.Stderr), errs, sinkAppends(s.Stderr))
+}

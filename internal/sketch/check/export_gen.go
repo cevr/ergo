@@ -774,6 +774,8 @@ func (e *encoder) encFieldsContext(v *Context) {
 	e.encPtrPackage(v.pkg)
 	e.encT120(v.Entries)
 	e.encT121(v.Overrides)
+	e.encPtrNamed(v.TestAmbient)
+	e.encT11(v.headerRead)
 }
 
 func (e *encoder) encContext(v Context) { e.encFieldsContext(&v) }
@@ -2498,6 +2500,7 @@ func (e *encoder) encFieldsfuncCtx(v *funcCtx) {
 	e.encT122(v.locals)
 	e.encPtrFunc(v.fn)
 	e.encPtrLaw(v.law)
+	e.encT11(v.test)
 	e.encPtrreachNode(v.reach)
 }
 
@@ -9581,6 +9584,8 @@ func (d *decoder) decFieldsContext(v *Context) {
 	v.pkg = d.decPtrPackage()
 	v.Entries = d.decT120()
 	v.Overrides = d.decT121()
+	v.TestAmbient = d.decPtrNamed()
+	v.headerRead = d.decT11()
 }
 
 func (d *decoder) decContext() (v Context) {
@@ -11654,6 +11659,7 @@ func (d *decoder) decFieldsfuncCtx(v *funcCtx) {
 	v.locals = d.decT122()
 	v.fn = d.decPtrFunc()
 	v.law = d.decPtrLaw()
+	v.test = d.decT11()
 	v.reach = d.decPtrreachNode()
 }
 
