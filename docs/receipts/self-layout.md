@@ -57,6 +57,38 @@ With ids from a `dense.Count` and `dense.IDAt` in place of a `Table` of a type w
 
 The plan's SL2 targets hold: bytes allocated are below hand Go's (target: at most 1.2 times), and the allocations at the two sizes differ by as many as hand Go's, 11. Both come from the one scratch stack, whose top level holds every top-level row and so grows with the input, in the program and in the control alike. The instruction ratio, 1.53, is SL3's, SL4's and MONO1's to close (target 1.2 or less).
 
+### After SL2b: tables of rows of no size, a pure WithCapacity, the full check on growth
+
+SL2b makes three changes:
+- A table of rows of no size takes room for every id once. Before it, Go grew such a slice on every `Put`.
+- `slices.WithCapacity` is pure, so the stores' constructors take no environment.
+- A table checks for a full store only when it grows.
+
+The command is the same, at `3f54f4a3a` (source path). Each variant is a scratch edit, counted and reverted.
+
+| toktree, source path | ergo instr/B | hand Go | ratio |
+| --- | --- | --- | --- |
+| SL2 (`7ca9caf8e`) | 48.45 | 32.83 | 1.476 |
+| SL2b head | 39.68 | 32.83 | 1.209 |
+| head, `WithCapacity` not pure | 48.45 | 32.83 | 1.476 |
+| ids from `Table` (field-less rows), not `Count` | 42.05 | 32.84 | 1.280 |
+| the same, before the full check moved to growth | 42.79 | 32.84 | 1.303 |
+| the same, with no field-less fix | 50.69 | 32.84 | 1.544 |
+| head, no full check in `next` at all | 38.49 | 32.84 | 1.172 |
+
+Bytes allocated stay at 0.81 of hand Go's.
+
+`Count.Next` keeps its check: a `Count` has no room to check once against. That check is the 1.19 instructions per byte between the head and the last row.
+
+On the IR build path (`wf10/batch-21pre` plus SL1 to SL2b), `scripts/opcount` cannot build the program: its `go build -overlay` does not read IR. Instead, the tree's own `ergo build` (the patched compile) built each variant. `perf stat -e instructions:u` counted it at the workload's two sizes, 5 rounds, median slope, with the default collector. These counts carry about ±1 instr/B of noise between runs:
+
+| toktree, IR path | ergo instr/B | hand Go | ratio |
+| --- | --- | --- | --- |
+| head (three runs) | 49.53 to 51.84 | 34.54 to 36.20 | 1.42 to 1.48 |
+| ids from `Table` | 67.23 to 68.30 | 34.54 to 34.80 | 1.95 to 1.96 |
+| ids from `Table`, no field-less fix | 74.60 | 34.54 | 2.16 |
+| head, no full check in `next` | 52.15 | 36.20 | 1.44 (no change) |
+
 ### The plan's 11.6% GC share, and its 2.30 ratio: the input path, not the stores
 
 The plan's prototype (`self-layout/proto/toktree-ergo`) counted Ergo at 82.87 instructions per byte against hand Go's 35.96 (2.30). Its default run cost 11.6% more than its `GOGC=off` run. The cause was left open.
