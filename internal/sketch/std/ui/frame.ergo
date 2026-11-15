@@ -826,12 +826,18 @@ func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
 	for s >= 0 {
 		let b = f.specs[s].block
 		if b >= 0 {
-			for k in 0..len(f.keptList[b].tops) {
-				if i >= n || f.keptList[b].tops[k].ref != kidAt(f, pr, i) {
-					return false
-				}
-				i = i + 1
+			// A kept group's tops are contiguous and in order among the
+			// children of their parent: the pass that kept them committed
+			// them so (a parent's children are its child specs' nodes, in
+			// order, and a group writes its tops one after another), and
+			// no pass since committed that parent, or it would have kept
+			// the group anew. So the block is in place when its first and
+			// last tops are at their places.
+			let t = len(f.keptList[b].tops)
+			if i+t > n || f.keptList[b].tops[0].ref != kidAt(f, pr, i) || f.keptList[b].tops[t-1].ref != kidAt(f, pr, i+t-1) {
+				return false
 			}
+			i = i + t
 		} else {
 			if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
 				return false

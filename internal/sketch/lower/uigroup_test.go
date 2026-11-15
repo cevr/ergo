@@ -815,7 +815,10 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-prior-place-uncounted, ui-cut-nkids-kept, ui-group-seen-unpassed,
 // ui-keep-sweep-always, ui-keep-sweep-never, ui-keep-nheld-drift,
 // ui-pending-untaken, ui-pending-each-unchecked, ui-pending-not-alone,
-// ui-pending-cut-kept, ui-pending-cut-counts-kept, ui-pending-off-unchecked.
+// ui-pending-cut-kept, ui-pending-cut-counts-kept, ui-block-one-node,
+// ui-block-unplaced, ui-block-first-top, ui-block-kept-first,
+// ui-block-committed-specs, ui-keep-through-never, ui-keep-through-stale,
+// ui-keep-inner-uncounted.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	var seeds []uint64

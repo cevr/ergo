@@ -59,7 +59,15 @@ type groupKey[E] { owner arena.Ref[node[E]], id ident }
 // of 200 kept rows stamps 200 groups a pass).
 // alone is whether every top took the first count of its identity and
 // all share one row site (each), so writeAgain may defer their counts.
-type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite }
+// allOff is whether every top is disabled, offSelf whether each top is
+// disabled exactly when it is a disabled Fieldset: so the tops keep their
+// disabled state under a parent that is disabled (up) when allOff, and
+// under one that is not when offSelf (offAgrees).
+// gen is the pass that wrote the entry; within is the entry of the
+// outermost group that held this one when that group was kept, in that
+// group's gen withinGen, or -1: a group inside a group written again is
+// kept through it (keptThrough), not stamped.
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int }
 
 // pendingCounts is a kept group written again whose tops' counts the pass
 // has not taken: under parent spec parent (-1 the top), kept group entry,
@@ -203,16 +211,15 @@ func writeAgain[E](f *Frame[E], i int) bool {
 	let p = f.parent
 	let up = p >= 0 && f.specs[p].off
 	let t = len(f.keptList[i].tops)
+	// Each top must keep its disabled state.
+	if (up && !f.keptList[i].allOff) || (!up && !f.keptList[i].offSelf) {
+		return false
+	}
 	if f.keptList[i].alone && clearBefore(f, p, f.keptList[i].each) {
 		// No node before the group under p shares its tops' row site, so
 		// each top's identity count is none before it, the first count it
 		// had: the counts are taken only when a later write under p asks
 		// for one (see), which a list holder's rows seldom are.
-		for k in 0..t {
-			if f.keptList[i].tops[k].off != (up || disables(f.keptList[i].tops[k].node)) {
-				return false
-			}
-		}
 		let start = f.nspecs
 		putTops(f, i, p)
 		if f.npending < len(f.pending) {
@@ -232,10 +239,6 @@ func writeAgain[E](f *Frame[E], i int) bool {
 		// Each top takes its count as it is checked (one lookup a top);
 		// a refusal gives back the counts taken.
 		let id = f.keptList[i].tops[k].id
-		if f.keptList[i].tops[k].off != (up || disables(f.keptList[i].tops[k].node)) {
-			unsee(f, k)
-			return false
-		}
 		if see(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}) != id.n {
 			unsee(f, k+1)
 			return false
@@ -359,10 +362,9 @@ func keepGroups[E](f *Frame[E]) {
 		let r = f.ngroups - 1 - back
 		let g = f.groups[r]
 		if g.again >= 0 {
-			stamped = stamped + restamp(f, g.again, stamp)
-			for x in f.keptList[g.again].inner {
-				stamped = stamped + restamp(f, x, stamp)
-			}
+			// The groups inside it are kept through it: counted, not
+			// stamped (a list holder of 800 rows holds 800).
+			stamped = stamped + restamp(f, g.again, stamp) + len(f.keptList[g.again].inner)
 			let mut up = g.outer
 			for up >= 0 {
 				inner[up] = inner[up].Append(g.again)
@@ -380,6 +382,8 @@ func keepGroups[E](f *Frame[E]) {
 			let mut tops = []keptTop[E]{}
 			let mut alone = true
 			let mut each = nowhere
+			let mut allOff = true
+			let mut offSelf = true
 			for j in g.start..g.end {
 				if f.specs[j].parent == g.parent {
 					for k in 0..nodesOf(f, f.specs[j]) {
@@ -393,6 +397,8 @@ func keepGroups[E](f *Frame[E]) {
 						if c.id.n != 0 || c.id.each != each {
 							alone = false
 						}
+						allOff = allOff && c.off
+						offSelf = offSelf && c.off == disables(c.node)
 						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, off: c.off})
 					}
 				}
@@ -401,7 +407,7 @@ func keepGroups[E](f *Frame[E]) {
 			if f.nested {
 				nest = inner[r]
 			}
-			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each}
+			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each, allOff: allOff, offSelf: offSelf, gen: stamp, within: -1, withinGen: 0}
 			let mut at = g.entry
 			if g.entry >= 0 {
 				stamped = stamped + restamp(f, g.entry, stamp)
@@ -420,6 +426,10 @@ func keepGroups[E](f *Frame[E]) {
 				f.nheld = f.nheld + 1
 				stamped = stamped + 1
 			}
+			for x in nest {
+				f.keptList[x].within = at
+				f.keptList[x].withinGen = stamp
+			}
 			let mut up = g.outer
 			for up >= 0 {
 				inner[up] = inner[up].Append(at)
@@ -435,7 +445,7 @@ func keepGroups[E](f *Frame[E]) {
 	}
 	f.swept = len(f.keptList)
 	for i in 0..len(f.keptList) {
-		if f.keptList[i].held && f.keptList[i].stamp != stamp {
+		if f.keptList[i].held && f.keptList[i].stamp != stamp && !keptThrough(f, i, stamp) {
 			argsFree(f.args, f.keptList[i].slot)
 			f.kept = f.kept.Delete(f.keptList[i].key)
 			f.keptList[i].held = false
@@ -448,6 +458,17 @@ func keepGroups[E](f *Frame[E]) {
 			f.nfree = f.nfree + 1
 		}
 	}
+}
+
+// keptThrough is whether kept group i is inside a group the pass kept:
+// the group within names still holds it (it is in the gen that took it)
+// and was kept by the pass, itself or through its own outer group.
+func keptThrough[E](f *Frame[E], i int, stamp int) bool {
+	let w = f.keptList[i].within
+	if w < 0 || !f.keptList[w].held || f.keptList[w].gen != f.keptList[i].withinGen {
+		return false
+	}
+	f.keptList[w].stamp == stamp || keptThrough[E](f, w, stamp)
 }
 
 // restamp marks kept group i kept by the pass stamp: 1 when it was not
