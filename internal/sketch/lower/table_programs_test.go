@@ -22,6 +22,7 @@ var (
 	_ = declarePrograms("TestStdMapsMoreLawsRun", testBuildProgram("stdmapsmore", stdMapsMoreLawsProbe))
 	_ = declarePrograms("TestStdSetLawsRun", testBuildProgram("stdset", stdSetLawsProbe))
 	_ = declarePrograms("TestStdDecimalLawsRun", testBuildProgram("stddecimal", stdDecimalLawsProbe))
+	_ = declarePrograms("TestStdKeyedLawsRun", testBuildProgram("stdkeyed", stdKeyedLawsProbe))
 	_ = declarePrograms("TestStdDecimalMatchesRat", entryProgram("decimalRat", decimalProgram))
 	_ = declarePrograms("TestStdArenaLawsRun", testBuildProgram("stdarena", stdArenaLawsProbe))
 	_ = declarePrograms("TestSyncLaws", testBuildProgram("synclaws", syncLawsProbe))

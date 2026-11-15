@@ -318,6 +318,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Stream.Uint64":   {},
 	"Stream.IntN":     {},
 	"Stream.Float64":  {},
+	"Stream.Bytes":    {},
+	"RandSecureBytes": {},
 	"RandHostUint64":  {},
 	"RandHostIntN":    {},
 	"RandHostFloat64": {},
@@ -410,6 +412,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Sha256Sum":       {},
 	"Crc32Checksum":   {},
 	"Crc32Update":     {},
+	// std sha512, sha1 and hmac (std-spike D3): pure bodies.
+	"Sha512Sum":  {},
+	"Sha1Sum":    {},
+	"HmacSHA256": {},
+	"HmacSHA512": {},
+	"HmacSHA1":   {},
+	"HmacEqual":  {},
 	// std json (S-json): text's value appenders and buffer pool, and
 	// the Cursor's reads; no body waits or releases.
 	"JSONAppendQuoted":   {},

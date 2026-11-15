@@ -34,7 +34,7 @@ import (
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo decimal/*.ergo
-//go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
+//go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo sha512/*.ergo sha1/*.ergo hmac/*.ergo uuid/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed testing/*.ergo explore/*.ergo

@@ -12,6 +12,9 @@ type Stream {
 	IntN(n int) int,
 	// Float64 is in [0, 1).
 	Float64() float64,
+	// Bytes is the next n bytes, eight from each 64-bit draw, low byte
+	// first. An n under zero is a defect.
+	Bytes(n int) string,
 
 	// IntNInRange: a draw of IntN(n) is in 0..n-1, for each n above zero.
 	law IntNInRange(n int) {

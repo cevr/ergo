@@ -1,6 +1,7 @@
 package v1
 
 import (
+	crand "crypto/rand"
 	"math/rand/v2"
 	"sync"
 )
@@ -56,6 +57,35 @@ func (s *Stream) Float64() float64 {
 	v := s.r.Float64()
 	s.mu.Unlock()
 	return v
+}
+
+// Bytes is the next n bytes of the stream, eight from each Uint64 draw,
+// low byte first: the bytes of rand.SeededSecure, a Secure provider for
+// tests and replays. An n under zero panics, as make does: a defect.
+func (s *Stream) Bytes(n int) string {
+	b := make([]byte, n)
+	s.mu.Lock()
+	for i := 0; i < n; i += 8 {
+		v := s.r.Uint64()
+		for j := i; j < n && j < i+8; j++ {
+			b[j] = byte(v)
+			v >>= 8
+		}
+	}
+	s.mu.Unlock()
+	return string(b)
+}
+
+// RandSecureBytes is rand.SecureHost's Bytes: n bytes of crypto/rand,
+// the operating system's secure source. Go's Read never fails (it
+// crashes the program when the source does). An n under zero panics, as
+// make does: a defect.
+//
+//ergo:host
+func RandSecureBytes(n int) string {
+	b := make([]byte, n)
+	_, _ = crand.Read(b)
+	return string(b)
 }
 
 // RandHostUint64 is rand.Host's Uint64: Go's global rand.Uint64.

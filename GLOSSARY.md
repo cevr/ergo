@@ -171,6 +171,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Decimal**: A value of std `decimal.Decimal`: an exact decimal number, a sign, a 128-bit coefficient and a scale (the digits after the point), so 12.50 is 1250 at scale 2. Arithmetic is exact or fails with `Overflow`; only `Round` and `Div` drop digits, by a named **rounding mode** (`HalfUp`, `HalfEven`, `Down`, `Up`, `Floor`, `Ceil`). Effect's `BigDecimal`. See [stdlib](docs/spec/stdlib.md#decimal).
 
+**Secure source**: The operation type std `rand.Secure`, whose `Bytes(n)` is random bytes no one can predict, for keys, tokens and ids. `rand.NewSecureHost()` reads Go's `crypto/rand` and needs `Ambient`; `rand.NewSeededSecure(seed)` replays a stream for tests. It is apart from `Random`, whose draws are fast and replayable and so predictable. `uuid.V4` and `uuid.V7` draw from it. See [stdlib](docs/spec/stdlib.md#keyed-digests).
+
 **Interruption**: A request that a task stop. It is cooperative and is not a typed error: no error row names it.
 
 **Interruption point**: A place where a task checks for interruption: a capability call, a channel operation, `Wait`, `Sleep` or a loop back-edge in a function with a footprint (I1).
