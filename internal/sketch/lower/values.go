@@ -778,6 +778,13 @@ func (w *valueWalk) decide() {
 					if c.Recv == nil && len(args) > 0 {
 						args = args[1:]
 					}
+					// An operand enters the slice only as an element:
+					// one whose element type holds no Map or slice keeps
+					// nothing an operand holds (an appender's []byte
+					// operand is read, its bytes copied; GX10).
+					if s, ok := underEqual(w.typeOf(call)).(*check.Slice); ok && !w.l.holdsValue(s.Elem) {
+						continue
+					}
 					for _, a := range args {
 						w.freshen(a)
 					}

@@ -32,6 +32,8 @@
 // become constant text. The law FastAgreesWithWriter holds that it writes
 // what the Writer operations write.
 
+import utf8
+
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
@@ -56,6 +58,8 @@ type Text {
 	Uint(n uint64),
 	Float(f float64),
 	String(s string),
+	// StringBytes writes the string whose bytes are b, as String does.
+	StringBytes(b []byte),
 	BeginList(n int),
 	EndList(),
 	BeginObject(n int),
@@ -83,6 +87,7 @@ type Text {
 	quote(s string),
 	plainBody(s string),
 	stringBody(s string),
+	bytesBody(b []byte),
 	intBody(n int64),
 	uintBody(n uint64),
 	boolBody(b bool),
@@ -90,10 +95,12 @@ type Text {
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
 	finish() string,
-	// bytes is the buffer written so far, where it is; drop gives it back
-	// to the pool (EncodeWith only: nothing may use the Text after).
+	// bytes is the buffer written so far, read from the Text's value (no
+	// pointer to the cell, so the value rule lends it with no copy); drop(b)
+	// gives it back to the pool (EncodeWith only: nothing may use the Text
+	// after).
 	bytes() []byte,
-	drop(),
+	drop(b []byte),
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -123,6 +130,7 @@ extern go append func appendString(out []byte, s string) []byte
 
 // The value appenders: out with a value's JSON text added.
 extern go ergo.local/prototype/runtime/v1.JSONAppendQuoted func appendQuoted(out []byte, s string, html bool) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendQuotedBytes func appendQuotedBytes(out []byte, b []byte, html bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendInt func appendInt(out []byte, n int64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []byte, n uint64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
@@ -183,6 +191,8 @@ func inQuotes(s string) string { "\"" + s + "\"" }
 
 func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
 
+func bytesBody(t *text, b []byte) { t.out = appendQuotedBytes(t.out, b, t.html) }
+
 func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }
 
 func uintBody(t *text, n uint64) { t.out = appendUint(t.out, n) }
@@ -219,6 +229,27 @@ func String(t *text, s string) {
 	t.sep()
 	t.stringBody(s)
 	t.setComma(true)
+}
+
+func StringBytes(t *text, b []byte) {
+	t.sep()
+	t.bytesBody(b)
+	t.setComma(true)
+}
+
+// StringBytesIsString: StringBytes writes what String writes for the
+// string its bytes spell, after a value (so the comma before it is right)
+// and before one (so the one after it is), in a Text and an HTML Text.
+law StringBytesIsString(b []byte, html bool) {
+	let t Text = text{comma: false, html: html, out: []byte{}}
+	t.Int(1)
+	t.StringBytes(b)
+	t.Int(2)
+	let u Text = text{comma: false, html: html, out: []byte{}}
+	u.Int(1)
+	u.String(utf8.String(b))
+	u.Int(2)
+	t.Written() == u.Written()
 }
 
 func Null(t *text) {
@@ -278,9 +309,9 @@ func finish(t *text) string {
 	s
 }
 
-func bytes(t *text) []byte { t.out }
+func bytes(t text) []byte { t.out }
 
-func drop(t *text) { t.out = recycle(t.out) }
+func drop(t *text, b []byte) { t.out = recycle(b) }
 
 // NewText is a Text with nothing written.
 func NewText() Text { text{comma: false, html: false, out: []byte{}} }
@@ -447,8 +478,9 @@ func Encode[T wire](c Codec[T], v T) string {
 func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R {
 	let t Text = text{comma: false, html: false, out: take()}
 	encode(v, t)
-	let u = use(t.bytes())
-	t.drop()
+	let b = t.bytes()
+	let u = use(b)
+	t.drop(b)
 	u
 }
 

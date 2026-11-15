@@ -326,6 +326,7 @@ func Int(_ Mine, n int64)       {}
 func Uint(_ Mine, n uint64)     {}
 func Float(_ Mine, f float64)   {}
 func String(_ Mine, s string)   {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int)   {}
 func EndList(_ Mine)            {}
 func BeginObject(_ Mine, n int) {}
@@ -342,6 +343,7 @@ func setComma(_ Mine, due bool)  {}
 func html(_ Mine) bool           { false }
 func keyBody(_ Mine, k string)   {}
 func stringBody(_ Mine, s string) {}
+func bytesBody(_ Mine, b []byte) {}
 func intBody(_ Mine, n int64)    {}
 func uintBody(_ Mine, n uint64)  {}
 func boolBody(_ Mine, b bool)    {}
@@ -572,6 +574,7 @@ func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
 func Float(_ Mine, f float64) {}
 func String(_ Mine, s string) {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int) {}
 func EndList(_ Mine) {}
 func BeginObject(_ Mine, n int) {}

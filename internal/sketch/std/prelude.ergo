@@ -119,6 +119,11 @@ type Writer {
 	Uint(n uint64),
 	Float(f float64),
 	String(s string),
+	// StringBytes writes the string whose UTF-8 bytes are b, as String
+	// does (GX10): a by-name pair's append form writes its text through
+	// it, so no string of the text is made. The writer reads b during the
+	// call only and keeps none of it.
+	StringBytes(b []byte),
 	BeginList(n int),
 	EndList(),
 	BeginObject(n int),

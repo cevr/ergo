@@ -15,6 +15,8 @@ import (
 // field and a by-name pair are written by the fast path as by the Writer
 // path, and read back).
 const stdJSONLawsProbe = `import json
+import time
+import utf8
 
 type up { Host string, Port int, Tags []string, Load float64 }
 type down {}
@@ -58,6 +60,39 @@ test JsonFastAgreesWithWriter(v fleet) {
 	encode(v, g)
 	assert t.Written() == w.Written() && h.Written() == g.Written()
 	assert json.Encode(codec(), v) == viaWriter(v)
+}
+
+test JsonStringBytesIsString(b []byte, html bool) {
+	let t = if html { json.NewHTMLText() } else { json.NewText() }
+	t.Int(1)
+	t.StringBytes(b)
+	t.Int(2)
+	let u = if html { json.NewHTMLText() } else { json.NewText() }
+	u.Int(1)
+	u.String(utf8.String(b))
+	u.Int(2)
+	assert t.Written() == u.Written()
+}
+
+// stamped holds time.Time, a by-name pair of the append form (GX10).
+type stamped { At time.Time, Ended Option[time.Time], Times []time.Time }
+
+test JsonTimePair(sec int64, nsec int64, more []int64) {
+	let t = time.NewTime(sec, nsec)
+	let mut times = []time.Time{}
+	for n in more {
+		times = times.Append(time.NewTime(n, n))
+	}
+	let v = stamped{At: t, Ended: Some{Value: t}, Times: times}
+	let c = json.Codec[stamped]{MaxBytes: 0, MaxDepth: 0}
+	let text = json.Encode(c, v)
+	assert text == viaWriter(v)
+	let back = json.Decode(c, text) catch {
+	case _:
+		assert false
+		v
+	}
+	assert back == v
 }
 
 test JsonLineSeparatorsEscaped {
@@ -157,6 +192,7 @@ test JsonFastRefinedPair(names []string, p int) {
 
 // stdJSONLawStatements is each restated law's ledger statement.
 var stdJSONLawStatements = map[string]string{
+	"json StringBytesIsString":   `StringBytesIsString(b []byte, html bool) { let t Text = text{comma: false, html: html, out: []byte{}} t.Int(1) t.StringBytes(b) t.Int(2) let u Text = text{comma: false, html: html, out: []byte{}} u.Int(1) u.String(utf8.String(b)) u.Int(2) t.Written() == u.Written() }`,
 	"json DepthLimits":           `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }`,
 	"json FastAgreesWithWriter":  `FastAgreesWithWriter(v fleet) { let t Text = text{comma: false, html: false, out: []byte{}} t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() w.BeginList(3) encode(v, w) w.Int(2) encode(v, w) w.EndList() let h Text = text{comma: false, html: true, out: []byte{}} encode(v, h) let g = NewHTMLText() encode(v, g) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }`,
 	"json HTMLEscaped":           `HTMLEscaped() { let h = NewHTMLText() h.String("<&>") let t = NewText() t.String("<&>") h.Written() == "\"\\u003c\\u0026\\u003e\"" && t.Written() == "\"<&>\"" }`,
@@ -179,7 +215,7 @@ func TestStdJSONLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the law tests of stdjson failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	extra := []string{"JsonFastRefinedPair"}
+	extra := []string{"JsonFastRefinedPair", "JsonTimePair"}
 	laws := lawsPassed(t, stdJSONLawStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")
 		return stdLawsTestName(pkg, law)

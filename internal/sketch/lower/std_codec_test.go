@@ -20,6 +20,7 @@ import (
 // derived law hostRoundTrips (types.md, Codecs 7) runs here too; it checks
 // the pair, not the codec, so CodecByNamePair stays.
 const stdCodecLawsProbe = `import codec
+import utf8
 
 type up { Host string, Port int, Tags []string, Load float64 }
 type down {}
@@ -32,6 +33,22 @@ func depth(e codec.Event) int {
 	case codec.BeginListEvent, codec.BeginObjectEvent: 1
 	case codec.EndListEvent, codec.EndObjectEvent: -1
 	case _: 0
+	}
+}
+
+test CodecStringBytesRecordsString(b []byte) {
+	let e = codec.NewEvents()
+	e.StringBytes(b)
+	let got = codec.Recorded(e)
+	if len(got) != 1 {
+		assert false
+		return
+	}
+	match got[0] {
+	case codec.StringEvent as x:
+		assert x.V == utf8.String(b)
+	case _:
+		assert false
 	}
 }
 
@@ -207,12 +224,13 @@ test CodecByNamePair(names []string) {
 
 // stdCodecLawStatements is each restated law's ledger statement.
 var stdCodecLawStatements = map[string]string{
-	"codec BasicReplay":       "BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }",
-	"codec EncodeNests":       "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
-	"codec EventsReplay":      "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
-	"codec GenericReplay":     "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
-	"codec MissingFieldFails": "MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }",
-	"codec UnknownTagFails":   `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }`,
+	"codec StringBytesRecordsString": `StringBytesRecordsString(b []byte) { let e = NewEvents() e.StringBytes(b) let got = Recorded(e) if len(got) != 1 { return false } match got[0] { case StringEvent as x: x.V == utf8.String(b) case _: false } }`,
+	"codec BasicReplay":              "BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }",
+	"codec EncodeNests":              "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
+	"codec EventsReplay":             "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
+	"codec GenericReplay":            "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
+	"codec MissingFieldFails":        "MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }",
+	"codec UnknownTagFails":          `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }`,
 }
 
 // TestStdCodecLawsRun runs the wire probe's tests with --seed 1;

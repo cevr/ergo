@@ -625,6 +625,17 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		l.wireMembersEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
+	if p := l.info.WirePairOf(t); p != nil && p.Append {
+		// The append form (check.WirePair): Wire appends x's text to a
+		// buffer on this function's stack, and StringBytes writes the
+		// string those bytes spell, so no string of the text is made. A
+		// longer text, or a writer that keeps the buffer past the call (it
+		// may not), moves it to the heap; Go's escape analysis decides.
+		buf := scope.alloc("buf")
+		b.WriteString("var " + buf + " [64]byte\n")
+		b.WriteString(w + ".StringBytes(" + task + ", " + l.wireCallFunc(p.Wire, env, tc.site, v, buf+"[:0]") + ")\n")
+		return
+	}
 	if p := l.info.WirePairOf(t); p != nil {
 		b.WriteString(tc.wireEncodeWith(em, p.Base, env, w, l.wireCallFunc(p.Wire, env, tc.site, v)) + "\n")
 		return

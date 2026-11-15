@@ -837,6 +837,17 @@
       "killers": [
         "runtime/v1:TestHTTPSendWritesTheText"
       ]
+    },
+    {
+      "name": "gx10-quoted-bytes-runes",
+      "origin": "wf10 GX10",
+      "file": "runtime/v1/json_bytes.go",
+      "from": "r, size := utf8.DecodeRune(s[i:])",
+      "to": "r, size := rune(s[i]), 1",
+      "rule": "stdlib.md, json (GX10): JSONAppendQuotedBytes quotes the string its bytes spell as JSONAppendQuoted does.",
+      "killers": [
+        "runtime/v1:TestJSONAppendQuotedBytesIsQuoted"
+      ]
     }
   ]
 }

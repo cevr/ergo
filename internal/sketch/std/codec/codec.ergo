@@ -16,6 +16,7 @@
 
 import strconv
 import sync
+import utf8
 
 // The events, one record each, as the Writer's operations name them.
 type BoolEvent { V bool }
@@ -54,12 +55,30 @@ func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
 func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
 func Float(e Events, f float64)   { record(e, FloatEvent{V: f}) }
 func String(e Events, s string)   { record(e, StringEvent{V: s}) }
+func StringBytes(e Events, b []byte) { record(e, StringEvent{V: utf8.String(b)}) }
 func BeginList(e Events, n int)   { record(e, BeginListEvent{N: n}) }
 func EndList(e Events)            { record(e, EndListEvent) }
 func BeginObject(e Events, n int) { record(e, BeginObjectEvent{N: n}) }
 func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
 func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
 func EndObject(e Events)          { record(e, EndObjectEvent) }
+
+// StringBytesRecordsString: StringBytes records the String event of the
+// string its bytes spell.
+law StringBytesRecordsString(b []byte) {
+	let e = NewEvents()
+	e.StringBytes(b)
+	let got = Recorded(e)
+	if len(got) != 1 {
+		return false
+	}
+	match got[0] {
+	case StringEvent as x:
+		x.V == utf8.String(b)
+	case _:
+		false
+	}
+}
 
 // RoundTrip is v through Events and back: decode[T] of a Replay of the
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].

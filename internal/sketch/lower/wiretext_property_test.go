@@ -43,6 +43,7 @@ var tapeEvents = []struct {
 	{"Uint", "n uint64", []string{`t.raw("\(n)")$`}},
 	{"Float", "f float64", []string{`t.raw("f")$`}},
 	{"String", "s string", []string{`if empty(s) { t.raw("e") } else { t.raw(s) }`, `t.raw(s)$`}},
+	{"StringBytes", "b []byte", []string{`t.raw("y")$`}},
 	{"BeginList", "n int", []string{`t.raw("[")$`, `t.echo(); t.raw("[")$`}},
 	{"EndList", "", []string{`t.raw("]")$`}},
 	// BeginObject ends in a constant raw, never idempotent, so a record
@@ -71,6 +72,7 @@ type Tape {
 	Uint(n uint64),
 	Float(f float64),
 	String(s string),
+	StringBytes(b []byte),
 	BeginList(n int),
 	EndList(),
 	BeginObject(n int),

@@ -59,9 +59,16 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 // package declares ParseX(b B) X and Wire(x X) B for a wire B, so X
 // encodes as Wire(x) and decodes through ParseX. Coherence: the pair is
 // looked up in X's own package only, as construction authority is.
+//
+// The append form (GX10) is ParseX(s string) X with Wire(x X, into
+// []byte) []byte: Wire appends the UTF-8 bytes of x's text to into and
+// returns it, so an encode lends Wire the buffer it writes the string
+// event from (the prelude Writer's StringBytes), and no string of the
+// text is made. Its Base is string.
 type WirePair struct {
 	Parse, Wire *Func
 	Base        Type // B
+	Append      bool // Wire is the append form
 }
 
 // wirePair is t's by-name pair, or nil. A refined type has none: its
@@ -80,14 +87,31 @@ func (c *checker) wirePair(t Type) *WirePair {
 	if ps == nil || ws == nil || len(ps.TParams) > 0 || len(ws.TParams) > 0 {
 		return nil
 	}
-	if len(ps.Params) != 1 || len(ps.Results) != 1 || len(ws.Params) != 1 || len(ws.Results) != 1 {
+	if len(ps.Params) != 1 || len(ps.Results) != 1 || len(ws.Results) != 1 || len(ws.Params) < 1 || len(ws.Params) > 2 {
 		return nil
 	}
-	base := ws.Results[0]
+	base, appends := ws.Results[0], len(ws.Params) == 2
+	if appends {
+		// Wire(x X, into []byte) []byte: the text of a string base.
+		if !isByteSlice(ws.Params[1].Type) || !isByteSlice(base) {
+			return nil
+		}
+		base = Typ[String]
+	}
 	if !c.identical(ps.Results[0], t) || !c.identical(ws.Params[0].Type, t) || !c.identical(ps.Params[0].Type, base) || !ws.Errors.Empty() {
 		return nil
 	}
-	return &WirePair{Parse: parse, Wire: wire, Base: base}
+	return &WirePair{Parse: parse, Wire: wire, Base: base, Append: appends}
+}
+
+// isByteSlice reports []byte.
+func isByteSlice(t Type) bool {
+	s, ok := t.(*Slice)
+	if !ok {
+		return false
+	}
+	b, ok := s.Elem.(*Basic)
+	return ok && b.Kind == Uint8
 }
 
 // WirePairOf is the by-name pair the check found for t, or nil; the
