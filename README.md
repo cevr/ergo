@@ -44,7 +44,7 @@ func Address(name string) string needs Resolver | Scheduler {
 }
 ```
 
-The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`, and its context `Listing` binds `hosts.Resolver` to `Static`:
+The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`; the binary's context `Memory` binds `hosts.Resolver` to `Static`:
 
 ```go
 import lookup/hosts
@@ -52,9 +52,9 @@ import lookup/memory
 import time
 
 // This binary is the only place that chooses the providers. Memory binds
-// the memory providers and a time.Manual, so a test needs no host; main
+// the static resolver and a time.Manual, so a test needs no host; main
 // replaces the Manual with the host's scheduler, which needs Ambient.
-let Memory = context { Scheduler: time.NewManual(0), memory.Listing }
+let Memory = context { Scheduler: time.NewManual(0), hosts.Resolver: memory.Static }
 let Missing = context { Memory, replace hosts.Resolver: memory.Empty }
 
 func main() needs Console | Ambient {
@@ -72,7 +72,7 @@ test NotFoundIsHandled {
 }
 ```
 
-From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. `Memory` embeds the context of another package, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
+From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. The binary is the one place that chooses providers, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
 
 ## Designed, not built yet
 

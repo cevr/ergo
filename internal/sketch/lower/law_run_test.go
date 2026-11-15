@@ -151,7 +151,7 @@ func TestLawRunState(t *testing.T) {
 		!strings.HasSuffix(got[2], "law refuted at main.ergo:10:3: the law is false") {
 		t.Errorf("line 3 is %q", got[2])
 	}
-	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
+	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Counter: … }, and the law runs under it"; got[0] != want {
 		t.Errorf("line 1 is %q, want %q", got[0], want)
 	}
 	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
@@ -247,12 +247,15 @@ func TestLawRunOtherPackage(t *testing.T) {
 	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	const plain = ": its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"
+	// A member law's fix is the context form; a law whose slot is a
+	// parameter runs under no context, so its fix is the constructor
+	// (mutant lawfix-one-text).
+	const plain = ": its values have no generator: func(int) int is a function type; "
 	want := []struct{ line, prefix, suffix string }{
-		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
+		{line: "skip law kv.Store.GetAfterPut for Plain" + plain + "bind one in a named context of a test file, let Name = context { kv.Store: … }, and the law runs under it"},
 		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
 		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
-		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain},
+		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain + "a func NewPlain() Plain with no rows would build one for each case"},
 		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{line: "FAIL (3 of 4 tests, 2 skipped)"},
@@ -360,12 +363,32 @@ func TestLawRunLeastPackage(t *testing.T) {
 }
 
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
-// it as skipped, never as a test (fs4); so does a run under a context
-// whose build acquires a provider with a Close (L5; mutant
-// lawctx-close-runs).
+// it as skipped, never as a test (fs4). A run under a context whose build
+// acquires a provider with a Close releases it at the end of each case,
+// after the law's last operation: Gn's Area is negative once its Close
+// ran (mutant lawrel-before-last-op) or while an earlier case's Gn is
+// unreleased (mutant lawrel-skipped); so does a provider with no Close
+// whose field holds one (Holder under Locked: its generated release
+// closes the Lock, mutant lawrel-field-unreleased), and a with of that
+// context compiles (locked: the checker charged a nil Close's needs, and a
+// named builder's generated release needed a frame scope; mutants
+// relneeds-drop-as-close, field-release-on-frame). A part's Close that
+// needs a capability makes its context a skip (Gate under Latched, mutant
+// relneeds-parts-ignored). A context whose release a case
+// cannot run is a skip: a Close that needs a capability (Needy, mutant
+// lawrel-needs-ignored), a provider that names a package let (Pinned,
+// mutant lawrel-package-let) or a generic Close with witnesses
+// (Witnessed, mutant lawrel-witnessed). A provider with no generator that a
+// context which runs builds (Fn under Wired, Gn under Kept) runs there
+// and is no skip; one whose context does not run (Nd under Needy) stays
+// a skip; a provider that runs (Sq) runs beside its context (mutants
+// lawctx-covers-none, lawctx-covers-any-type,
+// lawctx-covers-unrun-context, lawctx-covers-runnable).
 func TestLawRunSkips(t *testing.T) {
 	needsBuild(t)
-	src := `type Shape {
+	src := `import sync
+
+type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },
 }
@@ -410,6 +433,100 @@ func openRes() Res { Res{n: 1} }
 
 let Held = context { Shape: openRes() }
 
+let pinned = Res{n: 3}
+
+let Pinned = context { Shape: pinned }
+
+let live = sync.NewRef(0)
+
+type Gn { g func(int) int, closed sync.Ref[bool] }
+
+func Area(g Gn) int {
+	if g.closed.Get() || live.Get() != 1 {
+		return -1
+	}
+	1
+}
+
+func Close(g Gn) {
+	g.closed.Set(true)
+	live.Set(live.Get() - 1)
+}
+
+func openGn() Gn {
+	live.Set(live.Get() + 1)
+	Gn{g: func(n int) int { n }, closed: sync.NewRef(false)}
+}
+
+let Kept = context { Shape: openGn() }
+
+type Lock { g func(int) int, closed sync.Ref[bool] }
+
+func Close(k Lock) {
+	k.closed.Set(true)
+	live.Set(live.Get() - 1)
+}
+
+type Holder { lock Lock }
+
+func Area(h Holder) int {
+	if h.lock.closed.Get() || live.Get() != 1 {
+		return -1
+	}
+	1
+}
+
+func openHolder() Holder {
+	live.Set(live.Get() + 1)
+	Holder{lock: Lock{g: func(n int) int { n }, closed: sync.NewRef(false)}}
+}
+
+let Locked = context { Shape: openHolder() }
+
+func locked() int {
+	with Locked {
+		Shape.Area()
+	}
+}
+
+type Latch { n int }
+
+func Close(_ Latch) needs Console {}
+
+type Gate { latch Latch }
+
+func Area(_ Gate) int { 1 }
+
+let Latched = context { Shape: Gate{latch: Latch{n: 1}} }
+
+type Nd { g func(int) int }
+
+func Area(_ Nd) int { 1 }
+
+func Close(_ Nd) needs Console {}
+
+let Needy = context { Shape: Nd{g: func(n int) int { n }} }
+
+type Nm {}
+
+func Name(_ Nm) string { "n" }
+
+type Wt[T] { Value T }
+
+func Area[T Named](_ Wt[T]) int { 1 }
+
+func Close[T Named](_ Wt[T]) {}
+
+let Witnessed = context { Shape: Wt[Nm]{Value: Nm} }
+
+type Sq { n int }
+
+func Area(_ Sq) int { 1 }
+
+let Sized = context { Shape: Sq{n: 2} }
+
+let Wired = context { Shape: Fn{f: func(n int) int { n }} }
+
 func main() {}
 `
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_skips", src)}, true)
@@ -418,14 +535,24 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
+		"skip law Shape.Positive for Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
 		"ok law Shape.Positive for Res (100 cases)",
-		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",
+		"ok law Shape.Positive for Gate (100 cases)",
+		"ok law Shape.Positive for Sq (100 cases)",
+		"ok law Shape.Positive under Held (100 cases)",
+		"ok law Shape.Positive under Kept (100 cases)",
+		"skip law Shape.Positive under Latched: its provider's release needs Console; a law case has no capability to release it with",
+		"ok law Shape.Positive under Locked (100 cases)",
+		"skip law Shape.Positive under Needy: its provider's release needs Console; a law case has no capability to release it with",
+		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
+		"ok law Shape.Positive under Sized (100 cases)",
+		"ok law Shape.Positive under Wired (100 cases)",
+		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (1 tests, 6 skipped)",
+		"PASS (8 tests, 9 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -526,7 +653,7 @@ func TestLawRunCapabilities(t *testing.T) {
 	got := verdicts(stdout)
 	want := []struct{ line, prefix, suffix string }{
 		{line: "ok BookStartsEmpty"},
-		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
+		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Notes: … }, and the law runs under it"},
 		{line: "ok law Notes.AddReads for Book (100 cases)"},
 		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:12:3: the law is false"},
 		{line: "ok law Loud.CountsUp for Echo (100 cases)"},

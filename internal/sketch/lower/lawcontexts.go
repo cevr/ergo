@@ -13,7 +13,9 @@ import (
 // for one that does not run, else testCases cases, each of which copies
 // the runner's environment, builds the context into the copy with its
 // builder, as a with of it does, draws the law's parameters and calls the
-// law's function, the provider being the one the context bound. The report
+// law's function, the provider being the one the context bound, and, when
+// the build acquired a provider with a Close, releases the providers as the
+// with would at the end of its block. The report
 // names the context: `ok law T.L under Live (100 cases)`. task is the
 // runner's task, which lawRuns reads (taskOf).
 func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, task, seed, failed string) {
@@ -72,13 +74,32 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 			sep = ", "
 		}
 		build := l.contextBuilder(lc.With, law.Decl)
-		body := e + " := *" + env + "; " + build + "(&" + e + "); " +
-			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
+		head, open := "func() error { ", e+" := *"+env+"; "+build+"(&"+e+"); "
+		if ownsResources(lc.With) {
+			head, open = l.lawCaseScope(inner, e, env, task, build)
+		}
+		body := open + held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, " + head + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
 	}
+}
+
+// lawCaseScope is the head and opening of a law case whose context build
+// acquires a provider with a Close. The case owns the providers it builds,
+// as a with does (resources.md, Context ownership): the owning builder
+// registers their releases in the with scope ws, which the case's frame
+// scope fs ends when the case ends, on every path, after the law's last
+// operation; last built first, each once. A release's defect is the
+// case's exit, so it fails the case ($Prop). e is the case's environment,
+// a copy of env; build is the context's owning builder.
+func (l *lowerer) lawCaseScope(inner *namer, e, env, task, build string) (head, open string) {
+	fs, ws, exit := inner.alloc("fs"), inner.alloc("ws"), inner.alloc("exit")
+	head = "func() (" + exit + " error) { "
+	open = e + " := *" + env + "; " + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
+		ws + " := " + fs + ".OpenWith(); " + build + "(&" + e + ", " + env + ", " + ws + "); "
+	return head, open
 }

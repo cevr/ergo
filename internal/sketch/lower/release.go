@@ -192,8 +192,11 @@ func (fc *funcCtx) providerCloser(a *check.Acquisition, outer, val string, site 
 	callback := fc.envClosure(capturedEnv, "", site, func(env string) ([]string, string, string) {
 		if a.Drop != nil {
 			// A provider whose parts hold resources: its generated
-			// release (B2), its own Close first.
-			return nil, "", strings.Repeat("\t", fc.depth+1) + fc.glue(a.Drop, val, "", env, site) + "\n"
+			// release (B2), its own Close first. It runs from the with's
+			// scope, after the builder's frame, so its Drop is on the
+			// releasing task, as a std result's release (resultRelease).
+			drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+			return nil, "", strings.Repeat("\t", fc.depth+1) + fc.glueOn(a.Drop, val, "", env, drop, site) + "\n"
 		}
 		return nil, "", strings.Repeat("\t", fc.depth+1) + fc.providerRelease(a, env, val, site) + "\n"
 	})

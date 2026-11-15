@@ -1,6 +1,7 @@
 package check
 
 import (
+	"slices"
 	"sort"
 )
 
@@ -9,9 +10,10 @@ import (
 // package that binds T: each case builds the context, as a with of it
 // does, and runs the law against the provider the context binds, so the
 // provider is the one the program uses, made by its constructor with its
-// arguments and its other capabilities in place. A context whose build
-// acquires a provider with a Close does not run (LawContext.Unrun): the
-// case would have to release it. Only a law whose one slot is its owner
+// arguments and its other capabilities in place. A case releases the
+// providers with a Close it built when it ends, as the with does; a
+// context whose release a case cannot run does not run (lawRelease,
+// LawContext.Unrun). Only a law whose one slot is its owner
 // runs under a context; a law of a generic operation type runs under one
 // that binds an instance of it, at that instance.
 
@@ -32,6 +34,7 @@ type LawContext struct {
 // only such contexts here. It runs after the ownership pass, so the
 // acquisitions and Closes are known.
 func (c *checker) planLawContexts() {
+	c.lawProviderFixes()
 	if len(c.pkg.Contexts) == 0 {
 		return
 	}
@@ -67,13 +70,41 @@ func (c *checker) planLawContexts() {
 				continue
 			}
 			if i, ok := runs[law]; ok {
-				c.pkg.LawRuns[i].Contexts = under
+				r := &c.pkg.LawRuns[i]
+				r.Contexts = under
+				r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+					return c.builtByContext(b[0], under)
+				})
 				continue
 			}
 			runs[law] = len(c.pkg.LawRuns)
 			c.pkg.LawRuns = append(c.pkg.LawRuns, LawRun{Law: law, Contexts: under})
 		}
 	}
+}
+
+// builtByContext reports whether a context of under builds the provider p
+// that the law's run cannot build itself (p.Unrun): a context that runs
+// and whose entry for the owner is a value of p's type. The run under
+// that context is then p's run, so p is no skip. This is how a test file
+// picks a provider that takes another one, as cmd/NAME/main.ergo picks
+// the binary's: let overMemory = context { limits.Limiter:
+// NewLoopback(memory.NewMemory()) }.
+func (c *checker) builtByContext(p LawProvider, under []LawContext) bool {
+	if p.Unrun == "" {
+		return false
+	}
+	for _, lc := range under {
+		if lc.Unrun != "" {
+			continue
+		}
+		e := lc.With.Entries[0]
+		info := providerInfo(c.contextOwners.of[e])
+		if info != nil && e.Provider != nil && c.identical(info.Types[e.Provider], p.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // lawContext is the run of law under the named context w, when w binds its
@@ -111,12 +142,7 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 	c.contextOwners.add(w)
 	fact.Acquired = c.acquire(w, fact.Entries, c.contextOwners.of)
 	lc := LawContext{Context: w, With: fact, Params: params}
-	for _, a := range fact.Acquired {
-		if a.Close != nil {
-			lc.Unrun = "its build acquires a provider with a Close, which a law case does not release"
-			break
-		}
-	}
+	lc.Unrun = c.lawRelease(fact)
 	if lc.Unrun == "" && params != nil {
 		// A non-generic law's parameters were judged when it was planned.
 		for i, p := range law.Params {
@@ -127,4 +153,34 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 		}
 	}
 	return lc, true
+}
+
+// lawRelease is why a law case cannot release the providers fact acquires,
+// or "". A case releases them as a with does at the end of its block
+// (resources.md, Context ownership): after the law's last operation, each
+// provider once, last built first. Outside that with a case has no
+// capability, so a release that needs one (rows.md, a release's needs are
+// charged outside the with) cannot run there; a provider that names a
+// package let would be released by the first case and read closed by the
+// next (R11); a generic Close with witnesses has no instance the case
+// could pass (S109).
+func (c *checker) lawRelease(fact *With) string {
+	for _, a := range fact.Acquired {
+		if !a.Releases() {
+			continue
+		}
+		if closeWitnessed(a.Close) != "" {
+			return "its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)"
+		}
+		if needs := c.acquisitionNeeds(a); len(needs) > 0 {
+			return "its provider's release needs " + needs[0].String() + "; a law case has no capability to release it with"
+		}
+		// A release was found from the provider's package facts (acquire),
+		// so info is set.
+		info := providerInfo(c.contextOwners.of[a.Entry])
+		if name := packageRoot(info, a.Entry.Provider); name != "" {
+			return "its provider names the package let " + name + ", which a case's release would close for every later case"
+		}
+	}
+	return ""
 }

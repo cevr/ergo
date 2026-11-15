@@ -162,7 +162,7 @@ func (c *checker) withOwnership() {
 				c.errorf(at, CodeType, "this resource provider names the package let %s, which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", name)
 			}
 			c.cur = s.file
-			for _, cap := range c.releaseNeeds(a.Close) {
+			for _, cap := range c.acquisitionNeeds(a) {
 				c.chargeRelease(s, a, cap)
 			}
 		}
@@ -311,6 +311,38 @@ func closeWitnessed(cl *Close) string {
 		}
 	}
 	return ""
+}
+
+// acquisitionNeeds are the capabilities the release of a requires: its
+// Close's, or, for a provider released through its generated release
+// (Acquisition.Drop), those of every Close that release runs, its own and
+// its parts'. A provider with no Close of its own has only its parts'.
+func (c *checker) acquisitionNeeds(a *Acquisition) []Type {
+	if a.Drop == nil {
+		return c.releaseNeeds(a.Close)
+	}
+	var out []Type
+	seen := map[*Drop]bool{}
+	var walk func(d *Drop)
+	walk = func(d *Drop) {
+		if d == nil || seen[d] {
+			return
+		}
+		seen[d] = true
+		if d.Close != nil {
+			out = append(out, c.releaseNeeds(d.Close)...)
+		}
+		for _, f := range d.Fields {
+			walk(f.Drop)
+		}
+		walk(d.Elem)
+		for _, v := range d.Variants {
+			walk(v)
+		}
+		walk(d.Drain)
+	}
+	walk(a.Drop)
+	return out
 }
 
 // releaseNeeds are the capabilities a release by cl requires.

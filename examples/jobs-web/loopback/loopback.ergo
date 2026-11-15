@@ -1,24 +1,24 @@
-// Package loopback is the job server through the wire: the generated RPC
-// Client of a memory server that its generated server serves in this
-// process (rpc.Loopback). Every operation crosses Effect RPC's HTTP wire
-// and the contract's codecs both ways, so `ergo test` runs the jobs.Jobs
-// laws against the client exactly as against the memory provider.
+// Package loopback is a job server through the wire: the generated RPC
+// Client of a server that its generated server serves in this process
+// (rpc.Loopback). Every operation crosses Effect RPC's HTTP wire and the
+// contract's codecs both ways. The package picks no server: its caller
+// passes one in. Its tests (tests.ergo) pass a memory server and hold the
+// jobs.Jobs laws through the wire, as the memory package holds them
+// directly.
 
 import jobsweb/jobs
 import jobsweb/jobs/jobsrpc
-import jobsweb/memory
 import rpc
 
 // Loopback is a jobs.Jobs whose every operation is an RPC call.
 type Loopback { client jobsrpc.Client }
 
-// NewLoopback serves a fresh memory server in process and is its client.
-// The server binds the provider for each call; every call reaches the
-// same jobs, since a Memory's copies share them.
-func NewLoopback() Loopback {
-	let m = memory.New()
+// NewLoopback serves inner in process and is its client. The server binds
+// inner for each call, so every call reaches the same jobs when the
+// copies of inner share their state (a memory.Memory's do).
+func NewLoopback(inner jobs.Jobs) Loopback {
 	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
-		with context { jobs.Jobs: m } {
+		with context { jobs.Jobs: inner } {
 			try jobsrpc.Handle(tag, payload)
 		}
 	})

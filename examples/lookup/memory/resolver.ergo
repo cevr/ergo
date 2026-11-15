@@ -16,6 +16,3 @@ func Resolve(_ Static, name string) hosts.Answer fails hosts.NotFound {
 func Resolve(_ Empty, name string) hosts.Answer fails hosts.NotFound {
 	hosts.NotFound{Name: name}
 }
-
-// Listing binds the contract to the static resolver.
-let Listing = context { hosts.Resolver: Static }

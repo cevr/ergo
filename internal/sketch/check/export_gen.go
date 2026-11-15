@@ -5336,6 +5336,7 @@ func (e *encoder) encFieldsLawProvider(v *LawProvider) {
 	e.encT2(v.Unrun)
 	e.encPtrNamed(v.Slot)
 	e.encT20(v.Params)
+	e.encT12(v.noGenerator)
 }
 
 func (e *encoder) encLawProvider(v LawProvider) { e.encFieldsLawProvider(&v) }
@@ -14986,6 +14987,7 @@ func (d *decoder) decFieldsLawProvider(v *LawProvider) {
 	v.Unrun = d.decT2()
 	v.Slot = d.decPtrNamed()
 	v.Params = d.decT20()
+	v.noGenerator = d.decT12()
 }
 
 func (d *decoder) decLawProvider() (v LawProvider) {

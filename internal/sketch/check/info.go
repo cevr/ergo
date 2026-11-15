@@ -1115,6 +1115,10 @@ type LawProvider struct {
 	Unrun  string
 	Slot   *Named
 	Params []Type
+
+	// noGenerator marks an Unrun that says the values have no generator;
+	// lawRuns adds the fix the law's shape admits (lawProviderFix).
+	noGenerator bool
 }
 
 // A law is an Object, so Defs records its declaring name.

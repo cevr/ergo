@@ -63,21 +63,25 @@ func layoutFindings(t *testing.T, dir string, conf *lint.Configuration) []string
 	return out
 }
 
-// examplePicks are the functions of examples/ outside an entry file that
-// pick an implementation, each by the layout preset's functions option:
-// the in-process loopback servers, which serve a fresh memory provider.
-var examplePicks = []string{"loopback.NewLoopback"}
-
 // TestLayoutPresetOnExamples holds the examples to the layout their
 // AGENTS.md rule states (owner, 2026-11-04): each example module is clean
-// under the layout preset, with examplePicks listed. A planted module then
+// under the layout preset, with no options. A planted module then
 // shows each rule firing where the layout is broken, and only there: a
 // kind-suffixed file and a with that picks a program implementation
 // outside the entry file; not the same with in a function the options
 // list, in a file of tests, or in cmd/NAME/main.ergo, nor a with of a
-// capability value passed down.
+// capability value passed down. A named context picks as a with does:
+// reported by its own entries (Picked), through a context it embeds
+// (Wide), when exported in a file of contexts only (Shared) and when
+// unexported in a file with functions (local); not when it binds std
+// providers only (Clocked), in the entry file (Main), in a file of tests
+// (inTests) or unexported in a file of contexts only (fixedStore), whose
+// with in a function is reported at that with (ViaTests). Mutants:
+// lint-context-unchecked, lint-context-no-embedding,
+// lint-context-any-type, lint-testfile-exported, lint-testfile-funcs,
+// lint-testfile-contexts-only.
 func TestLayoutPresetOnExamples(t *testing.T) {
-	conf := layoutConf(t, examplePicks)
+	conf := layoutConf(t, nil)
 	modules, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "*", "ergo.mod"))
 	if err != nil || len(modules) == 0 {
 		t.Fatalf("no example modules: %v", err)
@@ -103,6 +107,7 @@ func Get(f Fixed) int { f.N }
 `,
 		"store/store_service.ergo": "func zero() int {\n\t0\n}\n",
 		"run/run.ergo": `import app/store
+import time
 
 func Count() int needs store.Store {
 	store.Store.Get()
@@ -125,8 +130,25 @@ func Passed(s store.Store) int {
 		Count()
 	}
 }
+
+let Picked = context { store.Store: store.Fixed{N: 6} }
+
+let Wide = context { fixedStore }
+
+let Clocked = context { Scheduler: time.NewManual(0) }
+
+func ViaTests() int {
+	with fixedStore {
+		Count()
+	}
+}
 `,
+		"run/bindings.ergo": "import app/store\n\nlet fixedStore = context { store.Store: store.Fixed{N: 7} }\n",
+		"run/shared.ergo":   "import app/store\n\nlet Shared = context { store.Store: store.Fixed{N: 8} }\n",
+		"run/helpers.ergo":  "import app/store\n\nlet local = context { store.Store: store.Fixed{N: 11} }\n\nfunc viaLocal() int {\n\twith local {\n\t\tCount()\n\t}\n}\n",
 		"run/tests.ergo": `import app/store
+
+let inTests = context { store.Store: store.Fixed{N: 9} }
 
 func fixed(n int) int {
 	with context { store.Store: store.Fixed{N: n} } {
@@ -140,6 +162,8 @@ test WithInATest {
 `,
 		"cmd/app/main.ergo": `import app/run
 import app/store
+
+let Main = context { store.Store: store.Fixed{N: 10} }
 
 func main() needs Console {
 	let n = with context { store.Store: store.Fixed{N: 4} } {
@@ -158,7 +182,11 @@ func main() needs Console {
 			t.Fatal(err)
 		}
 	}
-	want := []string{"run/run.ergo:8 with-at-entry", "store/store_service.ergo:1 concept-file-names"}
+	want := []string{
+		"run/helpers.ergo:3 with-at-entry", "run/helpers.ergo:6 with-at-entry",
+		"run/run.ergo:26 with-at-entry", "run/run.ergo:28 with-at-entry", "run/run.ergo:33 with-at-entry", "run/run.ergo:9 with-at-entry",
+		"run/shared.ergo:3 with-at-entry", "store/store_service.ergo:1 concept-file-names",
+	}
 	if got := layoutFindings(t, dir, layoutConf(t, []string{"run.Listed"})); !slices.Equal(got, want) {
 		t.Fatalf("the planted module gave %v, want %v", got, want)
 	}
