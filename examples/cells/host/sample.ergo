@@ -1,0 +1,199 @@
+// The generated views the host's laws draw (HitMatchesDraw,
+// CellsShowEveryName, PatchIsOneFrame), and the fake terminal whose log
+// PatchIsOneFrame reads: a seed picks a tree of rows and columns, with
+// gaps and padding of any number of points, over every kind of control.
+
+import io
+import sync
+import term
+import ui
+
+// Piece is one node of a generated view.
+type Piece = Group{Row bool, Gap int, Pad int, Kids []Piece} | Words{Text string} | Button{Label string, Holds int} | Box{Label string} | Switch{Label string} | Field{Label string} | Picture{Label string}
+
+// rng is the laws' generator.
+type rng { s int }
+
+func pick(r *rng, n int) int {
+	r.s = (r.s*1103515245 + 12345) % 2147483648
+	if r.s < 0 {
+		r.s = -r.s
+	}
+	(r.s / 65536) % n
+}
+
+// pieces is a group of depth d of seed's generator: a column at even
+// depth, a row at odd depth, of one to four pieces; at depth 2 its pieces
+// are leaves. Labels are numbered from k, so every label is its own; the
+// next number follows the group.
+func pieces(r *rng, d int, k int) (Piece, int) {
+	let mut kids = []Piece{}
+	let mut n = k
+	for _ in 0..pick(r, 4)+1 {
+		n = n + 1
+		let name = "\(n)"
+		if d >= 2 {
+			let which = pick(r, 8)
+			if which == 0 {
+				kids = kids.Append(Words{Text: "t" + name})
+			} else if which <= 2 {
+				// 0: a Text inside, 1: a Canvas inside, 2: nothing inside
+				kids = kids.Append(Button{Label: "p" + name, Holds: pick(r, 3)})
+			} else if which == 3 {
+				kids = kids.Append(Box{Label: "c" + name})
+			} else if which == 4 {
+				kids = kids.Append(Switch{Label: "s" + name})
+			} else if which == 5 {
+				kids = kids.Append(Field{Label: "f" + name})
+			} else {
+				kids = kids.Append(Picture{Label: "v" + name})
+			}
+		} else {
+			let (p, m) = pieces(r, d+1, n)
+			kids = kids.Append(p)
+			n = m
+		}
+	}
+	(Group{Row: d%2 == 1, Gap: pick(r, 14), Pad: pick(r, 14), Kids: kids}, n)
+}
+
+// Sample is the state of the generated app: its seed, how many rows it
+// added and how many times a button of its tree was pressed.
+type Sample { Seed int, Rows int, Taps int }
+
+// sampleStep: signal 1 adds a row, signal 2 counts a tap; a row's button
+// (0) changes nothing.
+func sampleStep(s Sample, e int) Decision[Sample, int] {
+	if e == 1 {
+		return Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows + 1, Taps: s.Taps}}
+	}
+	if e == 2 {
+		return Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows, Taps: s.Taps + 1}}
+	}
+	Stay[Sample]{Next: s}
+}
+
+func sampleTimer(s Sample) Option[Timeout[int]] { None }
+
+func sampleWork(s Sample) Option[func(send func(e int))] { None }
+
+// SampleMachine is the generated app from seed.
+func SampleMachine(seed int) Machine[Sample, int, int] {
+	Machine[Sample, int, int]{Initial: Sample{Seed: seed, Rows: 0, Taps: 0}, Step: sampleStep, After: sampleTimer, Work: sampleWork}
+}
+
+// SampleView shows a count, a "more" button that adds a row of a text
+// and a button, the rows, and the seed's tree.
+func SampleView(f *ui.Frame[int], s Sample) {
+	let mut r = rng{s: s.Seed % 2147483648}
+	let (tree, _) = pieces(&r, 0, 0)
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "taps \(s.Taps)")
+		ui.Text(f, "rows \(s.Rows)")
+		ui.Pressable(f, "more", 1) {
+			ui.Text(f, "+")
+		}
+		ui.Each(f, rowsOf(s.Rows), func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+			ui.Row(f, ui.Plain()) {
+				ui.Text(f, "row\(i)")
+				ui.Pressable(f, "del\(i)", 0) {
+					ui.Text(f, "x")
+				}
+			}
+		}
+		piece(f, tree)
+	}
+}
+
+func rowsOf(n int) []int {
+	let mut out = []int{}
+	for i in 0..n%4 {
+		out = out.Append(i)
+	}
+	out
+}
+
+// piece shows p.
+func piece(f *ui.Frame[int], p Piece) {
+	match p {
+	case Group as g:
+		let mut st = ui.Plain()
+		st.Gap = ui.Length(float64(g.Gap))
+		st.Padding = ui.All(ui.Length(float64(g.Pad)))
+		if g.Row {
+			ui.Row(f, st) {
+				for kid in g.Kids {
+					piece(f, kid)
+				}
+			}
+		} else {
+			ui.Column(f, st) {
+				for kid in g.Kids {
+					piece(f, kid)
+				}
+			}
+		}
+	case Words as w:
+		ui.Text(f, w.Text)
+	case Button as b:
+		ui.Pressable(f, b.Label, 2) {
+			if b.Holds == 0 {
+				ui.Text(f, "ok")
+			} else if b.Holds == 1 {
+				ui.Canvas(f, "icon", 16, 16) func(pt *ui.Paint) {
+					ui.Fill(pt, ui.RectPath(0, 0, 16, 16), ui.Color{R: 0, G: 0, B: 0, A: 255})
+				}
+			}
+		}
+	case Box as b:
+		ui.Check(f, b.Label, false, 0)
+	case Switch as t:
+		let fl = ui.NewFlag(f, false)
+		ui.Toggle(f, fl, t.Label)
+	case Field as x:
+		let d = ui.NewDraft(f, "")
+		ui.Field(f, d, x.Label)
+	case Picture as v:
+		ui.Canvas(f, v.Label, 40, 16) func(pt *ui.Paint) {
+			ui.Fill(pt, ui.RectPath(0, 0, 40, 16), ui.Color{R: 9, G: 9, B: 9, A: 255})
+		}
+	}
+}
+
+// Logged is one operation a fake terminal saw: a write, or a read of a
+// key.
+type Logged = Wrote{Text string} | Read{}
+
+// Fake is a terminal for the laws: its keys are a script, its size is
+// fixed, and it keeps every write and read in order (its op log).
+type Fake { keys []term.Key, at sync.Ref[int], log sync.Ref[[]Logged], cols int, rows int }
+
+// NewFake is a terminal of cols by rows that plays keys, then ends.
+func NewFake(keys []term.Key, cols int, rows int) Fake {
+	Fake{keys: keys, at: sync.NewRef(0), log: sync.NewRef[[]Logged]([]Logged{}), cols: cols, rows: rows}
+}
+
+func SetMode(_ Fake, m term.Mode) fails term.NotTerminal {}
+
+func Restore(_ Fake) {}
+
+func ReadKey(f Fake) term.Key fails io.ReadFailed {
+	f.log.Update(func(l []Logged) []Logged { l.Append(Read) })
+	let i = f.at.Get()
+	if i >= len(f.keys) {
+		return term.EndOfInput
+	}
+	f.at.Set(i + 1)
+	f.keys[i]
+}
+
+func Size(f Fake) term.Window fails term.NotTerminal { term.Window{Cols: f.cols, Rows: f.rows} }
+
+func Print(f Fake, text string) { f.log.Update(func(l []Logged) []Logged { l.Append(Wrote{Text: text}) }) }
+
+func Println(f Fake, line string) { Print(f, line+"\n") }
+
+func IsTerminal(_ Fake) bool { true }
+
+// Log is what f saw, in order.
+func Log(f Fake) []Logged { f.log.Get() }

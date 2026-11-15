@@ -1,0 +1,292 @@
+// The look of every node in cells, from its semantics: a node shows its
+// accessible name (ui.Access) and its state by one table (Marks), and
+// what a grid of cells cannot show is left out, never imitated (LeftOut).
+// The room each node takes is a layout.Style in points (styleOf), laid out
+// by std ui/layout as on every host.
+
+import actor
+import ergo.local/prototype/examples/cells/grid
+import strings
+import time
+import ui
+import ui/layout
+
+// Marks is the table of a control's state in cells: the text before a
+// Check's or a Toggle's label, and the ends of a Pressable and an Input.
+// A disabled control shows Faint, the focused one Inverse.
+type Marks { Checked string, Unchecked string, On string, Off string, Open string, Close string }
+
+// TheMarks are the marks the host draws: [x] and [ ] for a Check, (•) and
+// ( ) for a Toggle, [ and ] around a Pressable and an Input. (An expanded
+// or collapsed node, ▾ and ▸, comes with a node that has the state;
+// ui has none yet.)
+let TheMarks = Marks{Checked: "[x] ", Unchecked: "[ ] ", On: "(•) ", Off: "( ) ", Open: "[", Close: "]"}
+
+// markW is the width in cells of a Check's or a Toggle's mark.
+let markW = 4
+
+// Left is a part of a view that the cell host does not draw: a grid of
+// cells has no way to show it, so the host leaves it out rather than
+// imitate it with characters (stdlib.md, UI cell host).
+type Left = Opacity{} | Shadows{} | Radii{} | Images{} | CanvasPaint{} | SubCell{} | RegionLabel{} | ListLabel{} | LabelUnderText{} | PlaceholderUnderValue{}
+
+// Omission is a part the host leaves out, and why.
+type Omission { Part Left, Why string }
+
+// LeftOut is every part the host leaves out, in the order stdlib.md
+// lists them.
+func LeftOut() []Omission {
+	[]Omission{
+		Omission{Part: Opacity, Why: "a color's alpha: a cell is drawn or not"},
+		Omission{Part: Shadows, Why: "shadows and blur"},
+		Omission{Part: Radii, Why: "rounded corners and borders: a box shows no frame"},
+		Omission{Part: Images, Why: "pixels: a Canvas shows its label"},
+		Omission{Part: CanvasPaint, Why: "a Canvas's paint list beyond its label"},
+		Omission{Part: SubCell, Why: "sizes and positions under a cell: each edge rounds to the nearest grid line (Span)"},
+		Omission{Part: RegionLabel, Why: "an Area's label: its children show"},
+		Omission{Part: ListLabel, Why: "a list's label: its rows show"},
+		Omission{Part: LabelUnderText, Why: "a Pressable's label when it holds a Text: the Text shows, as a button's content names it"},
+		Omission{Part: PlaceholderUnderValue, Why: "an Input's placeholder while it holds a value: the value shows"},
+	}
+}
+
+// leftOutName is why the name of n does not show, when it does not:
+// None for a node whose name the host draws.
+func leftOutName[E](n ui.Node[E], holdsText bool) Option[Left] {
+	match n {
+	case ui.AreaNode:
+		Some{Value: RegionLabel}
+	case ui.RowsNode:
+		Some{Value: ListLabel}
+	case ui.PressableNode[E]:
+		if holdsText { Some{Value: LabelUnderText} } else { None }
+	case ui.InputNode as x:
+		if x.Value != "" { Some{Value: PlaceholderUnderValue} } else { None }
+	case _:
+		None
+	}
+}
+
+// CellsShowEveryName: on a generated view, every node that shows on the
+// grid and has a name (ui.Access) has that name's first cells in the grid
+// where the host says it drew them, or its name is left out
+// (leftOutName); what a leaf control holds is left out with it.
+law CellsShowEveryName(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		showsEveryName(seed)
+	}
+}
+
+func showsEveryName(seed int) bool needs Scheduler {
+	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
+	let mut h = New(a, SampleView, 140, 40, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	namesShown(&h, h.root)
+}
+
+// namesShown is whether every node below id shows its name or leaves it
+// out.
+func namesShown[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) bool {
+	for k in kidsOf(h, id) {
+		let n = match h.nodes.Get(k) {
+		case Some[held[E]] as x:
+			x.Value.node
+		case None:
+			return false
+		}
+		let text = holdsText(h, k)
+		let name = ui.AccessOf(&h.mirror, k).Name
+		let d = match h.drawn.Get(k) {
+		case Some[drawnAt] as x:
+			x.Value
+		case None:
+			return false
+		}
+		if name != "" && d.vis.W > 0 && d.vis.H > 0 && leftOutName(n, text) == None {
+			if d.nameC < 0 || !strings.HasPrefix(strings.Join(strings.Fields(name), " "), d.name) {
+				return false
+			}
+			if grid.At(h.screen, d.nameC, d.nameR).Text != grid.Runes(d.name)[0] {
+				return false
+			}
+		}
+		// a leaf control's children are not drawn: its name stands for them
+		match styleOf(n, text).Content {
+		case layout.Boxes:
+			if !namesShown[S, E, D, F](h, k) {
+				return false
+			}
+		case layout.Text:
+		}
+	}
+	true
+}
+
+// edges is a ui Edges as the kernel's top, right, bottom, left.
+func edges(e ui.Edges) [4]float32 { [4]float32{dips(e.Top), dips(e.Right), dips(e.Bottom), dips(e.Left)} }
+
+func dips(n ui.Length) float32 { float32(float64(n)) }
+
+func length(s ui.Size) layout.Length {
+	match s {
+	case ui.Auto:
+		layout.Auto
+	case ui.Fixed as f:
+		layout.Px{Value: dips(f.Value)}
+	}
+}
+
+func items(a ui.Align) layout.Align {
+	match a {
+	case ui.AlignStart:
+		layout.Start
+	case ui.AlignCenter:
+		layout.Center
+	case ui.AlignEnd:
+		layout.End
+	case ui.AlignStretch:
+		layout.Stretch
+	}
+}
+
+func justify(j ui.Justify) layout.Justify {
+	match j {
+	case ui.JustifyStart:
+		layout.Start
+	case ui.JustifyCenter:
+		layout.Center
+	case ui.JustifyEnd:
+		layout.End
+	case ui.JustifyBetween:
+		layout.SpaceBetween
+	}
+}
+
+// boxStyle is a container's layout of a ui Style, in direction dir.
+func boxStyle(s ui.Style, dir layout.Direction) layout.Style {
+	let mut out = layout.Default()
+	out.Direction = dir
+	out.Width = length(s.Width)
+	out.Height = length(s.Height)
+	out.Grow = float32(s.Grow)
+	out.Shrink = float32(s.Shrink)
+	out.Padding = edges(s.Padding)
+	out.Margin = edges(s.Margin)
+	out.Gap = dips(s.Gap)
+	out.Items = items(s.Align)
+	out.Justify = justify(s.Justify)
+	out
+}
+
+func plainStyle() layout.Style { boxStyle(ui.Plain(), layout.Column) }
+
+// textOf is a leaf's text content in s.
+func textOf(s layout.Style, text string) layout.Style {
+	let mut out = s
+	out.Content = layout.Text{Value: text, Size: 16}
+	out
+}
+
+// fieldCells is an Input's width in cells, its ends included.
+let fieldCells = 24
+
+// styleOf is how n lays out on the grid: its Style, and the room its marks
+// take. A Pressable that holds no Text is a leaf as wide as its label
+// between its ends: its name shows in place of what it holds.
+func styleOf[E](n ui.Node[E], holdsText bool) layout.Style {
+	match n {
+	case ui.BoxNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.RowNode as x:
+		boxStyle(x.Style, layout.Row)
+	case ui.ColumnNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.ScrollNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.AreaNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.FieldsetNode:
+		plainStyle()
+	case ui.RowsNode:
+		let mut s = plainStyle()
+		s.Grow = 1
+		s.Self = Some{Value: layout.Stretch}
+		s
+	case ui.CanvasNode as x:
+		let mut s = textOf(plainStyle(), x.Label)
+		s.Width = layout.Px{Value: dips(x.Width)}
+		s.Height = layout.Px{Value: dips(x.Height)}
+		s.Shrink = 0
+		s
+	case ui.TextNode as x:
+		textOf(boxStyle(x.Style, layout.Column), x.Value)
+	case ui.PressableNode[E] as x:
+		let mut s = boxStyle(x.Style, layout.Row)
+		s.Padding = [4]float32{s.Padding[0], s.Padding[1] + CellW, s.Padding[2], s.Padding[3] + CellW}
+		s.Items = layout.Center
+		s.Justify = layout.Center
+		s.Shrink = 0
+		if holdsText { s } else { textOf(s, x.Label) }
+	case ui.CheckNode[E] as x:
+		let mut s = textOf(plainStyle(), x.Label)
+		s.Padding = [4]float32{0, 0, 0, float32(markW) * CellW}
+		s
+	case ui.ToggleNode as x:
+		let mut s = textOf(plainStyle(), x.Label)
+		s.Padding = [4]float32{0, 0, 0, float32(markW) * CellW}
+		s
+	case ui.InputNode:
+		let mut s = plainStyle()
+		s.Width = layout.Px{Value: float32(fieldCells) * CellW}
+		s.Height = layout.Px{Value: CellH}
+		s.Shrink = 0
+		s
+	}
+}
+
+// labelOf is the label a script names a node by, as ui.Find matches it.
+func labelOf[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CanvasNode as x:
+		Some{Value: x.Label}
+	case ui.RowsNode as x:
+		Some{Value: x.Label}
+	case ui.CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: x.Label}
+	case ui.AreaNode as x:
+		Some{Value: x.Label}
+	case ui.TextNode as x:
+		Some{Value: x.Value}
+	case ui.InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+// pressable is whether a press of the node sends its signal.
+func pressable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
+		true
+	case _:
+		false
+	}
+}
+
+// focusable is whether the node takes the keyboard focus.
+func focusable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
+		true
+	case _:
+		false
+	}
+}
