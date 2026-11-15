@@ -2,6 +2,15 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-15
+
+- **In-place update for user code by one ownership rule: the three REUSE questions (2026-11-15, q178 to q180).** The owner asked whether Append, Put and Delete could get their in-place advantage "as a function of laws", so that any user code gets it, with one rule and no std special case. The plan (REUSE, the wf10 run's `reuse/plan.md`) answers that the licence is ownership, which the compiler checks, not a law (a law that passed its cases is *tested*, and tested evidence never changes code, q115); its three questions were answered as assumed:
+  - **Q1 (q178): No.** A user's Go-bound function may not name an owned twin, as `runtime/v1` bodies do with `//ergo:owned`. A trust fact comes from a reviewed table (q36); a user who wants reuse writes the body in Ergo, where the compiler derives the owned form, or takes `*T` and writes in place.
+  - **Q2 (q179): Yes, built last.** A function may state that it owns a parameter: `takes p` on a parameter of plain data is a claim the checker proves against the one ownership analysis, and refuses with the use that breaks it (REUSE RU7).
+  - **Q3 (q180): Yes.** The run-time token (`own-lineage`) is deleted once the static rule covers its sites (REUSE RU5); the unit stops, and the token stays, if a counted receipt gets worse.
+
+  Prior art: Koka's `fip` and Swift's `consuming` are checked claims of Q2's kind; Lean 4 and Koka reuse a value whose reference count is one at run time, where Ergo decides at compile time and copies when it cannot (`reuse/plan.md` §7).
+
 ## Owner direction, 2026-11-12
 
 Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) section, and the entries marked "synced" in the [2026-11-10](#owner-direction-2026-11-10) section, were copied on 2026-11-12 from the run's decision logs (the `decisions.md` files of the orchestration run, and the owner lines of its plan ledger), so that every owner decision q84 to q138 is in this file. A quotation in double quotes is the owner's words; "as assumed" means the owner accepted the recommendation the question stated.
