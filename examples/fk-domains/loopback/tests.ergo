@@ -1,6 +1,6 @@
-// The test build's binding: the domains.Registry laws run through the
-// wire, against a sample registry that the loopback serves (types.md,
-// Laws 10, Under a context).
+// The test build's binding: the domains.Registry laws run over RPC,
+// against a sample registry that the loopback serves (types.md, Laws 10,
+// Under a context).
 
 import fk-domains/domains
 import fk-domains/sample

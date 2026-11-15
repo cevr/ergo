@@ -101,7 +101,7 @@ type Store {
 }
 
 // Fixed is a Store of one count.
-type Fixed { N int }
+type Fixed { N int } implements Store
 
 func Get(f Fixed) int { f.N }
 `,
