@@ -109,6 +109,14 @@ func step(f *ui.Frame[int], view func(f *ui.Frame[int], s St), s St, press int) 
 	}
 }
 
+// gate stops a boundary's body when on, as a read whose data has not
+// arrived does (H8a).
+func gate(on bool) fails ui.Pending {
+	if on {
+		return ui.Pending
+	}
+}
+
 func card(f *ui.Frame[int], it Item) {
 	ui.Row(f, ui.Plain()) {
 		ui.Check(f, it.Text, it.Done, it.Id)
@@ -155,6 +163,25 @@ func pointers(ns []int) needs Console {
 		let ops = ui.Render(&f, counterView, &c)
 		Console.Println("pointer ops \(show(ops))")
 		Console.Println(shot(ui.FrameShape(&f), ""))
+	}
+}
+
+// gated is a card inside a boundary that stops after it at odd A: the
+// card, kept at even A, is written again and then cut (H8a).
+func gated(f *ui.Frame[int], s St) {
+	ui.Boundary(f) {
+		card(f, s.It)
+		try gate(s.A%2 == 1)
+	} catch {
+	case ui.Pending:
+		ui.Text(f, "wait")
+	}
+}
+
+func boundaries() needs Console {
+	let mut f = ui.NewFrame[int]()
+	for a in 0..5 {
+		step(&f, gated, St{A: a, It: Item{Id: 1, Text: "x", Done: false}, Items: []Item{}}, -1)
 	}
 }
 
@@ -205,11 +232,22 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		g.stmts(i, depth+1, indent+"\t")
 		w("}")
 	}
-	kind := g.r.IntN(12)
-	if depth >= 2 && kind >= 3 && kind <= 5 {
+	kind := g.r.IntN(13)
+	if depth >= 2 && (kind >= 3 && kind <= 5 || kind == 12) {
 		kind = 0
 	}
 	switch kind {
+	case 12:
+		// A boundary whose body may stop after it wrote nodes and called
+		// components: the cut takes back the groups written in it (H8a).
+		w("ui.Boundary(f) {")
+		g.stmts(i, depth+1, indent+"\t")
+		w("\ttry gate(a%%%d == %d)", 2+g.r.IntN(2), g.r.IntN(2))
+		g.stmts(i, depth+1, indent+"\t")
+		w("} catch {")
+		w("case ui.Pending:")
+		w("\tui.Text(f, \"wait %d \\(a)\")", i)
+		w("}")
 	case 0:
 		w(`ui.Text(f, "c%d \(a) \(it.Text)")`, i)
 	case 1:
@@ -326,7 +364,9 @@ func (g *uiSkipGen) states(n int) []string {
 // with every call run (SetUISkipForTest(false), the reference). The
 // components nest, repeat at one site in loops and Each rows, change
 // their node counts with their arguments, and some read a flag, so are
-// never kept; a press may flip one. A component that takes a pointer
+// never kept; a press may flip one; a boundary may stop after its body
+// called components (H8a), so the groups it wrote are cut. A component
+// that takes a pointer
 // renders a counter the program changes through it, at drawn values: an
 // equal pointer must not skip it. A failing seed is replayed with
 // -uiskip.seed=N, and the program's text is in the failure.
@@ -341,7 +381,8 @@ func (g *uiSkipGen) states(n int) []string {
 //
 // Mutants (testdata/mutants.json): ui-group-args-ignored,
 // ui-group-impure-kept, ui-group-count-unchecked, ui-group-parent-unmapped,
-// ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg.
+// ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg,
+// i20-group-cut-kept.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
@@ -366,7 +407,7 @@ func TestUISkipAgrees(t *testing.T) {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tgrowth(8)\n\tgrowth(64)\n}\n")
+	main.WriteString("\tboundaries()\n\tgrowth(8)\n\tgrowth(64)\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)

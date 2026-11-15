@@ -16,7 +16,7 @@ import arena
 // GroupArgs is the frame's memo of each kept group's arguments, held by
 // the runtime: Ergo has no type for a value of any comparable type.
 // law-exempt: runtime-only, with no operation a program calls; TestUISkipAgrees holds its rules (a slot compares equal to what was put or set in it; a freed slot is held no more).
-type GroupArgs {
+extern go ergo.local/prototype/runtime/v1.GroupArgs type GroupArgs {
 	runtimeOnly(),
 }
 
@@ -63,24 +63,28 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 	case Some[int] as i:
 		slot = f.keptList[i.Value].slot
 		if argsSame(f.args, slot, args) && writeAgain(f, i.Value) {
-			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs) - len(f.keptList[i.Value].specs), end: len(f.specs), outer: outer, pure: true, again: i.Value})
+			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: f.nspecs - len(f.keptList[i.Value].specs), end: f.nspecs, outer: outer, pure: true, again: i.Value})
 			return
 		}
 		argsSet(f.args, slot, args)
 	case None:
 		slot = argsPut(f.args, args)
 	}
-	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs), end: len(f.specs), outer: outer, pure: true, again: -1})
-	let cells = len(f.cells)
-	let loads = len(f.loads)
-	let keys = len(f.keys)
-	let anims = len(f.anims)
+	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: f.nspecs, end: f.nspecs, outer: outer, pure: true, again: -1})
+	let cells = f.ncells
+	let loads = f.nloads
+	let keys = f.nkeys
+	let anims = f.nanims
+	let cuts = f.cuts
 	f.group = r
 	f.groupRuns = f.groupRuns + 1
 	body()
 	f.group = outer
-	f.groups[r].end = len(f.specs)
-	f.groups[r].pure = len(f.cells) == cells && len(f.loads) == loads && len(f.keys) == keys && len(f.anims) == anims
+	f.groups[r].end = f.nspecs
+	// A boundary inside that stopped (a cut) wrote what a Pending or
+	// another failure left, which equal arguments do not decide: such a
+	// call is not kept (H8a), as one that read a cell is not.
+	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nanims == anims && f.cuts == cuts
 }
 
 // groupIdent is the identity of a group under the current parent, counted
@@ -91,6 +95,12 @@ func groupIdent[E](f *Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
 	let n = count(f.groupSeen, s)
 	f.groupSeen[s] = n + 1
+	if f.ngroupLog < len(f.groupLog) {
+		f.groupLog[f.ngroupLog] = s
+	} else {
+		f.groupLog = f.groupLog.Append(s)
+	}
+	f.ngroupLog = f.ngroupLog + 1
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
@@ -111,15 +121,17 @@ func writeAgain[E](f *Frame[E], i int) bool {
 		}
 	}
 	for at, n in counts {
-		f.seen[at] = count(f.seen, at) + n
+		for _ in 0..n {
+			bump(f, at)
+		}
 	}
-	let first = len(f.specs)
+	let first = f.nspecs
 	for s in f.keptList[i].specs {
 		let mut parent = f.parent
 		if s.parent >= 0 {
 			parent = first + s.parent
 		}
-		f.specs = f.specs.Append(spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, binds: s.binds})
+		let _ = link(f, spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, binds: s.binds, first: -1, last: -1, next: -1, before: -1})
 	}
 	true
 }
@@ -199,6 +211,40 @@ func keepGroups[E](f *Frame[E]) {
 	}
 	f.kept = next
 	f.keptList = list
+}
+
+// cutGroups takes this pass's groups back to the first n, and the group
+// identity counts to the first logged ones (a cut, boundary.ergo): a group
+// written since goes, and the slot of one that no kept group holds is
+// freed.
+func cutGroups[E](f *Frame[E], n int, logged int) {
+	for i in logged..f.ngroupLog {
+		let s = f.groupLog[i]
+		let c = count(f.groupSeen, s)
+		if c <= 1 {
+			f.groupSeen = f.groupSeen.Delete(s)
+		} else {
+			f.groupSeen[s] = c - 1
+		}
+	}
+	f.ngroupLog = logged
+	if len(f.groups) <= n {
+		return
+	}
+	let mut held = Map[int, bool]{}
+	for k in f.keptList {
+		held[k.slot] = true
+	}
+	let mut left = []groupRec[E]{}
+	for i, g in f.groups {
+		if i < n {
+			left = left.Append(g)
+		} else if !isLive(held, g.slot) {
+			argsFree(f.args, g.slot)
+			held[g.slot] = true
+		}
+	}
+	f.groups = left
 }
 
 // isLive reports slot marked in live (a set of ints; also the parents

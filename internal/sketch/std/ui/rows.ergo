@@ -52,7 +52,8 @@ func Visible(count int, rowHeight Length, v Viewport) (int, int) {
 // of Visible at the list's viewport run row(i), under key(i); the node
 // says which row comes first, so a host places the rows at
 // First * rowHeight. The viewport is (0, 0) until a host reports one.
-func Rows[E](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int), at CallSite) {
+func Rows[E, F](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F, at CallSite) fails F {
+	let m = markOf(f)
 	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0}, at)
 	let mut v = Viewport{Offset: 0, Height: 0}
 	match c {
@@ -62,7 +63,6 @@ func Rows[E](f *Frame[E], label string, count int, rowHeight Length, key func(i 
 		Unreachable("ui: a list's cell holds its viewport")
 	}
 	let (first, last) = Visible(count, rowHeight, v)
-	let outer = f.parent
 	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first}, None, Some{Value: where}, at)
 	let outerEach = f.each
 	let outerKey = f.key
@@ -70,11 +70,15 @@ func Rows[E](f *Frame[E], label string, count int, rowHeight Length, key func(i 
 		f.each = at
 		f.key = key(i)
 		f.rowRuns = f.rowRuns + 1
-		row(i)
+		row(i) catch {
+		case err:
+			cut(f, m)
+			return err
+		}
 	}
 	f.each = outerEach
 	f.key = outerKey
-	f.parent = outer
+	f.parent = m.parent
 }
 
 // ranRows is how many row functions of Rows the last pass ran: the work a
