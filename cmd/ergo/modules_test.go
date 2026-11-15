@@ -90,7 +90,7 @@ test DependencyTestStaysHome {
 		"cmd/app/main.ergo": `import example.com/counter/scale
 
 // Double is the root's provider of the dependency's operation type.
-type Double {}
+type Double {} implements scale.Scale
 
 func Times(d Double, n int) int {
 	n * 2
