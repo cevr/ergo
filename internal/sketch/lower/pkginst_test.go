@@ -22,9 +22,9 @@ import (
 //   - each package's shared list is exactly the instances it names outside
 //     a generic declaration that another package names too (any package,
 //     with shards; never the root alone) and that the instance package can
-//     name (every type
-//     argument a predeclared type, a non-alias type of a package other than
-//     the root, or a pointer, slice or map of such), each spelled as Go's
+//     name (every type argument a predeclared type, a non-alias type of a
+//     package other than the root, or a pointer, slice or map of such),
+//     each spelled as Go's
 //     compiler spells it (types.LinkString), so the patched compile meets
 //     each one;
 //   - the instance package names exactly the union of the lists, and only
@@ -34,8 +34,8 @@ import (
 // A spelling the compiler does not meet is a compile error, and a
 // missing instance a link error, in every build of a multi-package
 // example; this law finds both in process. Mutants: mono-key-dir,
-// mono-list-dropped, mono-generic-body-listed, mono-root-shared,
-// mono-root-import-dropped.
+// mono-list-dropped, mono-generic-body-listed, mono-nested-skipped,
+// mono-root-import-dropped, mono-single-user-shared.
 func TestSharedInstancesNameTheirUses(t *testing.T) {
 	shared := 0
 	for _, seed := range []uint64{1, 2, 3, 4, 5, 6} {
