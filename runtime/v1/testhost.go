@@ -157,17 +157,3 @@ func ExecConfineSink(root string, path string) (string, error) {
 	}
 	return p, nil
 }
-
-// ExecTestEnv is the environment of a command exec.TestHost runs: env,
-// with HOME and TMPDIR the folder root and GIT_CEILING_DIRECTORIES its
-// parent, so git finds no repository above it. They win over env's.
-func ExecTestEnv(root string, env map[string]string) map[string]string {
-	out := make(map[string]string, len(env)+3)
-	for k, v := range env {
-		out[k] = v
-	}
-	out["HOME"] = root
-	out["TMPDIR"] = root
-	out["GIT_CEILING_DIRECTORIES"] = filepath.Dir(root)
-	return out
-}

@@ -2,16 +2,18 @@
 // fs.NewTestHost, the host file system confined to a fresh folder for
 // each case (testing.Ambient), so every law case writes, renames and reads
 // kv.log on the host, as the binary does, and no case sees another's log.
-// fs.Confined's laws state the confinement itself: a write out of the
+// fstest.Confined's laws state the confinement itself: a write out of the
 // folder is Denied, and each case starts in an empty one.
 
 import fs
+import fstest
 import kvstore/kv
 import testing
 
 let onDisk = context needs testing.Ambient {
-	kv.Store: NewLog(fs.NewTestHost(), fs.NewTestHost()),
-	fs.Files, fs.Confined: fs.NewTestHost(),
+	kv.Store:        NewLog(fs.NewTestHost(), fs.NewTestHost()),
+	fs.Files:        fs.NewTestHost(),
+	fstest.Confined: fstest.NewFolder(),
 }
 
 // The store is the file on the disk: what a Log wrote is in kv.log, in

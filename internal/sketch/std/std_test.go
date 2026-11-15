@@ -2050,10 +2050,13 @@ func writesAmbient(f *check.Func) bool {
 	return rowHasAmbient(f.Sig.Uses)
 }
 
-// rowHasAmbient reports whether a needs row names the prelude's Ambient.
+// rowHasAmbient reports whether a needs row names the prelude's Ambient
+// or std testing's, the test's ambient (rows.md, Entry 5): each has one
+// provider, the entry or the test runner, so either is the authority to
+// make a host provider (the test's is confined to its case's folder).
 func rowHasAmbient(r *check.Row) bool {
 	for _, e := range r.Elems() {
-		if n, ok := e.(*check.Named); ok && n.Obj.Name == "Ambient" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
+		if n, ok := e.(*check.Named); ok && n.Obj.Name == "Ambient" && n.Obj.Pkg != nil && (n.Obj.Pkg.Path == "prelude" || n.Obj.Pkg.Path == "testing") {
 			return true
 		}
 	}

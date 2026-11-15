@@ -496,7 +496,6 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSConfine":       {},
 	"ExecConfine":     {},
 	"ExecConfineSink": {},
-	"ExecTestEnv":     {},
 	"FSMapFile":       {},
 	"FSReadDir":       {},
 	"FSStat":          {},

@@ -17,7 +17,7 @@
 // only the test runner provides, never the host's Ambient. Its one
 // operation is unexported, so no program type implements it and no
 // context entry binds it.
-// law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fs.Confined, which every fs.TestHost satisfies.
+// law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
 type Ambient {
 	folder() string,
 }
