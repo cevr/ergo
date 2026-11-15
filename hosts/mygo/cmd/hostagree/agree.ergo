@@ -237,10 +237,10 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
-					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					let b = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 						try desktop.Play(d, []ui.Act{act})
 					})
-					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					let a = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 						try ui.TypeText(h, id.Value, x.Value+rest)
 					})
 					return (a, b)
@@ -274,7 +274,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
 		}
 		let to = float64(atoi(f[1]))
-		let mut b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+		let mut b = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 			try desktop.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
 		})
 		// The list is where the step scrolled it: at the offset, or as far
@@ -313,19 +313,21 @@ func atoi(s string) int {
 
 // both plays one act on each host.
 func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
-	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+	let a = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 		try desktop.Play(d, []ui.Act{act})
 	})
 	(a, b)
 }
 
-func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign) result needs go.Foreign {
+func played(f func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign) result needs go.Foreign {
 	f() catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
+	case ui.Mismatch as m:
+		return Broke{Why: "want \(m.Want), got \(m.Got)"}
 	case actor.Stopped:
 		return Broke{Why: "stopped"}
 	case ui.BadPatch as b:
@@ -347,7 +349,7 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Dr
 	for _ in 0..k {
 		w.PressKey("Tab", false)
 	}
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 		try desktop.Drain(d)
 	})
 	let order = desktop.Focusables(d)
@@ -365,19 +367,19 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Dr
 			match n.Value {
 			case ui.InputNode as x:
 				w.Type("z")
-				let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+				let b2 = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 					try desktop.Drain(d)
 				})
-				let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+				let a = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 					try ui.TypeText(h, id.Value, x.Value+"z")
 				})
 				return (a, b2)
 			case _:
 				w.PressKey("Enter", false)
-				let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+				let b2 = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 					try desktop.Drain(d)
 				})
-				let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+				let a = played(func() fails ui.NoNode | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 					try ui.Tap(h, id.Value)
 				})
 				return (a, b2)
