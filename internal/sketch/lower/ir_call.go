@@ -99,8 +99,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		switch {
 		case fd.extern != "" && !intrinsic:
 			irNo("call of an extern function")
-		case fd.ptr:
-			irNo("call of a pointer-receiver method")
+		case fd.ptr && !b.passesPointer(c, x): // ir_pkg.go
+			irNo("call of a pointer-receiver method on a value")
 		case len(b.l.ownedParams(f)) > 0:
 			irNo("call that passes owned values")
 		case len(witnessParams(f.Sig)) > 0:

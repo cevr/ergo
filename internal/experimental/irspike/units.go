@@ -159,7 +159,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"operation call into an owning literal", "G4"},
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
-	{"std Close", "G4"}, // an anonymous union as a type argument (IRG4b instances)
+	{"std Close", "G4"},
+	{"call of a pointer-receiver method on a value", "G1"}, // &x of a place // an anonymous union as a type argument (IRG4b instances)
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Signature", "G4"},
 	{"type *check.Pointer", "G4"},

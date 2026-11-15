@@ -244,6 +244,33 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}, true
 }
 
+// passesPointer reports whether the call x of a *T function passes its
+// receiver as a pointer value. A dot call on an addressable T takes the
+// receiver's address where it is evaluated (the emitter's callArgsAddr,
+// a place), which the IR has no form for.
+func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
+	recv := c.Recv
+	if recv == nil {
+		if len(x.Args) == 0 {
+			return false
+		}
+		recv = x.Args[0]
+	}
+	_, ptr := b.l.info.Types[recv].(*check.Pointer)
+	return ptr
+}
+
+// derefNamed is the named type of a selector's operand: t itself, or the
+// record a *T points to, whose field Go's selector reads through the
+// pointer (the emitter's fieldName).
+func derefNamed(t check.Type) (*check.Named, bool) {
+	if p, ok := t.(*check.Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*check.Named)
+	return n, ok
+}
+
 // own is the type whose Go type fu's helpers spell: the instance, for a
 // generic union's copy.
 func (fu *flatUnion) own() check.Type {
