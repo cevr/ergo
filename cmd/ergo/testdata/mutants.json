@@ -1,6 +1,9 @@
 {
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
+    {"name":"gs31b-test-digest-build-mode","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"BuildRequest{Mode: build.ModeTest, Source: alone.source.Admitted()}","to":"BuildRequest{Mode: build.ModeBuild, Source: alone.source.Admitted()}","rule":"test --emitted --json's test digest is the one test --emitted prints.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
+    {"name":"gs31b-build-every-package","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"\tif !hasMain(alone) {\n","to":"\tif false {\n","rule":"Only a package with a main function has a build digest.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
+    {"name":"gs31b-digests-shared-load","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"\tif shared {\n","to":"\tif false {\n","rule":"The digests are of the package loaded alone, as the --emitted commands load it.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
     {"name":"chk1b-cache-producer-not-shared","origin":"wf10 CHK1b","file":"internal/sketchfront/sketchfront.go","from":"compiler := preparedCompilerIdentity()","to":"compiler := \"\"","rule":"Emission reuses the producer acquired for checked std instead of acquiring it again.","killers":["cmd/ergo:TestProducerSmoke"],"anchor":{"tests":["cmd/ergo:TestProducerSmoke"]}},
     {"name":"e5-receipt-last-wins","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/recursive.go","from":"one.receipt = filepath.Join(module.receiptDir, filepath.FromSlash(checked.Path)+\".json\")","to":"one.receipt = module.receiptDir","rule":"Recursive receipts retain every package, including an earlier refutation. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestModuleLawSelectionReceipts"],"anchor":{"tests":["cmd/ergo:TestModuleLawSelectionReceipts"]}},
     {"name":"rcpt-reset-per-run","origin":"wf10 FU-rcpt","file":"internal/sketch/lower/tests.go","from":"b.WriteString(\"\\t\" + l.helper(\"Receipt\") + \".laws = nil\\n\")","to":"_ = 0","rule":"An explored worker runs the tests once per schedule in one process; each run's receipt holds each law run once, equal to a plain run's. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestExploreReceiptMatchesPlain"],"anchor":{"tests":["cmd/ergo:TestExploreReceiptMatchesPlain"]}},
@@ -241,8 +244,8 @@
       "name": "check-host-fallback",
       "origin": "wf10/l7-eval/EV5",
       "file": "cmd/ergo/main.go",
-      "from": "\texit := evaluationExit(evaluation)\n",
-      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\texit := evaluationExit(evaluation)\n",
+      "from": "\treturn buf.Bytes(), evaluationExit(evaluation), nil\n",
+      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn nil, nil, testCommand([]string{opts.file})\n\t}\n\treturn buf.Bytes(), evaluationExit(evaluation), nil\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },

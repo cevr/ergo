@@ -50,6 +50,11 @@ func testCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if opts.emitted && opts.json {
+		// Each package's check envelope and emitted digests, one JSON
+		// line each, from one process (emittedjson.go, gate-speed GS31b).
+		return printEmittedJSON(opts)
+	}
 	if recursivePattern(opts.file) {
 		if opts.emitted {
 			// One process for every package: the std packages they
