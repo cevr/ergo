@@ -433,6 +433,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Cursor.Uint":           {},
 	"Cursor.Float":          {},
 	"Cursor.String":         {},
+	"Cursor.StringBytes":    {},
 	"Cursor.BeginList":      {},
 	"Cursor.BeginObject":    {},
 	"Cursor.Tag":            {},

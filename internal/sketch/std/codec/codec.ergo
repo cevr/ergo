@@ -228,6 +228,22 @@ func Float(r Replay) float64 fails WireWrongKind {
 	}
 }
 
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r Replay, into []byte) []byte fails WireWrongKind { appendText(into, try r.String()) }
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
+
+// StringBytesReplaysString: a Replay's StringBytes adds the string event's
+// bytes to into (GX12).
+law StringBytesReplaysString(s string, pre []byte) {
+	let got = NewReplay([]Event{StringEvent{V: s}}).StringBytes(pre) catch {
+	case _:
+		return false
+	}
+	utf8.String(got) == utf8.String(pre)+s
+}
+
 func String(r Replay) string fails WireWrongKind {
 	match next(r) {
 	case StringEvent as s:

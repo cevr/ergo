@@ -129,6 +129,12 @@ func Number(r queryReader) string fails WireWrongKind {
 
 func String(r queryReader) string fails WireWrongKind { try value(r, "a string") }
 
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r queryReader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
+
 func Bool(r queryReader) bool fails WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "a boolean")

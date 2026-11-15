@@ -156,6 +156,11 @@ type Reader {
 	Uint() uint64 fails WireWrongKind,
 	Float() float64 fails WireWrongKind,
 	String() string fails WireWrongKind,
+	// StringBytes reads the next string as String does and gives into with
+	// its UTF-8 bytes added (GX12): an append-form pair's decode lends a
+	// buffer and gives its ParseX the bytes, so no string of the text is
+	// made. The reader keeps none of into.
+	StringBytes(into []byte) []byte fails WireWrongKind,
 	BeginList() fails WireWrongKind,
 	BeginObject() fails WireWrongKind,
 	Tag() string fails WireMissingField,

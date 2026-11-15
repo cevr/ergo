@@ -739,10 +739,17 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		b.WriteString(l.wireParseReturn(parse, env, tc.site, raw))
 	}
 	if p := l.info.WirePairOf(t); p != nil && p.Append {
-		// The append form's ParseX reads the bytes of the string event.
-		raw := scope.alloc("raw")
-		b.WriteString(tc.wireDecode(p.Base, env, r, raw, zero, scope))
-		b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, "[]byte("+raw+")"))
+		// The append form's ParseX reads the bytes of the string event,
+		// which the Reader's StringBytes adds to a buffer on this
+		// function's stack (GX12), so no string of the text is made. A
+		// longer text, or a ParseX that keeps its bytes, moves the buffer
+		// to the heap; Go's escape analysis decides. Each decode has its
+		// own buffer, so a kept one is never written again.
+		buf, raw, err := scope.alloc("buf"), scope.alloc("raw"), scope.alloc("err")
+		b.WriteString("var " + buf + " [64]byte\n")
+		b.WriteString(raw + ", " + err + " := " + r + ".StringBytes(" + task + ", " + buf + "[:0])\n")
+		b.WriteString("if " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
+		b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, raw))
 		return
 	}
 	if p := l.info.WirePairOf(t); p != nil {

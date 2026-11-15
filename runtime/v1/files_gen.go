@@ -89,6 +89,7 @@ var bodyTable = map[string]bodyFact{
 	"Cursor.Path":               {body: Body{Results: []string{"string"}}},
 	"Cursor.Skip":               {body: Body{}},
 	"Cursor.String":             {body: Body{Results: []string{"string"}}},
+	"Cursor.StringBytes":        {body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"[]byte"}}},
 	"Cursor.Tag":                {body: Body{Results: []string{"string"}}},
 	"Cursor.TakeNull":           {body: Body{Results: []string{"bool"}}},
 	"Cursor.Uint":               {body: Body{Results: []string{"uint64"}}},

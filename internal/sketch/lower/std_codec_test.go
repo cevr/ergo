@@ -36,6 +36,15 @@ func depth(e codec.Event) int {
 	}
 }
 
+test CodecStringBytesReplaysString(s string, pre []byte) {
+	let got = codec.NewReplay([]codec.Event{codec.StringEvent{V: s}}).StringBytes(pre) catch {
+	case _:
+		assert false
+		return
+	}
+	assert utf8.String(got) == utf8.String(pre)+s
+}
+
 test CodecStringBytesRecordsString(b []byte) {
 	let e = codec.NewEvents()
 	e.StringBytes(b)
@@ -229,6 +238,7 @@ test CodecByNamePair(names []string) {
 
 // stdCodecLawStatements is each restated law's ledger statement.
 var stdCodecLawStatements = map[string]string{
+	"codec StringBytesReplaysString": `StringBytesReplaysString(s string, pre []byte) { let got = NewReplay([]Event{StringEvent{V: s}}).StringBytes(pre) catch { case _: return false } utf8.String(got) == utf8.String(pre)+s }`,
 	"codec StringBytesRecordsString": `StringBytesRecordsString(b []byte) { let e = NewEvents() e.StringBytes(b) let got = Recorded(e) if len(got) != 1 { return false } match got[0] { case StringEvent as x: x.V == utf8.String(b) case _: false } }`,
 	"codec BasicReplay":              "BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }",
 	"codec EncodeNests":              "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",

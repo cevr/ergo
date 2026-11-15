@@ -257,6 +257,12 @@ func String(r reader) string fails WireWrongKind {
 	wrong(r, n, "string")
 }
 
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r reader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
+
 // push opens a frame for the value just read, at the path of it.
 func push(r reader, members []member, list bool, tag Option[string]) {
 	let p = Path(r)
