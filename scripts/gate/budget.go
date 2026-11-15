@@ -556,6 +556,13 @@ func (g *gate) recordDurations(out io.Writer, packages []string, fast bool) erro
 		defer limit.close()
 	}
 	fmt.Fprintf(out, "gate: memory budget: %s\n", limit.describe())
+	// With -cpu: the sharded packages when none is named (testCPUFile).
+	if g.recordCPU {
+		if len(packages) == 0 {
+			packages = slowPackages
+		}
+		return writeTestCPU(g.root, limit, packages)
+	}
 	if len(packages) == 0 {
 		listed, err := testedPackages(g.root)
 		if err != nil {

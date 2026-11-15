@@ -43,6 +43,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.taskCaptureRoot": "a Set member's synthetic root owner, on the child's task (NewOwnerScope; R12)",
 			"funcCtx.poll":            "the interruption point (Check)",
 			"funcCtx.envClosure":      "a task callback's Env copy",
+			"envMemoText":             "a task callback's Env: the maker's on its task, else the task's kept copy (ENV-COPY)",
 			"funcCtx.operations":      "an operation adapter's copy of the converting frame's Env, on the caller's task (OWGEN round 3)",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
@@ -254,6 +255,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
 		// appends under at most one uncontended lock, no wait.
 		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
+		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
+		// compare-and-swap or atomic store; no wait.
+		"Claim": true, "Done": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -394,7 +394,7 @@
       "name": "g3-omit",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "from": "optional := check.WireFormOf(ft) == check.WireOmittable",
       "to": "optional := false",
       "rule": "Absent fields write no key and Present writes its bare value.",
       "killers": ["lower:TestJSONFieldsAgree"]
@@ -412,8 +412,8 @@
       "name": "g3-required",
       "origin": "G3",
       "file": "internal/sketch/lower/wire.go",
-      "from": "if jsonWrapper(f.Type, \"Optional\") {",
-      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "from": "if check.WireFormOf(f.Type) == check.WireOmittable {",
+      "to": "if check.WireFormOf(f.Type) == check.WireOmittable || check.WireFormOf(f.Type) == check.WireNullable {",
       "rule": "A Nullable field still requires its key; null is not absence.",
       "killers": ["lower:TestJSONFieldsAgree"]
     },
@@ -421,7 +421,7 @@
       "name": "g3-generic-witness",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "from": "if check.WireFormOf(t) != check.WireOmittable {",
       "to": "if true {",
       "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
       "killers": ["lower:TestJSONFieldsAgree"]
@@ -1470,7 +1470,7 @@
       "killers": [
         "lower:TestStdLawsAddNoGo",
         "lower:TestRuntime199FrameClassCoverage",
-        "examples:checkout"
+        "examples:lookup"
       ]
     },
     {
@@ -1779,8 +1779,8 @@
       "name": "t5-24-false-true-values.go:1105",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
-      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "from": "\tif use == nil || use.frame != frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != frame {\n\t\treturn true\n\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -1790,11 +1790,12 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestValueRuleProbes"
+      ]
     },
     {
       "name": "t5-26-negate-if-naming.go:109",
@@ -2319,7 +2320,7 @@
       "to": "\t\t\tif false {",
       "rule": "types.md Codecs 1-2: decode[T] takes every codable T, a basic one at the top too.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -2330,7 +2331,7 @@
       "to": "\tif false {\n\t\t// decode[T] of a basic T",
       "rule": "types.md Codecs 1-2: decode[T] of a basic T reads one event.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -2341,7 +2342,7 @@
       "to": "\t\tif false {",
       "rule": "types.md Codecs 1-2: encode(v, w) of a basic v writes one event on any Writer.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -3306,7 +3307,6 @@
     {"name":"alias-carries-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\treturn fl.l.reaches(t, set, map[check.Type]bool{}) || len(set) > 0","to":"\t_ = set\n\treturn false","rule":"types.md Bindings, Result aliasing: a type parameter may hold a slice or Map, so a value of it carries the dependency.","killers":["lower:TestKnownCallbacksAgree"]},
     {"name":"alias-borrow-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\tif _, ptr := w.typeOf(a).(*check.Pointer); ptr {\n\t\t\treturn true\n\t\t}\n\t\tif u, ok := unparen(a).(*syntax.UnaryExpr); ok && u.Op == syntax.AND {\n\t\t\treturn true\n\t\t}","to":"\t\t_ = a","rule":"types.md Bindings: a generic result through a borrow whose instance holds a slice or Map is copied by the caller.","killers":["lower:TestKnownCallbacksAgree"]},
     {"name":"values-in-flight-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/values.go","from":"\t\tif wr.pre > o.pre && wr.pre < end {","to":"\t\tif false && wr.pre > o.pre && wr.pre < end {","rule":"types.md Bindings: a read that keeps nothing is copied when a later operand of the same call writes its root.","killers":["lower:TestKnownCallbacksAgree"]},
-    {"name":"values-result-copy-skipped","origin":"wf10 OPT1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\t\t// copied (alias.go).\n\t\t\t\t\t\tvf.clone[o.call] = true\n","to":"\t\t\t\t\t\t// copied (alias.go).\n","rule":"types.md Bindings, Result aliasing: the result of a pure call is copied instead of its argument.","killers":["lower:TestKnownCallbacksAgree"]},
     {"name":"values-go-call-filed-as-pure","origin":"wf10 fu-elide1","file":"internal/sketch/lower/values.go","from":"\t\t} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {\n\t\t\t// A Go call is never","to":"\t\t} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {\n\t\t\tw.pure = append(w.pure, n)\n\t\t} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {\n\t\t\t// A Go call is never","rule":"interop.md Lowering, the value rule at the Go boundary (q26): a Map or slice operand of a Go call in the reviewed pure tier (sort.Ints) is copied unless fresh or dead, as for any Go call; a Go call is never a V7 hand-over.","killers":["lower:TestPureGoCallCopiesALiveLet","lower:TestHostCopyElisionAgrees"]},
     {"name":"values-result-copy-skipped","origin":"wf10 OPT1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\t\tvf.clone[o.call] = true\n","to":"","rule":"types.md Bindings, Result aliasing: the result of a pure call is copied instead of its argument.","killers":["lower:TestKnownCallbacksAgree"]},
     {"name":"known-variant-drops-loop-poll","origin":"wf10 OPT1","file":"internal/sketch/lower/decls.go","from":"\t\tfc.frame.polls = framePolls(f.Pkg.Info, f.Decl)","to":"\t\tfc.frame.polls = framePolls(f.Pkg.Info, f.Decl) && !known","rule":"runtime.md I1, Known callbacks: a known variant keeps its loop's back-edge point, so a loop through a known callback stops.","killers":["lower:TestKnownCallbacksAgree"]},
@@ -3406,7 +3406,7 @@
       "rule": "types.md Equality: two Nones of an Option whose payload is a union are equal; the payload the tag does not name is not compared.",
       "killers": [
         "lower:TestFlatUnionsAgree",
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -3495,6 +3495,50 @@
       "rule": "runtime.md Payload size: a union over 32 bytes keeps its interface.",
       "killers": [
         "lower:TestMachineFlatRunAgrees"
+      ]
+    },
+    {
+      "name": "share-as-wrong-slot",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+s)",
+      "to": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+sharedName(fu.fieldSlot[k][0]))",
+      "rule": "runtime.md Flat unions: narrowing a shared-slot union rebuilds each field of the variant from the slot its constructor wrote.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-of-field-order",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[f.Name])",
+      "to": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[fields[len(fields)-1-i].Name])",
+      "rule": "runtime.md Flat unions: a shared-slot constructor writes each field into its own slot, in the field-to-slot map's order.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-slot-reused-in-variant",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\t\t\tif kj == key && !used[j] {",
+      "to": "\t\t\t\t\tif kj == key {",
+      "rule": "runtime.md Flat unions: two fields of one variant never share a slot; only fields of different variants do.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-past-register-limits",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif cycle == nil && known && !lay.ssa && fu.shared {",
+      "to": "\t\t\tif false && cycle == nil && known && !lay.ssa && fu.shared {",
+      "rule": "runtime.md Flat unions: where the shared slots miss Go's register limits and a slot per variant fits, the union keeps a slot per variant, not a box.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -3710,8 +3754,8 @@
       "name": "scalar-scatter-tag",
       "origin": "wf10 OPT6b",
       "file": "internal/sketch/lower/scalar.go",
-      "from": "\" = \" + strconv.Itoa(k) + \", \" + val",
-      "to": "\" = 0, \" + val",
+      "from": "strconv.Itoa(k)+\", \"+val",
+      "to": "\"0, \"+val",
       "rule": "scalar.go: a write of a union value into a scalar local sets the tag of its variant.",
       "killers": [
         "lower:TestScalarLocalsAgree"
@@ -3776,11 +3820,12 @@
       "name": "scalar-join-fallback",
       "origin": "wf10 OPT6b",
       "file": "internal/sketch/lower/scalar.go",
-      "from": "\t\tif !sl.inline {\n\t\t\tname := fc.declare(v)",
-      "to": "\t\tif false {\n\t\t\tname := fc.declare(v)",
+      "from": "\t\tif !fc.slotTaken(call, site, val) && !sl.inline {\n\t\t\tname := fc.declare(v)",
+      "to": "\t\tif _ = site; false {\n\t\t\tname := fc.declare(v)",
       "rule": "scalar.go: a join local whose call is not inlined is a plain union local.",
       "killers": [
-        "lower:TestScalarLocalsAgree"
+        "lower:TestScalarLocalsAgree",
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -4154,6 +4199,169 @@
     {"name":"wt-admit-tested","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if entry.Verdict != \"proved\" {","to":"if false {","rule":"A std law changes code only when its ledger entry is proved (owner q115).","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
     {"name":"wt-admit-stale","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if d != entry.Digest {","to":"if false {","rule":"A std law whose ledger digest is stale changes no code.","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
     {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]},
+    {"name":"cf1-field-count-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if !param && check.WireFormOf(f.Type) != check.WireOmittable {","to":"if !param && (check.WireFormOf(f.Type) != check.WireOmittable || !f.Type.(*check.Named).Obj.Pkg.Std()) {","rule":"Writer.BeginObject's field count omits an absent user field too.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-parser-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, tc.goType(p.Base)+\"(\"+x+\")\"))","to":"b.WriteString(\"return \" + tc.wrapperValue(t, wireUnder(t).(*check.Struct).Fields[0], tc.goType(p.Base)+\"(\"+x+\")\") + \", nil\\n\")","rule":"A number form decodes through its declared parser and preserves its typed failures.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-parse-fallibility","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if !l.useFunc(parse, site).fallible {","to":"if false {","rule":"An infallible Parse function is adapted to a codec's value/error result without an invalid Go return.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-form-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if check.WireFormOf(t) != check.WireOmittable {","to":"if check.WireFormOf(t) != check.WireOmittable || !t.(*check.Named).Obj.Pkg.Std() {","rule":"A user-owned omittable union receives the same field witness as std, without package identity.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-absent-key-written","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"wit + \".Field == nil || !\" + wit + \".Field.Absent(\"","to":"wit + \".Field == nil || true || !\" + wit + \".Field.Absent(\"","rule":"An absent generic field omits its key before encoding a payload.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-missing-key-not-decoded","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"wit + \".Field.Empty\\n}\\n\"","to":"wit + \".Field.Empty\\n\" + missing + \"}\\n\"","rule":"A missing omittable generic field decodes as its empty alternative, not a required-field failure.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-bare-tagged","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","to":"if false && check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","rule":"A user bare union writes by event kind without a variant tag.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-string","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(numEncode(task, w, spelling))","to":"b.WriteString(em.basic(tc, check.Typ[check.String], task, w, spelling))","rule":"A number-text form writes the original numeric spelling, not a quoted string.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-members-key","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"em.mapKey(m+\".\"+td.fieldName[entry.Fields[0].Name], task, w)","to":"em.mapKey(\"\\\"wrong\\\"\", task, w)","rule":"Ordered object members retain each entry's own key.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"opt8-pays-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"\tif inlineCostLowering == \"budget\" {\n\t\treturn true\n\t}\n\tbig :=","to":"\tif true {\n\t\treturn true\n\t}\n\tbig :=","rule":"Inline cost rule, Size: a body larger than Go's inline budget is inlined only on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-pays-size-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"big := inlineSize(f.Decl.Body) > goSizeBudget","to":"big := inlineSize(f.Decl.Body) > 100*goSizeBudget","rule":"Inline cost rule, Size: the size test reads the body's nodes against goSizeBudget.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-pays-go-leaf","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"\tif goLeaf(f) {\n\t\treturn big && fc.onLoopPath()","to":"\tif false && goLeaf(f) {\n\t\treturn big && fc.onLoopPath()","rule":"Inline cost rule, Size: a Go leaf with a boxed result within Go's budget is left to Go's inliner.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-loop-lexical-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"func (fc *funcCtx) onLoopPath() bool { return fc.hot || len(fc.loops) > 0 }","to":"func (fc *funcCtx) onLoopPath() bool { return fc.hot }","rule":"Inline cost rule, Size: a site inside a loop of its Go function is on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-inlined-hot-dropped","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}","rule":"Inline cost rule, Size: a site in a body inlined on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-literal-hot-dropped","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}","rule":"Inline cost rule, Size: a site in a literal substituted on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-field-pays-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/record.go","from":"!fc.l.inlineWithin(g, fieldBudget) || !fc.pays(g) {","to":"!fc.l.inlineWithin(g, fieldBudget) {","rule":"Inline cost rule, Size: a known record's field call in a copy pays for its size as any call does.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-func-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/decls.go","from":"\tfc.hot = l.hotFunc(f)\n","to":"\tfc.hot = false\n","rule":"Inline cost rule, Size: the body of a function on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-all","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"\treturn l.hot[f]\n","to":"\treturn true\n","rule":"Inline cost rule, Size: a function no loop reaches is off every loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-loop-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"if (loop || cycle[h]) && !hot[h] {","to":"if (cycle[h]) && !hot[h] {","rule":"Inline cost rule, Size: a function called inside a loop is on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-transitive-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"walk(g.Decl.Body, hot[g])","to":"walk(g.Decl.Body, false)","rule":"Inline cost rule, Size: a function called by a function on a loop path is on it (lru's cache methods).","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-recursion-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"cycle[h] = l.inlineRecursive(h)","to":"cycle[h] = false","rule":"Inline cost rule, Size: a recursive function is on a loop path (the recursion is its loop).","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-rewalk","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"\t\t\t\t\t\tseen[h] = false // walk it again: its callees are hot now\n","to":"","rule":"Inline cost rule, Size: a function found on a loop path after its body was walked is walked again, so the set is closed under calls.","killers":["lower:TestInlinePays"]},
+    {"name":"forms-reference-blind","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"func formsOn() bool { return formLowering != \"reference\" }","to":"func formsOn() bool { return true }","rule":"The reference lowering (formLowering reference) writes the value forms as before OPT5.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-alias-fresh","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif !fc.isFresh(val) {\n\t\treturn false\n\t}\n\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n\tfc.locals[v] = val","to":"\tif val == \"\" {\n\t\treturn false\n\t}\n\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n\tfc.locals[v] = val","rule":"types.md Bindings: a let is a copy; it names its value's Go variable only when that variable is a fresh temporary no write reaches.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-catch-leaves","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif !fc.leaves(a.Body) {","to":"\t\tif false && !fc.leaves(a.Body) {","rule":"rows.md Catch: a catch has its operand's value only when every arm leaves; an arm that yields gives the catch its value.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-func","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif t == token.FUNC || t == token.ILLEGAL {","to":"\t\tif t == token.ILLEGAL {","rule":"An inlined body with a function literal keeps its own tail variable: a literal could keep it past the body.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-key","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif toks[i+1].tok == token.COLON {","to":"\t\tif false {","rule":"renameTail renames a variable, never a composite literal key or a label spelled as it.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-selector","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":" && (i == 0 || toks[i-1].tok != token.PERIOD) {","to":" {","rule":"renameTail renames a variable, never a field or method spelled as it.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-type","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"if end == n || strings.TrimSpace(body[toks[decl+2].off:toks[end].off]) != resType {","to":"if end == n {","rule":"renameTail renames a tail variable into the result only when the variable's Go type is the result's.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-iface","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":" && t.depth == 0 && !iface:","to":" && t.depth == 0:","rule":"renameTail does not rename an untyped := tail into an interface result: Go assigns a variant to it with no conversion.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-const-divisor","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\treturn []syntax.Expr{n.X}\n\t\t\t}","to":"\t\t\tif true {\n\t\t\t\treturn []syntax.Expr{n.X, n.Y}\n\t\t\t}","rule":"A package let read as a divisor stays a Go variable: a constant zero divisor is a Go build error, where Ergo raises the run's defect.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-const-fold","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\tout = append(out, n.X)","to":"\t\t\tif true {\n\t\t\t\tout = append(out, n.X)","rule":"A package let added to a constant stays a Go variable: Go folds two constants at build time, where an overflow is an error, not the run's wrap.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-map-sameplace","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif recv == nil || !samePlace(s.Lhs[0], recv) {","to":"\tif recv == nil {","rule":"Only p = p.f(…) drops its store back: a Map written in place into another place is that place's new value.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-map-type","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"!isMap {\n\t\treturn false // a slice","to":"!isMap && false {\n\t\treturn false // a slice","rule":"A slice's in-place append changes its header: its store back stays.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-sole-row","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif len(c.Fails.Elems()) != 1 {","to":"\tif len(c.Fails.Elems()) == 0 {","rule":"rows.md Catch: a catch arm takes exactly its types; only a row of one variant lets its nil test stand for the arm's type test.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-alias-once","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n","to":"","rule":"types.md Bindings: a let mut of a let is a second variable; a fresh temporary names one let at most.","killers":["lower:TestFormsAgree","lower:TestArrayValuesAgree"]},
+    {"name":"forms-sole-footprint","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"if fp, ok := f.Pkg.Info.Footprints[f.Decl]; !ok || !fp.Empty() {","to":"if false {","rule":"rows.md Catch 6: a catch of a callee that may be interrupted keeps the default that passes the interruption on.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-sole-goerror","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"ok && check.IsGoError(n) {","to":"ok && false && check.IsGoError(n) {","rule":"rows.md Catch 6: a catch of an Ergo call failing go.Error keeps its type switch and re-panicking default.","killers":["lower:TestPlainCatchAgrees"]},
+    {"name":"forms-drop-stmt","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/drop.go","from":"if !formsOn() || fc.stmtCall != x {","to":"if !formsOn() {","rule":"Only a call whose statement discards its value goes to the variant with no result.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-drop-result","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/decls.go","from":"if len(f.Sig.Results) == 1 && !drop {","to":"if len(f.Sig.Results) == 1 {","rule":"The variant with no result returns nothing: each return evaluates its value for its effects alone.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-drop-reference","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/drop.go","from":"if !formsOn() || fc.stmtCall != x {","to":"if fc.stmtCall != x {","rule":"The reference lowering (formLowering reference) calls the function itself.","killers":["lower:TestFormsAgree"]},
+    {"name":"builtin-delete-shared-source","origin":"wf10 OPT7","file":"internal/sketch/lower/values.go","from":"\treturn check.GoBuiltin(f) == \"delete\" || f != nil","to":"\treturn f != nil","rule":"types.md Bindings 1: a binding of Go's delete writes a copy of a Map that is seen again (the value rule), as the prelude's Delete does.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"builtin-delete-statement-value","origin":"wf10 OPT7","file":"internal/sketch/lower/calls.go","from":"\t\tif fc.stmtCall == x {\n\t\t\treturn \"delete(\"","to":"\t\tif false {\n\t\t\treturn \"delete(\"","rule":"An in-place m = m.Delete(k) is Go's delete statement alone, with no Map value left unused.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"builtin-delete-via-helper","origin":"wf10 OPT7","file":"internal/sketch/lower/calls.go","from":"\tif b == \"delete\" {\n","to":"\tif b == \"delete\" && false {\n","rule":"The prelude's Delete is Go's delete at its call (OPT7), not a Go function between.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"growth-paths-shared","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"\tfc.path = append(fc.path[:n:n], acct)\n","to":"\t_ = acct\n","rule":"Each statement list has its own growth account: two arms of a branch never spend each other's allowance.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-prefix-dropped","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"spent: top[len(top)-1].spent,","to":"spent: 0,","rule":"A list's account starts with the growth of the list around it.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-cold-ignored","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"cold: top[len(top)-1].cold || fc.coldList(list)}","to":"cold: top[len(top)-1].cold}","rule":"A site on a list that ends in a typed failure or a defect is not inlined.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-unbounded","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"acct.cold || acct.spent+size > fc.l.growthOf(fc.scope)","to":"acct.cold","rule":"A path takes at most inlineGrowth nodes of inlined bodies (copyGrowth in a copy for a known record).","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-inlined-path-reset","origin":"wf10 OPT7","file":"internal/sketch/lower/inline.go","from":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, hot: fc.onLoopPath()}","rule":"An inlined body's sites spend the path of its site.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"stz-carry-not-imported","origin":"wf10 S-tz","file":"internal/sketch/lower/module.go","from":"\t\timports = append(imports, \"_ \"+strconv.Quote(path))","to":"\t\t_ = path","rule":"interop.md Lowering 12: a carried Go package is a blank import of the entry's emitted file, so the binary holds the zone data.","killers":["lower:TestZoneDataCarried"]},
+    {
+      "name": "fureaddir-host-pkg-named-only",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "for _, h := range hostPkgsIn(t, nil) {",
+      "to": "for _, h := range hostPkgsIn(func() check.Type { if n, ok := t.(*check.Named); ok { return n }; return nil }(), nil) {",
+      "rule": "The naming pass names the import of every Go package a read expression type mentions at any depth ([]fs.DirEntry of os.ReadDir), not only a Named expression type's.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-host-type-scope-name",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tif tn.Pkg.Host() {\n\t\t// A Go type of import go is Go's own declaration",
+      "to": "\tif false {\n\t\t// A Go type of import go is Go's own declaration",
+      "rule": "A Go type of import go takes no package-scope name: its typeDecl (read by a copy or a field selection after the naming pass) is named through its package's import.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "return fc.seqFromGo(t, r, x)",
+      "to": "return r",
+      "rule": "A Go iter.Seq result, which the binding maps to the prelude Seq, becomes an Ergo Seq at the import go boundary.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\tfc.goSeqArgs(sig, x.Args, vals, x)\n",
+      "to": "\t// mutant: no Seq argument adapter\n",
+      "rule": "An Ergo Seq argument of a Go call whose parameter is iter.Seq becomes Go's iter.Seq.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-ignores-stop",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "ind + \"\\t\\tif !\" + ok2 + \" {\\n\" +",
+      "to": "ind + \"\\t\\tif false && !\" + ok2 + \" {\\n\" +",
+      "rule": "A Seq made from a Go iter.Seq stops ranging when its Ergo yield returns false (a break in a for-in over it).",
+      "killers": [
+        "lower:TestGoSeqCrossesTheBoundary"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\t\t\tt = fc.typeOf(x)\n",
+      "to": "\t\t\t_ = fc.typeOf(x)\n",
+      "rule": "A Seq result of a generic Go function (maps.Keys) takes the call's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "n, ok := fc.typeOf(args[i]).(*check.Named)",
+      "to": "n, ok := p.Type.(*check.Named)",
+      "rule": "A Seq argument of a generic Go function (slices.Collect) takes the argument's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {"name":"try1-covered-failure-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\t\tfc.propagate(o.err)\n\t\to.err = \"\"","to":"\t\tfc.line(\"_ = \" + o.err)\n\t\to.err = \"\"","rule":"rows.md Error rows 7: a failure of a covered right operand leaves the frame.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-and-right-hoisted","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"if (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","to":"if false && (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","rule":"types.md Operators: the right operand of && and || runs only when the left one does not decide, a covered one too.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-right-before-left","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\treturn fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))","to":"\treturn fc.binaryOf(x, func(p []string) []string { return []string{p[1], p[0]} }(fc.operands([]syntax.Expr{x.Y, x.X}, false)))","rule":"spec D4: operands evaluate left to right; a covered call is hoisted after the left operand.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"law-ptr-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/tests.go","from":"return fc.convert(p.Conv, \"&\"+pv, law.Decl)","to":"return fc.convert(p.Conv, pv, law.Decl)","rule":"A generated case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"return fc.convert(p.Conv, \"&\"+a, law.Decl)","to":"return fc.convert(p.Conv, a, law.Decl)","rule":"A listed case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-drops-holder","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"\t\t\t\tbind += e + \".\" + l.envField","to":"\t\t\t\tbind = e + \".\" + l.envField","rule":"A listed case declares the variable that holds a borrow provider's value before it binds the provider.","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"dt4-fill-doubling-stops-short","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"fc.line(\"for \" + k + \" := 1; \" + k + \" < len(\" + f + \"); \" + k + \" *= 2 {\")","to":"fc.line(\"for \" + k + \" := 1; \" + k + \" < len(\" + f + \")-1; \" + k + \" *= 2 {\")","rule":"A fill doubles its written part until it covers the whole part.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-fill-guard-skips-length","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"return \"0 <= \" + a + \" && \" + a + \" < \" + b + \" && \" + b + \" <= len(\" + length + \")\"","to":"return \"0 <= \" + a + \" && \" + a + \" < \" + b","rule":"The guard tests the end of the part against the length, so an out-of-bounds loop runs the loop and raises its defect.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-takes-forward-overlap","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"forward := \"(\" + da + \" <= \" + sa + \" || \" + da + \" >= \" + sb + \")\"","to":"forward := \"true\"","rule":"A move whose target starts inside its source, after the source's start, is not memmove: the forward loop runs.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-reads-target-offset","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"sa, sb := at(lo, idiom.src, idiom.srcNeg), at(hi, idiom.src, idiom.srcNeg)\n\t\t// A forward","to":"sa, sb := at(lo, idiom.dst, idiom.dstNeg), at(hi, idiom.dst, idiom.dstNeg)\n\t\t// A forward","rule":"A move copies from the source's offset.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-collect-appends-one-fewer","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"place + \"[\" + sa + \":\" + sb + \"]...)\")","to":"place + \"[\" + sa + \":(\" + sb + \"-1)]...)\")","rule":"A collect appends the whole part of its source.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-invariant-takes-the-index","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\t\t\tok = o != iv\n","to":"\t\t\t\tok = o != iv || o == iv\n","rule":"A value that names the loop variable changes at every index: no fill.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-invariant-blind-to-pointer-into-element","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\t\t\tif holdsByValue(elem, p.Elem, map[string]bool{}) {","to":"\t\t\t\tif false {","rule":"A field read through a pointer into the written elements changes when a store reaches it: no fill.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-two-slices","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\treturn ok && a.Sel.Name == b.Sel.Name && sameSyntax(a.X, b.X)","to":"\t\treturn ok && sameSyntax(a.X, b.X)","rule":"A move reads and writes one slice; a copy between two slices is not a move.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-provider-kept-use-copied","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\t\t\t\t\tused[i] = false\n","to":"\t\t\t\t\tused[i] = used[i]\n","rule":"A parameter stored, bound or passed at another type keeps the interface: no copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-pass-on-any-type","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"ok && n.Obj == f.Sig.Params[i].Type.(*check.Named).Obj && len(n.TArgs) == 0 {","to":"(ok && n.Obj == f.Sig.Params[i].Type.(*check.Named).Obj && len(n.TArgs) == 0) || j >= 0 {","rule":"Passing the parameter on keeps a copy only at a parameter of the same operation type.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-reference-ignored","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\tif providerLowering == \"dynamic\" || c.Kind != check.ConvOperations {","to":"\tif c.Kind != check.ConvOperations {","rule":"The reference lowering makes no copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-no-pass-through","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"ok && fc.provs[v] != nil {","to":"ok && fc.provs[v] != nil && false {","rule":"A copy passes its known provider on to the copy of the function it calls.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-receiver-not-allowed","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\t\t\tif id, i := param(c.Recv); id != nil {\n\t\t\t\tallowed[id], used[i] = true, true","to":"\t\t\tif id, i := param(c.Recv); id != nil && false {\n\t\t\t\tallowed[id], used[i] = true, true","rule":"An operation call's receiver keeps the copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-copy-keeps-interface","origin":"wf10/dod/DT4","file":"internal/sketch/lower/decls.go","from":"} else if sp != nil && sp.prov != nil && i == sp.param {","to":"} else if false && sp != nil && sp.prov != nil && i == sp.param {","rule":"A copy's parameter is its adapter's Go pointer type, so its operation calls are static.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-wrong-parameter","origin":"wf10/dod/DT4","file":"internal/sketch/lower/decls.go","from":"} else if sp != nil && sp.prov != nil && i == sp.param {","to":"} else if sp != nil && sp.prov != nil && i == len(f.Sig.Params)-2 {","rule":"The copy's adapter parameter is the one its call's provider is passed at.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"vc1-take-skips-a-statement","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"next, ok := block.List[i+1].(*syntax.AssignStmt)","to":"next, ok := block.List[min(i+2, len(block.List)-1)].(*syntax.AssignStmt)","rule":"A take's overwrite is the statement right after the read: a write between them reaches the old value.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-take-other-place","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(next.Lhs[0], vv.v) && samePlace(next.Lhs[0], o.path) && w.plainFresh(next.Rhs[0], vv.v)","to":"return w.placeOf(next.Lhs[0], vv.v) && w.plainFresh(next.Rhs[0], vv.v)","rule":"A take's overwrite is the read place's own; another place's leaves the old value in the read place.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reslice-other-place","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)","to":"return w.placeOf(stmt.Lhs[0], vv.v)","rule":"A reslice stores into the place it slices.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reslice-any-target","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)","to":"return true","rule":"A reslice stores into the place it slices, not another binding.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-moved-read-copied","origin":"wf10/dod/VC1","file":"internal/sketch/lower/values.go","from":"\t\t\t\tcase vf.moved[o.path]:\n\t\t\t\t\t// Its place is overwritten next (V7).\n","to":"","rule":"A moved read is not copied (the promised form of takeS and dropS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reference-moves","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"if !valueOwned() || valueMutant == \"never-copy\" {","to":"if valueMutant == \"never-copy\" {","rule":"The copying reference moves nothing.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-moved-not-fresh","origin":"wf10/dod/VC1","file":"internal/sketch/lower/values.go","from":"w.vf.clone[e] || w.vf.moved[e] {","to":"w.vf.clone[e] {","rule":"A moved read is fresh where it is bound: a let mut of it copies nothing.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-names-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif w.names(a, vv.v, o.id) {","to":"\t\tif false && w.names(a, vv.v, o.id) {","rule":"An unkept argument is copied when another operand names its root (f(xs, &xs)): the callee writes it during the call.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-frame-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif wr.frame != o.frame {","to":"\t\tif wr.frame != o.frame && false {","rule":"An unkept argument is copied when a local frame writes its root: the frame may run between the read and the call.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-fn-operand-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif _, fn := underlyingOf(w.typeOf(a)).(*check.Signature); fn {","to":"\t\tif _, fn := underlyingOf(w.typeOf(a)).(*check.Signature); fn && false {","rule":"An unkept argument is copied when an operand is a function value, which may write what a borrow points to.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-keeps-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\tif k := w.l.keeps(c.Func); j >= len(k) || k[j] {\n\t\treturn false\n\t}\n\tdeps","to":"\tif k := w.l.keeps(c.Func); j >= len(k) {\n\t\treturn false\n\t}\n\tdeps","rule":"An argument the callee keeps (in a function it returns) is copied.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-match-escapes","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"ok && fl.keep {\n\t\t\t\treturn fl.matchBinds(s), false","to":"ok && fl.keep && false {\n\t\t\t\treturn fl.matchBinds(s), false","rule":"A match passes its subject on to the values its cases bind: pick keeps nothing of its Pick (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-novalue-carries","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\tif typed && (t == check.NoValue || !fl.carries(t)) {","to":"\tif typed && !fl.carries(t) {","rule":"A call with no value carries nothing on: note1's last statement keeps nothing of s (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-def-is-use","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"if _, def := fl.info.Defs[id]; def && fl.keep {","to":"if _, def := fl.info.Defs[id]; def && false {","rule":"A binding's own name is not a use of it (pick's case binding; the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-closure-result-copied","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\to.result = !hidesParts(w.typeOf(p))\n","to":"\t\t\t\t\to.result = true\n","rule":"A pure call whose result is a function value that captured the argument copies the argument: a copy of the function copies no capture (let g = hold(xs); xs[0] = 2).","killers":["lower:TestValueRuleAgrees"]},
     {
       "name": "v7-hand-over",
       "origin": "wf10 STD-sh",
@@ -4213,8 +4421,8 @@
       "name": "v7-handed-unshared",
       "origin": "wf10 STD-sh r2",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !w.vf.clone[o.path] && !w.vf.handed[o.path] {\n",
-      "to": "\t\t\tif !w.vf.clone[o.path] {\n",
+      "from": "\t\t\tif !w.vf.clone[o.path] && !w.vf.handed[o.path] && !(o.result",
+      "to": "\t\t\tif !w.vf.clone[o.path] && !(o.result",
       "rule": "types.md, Bindings 2 (V7): a handed read leaves the binding unshared, so its later value enters another binding with no copy (speed only).",
       "killers": [
         "lower:TestValueRuleElides"
@@ -4315,6 +4523,9 @@
     {"name":"own-read-element-write-blind","origin":"wf10 OWN1 (PA3 store read)","file":"internal/sketch/lower/storeread.go","from":"\t\t\tcase *check.Slice, *check.Map:\n\t\t\t\tset[w.l.typeKey(u)] = true\n","to":"\t\t\tcase *check.Slice, *check.Map:\n\t\t\t\t_ = u\n","rule":"A write s.bags[i].Items[0] = v writes the []int a let read of s.bags[i] holds: that read is copied.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-read-borrow-passed-blind","origin":"wf10 OWN1 (PA3 store read)","file":"internal/sketch/lower/storeread.go","from":"\tif _, ok := w.typeOf(u.path).(*check.Pointer); ok {\n","to":"\tif _, ok := w.typeOf(u.path).(*check.Pointer); ok && false {\n","rule":"A borrow passed on (poke(s, i, v), s.set(i, v)) may write anything its target reaches: a let read of the target is copied.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-reslice-other-place","origin":"wf10 OWN1 (ST G4 reslice)","file":"internal/sketch/lower/storeread.go","from":"\tif !samePlace(as.Lhs[0], base) {\n","to":"\tif !samePlace(as.Lhs[0], base) && false {\n","rule":"Only a reslice of a place into itself shares its array uncopied: m.Items = b.Items[0:k] copies b's cut.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"view-window-kept-uncopied","origin":"wf10 OWN1 (DF1)","file":"internal/sketch/lower/values.go","from":"\t\t\t\to.call, o.deps, o.result = p, true, true\n","to":"\t\t\t\to.kind = occRead\n","rule":"A view's window that is kept (a let, a call that returns it) is copied when its root is written later: the window shares the root's array.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"view-window-read-keeps","origin":"wf10 OWN1 (DF1)","file":"internal/sketch/lower/values.go","from":"\tif basicResult(w.typeOf(call)) || !w.l.mayShare(w.typeOf(call), w.typeOf(x)) {\n\t\treturn call\n","to":"\tif true {\n\t\treturn call\n","rule":"A window goes uncopied only to a call whose result keeps none of it: keep(slices.Slice(…)) returns the window.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"view-window-in-flight-blind","origin":"wf10 OWN1 (DF1)","file":"internal/sketch/lower/values.go","from":"\t\t\t\to.kind, o.call = occRead, outer\n","to":"\t\t\t\to.kind = occRead\n","rule":"An uncopied window is read by its call as it was: a later operand that writes the root (set0(&m, v)) forces the copy (inFlight).","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-ref-in-place-never","origin":"wf10 OWN1 (ST G1)","file":"internal/sketch/lower/refown.go","from":"\tif !fc.l.takes(\"own-ref-in-place\") {\n","to":"\tif true {\n","rule":"An owned literal that holds the cell's value in one let mut from first to last lowers in place: no copy of T in or out (speed only).","killers":["lower:TestValueRuleElides"]},
     {"name":"own-ref-in-place-cloned-init","origin":"wf10 OWN1 (ST G1)","file":"internal/sketch/lower/refown.go","from":" || fc.l.vals.clone[spec.Values[0]] || fc.l.vals.clone[init] {\n","to":" {\n","rule":"A literal is in place only when its let mut takes the held value with no copy: a later read of the parameter would see s's writes.","killers":["lower:TestValueRuleAgrees"]},
     {"name":"own-fresh-call-shared-operand","origin":"wf10 OWN1 (GP2b)","file":"internal/sketch/lower/handover.go","from":"\t\tif !w.fresh(a) && !w.vf.handed[a] && !w.vf.consumed[a] {\n","to":"\t\tif false {\n","rule":"A call's result is fresh from its body only when every operand that holds a Map or slice is fresh, handed over or consumed: m = push(b, v) on a live b shares b's array.","killers":["lower:TestHandoverAgrees"]},
@@ -4369,6 +4580,64 @@
     {"name":"reuse-return-whole-on-consuming-route","origin":"wf10 REUSE RU1","file":"internal/sketch/lower/parts.go","from":"\tif o.frame != w.root || o.pre >= bind.pre {\n","to":"\tif o.frame != w.root {\n","rule":"A whole return of a parameter frees its bind only on a route that ends before the bind: one after it reads what the bind wrote (late).","killers":["lower:TestHandoverAgrees"]},
     {"name":"reuse-field-append-only","origin":"wf10 REUSE RU1","file":"internal/sketch/lower/handover.go","from":"ok && w.consumedAt(call, cx) != nil {","to":"ok && false && w.consumedAt(call, cx) != nil {","rule":"Speed: a field path at a consuming position (an owned parameter, an owned form) takes its parameter over by parts, as a let mut of it does (r1: St{set: Insert(s.set, x), n: s.n + 1}).","killers":["lower:TestTestBuildsTakeNoShortcut"]},
     {"name":"reuse-return-off","origin":"wf10 REUSE RU1","file":"internal/sketch/lower/parts.go","from":"\tif !w.l.takes(\"own-return\") {\n","to":"\tif true {\n","rule":"Speed: a whole return of a parameter before its one bind leaves the parameter owned (g4: InsertNew copies nothing).","killers":["lower:TestPartsCopyNothing"]},
-    {"name":"reuse-move-off","origin":"wf10 REUSE RU1","file":"internal/sketch/lower/parts.go","from":"\tif !w.l.takes(\"own-move\") {\n","to":"\tif true {\n","rule":"Speed: an update's base and a path under a field it names share no storage, so neither is copied (r2: St{..s, set: Insert(s.set, x)}).","killers":["lower:TestPartsCopyNothing"]}
+    {"name":"reuse-move-off","origin":"wf10 REUSE RU1","file":"internal/sketch/lower/parts.go","from":"\tif !w.l.takes(\"own-move\") {\n","to":"\tif true {\n","rule":"Speed: an update's base and a path under a field it names share no storage, so neither is copied (r2: St{..s, set: Insert(s.set, x)}).","killers":["lower:TestPartsCopyNothing"]},
+    {"name":"r3b-return-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\tcase *syntax.ReturnStmt:\n\t\treturn true","to":"\tcase *syntax.ReturnStmt:\n\t\treturn false","rule":"A parameter a function returns is carried (retAny): its union stays an interface past the register bound.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-tail-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\t\t_, tail := info.Tails[p]\n\t\treturn tail","to":"\t\t_, tail := info.Tails[p]\n\t\treturn tail && false","rule":"A parameter a function yields as its tail is carried (idAny).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-pass-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\t\treturn l.passCarries(c, j)\n\tcase *syntax.AssignStmt:","to":"\t\treturn false\n\tcase *syntax.AssignStmt:","rule":"A parameter passed on to a carrying parameter is carried (passAny).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-let-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\tcase *syntax.VarSpec:\n\t\treturn true","to":"\tcase *syntax.VarSpec:\n\t\treturn false","rule":"A parameter bound whole to another name is carried (letAny).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-capture-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"if fl.inLit[id] || l.useCarries(fl, info, id) {","to":"if l.useCarries(fl, info, id) {","rule":"A parameter a function literal captures is carried (litAny).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-unknown-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\tdefault:\n\t\treturn true // an operation, a function value, a conversion","to":"\tdefault:\n\t\treturn false // an operation, a function value, a conversion","rule":"A value passed to a callee the lowering cannot see (a function value) is carried (callAny).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-go-carries","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\t\treturn false // a Go leaf","to":"\t\treturn true // a Go leaf","rule":"A Go function (an extern: Append) reads or stores its argument and carries nothing: a union appended to a slice stays flat by use.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-call-sites-blind","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\t\t\t\t\tif l.passCarries(c, j) {","to":"\t\t\t\t\tif false && l.passCarries(c, j) {","rule":"A union is carried when some call passes a value of it to a carrying parameter.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-reference-ignored","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\treturn unionBound != \"register\" && !l.carriedUnions()[tn]","to":"\treturn !l.carriedUnions()[tn]","rule":"The reference unionBound=register keeps the register bound alone: no union is flat by use.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-use-bound-ignored","origin":"wf10/dod/R3b","file":"internal/sketch/lower/flatunion.go","from":"l.flatByUse(tn) && lay.size <= useBytes {","to":"l.flatByUse(tn) {","rule":"A union over 128 bytes stays an interface even when no call carries it (the waste of a slot array).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-per-variant-past-both","origin":"wf10/dod/R3b","file":"internal/sketch/lower/flatunion.go","from":"\t\t\t\t\tfu.shared = true\n","to":"\t\t\t\t\tfu.shared = false\n","rule":"Past the register bound in both forms, a union flat by use takes the smaller, shared form.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-literal-result-consumes","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"\t\t\t\t\t\tl.carryResults(sig)\n","to":"\t\t\t\t\t\t_ = sig\n","rule":"A function literal's result goes to a caller the lowering cannot see, so a union it returns is carried (callR); onebrc's Part, returned through tasks.Transform's function, stays an interface.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"r3b-function-params-consumed","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"const paramCarry = true","to":"const paramCarry = false","rule":"A function value's caller passes its arguments by value, so a union a function value takes is carried (a machine's step and its signal).","killers":["lower:TestFlatUnionsAgree","lower:TestMachineFlatRunAgrees"]},
+    {"name":"r3b-payload-consumed","origin":"wf10/dod/R3b","file":"internal/sketch/lower/carry.go","from":"const payloadCarry = true","to":"const payloadCarry = false","rule":"A carried union carries the unions its payload holds in place, so they keep the register bound and it keeps its own (backups' Signal holds an Event).","killers":["lower:TestFlatUnionsAgree","lower:TestMachineFlatRunAgrees"]},
+    {"name":"vi1-witness-unknown","origin":"wf10/dod/VI1","file":"internal/sketch/lower/witspec.go","from":"\tif !staticWitness(w) {\n\t\treturn nil\n\t}\n\treturn w\n","to":"\treturn nil\n","rule":"A call whose witness is a named type's functions goes to the callee's copy for that type (knownStats.Witnessed).","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-own-witness-unknown","origin":"wf10/dod/VI1","file":"internal/sketch/lower/witspec.go","from":"\t\tst := fc.static[src]\n\t\tif st == nil || ptr {","to":"\t\tst := fc.static[src]\n\t\tif st != nil || st == nil || ptr {","rule":"A call in a copy that passes the copy's own parameter on goes to the callee's copy for the same type.","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-dot-call-no-copy","origin":"wf10/dod/VI1","file":"internal/sketch/lower/record.go","from":"\t\tif prov == nil {\n\t\t\t// A copy for a known witness (witspec.go).\n\t\t\tk = -1\n","to":"\t\tif prov == nil {\n\t\t\tif c.Recv != nil {\n\t\t\t\treturn nil\n\t\t\t}\n\t\t\t// A copy for a known witness (witspec.go).\n\t\t\tk = -1\n","rule":"A dot call (t.gM(s, k)) with a known witness goes to the copy too, its receiver the copy's first argument (vt's p.Flush(s, &u)).","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-witness-still-passed","origin":"wf10/dod/VI1","file":"internal/sketch/lower/calls.go","from":"\t\tif sp != nil && sp.wit != nil && !known {\n\t\t\tlead = nil","to":"\t\tif sp != nil && sp.wit != nil && known {\n\t\t\tlead = nil","rule":"A call of a copy for a known witness passes no witness: the copy has no such parameter.","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-no-built-witness","origin":"wf10/dod/VI1","file":"internal/sketch/lower/decls.go","from":"\t\tif w := fc.witness[sp.wit.Param]; namesIdent(body, w) {","to":"\t\tif w := fc.witness[sp.wit.Param]; false && namesIdent(body, w) {","rule":"A copy whose body uses the witness itself (a conversion to the operation type) builds it.","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-static-op-first","origin":"wf10/dod/VI1","file":"internal/sketch/lower/witspec.go","from":"\t\tif w.Ops[i].Name == name {","to":"\t\tif w.Ops[i].Name == name || true {","rule":"A copy calls the operation the generic body names, by name, from the known witness.","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-two-params-copied","origin":"wf10/dod/VI1","file":"internal/sketch/lower/witspec.go","from":"\tif len(own) != 1 || len(ws) != 1 || ws[0] != own[0] || isWireParam(ws[0]) {","to":"\tif len(ws) != 1 || isWireParam(ws[0]) {","rule":"A function with a type parameter besides the constrained one has no copy (pair): its other type arguments are no part of the copy's key.","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-unit-op-result","origin":"wf10/dod/VI1","file":"internal/sketch/lower/witness.go","from":"\t\tbody = \"\\t_, _ = \" + call + \"\\n\"","to":"\t\tbody = \"\\t_ = \" + call + \"\\n\"","rule":"An adapter of a type parameter to an operation type drops both results of an operation with no value (found by TestKnownWitnessesAgree: `_ = a.w.Put(...)` did not compile).","killers":["lower:TestKnownWitnessesAgree"]},
+    {"name":"vi1-tab-off","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"\tif tabLowering == \"call\" {\n\t\treturn nil\n\t}\n\tif ti, ok","to":"\tif tabLowering == \"call\" || true {\n\t\treturn nil\n\t}\n\tif ti, ok","rule":"A pure deciding function over enums, bools and bytes is called through a table of its results (knownStats.Tabulated).","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-tab-shares-refs","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"\tif !refFree(f.Sig.Results[0], map[check.Type]bool{}) {","to":"\tif false && !refFree(f.Sig.Results[0], map[check.Type]bool{}) {","rule":"A function whose result holds a reference (a slice) has no table: the entry would be shared with every caller, which may write it.","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-tab-no-decision","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"\tif !decides {\n\t\treturn nil\n\t}\n","to":"\tif false && !decides {\n\t\treturn nil\n\t}\n","rule":"A function with no decision (a constructor) has no table: the call is cheaper than the load.","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-tab-enum-index","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"fc.line(i + \" = \" + i + \"*\" + n + \" + int(\" + args[k] + \".tag)\")","to":"fc.line(i + \" = \" + i + \" + int(\" + args[k] + \".tag)\")","rule":"A table's index is the arguments' mixed-radix number: each enum parameter scales the index by its variant count.","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-tab-bool-index","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"\t\t\tfc.line(\"\\t\" + i + \"++\")\n","to":"","rule":"A bool argument true adds one to the index, after scaling by two.","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-tab-uncounted","origin":"wf10/dod/VI1","file":"internal/sketch/lower/tabulate.go","from":"\t\tl.stats.Tabulated++\n","to":"","rule":"knownStats.Tabulated counts the tables written.","killers":["lower:TestTabulatedAgree"]},
+    {"name":"vi1-clear-nonzero","origin":"wf10/dod/VI1","file":"internal/sketch/lower/loops.go","from":"\t\t\tfc.line(\"if \" + f + \"[0] == \" + z + \" {\")","to":"\t\t\tfc.line(\"if \" + f + \"[0] != \" + z + \" {\")","rule":"A fill clears its slice only when the value equals its type's zero value.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"vi1-slice-own-slot","origin":"wf10/dod/VI1","file":"internal/sketch/lower/flatunion.go","from":"\tcase *check.Slice:\n\t\tif e := slotKey(u.Elem); e != nil {","to":"\tcase *check.Slice:\n\t\tif e := slotKey(u.Elem); e == nil && e != nil {","rule":"Fields of one slice type in two variants share a slot (vt's Csi and Hook share one []int).","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"vi2-fold-off","origin":"wf10/dod/VI2","file":"internal/sketch/lower/knownmatch.go","from":"\tif foldLowering == \"off\" || fc.out == nil {","to":"\tif foldLowering == \"off\" || fc.out == nil || true {","rule":"A simple match on an inlined call of a flat union folds (knownStats.Folded).","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-wrong-arm","origin":"wf10/dod/VI2","file":"internal/sketch/lower/knownmatch.go","from":"\ta := km.tagArm[k]\n\tif p, ok := km.payload[k]; ok {","to":"\ta := km.tagArm[(k+1)%len(km.tagArm)]\n\tif p, ok := km.payload[k]; ok {","rule":"A variant a return builds jumps to the arm that takes that variant.","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-general-unmarked","origin":"wf10/dod/VI2","file":"internal/sketch/lower/inline.go","from":"\tif in.known != nil {\n\t\tin.known.general = true","to":"\tif in.known != nil {\n\t\tin.known.general = false","rule":"A return of any other value marks the fold general, so the tag switch follows the inlined block (else the value falls into the first arm).","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-payload-unwritten","origin":"wf10/dod/VI2","file":"internal/sketch/lower/knownmatch.go","from":"\t\tfc.line(p + \" = \" + val)\n","to":"\t\tfc.line(\"_ = \" + val + \"; _ = \" + p)\n","rule":"A known return writes its variant into the payload its arm binds.","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-general-no-payload","origin":"wf10/dod/VI2","file":"internal/sketch/lower/knownmatch.go","from":"\t\t\tfc.line(\"\\t\" + p + \" = \" + ts.variant(k))\n","to":"\t\t\tfc.line(\"\\t_ = \" + p)\n","rule":"The tag switch of a general return writes the payload of the arm it jumps to.","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-end-label-bare","origin":"wf10/dod/VI2","file":"internal/sketch/lower/body.go","from":"\t\t\tfc.line(end + \": ;\")","to":"\t\t\tfc.line(end + \":\")","rule":"The end label of a folded match labels a statement, so it may end a case clause.","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"vi2-fold-leaf-not-inlined","origin":"wf10/dod/VI2","file":"internal/sketch/lower/inline.go","from":"\t\tif !fold || size > budget {","to":"\t\tif true {","rule":"A fold's subject is inlined even when Go would inline it as a leaf (its switch would stay).","killers":["lower:TestKnownConstructorsAgree"]},
+    {"name":"uni-slot-shared-by-two-live-results","origin":"wf10 UNI2","file":"internal/sketch/lower/slot.go","from":"\tif !site.sl.declared {\n\t\tfc.scalarDeclare(site.sl, site.sl.name)\n\t}\n\treturn site\n","to":"\tif !site.sl.declared {\n\t\tfc.scalarDeclare(site.sl, site.sl.name)\n\t\tfor _, t := range fc.slotTemps {\n\t\t\tif t.union == site.sl.union {\n\t\t\t\tsite.sl.slots = t.slots\n\t\t\t}\n\t\t}\n\t\tfc.slotTemps = append(fc.slotTemps, site.sl)\n\t}\n\treturn site\n","rule":"Each call that writes a slot writes a slot set declared at its own site: two results live at once never share a slot.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"uni-slot-result-stored","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\tsite := fc.slotOffer(call, sl, gathered)\n\t\tval := fc.assigned(x)\n\t\tdelete(fc.joinAt, call)","to":"\t\tsite := fc.slotOffer(call, sl, false)\n\t\tval := fc.assigned(x)\n\t\tdelete(fc.joinAt, call)","rule":"A result the caller stores, appends, passes or returns from a box frame keeps its box: only a result the caller only matches is written into its slots.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"uni-slot-across-loop-iteration","origin":"wf10 UNI2","file":"internal/sketch/lower/body.go","from":"\t\tif !fc.slotTaken(call, site, val) {\n\t\t\tfc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go","to":"\t\tif site != nil && site.took {\n\t\t\tdelete(fc.slotAt, call)\n\t\t\tfc.line(\"_ = \" + val)\n\t\t} else if !fc.slotTaken(call, site, val) {\n\t\t\tfc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go","rule":"Each assignment of a loop-carried local that a call's slots take writes the local's tag again: a later iteration never reads an earlier iteration's variant.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"uni-kept-box-stale","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\tlhs, rhs = lhs+\", \"+sl.box, rhs+\", nil\"\n","to":"\t\tlhs = lhs\n","rule":"A scalar local keeps the box its value came in only while it holds that value: a write of a value with no settled box drops it, so gather never returns an earlier value.","killers":["lower:TestFlatUnionsAgree"]},
+    {"name":"uni-kept-box-from-part","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\tid, ok := root.(*syntax.Ident)\n\t\tif !ok {\n\t\t\treturn false\n\t\t}\n\t\tv, _ := fc.l.info.Uses[id].(*check.Var)\n\t\treturn v != nil && fc.heapVars[v]","to":"\t\t_ = root\n\t\treturn true","rule":"A scalar local keeps the box of a field or element read only when the read is a part of a Map entry (heapVars): a part of a value built here (a machine step's decision) could have stayed on the stack, and keeping it makes Go move every value of the kept variable to the heap, so a machine run's step allocates.","killers":["lower:TestMachineFlatRunAllocates"]},
+    {"name":"env-memo-same-task-copies","origin":"wf10 ENV-COPY","file":"internal/sketch/lower/closures.go","from":"\t\tind + \"if \" + taskOf(e) + \" != \" + task + \" {\\n\" +","to":"\t\tind + \"if true {\\n\" +","rule":"A host callback that runs on its maker's task takes the maker's environment as it is: no copy (a durable actor's save).","killers":["lower:TestHostCallbackKeepsItsEnvironment"]},
+    {"name":"env-memo-never-kept","origin":"wf10 ENV-COPY","file":"internal/sketch/lower/closures.go","from":"\t\tind + \"\\t\\t\" + task + \".SetEnvMemo(\" + e + \")\\n\" +","to":"\t\tind + \"\\t\\t_ = \" + task + \"\\n\" +","rule":"A host callback's copy of the environment stays on its task, so the next callback on that task with the same environment makes none (an actor's step).","killers":["lower:TestHostCallbackKeepsItsEnvironment"]},
+    {"name":"env-memo-other-env","origin":"wf10 ENV-COPY","file":"internal/sketch/lower/closures.go","from":"\" || \" + e + \".\" + envFrom + \" != \" + outer + \" {\\n\" +","to":"\" {\\n\" +","rule":"A host callback reuses a task's copy only when it was made from the callback's own environment: a copy of another environment has other capabilities.","killers":["lower:TestHostCallbackEnvironmentIsItsOwn"]},
+    {"name":"env-memo-other-task","origin":"wf10 ENV-COPY","file":"internal/sketch/lower/closures.go","from":"\" == nil || \" + taskOf(e) + \" != \" + task + \" || \"","to":"\" == nil || \"","rule":"A host callback reuses a kept copy only when it is its own task's: the runtime's slot (rt.Task.EnvMemo) may hold the copy of another task whose ID shares it.","killers":["lower:TestHostCallbackEnvironmentIsItsOwn"]},
+    {"name":"arms-fresh-blind","origin":"wf10 OWN1 arms","file":"internal/sketch/lower/values.go","from":"\t\tif valueOwned() && w.exclusive(o.id, use.id) && !w.loopedSince(use, loops) {\n","to":"\t\tif false {\n","rule":"A use in another arm of a match never follows this one, so a bind in each arm moves the value (pinata's Change): speed.","killers":["lower:TestValueRuleElides"]},
+    {"name":"arms-fresh-loop","origin":"wf10 OWN1 arms","file":"internal/sketch/lower/values.go","from":"w.exclusive(o.id, use.id) && !w.loopedSince(use, loops) {","to":"w.exclusive(o.id, use.id) {","rule":"Arms are exclusive only in one pass: a loop around the match runs the other arm's use on an earlier pass (loopCell: a Set in one arm, the literal's return in the other).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"arms-later-loop","origin":"wf10 OWN1 arms","file":"internal/sketch/lower/values.go","from":"\tif wr.at > o.pre && !(valueOwned() && w.exclusive(o.id, wr.id)) {\n\t\treturn true\n\t}\n","to":"\tif valueOwned() && w.exclusive(o.id, wr.id) {\n\t\treturn false\n\t}\n\tif wr.at > o.pre {\n\t\treturn true\n\t}\n","rule":"A write in another arm follows a kept read when a loop the binding is outside runs the match again (armsS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"arms-subject","origin":"wf10 OWN1 arms","file":"internal/sketch/lower/values.go","from":"\t\t\treturn ka && kb\n","to":"\t\t\treturn ka || kb\n","rule":"A match's subject runs before every arm: a write in an arm follows a kept read in the subject (subjS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"arms-if-cond","origin":"wf10 OWN1 arms","file":"internal/sketch/lower/values.go","from":"\t\t\treturn arm(ca) && arm(cb)\n","to":"\t\t\treturn arm(ca) || arm(cb)\n","rule":"An if's condition runs before its branches; only the two branches are exclusive (condS: a Set in the condition, a write in the branch).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"union-result-copied","origin":"wf10 OWN1 arms (found by subjS)","file":"internal/sketch/lower/alias.go","from":"if hides(v, seen) || holdsValueSeen(v, map[check.Type]bool{}) {","to":"if hides(v, seen) {","rule":"A union's variant is hidden from a copy of the result (the value copy copies no union), so a pure call whose union result keeps a part of a root written later copies its argument: `let o = optS(cur); cur[0] = k` must leave o's slice alone.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"repeat-fill-never","origin":"wf10 OWN1 PA3","file":"internal/sketch/lower/repeat.go","from":"\tif repeatLowering == \"call\" || len(args) != 2 {","to":"\tif true || len(args) != 2 {","rule":"slices.Repeat of a literal and a constant count makes its result with a make of constant length in the caller, which Go keeps on the stack (speed).","killers":["lower:TestValueRuleElides"]},
+    {"name":"repeat-fill-size","origin":"wf10 OWN1 PA3","file":"internal/sketch/lower/repeat.go","from":"\tsize := strconv.FormatInt(n*int64(len(lit.Elts)), 10)","to":"\tsize := strconv.FormatInt(n, 10)","rule":"The filled Repeat's length is the literal's length times the count.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"repeat-fill-stride","origin":"wf10 OWN1 PA3","file":"runtime/v1/collections.go","from":"\tfor i := 0; i < len(out); i += len(xs) {","to":"\tfor i := 0; i < len(out); i++ {","rule":"SlicesFill writes the literal's elements in order, once per repeat.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"move-over-shares","origin":"wf10 ST X1","file":"internal/sketch/lower/values.go","from":"!(o.result && o.call != nil && w.vf.clone[o.call])","to":"!(o.result && o.call != nil)","rule":"A kept read of a pure call stops a move unless the call's result is copied: an uncopied result shares the moved value's parts, which a write through the new binding reaches.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"move-over-never","origin":"wf10 ST X1","file":"internal/sketch/lower/moves.go","from":"\t\t\tw.vf.clone[c] = true\n\t\t\tmarked = append(marked, c)\n","to":"\t\t\tmarked = append(marked, c)\n","rule":"A dead, unshared Map or slice moves into a let mut past earlier pure calls that keep a part of it, whose results are copied instead (moveOver): a store's Modify copies one entry, not the Map.","killers":["lower:TestValueRuleElides"]},
+    {"name":"move-over-whole","origin":"wf10 ST X1","file":"internal/sketch/lower/moves.go","from":"|| set[own] {","to":"{","rule":"moveOver copies a kept result in place of the bind's copy only when the result holds a part of the value, not the whole: a result that reaches the value's own type stops the move.","killers":[]}
   ]
 }

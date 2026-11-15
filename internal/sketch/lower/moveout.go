@@ -332,7 +332,7 @@ func (w *valueWalk) decideMoveOuts() {
 	for _, list := range stmtLists(w.root.node) {
 		for _, mo := range moveOutsIn(w.info, list) {
 			if w.moveOutHolds(mo, occ) {
-				vf.moved[mo.bind] = true
+				vf.moveOut[mo.bind] = true
 				vf.moveRead[mo.get] = true
 				rid := pathRoot(mo.recv)
 				if o := occ[rid]; o != nil {

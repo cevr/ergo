@@ -3,7 +3,9 @@ package lower
 import (
 	"flag"
 	"fmt"
+	"maps"
 	"math/rand/v2"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -15,7 +17,10 @@ import (
 // the prelude's Append (which binds append too): appends kept and dropped,
 // an append whose source is read again (the value rule clips it: the new
 // element is not seen through the old slice's spare capacity), a copy into
-// a borrow and a clear through one. It runs under the builtin lowering and
+// a borrow and a clear through one; and over a let mut Map[int, int], the
+// prelude's Put and Delete (Delete binds Go's delete, OPT7) and a user
+// extern of delete, in place and with the source read again (the value
+// rule writes a copy, so the source keeps the key). It runs under the builtin lowering and
 // under the reference (builtinLowering "call", a Go function per builtin);
 // stdout must equal the model's, a Go fold of the same statements, under
 // both. A failing seed prints the Ergo source, both outputs and its replay
@@ -23,7 +28,7 @@ import (
 
 var builtinSeed = flag.Uint64("builtin.seed", 0, "run TestBuiltinsAgree on this seed alone")
 
-var builtinPaths = []string{"push", "keep", "alias", "prelude", "size", "copy", "clear", "minmax"}
+var builtinPaths = []string{"push", "keep", "alias", "prelude", "size", "copy", "clear", "minmax", "put", "delete", "deleteKeep", "unset"}
 
 const builtinPrelude = `extern go append func push[T](xs []T, x T) []T
 extern go len func size[T](xs []T) int
@@ -32,6 +37,19 @@ extern go copy func copyInto[T](dst *[]T, src []T) int
 extern go clear func wipe[T](xs *[]T)
 extern go min func least(a int, b int) int
 extern go max func most(a int, b int) int
+extern go delete func unset[K comparable, V](m Map[K, V], k K) Map[K, V]
+
+func showMap(m Map[int, int]) string {
+	let mut s = "{\(len(m))"
+	for k in []int{0, 1, 2, 3, 4, 5, 6, 7} {
+		match m.Get(k) {
+		case Some as v:
+			s = s + " \(k):\(v.Value)"
+		case None:
+		}
+	}
+	s + "}"
+}
 
 func show(xs []int) string {
 	let mut s = ""
@@ -47,6 +65,7 @@ type builtinGen struct {
 	r       *rand.Rand
 	b, want strings.Builder
 	xs      []int
+	m       map[int]int
 	names   int
 	reached map[string]bool
 }
@@ -62,6 +81,17 @@ func (g *builtinGen) show(xs []int) string {
 	return b.String() + "]"
 }
 
+func (g *builtinGen) showMap(m map[int]int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "{%d", len(m))
+	for k := range 8 {
+		if v, ok := m[k]; ok {
+			fmt.Fprintf(&b, " %d:%d", k, v)
+		}
+	}
+	return b.String() + "}"
+}
+
 func (g *builtinGen) name(base string) string {
 	g.names++
 	return fmt.Sprintf("%s%d", base, g.names)
@@ -69,7 +99,34 @@ func (g *builtinGen) name(base string) string {
 
 func (g *builtinGen) stmt() {
 	k := g.r.IntN(50)
-	switch g.r.IntN(8) {
+	switch g.r.IntN(12) {
+	case 8:
+		g.line(fmt.Sprintf("m = m.Put(%d, %d)", k%8, k))
+		g.m[k%8] = k
+		g.reached["put"] = true
+	case 9:
+		g.line(fmt.Sprintf("m = m.Delete(%d)", k%8))
+		delete(g.m, k%8)
+		g.reached["delete"] = true
+	case 10:
+		// A delete whose source is read again: the value rule writes a
+		// copy, so m keeps the key.
+		n := g.name("n")
+		g.line(fmt.Sprintf("let %s = m.Delete(%d)", n, k%8))
+		g.line(fmt.Sprintf("Console.Println(showMap(%s) + showMap(m))", n))
+		kept := maps.Clone(g.m)
+		delete(kept, k%8)
+		g.want.WriteString(g.showMap(kept) + g.showMap(g.m) + "\n")
+		g.reached["deleteKeep"] = true
+	case 11:
+		// A user extern of Go's delete keeps the same value rule.
+		n := g.name("n")
+		g.line(fmt.Sprintf("let %s = unset(m, %d)", n, k%8))
+		g.line(fmt.Sprintf("Console.Println(showMap(%s) + showMap(m))", n))
+		kept := maps.Clone(g.m)
+		delete(kept, k%8)
+		g.want.WriteString(g.showMap(kept) + g.showMap(g.m) + "\n")
+		g.reached["unset"] = true
 	case 0:
 		g.line(fmt.Sprintf("xs = push(xs, %d)", k))
 		g.xs = append(g.xs, k)
@@ -125,13 +182,19 @@ func (g *builtinGen) stmt() {
 
 // builtinProgram is the program of seed and the model's stdout.
 func builtinProgram(seed uint64, reached map[string]bool) (src, want string) {
-	g := &builtinGen{r: rand.New(rand.NewPCG(seed, 0x6275696c74)), reached: reached}
+	g := &builtinGen{r: rand.New(rand.NewPCG(seed, 0x6275696c74)), m: map[int]int{}, reached: reached}
 	g.line("let mut xs = []int{}")
+	g.line("let mut m = Map[int, int]{}")
+	// Each let mut is written once, so no seed leaves one unwritten (S110).
+	g.line("xs = push(xs, 0)")
+	g.xs = append(g.xs, 0)
+	g.line("m = m.Put(0, 0)")
+	g.m[0] = 0
 	for range 20 {
 		g.stmt()
 	}
-	g.line("Console.Println(show(xs))")
-	g.want.WriteString(g.show(g.xs) + "\n")
+	g.line("Console.Println(show(xs) + showMap(m))")
+	g.want.WriteString(g.show(g.xs) + g.showMap(g.m) + "\n")
 	return builtinPrelude + "func main() needs Console {\n" + g.b.String() + "}\n", g.want.String()
 }
 
@@ -147,6 +210,10 @@ func lowerBuiltinMode(t *testing.T, name, src string, ref bool) *lowered {
 	}
 	return mustLower(t, name, src)
 }
+
+// directDelete matches Go's delete as a statement of main's Go (after a
+// tab or a /*line*/ directive), not the reference's helper or its name.
+var directDelete = regexp.MustCompile(`[\t/]delete\(`)
 
 // TestBuiltinsAgree is the seeded property (see above).
 //
@@ -179,6 +246,14 @@ func TestBuiltinsAgree(t *testing.T) {
 			// reference writes none there.
 			if direct := strings.Contains(p.mainGo(), "= append("); direct == ref {
 				t.Errorf("seed %d (reference %v): main's Go calls append directly: %v", seed, ref, direct)
+			}
+			// The prelude's Delete binds Go's delete (OPT7): a statement at
+			// its call under the builtin lowering, a Go function in the
+			// reference.
+			if strings.Contains(src, ".Delete(") {
+				if direct := directDelete.MatchString(p.mainGo()); direct == ref {
+					t.Errorf("seed %d (reference %v): main's Go calls delete directly: %v", seed, ref, direct)
+				}
 			}
 			programs = append(programs, p)
 		}

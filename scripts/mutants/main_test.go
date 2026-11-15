@@ -3,7 +3,9 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
@@ -101,45 +103,67 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 // module directory is that package (eval's row killed by
 // internal/sketchfront, NONDET1); an ergo suite name is that suite, with
 // the tools it runs (lower runs the ergo CLI). A name that is neither is
-// left out. Before, the x7 rows were judged by the untagged binary, where
-// their killers do not exist, and the other rows were run by hand.
+// refused: 45 rows named v1:, main:, sched:, tsproj: … and were never run
+// (fu-mutants-xpkg). Every suite records the tests the ledger names
+// (Named), a note after the test is dropped, and only the selected rows
+// bring suites: the run's work is the suites it builds, counted here.
+// Before, the x7 rows were judged by the untagged binary, where their
+// killers do not exist, and the other rows were run by hand.
 func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
-	for _, dir := range []string{"runtime/v1", "internal/sketchfront"} {
+	for _, dir := range []string{"runtime/v1", "internal/sketchfront", "examples/demo/memory"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	for _, f := range []string{"runtime/v1/v1.go", "runtime/v1/v1_test.go", "examples/demo/memory/demo.ergo"} {
+		if err := os.WriteFile(filepath.Join(root, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An example's ledger edits .ergo files: it is no Go package and no
+	// suite, and is judged by the killer it names alone.
+	demo := &Ledger{Mutants: []*Mutant{{Name: "e", File: "examples/demo/memory/demo.ergo", Killers: []string{"examples:demo"}}}}
+	cover, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "examples", "demo")), Ledger: demo}})
+	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Name != "examples" || !slices.Equal(suites[0].Named, []string{"demo"}) {
+		t.Errorf("an example's ledger: cover %q, suites %+v, err %v; want only examples running demo", cover, suites, err)
+	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
-		{Name: "b", Killers: []string{"lower:TestL", "v1:TestNone"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
+		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
+		{Name: "c", Killers: []string{"internal/closure:TestOther"}},
 	}}
-	_, tools, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "runtime", "v1")), Ledger: ledger}})
+	path := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
+	_, tools, suites, err := suitesFor(root, []Job{{Path: path, Ledger: ledger, Select: regexp.MustCompile("^[ab]$")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	type got struct {
 		name, pkg, tags string
-		only            []string
+		only, named     []string
 	}
 	var have []got
 	for _, s := range suites {
-		have = append(have, got{s.Name, s.Package, s.Tags, s.Only})
+		have = append(have, got{s.Name, s.Package, s.Tags, s.Only, s.Named})
 	}
 	want := []got{
-		{"runtime/v1", "./runtime/v1", "", nil},
-		{"runtime/v1[ergoexplore]", "./runtime/v1", "ergoexplore", []string{"TestA", "TestC"}},
-		{"internal/sketchfront", "./internal/sketchfront", "", []string{"TestF"}},
-		{"lower", "./internal/sketch/lower", "", []string{"TestL"}},
+		{"runtime/v1", "./runtime/v1", "", nil, []string{"TestB", "TestOwn"}},
+		{"runtime/v1[ergoexplore]", "./runtime/v1", "ergoexplore", []string{"TestA", "TestC"}, []string{"TestA", "TestC"}},
+		{"internal/sketchfront", "./internal/sketchfront", "", []string{"TestF"}, []string{"TestF"}},
+		{"lower", "./internal/sketch/lower", "", []string{"TestL"}, []string{"TestL"}},
 	}
 	same := len(have) == len(want)
 	for i := 0; same && i < len(want); i++ {
-		same = have[i].name == want[i].name && have[i].pkg == want[i].pkg && have[i].tags == want[i].tags && slices.Equal(have[i].only, want[i].only)
+		same = have[i].name == want[i].name && have[i].pkg == want[i].pkg && have[i].tags == want[i].tags && slices.Equal(have[i].only, want[i].only) && slices.Equal(have[i].named, want[i].named)
 	}
 	if !same {
-		t.Errorf("suites %+v, want %+v", have, want)
+		t.Errorf("suites %+v, want %+v (row c is not selected: internal/closure is not built)", have, want)
 	}
 	if len(tools) != 1 || tools[0].Name != "ergo" {
 		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
+	}
+	ledger.Mutants = append(ledger.Mutants, &Mutant{Name: "d", Killers: []string{"v1:TestNone"}})
+	if _, _, _, err := suitesFor(root, []Job{{Path: path, Ledger: ledger}}); err == nil || !strings.Contains(err.Error(), "v1:TestNone") {
+		t.Errorf("a killer in no suite: err %v, want it named", err)
 	}
 }

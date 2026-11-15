@@ -187,6 +187,7 @@ var clauseUnreached = map[string]string{
 	"http.fetchInto.accepts":       "fetchInto is unexported; accepts is Remote.SendURLInto's literal over Accepts, with no capture",
 	"http.fetchInto.put":           "fetchInto is unexported; Remote.SendURLInto passes its put through, and reaching it needs a live origin, which this property does not run",
 	"http.serve.l":                 "serve is unexported; a listener is Serve's own parameter, not a callback",
+	"exec.waitFor.p":               "waitFor is unexported; a Running is WaitFor's own parameter, not a callback, and a live one needs Ambient",
 	"http.serve.handle":            "serve is unexported; its handle is Serve's literal over Serve's escaping handle, and a server runs until stopped, which this property does not do",
 	"http.IntoFile.fetch":          "IntoFile needs an fs.HostRoot, which needs Ambient; the generated main holds Console only",
 	"http.Network.SendURLInto.put": "Network's std provider (NewNet's Remote) needs Ambient and a live origin; http.Net.SendInto.put's template covers the in-memory provider's shape",

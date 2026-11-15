@@ -64,7 +64,8 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if getLowering == "switch" || len(s.Subjects) != 1 {
 		return false, false
 	}
-	call, ok := unparen(s.Subjects[0].X).(*syntax.CallExpr)
+	subject := tried(s.Subjects[0].X)
+	call, ok := unparen(subject).(*syntax.CallExpr)
 	if !ok || call.Trailing != nil {
 		return false, false
 	}
@@ -83,7 +84,16 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if len(list) != 2 {
 		ice(call, "a call of the prelude's Get with %d operands", len(list))
 	}
+	// A try that starts the subject covers the receiver and the key
+	// (tried): (try m).Get(k) and try m.Get(k) lower alike.
+	inTry := subject != s.Subjects[0].X
+	if inTry {
+		fc.tries++
+	}
 	vals := fc.callArgs(list, call)
+	if inTry {
+		fc.tries--
+	}
 	v, okName := fc.temp("v"), fc.temp("ok")
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
 	if some.as == nil && some.value == nil {
@@ -103,6 +113,14 @@ func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) boo
 	arm := func(a getArm) bool {
 		fc.depth++
 		defer func() { fc.depth-- }()
+		for _, v := range []*check.Var{a.as, a.value} {
+			if v != nil {
+				if fc.heapVars == nil {
+					fc.heapVars = map[*check.Var]bool{}
+				}
+				fc.heapVars[v] = true // a Map's entry (scalar.go, settled)
+			}
+		}
 		if a.as != nil {
 			name := fc.declare(a.as)
 			fields := ""

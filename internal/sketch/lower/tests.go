@@ -583,7 +583,16 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	text := strconv.Quote(fc.l.srcs[i].text[s.X.Pos():s.X.End()])
 	var cond string
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
+		// A try that starts the assert covers the whole comparison: its
+		// operands are lowered under it, as (try a) == b lowers a (q105).
+		inTry := tried(s.X) != s.X
+		if inTry {
+			fc.tries++
+		}
 		cond, text = fc.assertCompare(x, lt, rt, text)
+		if inTry {
+			fc.tries--
+		}
 	} else {
 		cond = fc.value(s.X)
 	}
@@ -627,9 +636,10 @@ func isStringLike(t check.Type) bool {
 // a comparison (==, !=, <, <=, >, >=), not of two constants, whose operand
 // types both have an argument literal (printable). It returns the
 // comparison and the operand types. The naming pass (nameTests) and the
-// lowering (assert) ask it the same question.
+// lowering (assert) ask it the same question. A try that starts x is
+// looked through (tried): try a == b shows a and b as (try a) == b does.
 func (l *lowerer) assertShown(x syntax.Expr) (*syntax.BinaryExpr, check.Type, check.Type, bool) {
-	b, ok := unparen(x).(*syntax.BinaryExpr)
+	b, ok := unparen(tried(x)).(*syntax.BinaryExpr)
 	if !ok {
 		return nil, nil, nil, false
 	}
@@ -776,6 +786,9 @@ func (l *lowerer) testRunner() string {
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
+	// An explored worker runs the tests once per schedule in one process,
+	// so each run starts its receipt empty: it holds each law run once.
+	b.WriteString("\t" + l.helper("Receipt") + ".laws = nil\n")
 	tests := l.runTests()
 	// --run NAME (X8) selects one test or law by name ($Want); a name that
 	// no test or law of the build has is a usage error that runs nothing.
@@ -1048,6 +1061,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
+			if p.Ptr {
+				// A borrow provider: its operations take *P, so the run
+				// binds the address of the case's P (types.md, Laws 10).
+				return fc.convert(p.Conv, "&"+pv, law.Decl)
+			}
 			return fc.lawProvider(p, pv, law.Decl)
 		}
 		args := []string{"&" + e}

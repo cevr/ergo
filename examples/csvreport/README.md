@@ -39,6 +39,6 @@ go run ./scripts/examples csvreport
 - **G-exup-6** (closed in batch 13, fu6c): each `csv.Parsed` carries `At`, where each field starts (Go's `Reader.FieldPos`), so a `BadNumber` names the line and column of the bad field, `csvreport: meters.csv:4:5: hours x is not a number`, in the form of the reader's own errors. Before, it named its record's count from the header, which is not the line when a quoted field spans lines.
 - **G-exup-1** (closed in batch 13): `Source.ReadIsRepeatable` runs in `memory` against `memory.Shelf`. The std law `fs.Files.ReadIsRepeatable` runs against the test disk `locked` of `files`: its `fstest.Memory` is built by `fstest.NewMemory()`, an empty disk per case (fu6a: a generator builds a type by its constructor).
 - A test-only `locked` provider in `files/tests.ergo` wraps an `fstest.Memory`, which never fails Denied.
-- A provider cannot need a capability its contract does not write (rows.md, Context 2), so `files.Load` reads every named file up front, as okra-how does.
+- A provider cannot need a capability its contract does not write (rows.md, Context 2), so `files.Load` reads every named file up front, into a `memory.Shelf` that the contract's operations then read.
 
 Closed since ex-e: G-ex-e-10 (std `csv`), G-ex-e-11 (`strings.PadLeft`/`PadRight`, `strings.Compare`; `Hundredths` still builds two decimals by hand, which is exact on hundredths), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`==` on slices), G-ex-d-4 (generated strings hold the format's bytes), G-ex-b-16 (`let key = if …`), #162 (laws run).

@@ -222,7 +222,7 @@
       "to": "\treturn rpcReadExit([]byte(body), true, id)",
       "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
       "killers": [
-        "examples:limiter"
+        "examples:limiter (its loopback package: ergo test: limits.Limiter laws for Loopback)"
       ],
       "anchor": {
         "tests": [
@@ -265,7 +265,7 @@
     {"name":"cu4-no-group-wait", "origin":"wf10 CU4", "file":"runtime/v1/exec_start.go", "from":"\t_ = p.cmd.Wait()\n\texecAwaitGroupEnd(p.group)", "to":"\t_ = p.cmd.Wait()", "rule":"The release returns only when no process of the program's group is left, zombies included.", "killers":["runtime/v1:TestExecStreams"]},
     {"name":"cu4-start-ignores-stop", "origin":"wf10 CU4", "file":"runtime/v1/exec_start.go", "from":"errAppend bool) (*Running, error) {\n\tt.Check()", "to":"errAppend bool) (*Running, error) {", "rule":"A stopped caller's Start starts nothing and makes no file sink.", "killers":["runtime/v1:TestExecStartStopped"]},
     {"name":"cu4-run-grace-ignored", "origin":"wf10 CU4", "file":"runtime/v1/exec.go", "from":"\t\tif grace > 0 {\n", "to":"\t\tif false {\n", "rule":"Run's stop follows the command's grace: SIGTERM first.", "killers":["runtime/v1:TestExecRunGrace"]},
-    {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
+    {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {\n\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\tdir, err := os.Getwd()\n\tif err != nil {\n\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"},
     {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
     {
       "name": "x7-late-output",
@@ -277,6 +277,39 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
         "runtime/v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "done-answered-before-close",
+      "origin": "wf10 ACT-CH (FK1 flake: actor.DoneIsFinal)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif k == decideDone {\n\t\t// Admission closes before the answer (rule 8)",
+      "to": "\tif false {\n\t\t// Admission closes before the answer (rule 8)",
+      "rule": "DoneIsFinal: once an Ask has its Done, a Send fails ActorStopped; admission closes before the answer.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestDoneIsFinalExplored"
+      ]
+    },
+    {
+      "name": "changes-spare-dropped",
+      "origin": "wf10 ACT-CH",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\t\tc.reset()\n\t\t\ta.spareSub = c\n",
+      "to": "\t\t\tc.reset()\n\t\t\ta.spareSub = nil\n",
+      "rule": "An ended Changes subscription leaves its buffer and wake channel to the next one.",
+      "killers": [
+        "runtime/v1:TestActorChangesReuse"
+      ]
+    },
+    {
+      "name": "changes-buf-not-rewound",
+      "origin": "wf10 ACT-CH",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\t\tif c.head == len(c.buf) {\n\t\t\t\tc.buf, c.head = c.buf[:0], 0\n\t\t\t}\n",
+      "to": "",
+      "rule": "A subscription that gave every state empties its buffer in place, so the next state takes the same array.",
+      "killers": [
+        "runtime/v1:TestActorChangesReuse"
       ]
     },
     {
@@ -325,7 +358,11 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+        ]
+      }
     },
     {
       "name": "x7-adopt-unseen",
@@ -337,7 +374,11 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+        ]
+      }
     },
     {
       "name": "x7-law-drops-child-output",
@@ -348,9 +389,12 @@
       "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-open-unchecked",
@@ -361,9 +405,12 @@
       "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-work-unchecked",
@@ -374,9 +421,12 @@
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-start-unchecked",
@@ -387,9 +437,12 @@
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-sibling-unchecked",
@@ -400,9 +453,12 @@
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-orphan-unchecked",
@@ -413,9 +469,12 @@
       "rule": "ChildrenStopFirst: no child lives after its parent ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x7-law-owner-lost",
@@ -426,9 +485,12 @@
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ]}
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
     },
     {
       "name": "x8-name-unregistered",
@@ -438,7 +500,7 @@
       "to": "\t\t_ = q\n",
       "rule": "queue.New names its queue in an explored run.",
       "killers": [
-        "runtime/v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -449,7 +511,7 @@
       "to": "\t\tif true {\n",
       "rule": "A handle's name is the nearest frame at a position of the program's source, not a runtime frame.",
       "killers": [
-        "runtime/v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -457,10 +519,10 @@
       "origin": "wf10/explorer/x8",
       "file": "runtime/v1/explore_on.go",
       "from": "if wanted(calls[i].Callee) || len(on) == 1 {",
-      "to": "if true {",
+      "to": "if wanted(calls[i].Callee) || true {",
       "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
       "killers": [
-        "runtime/v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -471,7 +533,7 @@
       "to": "\t\t\t\t_ = rel\n",
       "rule": "The file is named relative to the folder of the program's files (its package path), not by its base name.",
       "killers": [
-        "runtime/v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -482,7 +544,7 @@
       "to": "Failure: exploreDefect(res)}",
       "rule": "A worker's outcome carries the run's handle names to the search.",
       "killers": [
-        "runtime/v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -677,6 +739,19 @@
     {"name": "sconv-touintptr-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
     {"name": "sconv-touintptr-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
     {"name":"bodies-table-stale","origin":"wf10 CHK1","file":"runtime/v1/files_gen.go","from":"Hidden: []Hidden{\"frame\", \"site\"}, Params: []Param{{Type: \"func(*rt.Task) (T, error)\"","to":"Hidden: []Hidden{\"frame\"}, Params: []Param{{Type: \"func(*rt.Task) (T, error)\"","rule":"The generated body table equals what the reviewed rules read from runtime/v1's sources (a stale table fails, never differs silently).","killers":["runtime/v1:TestBodyTableIsCurrent"],"anchor":{"tests":["runtime/v1:TestBodyTableIsCurrent"]}},
+    {"name":"g16b4-getwd-samefile-inverted","origin":"wf10 16b gate fix 4","file":"runtime/v1/host.go","from":"\tif !os.SameFile(named, dot) {","to":"\tif os.SameFile(named, dot) {","rule":"The host's Getwd gives the working directory when the path it names is the directory \".\" is.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, present directory with no $PWD) kills it on every host, run by hand (wf10 16b gate fix 4)"},
+    {"name":"g16b4-getwd-pwd-unverified","origin":"wf10 16b gate fix 4","file":"runtime/v1/host.go","from":"named, err := os.Stat(pwd); err == nil && os.SameFile(named, dot) {","to":"named, err := os.Stat(pwd); true || err == nil && os.SameFile(named, dot) {","rule":"An absolute $PWD is the working directory only when it names the file \".\" is; a removed directory's $PWD is not.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it on every host, run by hand (wf10 16b gate fix 4)"},
+    {"name":"g16b4-getwd-no-gone-check","origin":"wf10 16b gate fix 4","file":"runtime/v1/host.go","from":"\tnamed, err := os.Stat(dir)\n\tif err != nil {\n\t\treturn \"\", NoWorkdir{Message: err.Error()}\n\t}\n\tif !os.SameFile(named, dot) {\n\t\treturn \"\", NoWorkdir{Message: \"getwd: \" + dir + \" no longer names the working directory\"}\n\t}\n","to":"","rule":"The host's Getwd fails with NoWorkdir when the working directory has been removed, on every host (darwin's getcwd gives the old path).","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests, and on Linux by every test: Linux's getcwd already fails. std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it on darwin only, run by hand (wf10 16b gate fix 4)"},
+    {"name":"stz-waitfor-arms-ended","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tselect {\n\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil\n\tdefault:\n\t}\n\treturn After(span","to":"\treturn After(span","rule":"stdlib.md exec, WaitFor: a program that has ended gives its status at once and arms no deadline.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {"name":"stz-waitfor-ended-status","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil","to":"\tcase <-r.proc.exited():\n\t\treturn 0, nil","rule":"stdlib.md exec, WaitFor: an ended program gives Wait's status.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {"name":"stz-waitfor-ends-the-program","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\t\treturn r.Wait(ct), nil\n\t})","to":"\t\tr.Close(ct)\n\t\treturn r.status, nil\n\t})","rule":"stdlib.md exec, WaitFor: the deadline first fails Expired and leaves the program running, unsignalled, with its unread bytes.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {"name":"stz-waitfor-ignores-stop","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\treturn After(span, t, s, nil, d,","to":"\treturn After(span, rt.Root(\"detached\"), s, nil, d,","rule":"stdlib.md exec, WaitFor: a stop of the caller ends the wait, as Wait's.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {"name":"io1-readall-no-size-hint","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"all.Grow(len(l.buf) + int(info.Size()) + 1)","to":"all.Grow(0)","rule":"ReadAll of a regular file grows its text once, to the file's size.","killers":["runtime/v1:TestIOReadAllBytes"]},
+    {"name":"io1-readall-copies-result","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\t\t\treturn all.String(), nil\n","to":"\t\t\treturn string([]byte(all.String())), nil\n","rule":"ReadAll hands its text over with no copy.","killers":["runtime/v1:TestIOReadAllBytes"]},
+    {"name":"io1-readall-append-growth","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\t\tb.Grow(max(len(p), b.Cap()))\n","to":"\t\tb.Grow(0)\n","rule":"ReadAll's text doubles when it grows.","killers":["runtime/v1:TestIOReadAllBytes"]},
+    {"name":"io1-read-skips-sink","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\tif l.sink != nil {\n\t\tgrowWrite(l.sink, l.chunk[:n])","to":"\tif false {\n\t\tgrowWrite(l.sink, l.chunk[:n])","rule":"A read that lands while a ReadAll waits goes to its text.","killers":["runtime/v1:TestIOStdinStopModel","runtime/v1:TestIOStdinShared"]},
+    {"name":"io1-stop-drops-text","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\t\t\tif all.Len() > 0 {\n\t\t\t\tl.buf = []byte(all.String())","to":"\t\t\tif false {\n\t\t\t\tl.buf = []byte(all.String())","rule":"A ReadAll that a stop ends puts back what it read.","killers":["runtime/v1:TestIOStdinStopModel"]},
+    {"name":"io1-sink-outlives-readall","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\tdefer func() { l.sink = nil }()\n","to":"\n","rule":"After a ReadAll, a landed read goes to the buffer again.","killers":["runtime/v1:TestIOStdinStopModel","runtime/v1:TestIOStdinShared"]},
     {"name": "stdsh-log", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathLog(f float64) float64 { return math.Log(f) }", "to": "func MathLog(f float64) float64 { return math.Log1p(f) }", "rule": "stdlib.md math: Log is Go's math.Log.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-exp", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathExp(f float64) float64 { return math.Exp(f) }", "to": "func MathExp(f float64) float64 { return math.Exp2(f) }", "rule": "stdlib.md math: Exp is Go's math.Exp.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-trimleft", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return strings.TrimLeft(s, cutset)", "to": "return strings.TrimPrefix(s, cutset)", "rule": "stdlib.md strings 10: TrimLeft's cutset is a set of runes.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},

@@ -4,22 +4,27 @@ import "strings"
 
 // ---------------------------------------------------------------- expressions
 
-// parseExpr parses `[ try ] CatchExpr` (#196 sketch: Expression). try
-// stands only here, at the start of an expression, and covers the whole
-// expression to its right, a catch included.
+// parseExpr parses `[ try ] CatchExpr` (#196 sketch: Expression). A try at
+// the start covers the whole expression to its right, a catch included; a
+// try may also start any operand (parseUnary, q105).
 func (p *parser) parseExpr() Expr {
 	p.enter()
 	defer p.leave()
 	if p.tok.tok == TRY {
 		pos := p.tok.pos
 		p.next()
-		switch p.tok.tok {
-		case SEMICOLON, RBRACE, RPAREN, RBRACK, COMMA, COLON, EOF, CATCH:
-			p.errorAt(pos, 3, "try needs an operand")
-		}
+		p.tryOperand(pos)
 		return &TryExpr{Try: pos, X: p.parseCatchExpr()}
 	}
 	return p.parseCatchExpr()
+}
+
+// tryOperand reports a try with no operand after it.
+func (p *parser) tryOperand(pos Pos) {
+	switch p.tok.tok {
+	case SEMICOLON, RBRACE, RPAREN, RBRACK, COMMA, COLON, EOF, CATCH:
+		p.errorAt(pos, 3, "try needs an operand")
+	}
 }
 
 // parseCatchExpr parses `Range [ catch { cases } ]`.
@@ -99,7 +104,16 @@ func (p *parser) parseUnary() Expr {
 		p.leave()
 		return &StarExpr{Star: pos, X: x}
 	case TRY:
-		p.errorf("unexpected \"try\": try stands at the start of an expression")
+		// try in operand position (q105) wraps its operand only: it never
+		// groups, so the tree is the tree of the source without it. What
+		// it covers to its right is the checker's rule (check/cover.go).
+		pos := p.tok.pos
+		p.enter()
+		p.next()
+		p.tryOperand(pos)
+		x := p.parseUnary()
+		p.leave()
+		return &TryExpr{Try: pos, X: x}
 	}
 	return p.parsePrimaryExpr()
 }

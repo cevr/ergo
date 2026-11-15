@@ -101,10 +101,14 @@ func (l *lowerer) nameAll() {
 	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
+	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
 	}
+	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...)) // witspec.go
+	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))     // tabulate.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its
@@ -139,6 +143,7 @@ func (l *lowerer) nameAll() {
 	}
 	type entry = generatedEntry
 	var generated []entry
+	provs := l.provFuncs(append([]*check.Package{l.pkg}, libs...)) // provider.go
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
 		for x, c := range p.Info.Implicit {
@@ -208,6 +213,11 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if prov := l.providerOf(c); prov != nil {
+				for _, f := range provs[prov.to] {
+					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
+				}
+			}
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
@@ -383,14 +393,18 @@ func (l *lowerer) libraryPackages() []*check.Package {
 			}
 		}
 		for x, t := range info.Types {
-			if n, ok := t.(*check.Named); ok && l.readsFact(p, x) {
+			if !l.readsFact(p, x) {
+				continue
+			}
+			if n, ok := t.(*check.Named); ok {
 				add(n.Obj.Pkg)
-				// A Go type inside another (go.Ref[url.URL],
-				// Option[go.Ref[bufio.Reader]]) is Go's, named through
-				// its package's import.
-				for _, h := range hostPkgsIn(n, nil) {
-					add(h)
-				}
+			}
+			// A Go type anywhere inside an expression's type
+			// (go.Ref[url.URL], Option[go.Ref[bufio.Reader]], the
+			// []fs.DirEntry of os.ReadDir) is Go's, named through its
+			// package's import, which the program need not write.
+			for _, h := range hostPkgsIn(t, nil) {
+				add(h)
 			}
 		}
 		// A dot call reaches a function no name uses: the prelude's

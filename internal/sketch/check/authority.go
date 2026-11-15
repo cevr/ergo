@@ -477,10 +477,25 @@ func Sealed(t Type) bool {
 // implements it, so its value may be the runtime's own Go type, whose
 // conversion into another operation type the checker records for the
 // lowering's adapter (typeops.go; lower/sealedops.go). It reads the
-// declaration (an unexported operation), never a std name.
+// declaration (an unexported operation), never a std name: it is
+// sealedStd, the one rule.
 func sealedStdOps(t Type) bool {
+	return sealedStd(t) != nil
+}
+
+// sealedStd is t when t is a sealed operation type of the prelude or a std
+// package (Sealed: it declares an unexported operation, as the prelude's
+// Task and queue.Queue do), else nil. The runtime's own Go type stands for
+// its value (lower/std.go runtimeType), with the runtime's Go shapes, so
+// its conversion to another operation type goes through an adapter
+// (lower/sealedops.go). An open std operation type, such as os.Process,
+// is a program interface like any other.
+func sealedStd(t Type) *Named {
 	n, ok := t.(*Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Std() && Sealed(n)
+	if !ok || n.Obj == nil || !n.Obj.Pkg.Std() || !Sealed(n) {
+		return nil
+	}
+	return n
 }
 
 // implementers are the types of owner that may implement it: each a

@@ -29,7 +29,12 @@ import (
 // an index defect in an inlined body inside an exit action (guarded), or
 // with an index defect in an inlined body (deep, raw).
 //
-// The program runs under the new lowering and under the reference
+// Some statements, and sometimes the ending, sit in a loop of one
+// iteration: a loop path, where the size test (OPT8) inlines the bodies
+// it refuses elsewhere.
+//
+// The program runs under the new lowering, under the rule before the
+// size test (inlineCostLowering "budget") and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -45,7 +50,7 @@ var inlinePaths = []string{
 	"pick-ok", "pick-missing", "bump-ok", "bump-missing", "clamp-neg", "clamp-hi", "clamp-in",
 	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill", "keep",
 	"own-rebind", "own-kept", "update-named-rebind", "update-named-kept", "named-cb", "impure-cb",
-	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit", "end-named",
+	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit", "end-named", "loop",
 }
 
 const inlinePrelude = `import maps
@@ -517,11 +522,43 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	g.line("mm[0] = 1")
 	g.line("mm = maps.Update(mm, 0, bumpOpt)")
 	g.mm = map[int]int{0: 8}
+	// A separate stream puts a statement on a loop path (a loop of one
+	// iteration), where the size test inlines the larger bodies (OPT8),
+	// and keeps the statements each fixed seed writes.
+	loops := rand.New(rand.NewPCG(seed, 0x4c4f4f50))
 	for range 24 {
-		g.stmt()
+		if loops.IntN(3) == 0 {
+			g.onLoop(g.stmt)
+		} else {
+			g.stmt()
+		}
 	}
 	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm))\")")
 	g.out("%d %d", g.digest(), dmap(g.mm))
+	end := func() {
+		g.ending(seed)
+	}
+	if loops.IntN(2) == 0 {
+		g.onLoop(end)
+	} else {
+		end()
+	}
+	return inlinePrelude + "func main() fails Missing needs Console {\n" + g.b.String() + "}\n", g.want.String()
+}
+
+// onLoop writes the statements of write inside a loop that runs once.
+func (g *inlineGen) onLoop(write func()) {
+	v := g.name("once")
+	g.line("let mut " + v + " = true")
+	g.line("for " + v + " {")
+	g.line(v + " = false")
+	write()
+	g.line("}")
+	g.reached["loop"] = true
+}
+
+// ending writes the end of the program.
+func (g *inlineGen) ending(seed uint64) {
 	switch seed % 7 { // each ending in any seven consecutive seeds
 	case 0:
 		g.reached["end-normal"] = true
@@ -552,7 +589,6 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 		g.line("Console.Println(\"\\(deep(&b, 9, false))\")")
 		g.reached["end-index"] = true
 	}
-	return inlinePrelude + "func main() fails Missing needs Console {\n" + g.b.String() + "}\n", g.want.String()
 }
 
 // lowerInlineMode lowers src under the new lowering, or under the
@@ -589,23 +625,26 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
-	var newStats, refStats knownStats
+	// Three lowerings of each program: the rule (""), the rule before
+	// OPT8's size test ("budget", inlineCostLowering) and no inlining
+	// ("ref", inlineLowering "call").
+	modes := []string{"", "budget", "ref"}
+	stats := map[string]*knownStats{}
+	for _, m := range modes {
+		stats[m] = &knownStats{}
+	}
 	for _, seed := range seeds {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
-		for _, ref := range []bool{false, true} {
-			name := fmt.Sprintf("in%d", seed)
-			if ref {
-				name += "ref"
+		for _, m := range modes {
+			saved := inlineCostLowering
+			if m == "budget" {
+				inlineCostLowering = "budget"
 			}
-			p, s := lowerInlineMode(t, name, src, ref)
-			if ref {
-				refStats.Inlined += s.Inlined
-				refStats.Substituted += s.Substituted
-			} else {
-				newStats.Inlined += s.Inlined
-				newStats.Substituted += s.Substituted
-			}
+			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
+			inlineCostLowering = saved
+			stats[m].Inlined += s.Inlined
+			stats[m].Substituted += s.Substituted
 			programs = append(programs, p)
 		}
 	}
@@ -616,12 +655,14 @@ func TestInlineAgrees(t *testing.T) {
 	for _, r := range runs {
 		name := fmt.Sprintf("in%d", r.seed)
 		out, stderr, code := runExe(t, exes[name])
-		refOut, refErr, refCode := runExe(t, exes[name+"ref"])
-		if out != r.want || refOut != r.want || stderr != refErr || code != refCode {
-			t.Errorf("seed %d: the lowerings and the model differ\nReplay: go test -run '^TestInlineAgrees$' ./internal/sketch/lower -args -inline.seed=%d\n%s\n--- inlined (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s\n--- model\n%s", r.seed, r.seed, r.src, code, out, stderr, refCode, refOut, refErr, r.want)
+		for _, m := range modes[1:] {
+			refOut, refErr, refCode := runExe(t, exes[name+m])
+			if out != r.want || refOut != r.want || stderr != refErr || code != refCode {
+				t.Errorf("seed %d: the lowering and the %s lowering or the model differ\nReplay: go test -run '^TestInlineAgrees$' ./internal/sketch/lower -args -inline.seed=%d\n%s\n--- inlined (exit %d)\n%s%s\n--- %s (exit %d)\n%s%s\n--- model\n%s", r.seed, m, r.seed, r.src, code, out, stderr, m, refCode, refOut, refErr, r.want)
+			}
 		}
 	}
-	t.Logf("seeds %v: new %+v, reference %+v", seeds, newStats, refStats)
+	t.Logf("seeds %v: new %+v, budget %+v, reference %+v", seeds, *stats[""], *stats["budget"], *stats["ref"])
 	if *inlineSeed != 0 {
 		return
 	}
@@ -630,10 +671,14 @@ func TestInlineAgrees(t *testing.T) {
 			t.Errorf("the fixed seeds never reach %q: %v", path, reached)
 		}
 	}
-	if newStats.Inlined == 0 || newStats.Substituted == 0 {
-		t.Errorf("the new lowering inlined nothing: %+v", newStats)
+	if s := stats[""]; s.Inlined == 0 || s.Substituted == 0 {
+		t.Errorf("the new lowering inlined nothing: %+v", *s)
 	}
-	if refStats.Inlined != 0 || refStats.Substituted != 0 {
-		t.Errorf("the reference lowering inlined: %+v", refStats)
+	// The size test refuses sites the budget rule takes (off a loop path).
+	if stats["budget"].Inlined <= stats[""].Inlined {
+		t.Errorf("the size test refused no site: new %+v, budget %+v", *stats[""], *stats["budget"])
+	}
+	if s := stats["ref"]; s.Inlined != 0 || s.Substituted != 0 {
+		t.Errorf("the reference lowering inlined: %+v", *s)
 	}
 }

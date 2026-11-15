@@ -126,6 +126,35 @@ func (t *Task) ID() uint64 { return t.id }
 // Span is the span or definition ID the task was started under (G2).
 func (t *Task) Span() string { return t.span }
 
+// envMemos holds the copies of a program environment that host callbacks
+// made for tasks (EnvMemo), in a slot chosen by the task's ID. It lives
+// outside Task, which keeps its size class (trace_test.go). Two tasks that
+// share a slot take turns in it: a lookup that finds the other's copy
+// misses, and the caller copies again (the lowering checks the copy's
+// task). A held copy keeps its task live, so no new task has its address.
+var envMemos [envMemoSlots]atomic.Pointer[envMemo]
+
+const envMemoSlots = 256
+
+type envMemo struct{ env any }
+
+// EnvMemo is the value SetEnvMemo last stored for t, or a value stored for
+// another task, or nil: the caller checks it is t's. The lowering keeps
+// there the copy of a program environment that a host callback made to run
+// an Ergo body on t (internal/sketch/lower closures.go, envMemoText), so
+// the next callback on t with the same environment reuses it instead of
+// copying it again (ENV-COPY). Any goroutine may call it; a stored value
+// is never written.
+func (t *Task) EnvMemo() any {
+	if m := envMemos[t.id%envMemoSlots].Load(); m != nil {
+		return m.env
+	}
+	return nil
+}
+
+// SetEnvMemo stores e as t's EnvMemo.
+func (t *Task) SetEnvMemo(e any) { envMemos[t.id%envMemoSlots].Store(&envMemo{env: e}) }
+
 // Parent is the task that started t while t runs, and nil for a root or a
 // finished task. It is a live link, not a record: a defect keeps its ancestry
 // as copied frames. Safe from any goroutine.

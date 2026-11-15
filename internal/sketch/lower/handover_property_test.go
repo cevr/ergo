@@ -32,7 +32,7 @@ import (
 //     that move b.Items through a user operation (lit, upd) or the
 //     prelude's Append (updRaw), a read of the consumed path after and
 //     before the consuming call (after, before), one path consumed twice
-//     (two), a whole return beside a consuming route (keep) and after the
+//     (two), a whole return beside a consuming route (keepWhole) and after the
 //     bind (late), a path consumed under a field the update keeps (side),
 //     each on the root and on a let that stays live; and the root's
 //     update stored back into it (own-update-self), whose values read the
@@ -154,7 +154,7 @@ func (g *handoverGen) stmt() {
 		"after":  func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: first(b.items)} },
 		"before": func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: first(b.items)} },
 		"two":    func(b hbag, v int) hbag { return hbag{items: ow(b.items, v), n: len(b.items) + 1} },
-		"keep": func(b hbag, v int) hbag {
+		"keepWhole": func(b hbag, v int) hbag {
 			if v%3 == 0 {
 				return b.copy()
 			}
@@ -168,8 +168,8 @@ func (g *handoverGen) stmt() {
 			return hbag{items: ow(b.items, v), n: b.n}
 		},
 	}
-	partNames := []string{"lit", "upd", "updRaw", "after", "before", "two", "keep", "side", "late"}
-	switch k := g.r.IntN(34); k {
+	partNames := []string{"lit", "upd", "updRaw", "after", "before", "two", "keepWhole", "side", "late"}
+	switch k := g.r.IntN(39); k {
 	case 28, 29:
 		// A parts function rebinding the root, then a write through it.
 		f := partNames[g.r.IntN(len(partNames))]
@@ -197,6 +197,48 @@ func (g *handoverGen) stmt() {
 			g.reached["root updates itself, mirror"] = true
 			g.line("m = Bag{..m, Items: m.Items.Append(m.N), N: len(m.Items)}")
 			g.m = hbag{items: ins(g.m.items, g.m.n), n: len(g.m.items)}
+		}
+	case 34:
+		// A window of the root kept in a let, then the root written.
+		g.reached["window kept"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.bind(fmt.Sprintf("Bag{N: 0, Items: slices.Slice(m.Items, 0, %d)}", k), hbag{items: append([]int(nil), g.m.items[:k]...)})
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v))
+			g.m.items[0] = v
+		}
+	case 35:
+		// A window a pure call keeps (keep returns it): copied.
+		g.reached["window kept by a call"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.bind(fmt.Sprintf("Bag{N: 0, Items: keep(slices.Slice(m.Items, 0, %d))}", k), hbag{items: append([]int(nil), g.m.items[:k]...)})
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v))
+			g.m.items[0] = v
+		}
+	case 36:
+		// pop and popDig through a borrow, then an Append on the root.
+		k := g.r.IntN(len(g.m.items) + 1)
+		w := append([]int(nil), g.m.items[k:]...)
+		if g.r.IntN(2) == 0 {
+			g.reached["window popped"] = true
+			g.bind(fmt.Sprintf("Bag{N: 0, Items: pop(&m, %d)}", k), hbag{items: w})
+		} else {
+			g.reached["window read"] = true
+			g.line(fmt.Sprintf("out = out + popDig(&m, %d) + \" \"", k))
+			g.out.WriteString(hdig(w) + " ")
+		}
+		g.m.items = append(append([]int(nil), g.m.items[:k]...), v)
+		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+	case 37, 38:
+		// A window read by a call whose later operand writes the root:
+		// the call reads the window as it was.
+		g.reached["window read in flight"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.line(fmt.Sprintf("out = out + digAfter(slices.Slice(m.Items, 0, %d), set0(&m, %d)) + \" \"", k, v))
+		g.out.WriteString(hdig(g.m.items[:k]) + " ")
+		if len(g.m.items) > 0 {
+			g.m.items[0] = v
 		}
 	case 25:
 		// A one-extender site on a parameter the hand-over does not own:
@@ -580,8 +622,8 @@ func before(b Bag, v int) Bag { Bag{N: first(b.Items), Items: ow(b.Items, v)} }
 // two consumes one path twice: the second must see the first's source.
 func two(b Bag, v int) Bag { Bag{Items: ow(b.Items, v), N: len(ow(b.Items, v + 1))} }
 
-// keep returns its parameter whole beside a consuming route.
-func keep(b Bag, v int) Bag {
+// keepWhole returns its parameter whole beside a consuming route.
+func keepWhole(b Bag, v int) Bag {
 	if v % 3 == 0 {
 		return b
 	}
@@ -601,6 +643,40 @@ func late(b Bag, v int) Bag {
 		return b
 	}
 	t
+}
+
+// pop cuts the window [k, len) off a borrowed field and keeps it; the
+// field's next Append writes the slot the window starts at, so the window
+// is copied (gobody.go, goBodyView; wf10 DF1).
+func pop(b *Bag, k int) []int {
+	let w = slices.Slice(b.Items, k, len(b.Items))
+	b.Items = b.Items[0:k]
+	w
+}
+
+// popDig reads the window and keeps nothing of it: no copy.
+func popDig(b *Bag, k int) string {
+	let s = dig(slices.Slice(b.Items, k, len(b.Items)))
+	b.Items = b.Items[0:k]
+	s
+}
+
+// keep returns its parameter: a pure call that keeps the window.
+func keep(xs []int) []int {
+	xs
+}
+
+// set0 writes the first item of a borrowed field.
+func set0(b *Bag, v int) int {
+	if len(b.Items) > 0 {
+		b.Items[0] = v
+	}
+	v
+}
+
+// digAfter reads its window after its second operand ran.
+func digAfter(xs []int, v int) string {
+	dig(xs)
 }
 
 // trim reslices a borrowed field into itself: no copy (own-reslice).
@@ -728,7 +804,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows", "root lit", "root upd", "root updRaw", "root after", "root before", "root two", "root keep", "lit on a live let", "upd on a live let", "updRaw on a live let", "after on a live let", "before on a live let", "two on a live let", "keep on a live let", "root side", "side on a live let", "root late", "late on a live let", "root updates itself", "root updates itself, mirror"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows", "root lit", "root upd", "root updRaw", "root after", "root before", "root two", "root keepWhole", "lit on a live let", "upd on a live let", "updRaw on a live let", "after on a live let", "before on a live let", "two on a live let", "keepWhole on a live let", "root side", "side on a live let", "root late", "late on a live let", "root updates itself", "root updates itself, mirror", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

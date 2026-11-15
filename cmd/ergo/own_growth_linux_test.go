@@ -2,17 +2,15 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
+	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -38,6 +36,10 @@ import (
 //     Doc through its fields (fieldOwned, with `return d`), threads
 //     b = apply(b, e) through a match (V7, freshAll), and its caller takes
 //     the result with no copy (own-fresh-call);
+//   - testdata/ownwindow, lane PA's DF1 (flattree's scratch stack) on n
+//     steps: the stack grows to n, and each step closes a two-item window
+//     of it, kept and read, so the elements copied per step are the
+//     window's, independent of the stack's length (gobody.go, goBodyView);
 //   - testdata/ownshrink, the self-layout plan's SL3 (the tree builder of
 //     toktree-ergo-naive) on n groups: a scratch stack cut back to a mark,
 //     stack = stack[0:mark], then appended to (own-reslice), which main
@@ -96,18 +98,14 @@ import (
 // report fails too (mutant own-copy-report-silent).
 func TestHandoverGrowsLinearly(t *testing.T) {
 	needsBuild(t)
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if fd, err := brcOpenCounter(); err != nil {
+	if err := opcount.Available(); err != nil {
 		t.Skipf("no hardware counter of user-space instructions: %v", err)
-	} else {
-		syscall.Close(fd)
 	}
 	cli := os.Getenv("OWN_GROWTH_CLI")
 	if cli == "" {
 		cli = buildTestCLI(t)
 	}
-	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownshrink", "cmd/ergo/testdata/reuse")
+	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownshrink", "cmd/ergo/testdata/ownwindow", "cmd/ergo/testdata/reuse")
 	dir := t.TempDir()
 	type program struct {
 		name string
@@ -152,6 +150,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}, ""},
 		{"ownshrink", filepath.Join(ws, "cmd", "ergo", "testdata", "ownshrink", "shrink.ergo"), 10000, "", func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, strconv.Itoa(n)), ""
+		}, ""},
+		{"ownwindow", filepath.Join(ws, "cmd", "ergo", "testdata", "ownwindow", "window.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}, ""},
 		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
@@ -213,29 +214,37 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	}
 }
 
-// ownCount runs cmd with stdin under the instructions counter, with
-// GOMAXPROCS=1, and returns its user-space instructions; the run must
-// exit 0.
+// ownCount runs cmd with stdin under the instructions counter
+// (internal/opcount), with GOMAXPROCS=1, and returns its user-space
+// instructions; a refused or failed run fails the test.
 func ownCount(t *testing.T, cmd *exec.Cmd, stdin string) uint64 {
 	t.Helper()
-	fd, err := brcOpenCounter()
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in")
+	if err := os.WriteFile(in, []byte(stdin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer syscall.Close(fd)
-	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
-	cmd.Stdin = strings.NewReader(stdin)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	brcIoctl(fd, brcPerfEnable)
-	err = proclimit.Run(cmd, 2<<30)
-	brcIoctl(fd, brcPerfDisable)
+	defer f.Close()
+	out, err := os.Create(filepath.Join(dir, "out"))
 	if err != nil {
-		t.Fatalf("%v: %v\n%.2000s", cmd.Args, err, out.Bytes())
+		t.Fatal(err)
 	}
-	var b [8]byte
-	if n, err := syscall.Read(fd, b[:]); err != nil || n != 8 {
-		t.Fatalf("read the counter: %d bytes, %v", n, err)
+	defer out.Close()
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = f, out, out
+	r, err := opcount.Count(cmd, 2<<30)
+	if err == nil {
+		if id, why := r.Refusal(); id != "" {
+			err = fmt.Errorf("refused %s: %s", id, why)
+		}
 	}
-	return binary.NativeEndian.Uint64(b[:])
+	if err != nil {
+		b, _ := os.ReadFile(out.Name())
+		t.Fatalf("%v: %v\n%.2000s", cmd.Args, err, b)
+	}
+	return r.Instructions
 }

@@ -461,23 +461,67 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
     },
     {
-      "name": "try-eval-catch-takes-covered",
-      "origin": "wf10 TRY-eval",
+      "name": "try1-eval-cover-ignored",
+      "origin": "wf10 batch 17 (TRY1 x EV)",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\tif !tailCall(fr.info, x.X, failed.call) {",
-      "to": "\tif false {",
-      "rule": "rows.md Catch 5: try covers the caught expression too, so in try h(g()) catch {...} a failure of g() propagates past the catch, which handles only the failures its subject yields through (h's row), as the lowering's hoisted check does.",
-      "killers": ["internal/sketch/eval:TestCatchPassesCoveredFailure", "internal/sketch/lower:TestTryCatchEvalAgrees"]
+      "from": "\tif covered {\n\t\tfr.tries++",
+      "to": "\tif false {\n\t\tfr.tries++",
+      "rule": "grammar.md Expressions 1 (q105): the failure of an operand that a try on its left covers leaves the frame, as under the try itself; a catch around the call it is an argument of does not take it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     },
     {
-      "name": "try-eval-branch-not-tail",
-      "origin": "wf10 TRY-eval",
+      "name": "fixtry-caught-takes-covered",
+      "origin": "wf10 batch 17 fix-try (M3)",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\t\treturn tailList(info, s.Body.List, c) || s.Else != nil && tailStmt(info, s.Else, c)",
-      "to": "\t\treturn false",
-      "rule": "rows.md Error rows 2: a value if's branch tail passes its failure to the if, so a catch on the if takes it like a failure of its subject; only a failure an enclosing try covers passes the catch.",
-      "killers": ["internal/sketch/lower:TestTryCatchEvalAgrees"],
-      "anchor": {"tests": ["internal/sketch/lower:TestTryCatchEvalAgrees"]}
+      "from": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && !ownFailure(fr.info, fr.caught, unparen(x))) {",
+      "to": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && fr.caught == nil) {",
+      "rule": "rows.md Catch 5: a try covers the whole expression to its right, the caught expression included: in try h(g()) catch and in a + try f() + (h(g()) catch), a failure of g() leaves the frame; the catch takes h's own failure only.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-tail-escapes",
+      "origin": "wf10 batch 17 fix-try round 3 (M-1)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\ts, ok := caught.(syntax.Stmt)\n\treturn ok && tailOf(info, s, x)",
+      "to": "\treturn false",
+      "rule": "rows.md Error rows 2, Catch 5: the tail an if branch, a match arm or a branch's nested if yields is the caught expression's own result, so under a try its failure is the catch's, as lower/tails.go passes it (branchExpr); the condition, the subject and the statements before the tail leave the frame.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-elseif-tail-escapes",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O1)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tcase *syntax.IfStmt:\n\t\t\treturn tailOf(info, e, x)",
+      "to": "\t\tcase *syntax.IfStmt:\n\t\t\treturn false",
+      "rule": "rows.md Error rows 2, Catch 5: the tail of an else-if branch is the caught if's own result, so under a try its failure is the catch's (lower/tails.go tailFallible).",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-typematch-tail-escapes",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O2)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.TypeSwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {",
+      "to": "\tcase *syntax.TypeSwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif false && last(cl.Body) {",
+      "rule": "rows.md Error rows 2, Catch 5: the tail of a type match's arm is the caught match's own result, so under a try its failure is the catch's (lower/tails.go tailFallible).",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-cond-caught",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O3)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.IfStmt:\n\t\tif last(s.Body.List) {",
+      "to": "\tcase *syntax.IfStmt:\n\t\tif unparen(s.Cond) == x || last(s.Body.List) {",
+      "rule": "rows.md Catch 5: a caught if's failing condition is not the caught expression's own failure; under a try it leaves the frame, as the lowering's header value propagates it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-subject-caught",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O4)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {",
+      "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif unparen(s.Tag) == x || last(cl.Body) {",
+      "rule": "rows.md Catch 5: a caught match's failing subject is not the caught expression's own failure; under a try it leaves the frame, as the lowering propagates it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     },
     {
       "name": "det-argument-order",

@@ -8,7 +8,7 @@
       "from": "if returned && release != nil {",
       "to": "if false && returned && release != nil {",
       "rule": "Gap 47: a discarded successful result is released once",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-failed-candidate",
@@ -17,7 +17,7 @@
       "from": "returned = err == nil",
       "to": "returned = true",
       "rule": "A failed body has no valid result",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-unmasked",
@@ -26,7 +26,7 @@
       "from": "m := t.Mask()\n\t\t\t\ts.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)\n\t\t\t\tm.Unmask()",
       "to": "s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)",
       "rule": "R9: result releases are masked",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-defect-lost",
@@ -35,7 +35,7 @@
       "from": "err = c.Err()",
       "to": "_ = c.Err()",
       "rule": "R9: a result-release defect joins the failed exit",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "X5-new-task-runs-unpicked",
@@ -44,7 +44,7 @@
       "from": "\te.v.mu.Unlock()\n\t<-x.baton\n}\n\n// schedEnd",
       "to": "\te.v.mu.Unlock()\n\t_ = x\n}\n\n// schedEnd",
       "rule": "Explored schedules: a new task does not run until the strategy picks it",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-wake-does-not-enable",
@@ -53,7 +53,7 @@
       "from": "m != nil && m.parked {\n\t\treturn false",
       "to": "m != nil && (m.parked || x.blocked) {\n\t\treturn false",
       "rule": "Explored schedules: a waker enables the task it wakes",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-two-batons",
@@ -62,7 +62,7 @@
       "from": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif next != x {",
       "to": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif false && next != x {",
       "rule": "Explored schedules: one task holds the baton",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-stop-without-point",
@@ -71,7 +71,7 @@
       "from": "\tPoint(owner, Op{OpStop, &h.task})\n",
       "to": "",
       "rule": "Explored schedules: a stop is a scheduling point",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-clock-moves-while-enabled",
@@ -80,7 +80,7 @@
       "from": "v.parked < v.live ||",
       "to": "v.parked < v.live-1 ||",
       "rule": "Explored schedules: the clock moves only when no task is enabled",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-spawn-path-by-goroutine",
@@ -89,7 +89,7 @@
       "from": "e.add(child, px.path+\".\"+strconv.Itoa(px.kids))",
       "to": "e.add(child, px.path+\".\"+strconv.FormatUint(child.id, 10))",
       "rule": "Explored schedules: a task's name is its spawn path, the same in every run of a schedule",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-deadlock-as-pass",
@@ -98,7 +98,7 @@
       "from": "e.res.Deadlock = left",
       "to": "e.res.Deadlock = nil",
       "rule": "Explored schedules: no enabled task while tasks remain is a deadlock",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-live-hook-body",
@@ -134,7 +134,7 @@
       "from": "if len(t.Tags) > 0 {",
       "to": "if false && len(t.Tags) > 0 {",
       "rule": "Explored schedules: --explore links the tagged runtime",
-      "killers": ["build:TestCacheInputs"]
+      "killers": ["internal/sketch/build:TestCacheInputs"]
     },
     {
       "name": "x8-name-no-count",
@@ -144,7 +144,7 @@
       "to": "\t\t_ = k\n",
       "rule": "The k-th handle of one name in a run is named \"name (k)\".",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     }
   ]

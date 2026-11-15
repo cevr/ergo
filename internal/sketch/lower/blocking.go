@@ -250,6 +250,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesConcatOwned":    {}, // handover.go, own-consume
 	"SlicesConcatPoison":   {}, // its checking form
 	"SlicesRepeat":         {},
+	"SlicesFill":           {},
 	"SlicesSlice":          {},
 	"MapsClone":            {},
 	"SlicesMax":            {},
@@ -589,6 +590,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Running.Wait":   {wait: callerWait},
 	"Running.Close":  {release: callerRelease},
 	"Running.Stop":   {release: callerRelease},
+	// WaitFor races Wait, on a child of the caller's task, against the
+	// Scheduler's deadline, as timeout.After does (v1.After).
+	"ExecWaitFor": {wait: childWait},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

@@ -46,6 +46,13 @@ type frame struct {
 	// resultPos is the expression returned by this frame, including the
 	// chosen nested tail. The enclosing law uses it for a false result.
 	resultPos syntax.Pos
+	// tries counts the trys whose operand is being evaluated, a covered
+	// root's included (Info.TryCovers); caught is the caught expression
+	// of the innermost catch being evaluated. Under a try, a failure of
+	// any expression but caught leaves the frame (rows.md, Catch 5), as
+	// the lowering's fc.tries propagates it.
+	tries  int
+	caught syntax.Expr
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -93,9 +100,6 @@ type abrupt struct {
 	pkg  *check.Package
 	decl syntax.Decl
 	at   syntax.Pos
-	// call is the call whose failure a ctlFail is, in the frame that
-	// sees it (runFrame): a catch takes it only at a tail of its subject.
-	call *syntax.CallExpr
 }
 
 func (fr *frame) abrupt(kind ctlKind, at syntax.Node, val Value, msg string) *abrupt {
@@ -255,7 +259,6 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 		// tail or return decides.
 		out := *ab
 		out.kind = ctlFail
-		out.call = at
 		return nil, &out
 	case ctlBreak, ctlContinue:
 		ice("a %d left the function %s", ab.kind, name)

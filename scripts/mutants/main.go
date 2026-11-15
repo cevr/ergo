@@ -286,25 +286,42 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			}
 			continue
 		}
-		add("./" + rel)
-		for _, m := range j.Ledger.Mutants {
-			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+		// Only a Go package is covered, and only a package with tests is a
+		// suite: an example's ledger (examples/fetchpool) edits .ergo
+		// files and is judged by the killers it names alone.
+		if goFiles(absRoot, rel, false) {
+			add("./" + rel)
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		for _, m := range j.Ledger.Mutants {
+			if dir := filepath.ToSlash(filepath.Dir(m.File)); goFiles(absRoot, dir, false) {
+				add("./" + dir)
+			}
+		}
+		if goFiles(absRoot, rel, true) {
+			suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
 	// only the tests the ledgers name: its other tests judge nothing here,
 	// and some need a harness of their own (runtime/v1's ergoexplore tests
-	// hang without the explored worker). No row is left to run by hand.
+	// hang without the explored worker). No row is left to run by hand: a
+	// killer that names no suite is refused, not skipped. Only the selected
+	// rows bring suites: a run of one row builds and runs the killers that
+	// row names, not every killer of its ledger.
+	var unresolved []string
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
-			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
+			if j.Select != nil && !j.Select.MatchString(m.Name) {
+				continue
+			}
+			for _, id := range killerIDs(m) {
 				name, test := splitID(id)
 				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
 				if i < 0 {
 					s, need, ok := namedSuite(absRoot, name)
 					if !ok {
-						continue // no such suite: the runner reports what runs
+						unresolved = append(unresolved, fmt.Sprintf("%s: %s: %s", j.Path, m.Name, id))
+						continue
 					}
 					for _, t := range need {
 						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
@@ -318,10 +335,23 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
 				}
+				if !slices.Contains(suites[i].Named, test) {
+					suites[i].Named = append(suites[i].Named, test)
+				}
 			}
 		}
 	}
+	if len(unresolved) > 0 {
+		return nil, nil, nil, fmt.Errorf("killers that name no suite (want DIR:Test or DIR[TAGS]:Test with DIR a module directory, check, lower, std, api or ergo:Test, or examples:PROGRAM):\n  %s", strings.Join(unresolved, "\n  "))
+	}
 	return cover, tools, suites, nil
+}
+
+// goFiles says whether the module directory dir holds a Go file: a test
+// file with tests, a non-test one without.
+func goFiles(root, dir string, tests bool) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.go"))
+	return slices.ContainsFunc(files, func(f string) bool { return strings.HasSuffix(f, "_test.go") == tests })
 }
 
 // namedSuite resolves the suite of a killer id that no ledger's scope
@@ -407,7 +437,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			if m.Gap != "" {
 				closed = append(closed, fmt.Sprintf("%s: killed by %s; the ledger says: %s", r.Name, r.Killer, m.Gap))
 			}
-			if len(m.Killers) > 0 && !slices.Contains(m.Killers, r.Killer) {
+			if len(m.Killers) > 0 && !slices.Contains(killerIDs(&Mutant{Killers: m.Killers}), r.Killer) {
 				moved = append(moved, fmt.Sprintf("%s: killed by %s, not by its known killers %s", r.Name, r.Killer, strings.Join(m.Killers, " ")))
 			}
 			if len(r.Killers) == 1 && len(r.Ran) == r.Covering {
@@ -474,7 +504,8 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 			case Killed:
 				killers := slices.Clone(r.Killers)
 				for _, k := range m.Killers {
-					if cov.test(k) != nil && !slices.Contains(killers, k) {
+					suite, name := splitID(k)
+					if cov.test(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
 						killers = append(killers, k)
 					}
 				}

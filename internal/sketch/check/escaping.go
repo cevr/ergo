@@ -291,7 +291,7 @@ func (w *escWalk) paramNonEscaping(call *syntax.CallExpr, i int) bool {
 		if k.Func != nil {
 			sig = k.Func.Sig
 		}
-		if k.Recv != nil {
+		if k.RecvIsParam() {
 			i++ // a 196m dot call: the receiver is the first parameter
 		}
 	case CallOp, CallProviderOp, CallLawOp:

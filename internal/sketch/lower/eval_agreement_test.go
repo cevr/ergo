@@ -131,11 +131,14 @@ func evaluate(src string) (eval.Report, error) {
 // reach, until restore runs: the value rule without owned parameters, the
 // flat match, Go's capture by reference, the switch catch, the Option's
 // type switch, interface unions, calls not inlined, Go builtins through
-// helpers, opaque callbacks and records, and union locals kept whole.
+// helpers, opaque callbacks and records, union locals kept whole, and the
+// value forms as before OPT5 (forms.go, drop.go). With calls not inlined,
+// the growth rule (growth.go) has nothing to decide.
 // (The plain Update call went with update.go, OPT6b b21853eb.)
 func referenceLowerings() (restore func()) {
 	saved := []string{valueLowering, matchLowering, captureLowering, getLowering, unionLowering,
-		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering}
+		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering, formLowering}
+	formLowering = "reference"
 	valueLowering, matchLowering, captureLowering = "copy", "flat", "reference"
 	getLowering, unionLowering = "switch", "interface"
 	inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = "call", "call", "opaque", "opaque", "off"
@@ -145,5 +148,6 @@ func referenceLowerings() (restore func()) {
 		valueLowering, matchLowering, captureLowering = saved[0], saved[1], saved[2]
 		getLowering, unionLowering = saved[3], saved[4]
 		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = saved[5], saved[6], saved[7], saved[8], saved[9]
+		formLowering = saved[10]
 	}
 }
