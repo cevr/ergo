@@ -314,8 +314,12 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 func (fc *funcCtx) expr1(x syntax.Expr) operand {
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
-		// The value rule's copy (values.go).
-		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+		// The value rule's copy (values.go), deep for Go (V8).
+		if fc.l.vals.deep[x] {
+			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
+		} else {
+			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+		}
 	}
 	o.val = fc.guardHeader(o.val)
 	return fc.ownTemp(x, o) // a temporary its statement owns (R43)

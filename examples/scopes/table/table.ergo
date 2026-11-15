@@ -1,0 +1,75 @@
+// Package table is a symbol table of nested scopes, read and written
+// through a borrow, as a resolver walks a program. A lookup reads one
+// scope out of the Map of scopes through the borrow and copies nothing
+// (the entry rule, docs/spec/types.md, Bindings); it costs the scopes it
+// walks, not the size of the table.
+
+// Table holds each scope's names and each scope's parent. Scope 0, the
+// root, is its own parent.
+type Table { scopes Map[int, Map[string, int]], parents Map[int, int] }
+
+// New is a table with the root scope only.
+func New() Table {
+	Table{scopes: Map[int, Map[string, int]]{0: Map[string, int]{}}, parents: Map[int, int]{0: 0}}
+}
+
+// Opened is the outcome of opening a scope.
+type Opened = Open{} | Taken{} | NoScope{}
+
+// OpenScope opens scope s inside scope parent.
+func OpenScope(t *Table, s int, parent int) Opened {
+	if t.scopes.Get(s) != None {
+		return Taken
+	}
+	if t.scopes.Get(parent) == None {
+		return NoScope
+	}
+	t.scopes[s] = Map[string, int]{}
+	t.parents[s] = parent
+	Open
+}
+
+// Declare binds name to value in scope s; it reports false when s is not
+// open.
+func Declare(t *Table, s int, name string, value int) bool {
+	match t.scopes.Get(s) {
+	case Some[Map[string, int]] as m:
+		let mut names = m.Value
+		names[name] = value
+		t.scopes[s] = names
+		true
+	case None:
+		false
+	}
+}
+
+// Resolved is a name's value and how many scopes out it was found, or
+// that no scope on the way to the root binds it.
+type Resolved = Bound{Value int, Out int} | Unbound{}
+
+// Resolve looks name up in scope s, then in each enclosing scope.
+func Resolve(t *Table, s int, name string) Resolved {
+	let mut at = s
+	for out in 0..len(t.parents)+1 {
+		match t.scopes.Get(at) {
+		case Some[Map[string, int]] as m:
+			match m.Value.Get(name) {
+			case Some[int] as v:
+				return Bound{Value: v.Value, Out: out}
+			case None:
+			}
+		case None:
+			return Unbound
+		}
+		if at == 0 {
+			return Unbound
+		}
+		match t.parents.Get(at) {
+		case Some[int] as p:
+			at = p.Value
+		case None:
+			return Unbound
+		}
+	}
+	Unbound
+}
