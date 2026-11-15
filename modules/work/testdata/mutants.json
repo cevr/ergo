@@ -904,6 +904,110 @@
       "to": "\tif why != \"NotHeld\" {",
       "rule": "Without -archive an unheld idle workspace stays (memory's ArchiveKeepsTheWork).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-units-unchecked", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\t\tif !JoinsToTheFile(text, u.Units) {",
+      "to": "\t\tif false {",
+      "rule": "A plugin's units are checked to join to the file before any caller uses them (memory's PluginFailuresAreUnanswered).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-not-provided-empty", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\tcase SitesAre as s:\n\t\ts.Sites\n\tcase NotProvided as e:\n\t\te\n",
+      "to": "\tcase SitesAre as s:\n\t\ts.Sites\n\tcase NotProvided:\n\t\t[]Site{}\n",
+      "rule": "A level-1 plugin asked for Sites fails NotProvided, never an empty list (memory's WireIsTransparent, level 1).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-died-no-diagnostics", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\tlet a = try one(p, CheckOf{Base: base, Layer: layer})\n",
+      "to": "\tlet a = one(p, CheckOf{Base: base, Layer: layer}) catch {\n\tcase Unanswered:\n\t\tCheckIs{Diagnostics: []Diagnostic{}}\n\t}\n",
+      "rule": "A plugin that died is Unanswered, never read as no diagnostics (memory's PluginFailuresAreUnanswered).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-answers-uncounted", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\tif len(answers) != len(requests) {",
+      "to": "\tif false {",
+      "rule": "A plugin that ends well and answers fewer lines than requests is Unanswered (memory's PluginFailuresAreUnanswered: a silent plugin).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-words-by-lines", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugin.ergo",
+      "from": "\tlet words = strings.Fields(p.command)",
+      "to": "\tlet words = exec.Split(p.command)",
+      "rule": "A plugin command is its words split at white space (the plugin-test-died case runs sh -c false).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg3-test-join-unchecked", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\tif !JoinsToTheFile(text, before) {",
+      "to": "\tif false {",
+      "rule": "plugin-test refuses units that lose a byte by law UnitsAreTheFile (memory's PluginTestNamesTheLaw).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-test-comment-unchecked", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\tif len(c.Changes) != 0 {\n\t\t\treturn refused(p, \"CommentEditIsNoChange\"",
+      "to": "\t\tif false {\n\t\t\treturn refused(p, \"CommentEditIsNoChange\"",
+      "rule": "plugin-test refuses a comment edit read as a change by law CommentEditIsNoChange (memory's PluginTestNamesTheLaw).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-test-no-indexer-laws", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\tlaws = slices.Concat(laws, try indexes(p, snap, files, note.Text))\n",
+      "to": "\t\tlet _ = note\n",
+      "rule": "A plugin with an Indexer is held to the Indexer's laws (memory's PluginTestNamesTheLaw: the laws admitted name them).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-language-untrusted", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\t\tif !trusted(t, c) {",
+      "to": "\t\t\tif false {",
+      "rule": "A [language.NAME] command runs only once work trust allowed it (memory's LanguageRunsOnlyTrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-language-files-ignored", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\t\tpatterns = l.Files\n",
+      "to": "\t\t\tpatterns = []string{}\n",
+      "rule": "A [language.NAME] reads only its files (memory's LanguageRunsOnlyTrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-language-command-untrusted", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/config.ergo",
+      "from": "\t\tout = out.Append(\"language.\\(l.Name).command: \\(l.Command)\")",
+      "to": "\t\tlet _ = l",
+      "rule": "A language's command is among the commands work trust allows (memory's LanguageRunsOnlyTrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-language-no-command", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/config.ergo",
+      "from": "\t\t\tif line.Command == \"\" || len(line.Files) == 0 {",
+      "to": "\t\t\tif len(line.Files) == 0 {",
+      "rule": "A [language.NAME] with no command is BadConfig (memory's LanguageRunsOnlyTrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg3-core-imports-code", "origin": "wf10/semws WG3a",
+      "file": "modules/work/work/language.ergo",
+      "from": "import maps\nimport slices\nimport strings\n",
+      "to": "import maps\nimport slices\nimport strings\nimport code\n",
+      "rule": "The core reads a language only through the seam: no code import in modules/work/work (internal/residue TestWorkCoreReadsNoLanguage counts 0).",
+      "anchor": {"tests": ["internal/residue:TestWorkCoreReadsNoLanguage"]}, "killers": ["internal/residue:TestWorkCoreReadsNoLanguage"]
     }
   ]
 }
