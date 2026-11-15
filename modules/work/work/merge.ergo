@@ -134,7 +134,7 @@ law GlobTakesAnyDepth(depth int) {
 		folders = folders.Append("p\(i)")
 	}
 	let path = strings.Join(folders.Append("package.json"), "/")
-	Matches("package.json", path) && Matches("**/package.json", path) && Matches("*.json", path) && Matches("package.json", path) && (d == 0) == Matches("/package.json", path) && !Matches("p0/*", path + "x/y") && Matches("**", path)
+	Matches("package.json", path) && Matches("**/package.json", path) && Matches("*.json", path) && Matches("package.json", path) && (d == 0) == Matches("/package.json", path) && !Matches("p0/*", path+"x/y") && Matches("**", path)
 }
 
 // lineClass is the merge class of a line that is not a driver.

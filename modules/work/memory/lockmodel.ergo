@@ -101,7 +101,7 @@ func packageJson(units Map[int, int]) string {
 func folded(units Map[int, int]) Map[int, int] {
 	let mut out = Map[int, int]{}
 	for k, v in units {
-		out[((k % 6) + 6) % 6] = v
+		out[((k%6)+6)%6] = v
 	}
 	out
 }
@@ -136,7 +136,7 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 	case fs.Denied, fs.Failed:
 		return false
 	}
-	disk.WriteFile(work.TrustFile(home), work.Digest(c) + "\n") catch {
+	disk.WriteFile(work.TrustFile(home), work.Digest(c)+"\n") catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
@@ -148,7 +148,11 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 	let mut want = Map[int, int]{}
 	for key in 0..6 {
 		let (x, y, z) = (b.Get(key), o.Get(key), t.Get(key))
-		let picked = if y == x { z } else if z == x || y == z { y } else {
+		let picked = if y == x {
+			z
+		} else if z == x || y == z {
+			y
+		} else {
 			clash = true
 			None
 		}

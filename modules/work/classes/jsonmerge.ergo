@@ -147,11 +147,11 @@ func objectText(ours string, o []Entry, values []Option[string], added Map[strin
 		}
 		let open = space(ours, 0)
 		let close = strings.LastIndex(ours, "}")
-		return strings.Slice(ours, 0, open+1) + sep + strings.Join(first, "," + sep) + strings.Slice(sep, 0, len(sep)-2) + strings.Slice(ours, close, len(ours))
+		return strings.Slice(ours, 0, open+1) + sep + strings.Join(first, ","+sep) + strings.Slice(sep, 0, len(sep)-2) + strings.Slice(ours, close, len(ours))
 	}
 	if len(first) > 0 {
 		let at = space(ours, 0) + 1
-		spans = spans.Append(Span{Raw: sep + strings.Join(first, "," + sep) + (if kept >= 0 { "," } else { "" }), Start: at, End: at})
+		spans = spans.Append(Span{Raw: sep + strings.Join(first, ","+sep) + (if kept >= 0 { "," } else { "" }), Start: at, End: at})
 	}
 	for i, m in o {
 		match values[i] {
@@ -161,7 +161,7 @@ func objectText(ours string, o []Entry, values []Option[string], added Map[strin
 			}
 			let more = maps0(added, m.Key)
 			if len(more) > 0 {
-				spans = spans.Append(Span{Raw: "," + sep + strings.Join(more, "," + sep), Start: m.End, End: m.End})
+				spans = spans.Append(Span{Raw: "," + sep + strings.Join(more, ","+sep), Start: m.End, End: m.End})
 			}
 		case None:
 			if i < kept {
