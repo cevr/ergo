@@ -20,8 +20,8 @@ func MachineOf(s Scan, a string) MachineView fails NoSymbol | Ambiguous | NotMac
 }
 
 func Reach(s Scan, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
-	let capability = try with context { Reader: s } { capabilityOf(q, s.tables) }
-	reachByScan(s.tables, q, capability)
+	let x = try with context { Reader: s } { subjectOf(q, s.tables) }
+	reachByScan(s.tables, q, x)
 }
 
 func Calls(s Scan, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {

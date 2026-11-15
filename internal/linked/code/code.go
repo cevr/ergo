@@ -169,7 +169,7 @@ func ergoEncodeDecl(env *Env, w Writer_1, v Decl) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_5(env *Env, w Writer_1, v []Decl) {
+func ergoEncodeSlice_6(env *Env, w Writer_1, v []Decl) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeDecl(env, w, e)
@@ -196,7 +196,7 @@ func ergoEncodeSite(env *Env, w Writer_1, v Site) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_14(env *Env, w Writer_1, v []Site) {
+func ergoEncodeSlice_16(env *Env, w Writer_1, v []Site) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeSite(env, w, e)
@@ -204,7 +204,7 @@ func ergoEncodeSlice_14(env *Env, w Writer_1, v []Site) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeSlice_20(env *Env, w Writer_1, v []string) {
+func ergoEncodeSlice_22(env *Env, w Writer_1, v []string) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.String(env.task, string(e))
@@ -212,7 +212,7 @@ func ergoEncodeSlice_20(env *Env, w Writer_1, v []string) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeSlice_17(env *Env, w Writer_1, v []int) {
+func ergoEncodeSlice_19(env *Env, w Writer_1, v []int) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.Int(env.task, int64(e))
@@ -235,7 +235,7 @@ func ergoEncodeCopySite(env *Env, w Writer_1, v CopySite) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_4(env *Env, w Writer_1, v []CopySite) {
+func ergoEncodeSlice_5(env *Env, w Writer_1, v []CopySite) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeCopySite(env, w, e)
@@ -250,25 +250,25 @@ func ergoEncodeContract(env *Env, w Writer_1, v Contract) {
 	w.Key(env.task, "signature")
 	w.String(env.task, string(v.Signature))
 	w.Key(env.task, "typeParameters")
-	ergoEncodeSlice_20(env, w, v.TypeParameters)
+	ergoEncodeSlice_22(env, w, v.TypeParameters)
 	w.Key(env.task, "fails")
 	w.String(env.task, string(v.Fails))
 	w.Key(env.task, "needs")
 	w.String(env.task, string(v.Needs))
 	w.Key(env.task, "takes")
-	ergoEncodeSlice_20(env, w, v.Takes)
+	ergoEncodeSlice_22(env, w, v.Takes)
 	w.Key(env.task, "takesParameters")
-	ergoEncodeSlice_17(env, w, v.TakesParameters)
+	ergoEncodeSlice_19(env, w, v.TakesParameters)
 	w.Key(env.task, "takesSelf")
 	w.Bool(env.task, bool(v.TakesSelf))
 	w.Key(env.task, "takesInferred")
 	w.Bool(env.task, bool(v.TakesInferred))
 	w.Key(env.task, "copies")
-	ergoEncodeSlice_4(env, w, v.Copies)
+	ergoEncodeSlice_5(env, w, v.Copies)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_3(env *Env, w Writer_1, v []Contract) {
+func ergoEncodeSlice_4(env *Env, w Writer_1, v []Contract) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeContract(env, w, e)
@@ -276,8 +276,25 @@ func ergoEncodeSlice_3(env *Env, w Writer_1, v []Contract) {
 	w.EndList(env.task)
 }
 
+func ergoEncodeBinding(env *Env, w Writer_1, v Binding) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "capability")
+	w.String(env.task, string(v.Capability))
+	w.Key(env.task, "provider")
+	w.String(env.task, string(v.Provider))
+	w.EndObject(env.task)
+}
+
+func ergoEncodeSlice_2(env *Env, w Writer_1, v []Binding) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergoEncodeBinding(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
 func ergoEncodeCall(env *Env, w Writer_1, v Call) {
-	w.BeginObject(env.task, 7)
+	w.BeginObject(env.task, 10)
 	w.Key(env.task, "from")
 	w.String(env.task, string(v.From))
 	w.Key(env.task, "to")
@@ -289,13 +306,19 @@ func ergoEncodeCall(env *Env, w Writer_1, v Call) {
 	w.Key(env.task, "column")
 	w.Int(env.task, int64(v.Column))
 	w.Key(env.task, "brings")
-	ergoEncodeSlice_20(env, w, v.Brings)
+	ergoEncodeSlice_22(env, w, v.Brings)
 	w.Key(env.task, "discharged")
-	ergoEncodeSlice_20(env, w, v.Discharged)
+	ergoEncodeSlice_22(env, w, v.Discharged)
+	w.Key(env.task, "bound")
+	ergoEncodeSlice_2(env, w, v.Bound)
+	w.Key(env.task, "raises")
+	ergoEncodeSlice_22(env, w, v.Raises)
+	w.Key(env.task, "caught")
+	ergoEncodeSlice_22(env, w, v.Caught)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_2(env *Env, w Writer_1, v []Call) {
+func ergoEncodeSlice_3(env *Env, w Writer_1, v []Call) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeCall(env, w, e)
@@ -312,10 +335,27 @@ func ergoEncodeNeed(env *Env, w Writer_1, v Need) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_9(env *Env, w Writer_1, v []Need) {
+func ergoEncodeSlice_11(env *Env, w Writer_1, v []Need) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeNeed(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergoEncodeFailing(env *Env, w Writer_1, v Failing) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "of")
+	w.String(env.task, string(v.Of))
+	w.Key(env.task, "failure")
+	w.String(env.task, string(v.Failure))
+	w.EndObject(env.task)
+}
+
+func ergoEncodeSlice_7(env *Env, w Writer_1, v []Failing) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergoEncodeFailing(env, w, e)
 	}
 	w.EndList(env.task)
 }
@@ -342,7 +382,7 @@ func ergoEncodeTransition(env *Env, w Writer_1, v Transition) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_16(env *Env, w Writer_1, v []Transition) {
+func ergoEncodeSlice_18(env *Env, w Writer_1, v []Transition) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeTransition(env, w, e)
@@ -355,17 +395,17 @@ func ergoEncodeArm(env *Env, w Writer_1, v Arm) {
 	w.Key(env.task, "at")
 	ergoEncodePlace(env, w, v.At)
 	w.Key(env.task, "states")
-	ergoEncodeSlice_20(env, w, v.States)
+	ergoEncodeSlice_22(env, w, v.States)
 	w.Key(env.task, "anyState")
 	w.Bool(env.task, bool(v.AnyState))
 	w.Key(env.task, "signals")
-	ergoEncodeSlice_20(env, w, v.Signals)
+	ergoEncodeSlice_22(env, w, v.Signals)
 	w.Key(env.task, "anySignal")
 	w.Bool(env.task, bool(v.AnySignal))
 	w.Key(env.task, "partial")
 	w.Bool(env.task, bool(v.Partial))
 	w.Key(env.task, "edges")
-	ergoEncodeSlice_16(env, w, v.Edges)
+	ergoEncodeSlice_18(env, w, v.Edges)
 	w.EndObject(env.task)
 }
 
@@ -388,7 +428,7 @@ func ergoEncodeTimer(env *Env, w Writer_1, v Timer) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_15(env *Env, w Writer_1, v []Timer) {
+func ergoEncodeSlice_17(env *Env, w Writer_1, v []Timer) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeTimer(env, w, e)
@@ -396,7 +436,7 @@ func ergoEncodeSlice_15(env *Env, w Writer_1, v []Timer) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeSlice_12(env *Env, w Writer_1, v []Place) {
+func ergoEncodeSlice_14(env *Env, w Writer_1, v []Place) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodePlace(env, w, e)
@@ -411,23 +451,23 @@ func ergoEncodeMachineGraph(env *Env, w Writer_1, v MachineGraph) {
 	w.Key(env.task, "name")
 	w.String(env.task, string(v.Name))
 	w.Key(env.task, "states")
-	ergoEncodeSlice_20(env, w, v.States)
+	ergoEncodeSlice_22(env, w, v.States)
 	w.Key(env.task, "signals")
-	ergoEncodeSlice_20(env, w, v.Signals)
+	ergoEncodeSlice_22(env, w, v.Signals)
 	w.Key(env.task, "initial")
 	w.String(env.task, string(v.Initial))
 	w.Key(env.task, "arms")
 	ergoEncodeSlice_1(env, w, v.Arms)
 	w.Key(env.task, "timers")
-	ergoEncodeSlice_15(env, w, v.Timers)
+	ergoEncodeSlice_17(env, w, v.Timers)
 	w.Key(env.task, "work")
-	ergoEncodeSlice_12(env, w, v.Work)
+	ergoEncodeSlice_14(env, w, v.Work)
 	w.Key(env.task, "unsure")
-	ergoEncodeSlice_20(env, w, v.Unsure)
+	ergoEncodeSlice_22(env, w, v.Unsure)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_7(env *Env, w Writer_1, v []MachineGraph) {
+func ergoEncodeSlice_9(env *Env, w Writer_1, v []MachineGraph) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeMachineGraph(env, w, e)
@@ -436,7 +476,7 @@ func ergoEncodeSlice_7(env *Env, w Writer_1, v []MachineGraph) {
 }
 
 func ergoEncodePackage(env *Env, w Writer_1, v Package) {
-	w.BeginObject(env.task, 9)
+	w.BeginObject(env.task, 10)
 	w.Key(env.task, "path")
 	w.String(env.task, string(v.Path))
 	w.Key(env.task, "complete")
@@ -444,21 +484,23 @@ func ergoEncodePackage(env *Env, w Writer_1, v Package) {
 	w.Key(env.task, "diagnostics")
 	w.Int(env.task, int64(v.Diagnostics))
 	w.Key(env.task, "decls")
-	ergoEncodeSlice_5(env, w, v.Decls)
+	ergoEncodeSlice_6(env, w, v.Decls)
 	w.Key(env.task, "sites")
-	ergoEncodeSlice_14(env, w, v.Sites)
+	ergoEncodeSlice_16(env, w, v.Sites)
 	w.Key(env.task, "contracts")
-	ergoEncodeSlice_3(env, w, v.Contracts)
+	ergoEncodeSlice_4(env, w, v.Contracts)
 	w.Key(env.task, "calls")
-	ergoEncodeSlice_2(env, w, v.Calls)
+	ergoEncodeSlice_3(env, w, v.Calls)
 	w.Key(env.task, "needs")
-	ergoEncodeSlice_9(env, w, v.Needs)
+	ergoEncodeSlice_11(env, w, v.Needs)
+	w.Key(env.task, "fails")
+	ergoEncodeSlice_7(env, w, v.Fails)
 	w.Key(env.task, "machines")
-	ergoEncodeSlice_7(env, w, v.Machines)
+	ergoEncodeSlice_9(env, w, v.Machines)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_10(env *Env, w Writer_1, v []Package) {
+func ergoEncodeSlice_12(env *Env, w Writer_1, v []Package) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodePackage(env, w, e)
@@ -473,7 +515,7 @@ func ergoEncodeTables(env *Env, w Writer_1, v Tables) {
 	w.Key(env.task, "root")
 	w.String(env.task, string(v.Root))
 	w.Key(env.task, "packages")
-	ergoEncodeSlice_10(env, w, v.Packages)
+	ergoEncodeSlice_12(env, w, v.Packages)
 	w.EndObject(env.task)
 }
 
@@ -581,7 +623,7 @@ func ergoDecodeDecl(env *Env, r Reader_2) (Decl, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_5(env *Env, r Reader_2) ([]Decl, error) {
+func ergoDecodeSlice_6(env *Env, r Reader_2) ([]Decl, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Decl), err
 	}
@@ -690,7 +732,7 @@ func ergoDecodeSite(env *Env, r Reader_2) (Site, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_14(env *Env, r Reader_2) ([]Site, error) {
+func ergoDecodeSlice_16(env *Env, r Reader_2) ([]Site, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Site), err
 	}
@@ -706,7 +748,7 @@ func ergoDecodeSlice_14(env *Env, r Reader_2) ([]Site, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_20(env *Env, r Reader_2) ([]string, error) {
+func ergoDecodeSlice_22(env *Env, r Reader_2) ([]string, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]string), err
 	}
@@ -723,7 +765,7 @@ func ergoDecodeSlice_20(env *Env, r Reader_2) ([]string, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_17(env *Env, r Reader_2) ([]int, error) {
+func ergoDecodeSlice_19(env *Env, r Reader_2) ([]int, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]int), err
 	}
@@ -811,7 +853,7 @@ func ergoDecodeCopySite(env *Env, r Reader_2) (CopySite, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_4(env *Env, r Reader_2) ([]CopySite, error) {
+func ergoDecodeSlice_5(env *Env, r Reader_2) ([]CopySite, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]CopySite), err
 	}
@@ -852,7 +894,7 @@ func ergoDecodeContract(env *Env, r Reader_2) (Contract, error) {
 			out.Signature = f_1
 			seen_1 = true
 		case "typeParameters":
-			f_2, err_3 := ergoDecodeSlice_20(env, r)
+			f_2, err_3 := ergoDecodeSlice_22(env, r)
 			if err_3 != nil {
 				return *new(Contract), err_3
 			}
@@ -875,14 +917,14 @@ func ergoDecodeContract(env *Env, r Reader_2) (Contract, error) {
 			out.Needs = f_4
 			seen_4 = true
 		case "takes":
-			f_5, err_6 := ergoDecodeSlice_20(env, r)
+			f_5, err_6 := ergoDecodeSlice_22(env, r)
 			if err_6 != nil {
 				return *new(Contract), err_6
 			}
 			out.Takes = f_5
 			seen_5 = true
 		case "takesParameters":
-			f_6, err_7 := ergoDecodeSlice_17(env, r)
+			f_6, err_7 := ergoDecodeSlice_19(env, r)
 			if err_7 != nil {
 				return *new(Contract), err_7
 			}
@@ -905,7 +947,7 @@ func ergoDecodeContract(env *Env, r Reader_2) (Contract, error) {
 			out.TakesInferred = f_8
 			seen_8 = true
 		case "copies":
-			f_9, err_10 := ergoDecodeSlice_4(env, r)
+			f_9, err_10 := ergoDecodeSlice_5(env, r)
 			if err_10 != nil {
 				return *new(Contract), err_10
 			}
@@ -949,7 +991,7 @@ func ergoDecodeContract(env *Env, r Reader_2) (Contract, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_3(env *Env, r Reader_2) ([]Contract, error) {
+func ergoDecodeSlice_4(env *Env, r Reader_2) ([]Contract, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Contract), err
 	}
@@ -965,12 +1007,66 @@ func ergoDecodeSlice_3(env *Env, r Reader_2) ([]Contract, error) {
 	return out, nil
 }
 
+func ergoDecodeBinding(env *Env, r Reader_2) (Binding, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Binding), err
+	}
+	var out Binding
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "capability":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(Binding), err_1
+			}
+			f := string(raw_1)
+			out.Capability = f
+			seen = true
+		case "provider":
+			raw_2, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(Binding), err_2
+			}
+			f_1 := string(raw_2)
+			out.Provider = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Binding), WireMissingField{Path: r.Path(env.task), Field: "capability"}
+	}
+	if !seen_1 {
+		return *new(Binding), WireMissingField{Path: r.Path(env.task), Field: "provider"}
+	}
+	return out, nil
+}
+
+func ergoDecodeSlice_2(env *Env, r Reader_2) ([]Binding, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]Binding), err
+	}
+	out := []Binding{}
+	for r.More(env.task) {
+		e, err_1 := ergoDecodeBinding(env, r)
+		if err_1 != nil {
+			return *new([]Binding), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
 func ergoDecodeCall(env *Env, r Reader_2) (Call, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(Call), err
 	}
 	var out Call
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "from":
@@ -1014,19 +1110,40 @@ func ergoDecodeCall(env *Env, r Reader_2) (Call, error) {
 			out.Column = f_4
 			seen_4 = true
 		case "brings":
-			f_5, err_6 := ergoDecodeSlice_20(env, r)
+			f_5, err_6 := ergoDecodeSlice_22(env, r)
 			if err_6 != nil {
 				return *new(Call), err_6
 			}
 			out.Brings = f_5
 			seen_5 = true
 		case "discharged":
-			f_6, err_7 := ergoDecodeSlice_20(env, r)
+			f_6, err_7 := ergoDecodeSlice_22(env, r)
 			if err_7 != nil {
 				return *new(Call), err_7
 			}
 			out.Discharged = f_6
 			seen_6 = true
+		case "bound":
+			f_7, err_8 := ergoDecodeSlice_2(env, r)
+			if err_8 != nil {
+				return *new(Call), err_8
+			}
+			out.Bound = f_7
+			seen_7 = true
+		case "raises":
+			f_8, err_9 := ergoDecodeSlice_22(env, r)
+			if err_9 != nil {
+				return *new(Call), err_9
+			}
+			out.Raises = f_8
+			seen_8 = true
+		case "caught":
+			f_9, err_10 := ergoDecodeSlice_22(env, r)
+			if err_10 != nil {
+				return *new(Call), err_10
+			}
+			out.Caught = f_9
+			seen_9 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -1053,10 +1170,19 @@ func ergoDecodeCall(env *Env, r Reader_2) (Call, error) {
 	if !seen_6 {
 		return *new(Call), WireMissingField{Path: r.Path(env.task), Field: "discharged"}
 	}
+	if !seen_7 {
+		return *new(Call), WireMissingField{Path: r.Path(env.task), Field: "bound"}
+	}
+	if !seen_8 {
+		return *new(Call), WireMissingField{Path: r.Path(env.task), Field: "raises"}
+	}
+	if !seen_9 {
+		return *new(Call), WireMissingField{Path: r.Path(env.task), Field: "caught"}
+	}
 	return out, nil
 }
 
-func ergoDecodeSlice_2(env *Env, r Reader_2) ([]Call, error) {
+func ergoDecodeSlice_3(env *Env, r Reader_2) ([]Call, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Call), err
 	}
@@ -1110,7 +1236,7 @@ func ergoDecodeNeed(env *Env, r Reader_2) (Need, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_9(env *Env, r Reader_2) ([]Need, error) {
+func ergoDecodeSlice_11(env *Env, r Reader_2) ([]Need, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Need), err
 	}
@@ -1119,6 +1245,60 @@ func ergoDecodeSlice_9(env *Env, r Reader_2) ([]Need, error) {
 		e, err_1 := ergoDecodeNeed(env, r)
 		if err_1 != nil {
 			return *new([]Need), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergoDecodeFailing(env *Env, r Reader_2) (Failing, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Failing), err
+	}
+	var out Failing
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "of":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(Failing), err_1
+			}
+			f := string(raw_1)
+			out.Of = f
+			seen = true
+		case "failure":
+			raw_2, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(Failing), err_2
+			}
+			f_1 := string(raw_2)
+			out.Failure = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Failing), WireMissingField{Path: r.Path(env.task), Field: "of"}
+	}
+	if !seen_1 {
+		return *new(Failing), WireMissingField{Path: r.Path(env.task), Field: "failure"}
+	}
+	return out, nil
+}
+
+func ergoDecodeSlice_7(env *Env, r Reader_2) ([]Failing, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]Failing), err
+	}
+	out := []Failing{}
+	for r.More(env.task) {
+		e, err_1 := ergoDecodeFailing(env, r)
+		if err_1 != nil {
+			return *new([]Failing), err_1
 		}
 		out = append(out, e)
 	}
@@ -1223,7 +1403,7 @@ func ergoDecodeTransition(env *Env, r Reader_2) (Transition, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_16(env *Env, r Reader_2) ([]Transition, error) {
+func ergoDecodeSlice_18(env *Env, r Reader_2) ([]Transition, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Transition), err
 	}
@@ -1255,7 +1435,7 @@ func ergoDecodeArm(env *Env, r Reader_2) (Arm, error) {
 			out.At = f
 			seen = true
 		case "states":
-			f_1, err_2 := ergoDecodeSlice_20(env, r)
+			f_1, err_2 := ergoDecodeSlice_22(env, r)
 			if err_2 != nil {
 				return *new(Arm), err_2
 			}
@@ -1270,7 +1450,7 @@ func ergoDecodeArm(env *Env, r Reader_2) (Arm, error) {
 			out.AnyState = f_2
 			seen_2 = true
 		case "signals":
-			f_3, err_4 := ergoDecodeSlice_20(env, r)
+			f_3, err_4 := ergoDecodeSlice_22(env, r)
 			if err_4 != nil {
 				return *new(Arm), err_4
 			}
@@ -1293,7 +1473,7 @@ func ergoDecodeArm(env *Env, r Reader_2) (Arm, error) {
 			out.Partial = f_5
 			seen_5 = true
 		case "edges":
-			f_6, err_7 := ergoDecodeSlice_16(env, r)
+			f_6, err_7 := ergoDecodeSlice_18(env, r)
 			if err_7 != nil {
 				return *new(Arm), err_7
 			}
@@ -1392,7 +1572,7 @@ func ergoDecodeTimer(env *Env, r Reader_2) (Timer, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_15(env *Env, r Reader_2) ([]Timer, error) {
+func ergoDecodeSlice_17(env *Env, r Reader_2) ([]Timer, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Timer), err
 	}
@@ -1408,7 +1588,7 @@ func ergoDecodeSlice_15(env *Env, r Reader_2) ([]Timer, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_12(env *Env, r Reader_2) ([]Place, error) {
+func ergoDecodeSlice_14(env *Env, r Reader_2) ([]Place, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Place), err
 	}
@@ -1449,14 +1629,14 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 			out.Name = f_1
 			seen_1 = true
 		case "states":
-			f_2, err_3 := ergoDecodeSlice_20(env, r)
+			f_2, err_3 := ergoDecodeSlice_22(env, r)
 			if err_3 != nil {
 				return *new(MachineGraph), err_3
 			}
 			out.States = f_2
 			seen_2 = true
 		case "signals":
-			f_3, err_4 := ergoDecodeSlice_20(env, r)
+			f_3, err_4 := ergoDecodeSlice_22(env, r)
 			if err_4 != nil {
 				return *new(MachineGraph), err_4
 			}
@@ -1478,21 +1658,21 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 			out.Arms = f_5
 			seen_5 = true
 		case "timers":
-			f_6, err_7 := ergoDecodeSlice_15(env, r)
+			f_6, err_7 := ergoDecodeSlice_17(env, r)
 			if err_7 != nil {
 				return *new(MachineGraph), err_7
 			}
 			out.Timers = f_6
 			seen_6 = true
 		case "work":
-			f_7, err_8 := ergoDecodeSlice_12(env, r)
+			f_7, err_8 := ergoDecodeSlice_14(env, r)
 			if err_8 != nil {
 				return *new(MachineGraph), err_8
 			}
 			out.Work = f_7
 			seen_7 = true
 		case "unsure":
-			f_8, err_9 := ergoDecodeSlice_20(env, r)
+			f_8, err_9 := ergoDecodeSlice_22(env, r)
 			if err_9 != nil {
 				return *new(MachineGraph), err_9
 			}
@@ -1533,7 +1713,7 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_7(env *Env, r Reader_2) ([]MachineGraph, error) {
+func ergoDecodeSlice_9(env *Env, r Reader_2) ([]MachineGraph, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]MachineGraph), err
 	}
@@ -1554,7 +1734,7 @@ func ergoDecodePackage(env *Env, r Reader_2) (Package, error) {
 		return *new(Package), err
 	}
 	var out Package
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "path":
@@ -1582,47 +1762,54 @@ func ergoDecodePackage(env *Env, r Reader_2) (Package, error) {
 			out.Diagnostics = f_2
 			seen_2 = true
 		case "decls":
-			f_3, err_4 := ergoDecodeSlice_5(env, r)
+			f_3, err_4 := ergoDecodeSlice_6(env, r)
 			if err_4 != nil {
 				return *new(Package), err_4
 			}
 			out.Decls = f_3
 			seen_3 = true
 		case "sites":
-			f_4, err_5 := ergoDecodeSlice_14(env, r)
+			f_4, err_5 := ergoDecodeSlice_16(env, r)
 			if err_5 != nil {
 				return *new(Package), err_5
 			}
 			out.Sites = f_4
 			seen_4 = true
 		case "contracts":
-			f_5, err_6 := ergoDecodeSlice_3(env, r)
+			f_5, err_6 := ergoDecodeSlice_4(env, r)
 			if err_6 != nil {
 				return *new(Package), err_6
 			}
 			out.Contracts = f_5
 			seen_5 = true
 		case "calls":
-			f_6, err_7 := ergoDecodeSlice_2(env, r)
+			f_6, err_7 := ergoDecodeSlice_3(env, r)
 			if err_7 != nil {
 				return *new(Package), err_7
 			}
 			out.Calls = f_6
 			seen_6 = true
 		case "needs":
-			f_7, err_8 := ergoDecodeSlice_9(env, r)
+			f_7, err_8 := ergoDecodeSlice_11(env, r)
 			if err_8 != nil {
 				return *new(Package), err_8
 			}
 			out.Needs = f_7
 			seen_7 = true
-		case "machines":
+		case "fails":
 			f_8, err_9 := ergoDecodeSlice_7(env, r)
 			if err_9 != nil {
 				return *new(Package), err_9
 			}
-			out.Machines = f_8
+			out.Fails = f_8
 			seen_8 = true
+		case "machines":
+			f_9, err_10 := ergoDecodeSlice_9(env, r)
+			if err_10 != nil {
+				return *new(Package), err_10
+			}
+			out.Machines = f_9
+			seen_9 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -1653,12 +1840,15 @@ func ergoDecodePackage(env *Env, r Reader_2) (Package, error) {
 		return *new(Package), WireMissingField{Path: r.Path(env.task), Field: "needs"}
 	}
 	if !seen_8 {
+		return *new(Package), WireMissingField{Path: r.Path(env.task), Field: "fails"}
+	}
+	if !seen_9 {
 		return *new(Package), WireMissingField{Path: r.Path(env.task), Field: "machines"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_10(env *Env, r Reader_2) ([]Package, error) {
+func ergoDecodeSlice_12(env *Env, r Reader_2) ([]Package, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Package), err
 	}
@@ -1699,7 +1889,7 @@ func ergoDecodeTables(env *Env, r Reader_2) (Tables, error) {
 			out.Root = f_1
 			seen_1 = true
 		case "packages":
-			f_2, err_3 := ergoDecodeSlice_10(env, r)
+			f_2, err_3 := ergoDecodeSlice_12(env, r)
 			if err_3 != nil {
 				return *new(Tables), err_3
 			}
@@ -1746,7 +1936,7 @@ func ergoWriteDecl(env *Env, wv text_1, v Decl) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_5(env *Env, wv text_1, v []Decl) text_1 {
+func ergoWriteSlice_6(env *Env, wv text_1, v []Decl) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1782,7 +1972,7 @@ func ergoWriteSite(env *Env, wv text_1, v Site) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_14(env *Env, wv text_1, v []Site) text_1 {
+func ergoWriteSlice_16(env *Env, wv text_1, v []Site) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1796,7 +1986,7 @@ func ergoWriteSlice_14(env *Env, wv text_1, v []Site) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_20(env *Env, wv text_1, v []string) text_1 {
+func ergoWriteSlice_22(env *Env, wv text_1, v []string) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1812,7 +2002,7 @@ func ergoWriteSlice_20(env *Env, wv text_1, v []string) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_17(env *Env, wv text_1, v []int) text_1 {
+func ergoWriteSlice_19(env *Env, wv text_1, v []int) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1846,7 +2036,7 @@ func ergoWriteCopySite(env *Env, wv text_1, v CopySite) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_4(env *Env, wv text_1, v []CopySite) text_1 {
+func ergoWriteSlice_5(env *Env, wv text_1, v []CopySite) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1860,7 +2050,7 @@ func ergoWriteSlice_4(env *Env, wv text_1, v []CopySite) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_20(env *Env, wv text_1, v []string) text_1 {
+func ergoWriteSlice_entry_22(env *Env, wv text_1, v []string) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -1875,7 +2065,7 @@ func ergoWriteSlice_entry_20(env *Env, wv text_1, v []string) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_17(env *Env, wv text_1, v []int) text_1 {
+func ergoWriteSlice_entry_19(env *Env, wv text_1, v []int) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -1890,7 +2080,7 @@ func ergoWriteSlice_entry_17(env *Env, wv text_1, v []int) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_4(env *Env, wv text_1, v []CopySite) text_1 {
+func ergoWriteSlice_entry_5(env *Env, wv text_1, v []CopySite) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -1912,7 +2102,7 @@ func ergoWriteContract(env *Env, wv text_1, v Contract) text_1 {
 	(w).stringBody(string(v.Signature))
 	(w).raw(string(",\"typeParameters\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.TypeParameters)
+	*w = ergoWriteSlice_entry_22(env, *w, v.TypeParameters)
 	(w).sep()
 	(w).raw(string("\"fails\":"))
 	(w).stringBody(string(v.Fails))
@@ -1920,11 +2110,11 @@ func ergoWriteContract(env *Env, wv text_1, v Contract) text_1 {
 	(w).stringBody(string(v.Needs))
 	(w).raw(string(",\"takes\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Takes)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Takes)
 	(w).sep()
 	(w).raw(string("\"takesParameters\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_17(env, *w, v.TakesParameters)
+	*w = ergoWriteSlice_entry_19(env, *w, v.TakesParameters)
 	(w).sep()
 	(w).raw(string("\"takesSelf\":"))
 	(w).boolBody(bool(v.TakesSelf))
@@ -1932,13 +2122,13 @@ func ergoWriteContract(env *Env, wv text_1, v Contract) text_1 {
 	(w).boolBody(bool(v.TakesInferred))
 	(w).raw(string(",\"copies\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_4(env, *w, v.Copies)
+	*w = ergoWriteSlice_entry_5(env, *w, v.Copies)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_3(env *Env, wv text_1, v []Contract) text_1 {
+func ergoWriteSlice_4(env *Env, wv text_1, v []Contract) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1946,6 +2136,45 @@ func ergoWriteSlice_3(env *Env, wv text_1, v []Contract) text_1 {
 	_ = len(v)
 	for _, e := range v {
 		*w = ergoWriteContract(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteBinding(env *Env, wv text_1, v Binding) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"capability\":"))
+	(w).stringBody(string(v.Capability))
+	(w).raw(string(",\"provider\":"))
+	(w).stringBody(string(v.Provider))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_2(env *Env, wv text_1, v []Binding) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteBinding(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_entry_2(env *Env, wv text_1, v []Binding) text_1 {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteBinding(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
@@ -1967,17 +2196,29 @@ func ergoWriteCall(env *Env, wv text_1, v Call) text_1 {
 	(w).intBody(int64(v.Column))
 	(w).raw(string(",\"brings\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Brings)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Brings)
 	(w).sep()
 	(w).raw(string("\"discharged\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Discharged)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Discharged)
+	(w).sep()
+	(w).raw(string("\"bound\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_2(env, *w, v.Bound)
+	(w).sep()
+	(w).raw(string("\"raises\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_22(env, *w, v.Raises)
+	(w).sep()
+	(w).raw(string("\"caught\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_22(env, *w, v.Caught)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_2(env *Env, wv text_1, v []Call) text_1 {
+func ergoWriteSlice_3(env *Env, wv text_1, v []Call) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2003,7 +2244,7 @@ func ergoWriteNeed(env *Env, wv text_1, v Need) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_9(env *Env, wv text_1, v []Need) text_1 {
+func ergoWriteSlice_11(env *Env, wv text_1, v []Need) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2011,6 +2252,32 @@ func ergoWriteSlice_9(env *Env, wv text_1, v []Need) text_1 {
 	_ = len(v)
 	for _, e := range v {
 		*w = ergoWriteNeed(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteFailing(env *Env, wv text_1, v Failing) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"of\":"))
+	(w).stringBody(string(v.Of))
+	(w).raw(string(",\"failure\":"))
+	(w).stringBody(string(v.Failure))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_7(env *Env, wv text_1, v []Failing) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteFailing(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
@@ -2059,7 +2326,7 @@ func ergoWriteTransition(env *Env, wv text_1, v Transition) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_16(env *Env, wv text_1, v []Transition) text_1 {
+func ergoWriteSlice_18(env *Env, wv text_1, v []Transition) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2073,7 +2340,7 @@ func ergoWriteSlice_16(env *Env, wv text_1, v []Transition) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_16(env *Env, wv text_1, v []Transition) text_1 {
+func ergoWriteSlice_entry_18(env *Env, wv text_1, v []Transition) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2095,13 +2362,13 @@ func ergoWriteArm(env *Env, wv text_1, v Arm) text_1 {
 	(w).sep()
 	(w).raw(string("\"states\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.States)
+	*w = ergoWriteSlice_entry_22(env, *w, v.States)
 	(w).sep()
 	(w).raw(string("\"anyState\":"))
 	(w).boolBody(bool(v.AnyState))
 	(w).raw(string(",\"signals\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Signals)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Signals)
 	(w).sep()
 	(w).raw(string("\"anySignal\":"))
 	(w).boolBody(bool(v.AnySignal))
@@ -2109,7 +2376,7 @@ func ergoWriteArm(env *Env, wv text_1, v Arm) text_1 {
 	(w).boolBody(bool(v.Partial))
 	(w).raw(string(",\"edges\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_16(env, *w, v.Edges)
+	*w = ergoWriteSlice_entry_18(env, *w, v.Edges)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2144,7 +2411,7 @@ func ergoWriteTimer(env *Env, wv text_1, v Timer) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_15(env *Env, wv text_1, v []Timer) text_1 {
+func ergoWriteSlice_17(env *Env, wv text_1, v []Timer) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2158,7 +2425,7 @@ func ergoWriteSlice_15(env *Env, wv text_1, v []Timer) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_12(env *Env, wv text_1, v []Place) text_1 {
+func ergoWriteSlice_14(env *Env, wv text_1, v []Place) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2185,7 +2452,7 @@ func ergoWriteSlice_entry_1(env *Env, wv text_1, v []Arm) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_15(env *Env, wv text_1, v []Timer) text_1 {
+func ergoWriteSlice_entry_17(env *Env, wv text_1, v []Timer) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2198,7 +2465,7 @@ func ergoWriteSlice_entry_15(env *Env, wv text_1, v []Timer) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_12(env *Env, wv text_1, v []Place) text_1 {
+func ergoWriteSlice_entry_14(env *Env, wv text_1, v []Place) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2220,11 +2487,11 @@ func ergoWriteMachineGraph(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).stringBody(string(v.Name))
 	(w).raw(string(",\"states\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.States)
+	*w = ergoWriteSlice_entry_22(env, *w, v.States)
 	(w).sep()
 	(w).raw(string("\"signals\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Signals)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Signals)
 	(w).sep()
 	(w).raw(string("\"initial\":"))
 	(w).stringBody(string(v.Initial))
@@ -2234,21 +2501,21 @@ func ergoWriteMachineGraph(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).sep()
 	(w).raw(string("\"timers\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_15(env, *w, v.Timers)
+	*w = ergoWriteSlice_entry_17(env, *w, v.Timers)
 	(w).sep()
 	(w).raw(string("\"work\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_12(env, *w, v.Work)
+	*w = ergoWriteSlice_entry_14(env, *w, v.Work)
 	(w).sep()
 	(w).raw(string("\"unsure\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Unsure)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Unsure)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_7(env *Env, wv text_1, v []MachineGraph) text_1 {
+func ergoWriteSlice_9(env *Env, wv text_1, v []MachineGraph) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2262,7 +2529,7 @@ func ergoWriteSlice_7(env *Env, wv text_1, v []MachineGraph) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_5(env *Env, wv text_1, v []Decl) text_1 {
+func ergoWriteSlice_entry_6(env *Env, wv text_1, v []Decl) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2275,7 +2542,7 @@ func ergoWriteSlice_entry_5(env *Env, wv text_1, v []Decl) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_14(env *Env, wv text_1, v []Site) text_1 {
+func ergoWriteSlice_entry_16(env *Env, wv text_1, v []Site) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2288,7 +2555,7 @@ func ergoWriteSlice_entry_14(env *Env, wv text_1, v []Site) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_3(env *Env, wv text_1, v []Contract) text_1 {
+func ergoWriteSlice_entry_4(env *Env, wv text_1, v []Contract) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2301,7 +2568,7 @@ func ergoWriteSlice_entry_3(env *Env, wv text_1, v []Contract) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_2(env *Env, wv text_1, v []Call) text_1 {
+func ergoWriteSlice_entry_3(env *Env, wv text_1, v []Call) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2314,7 +2581,7 @@ func ergoWriteSlice_entry_2(env *Env, wv text_1, v []Call) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_9(env *Env, wv text_1, v []Need) text_1 {
+func ergoWriteSlice_entry_11(env *Env, wv text_1, v []Need) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2327,7 +2594,20 @@ func ergoWriteSlice_entry_9(env *Env, wv text_1, v []Need) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_7(env *Env, wv text_1, v []MachineGraph) text_1 {
+func ergoWriteSlice_entry_7(env *Env, wv text_1, v []Failing) text_1 {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteFailing(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_entry_9(env *Env, wv text_1, v []MachineGraph) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2351,33 +2631,37 @@ func ergoWritePackage(env *Env, wv text_1, v Package) text_1 {
 	(w).intBody(int64(v.Diagnostics))
 	(w).raw(string(",\"decls\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_5(env, *w, v.Decls)
+	*w = ergoWriteSlice_entry_6(env, *w, v.Decls)
 	(w).sep()
 	(w).raw(string("\"sites\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env, *w, v.Sites)
+	*w = ergoWriteSlice_entry_16(env, *w, v.Sites)
 	(w).sep()
 	(w).raw(string("\"contracts\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env, *w, v.Contracts)
+	*w = ergoWriteSlice_entry_4(env, *w, v.Contracts)
 	(w).sep()
 	(w).raw(string("\"calls\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_2(env, *w, v.Calls)
+	*w = ergoWriteSlice_entry_3(env, *w, v.Calls)
 	(w).sep()
 	(w).raw(string("\"needs\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_9(env, *w, v.Needs)
+	*w = ergoWriteSlice_entry_11(env, *w, v.Needs)
+	(w).sep()
+	(w).raw(string("\"fails\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_7(env, *w, v.Fails)
 	(w).sep()
 	(w).raw(string("\"machines\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_7(env, *w, v.Machines)
+	*w = ergoWriteSlice_entry_9(env, *w, v.Machines)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_10(env *Env, wv text_1, v []Package) text_1 {
+func ergoWriteSlice_12(env *Env, wv text_1, v []Package) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2391,7 +2675,7 @@ func ergoWriteSlice_10(env *Env, wv text_1, v []Package) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_10(env *Env, wv text_1, v []Package) text_1 {
+func ergoWriteSlice_entry_12(env *Env, wv text_1, v []Package) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -2413,7 +2697,7 @@ func ergoWriteTables(env *Env, wv text_1, v Tables) text_1 {
 	(w).stringBody(string(v.Root))
 	(w).raw(string(",\"packages\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_10(env, *w, v.Packages)
+	*w = ergoWriteSlice_entry_12(env, *w, v.Packages)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2584,7 +2868,7 @@ func ergoWriteContract_entry(env *Env, wv text_1, v Contract) text_1 {
 	(w).stringBody(string(v.Signature))
 	(w).raw(string(",\"typeParameters\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.TypeParameters)
+	*w = ergoWriteSlice_entry_22(env, *w, v.TypeParameters)
 	(w).sep()
 	(w).raw(string("\"fails\":"))
 	(w).stringBody(string(v.Fails))
@@ -2592,11 +2876,11 @@ func ergoWriteContract_entry(env *Env, wv text_1, v Contract) text_1 {
 	(w).stringBody(string(v.Needs))
 	(w).raw(string(",\"takes\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Takes)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Takes)
 	(w).sep()
 	(w).raw(string("\"takesParameters\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_17(env, *w, v.TakesParameters)
+	*w = ergoWriteSlice_entry_19(env, *w, v.TakesParameters)
 	(w).sep()
 	(w).raw(string("\"takesSelf\":"))
 	(w).boolBody(bool(v.TakesSelf))
@@ -2604,7 +2888,7 @@ func ergoWriteContract_entry(env *Env, wv text_1, v Contract) text_1 {
 	(w).boolBody(bool(v.TakesInferred))
 	(w).raw(string(",\"copies\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_4(env, *w, v.Copies)
+	*w = ergoWriteSlice_entry_5(env, *w, v.Copies)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2746,11 +3030,11 @@ func ergoEncodePair(env *Env, w Writer_1, v Pair) {
 	w.Key(env.task, "signal")
 	w.String(env.task, string(v.Signal))
 	w.Key(env.task, "arms")
-	ergoEncodeSlice_12(env, w, v.Arms)
+	ergoEncodeSlice_14(env, w, v.Arms)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_11(env *Env, w Writer_1, v []Pair) {
+func ergoEncodeSlice_13(env *Env, w Writer_1, v []Pair) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodePair(env, w, e)
@@ -2767,11 +3051,11 @@ func ergoEncodeMachineView(env *Env, w Writer_1, v MachineView) {
 	w.Key(env.task, "graph")
 	ergoEncodeMachineGraph(env, w, v.Graph)
 	w.Key(env.task, "reachable")
-	ergoEncodeSlice_11(env, w, v.Reachable)
+	ergoEncodeSlice_13(env, w, v.Reachable)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_8(env *Env, w Writer_1, v []MachineView) {
+func ergoEncodeSlice_10(env *Env, w Writer_1, v []MachineView) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeMachineView(env, w, e)
@@ -2804,7 +3088,7 @@ func ergoDecodePair(env *Env, r Reader_2) (Pair, error) {
 			out.Signal = f_1
 			seen_1 = true
 		case "arms":
-			f_2, err_3 := ergoDecodeSlice_12(env, r)
+			f_2, err_3 := ergoDecodeSlice_14(env, r)
 			if err_3 != nil {
 				return *new(Pair), err_3
 			}
@@ -2827,7 +3111,7 @@ func ergoDecodePair(env *Env, r Reader_2) (Pair, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_11(env *Env, r Reader_2) ([]Pair, error) {
+func ergoDecodeSlice_13(env *Env, r Reader_2) ([]Pair, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Pair), err
 	}
@@ -2875,7 +3159,7 @@ func ergoDecodeMachineView(env *Env, r Reader_2) (MachineView, error) {
 			out.Graph = f_2
 			seen_2 = true
 		case "reachable":
-			f_3, err_4 := ergoDecodeSlice_11(env, r)
+			f_3, err_4 := ergoDecodeSlice_13(env, r)
 			if err_4 != nil {
 				return *new(MachineView), err_4
 			}
@@ -2901,7 +3185,7 @@ func ergoDecodeMachineView(env *Env, r Reader_2) (MachineView, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_8(env *Env, r Reader_2) ([]MachineView, error) {
+func ergoDecodeSlice_10(env *Env, r Reader_2) ([]MachineView, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]MachineView), err
 	}
@@ -2926,13 +3210,13 @@ func ergoWritePair(env *Env, wv text_1, v Pair) text_1 {
 	(w).stringBody(string(v.Signal))
 	(w).raw(string(",\"arms\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_12(env, *w, v.Arms)
+	*w = ergoWriteSlice_entry_14(env, *w, v.Arms)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_11(env *Env, wv text_1, v []Pair) text_1 {
+func ergoWriteSlice_13(env *Env, wv text_1, v []Pair) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -2954,11 +3238,11 @@ func ergoWriteMachineGraph_entry(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).stringBody(string(v.Name))
 	(w).raw(string(",\"states\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.States)
+	*w = ergoWriteSlice_entry_22(env, *w, v.States)
 	(w).sep()
 	(w).raw(string("\"signals\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Signals)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Signals)
 	(w).sep()
 	(w).raw(string("\"initial\":"))
 	(w).stringBody(string(v.Initial))
@@ -2968,21 +3252,21 @@ func ergoWriteMachineGraph_entry(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).sep()
 	(w).raw(string("\"timers\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_15(env, *w, v.Timers)
+	*w = ergoWriteSlice_entry_17(env, *w, v.Timers)
 	(w).sep()
 	(w).raw(string("\"work\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_12(env, *w, v.Work)
+	*w = ergoWriteSlice_entry_14(env, *w, v.Work)
 	(w).sep()
 	(w).raw(string("\"unsure\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Unsure)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Unsure)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_entry_11(env *Env, wv text_1, v []Pair) text_1 {
+func ergoWriteSlice_entry_13(env *Env, wv text_1, v []Pair) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3008,13 +3292,13 @@ func ergoWriteMachineView(env *Env, wv text_1, v MachineView) text_1 {
 	(w).sep()
 	(w).raw(string("\"reachable\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_11(env, *w, v.Reachable)
+	*w = ergoWriteSlice_entry_13(env, *w, v.Reachable)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_8(env *Env, wv text_1, v []MachineView) text_1 {
+func ergoWriteSlice_10(env *Env, wv text_1, v []MachineView) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3038,6 +3322,9 @@ func ergoCloneCall(v Call) Call {
 	c_1 := v
 	c_1.Brings = slices.Clone(v.Brings)
 	c_1.Discharged = slices.Clone(v.Discharged)
+	c_1.Bound = slices.Clone(v.Bound)
+	c_1.Raises = slices.Clone(v.Raises)
+	c_1.Caught = slices.Clone(v.Caught)
 	return c_1
 }
 
@@ -3177,113 +3464,267 @@ func (t Tables) IndexOf() Index {
 		t_7[t_8] = ergoCloneSlice_3(v_26)
 	}
 	var needers map[string][]string = map[string][]string{}
-	v_27 := (t).needsOf()
-	for _, v_28 := range v_27 {
-		var n Need = v_28
-		t_9 := needers
-		t_10 := n.Capability
-		var v_29 []string
-		{
-			var m_4 map[string][]string = needers
-			var k_3 string = n.Capability
-			var def_4 []string = []string{}
-			v_30, ok_5 := m_4[k_3]
-			if ok_5 {
-				v_31 := Some[[]string]{Value: v_30}
-				v_29 = v_31.Value
-				goto inl_4
-			} else {
-				v_29 = def_4
-				goto inl_4
-			}
-		}
-	inl_4:
-		v_32 := Append[string](slices.Clip(slices.Clone(v_29)), n.Of)
-		t_9[t_10] = v_32
-	}
-	var brings map[string]map[string][]Call = map[string]map[string][]Call{}
-	var discharges map[string][]Call = map[string][]Call{}
-	v_33 := (t).edgesOf()
-	for _, v_34 := range v_33 {
-		var c_2 Call = v_34
-		for _, v_35 := range c_2.Brings {
-			var k_4 string = v_35
-			var v_36 map[string][]Call
+	var kinds map[string]string = map[string]string{}
+	for _, v_27 := range t.Packages {
+		var p_2 Package = v_27
+		for _, v_28 := range p_2.Needs {
+			var n Need = v_28
+			t_9 := needers
+			t_10 := n.Capability
+			var v_29 []string
 			{
-				var m_5 map[string]map[string][]Call = brings
-				var def_5 map[string][]Call = map[string][]Call{}
-				v_37, ok_6 := m_5[k_4]
+				var m_4 map[string][]string = needers
+				var k_3 string = n.Capability
+				var def_4 []string = []string{}
+				v_30, ok_5 := m_4[k_3]
+				if ok_5 {
+					v_31 := Some[[]string]{Value: v_30}
+					v_29 = v_31.Value
+					goto inl_4
+				} else {
+					v_29 = def_4
+					goto inl_4
+				}
+			}
+		inl_4:
+			v_32 := Append[string](slices.Clip(slices.Clone(v_29)), n.Of)
+			t_9[t_10] = v_32
+		}
+		for _, v_33 := range p_2.Fails {
+			var f Failing = v_33
+			kinds[f.Failure] = "failure"
+			var v_34 []string
+			{
+				var m_5 map[string][]string = needers
+				var k_4 string = f.Failure
+				var def_5 []string = []string{}
+				v_35, ok_6 := m_5[k_4]
 				if ok_6 {
-					v_38 := Some[map[string][]Call]{Value: v_37}
-					v_36 = v_38.Value
+					v_36 := Some[[]string]{Value: v_35}
+					v_34 = v_36.Value
 					goto inl_5
 				} else {
-					v_36 = def_5
+					v_34 = def_5
 					goto inl_5
 				}
 			}
 		inl_5:
-			var by map[string][]Call = ergoCloneMap(v_36)
-			t_11 := by
-			t_12 := c_2.From
-			var v_39 []Call
+			var have []string = slices.Clone(v_34)
+			v_37 := has(have, f.Of)
+			if !v_37 {
+				t_11 := needers
+				t_12 := f.Failure
+				t_11[t_12] = Append[string](have, f.Of)
+			}
+		}
+	}
+	var brings map[string]map[string][]Call = map[string]map[string][]Call{}
+	var discharges map[string][]Call = map[string][]Call{}
+	v_39 := (t).edgesOf()
+	for _, v_40 := range v_39 {
+		var c_2 Call = v_40
+		for _, v_41 := range c_2.Brings {
+			var k_5 string = v_41
+			var v_42 map[string][]Call
 			{
-				var m_6 map[string][]Call = by
-				var k_5 string = c_2.From
-				var def_6 []Call = []Call{}
-				v_40, ok_7 := m_6[k_5]
+				var m_6 map[string]map[string][]Call = brings
+				var def_6 map[string][]Call = map[string][]Call{}
+				v_43, ok_7 := m_6[k_5]
 				if ok_7 {
-					v_41 := Some[[]Call]{Value: v_40}
-					v_39 = v_41.Value
+					v_44 := Some[map[string][]Call]{Value: v_43}
+					v_42 = v_44.Value
 					goto inl_6
 				} else {
-					v_39 = def_6
+					v_42 = def_6
 					goto inl_6
 				}
 			}
 		inl_6:
-			v_42 := Append[Call](slices.Clip(ergoCloneSlice_3(v_39)), c_2)
-			t_11[t_12] = ergoCloneSlice_3(v_42)
-			brings[k_4] = ergoCloneMap(by)
-		}
-		for _, v_43 := range c_2.Discharged {
-			var k_6 string = v_43
-			t_13 := discharges
-			t_14 := k_6
-			var v_44 []Call
+			var by map[string][]Call = ergoCloneMap(v_42)
+			t_13 := by
+			t_14 := c_2.From
+			var v_45 []Call
 			{
-				var m_7 map[string][]Call = discharges
+				var m_7 map[string][]Call = by
+				var k_6 string = c_2.From
 				var def_7 []Call = []Call{}
-				v_45, ok_8 := m_7[k_6]
+				v_46, ok_8 := m_7[k_6]
 				if ok_8 {
-					v_46 := Some[[]Call]{Value: v_45}
-					v_44 = v_46.Value
+					v_47 := Some[[]Call]{Value: v_46}
+					v_45 = v_47.Value
 					goto inl_7
 				} else {
-					v_44 = def_7
+					v_45 = def_7
 					goto inl_7
 				}
 			}
 		inl_7:
-			v_47 := Append[Call](slices.Clip(ergoCloneSlice_3(v_44)), c_2)
-			t_13[t_14] = ergoCloneSlice_3(v_47)
+			v_48 := Append[Call](slices.Clip(ergoCloneSlice_3(v_45)), c_2)
+			t_13[t_14] = ergoCloneSlice_3(v_48)
+			brings[k_5] = ergoCloneMap(by)
+		}
+		for _, v_49 := range c_2.Raises {
+			var k_7 string = v_49
+			kinds[k_7] = "failure"
+			var v_50 map[string][]Call
+			{
+				var m_8 map[string]map[string][]Call = brings
+				var def_8 map[string][]Call = map[string][]Call{}
+				v_51, ok_9 := m_8[k_7]
+				if ok_9 {
+					v_52 := Some[map[string][]Call]{Value: v_51}
+					v_50 = v_52.Value
+					goto inl_8
+				} else {
+					v_50 = def_8
+					goto inl_8
+				}
+			}
+		inl_8:
+			var by_1 map[string][]Call = ergoCloneMap(v_50)
+			t_15 := by_1
+			t_16 := c_2.From
+			var v_53 []Call
+			{
+				var m_9 map[string][]Call = by_1
+				var k_8 string = c_2.From
+				var def_9 []Call = []Call{}
+				v_54, ok_10 := m_9[k_8]
+				if ok_10 {
+					v_55 := Some[[]Call]{Value: v_54}
+					v_53 = v_55.Value
+					goto inl_9
+				} else {
+					v_53 = def_9
+					goto inl_9
+				}
+			}
+		inl_9:
+			v_56 := Append[Call](slices.Clip(ergoCloneSlice_3(v_53)), c_2)
+			t_15[t_16] = ergoCloneSlice_3(v_56)
+			brings[k_7] = ergoCloneMap(by_1)
+		}
+		for _, v_57 := range c_2.Discharged {
+			var k_9 string = v_57
+			t_17 := discharges
+			t_18 := k_9
+			var v_58 []Call
+			{
+				var m_10 map[string][]Call = discharges
+				var def_10 []Call = []Call{}
+				v_59, ok_11 := m_10[k_9]
+				if ok_11 {
+					v_60 := Some[[]Call]{Value: v_59}
+					v_58 = v_60.Value
+					goto inl_10
+				} else {
+					v_58 = def_10
+					goto inl_10
+				}
+			}
+		inl_10:
+			v_61 := Append[Call](slices.Clip(ergoCloneSlice_3(v_58)), c_2)
+			t_17[t_18] = ergoCloneSlice_3(v_61)
+		}
+		for _, v_62 := range c_2.Caught {
+			var k_10 string = v_62
+			kinds[k_10] = "failure"
+			t_19 := discharges
+			t_20 := k_10
+			var v_63 []Call
+			{
+				var m_11 map[string][]Call = discharges
+				var def_11 []Call = []Call{}
+				v_64, ok_12 := m_11[k_10]
+				if ok_12 {
+					v_65 := Some[[]Call]{Value: v_64}
+					v_63 = v_65.Value
+					goto inl_11
+				} else {
+					v_63 = def_11
+					goto inl_11
+				}
+			}
+		inl_11:
+			v_66 := Append[Call](slices.Clip(ergoCloneSlice_3(v_63)), c_2)
+			t_19[t_20] = ergoCloneSlice_3(v_66)
+		}
+		var providers []string = []string{}
+		for _, v_67 := range c_2.Bound {
+			var b Binding = v_67
+			v_68 := has(providers, b.Provider)
+			if !v_68 {
+				providers = Append[string](providers, b.Provider)
+				t_21 := discharges
+				t_22 := b.Provider
+				var v_70 []Call
+				{
+					var m_12 map[string][]Call = discharges
+					var k_11 string = b.Provider
+					var def_12 []Call = []Call{}
+					v_71, ok_13 := m_12[k_11]
+					if ok_13 {
+						v_72 := Some[[]Call]{Value: v_71}
+						v_70 = v_72.Value
+						goto inl_12
+					} else {
+						v_70 = def_12
+						goto inl_12
+					}
+				}
+			inl_12:
+				v_73 := Append[Call](slices.Clip(ergoCloneSlice_3(v_70)), c_2)
+				t_21[t_22] = ergoCloneSlice_3(v_73)
+			}
 		}
 	}
-	t_15 := t
-	t_16 := decls
-	t_17 := byHandle
-	t_18 := sites
-	t_19 := at
-	t_20 := short
-	v_48 := (t).summaryOf()
-	t_21 := v_48
-	t_22 := callsOut
-	t_23 := callsIn
-	t_24 := needers
-	t_25 := brings
-	t_26 := discharges
-	v_49 := (t).machinesOf()
-	return Index{tables: t_15, decls: t_16, byHandle: t_17, sites: t_18, at: t_19, short: t_20, summary: t_21, callsOut: t_22, callsIn: t_23, needers: t_24, brings: t_25, discharges: t_26, machines: v_49}
+	v_74 := (t).edgesOf()
+	for _, v_75 := range v_74 {
+		var c_3 Call = v_75
+		for _, v_76 := range c_3.Bound {
+			var b_1 Binding = v_76
+			kinds[b_1.Provider] = "provider"
+			var v_77 []string
+			{
+				var m_13 map[string][]string = needers
+				var k_12 string = b_1.Provider
+				var def_13 []string = []string{}
+				v_78, ok_14 := m_13[k_12]
+				if ok_14 {
+					v_79 := Some[[]string]{Value: v_78}
+					v_77 = v_79.Value
+					goto inl_13
+				} else {
+					v_77 = def_13
+					goto inl_13
+				}
+			}
+		inl_13:
+			var have_1 []string = slices.Clone(v_77)
+			v_80 := has(have_1, c_3.From)
+			if !v_80 {
+				t_23 := needers
+				t_24 := b_1.Provider
+				t_23[t_24] = Append[string](have_1, c_3.From)
+			}
+		}
+	}
+	t_25 := t
+	t_26 := decls
+	t_27 := byHandle
+	t_28 := sites
+	t_29 := at
+	t_30 := short
+	v_82 := (t).summaryOf()
+	t_31 := v_82
+	t_32 := callsOut
+	t_33 := callsIn
+	t_34 := needers
+	t_35 := brings
+	t_36 := discharges
+	t_37 := kinds
+	v_83 := (t).machinesOf()
+	return Index{tables: t_25, decls: t_26, byHandle: t_27, sites: t_28, at: t_29, short: t_30, summary: t_31, callsOut: t_32, callsIn: t_33, needers: t_34, brings: t_35, discharges: t_36, kinds: t_37, machines: v_83}
 }
 
 type Reader interface {
@@ -3310,6 +3751,7 @@ type Index struct {
 	needers    map[string][]string
 	brings     map[string]map[string][]Call
 	discharges map[string][]Call
+	kinds      map[string]string
 	machines   map[string]MachineGraph
 }
 
@@ -3526,23 +3968,23 @@ func (x Index) Reach(env *Env, q ReachQuery) (ReachPage, error) {
 		env_1 := *env
 		_ = env_1
 		(&env_1).Reader = &opsIndexAsReader{v: x, env: env}
-		v_1, err_1 := (q).capabilityOf((&env_1), x.tables)
+		v_1, err_1 := (q).subjectOf((&env_1), x.tables)
 		v, err = v_1, err_1
 	}
 	if err != nil {
 		return *new(ReachPage), err
 	}
-	var capability string = v
+	var s string = v
 	t := x.tables
 	t_1 := q
-	t_2 := capability
-	var v_2 []string
+	t_2 := s
+	var v_2 string
 	{
-		var m map[string][]string = x.needers
-		var def []string = []string{}
-		v_3, ok := m[capability]
+		var m map[string]string = x.kinds
+		var def string = "capability"
+		v_3, ok := m[s]
 		if ok {
-			v_4 := Some[[]string]{Value: v_3}
+			v_4 := Some[string]{Value: v_3}
 			v_2 = v_4.Value
 			goto inl
 		} else {
@@ -3552,13 +3994,13 @@ func (x Index) Reach(env *Env, q ReachQuery) (ReachPage, error) {
 	}
 inl:
 	t_3 := v_2
-	var v_5 map[string][]Call
+	var v_5 []string
 	{
-		var m_1 map[string]map[string][]Call = x.brings
-		var def_1 map[string][]Call = map[string][]Call{}
-		v_6, ok_1 := m_1[capability]
+		var m_1 map[string][]string = x.needers
+		var def_1 []string = []string{}
+		v_6, ok_1 := m_1[s]
 		if ok_1 {
-			v_7 := Some[map[string][]Call]{Value: v_6}
+			v_7 := Some[[]string]{Value: v_6}
 			v_5 = v_7.Value
 			goto inl_1
 		} else {
@@ -3568,13 +4010,13 @@ inl:
 	}
 inl_1:
 	t_4 := v_5
-	var v_8 []Call
+	var v_8 map[string][]Call
 	{
-		var m_2 map[string][]Call = x.discharges
-		var def_2 []Call = []Call{}
-		v_9, ok_2 := m_2[capability]
+		var m_2 map[string]map[string][]Call = x.brings
+		var def_2 map[string][]Call = map[string][]Call{}
+		v_9, ok_2 := m_2[s]
 		if ok_2 {
-			v_10 := Some[[]Call]{Value: v_9}
+			v_10 := Some[map[string][]Call]{Value: v_9}
 			v_8 = v_10.Value
 			goto inl_2
 		} else {
@@ -3583,8 +4025,24 @@ inl_1:
 		}
 	}
 inl_2:
-	v_11 := (t).reachPage(t_1, t_2, t_3, t_4, v_8)
-	return v_11, nil
+	t_5 := v_8
+	var v_11 []Call
+	{
+		var m_3 map[string][]Call = x.discharges
+		var def_3 []Call = []Call{}
+		v_12, ok_3 := m_3[s]
+		if ok_3 {
+			v_13 := Some[[]Call]{Value: v_12}
+			v_11 = v_13.Value
+			goto inl_3
+		} else {
+			v_11 = def_3
+			goto inl_3
+		}
+	}
+inl_3:
+	v_14 := (t).reachPage(t_1, t_2, t_3, t_4, t_5, v_11)
+	return v_14, nil
 }
 
 func (x Index) MachineOf(env *Env, a string) (MachineView, error) {
@@ -3682,15 +4140,16 @@ type ApiView struct {
 }
 
 type ReachQuery struct {
-	Capability string
-	Offset     Option[int]
-	Limit      Option[int]
+	Of     string
+	Offset Option[int]
+	Limit  Option[int]
 }
 
 type ReachPage struct {
 	Revision   string
 	Complete   bool
-	Capability string
+	Of         string
+	Kind       string
 	Reached    []Reached
 	Discharges []Call
 	Total      int
@@ -3709,7 +4168,7 @@ func ergoEncodeSummary(env *Env, w Writer_1, v Summary) {
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
 	w.Key(env.task, "packages")
-	ergoEncodeSlice_20(env, w, v.Packages)
+	ergoEncodeSlice_22(env, w, v.Packages)
 	w.Key(env.task, "complete")
 	w.Bool(env.task, bool(v.Complete))
 	w.Key(env.task, "diagnostics")
@@ -3738,7 +4197,7 @@ func ergoDecodeSummary(env *Env, r Reader_2) (Summary, error) {
 			out.Revision = f
 			seen = true
 		case "packages":
-			f_1, err_2 := ergoDecodeSlice_20(env, r)
+			f_1, err_2 := ergoDecodeSlice_22(env, r)
 			if err_2 != nil {
 				return *new(Summary), err_2
 			}
@@ -3809,7 +4268,7 @@ func ergoWriteSummary(env *Env, wv text_1, v Summary) text_1 {
 	(w).stringBody(string(v.Revision))
 	(w).raw(string(",\"packages\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Packages)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Packages)
 	(w).sep()
 	(w).raw(string("\"complete\":"))
 	(w).boolBody(bool(v.Complete))
@@ -3829,7 +4288,7 @@ func ergoEncodeSymbolPage(env *Env, w Writer_1, v SymbolPage) {
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
 	w.Key(env.task, "decls")
-	ergoEncodeSlice_5(env, w, v.Decls)
+	ergoEncodeSlice_6(env, w, v.Decls)
 	w.Key(env.task, "total")
 	w.Int(env.task, int64(v.Total))
 	w.Key(env.task, "next")
@@ -3854,7 +4313,7 @@ func ergoDecodeSymbolPage(env *Env, r Reader_2) (SymbolPage, error) {
 			out.Revision = f
 			seen = true
 		case "decls":
-			f_1, err_2 := ergoDecodeSlice_5(env, r)
+			f_1, err_2 := ergoDecodeSlice_6(env, r)
 			if err_2 != nil {
 				return *new(SymbolPage), err_2
 			}
@@ -3903,7 +4362,7 @@ func ergoWriteSymbolPage(env *Env, wv text_1, v SymbolPage) text_1 {
 	(w).stringBody(string(v.Revision))
 	(w).raw(string(",\"decls\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_5(env, *w, v.Decls)
+	*w = ergoWriteSlice_entry_6(env, *w, v.Decls)
 	(w).sep()
 	(w).raw(string("\"total\":"))
 	(w).intBody(int64(v.Total))
@@ -3963,7 +4422,7 @@ func ergoEncodeAmbiguous(env *Env, w Writer_1, v Ambiguous) {
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
 	w.Key(env.task, "candidates")
-	ergoEncodeSlice_20(env, w, v.Candidates)
+	ergoEncodeSlice_22(env, w, v.Candidates)
 	w.EndObject(env.task)
 }
 
@@ -3984,7 +4443,7 @@ func ergoDecodeAmbiguous(env *Env, r Reader_2) (Ambiguous, error) {
 			out.Address = f
 			seen = true
 		case "candidates":
-			f_1, err_2 := ergoDecodeSlice_20(env, r)
+			f_1, err_2 := ergoDecodeSlice_22(env, r)
 			if err_2 != nil {
 				return *new(Ambiguous), err_2
 			}
@@ -4011,7 +4470,7 @@ func ergoWriteAmbiguous(env *Env, wv text_1, v Ambiguous) text_1 {
 	(w).stringBody(string(v.Address))
 	(w).raw(string(",\"candidates\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Candidates)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Candidates)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4024,7 +4483,7 @@ func ergoEncodeSitePage(env *Env, w Writer_1, v SitePage) {
 	w.Key(env.task, "complete")
 	w.Bool(env.task, bool(v.Complete))
 	w.Key(env.task, "sites")
-	ergoEncodeSlice_14(env, w, v.Sites)
+	ergoEncodeSlice_16(env, w, v.Sites)
 	w.Key(env.task, "total")
 	w.Int(env.task, int64(v.Total))
 	w.Key(env.task, "next")
@@ -4057,7 +4516,7 @@ func ergoDecodeSitePage(env *Env, r Reader_2) (SitePage, error) {
 			out.Complete = f_1
 			seen_1 = true
 		case "sites":
-			f_2, err_3 := ergoDecodeSlice_14(env, r)
+			f_2, err_3 := ergoDecodeSlice_16(env, r)
 			if err_3 != nil {
 				return *new(SitePage), err_3
 			}
@@ -4111,7 +4570,7 @@ func ergoWriteSitePage(env *Env, wv text_1, v SitePage) text_1 {
 	(w).boolBody(bool(v.Complete))
 	(w).raw(string(",\"sites\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env, *w, v.Sites)
+	*w = ergoWriteSlice_entry_16(env, *w, v.Sites)
 	(w).sep()
 	(w).raw(string("\"total\":"))
 	(w).intBody(int64(v.Total))
@@ -4190,7 +4649,7 @@ func ergoEncodeHop(env *Env, w Writer_1, v Hop) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_6(env *Env, w Writer_1, v []Hop) {
+func ergoEncodeSlice_8(env *Env, w Writer_1, v []Hop) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeHop(env, w, e)
@@ -4205,7 +4664,7 @@ func ergoEncodeCallPage(env *Env, w Writer_1, v CallPage) {
 	w.Key(env.task, "complete")
 	w.Bool(env.task, bool(v.Complete))
 	w.Key(env.task, "hops")
-	ergoEncodeSlice_6(env, w, v.Hops)
+	ergoEncodeSlice_8(env, w, v.Hops)
 	w.Key(env.task, "total")
 	w.Int(env.task, int64(v.Total))
 	w.Key(env.task, "next")
@@ -4250,7 +4709,7 @@ func ergoDecodeHop(env *Env, r Reader_2) (Hop, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_6(env *Env, r Reader_2) ([]Hop, error) {
+func ergoDecodeSlice_8(env *Env, r Reader_2) ([]Hop, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Hop), err
 	}
@@ -4291,7 +4750,7 @@ func ergoDecodeCallPage(env *Env, r Reader_2) (CallPage, error) {
 			out.Complete = f_1
 			seen_1 = true
 		case "hops":
-			f_2, err_3 := ergoDecodeSlice_6(env, r)
+			f_2, err_3 := ergoDecodeSlice_8(env, r)
 			if err_3 != nil {
 				return *new(CallPage), err_3
 			}
@@ -4350,11 +4809,23 @@ func ergoWriteCall_entry(env *Env, wv text_1, v Call) text_1 {
 	(w).intBody(int64(v.Column))
 	(w).raw(string(",\"brings\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Brings)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Brings)
 	(w).sep()
 	(w).raw(string("\"discharged\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Discharged)
+	*w = ergoWriteSlice_entry_22(env, *w, v.Discharged)
+	(w).sep()
+	(w).raw(string("\"bound\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_2(env, *w, v.Bound)
+	(w).sep()
+	(w).raw(string("\"raises\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_22(env, *w, v.Raises)
+	(w).sep()
+	(w).raw(string("\"caught\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_22(env, *w, v.Caught)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4373,7 +4844,7 @@ func ergoWriteHop(env *Env, wv text_1, v Hop) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_6(env *Env, wv text_1, v []Hop) text_1 {
+func ergoWriteSlice_8(env *Env, wv text_1, v []Hop) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -4387,7 +4858,7 @@ func ergoWriteSlice_6(env *Env, wv text_1, v []Hop) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_6(env *Env, wv text_1, v []Hop) text_1 {
+func ergoWriteSlice_entry_8(env *Env, wv text_1, v []Hop) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -4409,7 +4880,7 @@ func ergoWriteCallPage(env *Env, wv text_1, v CallPage) text_1 {
 	(w).boolBody(bool(v.Complete))
 	(w).raw(string(",\"hops\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_6(env, *w, v.Hops)
+	*w = ergoWriteSlice_entry_8(env, *w, v.Hops)
 	(w).sep()
 	(w).raw(string("\"total\":"))
 	(w).intBody(int64(v.Total))
@@ -4471,7 +4942,7 @@ func ergoEncodeApiView(env *Env, w Writer_1, v ApiView) {
 	w.Key(env.task, "package")
 	w.String(env.task, string(v.Package))
 	w.Key(env.task, "functions")
-	ergoEncodeSlice_3(env, w, v.Functions)
+	ergoEncodeSlice_4(env, w, v.Functions)
 	w.EndObject(env.task)
 }
 
@@ -4500,7 +4971,7 @@ func ergoDecodeApiView(env *Env, r Reader_2) (ApiView, error) {
 			out.Package = f_1
 			seen_1 = true
 		case "functions":
-			f_2, err_3 := ergoDecodeSlice_3(env, r)
+			f_2, err_3 := ergoDecodeSlice_4(env, r)
 			if err_3 != nil {
 				return *new(ApiView), err_3
 			}
@@ -4532,7 +5003,7 @@ func ergoWriteApiView(env *Env, wv text_1, v ApiView) text_1 {
 	(w).stringBody(string(v.Package))
 	(w).raw(string(",\"functions\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env, *w, v.Functions)
+	*w = ergoWriteSlice_entry_4(env, *w, v.Functions)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4543,11 +5014,11 @@ func ergoEncodeReached(env *Env, w Writer_1, v Reached) {
 	w.Key(env.task, "function")
 	w.String(env.task, string(v.Function))
 	w.Key(env.task, "chain")
-	ergoEncodeSlice_2(env, w, v.Chain)
+	ergoEncodeSlice_3(env, w, v.Chain)
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_13(env *Env, w Writer_1, v []Reached) {
+func ergoEncodeSlice_15(env *Env, w Writer_1, v []Reached) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeReached(env, w, e)
@@ -4556,17 +5027,19 @@ func ergoEncodeSlice_13(env *Env, w Writer_1, v []Reached) {
 }
 
 func ergoEncodeReachPage(env *Env, w Writer_1, v ReachPage) {
-	w.BeginObject(env.task, 7)
+	w.BeginObject(env.task, 8)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
 	w.Key(env.task, "complete")
 	w.Bool(env.task, bool(v.Complete))
-	w.Key(env.task, "capability")
-	w.String(env.task, string(v.Capability))
+	w.Key(env.task, "of")
+	w.String(env.task, string(v.Of))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
 	w.Key(env.task, "reached")
-	ergoEncodeSlice_13(env, w, v.Reached)
+	ergoEncodeSlice_15(env, w, v.Reached)
 	w.Key(env.task, "discharges")
-	ergoEncodeSlice_2(env, w, v.Discharges)
+	ergoEncodeSlice_3(env, w, v.Discharges)
 	w.Key(env.task, "total")
 	w.Int(env.task, int64(v.Total))
 	w.Key(env.task, "next")
@@ -4591,7 +5064,7 @@ func ergoDecodeReached(env *Env, r Reader_2) (Reached, error) {
 			out.Function = f
 			seen = true
 		case "chain":
-			f_1, err_2 := ergoDecodeSlice_2(env, r)
+			f_1, err_2 := ergoDecodeSlice_3(env, r)
 			if err_2 != nil {
 				return *new(Reached), err_2
 			}
@@ -4611,7 +5084,7 @@ func ergoDecodeReached(env *Env, r Reader_2) (Reached, error) {
 	return out, nil
 }
 
-func ergoDecodeSlice_13(env *Env, r Reader_2) ([]Reached, error) {
+func ergoDecodeSlice_15(env *Env, r Reader_2) ([]Reached, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]Reached), err
 	}
@@ -4632,7 +5105,7 @@ func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
 		return *new(ReachPage), err
 	}
 	var out ReachPage
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "revision":
@@ -4651,44 +5124,52 @@ func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
 			f_1 := bool(raw_2)
 			out.Complete = f_1
 			seen_1 = true
-		case "capability":
+		case "of":
 			raw_3, err_3 := r.String(env.task)
 			if err_3 != nil {
 				return *new(ReachPage), err_3
 			}
 			f_2 := string(raw_3)
-			out.Capability = f_2
+			out.Of = f_2
 			seen_2 = true
-		case "reached":
-			f_3, err_4 := ergoDecodeSlice_13(env, r)
+		case "kind":
+			raw_4, err_4 := r.String(env.task)
 			if err_4 != nil {
 				return *new(ReachPage), err_4
 			}
-			out.Reached = f_3
+			f_3 := string(raw_4)
+			out.Kind = f_3
 			seen_3 = true
-		case "discharges":
-			f_4, err_5 := ergoDecodeSlice_2(env, r)
+		case "reached":
+			f_4, err_5 := ergoDecodeSlice_15(env, r)
 			if err_5 != nil {
 				return *new(ReachPage), err_5
 			}
-			out.Discharges = f_4
+			out.Reached = f_4
 			seen_4 = true
-		case "total":
-			raw_4, err_6 := r.Int(env.task)
+		case "discharges":
+			f_5, err_6 := ergoDecodeSlice_3(env, r)
 			if err_6 != nil {
 				return *new(ReachPage), err_6
 			}
-			f_5 := int(raw_4)
-			out.Total = f_5
+			out.Discharges = f_5
 			seen_5 = true
-		case "next":
+		case "total":
 			raw_5, err_7 := r.Int(env.task)
 			if err_7 != nil {
 				return *new(ReachPage), err_7
 			}
 			f_6 := int(raw_5)
-			out.Next = f_6
+			out.Total = f_6
 			seen_6 = true
+		case "next":
+			raw_6, err_8 := r.Int(env.task)
+			if err_8 != nil {
+				return *new(ReachPage), err_8
+			}
+			f_7 := int(raw_6)
+			out.Next = f_7
+			seen_7 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -4701,18 +5182,21 @@ func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
 		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "capability"}
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "of"}
 	}
 	if !seen_3 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "reached"}
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_4 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "discharges"}
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "reached"}
 	}
 	if !seen_5 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "discharges"}
 	}
 	if !seen_6 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+	}
+	if !seen_7 {
 		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
 	}
 	return out, nil
@@ -4725,13 +5209,13 @@ func ergoWriteReached(env *Env, wv text_1, v Reached) text_1 {
 	(w).stringBody(string(v.Function))
 	(w).raw(string(",\"chain\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_2(env, *w, v.Chain)
+	*w = ergoWriteSlice_entry_3(env, *w, v.Chain)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_13(env *Env, wv text_1, v []Reached) text_1 {
+func ergoWriteSlice_15(env *Env, wv text_1, v []Reached) text_1 {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -4745,7 +5229,7 @@ func ergoWriteSlice_13(env *Env, wv text_1, v []Reached) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_13(env *Env, wv text_1, v []Reached) text_1 {
+func ergoWriteSlice_entry_15(env *Env, wv text_1, v []Reached) text_1 {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -4765,15 +5249,17 @@ func ergoWriteReachPage(env *Env, wv text_1, v ReachPage) text_1 {
 	(w).stringBody(string(v.Revision))
 	(w).raw(string(",\"complete\":"))
 	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"capability\":"))
-	(w).stringBody(string(v.Capability))
+	(w).raw(string(",\"of\":"))
+	(w).stringBody(string(v.Of))
+	(w).raw(string(",\"kind\":"))
+	(w).stringBody(string(v.Kind))
 	(w).raw(string(",\"reached\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_13(env, *w, v.Reached)
+	*w = ergoWriteSlice_entry_15(env, *w, v.Reached)
 	(w).sep()
 	(w).raw(string("\"discharges\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_2(env, *w, v.Discharges)
+	*w = ergoWriteSlice_entry_3(env, *w, v.Discharges)
 	(w).sep()
 	(w).raw(string("\"total\":"))
 	(w).intBody(int64(v.Total))
@@ -5112,6 +5598,7 @@ type Package struct {
 	Contracts   []Contract
 	Calls       []Call
 	Needs       []Need
+	Fails       []Failing
 	Machines    []MachineGraph
 }
 
@@ -5154,11 +5641,24 @@ type Call struct {
 	Column     int
 	Brings     []string
 	Discharged []string
+	Bound      []Binding
+	Raises     []string
+	Caught     []string
+}
+
+type Binding struct {
+	Capability string
+	Provider   string
 }
 
 type Need struct {
 	Of         string
 	Capability string
+}
+
+type Failing struct {
+	Of      string
+	Failure string
 }
 
 type MachineGraph struct {
@@ -5497,7 +5997,7 @@ func ergoCloneContract(v Contract) Contract {
 	return c_1
 }
 
-func ergoEqualSlice_24(a, b []string) bool {
+func ergoEqualSlice_26(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -5509,7 +6009,7 @@ func ergoEqualSlice_24(a, b []string) bool {
 	return true
 }
 
-func ergoEqualSlice_23(a, b []int) bool {
+func ergoEqualSlice_25(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -5521,7 +6021,7 @@ func ergoEqualSlice_23(a, b []int) bool {
 	return true
 }
 
-func ergoEqualSlice_5(a, b []CopySite) bool {
+func ergoEqualSlice_6(a, b []CopySite) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -5534,7 +6034,7 @@ func ergoEqualSlice_5(a, b []CopySite) bool {
 }
 
 func ergoEqualContract(a, b Contract) bool {
-	return (a.Name == b.Name) && (a.Signature == b.Signature) && ergoEqualSlice_24(a.TypeParameters, b.TypeParameters) && (a.Fails == b.Fails) && (a.Needs == b.Needs) && ergoEqualSlice_24(a.Takes, b.Takes) && ergoEqualSlice_23(a.TakesParameters, b.TakesParameters) && (a.TakesSelf == b.TakesSelf) && (a.TakesInferred == b.TakesInferred) && ergoEqualSlice_5(a.Copies, b.Copies)
+	return (a.Name == b.Name) && (a.Signature == b.Signature) && ergoEqualSlice_26(a.TypeParameters, b.TypeParameters) && (a.Fails == b.Fails) && (a.Needs == b.Needs) && ergoEqualSlice_26(a.Takes, b.Takes) && ergoEqualSlice_25(a.TakesParameters, b.TakesParameters) && (a.TakesSelf == b.TakesSelf) && (a.TakesInferred == b.TakesInferred) && ergoEqualSlice_6(a.Copies, b.Copies)
 }
 
 func ergoEqualSome_2(a, b Some[Contract]) bool {
@@ -5833,16 +6333,14 @@ func (t Tables) edgesOf() []Call {
 	return out
 }
 
-func (t Tables) needsOf() []Need {
-	var out []Need = []Need{}
-	for _, v := range t.Packages {
-		var p Package = v
-		for _, v_1 := range p.Needs {
-			var n Need = v_1
-			out = Append[Need](out, n)
+func has(xs []string, x string) bool {
+	for _, v := range xs {
+		var y string = v
+		if y == x {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 func (t Tables) summaryOf() Summary {
@@ -5884,7 +6382,7 @@ func text(o Option[string]) string {
 	case 1:
 		return ""
 	default:
-		panic("ergo: defect: no case of the match at std/code/code.ergo:335:2 matched")
+		panic("ergo: defect: no case of the match at std/code/code.ergo:336:2 matched")
 	}
 }
 
@@ -5968,16 +6466,6 @@ type Ambiguous struct {
 
 func (e Ambiguous) Error() string {
 	return "Ambiguous" + textAmbiguous(e)
-}
-
-func has(xs []string, x string) bool {
-	for _, v := range xs {
-		var y string = v
-		if y == x {
-			return true
-		}
-	}
-	return false
 }
 
 type NotCallable struct {
@@ -6108,32 +6596,32 @@ func (t Tables) apiOf(env *Env, q ApiQuery) (ApiView, error) {
 	return *new(ApiView), NoPackage{Package: want}
 }
 
-func (q ReachQuery) capabilityOf(env *Env, t Tables) (string, error) {
+func (q ReachQuery) subjectOf(env *Env, t Tables) (string, error) {
 	env.task.Check()
-	v, err := env.Reader.Symbol(env.task, q.Capability)
+	v, err := env.Reader.Symbol(env.task, q.Of)
 	if err != nil {
 		switch caught := err.(type) {
 		case NoSymbol:
 			n := caught
-			v_1 := (t).needsOf()
+			v_1 := (t).rowElemsOf()
 			for _, v_2 := range v_1 {
 				var x Need = v_2
-				if x.Capability == q.Capability {
-					return q.Capability, nil
+				if x.Capability == q.Of {
+					return q.Of, nil
 				}
 				env.task.Check()
 			}
 			v_3 := (t).edgesOf()
 			for _, v_4 := range v_3 {
 				var c_1 Call = v_4
-				v_5 := has(c_1.Brings, q.Capability)
+				v_5 := (c_1).carries(q.Of)
 				b := v_5
 				if !b {
-					v_6 := has(c_1.Discharged, q.Capability)
+					v_6 := (c_1).stops(q.Of)
 					b = v_6
 				}
 				if b {
-					return q.Capability, nil
+					return q.Of, nil
 				}
 				env.task.Check()
 			}
@@ -6149,7 +6637,7 @@ func (q ReachQuery) capabilityOf(env *Env, t Tables) (string, error) {
 	return v.Handle, nil
 }
 
-func (t Tables) reachPage(q ReachQuery, capability string, functions []string, out map[string][]Call, discharges []Call) ReachPage {
+func (t Tables) reachPage(q ReachQuery, x string, kind string, functions []string, out map[string][]Call, discharges []Call) ReachPage {
 	v := window(len(functions), q.Offset, q.Limit)
 	p := v
 	_ = p
@@ -6161,13 +6649,13 @@ func (t Tables) reachPage(q ReachQuery, capability string, functions []string, o
 		var f string = v_1
 		t_1 := reached
 		t_2 := f
-		v_2 := chainOf(out, f, capability)
+		v_2 := chainOf(out, f)
 		v_3 := Append[Reached](t_1, Reached{Function: t_2, Chain: ergoCloneSlice_3(v_2)})
 		reached = v_3
 	}
 	t_3 := t.Revision
 	v_4 := (t).summaryOf()
-	return ReachPage{Revision: t_3, Complete: v_4.Complete, Capability: capability, Reached: reached, Discharges: discharges, Total: len(functions), Next: next}
+	return ReachPage{Revision: t_3, Complete: v_4.Complete, Of: x, Kind: kind, Reached: reached, Discharges: discharges, Total: len(functions), Next: next}
 }
 
 func machineTarget(env *Env, a string, d Decl, graphs map[string]MachineGraph) (MachineGraph, error) {
@@ -6953,7 +7441,7 @@ func or(o Option[int], d int) int {
 	case 1:
 		return d
 	default:
-		panic("ergo: defect: no case of the match at std/code/code.ergo:325:2 matched")
+		panic("ergo: defect: no case of the match at std/code/code.ergo:326:2 matched")
 	}
 }
 
@@ -6996,12 +7484,59 @@ type Range[T ergoOrdered] struct {
 
 const MaxDepth int = int(16)
 
-func chainOf(out map[string][]Call, f string, capability string) []Call {
+func (t Tables) rowElemsOf() []Need {
+	var out []Need = []Need{}
+	for _, v := range t.Packages {
+		var p Package = v
+		for _, v_1 := range p.Needs {
+			var n Need = v_1
+			out = Append[Need](out, n)
+		}
+		for _, v_3 := range p.Fails {
+			var f Failing = v_3
+			out = Append[Need](out, Need{Of: f.Of, Capability: f.Failure})
+		}
+	}
+	return out
+}
+
+func (c_1 Call) carries(x string) bool {
+	v := has(c_1.Brings, x)
+	b := v
+	if !b {
+		v_1 := has(c_1.Raises, x)
+		b = v_1
+	}
+	return b
+}
+
+func (c_1 Call) stops(x string) bool {
+	v := has(c_1.Discharged, x)
+	b := v
+	if !b {
+		v_1 := has(c_1.Caught, x)
+		b = v_1
+	}
+	if b {
+		return true
+	}
+	for _, v_2 := range c_1.Bound {
+		var b_1 Binding = v_2
+		if b_1.Provider == x {
+			return true
+		}
+	}
+	return false
+}
+
+func chainOf(out map[string][]Call, f string) []Call {
 	var paths map[string][]Call = map[string][]Call{}
 	var seen map[string]bool = map[string]bool{}
 	seen[f] = true
 	paths[f] = []Call{}
 	var frontier []string = []string{f}
+	var back []Call = []Call{}
+	var found bool = false
 	for len(frontier) > int(0) {
 		var next []string = []string{}
 		for _, v := range frontier {
@@ -7020,6 +7555,7 @@ func chainOf(out map[string][]Call, f string, capability string) []Call {
 				}
 			}
 		inl:
+			var fresh bool = false
 			for _, v_4 := range v_1 {
 				var c_1 Call = v_4
 				var v_5 []Call
@@ -7076,12 +7612,33 @@ func chainOf(out map[string][]Call, f string, capability string) []Call {
 					seen[c_1.To] = true
 					paths[c_1.To] = ergoCloneSlice_3(v_8)
 					next = Append[string](next, c_1.To)
+					fresh = true
 				}
+			}
+			if ((!fresh) && (len(v_1) > int(0))) && (!found) {
+				var v_16 []Call
+				{
+					var m_2 map[string][]Call = paths
+					var def_4 []Call = []Call{}
+					v_17, ok_4 := m_2[h]
+					if ok_4 {
+						v_18 := Some[[]Call]{Value: v_17}
+						v_16 = v_18.Value
+						goto inl_4
+					} else {
+						v_16 = def_4
+						goto inl_4
+					}
+				}
+			inl_4:
+				v_19 := Append[Call](slices.Clip(ergoCloneSlice_3(v_16)), v_1[int(0)])
+				back = ergoCloneSlice_3(v_19)
+				found = true
 			}
 		}
 		frontier = next
 	}
-	return []Call{}
+	return back
 }
 
 func (g MachineGraph) targets(e Transition) []string {
@@ -11455,9 +12012,9 @@ var ergoCalls = [...]ergoCall{
 	{Func: "commandReach", Callee: "flag.RequiredString", File: "/linked/codecli/cli.ergo", Line: 87, Column: 11},
 	{Func: "commandReach", Callee: "flag.OptionalInt", File: "/linked/codecli/cli.ergo", Line: 88, Column: 11},
 	{Func: "commandReach", Callee: "flag.OptionalInt", File: "/linked/codecli/cli.ergo", Line: 89, Column: 11},
-	{Func: "commandReach", Callee: "StringFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 47},
-	{Func: "commandReach", Callee: "OptionalIntFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 66},
-	{Func: "commandReach", Callee: "OptionalIntFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 84},
+	{Func: "commandReach", Callee: "StringFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 39},
+	{Func: "commandReach", Callee: "OptionalIntFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 58},
+	{Func: "commandReach", Callee: "OptionalIntFlag.Get", File: "/linked/codecli/cli.ergo", Line: 91, Column: 76},
 	{Func: "commandMachineOf", Callee: "flag.Arg", File: "/linked/codecli/cli.ergo", Line: 97, Column: 11},
 	{Func: "commandMachineOf", Callee: "codetool/codecli.argText", File: "/linked/codecli/cli.ergo", Line: 99, Column: 12},
 	{Func: "argText", Callee: "ArgSpec.Get", File: "/linked/codecli/cli.ergo", Line: 106, Column: 8},
@@ -11750,18 +12307,18 @@ func Api_1(env *Env, tables string, asJSON bool) []string {
 			}
 			/*line /linked/tool.ergo:61:28*/
 		}{Enc: func(e *Env, w Writer_1, v_3 []Contract) (struct{}, error) {
-			/*line /linked/tool.ergo:61:28*/ ergoEncodeSlice_3(e, w, v_3)
+			/*line /linked/tool.ergo:61:28*/ ergoEncodeSlice_4(e, w, v_3)
 			/*line /linked/tool.ergo:61:28*/ return struct{}{}, nil
 			/*line /linked/tool.ergo:61:28*/
 		}, Dec: func(e_1 *Env, r Reader_2) ([]Contract, error) {
-			/*line /linked/tool.ergo:61:28*/ x, err_1 := ergoDecodeSlice_3(e_1, r)
+			/*line /linked/tool.ergo:61:28*/ x, err_1 := ergoDecodeSlice_4(e_1, r)
 			/*line /linked/tool.ergo:61:28*/ if err_1 != nil {
 				/*line /linked/tool.ergo:61:28*/ return *new([]Contract), err_1
 				/*line /linked/tool.ergo:61:28*/
 			}
 			/*line /linked/tool.ergo:61:28*/ return x, nil
 			/*line /linked/tool.ergo:61:28*/
-		}, Direct0: ergoWriteSlice_3, Field: nil}, Codec[[]Contract]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
+		}, Direct0: ergoWriteSlice_4, Field: nil}, Codec[[]Contract]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
 		/*line /linked/tool.ergo:61:28*/ v_2 = v_5
 		/*line /linked/tool.ergo:61:28*/
 	} else {
@@ -11967,18 +12524,18 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 			}
 			/*line /linked/tool.ergo:104:24*/
 		}{Enc: func(e *Env, w Writer_1, v_9 []MachineView) (struct{}, error) {
-			/*line /linked/tool.ergo:104:24*/ ergoEncodeSlice_8(e, w, v_9)
+			/*line /linked/tool.ergo:104:24*/ ergoEncodeSlice_10(e, w, v_9)
 			/*line /linked/tool.ergo:104:24*/ return struct{}{}, nil
 			/*line /linked/tool.ergo:104:24*/
 		}, Dec: func(e_1 *Env, r Reader_2) ([]MachineView, error) {
-			/*line /linked/tool.ergo:104:24*/ x, err_2 := ergoDecodeSlice_8(e_1, r)
+			/*line /linked/tool.ergo:104:24*/ x, err_2 := ergoDecodeSlice_10(e_1, r)
 			/*line /linked/tool.ergo:104:24*/ if err_2 != nil {
 				/*line /linked/tool.ergo:104:24*/ return *new([]MachineView), err_2
 				/*line /linked/tool.ergo:104:24*/
 			}
 			/*line /linked/tool.ergo:104:24*/ return x, nil
 			/*line /linked/tool.ergo:104:24*/
-		}, Direct0: ergoWriteSlice_8, Field: nil}, Codec[[]MachineView]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, views)
+		}, Direct0: ergoWriteSlice_10, Field: nil}, Codec[[]MachineView]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, views)
 //line /linked/tool.ergo:104:3
 		return []string{"0", v_11, ""}
 		/*line /linked/tool.ergo:104:3*/
@@ -13461,7 +14018,7 @@ func commandApi() Command[Request] {
 func commandReach() Command[Request] {
 //line /linked/codecli/cli.ergo:87:2
 //line /linked/codecli/cli.ergo:87:11
-	v := RequiredString("capability", "q.Capability (string)")
+	v := RequiredString("of", "q.Of (string)")
 //line /linked/codecli/cli.ergo:87:2
 //line /linked/codecli/cli.ergo:88:2
 //line /linked/codecli/cli.ergo:88:11
@@ -13486,18 +14043,18 @@ func commandReach() Command[Request] {
 //line /linked/codecli/cli.ergo:90:2
 	return Command[Request]{Name: "reach", Usage: "Reach(q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous", Set: Set{Name: "reach", Usage: "Reach(q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous", Flags: []Flag{v, v_1, v_3}, Args: []ArgSpec{}}, Build: func(env *Env, v_5 Values) (Request, error) {
 //line /linked/codecli/cli.ergo:91:3
-//line /linked/codecli/cli.ergo:91:47
+//line /linked/codecli/cli.ergo:91:39
 		v_6 := (v).Get(v_5)
 //line /linked/codecli/cli.ergo:91:3
 		t := v_6
-//line /linked/codecli/cli.ergo:91:66
+//line /linked/codecli/cli.ergo:91:58
 		v_7 := (v_1).Get(v_5)
 //line /linked/codecli/cli.ergo:91:3
 		t_1 := v_7
-//line /linked/codecli/cli.ergo:91:84
+//line /linked/codecli/cli.ergo:91:76
 		v_8 := (v_3).Get(v_5)
 //line /linked/codecli/cli.ergo:91:3
-		return ReachRequest{Q: ReachQuery{Capability: t, Offset: t_1, Limit: v_8}}, nil
+		return ReachRequest{Q: ReachQuery{Of: t, Offset: t_1, Limit: v_8}}, nil
 		/*line /linked/codecli/cli.ergo:91:3*/
 	}, Commands: []Command[Request]{}}
 	/*line /linked/codecli/cli.ergo:91:3*/

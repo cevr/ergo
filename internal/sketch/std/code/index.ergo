@@ -21,12 +21,14 @@ type Index {
 	// table order.
 	callsOut Map[string, []Call],
 	callsIn  Map[string, []Call],
-	// needers is the functions whose row holds each capability, brings
-	// each capability's bringing calls by caller, and discharges each
-	// capability's discharging calls, in table order.
+	// needers is the functions that have each capability, failure or
+	// provider, brings the calls that bring or raise each by caller, and
+	// discharges the calls that discharge each, in table order; kinds is
+	// what each is, when not a capability.
 	needers    Map[string, []string],
 	brings     Map[string, Map[string, []Call]],
 	discharges Map[string, []Call],
+	kinds      Map[string, string],
 	// machines is the machine graphs by handle.
 	machines Map[string, MachineGraph],
 }
@@ -66,8 +68,18 @@ func IndexOf(t Tables) Index {
 		callsIn[c.To] = maps.GetOr(callsIn, c.To, []Call{}).Append(c)
 	}
 	let mut needers = Map[string, []string]{}
-	for n in needsOf(t) {
-		needers[n.Capability] = maps.GetOr(needers, n.Capability, []string{}).Append(n.Of)
+	let mut kinds = Map[string, string]{}
+	for p in t.Packages {
+		for n in p.Needs {
+			needers[n.Capability] = maps.GetOr(needers, n.Capability, []string{}).Append(n.Of)
+		}
+		for f in p.Fails {
+			kinds[f.Failure] = "failure"
+			let have = maps.GetOr(needers, f.Failure, []string{})
+			if !has(have, f.Of) {
+				needers[f.Failure] = have.Append(f.Of)
+			}
+		}
 	}
 	let mut brings = Map[string, Map[string, []Call]]{}
 	let mut discharges = Map[string, []Call]{}
@@ -77,11 +89,37 @@ func IndexOf(t Tables) Index {
 			by[c.From] = maps.GetOr(by, c.From, []Call{}).Append(c)
 			brings[k] = by
 		}
+		for k in c.Raises {
+			kinds[k] = "failure"
+			let mut by = maps.GetOr(brings, k, Map[string, []Call]{})
+			by[c.From] = maps.GetOr(by, c.From, []Call{}).Append(c)
+			brings[k] = by
+		}
 		for k in c.Discharged {
 			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
 		}
+		for k in c.Caught {
+			kinds[k] = "failure"
+			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
+		}
+		let mut providers = []string{}
+		for b in c.Bound {
+			if !has(providers, b.Provider) {
+				providers = providers.Append(b.Provider)
+				discharges[b.Provider] = maps.GetOr(discharges, b.Provider, []Call{}).Append(c)
+			}
+		}
 	}
-	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges, machines: machinesOf(t)}
+	for c in edgesOf(t) {
+		for b in c.Bound {
+			kinds[b.Provider] = "provider"
+			let have = maps.GetOr(needers, b.Provider, []string{})
+			if !has(have, c.From) {
+				needers[b.Provider] = have.Append(c.From)
+			}
+		}
+	}
+	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges, kinds: kinds, machines: machinesOf(t)}
 }
 
 // NewIndex is the indexed reader of the tables Generated(seed) makes: the
@@ -98,8 +136,8 @@ func MachineOf(x Index, a string) MachineView fails NoSymbol | Ambiguous | NotMa
 }
 
 func Reach(x Index, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
-	let capability = try with context { Reader: x } { capabilityOf(q, x.tables) }
-	reachPage(x.tables, q, capability, maps.GetOr(x.needers, capability, []string{}), maps.GetOr(x.brings, capability, Map[string, []Call]{}), maps.GetOr(x.discharges, capability, []Call{}))
+	let s = try with context { Reader: x } { subjectOf(q, x.tables) }
+	reachPage(x.tables, q, s, maps.GetOr(x.kinds, s, "capability"), maps.GetOr(x.needers, s, []string{}), maps.GetOr(x.brings, s, Map[string, []Call]{}), maps.GetOr(x.discharges, s, []Call{}))
 }
 
 func Calls(x Index, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {
@@ -243,6 +281,7 @@ func answers(t Tables, size int) []Outcome needs Reader {
 		out = out.Append(machineAt(a))
 	}
 	out = out.Append(reachAt("Console", step))
+	out = out.Append(reachAt("Fault", step))
 	out
 }
 
@@ -266,9 +305,9 @@ func reachAt(a string, step int) Outcome needs Reader {
 	let q = "reach " + a
 	let mut reached = []Reached{}
 	let mut at = 0
-	let mut last = ReachPage{Revision: "", Complete: true, Capability: "", Reached: []Reached{}, Discharges: []Call{}, Total: 0, Next: -1}
+	let mut last = ReachPage{Revision: "", Complete: true, Of: "", Kind: "", Reached: []Reached{}, Discharges: []Call{}, Total: 0, Next: -1}
 	for at >= 0 {
-		last = Reader.Reach(ReachQuery{Capability: a, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		last = Reader.Reach(ReachQuery{Of: a, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
 		case NoSymbol:
 			return Outcome{..asked(q), Failure: "NoSymbol"}
 		case Ambiguous as m:

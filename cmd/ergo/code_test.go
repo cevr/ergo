@@ -424,16 +424,27 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 }
 
 // reachAgrees holds `ergo code reach` to the checker on the program a,
-// for each capability a with of it discharges and up to three more the
-// seed draws:
-//   - the functions answered are those whose derived needs row
-//     (Signature.Uses) holds the capability, by their declaring name;
+// for each capability a with of it discharges, each failure a catch of it
+// handles, each provider a with of it binds, and up to three more the seed
+// draws:
+//   - the functions answered for a capability or a failure are those
+//     whose derived needs or fails row (Signature.Uses, Signature.Errors)
+//     holds it, by their declaring name;
 //   - the discharges are the calls in a with's block whose row at the
-//     site (Info.Calls) holds a capability the with discharges, found by
-//     walking each with's block (the tables find them by offsets);
-//   - each call of a chain charges the capability and is not one of them.
+//     site (Info.Calls) holds a capability the with discharges, the calls
+//     in a catch's expression whose error row at the site holds a failure
+//     the catch handles (it is total, an arm catches the rest, or an arm
+//     tests the failure's type or a union that holds it), and for a
+//     provider the calls whose capability the innermost with that
+//     discharges it binds to the provider; all found by walking each
+//     with's block and each catch's expression (the tables find them by
+//     offsets);
+//   - each call of a chain charges it and is not one of them, and a
+//     function whose own call charges it and is not one of them has a
+//     chain.
 //
-// Mutant reach-with-ignored (cmd/ergo/testdata/mutants.json).
+// Mutants reach-with-ignored, reach-catch-ignored, reach-provider-dropped
+// (cmd/ergo/testdata/mutants.json).
 func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand, fail func(string, ...any)) {
 	t.Helper()
 	root := ""
@@ -487,11 +498,55 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 		m[k][v] = true
 	}
 	var withCaps []string
+	// callsIn is each call of a function that charges it something.
+	type inCall struct{ what, fn, call string }
+	var callsIn []inCall
+	// provided: call position → capability → the provider's handle, the
+	// innermost with's (a with is walked before the withs in its block).
+	provided := map[string]map[string]string{}
+	handleOf := func(o check.Object) string {
+		switch x := o.(type) {
+		case *check.Func:
+			if x.Pkg != nil && x.Pkg.Path == "main" {
+				return root + "." + x.Name
+			} else if x.Pkg != nil && x.Decl != nil && x.Decl.Recv == nil {
+				return x.Pkg.Path + "." + x.Name
+			}
+		case *check.TypeName:
+			return capOf(x.Type)
+		}
+		return ""
+	}
 	for _, p := range a.Packages() {
 		if p.Package == nil {
 			continue
 		}
 		info := p.Package.Info
+		providerOf := func(e syntax.Expr) string {
+			switch x := e.(type) {
+			case *syntax.CallExpr:
+				e = x.Fun
+			case *syntax.CompositeLit:
+				e = x.Type
+			}
+			name := callName(e)
+			if name == nil {
+				return ""
+			}
+			if sel, ok := e.(*syntax.SelectorExpr); ok && info.Uses[name] == nil {
+				// pkg.Name: the package's declaration of that name.
+				if q, ok := sel.X.(*syntax.Ident); ok {
+					if pn, ok := info.Uses[q].(*check.PkgName); ok && pn.Pkg != nil {
+						return pn.Pkg.Path + "." + name.Name
+					}
+				}
+				return ""
+			}
+			if info.Uses[name] == nil {
+				return ""
+			}
+			return handleOf(info.Uses[name])
+		}
 		for _, cf := range p.Files {
 			if cf.Syntax == nil {
 				continue
@@ -509,8 +564,74 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 						add(needers, c, at(fn.Decl.Name.NamePos))
 					}
 				}
+				for _, ty := range fn.Sig.Errors.Elems() {
+					if c := capOf(ty); c != "" {
+						add(needers, c, at(fn.Decl.Name.NamePos))
+					}
+				}
+				syntax.Inspect(fn.Decl, func(n syntax.Node) bool {
+					y, ok := n.(*syntax.CallExpr)
+					if !ok || info.Calls[y] == nil || info.Withs[y] != nil {
+						return true
+					}
+					if name := callName(y.Fun); name != nil {
+						for _, r := range []*check.Row{info.Calls[y].Needs, info.Calls[y].Fails} {
+							for _, ty := range r.Elems() {
+								if k := capOf(ty); k != "" {
+									callsIn = append(callsIn, inCall{k, at(fn.Decl.Name.NamePos), at(name.NamePos)})
+								}
+							}
+						}
+					}
+					return true
+				})
 			}
 			syntax.Inspect(cf.Syntax, func(n syntax.Node) bool {
+				if x, ok := n.(*syntax.CatchExpr); ok {
+					m := info.Matches[x]
+					all := m == nil || !m.Partial
+					var handled []string
+					for _, arm := range x.Arms {
+						for _, te := range arm.Types {
+							if as, ok := te.(*syntax.AsPattern); ok {
+								te = as.X
+							}
+							pt := info.Patterns[te]
+							switch {
+							case pt == nil:
+							case pt.Kind == check.PatWildcard || pt.Kind == check.PatBind:
+								all = true
+							case pt.Kind == check.PatTypeTest:
+								handled = append(handled, capOf(pt.Type))
+								if n, ok := pt.Type.(*check.Named); ok {
+									if u, ok := n.Underlying().(*check.Union); ok {
+										for _, v := range u.Variants {
+											handled = append(handled, capOf(v))
+										}
+									}
+								}
+							}
+						}
+					}
+					syntax.Inspect(x.X, func(n syntax.Node) bool {
+						y, ok := n.(*syntax.CallExpr)
+						if !ok || info.Calls[y] == nil || info.Withs[y] != nil {
+							return true // a with is no call edge of the tables
+						}
+						if name := callName(y.Fun); name != nil {
+							for _, ty := range info.Calls[y].Fails.Elems() {
+								if k := capOf(ty); k != "" && (all || slices.Contains(handled, k)) {
+									add(discharged, k, at(name.NamePos))
+									if !slices.Contains(withCaps, k) {
+										withCaps = append(withCaps, k)
+									}
+								}
+							}
+						}
+						return true
+					})
+					return true
+				}
 				x, ok := n.(*syntax.CallExpr)
 				if !ok {
 					return true
@@ -522,6 +643,11 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 								add(charged, k, at(name.NamePos))
 							}
 						}
+						for _, ty := range c.Fails.Elems() {
+							if k := capOf(ty); k != "" {
+								add(charged, k, at(name.NamePos))
+							}
+						}
 					}
 				}
 				w := info.Withs[x]
@@ -529,10 +655,16 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 					return true
 				}
 				var caps []string
+				providers := map[string]string{}
 				for ; w != nil; w = w.Next {
-					for _, ty := range w.Discharged {
+					for i, ty := range w.Discharged {
 						if k := capOf(ty); k != "" {
 							caps = append(caps, k)
+							if i < len(w.Entries) && w.Entries[i] != nil && w.Entries[i].Provider != nil {
+								if h := providerOf(w.Entries[i].Provider); h != "" {
+									providers[k] = h
+								}
+							}
 						}
 					}
 				}
@@ -551,6 +683,10 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 							if !slices.Contains(withCaps, k) {
 								withCaps = append(withCaps, k)
 							}
+							if provided[at(name.NamePos)] == nil {
+								provided[at(name.NamePos)] = map[string]string{}
+							}
+							provided[at(name.NamePos)][k] = providers[k]
 						}
 					}
 					return true
@@ -559,6 +695,17 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 			})
 		}
 	}
+	for p, byCap := range provided {
+		for _, h := range byCap {
+			if h != "" {
+				add(discharged, h, p)
+				if !slices.Contains(withCaps, h) {
+					withCaps = append(withCaps, h)
+				}
+			}
+		}
+	}
+	slices.Sort(withCaps)
 	all := make([]string, 0, len(needers))
 	for k := range needers {
 		all = append(all, k)
@@ -569,8 +716,9 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 		asked = append(asked, all[r.IntN(len(all))])
 	}
 	for _, k := range asked {
-		status, out, errText := codeRunOn(t, text, "reach", "--capability", k, "--limit", "1000")
+		status, out, errText := codeRunOn(t, text, "reach", "--of", k, "--limit", "1000")
 		var page struct {
+			Kind    string
 			Reached []struct {
 				Function string
 				Chain    []struct {
@@ -584,7 +732,7 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 			}
 		}
 		if status != 0 || json.Unmarshal([]byte(out), &page) != nil {
-			fail("reach --capability %s: status %d %q %q", k, status, out, errText)
+			fail("reach --of %s: status %d %q %q", k, status, out, errText)
 		}
 		var got, want []string
 		for _, rc := range page.Reached {
@@ -594,13 +742,21 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 				Line, Column int
 			}
 			if st != 0 || json.Unmarshal([]byte(o), &d) != nil {
-				fail("reach --capability %s: function %s: status %d %q %q", k, rc.Function, st, o, e)
+				fail("reach --of %s: function %s: status %d %q %q", k, rc.Function, st, o, e)
 			}
-			got = append(got, fmt.Sprintf("%s:%d:%d", d.File, d.Line, d.Column))
+			fp := fmt.Sprintf("%s:%d:%d", d.File, d.Line, d.Column)
+			got = append(got, fp)
+			if len(rc.Chain) == 0 {
+				for _, c := range callsIn {
+					if c.what == k && c.fn == fp && !discharged[k][c.call] {
+						fail("reach --of %s: %s has no chain, but its call at %s brings it", k, rc.Function, c.call)
+					}
+				}
+			}
 			for _, c := range rc.Chain {
 				p := fmt.Sprintf("%s:%d:%d", c.File, c.Line, c.Column)
 				if !charged[k][p] || discharged[k][p] {
-					fail("reach --capability %s: the chain of %s passes %s, which does not bring it (charged %v, discharged %v)", k, rc.Function, p, charged[k][p], discharged[k][p])
+					fail("reach --of %s: the chain of %s passes %s, which does not bring it (charged %v, discharged %v)", k, rc.Function, p, charged[k][p], discharged[k][p])
 				}
 			}
 		}
@@ -609,8 +765,10 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 		}
 		slices.Sort(got)
 		slices.Sort(want)
-		if !slices.Equal(got, want) {
-			fail("reach --capability %s: functions\n got %v\nwant %v", k, got, want)
+		// A provider's functions are the callers of its discharges; the
+		// discharges below hold the provider to the checker.
+		if page.Kind != "provider" && !slices.Equal(got, want) {
+			fail("reach --of %s: functions\n got %v\nwant %v", k, got, want)
 		}
 		got, want = nil, nil
 		for _, c := range page.Discharges {
@@ -623,7 +781,7 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 		got = slices.Compact(got)
 		slices.Sort(want)
 		if !slices.Equal(got, want) {
-			fail("reach --capability %s: discharges\n got %v\nwant %v", k, got, want)
+			fail("reach --of %s: discharges\n got %v\nwant %v", k, got, want)
 		}
 	}
 }

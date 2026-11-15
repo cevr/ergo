@@ -77,6 +77,7 @@ type Package {
 	Contracts   []Contract,
 	Calls       []Call,
 	Needs       []Need,
+	Fails       []Failing,
 	Machines    []MachineGraph,
 }
 

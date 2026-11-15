@@ -7,28 +7,45 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The rows relations (SEMTOOLS SEM2b): each function's derived needs row,
-// and what each call site charges its declaration. A call charges the
-// capabilities of its callee's row at the site (check.Call.Needs); those
-// a with around the call discharges (its block holds the call, and the
-// with's Discharged names the capability) are Discharges, the rest
-// Brings. A call in a function literal is charged to the declaration
-// that holds the literal, and a with around the literal discharges it.
+// The rows relations (SEMTOOLS SEM2b, SEM2c): each function's derived
+// needs and fails rows, and what each call site charges its declaration.
+// A call charges the capabilities of its callee's row at the site
+// (check.Call.Needs); those a with around the call discharges (its block
+// holds the call, and the with's Discharged names the capability) are
+// Discharges, each with the provider of the innermost such with's entry
+// (Provided), the rest Brings. A call raises the failures of its callee's
+// error row at the site (check.Call.Fails); those a catch around it
+// handles (the catch's expression holds the call, and the catch is total
+// or an arm catches every value of the failure's type) are Caught, the rest Raises. A call in a function literal is
+// charged to the declaration that holds the literal, and a with or a catch
+// around the literal discharges it.
 
 // charge is what the call whose name is at (file, off) charges, by
-// capability id.
+// symbol id: capabilities and failures.
 type charge struct {
-	file uint16
-	off  uint32
-	caps []uint32
+	file  uint16
+	off   uint32
+	caps  []uint32
+	fails []uint32
 }
 
 // withBlock is a with's block, by file and offsets, with the capability
-// ids it discharges (every operand's).
+// ids it discharges (every operand's) and, for each, the ids of the
+// providers its entries bind it to.
 type withBlock struct {
+	file      uint16
+	from, to  uint32
+	caps      []uint32
+	providers [][]uint32
+}
+
+// catchBlock is a catch's expression, by file and offsets, with the
+// failure ids its arms catch whole, or all for a total catch.
+type catchBlock struct {
 	file     uint16
 	from, to uint32
-	caps     []uint32
+	all      bool
+	fails    []uint32
 }
 
 // callName is the name a call's site is at: the called name of x.Fun.
@@ -49,8 +66,8 @@ func callName(x syntax.Expr) *syntax.Ident {
 	}
 }
 
-// capability is the symbol of an element of a needs row: an operation
-// type, by its type's symbol. A row variable has none.
+// capability is the symbol of an element of a needs or an error row: a
+// named type, by its type's symbol. A row variable has none.
 func (b *builder) capability(t check.Type) (uint32, bool) {
 	n := named(t)
 	if n != nil && n.Orig != nil {
@@ -77,19 +94,62 @@ func (b *builder) capabilities(r *check.Row) []uint32 {
 	return out
 }
 
+// provider is the symbol a context entry's provider expression names: the
+// function it calls, the type it builds, or the name it is.
+func (b *builder) provider(e syntax.Expr) (uint32, bool) {
+	switch x := e.(type) {
+	case *syntax.CallExpr:
+		e = x.Fun
+	case *syntax.CompositeLit:
+		e = x.Type
+	}
+	name := callName(e)
+	if name == nil {
+		return 0, false
+	}
+	o := b.info.Uses[name]
+	if sel, ok := e.(*syntax.SelectorExpr); ok && o == nil {
+		if q, ok := sel.X.(*syntax.Ident); ok {
+			if pn, ok := b.info.Uses[q].(*check.PkgName); ok && pn.Pkg != nil {
+				o = b.exportedOf(pn.Pkg)[name.Name]
+			}
+		}
+	}
+	if o == nil {
+		return 0, false
+	}
+	key, sym, ok := b.symbol(o, name, false)
+	if !ok {
+		return 0, false
+	}
+	return b.id(key, sym), true
+}
+
 // noteCall records what the call x charges and, for a with, its block.
 func (b *builder) noteCall(x *syntax.CallExpr) {
-	if c := b.info.Calls[x]; c != nil && !c.Needs.Empty() {
+	if c := b.info.Calls[x]; c != nil && (!c.Needs.Empty() || !c.Fails.Empty()) {
 		if name := callName(x.Fun); name != nil {
-			b.charges = append(b.charges, charge{file: b.file, off: uint32(name.NamePos), caps: b.capabilities(c.Needs)})
+			b.charges = append(b.charges, charge{file: b.file, off: uint32(name.NamePos), caps: b.capabilities(c.Needs), fails: b.capabilities(c.Fails)})
 		}
 	}
 	if w := b.info.Withs[x]; w != nil && x.Trailing != nil {
 		wb := withBlock{file: b.file, from: uint32(x.Trailing.Lbrace), to: uint32(x.Trailing.Rbrace)}
 		for ; w != nil; w = w.Next {
-			for _, t := range w.Discharged {
-				if id, ok := b.capability(t); ok && !slices.Contains(wb.caps, id) {
+			for i, t := range w.Discharged {
+				id, ok := b.capability(t)
+				if !ok {
+					continue
+				}
+				k := slices.Index(wb.caps, id)
+				if k < 0 {
+					k = len(wb.caps)
 					wb.caps = append(wb.caps, id)
+					wb.providers = append(wb.providers, nil)
+				}
+				if i < len(w.Entries) && w.Entries[i] != nil && w.Entries[i].Provider != nil {
+					if p, ok := b.provider(w.Entries[i].Provider); ok && !slices.Contains(wb.providers[k], p) {
+						wb.providers[k] = append(wb.providers[k], p)
+					}
 				}
 			}
 		}
@@ -99,11 +159,51 @@ func (b *builder) noteCall(x *syntax.CallExpr) {
 	}
 }
 
+// noteCatch records the expression a catch handles failures of.
+func (b *builder) noteCatch(x *syntax.CatchExpr) {
+	cb := catchBlock{file: b.file, from: uint32(x.X.Pos()), to: uint32(x.Catch)}
+	if m := b.info.Matches[x]; m == nil || !m.Partial {
+		cb.all = true
+	}
+	for _, arm := range x.Arms {
+		for _, te := range arm.Types {
+			core := te
+			if a, ok := te.(*syntax.AsPattern); ok {
+				core = a.X
+			}
+			p := b.info.Patterns[core]
+			if p == nil {
+				continue
+			}
+			// An arm that catches the rest makes the catch total (all
+			// above); an arm that tests a type catches that failure, or
+			// each of a union's.
+			switch p.Kind {
+			case check.PatTypeTest:
+				if id, ok := b.capability(p.Type); ok {
+					cb.fails = append(cb.fails, id)
+				}
+				if n := named(p.Type); n != nil {
+					if u, ok := n.Underlying().(*check.Union); ok {
+						for _, v := range u.Variants {
+							if id, ok := b.capability(v); ok {
+								cb.fails = append(cb.fails, id)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	b.catches = append(b.catches, cb)
+}
+
 // needs writes an edge from each function of the package to each
-// capability the checker derived for it, in the package's function order.
+// capability the checker derived for it (Needs), and to each failure
+// (Fails), in the package's function order.
 func (b *builder) needs() {
 	for _, f := range b.pkg.Funcs {
-		if f.Sig == nil || f.Sig.Uses.Empty() {
+		if f.Sig == nil || f.Sig.Uses.Empty() && f.Sig.Errors.Empty() {
 			continue
 		}
 		key, _, ok := b.funcSymbol(f)
@@ -117,36 +217,64 @@ func (b *builder) needs() {
 		for _, c := range b.capabilities(f.Sig.Uses) {
 			b.t.Needs = append(b.t.Needs, Edge{From: id, To: c, Site: NoSym})
 		}
+		for _, c := range b.capabilities(f.Sig.Errors) {
+			b.t.Fails = append(b.t.Fails, Edge{From: id, To: c, Site: NoSym})
+		}
 	}
 }
 
 // chargeEdges writes, for each call edge in its order, an edge from the
-// caller to each capability the call charges: Brings, or Discharges when
-// a with around the call discharges it.
+// caller to each capability the call charges (Brings, or Discharges when
+// a with around the call discharges it, with an edge from each provider
+// of the innermost such with to the capability, Provided) and to each
+// failure it raises (Raises, or Caught when a catch around it handles it).
 func (b *builder) chargeEdges() {
 	type at struct {
 		file uint16
 		off  uint32
 	}
-	byName := map[at][]uint32{}
+	byName := map[at]charge{}
 	for _, c := range b.charges {
-		byName[at{c.file, c.off}] = c.caps
+		byName[at{c.file, c.off}] = c
 	}
 	t := b.t
 	for _, e := range t.Calls {
 		s := t.Sites[e.Site]
-		for _, c := range byName[at{s.File, s.Off}] {
+		ch := byName[at{s.File, s.Off}]
+		for _, c := range ch.caps {
 			discharged := false
+			var by []uint32
+			span := ^uint32(0)
 			for _, w := range b.withs {
-				if w.file == s.File && w.from < s.Off && s.Off < w.to && slices.Contains(w.caps, c) {
+				k := slices.Index(w.caps, c)
+				if w.file == s.File && w.from < s.Off && s.Off < w.to && k >= 0 {
 					discharged = true
+					if w.to-w.from < span {
+						span, by = w.to-w.from, w.providers[k]
+					}
+				}
+			}
+			if !discharged {
+				t.Brings = append(t.Brings, Edge{From: e.From, To: c, Site: e.Site})
+				continue
+			}
+			t.Discharges = append(t.Discharges, Edge{From: e.From, To: c, Site: e.Site})
+			for _, p := range by {
+				t.Provided = append(t.Provided, Edge{From: p, To: c, Site: e.Site})
+			}
+		}
+		for _, f := range ch.fails {
+			caught := false
+			for _, cb := range b.catches {
+				if cb.file == s.File && cb.from <= s.Off && s.Off < cb.to && (cb.all || slices.Contains(cb.fails, f)) {
+					caught = true
 					break
 				}
 			}
-			if discharged {
-				t.Discharges = append(t.Discharges, Edge{From: e.From, To: c, Site: e.Site})
+			if caught {
+				t.Caught = append(t.Caught, Edge{From: e.From, To: f, Site: e.Site})
 			} else {
-				t.Brings = append(t.Brings, Edge{From: e.From, To: c, Site: e.Site})
+				t.Raises = append(t.Raises, Edge{From: e.From, To: f, Site: e.Site})
 			}
 		}
 	}

@@ -153,8 +153,15 @@ type Table struct {
 	// Brings and Discharges are caller → capability, one per call site
 	// and capability the call charges (Site is the call's site, as in
 	// Calls): Discharges when a with around the call discharges it,
-	// Brings otherwise (rows.go).
-	Needs, Brings, Discharges []Edge
+	// Brings otherwise (rows.go). Provided are provider → capability, one
+	// per discharge and provider of the innermost with that discharges it
+	// (Site is the call's site).
+	Needs, Brings, Discharges, Provided []Edge
+	// Fails are function → failure, each element of the function's error
+	// row as the checker derived it (Site is NoSym). Raises and Caught are
+	// caller → failure, one per call site and failure the call raises:
+	// Caught when a catch around the call handles it, Raises otherwise.
+	Fails, Raises, Caught []Edge
 	// Machines are the package's machine declarations, in source order.
 	Machines []MachineGraph
 }

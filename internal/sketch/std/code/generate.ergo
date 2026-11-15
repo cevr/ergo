@@ -35,13 +35,24 @@ func Generated(seed int) Tables {
 		decls = decls.Append(local)
 		handles = handles.Append(local.Handle)
 		let complete = roll(seed, 300 + i, 5) != 0
-		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}, Needs: []Need{}, Machines: []MachineGraph{}})
+		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}, Needs: []Need{}, Fails: []Failing{}, Machines: []MachineGraph{}})
 	}
+	// The types are capabilities and failures by turns, each list with a
+	// name no package declares; the functions are providers.
 	let mut capabilities = []string{"Console"}
+	let mut failures = []string{"Fault"}
+	let mut providers = []string{}
 	for p in out {
 		for d in p.Decls {
 			if d.Kind == "type" {
-				capabilities = capabilities.Append(d.Handle)
+				if (len(capabilities) + len(failures)) % 2 == 0 {
+					capabilities = capabilities.Append(d.Handle)
+				} else {
+					failures = failures.Append(d.Handle)
+				}
+			}
+			if d.Kind == "func" {
+				providers = providers.Append(d.Handle)
 			}
 		}
 	}
@@ -66,10 +77,17 @@ func Generated(seed int) Tables {
 			for j in 0..roll(seed, 700 + i, 9) {
 				let salt = 2000 + i*100 + j*3
 				let (brings, discharged) = charged(seed, salt + 2, capabilities)
-				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged})
+				let (raises, caught) = charged(seed, 90000 + salt, failures)
+				let mut bound = []Binding{}
+				for k, c in discharged {
+					if len(providers) > 0 && roll(seed, 95000 + salt * 7 + k, 2) == 0 {
+						bound = bound.Append(Binding{Capability: c, Provider: providers[roll(seed, 97000 + salt * 7 + k, len(providers))]})
+					}
+				}
+				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged, Bound: bound, Raises: raises, Caught: caught})
 			}
 		}
-		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities), Machines: machinesIn(seed, i, p)})
+		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities), Fails: failsIn(calls, callers, seed, i, failures), Machines: machinesIn(seed, i, p)})
 	}
 	Tables{Revision: "gen-\(seed)", Root: "gen/p\(packages - 1)", Packages: filled}
 }
@@ -160,6 +178,35 @@ func needsIn(calls []Call, callers []string, seed int, i int, caps []string) []N
 		}
 		for k in row {
 			out = out.Append(Need{Of: f, Capability: k})
+		}
+	}
+	out
+}
+
+// failsIn is the fails rows of a package's callers: what their calls
+// raise, and now and then a failure no call raises (one the function
+// fails with itself).
+func failsIn(calls []Call, callers []string, seed int, i int, failures []string) []Failing {
+	let mut out = []Failing{}
+	for j, f in callers {
+		let mut row = []string{}
+		for c in calls {
+			if c.From == f {
+				for k in c.Raises {
+					if !has(row, k) {
+						row = row.Append(k)
+					}
+				}
+			}
+		}
+		if len(failures) > 0 && roll(seed, 3700 + i*10 + j, 3) == 0 {
+			let k = failures[roll(seed, 3800 + i*10 + j, len(failures))]
+			if !has(row, k) {
+				row = row.Append(k)
+			}
+		}
+		for k in row {
+			out = out.Append(Failing{Of: f, Failure: k})
 		}
 	}
 	out

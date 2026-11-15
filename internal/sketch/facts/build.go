@@ -73,6 +73,7 @@ type builder struct {
 	// (rows.go).
 	charges []charge
 	withs   []withBlock
+	catches []catchBlock
 }
 
 // Build writes the fact tables of pkg from the checker's result, in one
@@ -330,6 +331,8 @@ func (b *builder) visit(n syntax.Node) bool {
 		b.markAll(x.Names, Provides)
 	case *syntax.CatchArm:
 		b.markAll(x.Types, Handles)
+	case *syntax.CatchExpr:
+		b.noteCatch(x)
 	case *syntax.ContextEntry:
 		if x.Kind != syntax.ContextEmbed {
 			b.marks[x.Key] = mark{kind: Binds}

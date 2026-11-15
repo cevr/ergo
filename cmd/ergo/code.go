@@ -106,6 +106,7 @@ type (
 		Contracts   []codeContract `json:"contracts"`
 		Calls       []codeCall     `json:"calls"`
 		Needs       []codeNeed     `json:"needs"`
+		Fails       []codeFailing  `json:"fails"`
 		Machines    []codeMachine  `json:"machines"`
 	}
 	// codeContract is api.Function with code.Contract's keys; an answer's
@@ -152,13 +153,28 @@ type (
 	// codeCall is a call edge of the tables (facts.Table.Calls) with its
 	// site's position: code.Call.
 	codeCall struct {
-		From       string   `json:"from"`
-		To         string   `json:"to"`
-		File       string   `json:"file"`
-		Line       int      `json:"line"`
-		Column     int      `json:"column"`
-		Brings     []string `json:"brings"`
-		Discharged []string `json:"discharged"`
+		From       string        `json:"from"`
+		To         string        `json:"to"`
+		File       string        `json:"file"`
+		Line       int           `json:"line"`
+		Column     int           `json:"column"`
+		Brings     []string      `json:"brings"`
+		Discharged []string      `json:"discharged"`
+		Bound      []codeBinding `json:"bound"`
+		Raises     []string      `json:"raises"`
+		Caught     []string      `json:"caught"`
+	}
+	// codeBinding is a provided edge of the tables (facts.Table.Provided)
+	// at a call: code.Binding.
+	codeBinding struct {
+		Capability string `json:"capability"`
+		Provider   string `json:"provider"`
+	}
+	// codeFailing is a fails edge of the tables (facts.Table.Fails):
+	// code.Failing.
+	codeFailing struct {
+		Of      string `json:"of"`
+		Failure string `json:"failure"`
 	}
 	// codeMachine is a machine graph of the tables (facts.MachineGraph):
 	// code.MachineGraph.
@@ -223,7 +239,7 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 	}
 	for _, p := range pkgs {
 		out.Root = p.Path
-		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}, Needs: []codeNeed{}, Machines: []codeMachine{}}
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}, Needs: []codeNeed{}, Fails: []codeFailing{}, Machines: []codeMachine{}}
 		syn := map[string]*syntax.File{}
 		var files []facts.File
 		for _, f := range p.Files {
@@ -321,24 +337,39 @@ func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*s
 		return out
 	}
 	brings, discharged := charges(t.Brings), charges(t.Discharges)
+	raises, caught := charges(t.Raises), charges(t.Caught)
+	bound := map[uint32][]codeBinding{}
+	for _, e := range t.Provided {
+		if handles[e.From] != "" && handles[e.To] != "" {
+			bound[e.Site] = append(bound[e.Site], codeBinding{Capability: handles[e.To], Provider: handles[e.From]})
+		}
+	}
+	orEmpty := func(s []string) []string {
+		if s == nil {
+			return []string{}
+		}
+		return s
+	}
 	for _, e := range t.Calls {
 		if handles[e.From] == "" || handles[e.To] == "" {
 			continue
 		}
 		s := t.Sites[e.Site]
 		file, line, col := pos(s.File, s.Off)
-		c := codeCall{From: handles[e.From], To: handles[e.To], File: file, Line: line, Column: col, Brings: brings[e.Site], Discharged: discharged[e.Site]}
-		if c.Brings == nil {
-			c.Brings = []string{}
-		}
-		if c.Discharged == nil {
-			c.Discharged = []string{}
+		c := codeCall{From: handles[e.From], To: handles[e.To], File: file, Line: line, Column: col, Brings: orEmpty(brings[e.Site]), Discharged: orEmpty(discharged[e.Site]), Bound: bound[e.Site], Raises: orEmpty(raises[e.Site]), Caught: orEmpty(caught[e.Site])}
+		if c.Bound == nil {
+			c.Bound = []codeBinding{}
 		}
 		cp.Calls = append(cp.Calls, c)
 	}
 	for _, e := range t.Needs {
 		if handles[e.From] != "" && handles[e.To] != "" {
 			cp.Needs = append(cp.Needs, codeNeed{Of: handles[e.From], Capability: handles[e.To]})
+		}
+	}
+	for _, e := range t.Fails {
+		if handles[e.From] != "" && handles[e.To] != "" {
+			cp.Fails = append(cp.Fails, codeFailing{Of: handles[e.From], Failure: handles[e.To]})
 		}
 	}
 	for _, m := range t.Machines {
