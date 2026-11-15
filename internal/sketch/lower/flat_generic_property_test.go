@@ -332,7 +332,8 @@ func (g *genericGen) stmts(o *optionGen) {
 }
 
 // genericForm is the form of the generic Go type whose declaration starts
-// with head: "interface", "slots" (a slot per variant) or "shared".
+// with head: "interface", "slots" (a slot per variant) or "shared N", N
+// the shared slots (a type parameter's fields share one).
 func genericForm(main, head string) string {
 	at := strings.Index(main, head)
 	if at < 0 {
@@ -343,21 +344,27 @@ func genericForm(main, head string) string {
 		return "interface"
 	}
 	body := rest[:strings.Index(rest, "}")]
+	n := 0
 	for _, line := range strings.Split(body, "\n") {
 		if end := strings.LastIndex(line, "*/"); end >= 0 {
 			line = line[end+2:]
 		}
-		if f := strings.Fields(line); len(f) > 0 && strings.HasPrefix(f[0], "v") {
+		f := strings.Fields(line)
+		if len(f) > 0 && strings.HasPrefix(f[0], "v") {
 			return "slots"
 		}
+		if len(f) > 0 && strings.HasPrefix(f[0], "p") {
+			n++
+		}
 	}
-	return "shared"
+	return fmt.Sprintf("shared %d", n)
 }
 
 // genericForms checks the forms the mode gives G, Decision and the
 // machine's state MS, and returns what differs.
 func (g *genericGen) genericForms(main, mode string) []string {
-	want := map[string]string{"": "shared", "register": "shared", "slots": "slots", "interface": "interface"}[mode]
+	// G and Decision each have two type parameters, so two shared slots.
+	want := map[string]string{"": "shared 2", "register": "shared 2", "slots": "slots", "interface": "interface"}[mode]
 	wantG := want
 	if g.cycle {
 		wantG = "interface"
@@ -371,7 +378,7 @@ func (g *genericGen) genericForms(main, mode string) []string {
 	check("G", "type G[A any, B any] ", wantG)
 	check("Decision", "type Decision[S any, O any] ", want)
 	// An enum is a tag alone: shared and slots alike.
-	enum := "shared"
+	enum := "shared 0"
 	if mode == "interface" {
 		enum = "interface"
 	}
