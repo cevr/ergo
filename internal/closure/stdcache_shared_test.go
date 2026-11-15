@@ -43,7 +43,11 @@ func TestSweepStepsShareOneStdFill(t *testing.T) {
 	// Sweeps that fill at once, all in the first step's TMPDIR.
 	t.Setenv("TMPDIR", t.TempDir())
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var wg, arrived sync.WaitGroup
+	// Every sweep finds the store empty before any fills: they race.
+	arrived.Add(4)
+	stdStoreFoundEmpty = func() { arrived.Done(); arrived.Wait() }
+	defer func() { stdStoreFoundEmpty = nil }()
 	for range 4 {
 		wg.Go(func() {
 			store, release, err := fillStdStore(root)

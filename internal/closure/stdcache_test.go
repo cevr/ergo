@@ -117,6 +117,13 @@ func fillStdStore(root string) (string, func(), error) {
 	return store, func() { lock.Close() }, nil
 }
 
+// stdStoreFoundEmpty, when set, runs when a sweep found no complete store
+// under the shared lock, before it waits to fill alone.
+// TestSweepStepsShareOneStdFill holds every sweep there until all have
+// come, so they race for the fill on every run (gt4-no-recheck survived a
+// run in which the scheduler had serialized them).
+var stdStoreFoundEmpty func()
+
 func fillStdStoreLocked(root string) (string, *os.File, error) {
 	key, settings, env, err := stdStoreKey(root)
 	if err != nil {
@@ -142,6 +149,9 @@ func fillStdStoreLocked(root string) (string, *os.File, error) {
 	}
 	if complete() {
 		return store, lock, nil
+	}
+	if stdStoreFoundEmpty != nil {
+		stdStoreFoundEmpty()
 	}
 	// Alone to fill: the shared lock is given up while waiting, so two
 	// sweeps that both found no store do not wait for each other.
