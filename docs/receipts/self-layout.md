@@ -39,6 +39,22 @@ Measured at `198c9655f` (branch `wf10/sl1`, std `dense` of DN1 and DN2). The inp
 
 The 2.4 times the bytes come from stores that grow by doubling. Std `dense` has no capacity yet; SL2 adds `WithCap`. Every later unit of the plan (SL2, SL3, SL4, MONO1) reports this ratio. The target is 1.2 or less.
 
+### After SL2: capacities, a scratch stack and a bulk PutList
+
+SL2 adds `dense.WithCap` (and `ColWithCap`, `PoolWithCap`, `StackWithCap`), `dense.Stack` with `Mark`, `Since`, `Cut` and `PutSince`, and makes `PutList` one bulk append (`slices.AppendAll`, an extern of Go's `append` at `[T](xs []T, ys []T) []T`). `toktree` sizes its stores from the input, as the control does, and gathers every child list on one `Stack`. The receipt is the same command, measured at `9a659054f` plus the `EmptyRunsKeepTheirPlace` law (no program change), load 44 to 54.
+
+| Counter | Ergo on `dense` | Hand Go | Ergo / Go |
+| --- | --- | --- | --- |
+| Instructions per byte | 50.28 (spread 0.0%) | 32.83 | **1.531** (SL1: 1.854) |
+| Instructions per byte, `GOGC=off` | 50.27 | 32.8 | 1.53 |
+| GC share of instructions | 0.003 | 0.00 | — |
+| Allocations between 4 MB and 32 MB | 11 | 11 | 1.00 |
+| Bytes allocated per byte | 6.94 | 8.57 | **0.81** (SL1: 2.42) |
+| GC cycles at 32 MB | 4 | 5 | 0.8 |
+| Peak resident set at 32 MB | 143 MB | 153 MB | 0.94 |
+
+The plan's SL2 targets hold: bytes allocated are below hand Go's (target: at most 1.2 times), and the allocations at the two sizes differ by as many as hand Go's, 11. Both come from the one scratch stack, whose top level holds every top-level row and so grows with the input, in the program and in the control alike. The instruction ratio, 1.53, is SL3's, SL4's and MONO1's to close (target 1.2 or less).
+
 ### The plan's 11.6% GC share, and its 2.30 ratio: the input path, not the stores
 
 The plan's prototype (`self-layout/proto/toktree-ergo`) counted Ergo at 82.87 instructions per byte against hand Go's 35.96 (2.30). Its default run cost 11.6% more than its `GOGC=off` run. The cause was left open.
