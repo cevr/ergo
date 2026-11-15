@@ -486,6 +486,11 @@
       "to": "\t_ = report\n",
       "rule": "ergo build -report copies prints the form of each Append and Concat site (tooling.md; types.md, Bindings 2).",
       "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
-    }
+    },
+    {"name":"teq-shared-gomod-no-runtime","origin":"wf10 TEQ (TEST-one go.mod, loud fallback, stored binaries)","file":"internal/sketchfront/testmodule.go","from":"\t\t\tprog.goModule = l.goModule\n","to":"\t\t\tprog.goModule = l.goMod.lowerModule(l.root, l.goSum)\n","rule":"The shared load's go.mod carries the runtime's require and replace, as a package loaded alone emits it; without them the module's test binary of a requiring module fails to build.","killers":["cmd/ergo:TestModuleTestBinaryOfARequiringModule"],"anchor":{"tests":["cmd/ergo:TestModuleTestBinaryOfARequiringModule"]}},
+    {"name":"teq-stored-never","origin":"wf10 TEQ (TEST-one go.mod, loud fallback, stored binaries)","file":"cmd/ergo/recursive.go","from":"\tstored := true\n","to":"\tstored := false\n","rule":"ergo test --count 1 ./... runs each package's own stored test binary when the store holds them all, and builds nothing.","killers":["cmd/ergo:TestTestResultCache"],"anchor":{"tests":["cmd/ergo:TestTestResultCache"]}},
+    {"name":"teq-stored-lowers","origin":"wf10 TEQ (TEST-one go.mod, loud fallback, stored binaries)","file":"internal/sketchfront/sketchfront.go","from":"\t\tif req.Toolchain.Stored {\n\t\t\t// A build from the store lowers nothing either.\n\t\t\treturn nil, build.ErrNotStored\n\t\t}\n","to":"","rule":"The probe of the store lowers no package's module: on an emission miss it ends.","killers":["cmd/ergo:TestTestResultCache"],"anchor":{"tests":["cmd/ergo:TestTestResultCache"]}},
+    {"name":"teq-fallback-silent","origin":"wf10 TEQ (TEST-one go.mod, loud fallback, stored binaries)","file":"cmd/ergo/recursive.go","from":"\tfmt.Fprintf(stderr, \"ergo test: the module's test binary did not build, so each package is tested alone: %s\\n\", first)\n","to":"","rule":"A fallback from the module's test binary to each package alone says so on stderr.","killers":["cmd/ergo:TestSharedFallbackSaysSo"],"anchor":{"tests":["cmd/ergo:TestSharedFallbackSaysSo"]}},
+    {"name":"teq-fallback-not-strict","origin":"wf10 TEQ (TEST-one go.mod, loud fallback, stored binaries)","file":"cmd/ergo/recursive.go","from":"\tif strict {\n","to":"\tif false {\n","rule":"With ERGO_SHARED_FALLBACK=fail (tests, gate) a fallback fails the run.","killers":["cmd/ergo:TestSharedFallbackSaysSo"],"anchor":{"tests":["cmd/ergo:TestSharedFallbackSaysSo"]}}
   ]
 }
