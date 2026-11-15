@@ -510,7 +510,10 @@ func (l *lowerer) builtinHelper(b string, site syntax.Node) string {
 		if strings.Contains(text, "ORD.") {
 			text = strings.ReplaceAll(text, "ORD.", l.hostPkg("cmp", site)+".")
 		}
-		l.user.WriteString("func " + name + text + "\n\n")
+		// l.gen, not l.user: a body may be written to l.user while it is
+		// emitted (a test's function), and the helper is a declaration
+		// of its own.
+		l.gen.WriteString("func " + name + text + "\n\n")
 	}
 	return name
 }

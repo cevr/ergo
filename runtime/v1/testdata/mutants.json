@@ -220,7 +220,22 @@
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]}
     },
-    {"name":"x7-law-open-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\tl.breaks(\"ChildInsideEntry\", a.name+\" opened entry \"+uintText(epoch)+\" while \"+k.name+\" lives\")\n","to":"\t\t\t_ = k\n","rule":"ChildInsideEntry: the next entry opens only after the old entry's children ended.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
+    {
+      "name": "x7-law-open-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tl.breaks(\"ChildInsideEntry\", a.name+\" opened entry \"+uintText(epoch)+\" while \"+k.name+\" lives\")\n",
+      "to": "\t\t\t_ = k\n",
+      "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
+    },
     {
       "name": "x7-law-work-unchecked",
       "origin": "wf10/explorer/x7",
@@ -260,7 +275,22 @@
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]}
     },
-    {"name":"x7-law-orphan-unchecked","origin":"wf10/explorer/x7","file":"runtime/v1/explore_laws.go","from":"\t\t\tl.breaks(\"ChildrenStopFirst\", a.name+\" ended while \"+k.name+\" lives\")\n","to":"\t\t\t_ = k\n","rule":"ChildrenStopFirst: no child lives after its parent ended.","killers":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"],"anchor":{"tests":["runtime/v1[ergoexplore]:TestChildLawsReadEvents"]}},
+    {
+      "name": "x7-law-orphan-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tl.breaks(\"ChildrenStopFirst\", a.name+\" ended while \"+k.name+\" lives\")\n",
+      "to": "\t\t\t_ = k\n",
+      "rule": "ChildrenStopFirst: no child lives after its parent ended.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        ]
+      }
+    },
     {
       "name": "x7-law-owner-lost",
       "origin": "wf10/explorer/x7",
@@ -296,7 +326,17 @@
         "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
-    {"name":"x8-name-first-call","origin":"wf10/explorer/x8","file":"runtime/v1/explore_on.go","from":"wanted(callee) || len(on) == 1 {","to":"wanted(callee) || true {","rule":"Among the calls on the frame's line, the name is the constructor's call, with its column.","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
+    {
+      "name": "x8-name-first-call",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "wanted(callee) || len(on) == 1 {",
+      "to": "wanted(callee) || true {",
+      "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
+      ]
+    },
     {
       "name": "x8-name-base-only",
       "origin": "wf10/explorer/x8",
@@ -412,7 +452,17 @@
         "runtime/v1:TestDurableHostsRecover"
       ]
     },
-    {"name":"dh1-all-held","origin":"wf10/DH1 round 1","file":"runtime/v1/actor_recover.go","from":"\t\tif in[i] {\n","to":"\t\tif true || in[i] {\n","rule":"runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.","killers":["runtime/v1:TestDurableHostsRecover"]},
+    {
+      "name": "dh1-all-held",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\t\tif in[i] {\n",
+      "to": "\t\tif true || in[i] {\n",
+      "rule": "runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
     {
       "name": "dh1-renew-unbound",
       "origin": "wf10/DH1 round 1",
@@ -511,24 +561,195 @@
     {"name":"io1-stop-drops-text","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\t\t\tif all.Len() > 0 {\n\t\t\t\tl.buf = []byte(all.String())","to":"\t\t\tif false {\n\t\t\t\tl.buf = []byte(all.String())","rule":"A ReadAll that a stop ends puts back what it read.","killers":["runtime/v1:TestIOStdinStopModel"]},
     {"name":"io1-sink-outlives-readall","origin":"wf10 IO1","file":"runtime/v1/host.go","from":"\tdefer func() { l.sink = nil }()\n","to":"\n","rule":"After a ReadAll, a landed read goes to the buffer again.","killers":["runtime/v1:TestIOStdinStopModel","runtime/v1:TestIOStdinShared"]},
     {"name":"bs2-status-line","origin":"wf10 binsize BS2","file":"runtime/v1/exit.go","from":"\"error: os.Exit code \"+strconv.Itoa(int(x.Code))+\" is outside 1..125\\n\"","to":"\"error: os.Exit code is outside 1..125\\n\"","rule":"runtime.md Exit causes, os.Exit rule 2: the line of a code outside 1..125 names the code.","killers":["runtime/v1:TestReportMatchesFmt"]},
-    {"name":"bs2-report-failure-text","origin":"wf10 binsize BS2","file":"runtime/v1/exit.go","from":"io.WriteString(w, \"error: \"+rt.Text(r.Err)+\"\\n\")","to":"io.WriteString(w, \"error: \"+r.Err.Error()+\"\\n\")","rule":"runtime.md Exit causes (binsize BS2): a failure's line is fmt's %v of it, so a nil error or one whose Error panics is written, not raised.","killers":["runtime/v1:TestReportMatchesFmt"]},
-    {"name":"bs2-host-text-user-missing","origin":"wf10 binsize BS2","file":"runtime/v1/files.go","from":"\"MachineChild\", \"MachineStart\", ","to":"\"MachineChild\", ","rule":"stdlib.md Types 4 (binsize BS2): a program that names a body reaching rt.TypedText imports the gofmt leaf.","killers":["runtime/v1:TestHostTextUsersAreListed"],"anchor":{"tests":["runtime/v1:TestHostTextUsersAreListed"]}},
-    {"name":"bs3-instant-unit","origin":"wf10 binsize BS3","file":"runtime/v1/time.go","from":"n := time.Unix(0, int64(l.v.Now()))","to":"n := time.Unix(0, int64(l.v.Now())/1000)","rule":"stdlib.md Types 4 (binsize BS3): a manual or virtual clock's rt.Instant is nanoseconds since the Unix epoch; time.Manual reads it as that time.","killers":["runtime/v1:TestManualAdvanceOneAtATime","runtime/v1:TestTestingLaws","runtime/v1:TestTransformModel","runtime/v1:TestTimeLaws","runtime/v1:TestRaceModel","runtime/v1:TestVirtualClockModel","runtime/v1:TestSetModel","runtime/v1:TestTasksLaws","runtime/v1:TestManualClockModel"]},
-    {"name":"bs6-trim-off","origin":"wf10 binsize BS6","file":"runtime/v1/exit.go","from":"loc = strings.TrimPrefix(loc, ProgramModule+\"/\")","to":"loc = strings.TrimPrefix(loc, \"not-the-program/\")","rule":"binsize BS6: trimmed Go frames match module-relative source names.","killers":["runtime/v1:TestDefectReportReadsTrimmedFrames"]},
-    {"name":"bs6-site-wide","origin":"wf10 binsize BS6","file":"runtime/v1/exit.go","from":"Func, Callee, File uint32\n\tLine, Column       uint32","to":"Func, Callee, File uint32\n\tLine, Column       uint32\n\tunused [8]byte","rule":"binsize BS6: a call site uses at most 24 bytes.","killers":["runtime/v1:TestCompactCallsAgree"]},
+    {
+      "name": "bs2-report-failure-text",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/exit.go",
+      "from": "io.WriteString(w, \"error: \"+rt.Text(r.Err)+\"\\n\")",
+      "to": "io.WriteString(w, \"error: \"+r.Err.Error()+\"\\n\")",
+      "rule": "runtime.md Exit causes (binsize BS2): a failure's line is fmt's %v of it, so a nil error or one whose Error panics is written, not raised.",
+      "killers": [
+        "runtime/v1:TestReportMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-host-text-user-missing",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/files.go",
+      "from": "\"MachineChild\", \"MachineStart\", ",
+      "to": "\"MachineChild\", ",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program that names a body reaching rt.TypedText imports the gofmt leaf.",
+      "killers": [
+        "runtime/v1:TestHostTextUsersAreListed"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1:TestHostTextUsersAreListed"
+        ]
+      }
+    },
+    {
+      "name": "bs3-instant-unit",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/v1/time.go",
+      "from": "n := time.Unix(0, int64(l.v.Now()))",
+      "to": "n := time.Unix(0, int64(l.v.Now())/1000)",
+      "rule": "stdlib.md Types 4 (binsize BS3): a manual or virtual clock's rt.Instant is nanoseconds since the Unix epoch; time.Manual reads it as that time.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceOneAtATime",
+        "runtime/v1:TestTestingLaws",
+        "runtime/v1:TestTransformModel",
+        "runtime/v1:TestTimeLaws",
+        "runtime/v1:TestRaceModel",
+        "runtime/v1:TestVirtualClockModel",
+        "runtime/v1:TestSetModel",
+        "runtime/v1:TestTasksLaws",
+        "runtime/v1:TestManualClockModel"
+      ]
+    },
+    {
+      "name": "bs6-trim-off",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "loc = strings.TrimPrefix(loc, ProgramModule+\"/\")",
+      "to": "loc = strings.TrimPrefix(loc, \"not-the-program/\")",
+      "rule": "binsize BS6: trimmed Go frames match module-relative source names.",
+      "killers": ["runtime/v1:TestDefectReportReadsTrimmedFrames"]
+    },
+    {
+      "name": "bs6-site-wide",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "Func, Callee, File uint32\n\tLine, Column       uint32",
+      "to": "Func, Callee, File uint32\n\tLine, Column       uint32\n\tunused [8]byte",
+      "rule": "binsize BS6: a call site uses at most 24 bytes.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
     {"name":"bs6-decode-file","origin":"wf10 binsize BS6","file":"runtime/v1/exit.go","from":"strings.Join(callees, \" or \")+\" at \"+callNames[c.File]","to":"strings.Join(callees, \" or \")+\" at \"+callNames[c.Func]","rule":"binsize BS6: the report decodes each compact site's file index, not its function index.","killers":["runtime/v1:TestCompactCallsAgree"]},
-    {"name":"bs6-wide-file","origin":"wf10 binsize BS6","file":"runtime/v1/exit.go","from":"File: intern(c.File)","to":"File: intern(c.Func)","rule":"binsize BS6: registering the selectable wide reference preserves its file names when normalizing the source map.","killers":["runtime/v1:TestCompactCallsAgree"]},
-    {"name":"bs7-graph-ignored","origin":"wf10 binsize BS7","file":"runtime/v1/actor_trace.go","from":"\treturn a.graph()\n","to":"\treturn nil\n","rule":"binsize BS7: a traced actor names its arms from the graph its start received.","killers":["runtime/v1:TestActorModelAgreesWithTimedFold"]},
-    {"name":"bs7-timer-lookup","origin":"wf10 binsize BS7","file":"runtime/v1/actor_trace.go","from":"if tm.State == s {","to":"if tm.Signal == s {","rule":"binsize BS7: a timer's signal is the one the graph gives the state its entry opened in.","killers":["runtime/v1:TestActorModelAgreesWithTimedFold"]},
-    {"name":"bs7-hidden-graph","origin":"wf10 binsize BS7","file":"runtime/v1/files.go","from":"\"GraphOf\": Graph}","to":"\"GraphOfX\": Graph}","rule":"binsize BS7: GraphOf is a hidden parameter that the lowering supplies.","killers":["internal/sketch/lower:TestGraphLoweringsTraceAlike"]},
-    {"name":"bs7b-variant-self","origin":"wf10 binsize BS7b","file":"runtime/v1/actor_trace.go","from":"if n, ok := v.(interface{ ErgoVariant() string }); ok {","to":"if n, ok := v.(interface{ ErgoVariant() string }); ok && false {","rule":"binsize BS7b: a value that names its own variant (a flat union) is traced by that name.","killers":["lower:TestGraphLoweringsTraceAlike"]},
-    {"name":"bs7b-arm-once","origin":"wf10 binsize BS7b","file":"runtime/v1/actor_trace.go","from":"if a.Site != last {","to":"if a.Site != last || true {","rule":"binsize BS7b: the patterns of one case are one arm, so a decision names its site once.","killers":["lower:TestGraphLoweringsTraceAlike"]},
-    {"name":"bs8-host-walk-user-missing","origin":"wf10 binsize BS8","file":"runtime/v1/files.go","from":"var hostWalkUsers = []string{\"NewHost\"}","to":"var hostWalkUsers = []string{}","rule":"binsize BS8: every exported body that makes an actor's host links the hostwalk leaf, which walks a recovered state for hosts.","killers":["runtime/v1:TestHostWalkUsersAreListed"]},
-    {"name":"bs8-walk-unset","origin":"wf10 binsize BS8","file":"runtime/v1/hostwalk/hostwalk.go","from":"func init() { rt.UseHeldWalk(held) }","to":"func init() { _ = held }","rule":"binsize BS8: the hostwalk leaf's init installs the walk that finds a recovered state's hosts.","killers":["runtime/v1:TestDurableHostsRecover"]},
-    {"name":"ert-explored-root-unguarded","origin":"wf10 EXPLORE-rt","file":"runtime/v1/explore_on.go","from":"\t\t_, err := guarded(t, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })\n\t\treturn err\n","to":"\t\treturn body(t)\n","rule":"An explored run's root classifies its own defect, with the context in force, as a live root does.","killers":["runtime/v1[ergoexplore]:TestDefectRootContext"]},
-    {"name":"ert-explored-main-drops-exit","origin":"wf10 EXPLORE-rt","file":"runtime/v1/explore_on.go","from":"\treturn res.Exit\n}","to":"\treturn nil\n}","rule":"An explored main exits with its root's exit: status and report as in a live run.","killers":["runtime/v1[ergoexplore]:TestMainExit"]},
-    {"name":"ert-domain-push-ignores-stop","origin":"wf10 EXPLORE-rt","file":"runtime/v1/queue.go","from":"\t\tp = rt.Park(t, q, stop, nil)\n","to":"\t\tp = rt.Park(t, q, nil, nil)\n","rule":"A Push parked in a clock's domain (every task of an explored run) wakes on its task's stop (gap 1).","killers":["runtime/v1[ergoexplore]:TestPollerEnds","runtime/v1[ergoexplore]:TestChildrenLawsExplored"]},
-    {"name":"ert-await-never-ready","origin":"wf10 EXPLORE-rt","file":"runtime/rt/sched_explore.go","from":"\treturn x.await == nil || x.await()\n","to":"\treturn x.await == nil\n","rule":"A task waiting through the scheduler (rt.Await) runs again once its event came.","killers":["runtime/v1[ergoexplore]:TestStop","runtime/v1[ergoexplore]:TestFrameReleaseOrder","runtime/v1[ergoexplore]:TestGoInExitAction","runtime/v1[ergoexplore]:TestStopWinsReleaseModel","runtime/v1[ergoexplore]:TestPollerEnds","runtime/v1[ergoexplore]:TestChildrenLawsExplored"]},
+    {
+      "name": "bs6-wide-file",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "File: intern(c.File)",
+      "to": "File: intern(c.Func)",
+      "rule": "binsize BS6: registering the selectable wide reference preserves its file names when normalizing the source map.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs7-graph-ignored",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "\treturn a.graph()\n",
+      "to": "\treturn nil\n",
+      "rule": "binsize BS7: a traced actor names its arms from the graph its start received.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-timer-lookup",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if tm.State == s {",
+      "to": "if tm.Signal == s {",
+      "rule": "binsize BS7: a timer's signal is the one the graph gives the state its entry opened in.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-hidden-graph",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/files.go",
+      "from": "\"GraphOf\": Graph}",
+      "to": "\"GraphOfX\": Graph}",
+      "rule": "binsize BS7: GraphOf is a hidden parameter that the lowering supplies.",
+      "killers": [
+        "internal/sketch/lower:TestGraphLoweringsTraceAlike"
+      ]
+    },
+    {
+      "name": "bs7b-variant-self",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if n, ok := v.(interface{ ErgoVariant() string }); ok {",
+      "to": "if n, ok := v.(interface{ ErgoVariant() string }); ok && false {",
+      "rule": "binsize BS7b: a value that names its own variant (a flat union) is traced by that name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-arm-once",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if a.Site != last {",
+      "to": "if a.Site != last || true {",
+      "rule": "binsize BS7b: the patterns of one case are one arm, so a decision names its site once.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs8-host-walk-user-missing",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/files.go",
+      "from": "var hostWalkUsers = []string{\"NewHost\"}",
+      "to": "var hostWalkUsers = []string{}",
+      "rule": "binsize BS8: every exported body that makes an actor's host links the hostwalk leaf, which walks a recovered state for hosts.",
+      "killers": ["runtime/v1:TestHostWalkUsersAreListed"]
+    },
+    {
+      "name": "bs8-walk-unset",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/hostwalk/hostwalk.go",
+      "from": "func init() { rt.UseHeldWalk(held) }",
+      "to": "func init() { _ = held }",
+      "rule": "binsize BS8: the hostwalk leaf's init installs the walk that finds a recovered state's hosts.",
+      "killers": ["runtime/v1:TestDurableHostsRecover"]
+    },
+    {
+      "name": "ert-explored-root-unguarded",
+      "origin": "wf10 EXPLORE-rt",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\t\t_, err := guarded(t, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })\n\t\treturn err\n",
+      "to": "\t\treturn body(t)\n",
+      "rule": "An explored run's root classifies its own defect, with the context in force, as a live root does.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestDefectRootContext"
+      ]
+    },
+    {
+      "name": "ert-explored-main-drops-exit",
+      "origin": "wf10 EXPLORE-rt",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\treturn res.Exit\n}",
+      "to": "\treturn nil\n}",
+      "rule": "An explored main exits with its root's exit: status and report as in a live run.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestMainExit"
+      ]
+    },
+    {
+      "name": "ert-domain-push-ignores-stop",
+      "origin": "wf10 EXPLORE-rt",
+      "file": "runtime/v1/queue.go",
+      "from": "\t\tp = rt.Park(t, q, stop, nil)\n",
+      "to": "\t\tp = rt.Park(t, q, nil, nil)\n",
+      "rule": "A Push parked in a clock's domain (every task of an explored run) wakes on its task's stop (gap 1).",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestPollerEnds",
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ]
+    },
+    {
+      "name": "ert-await-never-ready",
+      "origin": "wf10 EXPLORE-rt",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\treturn x.await == nil || x.await()\n",
+      "to": "\treturn x.await == nil\n",
+      "rule": "A task waiting through the scheduler (rt.Await) runs again once its event came.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestStop",
+        "runtime/v1[ergoexplore]:TestFrameReleaseOrder",
+        "runtime/v1[ergoexplore]:TestGoInExitAction",
+        "runtime/v1[ergoexplore]:TestStopWinsReleaseModel",
+        "runtime/v1[ergoexplore]:TestPollerEnds",
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ]
+    },
     {"name": "stdsh-log", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathLog(f float64) float64 { return math.Log(f) }", "to": "func MathLog(f float64) float64 { return math.Log1p(f) }", "rule": "stdlib.md math: Log is Go's math.Log.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-exp", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathExp(f float64) float64 { return math.Exp(f) }", "to": "func MathExp(f float64) float64 { return math.Exp2(f) }", "rule": "stdlib.md math: Exp is Go's math.Exp.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-trimleft", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return strings.TrimLeft(s, cutset)", "to": "return strings.TrimPrefix(s, cutset)", "rule": "stdlib.md strings 10: TrimLeft's cutset is a set of runes.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
@@ -539,7 +760,7 @@
     {"name": "stdsh-append-byte", "origin": "wf10/STD-sh", "file": "runtime/v1/text.go", "from": "return append(buf, c) }", "to": "return append(buf, c|1) }", "rule": "stdlib.md strings 10: WriteByte adds the byte as Go's Builder.WriteByte.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-owned-text", "origin": "wf10/STD-sh r2", "file": "runtime/v1/owned.go", "from": "unsafe.SliceData(buf), len(buf))", "to": "unsafe.SliceData(buf), len(buf)/2)", "rule": "types.md Bindings 2 (consumed arguments): the owned form gives the text StringsBuilderText gives.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-owned-shape", "origin": "wf10/STD-sh r2", "file": "runtime/v1/files.go", "from": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) || len(a.Params) != len(b.Params) {\n", "to": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) {\n", "rule": "runtime/v1 Body.Owned: an owned form has the body's shape.", "killers": ["runtime/v1:TestBodyOwnedForm"]},
-    {"name":"stdsh-owned-directive","origin":"wf10/STD-sh r2","file":"runtime/v1/files.go","from":"\t\t*f.to = form\n","to":"\t\t_ = form\n","rule":"runtime/v1 Body.Owned: the directive names the owned form the lowering calls.","killers":["runtime/v1:TestBodyOwnedForm","lower:TestValueRuleElides"]},
+    {"name": "stdsh-owned-directive", "origin": "wf10/STD-sh r2", "file": "runtime/v1/files.go", "from": "\t\t*f.to = form\n", "to": "\t\t_ = form\n", "rule": "runtime/v1 Body.Owned: the directive names the owned form the lowering calls.", "killers": ["runtime/v1:TestBodyOwnedForm", "lower:TestValueRuleElides"]},
     {"name":"unchecked-string-length","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i)","to":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i-1)","rule":"StringAt is s[i:j]: j-i bytes from i.","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
     {"name":"unchecked-byte-offset","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i))","to":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i+1))","rule":"ByteAt is s[i].","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
     {"name":"onebrc-mapfile-writable","origin":"wf10 1BRC","file":"runtime/v1/mapfile_unix.go","from":"size, syscall.PROT_READ, syscall.MAP_SHARED)","to":"size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE)","rule":"FSMapFile's mapping is read-only, so no store changes the string unsafe.String makes of it.","killers":["runtime/v1:TestFSMappedKeepsItsInvariant"]},
@@ -549,30 +770,41 @@
     {"name":"mapped-fault-crashes","origin":"wf10 MAPPED","file":"runtime/rt/mapfault.go","from":"\treturn debug.SetPanicOnFault(true), true\n","to":"\treturn false, false\n","rule":"A task that starts while a mapping is live panics on a fault, so a truncated mapping is a defect, not a crash.","killers":["runtime/v1:TestMappedTruncationIsADefect"]},
     {"name":"mapped-fault-unnamed","origin":"wf10 MAPPED","file":"runtime/rt/cause.go","from":"\tp = FaultValue(p)\n","to":"","rule":"The defect of a fault inside a live mapping names the file (rt.MappedFault).","killers":["runtime/v1:TestMappedTruncationIsADefect"]},
     {"name":"fs-clone-short","origin":"wf10 MAPPED","file":"runtime/v1/mapped.go","from":"return strings.Clone(t)","to":"return strings.Clone(t[:len(t)/2])","rule":"fs law MapTextIsText: Clone of MapText(s)'s text is s.","killers":["runtime/v1:TestFSMapLaws"]},
-    {"name":"fkg1-firing-unmarked","origin":"wf10 FKG1","file":"runtime/v1/runtime.go","from":"func MachineFiringOn(t *rt.Task) { t.SetFiring(true) }","to":"func MachineFiringOn(t *rt.Task) { t.SetFiring(false) }","rule":"runtime.md, Machines and actors 9 (FKG1): MachineFiring marks the task while the After runs.","killers":["lower:TestStdMachinesLawsRun"]},
-    {"name":"sb2-appendfrom-bytewise","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"\t\tk := min(n, len(buf)-start)\n","to":"\t\tk := min(n, 1)\n","rule":"stdlib.md strings 11: an overlapping WriteFrom copies whole runs, doubling, not byte by byte.","killers":["runtime/v1:TestBuilderAppendFromCounts"]},
-    {"name":"sb2-appendfrom-held-loop","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"\tif end := start + n; end <= len(buf) {\n","to":"\tif end := start + n; false && end <= len(buf) {\n","rule":"stdlib.md strings 11: a run the text holds already is one compare and one append, as hand Go.","killers":["runtime/v1:TestBuilderAppendFromCounts"]},
-    {"name":"sb2-appendfrom-unchecked","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"\t_ = buf[start]\n\tfor n > 0 && start < len(buf) {\n","to":"\tfor n > 0 && start < len(buf) {\n","rule":"stdlib.md strings 11: a start at or past the text's end with a count above 0 is a defect, not a silent no-op.","killers":["runtime/v1:TestBuilderAppendFromIsADefect"]},
-    {"name":"sb2-appendfrom-short","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"\t\tn -= k\n","to":"\t\tn -= k + 1\n","rule":"stdlib.md strings 11: WriteFrom writes n bytes (law WriteFromRepeats).","killers":["lower:TestStdTextRuns2"]},
-    {"name":"sb2-appendbytes-dropped","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf, bs...) }","to":"func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return buf }","rule":"stdlib.md strings 11: WriteBytes writes what WriteString writes (law BytesRoundTrip).","killers":["lower:TestStdTextRuns2"]},
-    {"name":"sb2-bytes-longer","origin":"wf10 SB2","file":"runtime/v1/text.go","from":"func StringsBytes(s string) []byte { return []byte(s) }","to":"func StringsBytes(s string) []byte { return []byte(s + \" \") }","rule":"stdlib.md strings 11: Bytes is the bytes of s (law BytesRoundTrip).","killers":["lower:TestStdTextRuns2"]},
-    {"name":"sb4-reverse-not-owned","origin":"wf10 SB4","file":"runtime/v1/collections.go","from":"//ergo:owned SlicesReverseOwned\n","to":"","rule":"stdlib.md Slices and Maps 1: Reverse of a slice no binding reads after the call reverses it in place, through its owned form.","killers":["lower:TestValueRuleElides"]},
-    {"name":"sb4-reverse-owned-copies","origin":"wf10 SB4","file":"runtime/v1/collections.go","from":"func SlicesReverseOwned[T any](xs []T) []T {\n\tslices.Reverse(xs)\n","to":"func SlicesReverseOwned[T any](xs []T) []T {\n\txs = slices.Clone(xs)\n\tslices.Reverse(xs)\n","rule":"stdlib.md Slices and Maps 1: Reverse's owned form reverses its argument's own array, with no copy.","killers":["runtime/v1:TestStdSlicesLaws"]},
-    {"name":"sb4-reverse-owned-skips","origin":"wf10 SB4","file":"runtime/v1/collections.go","from":"func SlicesReverseOwned[T any](xs []T) []T {\n\tslices.Reverse(xs)\n","to":"func SlicesReverseOwned[T any](xs []T) []T {\n","rule":"stdlib.md Slices and Maps 1: Reverse's owned form is Reverse.","killers":["runtime/v1:TestStdSlicesLaws"]},
-    {"name":"sb8-always-direct","origin":"wf10 SB8","file":"runtime/v1/stdout.go","from":"\ts.direct = stdoutForcedDirect.Load() || stdoutIsTerminal(os.Stdout)\n","to":"\ts.direct = true\n","rule":"stdlib.md io 10: standard output that is not a terminal is buffered.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-terminal-buffered","origin":"wf10 SB8","file":"runtime/v1/stdout.go","from":"\ts.direct = stdoutForcedDirect.Load() || stdoutIsTerminal(os.Stdout)\n","to":"\ts.direct = stdoutForcedDirect.Load()\n","rule":"stdlib.md io 10: a terminal gets each write as it comes.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-no-flush-stderr","origin":"wf10 SB8","file":"runtime/v1/stdout.go","from":"func (stderrSink) Write(p []byte) (int, error) {\n\tflushStdout()\n","to":"func (stderrSink) Write(p []byte) (int, error) {\n","rule":"stdlib.md io 10: a write to standard error follows what standard output holds.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-overflow-kept","origin":"wf10 SB8","file":"runtime/v1/stdout.go","from":"\tif len(stdout.buf)+len(text) > stdoutChunk {\n","to":"\tif false && len(stdout.buf)+len(text) > stdoutChunk {\n","rule":"stdlib.md io 10: the buffer goes to the host before it passes 4 KiB.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-no-flush-stdin","origin":"wf10 SB8","file":"runtime/v1/host.go","from":"\t\tif !asked && t != nil {\n\t\t\tstop, asked = t.Done(), true\n\t\t}\n\t\tif !l.reading {\n","to":"\t\tif !l.reading {\n","rule":"stdlib.md io 10: a read of standard input that waits on the host shows what was printed first (its wait's Done).","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-no-flush-exit","origin":"wf10 SB8","file":"runtime/v1/exit.go","from":"\tflushStdout()\n\treturn status\n","to":"\treturn status\n","rule":"stdlib.md io 10: what standard output holds is written when main ends.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-console-direct","origin":"wf10 SB8","file":"runtime/v1/runtime.go","from":"\twriteStdout(line + \"\\n\")\n","to":"\t_, _ = os.Stdout.WriteString(line + \"\\n\")\n","rule":"stdlib.md io 10: Console and io.Host write through one buffer, in program order.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-pop-asks-early","origin":"wf10 SB8","file":"runtime/v1/queue.go","from":"\tasked := false\n\tfor {\n\t\tif v, ok = q.front(); ok {\n","to":"\tstop, asked := t.Done(), true\n\tfor {\n\t\tif v, ok = q.front(); ok {\n","rule":"stdlib.md io 10: a Pop that finds a value waits on nothing and flushes nothing.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {"name":"sb8-lines-asks-early","origin":"wf10 SB8","file":"runtime/v1/host.go","from":"\tasked := false\n\tfor {\n\t\tif len(l.buf) > 0 {\n","to":"\tasked := false\n\tif t != nil {\n\t\tstop, asked = t.Done(), true\n\t}\n\tfor {\n\t\tif len(l.buf) > 0 {\n","rule":"stdlib.md io 10: a line already read waits on nothing and flushes nothing.","killers":["runtime/v1:TestStdoutFlushModel"]},
+    {
+      "name": "fkg1-firing-unmarked",
+      "origin": "wf10 FKG1",
+      "file": "runtime/v1/runtime.go",
+      "from": "func MachineFiringOn(t *rt.Task) { t.SetFiring(true) }",
+      "to": "func MachineFiringOn(t *rt.Task) { t.SetFiring(false) }",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): MachineFiring marks the task while the After runs.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun"
+      ]
+    },
+    {"name": "sb2-appendfrom-bytewise", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\t\tk := min(n, len(buf)-start)\n", "to": "\t\tk := min(n, 1)\n", "rule": "stdlib.md strings 11: an overlapping WriteFrom copies whole runs, doubling, not byte by byte.", "killers": ["runtime/v1:TestBuilderAppendFromCounts"]},
+    {"name": "sb2-appendfrom-held-loop", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\tif end := start + n; end <= len(buf) {\n", "to": "\tif end := start + n; false && end <= len(buf) {\n", "rule": "stdlib.md strings 11: a run the text holds already is one compare and one append, as hand Go.", "killers": ["runtime/v1:TestBuilderAppendFromCounts"]},
+    {"name": "sb2-appendfrom-unchecked", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\t_ = buf[start]\n\tfor n > 0 && start < len(buf) {\n", "to": "\tfor n > 0 && start < len(buf) {\n", "rule": "stdlib.md strings 11: a start at or past the text's end with a count above 0 is a defect, not a silent no-op.", "killers": ["runtime/v1:TestBuilderAppendFromIsADefect"]},
+    {"name": "sb2-appendfrom-short", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\t\tn -= k\n", "to": "\t\tn -= k + 1\n", "rule": "stdlib.md strings 11: WriteFrom writes n bytes (law WriteFromRepeats).", "killers": ["lower:TestStdTextRuns2"]},
+    {"name": "sb2-appendbytes-dropped", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf, bs...) }", "to": "func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return buf }", "rule": "stdlib.md strings 11: WriteBytes writes what WriteString writes (law BytesRoundTrip).", "killers": ["lower:TestStdTextRuns2"]},
+    {"name": "sb2-bytes-longer", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "func StringsBytes(s string) []byte { return []byte(s) }", "to": "func StringsBytes(s string) []byte { return []byte(s + \" \") }", "rule": "stdlib.md strings 11: Bytes is the bytes of s (law BytesRoundTrip).", "killers": ["lower:TestStdTextRuns2"]},
+    {"name": "sb4-reverse-not-owned", "origin": "wf10 SB4", "file": "runtime/v1/collections.go", "from": "//ergo:owned SlicesReverseOwned\n", "to": "", "rule": "stdlib.md Slices and Maps 1: Reverse of a slice no binding reads after the call reverses it in place, through its owned form.", "killers": ["lower:TestValueRuleElides"]},
+    {"name": "sb4-reverse-owned-copies", "origin": "wf10 SB4", "file": "runtime/v1/collections.go", "from": "func SlicesReverseOwned[T any](xs []T) []T {\n\tslices.Reverse(xs)\n", "to": "func SlicesReverseOwned[T any](xs []T) []T {\n\txs = slices.Clone(xs)\n\tslices.Reverse(xs)\n", "rule": "stdlib.md Slices and Maps 1: Reverse's owned form reverses its argument's own array, with no copy.", "killers": ["runtime/v1:TestStdSlicesLaws"]},
+    {"name": "sb4-reverse-owned-skips", "origin": "wf10 SB4", "file": "runtime/v1/collections.go", "from": "func SlicesReverseOwned[T any](xs []T) []T {\n\tslices.Reverse(xs)\n", "to": "func SlicesReverseOwned[T any](xs []T) []T {\n", "rule": "stdlib.md Slices and Maps 1: Reverse's owned form is Reverse.", "killers": ["runtime/v1:TestStdSlicesLaws"]},
+    {"name": "sb8-always-direct", "origin": "wf10 SB8", "file": "runtime/v1/stdout.go", "from": "\ts.direct = stdoutForcedDirect.Load() || stdoutIsTerminal(os.Stdout)\n", "to": "\ts.direct = true\n", "rule": "stdlib.md io 10: standard output that is not a terminal is buffered.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-terminal-buffered", "origin": "wf10 SB8", "file": "runtime/v1/stdout.go", "from": "\ts.direct = stdoutForcedDirect.Load() || stdoutIsTerminal(os.Stdout)\n", "to": "\ts.direct = stdoutForcedDirect.Load()\n", "rule": "stdlib.md io 10: a terminal gets each write as it comes.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-no-flush-stderr", "origin": "wf10 SB8", "file": "runtime/v1/stdout.go", "from": "func (stderrSink) Write(p []byte) (int, error) {\n\tflushStdout()\n", "to": "func (stderrSink) Write(p []byte) (int, error) {\n", "rule": "stdlib.md io 10: a write to standard error follows what standard output holds.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-overflow-kept", "origin": "wf10 SB8", "file": "runtime/v1/stdout.go", "from": "\tif len(stdout.buf)+len(text) > stdoutChunk {\n", "to": "\tif false && len(stdout.buf)+len(text) > stdoutChunk {\n", "rule": "stdlib.md io 10: the buffer goes to the host before it passes 4 KiB.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-no-flush-stdin", "origin": "wf10 SB8", "file": "runtime/v1/host.go", "from": "\t\tif !asked && t != nil {\n\t\t\tstop, asked = t.Done(), true\n\t\t}\n\t\tif !l.reading {\n", "to": "\t\tif !l.reading {\n", "rule": "stdlib.md io 10: a read of standard input that waits on the host shows what was printed first (its wait's Done).", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-no-flush-exit", "origin": "wf10 SB8", "file": "runtime/v1/exit.go", "from": "\tflushStdout()\n\treturn status\n", "to": "\treturn status\n", "rule": "stdlib.md io 10: what standard output holds is written when main ends.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-console-direct", "origin": "wf10 SB8", "file": "runtime/v1/runtime.go", "from": "\twriteStdout(line + \"\\n\")\n", "to": "\t_, _ = os.Stdout.WriteString(line + \"\\n\")\n", "rule": "stdlib.md io 10: Console and io.Host write through one buffer, in program order.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-pop-asks-early", "origin": "wf10 SB8", "file": "runtime/v1/queue.go", "from": "\tasked := false\n\tfor {\n\t\tif v, ok = q.front(); ok {\n", "to": "\tstop, asked := t.Done(), true\n\tfor {\n\t\tif v, ok = q.front(); ok {\n", "rule": "stdlib.md io 10: a Pop that finds a value waits on nothing and flushes nothing.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
+    {"name": "sb8-lines-asks-early", "origin": "wf10 SB8", "file": "runtime/v1/host.go", "from": "\tasked := false\n\tfor {\n\t\tif len(l.buf) > 0 {\n", "to": "\tasked := false\n\tif t != nil {\n\t\tstop, asked = t.Done(), true\n\t}\n\tfor {\n\t\tif len(l.buf) > 0 {\n", "rule": "stdlib.md io 10: a line already read waits on nothing and flushes nothing.", "killers": ["runtime/v1:TestStdoutFlushModel"]},
     {"name":"sj0-ioread-over-max","origin":"wf10 SJ0","file":"runtime/v1/host.go","from":"func(b []byte, _ bool) int { return min(len(b), max) }","to":"func(b []byte, _ bool) int { return len(b) }","rule":"stdlib.md io 10: IORead gives at most max bytes.","killers":["runtime/v1:TestIOStdinShared"]},
     {"name":"ss1-queue-len-push","origin":"wf10 std-speed-1","file":"runtime/v1/queue.go","from":"\t\tq.buf = append(q.buf, v)\n\t\tq.size.Store(int64(len(q.buf)))","to":"\t\tq.buf = append(q.buf, v)","rule":"runtime.md, Queues: Len counts the values that entered; the lock-free count is stored at each Push into the buffer.","killers":["runtime/v1:TestQueuePoll"]},
     {"name":"ss1-queue-len-take","origin":"wf10 std-speed-1","file":"runtime/v1/queue.go","from":"\t\tq.size.Store(int64(len(q.buf)))\n\t\treturn v, true","to":"\t\treturn v, true","rule":"runtime.md, Queues: Len does not count a taken value; the lock-free count is stored at each take from the buffer.","killers":["runtime/v1:TestQueuePoll"]},
     {"name":"ss1-host-mono-origin","origin":"wf10 std-speed-1","file":"runtime/v1/time.go","from":"return int64(time.Since(hostStart))","to":"return int64(time.Since(hostStart)) / 2","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's monotonic read has TimeHostNow's origin.","killers":["runtime/v1:TestTimeLaws"]},
     {"name":"ss1-index-byte","origin":"wf10 std-speed-1","file":"runtime/v1/text.go","from":"return strings.IndexByte(s, c)","to":"return strings.LastIndexByte(s, c)","rule":"stdlib.md strings 6: IndexByte is Index of one byte, the first.","killers":["runtime/v1:TestStdTextLaws"]},
+    {"name":"i20-gocall-unflushed","origin":"wf10 batch-20 integration (I20)","file":"runtime/v1/gocall.go","from":"\tdefer flushStdout()\n","to":"","rule":"A Go call of an exported Ergo function flushes standard output before it returns (SB8 x IG11): Go's writes are direct, and the call's lines would come after them or never.","killers":["lower:TestGoCallsErgo"]},
     {"name": "npj-give-drops-buffer", "origin": "wf10 REF NOPRIV-JSON", "file": "runtime/v1/buffer.go", "from": "\tswitch c := cap(b); {\n\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tswitch c := cap(b); {\n\tcase true:\n", "rule": "Give puts the borrowed array back, so the next writer's Borrow allocates no buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
     {"name": "hint-give-drops-grown", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tcase c < 1<<10 || c >= 8<<10:\n", "rule": "Give keeps an array of any class up to the largest, so a text over the least class reuses its buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
     {"name": "hint-not-recorded", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\t\tp.Store(int64(len(b)))\n", "to": "\t\t_ = p\n", "rule": "Give records its text's length as the hint, so the next Borrow, after a GC too, takes a buffer that holds it.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint", "examples:cborpack"]},
@@ -633,7 +865,7 @@
     {"name":"ref-in-place-shared-blind","origin":"wf10 OWN1 (ST G1)","file":"runtime/v1/sync.go","from":"\t\tr.v = clone(r.v)\n\t}\n\tx := f(&r.v)\n","to":"\t}\n\tx := f(&r.v)\n","rule":"An in-place Modify copies a shared held value before its literal writes it: a value Get or Set handed out never changes.","killers":["lower:TestValueRuleAgrees"],"anchor":{"tests":["lower:TestValueRuleAgrees"]}},
     {"name": "own-append-to-subslice", "origin": "wf10 OWN1", "file": "runtime/v1/lineage.go", "from": "l.base != nil && l.n == len(xs) && ", "to": "l.base != nil && ", "rule": "A one-extender site appends in place only to the very slice it made last, not to a cut of it that is shorter.", "killers": ["lower:TestHandoverAgrees"]},
     {"name": "own-lineage-token-stale", "origin": "wf10 OWN1", "file": "runtime/v1/lineage.go", "from": "\t\tout = append(xs, x)\n\t} else {", "to": "\t\tout = append(xs, x)\n\t\tl.mu.Unlock()\n\t\treturn out\n\t} else {", "rule": "After an append in place the token names the new, longer slice, so a second extender of the old one copies.", "killers": ["lower:TestHandoverAgrees"]},
-    {"name":"math-fma-unfused","origin":"wf10 corpus wave HP4 (std math.FMA)","file":"runtime/v1/numbers.go","from":"{ return math.FMA(x, y, z) }","to":"{ return float64(x*y) + z }","rule":"math.FMA rounds x*y + z once: (1+d)(1-d) - 1 is exactly -d².","killers":["runtime/v1:TestStdRunesLaws"]},
-    {"name":"math-fma-sign","origin":"wf10 corpus wave HP4 (std math.FMA)","file":"runtime/v1/numbers.go","from":"{ return math.FMA(x, y, z) }","to":"{ return math.FMA(x, y, -z) }","rule":"math.FMA is within the unfused error of x*y + z.","killers":["runtime/v1:TestStdRunesLaws"]}
+    {"name": "math-fma-unfused", "origin": "wf10 corpus wave HP4 (std math.FMA)", "file": "runtime/v1/numbers.go", "from": "{ return math.FMA(x, y, z) }", "to": "{ return float64(x*y) + z }", "rule": "math.FMA rounds x*y + z once: (1+d)(1-d) - 1 is exactly -d².", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {"name": "math-fma-sign", "origin": "wf10 corpus wave HP4 (std math.FMA)", "file": "runtime/v1/numbers.go", "from": "{ return math.FMA(x, y, z) }", "to": "{ return math.FMA(x, y, -z) }", "rule": "math.FMA is within the unfused error of x*y + z.", "killers": ["runtime/v1:TestStdRunesLaws"]}
   ]
 }

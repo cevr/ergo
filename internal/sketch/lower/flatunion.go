@@ -1073,6 +1073,7 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 	}
 	if fu.shared {
 		l.sharedDecl(b, td, fu, tc, self)
+		l.variantNamer(b, td, fu, tc, self)
 		return
 	}
 	for k, v := range fu.variants {
@@ -1092,6 +1093,11 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		}
 		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + self + " { return " + self + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
 	}
+	l.variantNamer(b, td, fu, tc, self)
+}
+
+// variantNamer writes the union's ErgoVariant, in either form.
+func (l *lowerer) variantNamer(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx, self string) {
 	// ErgoVariant names the variant a value holds, as a traced runner
 	// names a signal (v1 actor_trace.go): the Go type is the union's, so
 	// the name the runtime would read from it is the union's. A generic

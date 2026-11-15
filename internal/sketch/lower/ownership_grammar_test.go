@@ -294,6 +294,15 @@ func fdCount() int needs go.Foreign {
 // ogDevNull opens a Go file that always opens.
 const ogDevNull = `os.Open("/dev/null") catch { case go.Error: Unreachable("/dev/null") }`
 
+// ogHeader is x as a header's expression: a composite literal there is
+// parenthesized, as the parser requires (O1).
+func ogHeader(x string) string {
+	if x != "" && x[0] >= 'A' && x[0] <= 'Z' {
+		return "(" + x + ")"
+	}
+	return x
+}
+
 // ogStmt is a generated statement: a line (it may hold several lines),
 // or a compound whose line is its header and whose arms hold blocks.
 type ogStmt struct {
@@ -797,7 +806,7 @@ func (g *ogGen) matchExpr(t ogType, d int) string {
 	g.restore(before)
 	b := g.arm(t, d)
 	g.join(then)
-	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", subj, bind, a, b)
+	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", ogHeader(subj), bind, a, b)
 }
 
 // catchExpr is a catch used as a value: its arm gives the resource when
@@ -1396,7 +1405,7 @@ func (g *ogGen) match(d int) *ogStmt {
 		}
 		g.f("match:temp")
 	}
-	s := &ogStmt{line: pre + "match " + subj}
+	s := &ogStmt{line: pre + "match " + ogHeader(subj)}
 	before := g.save()
 	var states []map[*ogVar]uint8
 	arm := func(head string, binds ...string) {
