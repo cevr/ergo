@@ -94,8 +94,8 @@ func ofold(stepped []int) (final []int, end string, last rdec, hasLast bool) {
 }
 
 // oop is one operation of a case: "send" or "ask" e; "observe" with obs
-// "full", "lag" (reads its first state, then waits until the actor ended)
-// or "wait" (WaitFor len(s) >= k); or the end: "stop" or "drain" with the
+// "full", "lag" (reads its first state, then waits until the actor ended),
+// "latest" (lag's reads over LatestChanges) or "wait" (WaitFor len(s) >= k); or the end: "stop" or "drain" with the
 // signals q queued behind a held step, "done" or "fail".
 type oop struct {
 	kind, obs string
@@ -117,7 +117,7 @@ func genObserveCase(r *rand.Rand) ocase {
 		case 2:
 			c.ops = append(c.ops, oop{kind: "ask", e: r.Intn(40)})
 		default:
-			c.ops = append(c.ops, oop{kind: "observe", obs: []string{"full", "lag", "wait"}[r.Intn(3)], k: r.Intn(10)})
+			c.ops = append(c.ops, oop{kind: "observe", obs: []string{"full", "lag", "wait", "latest"}[r.Intn(4)], k: r.Intn(10)})
 		}
 	}
 	end := oop{kind: []string{"stop", "drain", "stop", "drain", "done", "fail"}[r.Intn(6)]}
@@ -180,11 +180,15 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 			go func() {
 				defer close(ob.done)
 				w := rt.Root("observer")
-				for s := range a.Changes(w) {
+				seq := a.Changes(w)
+				if ob.kind == "latest" {
+					seq = a.LatestChanges(w)
+				}
+				for s := range seq {
 					ob.got = append(ob.got, s)
 					if len(ob.got) == 1 {
 						close(ready)
-						if ob.kind == "lag" {
+						if ob.kind == "lag" || ob.kind == "latest" {
 							<-lag
 						}
 					}
@@ -266,16 +270,39 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 	if end == "done" && ActorFinal(a).kind != decideDone {
 		return fmt.Sprintf("final %v", ActorFinal(a))
 	}
+	// A latest subscription that lagged while the actor committed holds
+	// one state, not each (F-GP4c-1); Held counts what every loop holds.
+	a.mu.Lock()
+	held := 0
+	for c := range a.subs {
+		if c.latest && len(c.buf) > 1 {
+			a.mu.Unlock()
+			return fmt.Sprintf("a latest subscription holds %d states", len(c.buf))
+		}
+		held += len(c.buf)
+	}
+	a.mu.Unlock()
+	if got := a.Held(); got != held {
+		return fmt.Sprintf("Held %d, the loops hold %d", got, held)
+	}
 	close(lag)
 	for i, ob := range obs {
 		<-ob.done
-		// The observer reads final[:start], final[:start+1], … once each.
+		// The observer reads final[:start], final[:start+1], … once each;
+		// a latest one, which lagged until the end, reads its start and
+		// then only the final state.
 		want := [][]int{}
 		for n := ob.start; n <= len(final); n++ {
+			if ob.kind == "latest" && n > ob.start && n < len(final) {
+				continue
+			}
 			want = append(want, final[:n])
 			if ob.kind == "wait" && n >= ob.k {
 				break
 			}
+		}
+		if ob.kind == "latest" && len(final)-ob.start >= 2 {
+			seen["a latest observer skipped states"] = true
 		}
 		if !slices.EqualFunc(ob.got, want, slices.Equal) {
 			return fmt.Sprintf("observer %d (%s from %d): read %v, want %v", i, ob.kind, ob.start, ob.got, want)
@@ -331,7 +358,7 @@ func TestActorObserveAgreesWithFold(t *testing.T) {
 	r := rand.New(rand.NewSource(seed))
 	seen := map[string]bool{}
 	want := []string{"a drain stepped queued signals", "a stop dropped queued signals", "a stop overtook unread states",
-		"a wait ended Stopped", "a wait matched a state after its start", "three observers", "done", "fail"}
+		"a wait ended Stopped", "a wait matched a state after its start", "three observers", "done", "fail", "a latest observer skipped states"}
 	n := 0
 	for ; n < 300 || slices.ContainsFunc(want, func(w string) bool { return !seen[w] }); n++ {
 		if n == 5000 {

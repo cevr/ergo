@@ -53,6 +53,18 @@ type Actor[S, E, D, F] {
 	// state committed before the end, also one a stop overtook. A break
 	// ends it. A loop that does not read keeps the states.
 	Changes() Seq[S],
+	// LatestChanges is Changes for a loop that wants the actor's current
+	// state, not its history: when the loop reads slower than the actor
+	// commits, it gets the latest state and skips the ones between, so it
+	// keeps at most one state however long it does not read (F-GP4c-1). It
+	// also begins with the state when the loop begins and gives the last
+	// state before it ends.
+	LatestChanges() Seq[S],
+	// Held is how many committed states its Changes and LatestChanges
+	// loops hold and have not given yet, summed over its loops: a loop that
+	// stops reading grows it by one per commit under Changes, and keeps it
+	// at one under LatestChanges (the counter a growth guard reads).
+	Held() int,
 	// Drain closes admission, so later Sends and Asks fail Stopped, and
 	// waits until the actor has stepped every signal queued before it, in
 	// order, its Asks answered, and then ended. A Done, a failure or a

@@ -12,6 +12,8 @@ var bodyTable = map[string]bodyFact{
 	"Actor.Changes":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[S]"}}},
 	"Actor.Drain":               {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"error"}}},
 	"Actor.Dropped":             {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Results: []string{"int"}}},
+	"Actor.Held":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Results: []string{"int"}}},
+	"Actor.LatestChanges":       {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[S]"}}},
 	"Actor.Send":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "E"}}, Results: []string{"error"}}},
 	"Actor.State":               {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"S"}}},
 	"Actor.Stop":                {body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}, {Name: "D", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"error"}}},

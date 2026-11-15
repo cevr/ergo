@@ -1160,7 +1160,11 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 		return
 	}
 	for c := range a.subs {
-		c.buf = append(c.buf, s)
+		if c.latest && len(c.buf) > 0 {
+			c.buf[0] = s // a latest subscription holds one state
+		} else {
+			c.buf = append(c.buf, s)
+		}
 		c.signal()
 	}
 }
@@ -1684,6 +1688,20 @@ func defectsOnly(err error) error {
 // entries the runner dropped (rule 6; decision MQ6).
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
+// Held is a.Held(): how many committed states the actor's Changes and
+// LatestChanges loops hold and have not given yet, summed over its loops;
+// a LatestChanges loop holds at most one (F-GP4c-1). It is the counter a
+// growth guard reads.
+func (a *Actor[S, E, D]) Held() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for c := range a.subs {
+		n += len(c.buf)
+	}
+	return n
+}
+
 // Changes is a.Changes() on the iterating task t: the actor's state when
 // the loop begins, then each state the runner commits after it (an Enter,
 // a Stay, an Emit), in commit order; it ends when the actor has ended and
@@ -1691,8 +1709,24 @@ func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 // Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
 // that does not read keeps every state in its buffer.
 func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
+	return a.subscribe(t, false)
+}
+
+// LatestChanges is a.LatestChanges() on the iterating task t: as Changes,
+// but a subscriber that reads slower than the runner commits sees only the
+// latest state, never the ones in between (conflated, as Effect's
+// SubscriptionRef.changes read through a sliding buffer of one, or a Go
+// channel of one slot that the writer overwrites). It holds at most one
+// state, so a subscriber that stops reading keeps one state, not every
+// state (F-GP4c-1: ui's watcher, blocked on its host, kept every state).
+func (a *Actor[S, E, D]) LatestChanges(t *rt.Task) iter.Seq[S] {
+	return a.subscribe(t, true)
+}
+
+// subscribe is a Changes subscription on t; latest makes it hold one state.
+func (a *Actor[S, E, D]) subscribe(t *rt.Task, latest bool) iter.Seq[S] {
 	return func(yield func(S) bool) {
-		c := &changes[S]{}
+		c := &changes[S]{latest: latest}
 		a.mu.Lock()
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
@@ -1719,9 +1753,12 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 // changes is one Changes subscription: the committed states it has not
 // given yet, guarded by the actor's mu.
 type changes[S any] struct {
-	buf   []S
-	ended bool
-	wake  chan struct{}
+	buf []S
+	// latest is a LatestChanges subscription: buf holds at most one state,
+	// the latest, which a later commit overwrites.
+	latest bool
+	ended  bool
+	wake   chan struct{}
 	// task is the subscriber while it waits in a clock's domain (fua-b).
 	task *rt.Task
 }

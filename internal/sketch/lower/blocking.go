@@ -532,9 +532,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Actor.Ask":        {wait: callerWait},
 	"Actor.State":      {wait: callerWait},
 	"Actor.Changes":    {wait: callerWait},
-	"Actor.Stop":       {wait: endWait},
-	"Actor.Dropped":    {},
-	"ActorNoTimer":     {},
+	// F-GP4c-1: the conflated subscription waits as Changes does.
+	"Actor.LatestChanges": {wait: callerWait},
+	"Actor.Held":          {},
+	"Actor.Stop":          {wait: endWait},
+	"Actor.Dropped":       {},
+	"ActorNoTimer":        {},
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
