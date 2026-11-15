@@ -320,11 +320,7 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
-        ]
-      }
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-adopt-unseen",
@@ -336,11 +332,7 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
-        ]
-      }
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-law-drops-child-output",
@@ -351,12 +343,9 @@
       "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-open-unchecked",
@@ -367,12 +356,9 @@
       "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-work-unchecked",
@@ -383,12 +369,9 @@
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-start-unchecked",
@@ -399,12 +382,9 @@
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-sibling-unchecked",
@@ -415,12 +395,9 @@
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-orphan-unchecked",
@@ -431,12 +408,9 @@
       "rule": "ChildrenStopFirst: no child lives after its parent ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-owner-lost",
@@ -447,12 +421,9 @@
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x8-name-unregistered",
@@ -742,7 +713,7 @@
     {"name":"binding-hidden-order","origin":"wf10 STD-NOPRIV NP4d","file":"runtime/v1/files.go","from":"\t\t\t\tif i < next {","to":"\t\t\t\tif false && i < next {","rule":"stdlib.md Hidden arguments: hidden parameters come in one order, each once, so the lowering's order is the body's.","killers":["runtime/v1:TestHiddenConventionRefusals"]},
     {"name":"unchecked-string-length","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i)","to":"\treturn stringOf(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i), j-i-1)","rule":"StringAt is s[i:j]: j-i bytes from i.","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
     {"name":"unchecked-byte-offset","origin":"wf10 BCE1","file":"runtime/v1/unchecked.go","from":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i))","to":"\treturn *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), i+1))","rule":"ByteAt is s[i].","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
-    {"name":"onebrc-mapfile-writable","origin":"wf10 1BRC","file":"runtime/v1/host.go","from":"int(size), syscall.PROT_READ, syscall.MAP_SHARED)","to":"int(size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE)","rule":"FSMapFile's mapping is read-only, so no store changes the string unsafe.String makes of it.","killers":["runtime/v1:TestFSMapFileKeepsItsInvariant"]},
+    {"name":"onebrc-mapfile-writable","origin":"wf10 1BRC","file":"runtime/v1/mapfile_unix.go","from":"size, syscall.PROT_READ, syscall.MAP_SHARED)","to":"size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE)","rule":"FSMapFile's mapping is read-only, so no store changes the string unsafe.String makes of it.","killers":["runtime/v1:TestFSMapFileKeepsItsInvariant"]},
     {"name":"onebrc-mapfile-unmapped","origin":"wf10 1BRC","file":"runtime/v1/host.go","from":"\treturn unsafe.String(&data[0], len(data)), nil","to":"\tdefer syscall.Munmap(data)\n\treturn unsafe.String(&data[0], len(data)), nil","rule":"FSMapFile never unmaps, so the string stays valid for as long as anything reads it.","killers":["runtime/v1:TestFSMapFileKeepsItsInvariant"]},
     {"name": "stdsh-log", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathLog(f float64) float64 { return math.Log(f) }", "to": "func MathLog(f float64) float64 { return math.Log1p(f) }", "rule": "stdlib.md math: Log is Go's math.Log.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-exp", "origin": "wf10/STD-sh", "file": "runtime/v1/numbers.go", "from": "func MathExp(f float64) float64 { return math.Exp(f) }", "to": "func MathExp(f float64) float64 { return math.Exp2(f) }", "rule": "stdlib.md math: Exp is Go's math.Exp.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},

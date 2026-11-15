@@ -1,0 +1,54 @@
+// Package view is the list's screen: a field and its add button, the
+// items the filter shows (a check box to mark each, a button to remove
+// it), the open count, the filters and clear. The field's draft is the
+// view's own cell; everything else it reads from the list.
+
+import ergo.local/prototype/examples/todogui/todo
+import ui
+
+// View shows l.
+func View(f *ui.Frame[todo.Op], l todo.List) {
+	let mut page = ui.Plain()
+	page.Gap = 10
+	page.Padding = ui.All(16)
+	ui.Column(f, page) {
+		let mut row = ui.Plain()
+		row.Gap = 8
+		row.Align = ui.AlignCenter
+		ui.Row(f, row) {
+			let draft = ui.NewDraft(f, "")
+			ui.Field(f, draft, "new item")
+			ui.Submit(f, draft, "add", todo.Add{Text: draft.Value}) {
+				ui.Text(f, "Add")
+			}
+		}
+		let mut list = ui.Plain()
+		list.Gap = 4
+		list.Height = ui.Fixed{Value: 360}
+		ui.Scroll(f, list) {
+			ui.Each(f, todo.Shown(l), func(it todo.Item) ui.Key { ui.ByInt(it.Id) }) func(it todo.Item) {
+				ui.Row(f, row) {
+					ui.Check(f, it.Text, it.Done, todo.Flip{Id: it.Id})
+					ui.Pressable(f, "del \(it.Text)", todo.Remove{Id: it.Id}) {
+						ui.Text(f, "×")
+					}
+				}
+			}
+		}
+		ui.Row(f, row) {
+			ui.Text(f, "\(l.Left) left")
+			ui.Pressable(f, "all", todo.ShowOnly{Show: todo.All}) {
+				ui.Text(f, "All")
+			}
+			ui.Pressable(f, "open", todo.ShowOnly{Show: todo.Open}) {
+				ui.Text(f, "Open")
+			}
+			ui.Pressable(f, "done", todo.ShowOnly{Show: todo.Finished}) {
+				ui.Text(f, "Done")
+			}
+			ui.Pressable(f, "clear", todo.ClearDone) {
+				ui.Text(f, "Clear done")
+			}
+		}
+	}
+}

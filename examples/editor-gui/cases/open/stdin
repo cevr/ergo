@@ -1,0 +1,35 @@
+# moves over runes beyond ASCII, past both ends, and a selection over lines
+show
+down 2
+right 3
+show
+down 1
+show
+right 1
+del
+show
+up 9
+show
+down 99
+show
+left 2
+select
+up 2
+show
+back
+show
+undo
+undo
+show
+top
+find
+type light
+show
+next
+show
+back
+back
+show
+escape
+show
+save

@@ -460,7 +460,7 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	if err != nil {
 		return nil, err
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = execGroupAttr()
 	var files []*os.File  // the sinks' files, the parent's copies
 	var writes []*os.File // the write ends of the ToCaller pipes, the parent's copies
 	var reads [2]*os.File // the read ends: stdout's, stderr's
@@ -550,7 +550,7 @@ func execSignalGroup(group int, sig syscall.Signal) {
 	if execSignalHook != nil {
 		execSignalHook(group, sig)
 	}
-	_ = syscall.Kill(-group, sig)
+	_ = execKill(-group, sig)
 }
 
 // replayProc is a program that has already ended with status: the Script

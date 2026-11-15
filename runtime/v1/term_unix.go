@@ -4,9 +4,66 @@ package v1
 
 import (
 	"os"
+	"sync"
 	"syscall"
 	"unsafe"
 )
+
+// termStack holds the states the pushes saved, latest last.
+var termStack struct {
+	sync.Mutex
+	saved []syscall.Termios
+}
+
+func termEnter(fd int, mode termMode) error {
+	termStack.Lock()
+	defer termStack.Unlock()
+	before, ok := getTermios(fd)
+	if !ok {
+		return TermNotTerminal{}
+	}
+	next := before
+	switch mode {
+	case termRaw:
+		rawState(&next)
+	case termNoEcho:
+		noEchoState(&next)
+	}
+	if !setTermios(fd, &next) {
+		return TermNotTerminal{}
+	}
+	termStack.saved = append(termStack.saved, before)
+	return nil
+}
+
+func termLeave(fd int) {
+	termStack.Lock()
+	defer termStack.Unlock()
+	n := len(termStack.saved)
+	if n == 0 {
+		return
+	}
+	before := termStack.saved[n-1]
+	termStack.saved = termStack.saved[:n-1]
+	setTermios(fd, &before)
+}
+
+// rawState is cfmakeraw without its output change: no input translation,
+// no echo, no canonical mode, no signal keys, eight-bit characters, and a
+// read that waits for one byte.
+func rawState(t *syscall.Termios) {
+	t.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
+	t.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
+	t.Cflag &^= syscall.CSIZE | syscall.PARENB
+	t.Cflag |= syscall.CS8
+	t.Cc[syscall.VMIN] = 1
+	t.Cc[syscall.VTIME] = 0
+}
+
+// noEchoState turns echo off and keeps line editing.
+func noEchoState(t *syscall.Termios) {
+	t.Lflag &^= syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHONL
+}
 
 // winsize is the kernel's struct winsize, the result of TIOCGWINSZ.
 type winsize struct {

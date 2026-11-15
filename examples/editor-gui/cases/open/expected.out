@@ -1,0 +1,69 @@
+editing line=1 col=0 caret=0 len=122 undo=0 redo=0 dirty=no
+>1|The river runs north
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+editing line=3 col=3 caret=53 len=122 undo=0 redo=0 dirty=no
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|café lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+editing line=4 col=3 caret=84 len=122 undo=0 redo=0 dirty=no
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+>4|日本 and λόγος
+ 5|slowly over the light.
+ 6|
+editing line=4 col=4 caret=85 len=121 undo=1 redo=0 dirty=yes
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+>4|日本 ad λόγος
+ 5|slowly over the light.
+ 6|
+editing line=1 col=4 caret=4 len=121 undo=1 redo=0 dirty=yes
+>1|The river runs north
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+editing line=6 col=0 caret=121 len=121 undo=1 redo=0 dirty=yes
+ 4|日本 ad λόγος
+ 5|slowly over the light.
+>6|
+selecting line=3 col=21 caret=73 len=121 undo=1 redo=0 dirty=yes anchor=119
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|café lights, naïve wind;
+ 4|日本 ad λόγος
+ 5|slowly over the light.
+editing line=3 col=21 caret=73 len=75 undo=2 redo=0 dirty=yes
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|café lights, naïve wi.
+ 4|
+editing line=4 col=4 caret=85 len=122 undo=0 redo=2 dirty=yes
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+>4|日本 and λόγος
+ 5|slowly over the light.
+ 6|
+searching line=3 col=5 caret=56 len=122 undo=0 redo=2 dirty=yes find="light" matches=2
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|café lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+searching line=5 col=16 caret=115 len=122 undo=0 redo=2 dirty=yes find="light" matches=2
+ 3|café lights, naïve wind;
+ 4|日本 and λόγος
+>5|slowly over the light.
+ 6|
+searching line=3 col=5 caret=56 len=122 undo=0 redo=2 dirty=yes find="lig" matches=2
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|café lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+editing line=1 col=0 caret=0 len=122 undo=0 redo=2 dirty=yes
+>1|The river runs north
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+saved poem.txt (122 bytes)

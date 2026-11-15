@@ -1,0 +1,114 @@
+// The order a view shows: the stars a filter keeps, sorted by one column.
+// Ties order by id, so the order is total, and a sort of any arrangement
+// of one set of ids is one list: that is what lets a sort keep the filter,
+// and a longer filter narrow the shown list in place (the laws below).
+
+import slices
+import strings
+import utf8
+
+// SortKey is the column a view sorts by, and its direction. Ties are by
+// id, ascending, in both directions.
+type SortKey { Column Column, Descending bool }
+
+// Matches reports whether s is kept by filter: the filter is in the name
+// or in the constellation, case folded. The empty filter keeps every star.
+func Matches(s Star, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	let f = strings.ToLower(filter)
+	strings.Contains(strings.ToLower(s.Name), f) || strings.Contains(strings.ToLower(s.Constellation), f)
+}
+
+// Before is the order of the stars of ids a and b under key: -1, 0 or 1.
+func Before(rows []Star, key SortKey, a int, b int) int {
+	let c = CompareCells(CellOf(rows[a], key.Column), CellOf(rows[b], key.Column))
+	let d = if key.Descending { -c } else { c }
+	if d != 0 {
+		return d
+	}
+	compareInts(a, b)
+}
+
+// Sorted is ids in key's order.
+func Sorted(rows []Star, ids []int, key SortKey) []int {
+	slices.SortFunc(ids, func(a int, b int) int { Before(rows, key, a, b) })
+}
+
+// Order is the ids of the stars that filter keeps, sorted by key.
+func Order(rows []Star, filter string, key SortKey) []int {
+	let mut ids = slices.WithCapacity[int](len(rows))
+	for id, s in rows {
+		if Matches(s, filter) {
+			ids = ids.Append(id)
+		}
+	}
+	Sorted(rows, ids, key)
+}
+
+// Narrow is the ids of view that filter keeps, in view's order. When the
+// filter that made view is a prefix of filter, and both are valid UTF-8,
+// it is Order(rows, filter, key) (law NarrowIsOrder): typing a letter
+// filters the shown list, it does not sort again.
+func Narrow(rows []Star, view []int, filter string) []int {
+	let mut ids = slices.WithCapacity[int](len(view))
+	for id in view {
+		if Matches(rows[id], filter) {
+			ids = ids.Append(id)
+		}
+	}
+	ids
+}
+
+// Narrows reports whether a view made with old may be narrowed to next
+// (Narrow) instead of made again (Order).
+func Narrows(old string, next string) bool {
+	strings.HasPrefix(next, old) && utf8.ValidString(old) && utf8.ValidString(next)
+}
+
+// SortIsPermutation: a sort shows exactly the ids it is given.
+law SortIsPermutation(rows []Star, picks []int, n int, descending bool) {
+	let ids = idsOf(rows, picks)
+	let key = SortKey{Column: columnOf(n), Descending: descending}
+	slices.Sort(Sorted(rows, ids, key)) == slices.Sort(ids)
+}
+
+// FilterThenSortCommutes: filtering a sorted list keeps it sorted, so
+// filtering then sorting is sorting then filtering.
+law FilterThenSortCommutes(rows []Star, filter string, n int, descending bool) {
+	let key = SortKey{Column: columnOf(n), Descending: descending}
+	let all = Order(rows, "", key)
+	Narrow(rows, all, filter) == Order(rows, filter, key)
+}
+
+// NarrowIsOrder: a longer filter narrows the view it extends.
+law NarrowIsOrder(rows []Star, old string, more string, n int) {
+	let next = old + more
+	if !Narrows(old, next) {
+		return true
+	}
+	let key = SortKey{Column: columnOf(n), Descending: n%2 == 0}
+	Narrow(rows, Order(rows, old, key), next) == Order(rows, next, key)
+}
+
+// idsOf is distinct ids of rows that picks names, in picks' order.
+func idsOf(rows []Star, picks []int) []int {
+	let mut ids = []int{}
+	if len(rows) == 0 {
+		return ids
+	}
+	for p in picks {
+		let id = ((p % len(rows)) + len(rows)) % len(rows)
+		if !slices.Contains(ids, id) {
+			ids = ids.Append(id)
+		}
+	}
+	ids
+}
+
+// columnOf is the column n names, for any n.
+func columnOf(n int) Column {
+	let all = Columns()
+	all[((n%len(all))+len(all))%len(all)]
+}

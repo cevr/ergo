@@ -1,0 +1,247 @@
+idle tool=pen layer=0 zoom=100 pan=0,0 shapes=8 selected=[]
+1 L0 ellipse 10,308 r=16,81
+2 L0 stroke n=77 524,373..507,381 box=488,349..534,386
+3 L0 stroke n=7 577,256..580,252 box=577,252..585,261
+4 L0 stroke n=101 600,32..659,41 box=598,9..659,43
+5 L0 stroke n=21 17,110..33,119 box=15,109..48,120
+6 L0 stroke n=70 34,6..38,11 box=28,0..67,22
+7 L0 stroke n=87 280,473..273,447 box=249,421..292,473
+8 L0 line 786,438..797,450
+added 9 L2 rect 100,400 60x40
+column
+  row
+    button "tool pen"
+      text "pen"
+    button "tool rect"
+      text "rect"
+    button "tool ellipse"
+      text "ellipse"
+    button "tool line"
+      text "line"
+    button "tool select"
+      text "select"
+    button "delete"
+      text "delete"
+  row
+    button "layer 0"
+      text "L0"
+    button "layer 1"
+      text "L1"
+    button "layer 2"
+      text "L2"
+    button "layer 3"
+      text "L3"
+    button "zoom 25"
+      text "25%"
+    button "zoom 50"
+      text "50%"
+    button "zoom 100"
+      text "100%"
+    button "zoom 200"
+      text "200%"
+    button "zoom 400"
+      text "400%"
+    button "pan -100 0"
+      text "pan"
+    button "pan 100 0"
+      text "pan"
+    button "pan 0 -100"
+      text "pan"
+    button "pan 0 100"
+      text "pan"
+  text "drawing tool=ellipse layer=2 zoom=100 pan=0,0 shapes=9 selected=[] points=2"
+  area "picture"
+    canvas "paint" 800x600
+      stroke rgba(200,200,200,255) 2 M 26 308 C 26 353 19 389 10 389 C 1 389 -6 353 -6 308 C -6 263 1 227 10 227 C 19 227 26 263 26 308 Z
+      stroke rgba(200,200,200,255) 2 M 524 373 L 524 369 L 518 368 L 516 376 L 519 372 L 510 376 L 516 372 L 518 375 L 515 376 L 519 372 L 518 379 L 522 378 L 523 373 L 527 373 L 522 379 L 518 376 L 514 378 L 521 377 L 517 377 L 509 367 L 510 365 L 525 374 L 522 370 L 528 367 L 525 369 L 527 373 L 523 366 L 529 359 L 525 355 L 530 349 L 533 352 L 531 354 L 534 350 L 527 350 L 520 364 L 522 361 L 525 369 L 515 368 L 514 364 L 520 363 L 517 360 L 515 363 L 524 369 L 516 367 L 519 371 L 521 368 L 518 369 L 516 366 L 516 370 L 520 370 L 516 366 L 505 376 L 501 375 L 502 371 L 493 377 L 492 374 L 496 378 L 492 377 L 488 381 L 491 385 L 492 381 L 490 385 L 494 386 L 497 382 L 497 386 L 489 381 L 491 373 L 498 382 L 504 378 L 503 374 L 507 381 L 502 382 L 504 384 L 503 378 L 501 382 L 503 377 L 507 381
+      stroke rgba(200,200,200,255) 2 M 577 256 L 585 258 L 581 261 L 577 258 L 580 261 L 584 253 L 580 252
+      stroke rgba(200,200,200,255) 2 M 600 32 L 608 21 L 610 25 L 614 22 L 613 19 L 617 19 L 614 18 L 617 20 L 615 16 L 619 20 L 623 17 L 616 12 L 620 12 L 618 16 L 611 21 L 609 19 L 614 13 L 604 10 L 598 19 L 602 21 L 606 14 L 615 17 L 609 15 L 613 19 L 609 18 L 613 27 L 606 33 L 610 33 L 611 29 L 605 25 L 609 30 L 615 30 L 610 27 L 612 23 L 618 31 L 614 29 L 615 26 L 622 22 L 624 15 L 627 17 L 623 18 L 626 17 L 627 22 L 623 21 L 618 26 L 623 30 L 624 27 L 614 30 L 616 27 L 620 29 L 612 25 L 615 26 L 611 22 L 614 21 L 614 24 L 610 23 L 615 24 L 612 28 L 619 22 L 618 18 L 613 23 L 617 25 L 614 19 L 619 13 L 615 9 L 624 22 L 621 18 L 625 18 L 623 15 L 624 18 L 620 22 L 624 23 L 624 29 L 627 23 L 628 27 L 624 23 L 620 25 L 627 32 L 625 29 L 628 28 L 621 20 L 620 24 L 622 21 L 615 17 L 621 16 L 626 24 L 624 27 L 622 21 L 612 29 L 616 32 L 612 36 L 616 32 L 623 32 L 631 25 L 628 25 L 638 19 L 649 25 L 650 33 L 646 35 L 652 43 L 659 41
+      stroke rgba(200,200,200,255) 2 M 17 110 L 15 113 L 19 109 L 23 117 L 31 118 L 30 120 L 37 116 L 34 116 L 37 115 L 37 112 L 34 112 L 38 109 L 35 112 L 37 117 L 35 115 L 45 120 L 48 116 L 44 112 L 44 116 L 33 113 L 33 119
+      stroke rgba(200,200,200,255) 2 M 34 6 L 38 2 L 42 6 L 43 4 L 48 12 L 45 14 L 43 9 L 46 10 L 50 2 L 39 0 L 47 2 L 49 9 L 51 3 L 60 0 L 55 5 L 64 4 L 63 1 L 66 0 L 64 3 L 62 0 L 66 0 L 63 4 L 63 1 L 56 0 L 58 2 L 54 5 L 61 5 L 60 0 L 57 2 L 61 3 L 59 0 L 48 12 L 46 8 L 49 16 L 57 11 L 56 7 L 60 4 L 56 0 L 67 1 L 64 0 L 60 8 L 53 7 L 51 10 L 47 3 L 43 10 L 48 17 L 44 17 L 44 20 L 44 14 L 40 12 L 34 16 L 29 9 L 28 15 L 32 18 L 32 12 L 35 18 L 34 22 L 30 19 L 34 19 L 30 20 L 32 17 L 28 13 L 33 14 L 36 11 L 30 14 L 32 17 L 30 10 L 34 19 L 32 16 L 38 11
+      stroke rgba(200,200,200,255) 2 M 280 473 L 283 471 L 280 468 L 284 471 L 280 461 L 273 459 L 270 463 L 269 459 L 272 458 L 268 452 L 254 443 L 252 437 L 249 440 L 251 444 L 255 443 L 252 443 L 255 442 L 251 435 L 257 442 L 260 438 L 257 436 L 253 440 L 256 437 L 253 429 L 258 429 L 262 421 L 265 423 L 262 422 L 262 426 L 265 423 L 265 429 L 269 432 L 273 429 L 272 426 L 270 430 L 270 426 L 281 435 L 278 439 L 281 432 L 274 427 L 280 425 L 280 428 L 276 427 L 272 433 L 276 436 L 272 430 L 275 433 L 282 429 L 286 432 L 292 427 L 283 432 L 283 435 L 280 430 L 284 430 L 277 432 L 276 435 L 279 433 L 286 438 L 281 432 L 276 439 L 280 442 L 281 440 L 274 439 L 273 436 L 271 438 L 273 437 L 275 445 L 269 449 L 273 453 L 275 448 L 270 450 L 271 452 L 268 449 L 270 451 L 273 446 L 270 442 L 270 448 L 273 443 L 271 447 L 268 442 L 262 444 L 259 440 L 262 438 L 262 441 L 273 446 L 276 443 L 273 447
+      stroke rgba(200,200,200,255) 2 M 786 438 L 797 450
+      stroke rgba(100,100,100,255) 2 M 100 400 L 160 400 L 160 440 L 100 440 Z
+      stroke rgba(230,120,30,255) 1 M 300 450 L 340 470
+  text "1 L0 ellipse 10,308 r=16,81"
+  text "2 L0 stroke n=77 524,373..507,381 box=488,349..534,386"
+  text "3 L0 stroke n=7 577,256..580,252 box=577,252..585,261"
+  text "4 L0 stroke n=101 600,32..659,41 box=598,9..659,43"
+  text "5 L0 stroke n=21 17,110..33,119 box=15,109..48,120"
+  text "6 L0 stroke n=70 34,6..38,11 box=28,0..67,22"
+  text "7 L0 stroke n=87 280,473..273,447 box=249,421..292,473"
+  text "8 L0 line 786,438..797,450"
+  text "9 L2 rect 100,400 60x40"
+added 10 L2 ellipse 300,450 r=40,20
+idle tool=select layer=2 zoom=100 pan=0,0 shapes=10 selected=[2,3,4,5,6,7,8,9,10]
+1 L0 ellipse 10,308 r=16,81
+2 L0 stroke n=77 524,373..507,381 box=488,349..534,386
+3 L0 stroke n=7 577,256..580,252 box=577,252..585,261
+4 L0 stroke n=101 600,32..659,41 box=598,9..659,43
+5 L0 stroke n=21 17,110..33,119 box=15,109..48,120
+6 L0 stroke n=70 34,6..38,11 box=28,0..67,22
+7 L0 stroke n=87 280,473..273,447 box=249,421..292,473
+8 L0 line 786,438..797,450
+9 L2 rect 100,400 60x40
+10 L2 ellipse 300,450 r=40,20
+column
+  row
+    button "tool pen"
+      text "pen"
+    button "tool rect"
+      text "rect"
+    button "tool ellipse"
+      text "ellipse"
+    button "tool line"
+      text "line"
+    button "tool select"
+      text "select"
+    button "delete"
+      text "delete"
+  row
+    button "layer 0"
+      text "L0"
+    button "layer 1"
+      text "L1"
+    button "layer 2"
+      text "L2"
+    button "layer 3"
+      text "L3"
+    button "zoom 25"
+      text "25%"
+    button "zoom 50"
+      text "50%"
+    button "zoom 100"
+      text "100%"
+    button "zoom 200"
+      text "200%"
+    button "zoom 400"
+      text "400%"
+    button "pan -100 0"
+      text "pan"
+    button "pan 100 0"
+      text "pan"
+    button "pan 0 -100"
+      text "pan"
+    button "pan 0 100"
+      text "pan"
+  text "idle tool=select layer=2 zoom=100 pan=0,0 shapes=10 selected=[2,3,4,5,6,7,8,9,10]"
+  area "picture"
+    canvas "paint" 800x600
+      stroke rgba(200,200,200,255) 2 M 26 308 C 26 353 19 389 10 389 C 1 389 -6 353 -6 308 C -6 263 1 227 10 227 C 19 227 26 263 26 308 Z
+      stroke rgba(30,120,230,255) 2 M 524 373 L 524 369 L 518 368 L 516 376 L 519 372 L 510 376 L 516 372 L 518 375 L 515 376 L 519 372 L 518 379 L 522 378 L 523 373 L 527 373 L 522 379 L 518 376 L 514 378 L 521 377 L 517 377 L 509 367 L 510 365 L 525 374 L 522 370 L 528 367 L 525 369 L 527 373 L 523 366 L 529 359 L 525 355 L 530 349 L 533 352 L 531 354 L 534 350 L 527 350 L 520 364 L 522 361 L 525 369 L 515 368 L 514 364 L 520 363 L 517 360 L 515 363 L 524 369 L 516 367 L 519 371 L 521 368 L 518 369 L 516 366 L 516 370 L 520 370 L 516 366 L 505 376 L 501 375 L 502 371 L 493 377 L 492 374 L 496 378 L 492 377 L 488 381 L 491 385 L 492 381 L 490 385 L 494 386 L 497 382 L 497 386 L 489 381 L 491 373 L 498 382 L 504 378 L 503 374 L 507 381 L 502 382 L 504 384 L 503 378 L 501 382 L 503 377 L 507 381
+      stroke rgba(30,120,230,255) 2 M 577 256 L 585 258 L 581 261 L 577 258 L 580 261 L 584 253 L 580 252
+      stroke rgba(30,120,230,255) 2 M 600 32 L 608 21 L 610 25 L 614 22 L 613 19 L 617 19 L 614 18 L 617 20 L 615 16 L 619 20 L 623 17 L 616 12 L 620 12 L 618 16 L 611 21 L 609 19 L 614 13 L 604 10 L 598 19 L 602 21 L 606 14 L 615 17 L 609 15 L 613 19 L 609 18 L 613 27 L 606 33 L 610 33 L 611 29 L 605 25 L 609 30 L 615 30 L 610 27 L 612 23 L 618 31 L 614 29 L 615 26 L 622 22 L 624 15 L 627 17 L 623 18 L 626 17 L 627 22 L 623 21 L 618 26 L 623 30 L 624 27 L 614 30 L 616 27 L 620 29 L 612 25 L 615 26 L 611 22 L 614 21 L 614 24 L 610 23 L 615 24 L 612 28 L 619 22 L 618 18 L 613 23 L 617 25 L 614 19 L 619 13 L 615 9 L 624 22 L 621 18 L 625 18 L 623 15 L 624 18 L 620 22 L 624 23 L 624 29 L 627 23 L 628 27 L 624 23 L 620 25 L 627 32 L 625 29 L 628 28 L 621 20 L 620 24 L 622 21 L 615 17 L 621 16 L 626 24 L 624 27 L 622 21 L 612 29 L 616 32 L 612 36 L 616 32 L 623 32 L 631 25 L 628 25 L 638 19 L 649 25 L 650 33 L 646 35 L 652 43 L 659 41
+      stroke rgba(30,120,230,255) 2 M 17 110 L 15 113 L 19 109 L 23 117 L 31 118 L 30 120 L 37 116 L 34 116 L 37 115 L 37 112 L 34 112 L 38 109 L 35 112 L 37 117 L 35 115 L 45 120 L 48 116 L 44 112 L 44 116 L 33 113 L 33 119
+      stroke rgba(30,120,230,255) 2 M 34 6 L 38 2 L 42 6 L 43 4 L 48 12 L 45 14 L 43 9 L 46 10 L 50 2 L 39 0 L 47 2 L 49 9 L 51 3 L 60 0 L 55 5 L 64 4 L 63 1 L 66 0 L 64 3 L 62 0 L 66 0 L 63 4 L 63 1 L 56 0 L 58 2 L 54 5 L 61 5 L 60 0 L 57 2 L 61 3 L 59 0 L 48 12 L 46 8 L 49 16 L 57 11 L 56 7 L 60 4 L 56 0 L 67 1 L 64 0 L 60 8 L 53 7 L 51 10 L 47 3 L 43 10 L 48 17 L 44 17 L 44 20 L 44 14 L 40 12 L 34 16 L 29 9 L 28 15 L 32 18 L 32 12 L 35 18 L 34 22 L 30 19 L 34 19 L 30 20 L 32 17 L 28 13 L 33 14 L 36 11 L 30 14 L 32 17 L 30 10 L 34 19 L 32 16 L 38 11
+      stroke rgba(30,120,230,255) 2 M 280 473 L 283 471 L 280 468 L 284 471 L 280 461 L 273 459 L 270 463 L 269 459 L 272 458 L 268 452 L 254 443 L 252 437 L 249 440 L 251 444 L 255 443 L 252 443 L 255 442 L 251 435 L 257 442 L 260 438 L 257 436 L 253 440 L 256 437 L 253 429 L 258 429 L 262 421 L 265 423 L 262 422 L 262 426 L 265 423 L 265 429 L 269 432 L 273 429 L 272 426 L 270 430 L 270 426 L 281 435 L 278 439 L 281 432 L 274 427 L 280 425 L 280 428 L 276 427 L 272 433 L 276 436 L 272 430 L 275 433 L 282 429 L 286 432 L 292 427 L 283 432 L 283 435 L 280 430 L 284 430 L 277 432 L 276 435 L 279 433 L 286 438 L 281 432 L 276 439 L 280 442 L 281 440 L 274 439 L 273 436 L 271 438 L 273 437 L 275 445 L 269 449 L 273 453 L 275 448 L 270 450 L 271 452 L 268 449 L 270 451 L 273 446 L 270 442 L 270 448 L 273 443 L 271 447 L 268 442 L 262 444 L 259 440 L 262 438 L 262 441 L 273 446 L 276 443 L 273 447
+      stroke rgba(30,120,230,255) 2 M 786 438 L 797 450
+      stroke rgba(30,120,230,255) 2 M 100 400 L 160 400 L 160 440 L 100 440 Z
+      stroke rgba(30,120,230,255) 2 M 340 450 C 340 461 322 470 300 470 C 278 470 260 461 260 450 C 260 439 278 430 300 430 C 322 430 340 439 340 450 Z
+  text "1 L0 ellipse 10,308 r=16,81"
+  text "2 L0 stroke n=77 524,373..507,381 box=488,349..534,386"
+  text "3 L0 stroke n=7 577,256..580,252 box=577,252..585,261"
+  text "4 L0 stroke n=101 600,32..659,41 box=598,9..659,43"
+  text "5 L0 stroke n=21 17,110..33,119 box=15,109..48,120"
+  text "6 L0 stroke n=70 34,6..38,11 box=28,0..67,22"
+  text "7 L0 stroke n=87 280,473..273,447 box=249,421..292,473"
+  text "8 L0 line 786,438..797,450"
+  text "9 L2 rect 100,400 60x40"
+  text "10 L2 ellipse 300,450 r=40,20"
+column
+  row
+    button "tool pen"
+      text "pen"
+    button "tool rect"
+      text "rect"
+    button "tool ellipse"
+      text "ellipse"
+    button "tool line"
+      text "line"
+    button "tool select"
+      text "select"
+    button "delete"
+      text "delete"
+  row
+    button "layer 0"
+      text "L0"
+    button "layer 1"
+      text "L1"
+    button "layer 2"
+      text "L2"
+    button "layer 3"
+      text "L3"
+    button "zoom 25"
+      text "25%"
+    button "zoom 50"
+      text "50%"
+    button "zoom 100"
+      text "100%"
+    button "zoom 200"
+      text "200%"
+    button "zoom 400"
+      text "400%"
+    button "pan -100 0"
+      text "pan"
+    button "pan 100 0"
+      text "pan"
+    button "pan 0 -100"
+      text "pan"
+    button "pan 0 100"
+      text "pan"
+  text "idle tool=select layer=2 zoom=200 pan=0,0 shapes=10 selected=[2,3,4,5,6,7,8,9,10]"
+  area "picture"
+    canvas "paint" 800x600
+      stroke rgba(200,200,200,255) 2 M 52 616 C 52 705 38 778 20 778 C 2 778 -12 705 -12 616 C -12 527 2 454 20 454 C 38 454 52 527 52 616 Z
+      stroke rgba(30,120,230,255) 2 M 34 220 L 30 226 L 38 218 L 46 234 L 62 236 L 60 240 L 74 232 L 68 232 L 74 230 L 74 224 L 68 224 L 76 218 L 70 224 L 74 234 L 70 230 L 90 240 L 96 232 L 88 224 L 88 232 L 66 226 L 66 238
+      stroke rgba(30,120,230,255) 2 M 68 12 L 76 4 L 84 12 L 86 8 L 96 24 L 90 28 L 86 18 L 92 20 L 100 4 L 78 0 L 94 4 L 98 18 L 102 6 L 120 0 L 110 10 L 128 8 L 126 2 L 132 0 L 128 6 L 124 0 L 132 0 L 126 8 L 126 2 L 112 0 L 116 4 L 108 10 L 122 10 L 120 0 L 114 4 L 122 6 L 118 0 L 96 24 L 92 16 L 98 32 L 114 22 L 112 14 L 120 8 L 112 0 L 134 2 L 128 0 L 120 16 L 106 14 L 102 20 L 94 6 L 86 20 L 96 34 L 88 34 L 88 40 L 88 28 L 80 24 L 68 32 L 58 18 L 56 30 L 64 36 L 64 24 L 70 36 L 68 44 L 60 38 L 68 38 L 60 40 L 64 34 L 56 26 L 66 28 L 72 22 L 60 28 L 64 34 L 60 20 L 68 38 L 64 32 L 76 22
+  text "1 L0 ellipse 20,616 r=32,162"
+  text "5 L0 stroke n=21 34,220..66,238 box=30,218..96,240"
+  text "6 L0 stroke n=70 68,12..76,22 box=56,0..134,44"
+? no node zoom 133
+? no node layer 7
+removed 2,3,4,5,6,7,8,9,10
+idle tool=select layer=2 zoom=200 pan=100,0 shapes=1 selected=[]
+column
+  row
+    button "tool pen"
+      text "pen"
+    button "tool rect"
+      text "rect"
+    button "tool ellipse"
+      text "ellipse"
+    button "tool line"
+      text "line"
+    button "tool select"
+      text "select"
+    button "delete"
+      text "delete"
+  row
+    button "layer 0"
+      text "L0"
+    button "layer 1"
+      text "L1"
+    button "layer 2"
+      text "L2"
+    button "layer 3"
+      text "L3"
+    button "zoom 25"
+      text "25%"
+    button "zoom 50"
+      text "50%"
+    button "zoom 100"
+      text "100%"
+    button "zoom 200"
+      text "200%"
+    button "zoom 400"
+      text "400%"
+    button "pan -100 0"
+      text "pan"
+    button "pan 100 0"
+      text "pan"
+    button "pan 0 -100"
+      text "pan"
+    button "pan 0 100"
+      text "pan"
+  text "idle tool=select layer=2 zoom=200 pan=100,0 shapes=1 selected=[]"
+  area "picture"
+    canvas "paint" 800x600

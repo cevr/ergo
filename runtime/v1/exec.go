@@ -99,7 +99,7 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	if err != nil {
 		return ExecResult{}, err
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = execGroupAttr()
 	// Run owns the output pipes, and not os/exec, so that it can read the
 	// output to its end while the program is still unreaped (below).
 	outR, outW, err := os.Pipe()
@@ -216,7 +216,7 @@ func execKillGroup(group int) {
 	if execKillHook != nil {
 		execKillHook(group)
 	}
-	_ = syscall.Kill(-group, syscall.SIGKILL)
+	_ = execKill(-group, syscall.SIGKILL)
 }
 
 // execReapWait bounds how long Run waits, after it kills the group, for the
@@ -239,7 +239,7 @@ const execReapWait = 500 * time.Millisecond
 // first probe fails with ESRCH and the call does not wait.
 func execAwaitGroupEnd(group int) {
 	deadline := time.Now().Add(execReapWait)
-	for pause := 20 * time.Microsecond; syscall.Kill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
+	for pause := 20 * time.Microsecond; execKill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
 		time.Sleep(pause)
 	}
 }
@@ -262,6 +262,9 @@ func execStatus(ps *os.ProcessState) int {
 func execCommand(name string, args []string, env map[string]string, dir string, stdin string) (*exec.Cmd, error) {
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
+	}
+	if execUnsupported != "" {
+		return nil, ExecFailed{Name: name, Reason: execUnsupported}
 	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {

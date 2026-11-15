@@ -1,0 +1,63 @@
+// The uniform grid: the world cut into square cells of Cell units, each
+// holding the ids of the shapes whose box, grown by Tolerance, overlaps
+// it. A hit test reads the one cell under the point, so it tests only the
+// shapes near it.
+
+import maps
+
+// Cell is the side of a grid cell, in world units.
+let Cell = 64
+
+// Grid is the cells that hold any shape, by key.
+type Grid { Cells Map[int, []int] }
+
+// cellOf is the cell index of v, rounded down.
+func cellOf(v int) int {
+	if v >= 0 {
+		return v / Cell
+	}
+	-((-v + Cell - 1) / Cell)
+}
+
+// keyOf is the key of the cell at column cx and row cy.
+func keyOf(cx int, cy int) int { (cx+1000)*10000 + (cy + 1000) }
+
+// keys is the keys of the cells that box b overlaps.
+func keys(b Box) []int {
+	let mut out = []int{}
+	for cx in cellOf(b.Lo.X)..cellOf(b.Hi.X)+1 {
+		for cy in cellOf(b.Lo.Y)..cellOf(b.Hi.Y)+1 {
+			out = out.Append(keyOf(cx, cy))
+		}
+	}
+	out
+}
+
+// Index is g with shape id, whose shape is s, in every cell it reaches.
+func Index(g Grid, id int, s Shape) Grid {
+	let mut cells = g.Cells
+	for k in keys(Grow(BoxOf(s), Tolerance)) {
+		let ids = maps.GetOr(cells, k, []int{})
+		cells = cells.Put(k, ids.Append(id))
+	}
+	Grid{Cells: cells}
+}
+
+// Unindex is g without shape id, whose shape is s.
+func Unindex(g Grid, id int, s Shape) Grid {
+	let mut cells = g.Cells
+	for k in keys(Grow(BoxOf(s), Tolerance)) {
+		let ids = maps.GetOr(cells, k, []int{})
+		let mut kept = []int{}
+		for i in ids {
+			if i != id {
+				kept = kept.Append(i)
+			}
+		}
+		cells = if len(kept) == 0 { cells.Delete(k) } else { cells.Put(k, kept) }
+	}
+	Grid{Cells: cells}
+}
+
+// Near is the ids the grid holds in the cell under p.
+func Near(g Grid, p Point) []int { maps.GetOr(g.Cells, keyOf(cellOf(p.X), cellOf(p.Y)), []int{}) }
