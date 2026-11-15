@@ -25,7 +25,10 @@ import (
 // (eval.VerdictLine reports a line) has, in the native runner's output of
 // `ergo test FILE --seed N`, exactly that line: the verdict, the case
 // number, the shrunk and drawn arguments, the report after "): " and a
-// law's replay line. The seeds must reach a pass, a proved pass, a
+// law's replay line. When the evaluator decides the whole package
+// (eval.Summary), its standard output is the native run's, byte for byte,
+// with the same exit status and error line; a program with a defect, which
+// stops the native run, is not one it decides. The seeds must reach a pass, a proved pass, a
 // shrunk refutation, a refuted law and a shown comparison. A failing seed
 // prints the source, both outputs and the replay command.
 //
@@ -36,7 +39,8 @@ import (
 //
 // Mutants only it kills (testdata/mutants.json): oracle-ft1-law-replay-
 // seedless, oracle-ft1-message-site-unnamed, oracle-ft1-shown-operands-
-// dropped.
+// dropped, oracle-ft1-string-diff-dropped, oracle-ft1-summary-failed-
+// uncounted, oracle-ft1-defect-decided.
 func TestTiersAgree(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: builds the native test binaries")
@@ -55,6 +59,8 @@ func TestTiersAgree(t *testing.T) {
 		for _, prog := range []struct{ name, src string }{
 			{"cases", casegen.Generate(seed).Source},
 			{"asserts", assertGen(seed)},
+			{"holds", holdsGen(seed)},
+			{"defect", holdsGen(seed) + "\ntest Boom(n int) {\n\tassert 10 / (n - n) == 0\n}\n\ntest After() {\n\tassert true\n}\n"},
 		} {
 			dir := filepath.Join(t.TempDir(), fmt.Sprintf("%s%d", prog.name, seed))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -79,7 +85,15 @@ func TestTiersAgree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			native := runNativeTests(t, ergo, file, seed)
+			native, nativeErr, nativeExit := runNativeTests(t, ergo, file, seed)
+			if lines, stderr, exit, ok := eval.Summary(rep.Results, file); ok {
+				// The evaluator decides the package: the whole run is its.
+				stdout := strings.Join(lines, "\n") + "\n"
+				if stdout != native || exit != nativeExit || (stderr != "" && !strings.Contains("\n"+nativeErr, "\n"+stderr+"\n")) {
+					t.Fatalf("seed %d %s: the evaluator's run is not the native runner's\nevaluator (exit %d, stderr %q):\n%s\nnative (exit %d, stderr %q):\n%s\n%s\nreplay: ERGO_TIERS_SEED=%d go test -run '^TestTiersAgree$' ./internal/sketch/eval", seed, prog.name, exit, stderr, stdout, nativeExit, nativeErr, native, prog.src, seed)
+				}
+				reached[fmt.Sprintf("summary exit %d", exit)] = true
+			}
 			for _, r := range rep.Results {
 				line, ok := eval.VerdictLine(r, file)
 				if !ok {
@@ -108,7 +122,7 @@ func TestTiersAgree(t *testing.T) {
 	if first == last {
 		return
 	}
-	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown"} {
+	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown", "summary exit 0", "summary exit 1"} {
 		if !reached[k] {
 			t.Fatalf("the seeds never reached a %s verdict (reached %v)", k, reached)
 		}
@@ -117,7 +131,7 @@ func TestTiersAgree(t *testing.T) {
 
 // nativeHas reports whether the native output holds the verdict line
 // whole: it starts a line, and what follows it starts the next verdict
-// ("ok ", "FAIL ", "skip ") or ends the output, so a line that leaves out
+// ("ok ", "FAIL ", "skip "), the summary ("PASS (") or ends the output, so a line that leaves out
 // the native report's last lines (a diff, a replay) does not match.
 func nativeHas(native, line string) bool {
 	text := "\n" + native
@@ -127,7 +141,7 @@ func nativeHas(native, line string) bool {
 			return false
 		}
 		rest := text[from+i+len(line)+2:]
-		if rest == "" || strings.HasPrefix(rest, "ok ") || strings.HasPrefix(rest, "FAIL ") || strings.HasPrefix(rest, "skip ") {
+		if rest == "" || strings.HasPrefix(rest, "ok ") || strings.HasPrefix(rest, "FAIL ") || strings.HasPrefix(rest, "skip ") || strings.HasPrefix(rest, "PASS (") {
 			return true
 		}
 		from += i + 1
@@ -136,17 +150,51 @@ func nativeHas(native, line string) bool {
 
 // runNativeTests runs `ergo test file --seed seed` under the memory bound
 // and returns its standard output.
-func runNativeTests(t *testing.T, ergo, file string, seed uint64) string {
+func runNativeTests(t *testing.T, ergo, file string, seed uint64) (string, string, int) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(ergo, "test", file, "--seed", strconv.FormatUint(seed, 10))
 	cmd.Dir, cmd.Stdout, cmd.Stderr = filepath.Dir(file), &stdout, &stderr
 	err := proclimit.Run(cmd, proclimit.DefaultLimit)
 	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
+	code := 0
+	switch {
+	case errors.As(err, &exit):
+		code = exit.ExitCode()
+	case err != nil:
 		t.Fatalf("ergo test %s: %v\n%s", file, err, stderr.String())
 	}
-	return stdout.String()
+	return stdout.String(), stderr.String(), code
+}
+
+// holdsGen is a program whose tests and laws hold, with seeded bounds: an
+// example, a property, a drawn law and a listed one.
+func holdsGen(seed uint64) string {
+	r := rand.New(rand.NewPCG(seed, 0x401d))
+	k := 1 + r.IntN(1000)
+	return fmt.Sprintf(`func clamp(n int) int {
+	if n > %d {
+		return %d
+	}
+	n
+}
+
+test Example() {
+	assert clamp(%d) == %d
+}
+
+test Clamped(n int) {
+	assert clamp(n) <= %d
+}
+
+law Idempotent(n int) {
+	clamp(clamp(n)) == clamp(n)
+}
+
+law Either(a bool, b bool) {
+	a || !a || b
+}
+`, k, k, k+1, k, k)
 }
 
 // assertGen is a program of asserts, tests and laws with seeded bounds: a

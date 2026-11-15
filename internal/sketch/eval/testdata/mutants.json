@@ -1779,6 +1779,24 @@
       "killers": ["internal/sketch/eval:TestTiersAgree"]
     },
     {
+      "name": "oracle-ft1-summary-failed-uncounted",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\t\t\tfailed++\n",
+      "to": "\t\t\t_ = failed\n",
+      "rule": "A decided package's summary counts its failed tests, prints FAIL (k of n tests) and exits 1, as the native run does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-defect-decided",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\tcase Refuted:\n",
+      "to": "\tcase Refuted, Defect:\n",
+      "rule": "A defect stops the native run, so the evaluator does not decide a package with one: the native runner answers it.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",
