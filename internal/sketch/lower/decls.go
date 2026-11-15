@@ -422,9 +422,9 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				td.ops = append(td.ops, op)
 			}
 		}
-		// The operations a member `..I` includes (EXC1), as the checked
-		// operation type lists them after its own: `..Closer` gives Close,
-		// which a release of the including type's value calls.
+		// A member `..I` includes I's operations (types.md, Interface
+		// assignability 1): the checked method set holds them, after the
+		// written ones.
 		if it, ok := named.Underlying().(*check.Interface); ok {
 			for _, op := range it.Methods {
 				if !taken[memberName(op.Name)] {
@@ -1259,7 +1259,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}

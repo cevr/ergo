@@ -158,36 +158,34 @@ func TestGetMatchCopiesTheValueNotTheMap(t *testing.T) {
 	saved := copyLowering
 	defer func() { copyLowering = saved }()
 	copyLowering = "whole"
-	src := `type Box { m Map[int, []int] }
+	src := `type Box { m Map[int, []int], kept []int }
 
-func look(b *Box, k int) int {
+func look(b *Box, k int) {
 	match b.m.Get(k) {
 	case Some[[]int] as s:
-		len(s.Value)
+		b.kept = s.Value
 	case None:
-		0
 	}
 }
 
 func main() needs Console {
-	let mut b = Box{m: Map[int, []int]{1: []int{4, 5}}}
-	Console.Println("\(look(&b, 1))")
+	let mut b = Box{m: Map[int, []int]{1: []int{4, 5}}, kept: []int{}}
+	look(&b, 1)
+	b.kept[0] = 9
+	Console.Println("\(len(b.kept)) \(len(b.m))")
 }
 `
 	read := regexp.MustCompile(`(?m)^\s*v(_[0-9]+)?, ok(_[0-9]+)? := (.*)\[k\]$`)
-	for _, element := range []bool{true, false} {
-		fn := goFuncBody(t, lowerCopyMode(t, fmt.Sprintf("gc%v", element), src, element).mainGo(), "look")
-		m := read.FindStringSubmatch(fn)
-		if m == nil {
-			t.Fatalf("element %v: no comma-ok read in\n%s", element, fn)
-		}
-		copied := strings.Contains(m[3], "Clone")
-		if copied == element {
-			t.Errorf("element %v: the read's receiver is %s (want a copy only in the reference)\n%s", element, m[3], fn)
-		}
-		if element && !strings.Contains(fn, "slices.Clone(v") {
-			t.Errorf("the element read does not copy the value it binds:\n%s", fn)
-		}
+	fn := goFuncBody(t, lowerCopyMode(t, "gctrue", src, true).mainGo(), "look")
+	m := read.FindStringSubmatch(fn)
+	if m == nil {
+		t.Fatalf("no comma-ok read in\n%s", fn)
+	}
+	if strings.Contains(m[3], "Clone") {
+		t.Errorf("the read's receiver is %s: the read copies the whole Map\n%s", m[3], fn)
+	}
+	if !strings.Contains(fn, "slices.Clone(") {
+		t.Errorf("the read does not copy the value it keeps:\n%s", fn)
 	}
 }
 

@@ -188,14 +188,14 @@ type valueFacts struct {
 	fromAll  map[*check.Func]int8       // freshAll (handover.go): 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
-	ownCall  map[*syntax.CallExpr]bool               // calls that pass owned arguments unshared (V5)
-	refSites map[*syntax.CallExpr]*refSite           // Update and Modify calls whose literal owns the held value (V6)
-	goShare  map[syntax.Expr]bool                    // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
-	moved    map[syntax.Expr]bool                    // reads whose source is overwritten next, so they take its value with no copy: a take or a reslice (V7, moves.go), and the bind of an entry move-out (V9, moveout.go)
-	lineage  map[*syntax.CallExpr]bool               // one-extender Append sites (handover.go, own-lineage)
-	byName   map[*check.Package]map[*check.Func]bool // functions a package names as a value (handover.go, passedByName)
-	field    map[*syntax.CallExpr]bool               // Appends in place on a dead field path (handover.go, own-field)
-	deep     map[syntax.Expr]bool                    // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
+	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
+	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
+	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
+	moved    map[syntax.Expr]bool          // reads whose source is overwritten next, so they take its value with no copy: a take or a reslice (V7, moves.go), and the bind of an entry move-out (V9, moveout.go)
+	lineage  map[*syntax.CallExpr]bool     // one-extender Append sites (handover.go, own-lineage)
+	byName   map[*check.Func]bool          // functions the program names as a value (handover.go, passedByName)
+	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
+	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
@@ -2372,20 +2372,46 @@ func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
 // its body is decided over its type parameters, where a copy stops; nor
 // is a Go function, which has no Ergo body.
 func (w *valueWalk) namedFunc(op syntax.Expr) *check.Func {
-	var id *syntax.Ident
-	switch x := unparen(op).(type) {
-	case *syntax.Ident:
-		id = x
-	case *syntax.SelectorExpr:
-		id = x.Sel
-	default:
-		return nil
-	}
-	f, ok := w.info.Uses[id].(*check.Func)
-	if !ok || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil {
+	f := funcNamed(w.info, op)
+	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil {
 		return nil
 	}
 	return f
+}
+
+// funcNamed is the function x names, f or pkg.f, or nil. The checker
+// records no Uses entry for a qualified name's selector, so pkg.f is the
+// one function of that name in the imported package; a name that several
+// functions share (196m rule 3) names none here.
+func funcNamed(info *check.Info, x syntax.Expr) *check.Func {
+	switch x := unparen(x).(type) {
+	case *syntax.Ident:
+		f, _ := info.Uses[x].(*check.Func)
+		return f
+	case *syntax.SelectorExpr:
+		if f, ok := info.Uses[x.Sel].(*check.Func); ok {
+			return f
+		}
+		id, ok := unparen(x.X).(*syntax.Ident)
+		if !ok {
+			return nil
+		}
+		pn, ok := info.Uses[id].(*check.PkgName)
+		if !ok || pn.Pkg == nil {
+			return nil
+		}
+		var found *check.Func
+		for _, f := range pn.Pkg.Funcs {
+			if f.Name == x.Sel.Name {
+				if found != nil {
+					return nil
+				}
+				found = f
+			}
+		}
+		return found
+	}
+	return nil
 }
 
 // litFresh reports a function literal whose every result, each value its

@@ -52,6 +52,25 @@ func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
 	if !ok {
 		return false
 	}
+	if !w.reslicesRoot(e, s, vv) && !w.resliceOf(vv, e) {
+		return false
+	}
+	for _, o := range vv.occs {
+		if o.kind == occWrite && w.pre[s] <= o.pre && o.pre < w.post[s] {
+			return false
+		}
+	}
+	if !w.l.takes("own-reslice") {
+		return false
+	}
+	w.l.took("own-reslice")
+	return true
+}
+
+// reslicesRoot reports e, the slice s, as the right side of a rebinding
+// place = place[a:b] (any depth of slicing) of one place rooted at vv,
+// written through the root's own name.
+func (w *valueWalk) reslicesRoot(e syntax.Expr, s *syntax.SliceExpr, vv *vvar) bool {
 	for {
 		p, ok := w.parent[e].(*syntax.ParenExpr)
 		if !ok {
@@ -81,15 +100,6 @@ func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
 	if v, ok := w.info.Uses[id].(*check.Var); !ok || w.vars[v] != vv {
 		return false
 	}
-	for _, o := range vv.occs {
-		if o.kind == occWrite && w.pre[s] <= o.pre && o.pre < w.post[s] {
-			return false
-		}
-	}
-	if !w.l.takes("own-reslice") {
-		return false
-	}
-	w.l.took("own-reslice")
 	return true
 }
 

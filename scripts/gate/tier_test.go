@@ -339,14 +339,16 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// evaluator internal/sketch/eval (L7 EV1) import it too, and so does
 	// the fact-table builder internal/sketch/facts (SEMTOOLS SEM0).
 	// internal/sketch/api projects the checked public contracts (L8 C3).
-	// tsproj projects the same checked contracts to TS. rpcgen projects
-	// them to RPC, but every test of it builds Go (fullTierOnly), as do
-	// internal/selfhostcheck's and internal/experimental/irspike's; the
+	// tsproj projects the same checked contracts to TS, and rpcgen to RPC
+	// (it has fast tests since batch 21). internal/selfhostcheck's tests
+	// build Go (fullTierOnly); internal/experimental/irspike has fast
+	// tests of the IR text since IRG6, and internal/sketch/fix (ergo fix,
+	// EXC1/EXM1) reads the checker's result; the
 	// direct build path's identity test lives in internal/sketchfront, so
 	// internal/sketch/build's tests import no part of the checker. The
 	// ledger anchor check lives in internal/residue (main's eb40167a3), so
 	// scripts/mutants is not reached.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
+	want := []string{"cmd/ergo", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}

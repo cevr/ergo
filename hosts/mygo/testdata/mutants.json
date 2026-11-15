@@ -26,11 +26,59 @@
     {"name":"GPh-wheel-misses-lists","origin":"GP1c host","file":"hosts/mygo/desktop/desktop.ergo","from":"case ui.ScrollNode, ui.RowsNode:\n\t\t\t\ttarget = Some{Value: s}","to":"case ui.ScrollNode:\n\t\t\t\ttarget = Some{Value: s}","rule":"the wheel scrolls the list under the pointer","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-canvas-transform-dropped","origin":"GP1c host","file":"hosts/mygo/desktop/canvas.ergo","from":"\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, x.M)","to":"\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, ui.Scale(x.M.A, x.M.D))","rule":"a canvas paints under the transforms its list pushes","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"GPh-fill-spans-outside","origin":"GP1c host","file":"hosts/mygo/desktop/canvas.ergo","from":"if wind != 0 && i+1 < len(xs)","to":"if wind == 0 && i+1 < len(xs)","rule":"a path's fill covers where its winding number is not zero","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"GP1c-page-keys-unnamed","origin":"GP1c","file":"hosts/mygo/screen/screen.go","from":"\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n","to":"","rule":"the window names the page keys, so a program's OnKey gets PageDown","killers":["mygo:TestStarsGuiOnTheDesktop"]},
-    {"name":"GP1c-keys-to-the-focused-button","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"if desktop.FocusId(d) == None {","to":"if true {","rule":"a key of the table's goes to the table, after a click on the list drops a button's focus","killers":["mygo:TestStarsGuiOnTheDesktop"]},
-    {"name":"GP1c-list-not-followed","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"Offset: rh * ui.Length(float64(g.Top))","to":"Offset: rh * ui.Length(0.0)","rule":"the window's list scrolls to the table's window after each line","killers":["mygo:TestStarsGuiOnTheDesktop"]},
-    {"name":"GP1c-typed-without-the-field","origin":"GP1c","file":"hosts/mygo/cmd/stars-gui/main.ergo","from":"\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n","to":"","rule":"typed text goes into the field, which the window clicks first","killers":["mygo:TestStarsGuiOnTheDesktop"]},
-    {"name":"GP1c-control-list-not-followed","origin":"GP1c","file":"hosts/mygo/controls/stars-gui/main.go","from":"\t\tp.list.ScrollTo(p.s.top, ui.Start)\n","to":"","rule":"the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)","killers":["mygo:TestStarsGuiOnTheDesktop"]},
-    {"name":"GP1c-control-list-unbounded","origin":"GP1c","file":"hosts/mygo/controls/stars-gui/main.go","from":"}).Height(560)","to":"}).Grow(1)","rule":"the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)","killers":["mygo:TestStarsGuiOnTheDesktop"]}
+    {
+      "name": "GP1c-page-keys-unnamed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tcase platform.KeyPageDown:\n\t\treturn \"PageDown\"\n",
+      "to": "",
+      "rule": "the window names the page keys, so a program's OnKey gets PageDown",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-keys-to-the-focused-button",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "if desktop.FocusId(d) == None {",
+      "to": "if true {",
+      "rule": "a key of the table's goes to the table, after a click on the list drops a button's focus",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-list-not-followed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "Offset: rh * ui.Length(float64(g.Top))",
+      "to": "Offset: rh * ui.Length(0.0)",
+      "rule": "the window's list scrolls to the table's window after each line",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-typed-without-the-field",
+      "origin": "GP1c",
+      "file": "hosts/mygo/cmd/stars-gui/main.ergo",
+      "from": "\t\ttry desktop.Play(d, []ui.Act{ui.TapOn{Label: \"text\"}})\n",
+      "to": "",
+      "rule": "typed text goes into the field, which the window clicks first",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-control-list-not-followed",
+      "origin": "GP1c",
+      "file": "hosts/mygo/controls/stars-gui/main.go",
+      "from": "\t\tp.list.ScrollTo(p.s.top, ui.Start)\n",
+      "to": "",
+      "rule": "the control's window shows the table's window: its list scrolls there after each line (receipts measure that frame)",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    },
+    {
+      "name": "GP1c-control-list-unbounded",
+      "origin": "GP1c",
+      "file": "hosts/mygo/controls/stars-gui/main.go",
+      "from": "}).Height(560)",
+      "to": "}).Grow(1)",
+      "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
+      "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
+    }
   ]
 }

@@ -116,6 +116,11 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		if path == "/warm" {
 			return HTTPResponse{Status: 200, Body: "warm"}
 		}
+		// An empty query is one Ergo value, whether Go holds it as nil or
+		// as an empty slice (the serve and the pipe parse it apart).
+		if len(query) == 0 {
+			query = nil
+		}
 		arrived = append(arrived, localArrival{method, path, query, localWithout(header), body})
 		if c.redirect && path != "/final" {
 			return HTTPResponse{Status: 307, Header: []HTTPField{{"Location", "/final"}}, Body: "moved"}

@@ -523,7 +523,6 @@ internal/sketch/check/wirewrite.go	*
 internal/sketch/lower/wirewrite.go	*
 modules/xml/attribute.ergo	*
 docs/spec/types.md	by its name and shape, as `Wire` is, so only
-internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/lower/wire.go","from":"\t\t\tcall += \", nil\"
 modules/infra/outputs.ergo	func WriteOutputs[O wire](
 modules/infra/outputs.ergo	func Deploy[O wire, R](
 modules/infra/cli.ergo	type Bound[O wire] {

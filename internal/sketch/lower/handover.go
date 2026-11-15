@@ -411,13 +411,14 @@ func (w *valueWalk) lineageSites() {
 
 // settleNamedTails turns back to the plain clipped Append each
 // one-extender site that the root frame returns (a tail or a return's
-// value) when the function is passed by name in its own package
-// (maps.Update(m, k, start)): its new array is fresh when its elements
-// hold no Map or slice, so the function's every result may be fresh
-// (freshResult) and a callback by name is analysed as a literal is
-// (argsUnshared, litFresh). The decision is the callee's own, whatever
-// the order its callers are lowered in; a caller in another package sees
-// the site kept, a result that is not fresh, and copies.
+// value) when the function is passed by name anywhere in the program
+// (maps.Update(m, k, start), or pkg.start from another package): its new
+// array is fresh when its elements hold no Map or slice, so the
+// function's every result may be fresh (freshResult) and a callback by
+// name is analysed as a literal is (argsUnshared, litFresh). The decision
+// is the callee's own, whatever the order its callers are lowered in: it
+// reads every package the program reaches, which one lowering emits
+// together.
 func (w *valueWalk) settleNamedTails() {
 	d, ok := w.root.node.(*syntax.FuncDecl)
 	if !ok || d.Name == nil {
@@ -448,34 +449,48 @@ func (w *valueWalk) settleNamedTails() {
 	})
 }
 
-// passedByName reports a function its own package names other than as a
-// call's callee: a value, such as a callback by name.
+// passedByName reports a function that a package of the program (its
+// own, the root or another library) names other than as a call's callee:
+// a value, such as a callback by name.
 func (l *lowerer) passedByName(f *check.Func) bool {
 	vf := l.valueFacts()
 	if vf.byName == nil {
-		vf.byName = map[*check.Package]map[*check.Func]bool{}
-	}
-	set, ok := vf.byName[f.Pkg]
-	if !ok {
-		info := f.Pkg.Info
-		callee := map[*syntax.Ident]bool{}
-		for call := range info.Calls {
-			switch fun := unparen(call.Fun).(type) {
-			case *syntax.Ident:
-				callee[fun] = true
-			case *syntax.SelectorExpr:
-				callee[fun.Sel] = true
+		vf.byName = map[*check.Func]bool{}
+		seen := map[*check.Info]bool{}
+		infos := []*check.Info{l.info}
+		if l.pkg != nil {
+			infos = append(infos, l.pkg.Info)
+		}
+		for _, p := range l.libraries() {
+			infos = append(infos, p.Info)
+		}
+		for _, info := range infos {
+			if info == nil || seen[info] {
+				continue
+			}
+			seen[info] = true
+			callee := map[syntax.Expr]bool{}
+			for call := range info.Calls {
+				callee[unparen(call.Fun)] = true
+			}
+			// Every expression has a type: a name of a function, f or
+			// pkg.f, that is no call's callee is a function value.
+			for x := range info.Types {
+				switch x.(type) {
+				case *syntax.Ident, *syntax.SelectorExpr:
+				default:
+					continue
+				}
+				if callee[x] {
+					continue
+				}
+				if g := funcNamed(info, x); g != nil {
+					vf.byName[g] = true
+				}
 			}
 		}
-		set = map[*check.Func]bool{}
-		for id, obj := range info.Uses {
-			if g, isFunc := obj.(*check.Func); isFunc && !callee[id] {
-				set[g] = true
-			}
-		}
-		vf.byName[f.Pkg] = set
 	}
-	return set[f]
+	return vf.byName[f]
 }
 
 // deadField reports an Append on a field path of a local that is dead

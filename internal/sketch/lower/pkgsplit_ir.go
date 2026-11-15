@@ -143,6 +143,35 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 	return ""
 }
 
+// importPaths are, by package, the Go import paths (keys of local) that
+// its IR bodies' qualified names spell.
+func (s *irSplit) importPaths(pkgOf func(i int) int, local map[string]string) map[int]map[string]bool {
+	out := map[int]map[string]bool{}
+	for i := range s.ir.Funcs {
+		p := pkgOf(i)
+		see := func(n *string) {
+			// A qualified name is path.Name; a package call ("pcall")
+			// spells its package's path alone.
+			q := strings.TrimLeft(*n, "[]*")
+			if _, ok := local[q]; !ok {
+				at := strings.LastIndex(q, ".")
+				if at <= 0 {
+					return
+				}
+				if q = q[:at]; local[q] == "" {
+					return
+				}
+			}
+			if out[p] == nil {
+				out[p] = map[string]bool{}
+			}
+			out[p][q] = true
+		}
+		s.ir.Funcs[i].walk(see, func(*string) {})
+	}
+	return out
+}
+
 // freshName is a name with prefix that taken lacks, then taken.
 func freshName(taken map[string]bool, prefix string) string {
 	for n := 0; ; n++ {
@@ -223,8 +252,8 @@ func irHash(files []File) string {
 }
 
 // walk calls name on every package-scope name fn's body spells (a called
-// function, the named part of a type) and member on every field and
-// method name; each may respell it.
+// function, a package variable, the named part of a type) and member on
+// every field and method name; each may respell it.
 func (fn *irFunc) walk(name, member func(*string)) {
 	typ := func(t *string) {
 		if *t == "" {
@@ -242,7 +271,7 @@ func (fn *irFunc) walk(name, member func(*string)) {
 			return
 		}
 		switch x.K {
-		case "call":
+		case "call", "global":
 			name(&x.Name)
 		case "mcall", "field":
 			member(&x.Name)

@@ -11,10 +11,11 @@ import (
 // replaces a required Ergo module with (`replace M => ../../modules/xml`,
 // grammar.md Source files 1, Required modules (c)), each holding ergo.mod.
 // `ergo test` of the program never runs a dependency's tests, as go test
-// never does; a module the repository holds has no runner of its own, so
-// the test leg runs its packages too (testsOfModule), and an example that
-// installs a module this way carries the module's laws and tests into the
-// examples suite.
+// never does; so the test leg runs its packages too (testsOfModule), and
+// an example that installs a module this way carries the module's laws and
+// tests into the examples suite. A module of the repository's modules/
+// folder is left out: the runner runs it as a program of its own (MK0,
+// modules.go), so its tests run once (batch-21 integration).
 func localModules(p *program) []string {
 	data, err := os.ReadFile(filepath.Join(p.dir, "go.mod"))
 	if err != nil {
@@ -53,6 +54,9 @@ func localModules(p *program) []string {
 		}
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(p.dir, dir)
+		}
+		if filepath.Dir(filepath.Clean(dir)) == filepath.Join(filepath.Dir(filepath.Dir(p.dir)), modulesDir) {
+			continue
 		}
 		if info, err := os.Stat(filepath.Join(dir, "ergo.mod")); err == nil && info.Mode().IsRegular() {
 			dirs = append(dirs, filepath.Clean(dir))
