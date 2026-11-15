@@ -9,6 +9,7 @@
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
 //	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
+//	irspike gengeneric SEED               the generic-union program of SEED (TestIRGenericUnionsMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -82,6 +83,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateUnion(seed))
+		}
+	case "gengeneric":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gengeneric SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateGeneric(seed))
 		}
 	case "genstd":
 		var seed uint64
