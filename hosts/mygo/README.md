@@ -125,8 +125,9 @@ package of this Go module and the Ergo half binds it.
   under the nonzero rule; a stroke's contour is one polyline
   (`Window.StrokeBegin`, `StrokeTo`, `StrokeEnd`) that the frame
   rasterizes once into a mask of MyGo's atlas, keyed by its points, as
-  MyGo's `Painter.StrokePath` does, with round caps and joins (a `Line` a
-  segment when the atlas cannot hold it); a clip is the box around its transformed rectangle. Edges are
+  MyGo's `Painter.StrokePath` does, with round caps and joins; a mask
+  over 511 pixels a side is drawn as tiles of it, as `Painter.pathTiles`
+  does (a `Line` a segment when the atlas cannot hold them); a clip is the box around its transformed rectangle. Edges are
   not smoothed: the drawing layer has no path fill a host can reach.
 
 The driver is not a `ui.Host` provider: an operation type's method cannot
