@@ -2,6 +2,7 @@
 // computes, boot faults and clock moves.
 
 import fkengine/engine
+import fkengine/screen
 import time
 
 // lines is a generated script: gaps of 0 to 2999 ms, or (for an even
@@ -31,6 +32,35 @@ func lines(gaps []int, kinds []int) []Line {
 func live(ls []Line, end duration) []Seen {
 	let c = time.NewManual(0)
 	with context { Scheduler: c } { Play(ls, end, c) }
+}
+
+// ScreenIsTheLivePanel: the panel's screen, clicked on the test host,
+// shows the status and the result of the live panel's mode and the same
+// engines out after every press and at the end, over generated starts,
+// stops, computes, faults and clock moves. So the laws over the live panel
+// (ReleasesEqualAcquires, OneBootPerStart) hold for the screen.
+law ScreenIsTheLivePanel(gaps []int, kinds []int, tail int) {
+	let ls = lines(gaps, kinds)
+	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
+	let seen = live(ls, end)
+	let c = time.NewManual(0)
+	let mut frames = []Frame{}
+	with context { Scheduler: c } {
+		PlayScreen(ls, end, c, func(f Frame) { frames = frames.Append(f) })
+	} catch {
+	case _:
+		return false
+	}
+	if len(frames) != len(seen) {
+		return false
+	}
+	for i, s in seen {
+		let f = frames[i]
+		if f.Status != screen.Status(s.Mode) || f.Held != s.Held || f.Shown[len(f.Shown)-1] != screen.Result(s.Mode) {
+			return false
+		}
+	}
+	true
 }
 
 // ReleasesEqualAcquires: after every press, one engine is out while the
