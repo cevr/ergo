@@ -95,7 +95,7 @@ func counterAgrees(seed uint64, m time.Manual) bool needs Scheduler {
 	case ui.BadPatch:
 		return false
 	}
-	let mut c = host.New(b, view.View, Cols, Rows, 8) catch {
+	let mut c = host.New(b, Cols, Rows, 8, view.View) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -122,7 +122,7 @@ func todoAgrees(seed uint64, m time.Manual) bool needs Scheduler {
 	case ui.BadPatch:
 		return false
 	}
-	let mut c = host.New(b, todoview.View, Cols, Rows, 8) catch {
+	let mut c = host.New(b, Cols, Rows, 8, todoview.View) catch {
 	case ui.BadPatch:
 		return false
 	}

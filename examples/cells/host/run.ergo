@@ -55,7 +55,7 @@ func oneFramePerPatch(seed int) bool needs Scheduler {
 	}
 	let fake = NewFake(keys, 140, 40)
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
-	let mut h = New(a, SampleView, 140, 40, 4) catch {
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
 		return false
 	}

@@ -66,7 +66,7 @@ type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string }
 
 // New shows view of a's state on a terminal of cols by rows cells. room is
 // how many fetch results may wait for the host to take them.
-func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S) needs R, cols int, rows int, room int) Host[S, E, D, F] fails ui.BadPatch needs R {
+func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view escaping func(f *ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
 	let posted = queue.New[ui.Event[E]](room)
 	let (s, first) = ui.Start(a, view, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -302,7 +302,7 @@ func draw[S, E, D, F](h *Host[S, E, D, F]) {
 }
 
 // PatchWritesItsChange: a frame writes the cells its patch changed and no
-// other (the counted guard of a pass's cost on the wire): a press that
+// other (the counted guard of a pass's cost in cells written): a press that
 // changes one digit of one Text writes one cell, on any generated view.
 law PatchWritesItsChange(seed int) {
 	let m = time.NewManual(0)
@@ -313,7 +313,7 @@ law PatchWritesItsChange(seed int) {
 
 func writesTheChange(seed int) bool needs Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
-	let mut h = New(a, SampleView, 140, 40, 4) catch {
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -593,7 +593,7 @@ law HitMatchesDraw(seed int) {
 
 func hitsWhereDrawn(seed int) bool needs Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
-	let mut h = New(a, SampleView, 140, 40, 4) catch {
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
 		return false
 	}

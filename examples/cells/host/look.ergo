@@ -80,7 +80,7 @@ law CellsShowEveryName(seed int) {
 
 func showsEveryName(seed int) bool needs Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
-	let mut h = New(a, SampleView, 140, 40, 4) catch {
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
 		return false
 	}

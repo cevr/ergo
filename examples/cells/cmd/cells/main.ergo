@@ -150,7 +150,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Ter
 			return os.Exit{Code: 2, Message: "cells: line \(b.Line) is no step: \(b.Text)"}
 		}
 		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
-		let mut h = host.New(a, view.View, size.Cols, size.Rows, 64) catch {
+		let mut h = host.New(a, size.Cols, size.Rows, 64, view.View) catch {
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
 		}
@@ -161,7 +161,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Ter
 			return os.Exit{Code: 2, Message: "cells: line \(b.Line) is no step: \(b.Text)"}
 		}
 		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
-		let mut h = host.New(a, todoview.View, size.Cols, size.Rows, 64) catch {
+		let mut h = host.New(a, size.Cols, size.Rows, 64, todoview.View) catch {
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
 		}

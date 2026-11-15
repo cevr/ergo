@@ -201,7 +201,7 @@ law DiffReplaysToGrid(seed int) {
 }
 
 // FrameWritesTheChanges: a frame writes each cell that changed once, and
-// no other (the counted guard of a patch's cost on the wire).
+// no other (the counted guard of a patch's cost in cells written).
 law FrameWritesTheChanges(seed int) {
 	let (a, b) = pair(seed)
 	Frame(a, b).Cells == Changed(a, b)
