@@ -27,6 +27,8 @@ type TestHost[S, E, D, F] {
 	captured Option[Id[E]],
 	// said is what the live regions said, in order (Announce).
 	said []string,
+	// step is the counts of the passes since the last input (NS3).
+	step StepCounts,
 }
 
 // NoNode is the failure of a script step whose label names no node on the
@@ -52,13 +54,21 @@ func hostOf[E comparable, S, D, F](s Session[S, E, D, F], first []Op[E], posted 
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts()}
 }
 
-// apply steps one event and shows its patch.
+// apply steps one event and shows its patch. An input starts a step:
+// the counts of the passes before it are dropped.
 func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+	if isInput(ev) {
+		h.step = NoCounts()
+	}
+	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
 	try Apply(&h.mirror, ops)
+	if h.session.frame.passes != passes {
+		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
+	}
 	for op in ops {
 		match op {
 		case Insert[E] as x:
@@ -80,6 +90,34 @@ func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
 	case _:
 	}
 }
+
+// isInput is whether ev is the user's (a press, a text, a pointer, a
+// key, a scroll, a navigation): what starts a step.
+func isInput[E](ev Event[E]) bool {
+	match ev {
+	case Press[E]:
+		true
+	case Type[E]:
+		true
+	case Point[E]:
+		true
+	case KeyDown:
+		true
+	case Scrolled[E]:
+		true
+	case URLChanged:
+		true
+	case _:
+		false
+	}
+}
+
+// Counts is the work of the last step (NS3): the passes since the last
+// input (Tap, TypeText, PressKey, PointAt, ScrollTo, Navigate, GoBackOn),
+// that input's and those of the Settle, Pump and Advance after it,
+// summed. A receipt reads a step's work here, whatever passes settling
+// it ran.
+func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 
 // Tap presses the node id.
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
@@ -131,6 +169,7 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 		// wait for; so Settle ends with a pass, which shows nothing new when
 		// nothing changed, and settles the loads that pass started.
 		try Apply(&h.mirror, runPass(&h.session))
+		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 		if InFlight(&h.session) == 0 {
 			return
 		}
@@ -409,6 +448,49 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 	}
 }
 
+// PlayTrace runs a script as Play does, and is its trace: a line per
+// act, "step N <act>: <CountsLine of its step>", counted from 1. An act
+// that is no input (SettleAll, AdvanceBy, ExpectOn) adds to the step
+// before it, and its line shows that step's counts so far.
+func PlayTrace[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) []string fails NoNode | Mismatch | actor.Stopped | BadPatch {
+	let mut out = []string{}
+	for i, act in script {
+		try Play(h, []Act{act})
+		out = out.Append("step \(i + 1) \(actText(act)): \(CountsLine(h.step))")
+	}
+	out
+}
+
+// actText is an act as the trace names it.
+func actText(a Act) string {
+	match a {
+	case TapOn as x:
+		"TapOn \"\(x.Label)\""
+	case TypeInto as x:
+		"TypeInto \"\(x.Label)\""
+	case SettleAll:
+		"SettleAll"
+	case AdvanceBy as x:
+		"AdvanceBy \(x.By)"
+	case KeyIn as x:
+		"KeyIn \"\(x.Press.Name)\""
+	case PointOn as x:
+		"PointOn \"\(x.Label)\""
+	case ScrollOn as x:
+		"ScrollOn \"\(x.Label)\""
+	case ClickOn as x:
+		"ClickOn \(locatorText(x.At))"
+	case FillIn as x:
+		"FillIn \(locatorText(x.At))"
+	case ExpectOn as x:
+		"ExpectOn \(locatorText(x.At))"
+	case NavigateTo as x:
+		"NavigateTo \"\(x.Href)\""
+	case GoBack:
+		"GoBack"
+	}
+}
+
 func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
 	let ids = Locate(h, loc)
 	if len(ids) == 0 {
@@ -573,5 +655,58 @@ law SettleRunsTheWork(n int) {
 			shown = shown || s.Node == (TextNode{Value: "at \(last)", Style: Plain()})
 		}
 		StateOf(&h).at == last && shown && m.Now() == before
+	}
+}
+
+// CountsAreTheStep (NS3): Counts is the passes since the last input,
+// summed. A press that changes the text is one pass with one Set; each
+// Settle after it adds its own pass to that step; and a key that sends
+// nothing starts a step with no pass, so its counts are none, and its
+// PlayTrace line says so.
+law CountsAreTheStep(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, chainView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}
+		PressKey(&h, KeyPress{Name: "go", Mods: mods}) catch {
+		case _:
+			return false
+		}
+		let pressed = Counts(&h)
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		// Each Settle after the first, with nothing posted, adds its one
+		// pass of one node.
+		for _ in 0..(n%3+3)%3+1 {
+			let ran = Counts(&h).Ran
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+			if Counts(&h).Ran != ran+1 {
+				return false
+			}
+		}
+		let settled = Counts(&h)
+		PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch {
+		case _:
+			return false
+		}
+		if Counts(&h) != NoCounts() {
+			return false
+		}
+		// PlayTrace prints that step as its line.
+		let trace = PlayTrace(&h, []Act{KeyIn{Press: KeyPress{Name: "noop", Mods: mods}}}) catch {
+		case _:
+			return false
+		}
+		let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+		pressed.Set == 1 && pressed.Ran == 1 && settled.Set == 1 && settled.Ran > pressed.Ran && trace == []string{line}
 	}
 }

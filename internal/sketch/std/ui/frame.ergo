@@ -47,6 +47,8 @@ type Frame[E] {
 	stops   []CallSite,
 	nstops  int,
 	slow    Option[slowWatch[E]],
+	// visits is the nodes Commit visited (NS3).
+	visits int,
 	// now is the time of the last frame (Tick), tickAt that time while
 	// the pass a Tick caused runs, passes the passes so far, and moving
 	// whether a Presence of this pass moves (H5e).
@@ -144,7 +146,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, now: duration(int64(0)), tickAt: None, passes: 0, moving: false}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
@@ -434,6 +436,7 @@ func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fail
 func Commit[E comparable](f *Frame[E]) []Op[E] {
 	f.ops = []Op[E]{}
 	f.jobs = []Job[E]{}
+	f.visits = 0
 	reconcile(f, -1, f.root)
 	settle(f)
 	f.ops
@@ -509,6 +512,7 @@ func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 // and then does the same below each child. When every child is the old
 // child at its place, nothing moves, and the pass builds no list (UC-3).
 func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
+	f.visits = f.visits + 1
 	if inPlace(f, p, pr) {
 		let mut s = lastKid(f, p)
 		for s >= 0 {
