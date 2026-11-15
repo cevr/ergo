@@ -221,15 +221,20 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	if !ok {
 		return opcount.Case{}, fmt.Errorf("examples/%s has no %s file (run from the repository root)", name, opcount.WorkloadFile)
 	}
+	file, err := filepath.Rel(root, opcount.Path(dir))
+	if err != nil {
+		return opcount.Case{}, err
+	}
+	file = filepath.ToSlash(file)
 	if len(problems) > 0 {
 		var lines []string
 		for _, p := range problems {
-			lines = append(lines, fmt.Sprintf("examples/%s/%s: %s", name, opcount.WorkloadFile, p))
+			lines = append(lines, fmt.Sprintf("%s: %s", file, p))
 		}
 		return opcount.Case{}, errors.New(strings.Join(lines, "\n"))
 	}
 	if o.control && w.Control == "" {
-		return opcount.Case{}, fmt.Errorf("examples/%s/%s names no control", name, opcount.WorkloadFile)
+		return opcount.Case{}, fmt.Errorf("%s names no control", file)
 	}
 	b := builder{o: o, root: root, log: log}
 	program, goLine, err := b.program(filepath.Join(dir, "cmd", w.Binary), w.Binary)

@@ -470,6 +470,23 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			for _, w := range found {
 				problem("%s: %s", file, w)
 			}
+		case file == opcount.WorkloadFile:
+			// A workload package (its program's gen documents) holds the
+			// workload file, so scripts/opcount counts every program that
+			// has a workload (examples/README.md, "Workload").
+			at := opcount.WorkloadFile + "/" + opcount.WorkloadFile
+			_, found, ok := opcount.Check(filepath.Dir(filepath.Dir(p.dir)), p.dir)
+			if !ok {
+				problem("%s: a workload package holds its workload file, for scripts/opcount", at)
+			}
+			for _, w := range found {
+				problem("%s: %s", at, w)
+			}
+			spec, err := filepath.Abs(opcount.Path(p.dir))
+			if err != nil {
+				problem("%s: %v", at, err)
+			}
+			problems = append(problems, packageAssetSources(p, filepath.Join(p.dir, file), file, map[string]bool{spec: true})...)
 		case file == "ts" && entry.IsDir():
 			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():

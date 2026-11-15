@@ -83,16 +83,21 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 // and arguments): the runner admits one that reads and names the line of
 // one that does not, as a layout error. internal/opcount's property covers
 // the kinds of bad line; this test covers that the runner reads the file.
-// Mutants: examples-workload-unexpected, examples-workload-unchecked.
+// A workload package holds the file as workload/workload, and one without
+// it is a layout error, so opcount counts every program with a workload.
+// Mutants: examples-workload-unexpected, examples-workload-unchecked,
+// examples-workload-package-unchecked.
 func TestModuleProgramWorkload(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		workload string
-		code     int
-		want     string
+		at, workload string
+		code         int
+		want         string
 	}{
-		{"unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
-		{"unit op\nsizes 20 10\nargs bench {n}\n", 2, "examples/walker: workload: line 2: sizes 20 10"},
+		{"workload", "unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
+		{"workload", "unit op\nsizes 20 10\nargs bench {n}\n", 2, "examples/walker: workload: line 2: sizes 20 10"},
+		{"workload/workload", "unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
+		{"workload/workload.ergo", "func Doc(n int) string { \"\" }\n", 2, "examples/walker: workload/workload: a workload package holds its workload file"},
 	} {
 		f := newFixture(t)
 		dir := "examples/walker"
@@ -101,7 +106,10 @@ func TestModuleProgramWorkload(t *testing.T) {
 		f.write(dir+"/tags", "default\n")
 		f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 		f.write(dir+"/cases/basic/expected.out", "hi\n")
-		f.write(dir+"/workload", c.workload)
+		f.write(dir+"/"+c.at, c.workload)
+		if c.at == "workload/workload" {
+			f.write(dir+"/workload/workload.ergo", "func Doc(n int) string { \"\" }\n")
+		}
 		code, out := f.run()
 		if code != c.code || !strings.Contains(out, c.want) {
 			t.Errorf("workload %q: exit %d, want %d and %q\n%s", c.workload, code, c.code, c.want, out)
