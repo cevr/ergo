@@ -62,7 +62,8 @@ test JsonFastAgreesWithWriter(v fleet) {
 	assert json.Encode(codec(), v) == viaWriter(v)
 }
 
-test JsonStringBytesIsString(b []byte, html bool) {
+test JsonStringBytesIsString(drawn []byte, html bool) {
+	let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&')
 	let t = if html { json.NewHTMLText() } else { json.NewText() }
 	t.Int(1)
 	t.StringBytes(b)
@@ -192,7 +193,7 @@ test JsonFastRefinedPair(names []string, p int) {
 
 // stdJSONLawStatements is each restated law's ledger statement.
 var stdJSONLawStatements = map[string]string{
-	"json StringBytesIsString":   `StringBytesIsString(b []byte, html bool) { let t Text = text{comma: false, html: html, out: []byte{}} t.Int(1) t.StringBytes(b) t.Int(2) let u Text = text{comma: false, html: html, out: []byte{}} u.Int(1) u.String(utf8.String(b)) u.Int(2) t.Written() == u.Written() }`,
+	"json StringBytesIsString":   `StringBytesIsString(drawn []byte, html bool) { let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&') let t Text = text{comma: false, html: html, out: []byte{}} t.Int(1) t.StringBytes(b) t.Int(2) let u Text = text{comma: false, html: html, out: []byte{}} u.Int(1) u.String(utf8.String(b)) u.Int(2) t.Written() == u.Written() }`,
 	"json DepthLimits":           `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }`,
 	"json FastAgreesWithWriter":  `FastAgreesWithWriter(v fleet) { let t Text = text{comma: false, html: false, out: []byte{}} t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() w.BeginList(3) encode(v, w) w.Int(2) encode(v, w) w.EndList() let h Text = text{comma: false, html: true, out: []byte{}} encode(v, h) let g = NewHTMLText() encode(v, g) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }`,
 	"json HTMLEscaped":           `HTMLEscaped() { let h = NewHTMLText() h.String("<&>") let t = NewText() t.String("<&>") h.Written() == "\"\\u003c\\u0026\\u003e\"" && t.Written() == "\"<&>\"" }`,

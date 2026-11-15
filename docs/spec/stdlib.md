@@ -1312,7 +1312,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `json` | `OptionalRoundTrips` | `OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `NullableRoundTrips` | `NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `NestedRoundTrips` | `NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
-| `json` | `StringBytesIsString` | `StringBytesIsString(b []byte, html bool) { let t Text = text{comma: false, html: html, out: []byte{}} t.Int(1) t.StringBytes(b) t.Int(2) let u Text = text{comma: false, html: html, out: []byte{}} u.Int(1) u.String(utf8.String(b)) u.Int(2) t.Written() == u.Written() }` | `TestStdJSONLawsRun` | tested |
+| `json` | `StringBytesIsString` | `StringBytesIsString(drawn []byte, html bool) { let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&') let t Text = text{comma: false, html: html, out: []byte{}} t.Int(1) t.StringBytes(b) t.Int(2) let u Text = text{comma: false, html: html, out: []byte{}} u.Int(1) u.String(utf8.String(b)) u.Int(2) t.Written() == u.Written() }` | `TestStdJSONLawsRun` | tested |
 | `json` | `ValueRoundTrips` | `ValueRoundTrips(d doc) { valueRoundTrips(d) }` | `TestJSONValueAgrees` | tested |
 | `json` | `TruncatedFails` | `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }` | `TestStdJSONLawsRun` | tested |
 | `json` | `Text.SetCommaSets` | `SetCommaSets(due bool) { setComma(due); commaDue() == due }` | `#162` | checked |

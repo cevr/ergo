@@ -239,8 +239,10 @@ func StringBytes(t *text, b []byte) {
 
 // StringBytesIsString: StringBytes writes what String writes for the
 // string its bytes spell, after a value (so the comma before it is right)
-// and before one (so the one after it is), in a Text and an HTML Text.
-law StringBytesIsString(b []byte, html bool) {
+// and before one (so the one after it is), in a Text and an HTML Text;
+// the drawn bytes end in < and &, which only an HTML Text escapes.
+law StringBytesIsString(drawn []byte, html bool) {
+	let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&')
 	let t Text = text{comma: false, html: html, out: []byte{}}
 	t.Int(1)
 	t.StringBytes(b)
