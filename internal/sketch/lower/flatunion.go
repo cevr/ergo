@@ -55,9 +55,11 @@ import (
 //  4. The struct fits Go's registers (ssa.CanSSA): at most 32 bytes and at
 //     most 4 fields at each struct level (the tag counts), and no array of
 //     more than one element. Above it, a value carried through a call goes
-//     through memory and costs 10x a box's pass (union-repr.md §5). A
-//     field whose Go form the rule does not know (a Go type, a std
-//     type) keeps the union an interface.
+//     through memory and costs 10x a box's pass (union-repr.md §5). Past
+//     it, a union no call carries stays flat up to a memory bound (R3b,
+//     carry.go), and a machine's state stays flat at any size (MSB2,
+//     carry.go's stateFlat). A field whose Go form the rule does not know
+//     (a Go type, a std type) keeps the union an interface.
 //
 // Steps 3 and 4 repeat until no union changes: a union that becomes an
 // interface changes the size of the unions that hold it.
@@ -340,10 +342,10 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	// form, as before MSB1: the old rule step 1.
 	states := map[*check.TypeName]bool{}
 	signals := map[*check.TypeName]bool{}
+	// machineStates are the program's machines' states, whatever the
+	// reference: a state past the register bound stays flat (MSB2, below).
+	machineStates := map[*check.TypeName]bool{}
 	for _, p := range l.sourcedPkgs() {
-		if stateLowering != "interface" {
-			break
-		}
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -360,9 +362,12 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 				continue
 			}
 			if s, ok := m.State.(*check.Named); ok {
-				states[s.Obj] = true
+				machineStates[s.Obj] = true
+				if stateLowering == "interface" {
+					states[s.Obj] = true
+				}
 			}
-			if e, ok := m.Signal.(*check.Named); ok {
+			if e, ok := m.Signal.(*check.Named); ok && stateLowering == "interface" {
 				signals[e.Obj] = true
 			}
 		}
@@ -419,18 +424,21 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			fu := l.flatSet[tn]
 			was, wasUsed := fu.shared, fu.byUse
 			fu.shared, fu.byUse = fu.canShare, false
+			// A machine's state stays flat past both bounds (MSB2).
+			state := l.stateFlat(tn, machineStates)
 			lay, cycle, known := l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
 			if cycle == nil && known && !lay.ssa && fu.shared {
 				fu.shared = false
 				lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
-				if cycle == nil && known && !lay.ssa && l.flatByUse(tn) {
+				if cycle == nil && known && !lay.ssa && (l.flatByUse(tn) || state) {
 					// Past the register bound in both forms: the smaller,
-					// shared form, if no call carries a value (R3b).
+					// shared form, if no call carries a value (R3b) or
+					// the union is a machine's state (MSB2).
 					fu.shared = true
 					lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
 				}
 			}
-			if cycle == nil && known && !lay.ssa && l.flatByUse(tn) && lay.size <= useBytes {
+			if cycle == nil && known && !lay.ssa && (l.flatByUse(tn) && lay.size <= useBytes || state) {
 				fu.byUse = true // carry.go
 			}
 			if fu.shared != was || fu.byUse != wasUsed {

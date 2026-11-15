@@ -14,7 +14,9 @@ import (
 // and, in every third seed, held by a record through itself (GLoop), which
 // keeps G an interface; and a machine whose state and signal are enums,
 // with a seeded transition table, run by std machines.Run and by a loop
-// that calls its step and matches the Decision it returns. Each program
+// that calls its step and matches the Decision it returns; and a machine
+// BM whose state BS is past both size bounds (MSB2), run the same two
+// ways, its states built from the fields of the state they leave. Each program
 // is lowered with every mode of TestFlatUnionsAgree, and genericForms
 // says the form each mode gives G, the prelude's Decision and the
 // machine's state.
@@ -23,7 +25,7 @@ import (
 // reach each.
 var genericPaths = []string{
 	"g-mk", "g-swap", "g-slice", "g-eq", "g-map", "g-hold", "g-union-arg", "g-option-arg",
-	"g-generic-pass", "g-machine-run", "g-machine-scan",
+	"g-generic-pass", "g-machine-run", "g-machine-scan", "g-big-state-run", "g-big-state-scan",
 }
 
 // genericGen writes the axis's declarations and statements for one seed.
@@ -253,7 +255,130 @@ func scanGM(sigs []MI) string {
 }
 
 `)
+	g.bigState(&b)
 	return b.String()
+}
+
+// bigState writes the machine BM, whose state BS is past the register
+// bound and the use bound in both forms (BA's six slices: 152 bytes
+// shared), and carried, as every state is, by its step (MSB2: a state is
+// flat at any size). Its step's table is drawn from g.r; each next state
+// is built from the fields of the state it leaves.
+func (g *genericGen) bigState(b *strings.Builder) {
+	b.WriteString(`type BA { Xs []int, Ys []int, Zs []int, Ws []int, Vs []int, Us []int }
+type BB { N int, S string }
+type BC {}
+type BS = BA | BB | BC
+
+func showBS(s BS) string {
+	match s {
+	case BA as a:
+		"A\(len(a.Xs)),\(len(a.Ys)),\(len(a.Zs)),\(len(a.Ws)),\(len(a.Vs)),\(len(a.Us))"
+	case BB as v:
+		"B\(v.N)" + v.S
+	case BC:
+		"C"
+	}
+}
+
+func signalOf(e MI) int {
+	match e {
+	case I0:
+		0
+	case I1:
+		1
+	case I2:
+		2
+	}
+}
+
+`)
+	// The next states each variant may enter, built from its fields; the
+	// first of each is its own variant (a Stay's).
+	next := map[string][]string{
+		"BA": {"BA{..a, Xs: a.Xs.Append(len(a.Us)), Us: a.Us.Append(k)}", "BB{N: len(a.Xs) + len(a.Ys) * 2, S: \"a\"}", "BC", "BA{..a, Vs: a.Vs.Append(1), Zs: []int{}}"},
+		"BB": {"BB{..v, N: v.N + k + 1}", "BA{Xs: []int{v.N}, Ys: []int{}, Zs: []int{1, 2}, Ws: []int{}, Vs: []int{v.N}, Us: []int{3}}", "BC", "BB{N: v.N * 2, S: v.S + \"b\"}"},
+		"BC": {"BC", "BB{N: k, S: \"c\"}", "BA{Xs: []int{k}, Ys: []int{k, k}, Zs: []int{}, Ws: []int{1}, Vs: []int{}, Us: []int{}}"},
+	}
+	outs := []string{"EA", "EB", "EC"}
+	b.WriteString("func bstep(s BS, e MI) Decision[BS, E3] {\n\tlet k = signalOf(e)\n\tmatch s {\n")
+	for _, v := range []string{"BA", "BB", "BC"} {
+		bind := map[string]string{"BA": " as a", "BB": " as v", "BC": ""}[v]
+		fmt.Fprintf(b, "\tcase %s%s:\n\t\tmatch k {\n", v, bind)
+		for k := range 3 {
+			ns := next[v]
+			to := ns[g.r.IntN(len(ns))]
+			var d string
+			switch g.r.IntN(8) {
+			case 0, 1:
+				d = "Enter[BS]{Next: " + to + "}"
+			case 2, 3:
+				d = "Stay[BS]{Next: " + ns[0] + "}"
+			case 4, 5:
+				d = "Emit[BS, E3]{Next: " + to + ", Output: " + outs[g.r.IntN(3)] + "}"
+			case 6:
+				d = "Ignore"
+			default:
+				d = "Done[E3]{Output: " + outs[g.r.IntN(3)] + "}"
+			}
+			switch {
+			case v == "BC" && k == 0:
+				d = "Enter[BS]{Next: " + ns[2] + "}" // a run leaves BC at once
+			case k == 0:
+				d = "Stay[BS]{Next: " + ns[0] + "}" // the binding is used
+			}
+			c := fmt.Sprint(k)
+			if k == 2 {
+				c = "_"
+			}
+			fmt.Fprintf(b, "\t\tcase %s:\n\t\t\t%s\n", c, d)
+		}
+		b.WriteString("\t\t}\n")
+	}
+	b.WriteString("\t}\n}\n\n")
+	b.WriteString(`type BM machine[BS, MI] {
+	initial: BC,
+	step:    bstep,
+}
+
+func runBM(sigs []MI) string {
+	let o = machines.Run(BM{}, sigs) catch {
+	case machines.Rejected:
+		return "rejected"
+	}
+	match o {
+	case machines.Running[BS, E3] as r:
+		"running " + showBS(r.State) + " \(len(r.Emitted))"
+	case machines.Finished[BS, E3]:
+		"finished"
+	}
+}
+
+func scanBM(sigs []MI) string {
+	let mut s BS = BC
+	let mut out = ""
+	for e in sigs {
+		match bstep(s, e) {
+		case Enter[BS] as v:
+			s = v.Next
+		case Stay[BS] as v:
+			s = v.Next
+		case Emit[BS, E3] as v:
+			s = v.Next
+			out = out + showE3(v.Output)
+		case Ignore:
+			out = out + "."
+		case Reject:
+			out = out + "!"
+		case Done[E3] as v:
+			return out + " done " + showE3(v.Output)
+		}
+		out = out + showBS(s) + ";"
+	}
+	out + " at " + showBS(s)
+}
+
+`)
 }
 
 // k is a small argument.
@@ -313,6 +438,10 @@ func (g *genericGen) stmt(o *optionGen, path string) {
 		o.line(fmt.Sprintf("Console.Println(runGM(%s))", g.sigs()))
 	case "g-machine-scan":
 		o.line(fmt.Sprintf("Console.Println(scanGM(%s))", g.sigs()))
+	case "g-big-state-run":
+		o.line(fmt.Sprintf("Console.Println(runBM(%s))", g.sigs()))
+	case "g-big-state-scan":
+		o.line(fmt.Sprintf("Console.Println(scanBM(%s))", g.sigs()))
 	}
 }
 
@@ -383,5 +512,10 @@ func (g *genericGen) genericForms(main, mode string) []string {
 		enum = "interface"
 	}
 	check("the machine's state MS", "type MS ", enum)
+	// MSB2: the big state BS is flat past both bounds, carried by its
+	// step; under the register bound alone it is an interface. Shared, BA
+	// has six []int slots and BB an int and a string slot.
+	big := map[string]string{"": "shared 8", "register": "interface", "slots": "slots", "interface": "interface"}[mode]
+	check("the machine's big state BS", "type BS ", big)
 	return bad
 }
