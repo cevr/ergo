@@ -43,7 +43,8 @@ func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
 func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "btrfs", from, to) }
 
 // Discard deletes the snapshot at root in one call (`btrfs subvolume
-// delete`: the mount needs user_subvol_rm_allowed, which doctor reports);
+// delete`: the mount must allow it by user_subvol_rm_allowed, which
+// doctor reports);
 // where that is refused it deletes the files one by one. A subvolume
 // nested in the snapshot makes the call fail, and the file removal then
 // deletes the rest.
