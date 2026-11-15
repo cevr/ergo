@@ -337,16 +337,17 @@ func (b *builder) visit(n syntax.Node) bool {
 // memberLaw walks a law of an operation type or a machine: its parameters
 // and locals are named under the law's handle, not its type's.
 func (b *builder) memberLaw(x *syntax.LawDecl) {
-	handle, locals := b.handle, b.locals
+	handle, locals, encl := b.handle, b.locals, b.encl
 	b.handle, b.locals = "", nil
 	if o := b.info.Defs[x.Name]; o != nil {
-		if _, sym, ok := b.symbol(o, x.Name, true); ok {
+		if key, sym, ok := b.symbol(o, x.Name, true); ok {
 			b.handle = sym.Handle
+			b.encl = b.id(key, sym)
 		}
 	}
 	syntax.Inspect(x, func(n syntax.Node) bool { return n == x || b.visit(n) })
 	b.nameLocals()
-	b.handle, b.locals = handle, locals
+	b.handle, b.locals, b.encl = handle, locals, encl
 }
 
 func (b *builder) paramList(l *syntax.FieldList) {

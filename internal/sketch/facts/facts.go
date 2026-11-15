@@ -113,7 +113,7 @@ type Symbol struct {
 type Site struct {
 	Sym  uint32 // the symbol's id in the table
 	Off  uint32 // the byte offset of the name in its file
-	Encl uint32 // the enclosing top-level declaration's symbol, or NoSym
+	Encl uint32 // the enclosing declaration's symbol (a top-level one, or a member law), or NoSym
 	File uint16
 	Kind SiteKind
 	Flag uint8

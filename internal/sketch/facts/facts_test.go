@@ -236,6 +236,31 @@ func handlesAgree(tables []*facts.Table, fail func(string, ...any)) {
 		byPath[t.Path] = t
 	}
 	for _, t := range tables {
+		// A local has a handle only when no other local of its declaration
+		// has its name.
+		type declName struct {
+			encl uint32
+			name string
+		}
+		locals := map[declName]int{}
+		enclOf := func(id int) uint32 {
+			for _, s := range t.Refs(uint32(id)) {
+				if s.Kind == facts.Def {
+					return s.Encl
+				}
+			}
+			return facts.NoSym
+		}
+		for id, s := range t.Symbols {
+			if s.Kind == facts.Local {
+				locals[declName{enclOf(id), s.Name}]++
+			}
+		}
+		for id, s := range t.Symbols {
+			if s.Kind == facts.Local && s.Handle != "" && locals[declName{enclOf(id), s.Name}] > 1 {
+				fail("%s: the local %q has a handle, but its declaration binds the name more than once", t.Path, s.Handle)
+			}
+		}
 		seen := map[string]bool{}
 		for id, s := range t.Symbols {
 			if s.Handle == "" {
@@ -864,6 +889,8 @@ func wave() string {
 	for i := range n {
 		fmt.Fprintf(&b, "\nfunc plant%d(n int) int {\n", i)
 		fmt.Fprintf(&b, "\tlet mut rec = %s.NewRec(n)\n", q)
+		// Two locals of one name in one declaration: neither has a handle.
+		fmt.Fprintf(&b, "\tif n > %d {\n\t\tlet v = n\n\t\trec.A = v\n\t} else {\n\t\tlet v = 1\n\t\trec.A = v\n\t}\n", r.IntN(5))
 		var tail []string
 		for _, s := range r.Perm(7) {
 			switch s {
