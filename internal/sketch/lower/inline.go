@@ -182,6 +182,8 @@ type inlineRet struct {
 	gotos           int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
+	// known is the fold whose arms the returns jump to (knownmatch.go).
+	known *knownMatch
 	// resType is the Go type of res, and iface whether it is an interface
 	// (renameTail, forms.go).
 	resType string
@@ -256,6 +258,12 @@ type inlineKey struct {
 
 // inlineRule is inlineWithin's decision for an undecided f.
 func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
+	// A negative budget is the fold's (knownmatch.go): a leaf Go would
+	// inline is inlined here too.
+	fold := budget < 0
+	if fold {
+		budget = -budget
+	}
 	d := f.Decl
 	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil {
 		return false
@@ -286,7 +294,9 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 	}
 	size := inlineSize(d.Body)
 	if size > budget || goLeaf(f) && !l.boxedResult(f) {
-		return false
+		if !fold || size > budget { // a fold's subject is inlined though a leaf
+			return false
+		}
 	}
 	called := map[*syntax.Ident]bool{}
 	ok = true
@@ -486,7 +496,10 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		return false // a result a block with no value binds: struct{}
 	}
 	f := c.Func
-	if !fc.l.inlineBody(f) || !fc.pays(f) {
+	// The subject of a match the fold takes is worth inlining whatever
+	// its size: its returns then reach the arms with no union value
+	// (knownmatch.go), which Go's own inlining of a leaf cannot give.
+	if !(fc.l.inlineBody(f) && fc.pays(f) || fc.pendingKnown != nil && fc.pendingKnown.call == x && fc.l.inlineWithin(f, -inlineBudget)) {
 		return false
 	}
 	fd := fc.l.funcDecl(f)
@@ -657,6 +670,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
 	}
+	fc.knownTake(x, ret, fallible) // knownmatch.go
 	ic.frame = inlineFrame(result, fallible, ret)
 	fc.l.stats.Inlined++
 	// An operand that names a variable no write reaches (not a let mut)
@@ -799,7 +813,7 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if strings.HasSuffix(body, "\t"+jump) && !strings.HasSuffix(body, "\t\t"+jump) {
 		body = strings.TrimSuffix(body, "\t"+jump)
 	}
-	if ret.res != "" && formsOn() {
+	if ret.res != "" && ret.known == nil && formsOn() {
 		if b, ok := renameTail(body, ret.res, ret.resType, ret.iface); ok {
 			body = b
 			fc.l.stats.Renamed++
@@ -857,7 +871,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -911,6 +925,9 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 // site's variables, then the jump past its block.
 func (fc *funcCtx) inlineReturn(vals []string) {
 	in := fc.frame.inline
+	if in.known != nil {
+		in.known.general = true // the union value is written (knownmatch.go)
+	}
 	if in.join != nil && len(vals) > 0 {
 		// A join local (scalar.go): a failure writes only the error,
 		// a value is taken apart into the local. A fallible call's

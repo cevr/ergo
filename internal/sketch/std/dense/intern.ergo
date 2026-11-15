@@ -154,7 +154,7 @@ func InternText(s *Strings, text string) ID[Str] {
 		return found.Value
 	case None:
 	}
-	if len(s.text)+s.pending+len(text) >= int(none) {
+	if len(s.text)+s.pending+len(text) >= int(limit) {
 		Unreachable("dense: a Strings table holds at most 4294967295 bytes")
 	}
 	let id = next[Str](Texts(*s))

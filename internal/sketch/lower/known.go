@@ -123,6 +123,16 @@ type knownStats struct {
 	Specialized int
 	// Providers is the copies for known providers made (provider.go).
 	Providers int
+	// Witnessed is the copies for known witnesses made (witspec.go).
+	Witnessed int
+	// Tabulated is the functions called through a table (tabulate.go).
+	Tabulated int
+	// Folded is the matches whose inlined subject's returns jump to the
+	// arms (knownmatch.go).
+	Folded int
+	// FoldedGeneral is the folded matches that also switch on the tag of
+	// a value a return wrote (knownmatch.go).
+	FoldedGeneral int
 	// Scalars is the locals in the scalar form (scalar.go), Joins those
 	// whose inlined call writes them, and Aliases the parameters of an
 	// inlined call bound to one.

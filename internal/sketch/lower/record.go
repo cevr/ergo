@@ -76,7 +76,10 @@ type specCopy struct {
 	rec   *knownRec
 	// prov is the provider a copy for a known provider is made for
 	// (provider.go); rec is nil then.
-	prov     *knownProv
+	prov *knownProv
+	// wit is the known witness a copy for a known witness is made for
+	// (witspec.go); rec and prov are nil then, and param is -1.
+	wit      *check.Witness
 	typeArgs map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
@@ -234,26 +237,34 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 // specAt is the copy the call x of c goes to, made and queued for emission
 // at its first call; nil when x takes the function itself.
 func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
-	if c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
 		return nil
 	}
 	f := c.Func
 	var rec *knownRec
 	var prov *knownProv
 	k := -1
-	if recordLowering != "opaque" {
+	if recordLowering != "opaque" && c.Recv == nil {
 		k = fc.l.recordParam(f)
 	}
 	if k >= 0 && k < len(x.Args) {
 		rec = fc.knownRecord(x.Args[k])
 	}
+	var wit *check.Witness
 	if rec == nil {
-		k = fc.l.provParam(f)
-		if k < 0 || k >= len(x.Args) {
-			return nil
+		k = -1
+		if c.Recv == nil {
+			k = fc.l.provParam(f)
 		}
-		if prov = fc.knownProvider(x.Args[k]); prov == nil {
-			return nil
+		if k >= 0 && k < len(x.Args) {
+			prov = fc.knownProvider(x.Args[k])
+		}
+		if prov == nil {
+			// A copy for a known witness (witspec.go).
+			k = -1
+			if wit = fc.knownWitness(x, f); wit == nil {
+				return nil
+			}
 		}
 	}
 	fd := fc.l.funcDecl(f)
@@ -261,7 +272,10 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 		return nil
 	}
 	var key specKey
-	if rec != nil {
+	if wit != nil {
+		tn, ptr := witArg(wit.Arg)
+		key = witKey(f, tn, ptr)
+	} else if rec != nil {
 		key = specKey{f: f, tn: rec.tn}
 	} else {
 		key = specKey{f: f, prov: prov.key}
@@ -306,9 +320,11 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, typeArgs: args, bound: bound}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
-	if prov != nil {
+	if wit != nil {
+		fc.l.stats.Witnessed++
+	} else if prov != nil {
 		fc.l.stats.Providers++
 	} else {
 		fc.l.stats.Specialized++

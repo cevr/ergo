@@ -407,9 +407,25 @@ func (fc *funcCtx) loopIdiomHead(s *syntax.RangeStmt, idiom *loopIdiom, lo, hi s
 		fc.line(f + " := " + place + "[" + a + ":" + b + "]")
 		fc.line(f + "[0] = " + fc.assigned(idiom.val))
 		k := fc.temp("k")
+		zero := fillLowering != "copy" && zeroComparable(fc.typeOf(idiom.val), map[check.Type]bool{})
+		if zero {
+			// A value whose Go form is all zero bits when it equals
+			// the type's zero value is a clear, as Go writes the
+			// memclr range loop (cmd/compile, walk/range.go arrayClear).
+			z := fc.temp("zero")
+			fc.line("var " + z + " " + fc.goType(fc.typeOf(idiom.val)))
+			fc.line("if " + f + "[0] == " + z + " {")
+			fc.line("\tclear(" + f + ")")
+			fc.line("} else {")
+			fc.depth++
+		}
 		fc.line("for " + k + " := 1; " + k + " < len(" + f + "); " + k + " *= 2 {")
 		fc.line("\tcopy(" + f + "[" + k + ":], " + f + "[:" + k + "])")
 		fc.line("}")
+		if zero {
+			fc.depth--
+			fc.line("}")
+		}
 		fc.depth--
 	case "move":
 		da, db := at(lo, idiom.dst, idiom.dstNeg), at(hi, idiom.dst, idiom.dstNeg)
@@ -431,4 +447,42 @@ func (fc *funcCtx) loopIdiomHead(s *syntax.RangeStmt, idiom *loopIdiom, lo, hi s
 	fc.l.stats.Loops++
 	fc.line("} else {")
 	fc.depth++
+}
+
+// fillLowering "copy" (a test, or a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.fillLowering=copy)
+// is the reference of the fill idiom: copy doubling alone, with no clear
+// for a zero value (VI1).
+var fillLowering string
+
+// zeroComparable reports a type whose Go form compares with == and is
+// all zero bits exactly when it equals the zero value: a bool, a string,
+// an integer, a Duration, and a record of those. A float is not: -0.0
+// equals 0.0, and a clear would write +0.0.
+func zeroComparable(t check.Type, seen map[check.Type]bool) bool {
+	switch x := t.(type) {
+	case *check.Basic:
+		return x.Kind == check.Bool || x.Kind == check.String || (x.Kind >= check.Int && x.Kind <= check.Uintptr) || x.Kind == check.Duration
+	case *check.Named:
+		if seen[t] {
+			return false // a cycle: no Go form compares
+		}
+		seen[t] = true
+		defer delete(seen, t)
+		switch u := x.Underlying().(type) {
+		case *check.Basic:
+			return zeroComparable(u, seen)
+		case *check.Struct:
+			if len(u.Fields) == 0 {
+				return false
+			}
+			for _, f := range u.Fields {
+				if !zeroComparable(f.Type, seen) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
 }
