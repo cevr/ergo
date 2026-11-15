@@ -51,7 +51,7 @@ func recursiveTestCommand(opts fileOptions) error {
 				return err
 			}
 		}
-		return testLoadedPackage(one, l)
+		return testLoadedPackage(one, l, nil)
 	})
 	if err != nil {
 		return err

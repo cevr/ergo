@@ -9,13 +9,15 @@ decide when a request is answered without doing the work again.
 
 A request that changed nothing since its last answer is answered from the
 store: it parses, checks, lowers, compiles, links and starts nothing
-(compile-speed plan CS2; `internal/sketchfront/warm.go`,
+(compile-speed plan CS2, and CS8 for `ergo test`; `internal/sketchfront/warm.go`,
 `cmd/ergo/warm.go`).
 
-1. **The request key.** A request is its command (`build`, `run` or
-   `check`), the admitted package folder, the options that change its
+1. **The request key.** A request is its command (`build`, `run`, `check`
+   or `test`), the admitted package folder, the options that change its
    answer (target, platform, `--locked`, `--json`, `--seed`,
-   `--eval-steps`, `--eval-bytes`), for a build the toolchain (the go
+   `--eval-steps`, `--eval-bytes`, `--states`, `--law`, `--skip-law`,
+   `--run`), for a test the bytes of the law ledger a full run writes, for
+   a build or a test the toolchain (the go
    command's resolved path, size and modification time, GOROOT, GOOS and
    GOARCH, GOFLAGS, tags, the reference path and the strip setting), the
    compiler's identity, and every `GO*`, `CGO_*` and `ERGO_*` variable but
@@ -27,8 +29,10 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    each folder it listed with a digest of its names and their types, so a
    new file is seen, and each path it looked up with what it found
    (missing, a folder, a file). It holds the answer: the digest of the
-   executable's blob in the direct path's store, or the bytes `check`
-   printed. Only a request that succeeded and printed nothing on stderr
+   executable's blob in the direct path's store, the bytes `check`
+   printed, or a passing test run's output (the test result cache's
+   record, [testing](../testing.md)), which `test` replays with the
+   replay note. A failing run writes none. Only a request that succeeded and printed nothing on stderr
    writes one.
 3. **The warm check.** The next request with the key reads the manifest,
    lists the folders, looks the paths up, and reads and hashes every input
@@ -54,8 +58,9 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    another file system than the cache is a copy, written again on every
    request; that case is outside the warm budget.
 6. **What takes the normal path every time.** A program of one file, `ergo
-   build -work`, `ergo test` (its verdict cache is the test result cache,
-   [testing](../testing.md)), a compiler with a process-scoped identity, a
+   build -work`, `ergo test` with `--count 1`, `--explore`, a schedule
+   search or `--receipt`, `ergo test ./...` (each package then replays
+   the test result cache, [testing](../testing.md)), a compiler with a process-scoped identity, a
    managed Go release not yet installed, and every request with
    `ERGO_BUILD=full`, the reference path, which neither reads nor writes a
    manifest.

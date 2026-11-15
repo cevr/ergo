@@ -220,13 +220,10 @@ func placeWarm(w *warm, opts fileOptions, place func(name, output string) string
 
 // buildAction is the Go build action of opts' command: the release of the
 // go command ERGO_GO selects (goCommand), with ergo's patched compile
-// (patchedCompile), the user's GOFLAGS, linking for opts.platform, always
-// stated, so the go env file's GOOS and GOARCH never choose it. The
-// emitted module is the same for every platform; Go's action cache keys
-// the link on the platform. Every build lowers Ergo bodies through IR
-// (plan-tier §1.1), which only the patched compile reads.
+// (patchedCompile), the user's GOFLAGS, and actionFor's platform and link.
+// Every build lowers Ergo bodies through IR (plan-tier §1.1), which only
+// the patched compile reads.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
-	tc := build.HostToolchain()
 	selected, err := goCommand()
 	if err != nil {
 		return build.Toolchain{}, err
@@ -239,10 +236,25 @@ func buildAction(opts fileOptions) (build.Toolchain, error) {
 	if err != nil {
 		return build.Toolchain{}, err
 	}
+	tc := actionFor(opts, selected)
 	tc.Go, tc.Root = patched.Go, patched.Root
-	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	tc.Pins = build.Pins{Source: pins, Patch: patched.Digest}
 	return tc, nil
+}
+
+// actionFor is the Go build action of opts' command with the go command
+// selected: linking for opts.platform, always stated, so the go env file's
+// GOOS and GOARCH never choose it, and without the symbol table and DWARF
+// (-s -w) unless --debug is given, for build, run and test alike
+// (compile-speed CS7: about half of a link's work; a traceback and a
+// defect report are the same). The emitted module is the same for every
+// platform and either link; the link key holds both (build/direct.go).
+func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
+	tc := build.HostToolchain()
+	tc.Go, tc.Root = selected.Go, selected.Root
+	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Strip = !opts.debug
+	return tc
 }
 
 // pinSource is the pin archive sets of ergo's cache (docs/spec/build.md,

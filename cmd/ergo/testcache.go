@@ -41,8 +41,23 @@ import (
 
 // testResultKey is the cache key of the run of a test binary with args
 // under limit, linked by tc; "" when the run is not cached.
+// testCacheable reports whether a run of opts is cached: not with --count
+// 1, --receipt or --explore.
+func testCacheable(opts fileOptions) bool {
+	return !opts.uncached && opts.receipt == "" && !opts.explore && opts.search.mode == ""
+}
+
+// ledgerPart is the law ledger at path as a key part: a full run writes it,
+// so a hit finds the ledger the stored run left.
+func ledgerPart(path string) string {
+	if data, err := os.ReadFile(path); err == nil {
+		return "ledger " + string(data)
+	}
+	return "no ledger"
+}
+
 func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {
-	if opts.uncached || opts.receipt != "" || opts.explore || opts.search.mode != "" {
+	if !testCacheable(opts) {
 		return ""
 	}
 	goPath, err := exec.LookPath(tc.Go)
@@ -69,11 +84,7 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	write(strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip))
 	// A full run writes the law ledger; a run that finds another ledger
 	// than the stored run left is no hit.
-	if data, err := os.ReadFile(ledger); err == nil {
-		write("ledger " + string(data))
-	} else {
-		write("no ledger")
-	}
+	write(ledgerPart(ledger))
 	write(strconv.FormatUint(limit, 10))
 	write(strconv.Itoa(len(args)))
 	for _, a := range args {
