@@ -162,7 +162,8 @@ func AdoptRift(t Tool, o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Un
 			continue
 		}
 		let name = filepath.Base(c.Path)
-		let w = Workspace{Name: name, Id: idOf(t, name, c.Path), Path: c.Path, Parent: parent, Branch: try t.vcs.Branch(c.Path), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(c.Path), Latest: "", Deps: "", Token: "", Moving: ""}
+		try guarded(t, c.Path)
+		let w = Workspace{Name: name, Id: idOf(t, name, c.Path), Path: c.Path, Parent: parent, Branch: try t.vcs.Branch(c.Path), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(c.Path), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 		try put(t, w)
 		adopted = adopted.Append(w)
 	}

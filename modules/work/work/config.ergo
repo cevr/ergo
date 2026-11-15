@@ -20,6 +20,11 @@ let ConfigFile = "work.toml"
 //     clone, which is the reason to clone). "rift-filtered" in the list is
 //     Rift's default list.
 //   - Copy allows a plain copy where no clone can share blocks.
+//   - Push is who may push from a workspace: "refuse" (the default)
+//     gives every remote of a new or adopted workspace a push URL that
+//     refuses every push, so work goes back only through ready;
+//     "origin" leaves the remotes as the clone has them, for a base
+//     whose owner pushes from workspaces.
 //   - Env is the shell lines env prints for a workspace ({workspace} is
 //     its folder).
 //   - Lock and Install are [deps]: the lock file and the command that
@@ -34,6 +39,7 @@ type Config {
 	Storage   string,
 	LeaveOut  []string,
 	Copy      bool,
+	Push      string,
 	Env       []string,
 	Lock      string,
 	Install   string,
@@ -77,7 +83,7 @@ law ConfigStarterReads() {
 
 // EmptyConfig is the configuration of a base with no work.toml.
 func EmptyConfig() Config {
-	Config{Storage: "", LeaveOut: []string{}, Copy: false, Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Push: "refuse", Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
 }
 
 type fileTable {
@@ -105,6 +111,7 @@ type workTable {
 	Storage  json.Optional[string] "storage",
 	LeaveOut json.Optional[[]string] "leave_out",
 	Copy     json.Optional[bool] "copy",
+	Push     json.Optional[string] "push",
 	Env      json.Optional[[]string] "env",
 }
 
@@ -136,7 +143,16 @@ func ParseConfig(text string) Config fails BadConfig {
 	match f.Work {
 	case json.Present[workTable] as w:
 		let leave = try folders(or(w.Value.LeaveOut))
-		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Env: or(w.Value.Env)}
+		let push = match w.Value.Push {
+		case json.Present[string] as p:
+			p.Value
+		case json.Absent:
+			"refuse"
+		}
+		if push != "refuse" && push != "origin" {
+			return BadConfig{Line: 0, Why: "push is \"refuse\" or \"origin\", not \"\(push)\""}
+		}
+		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Push: push, Env: or(w.Value.Env)}
 	case json.Absent:
 	}
 	match f.Deps {

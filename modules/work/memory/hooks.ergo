@@ -97,12 +97,28 @@ func Runs(h Hooks) []HookRun { h.runs.Get() }
 
 // Runner is an exec.Runner that ends every command with status 0 and
 // counts the commands it ran.
-type Runner { ran sync.Ref[[]string] } implements exec.Runner
+// It answers work's in-use probe (work.UseScript) of a folder with the
+// reason Use gave it, none by default, and does not count the probe.
+type Runner { ran sync.Ref[[]string], uses sync.Ref[Map[string, string]] } implements exec.Runner
 
 // NewRunner is a Runner that ran nothing.
-func NewRunner() Runner { Runner{ran: sync.NewRef([]string{})} }
+func NewRunner() Runner { Runner{ran: sync.NewRef([]string{}), uses: sync.NewRef(Map[string, string]{})} }
+
+// Use makes the probe of the folder root answer why (in use for
+// any window; "" for not in use).
+func Use(r Runner, root string, why string) {
+	let mut uses = Map[string, string]{}
+	for k, v in r.uses.Get() {
+		uses[k] = v
+	}
+	uses[root] = why
+	r.uses.Set(uses)
+}
 
 func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if c.Name == "sh" && len(c.Args) >= 4 && c.Args[2] == work.UseProbe {
+		return exec.Result{Status: 0, Stdout: maps.GetOr(r.uses.Get(), c.Args[3], ""), Stderr: ""}
+	}
 	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }

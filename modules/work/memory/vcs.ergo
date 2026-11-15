@@ -137,7 +137,7 @@ func Start(v Vcs, root string, branch string, commit string) fails work.VcsFaile
 	let files = try checkout(v, root)
 	if files.Get(".git/HEAD") == (Some[string]{Value: commit}) {
 		// At the head: two ref writes, the index as it is.
-		let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit) && Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
+		let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit)
 		return
 	}
 	let target = try treeOf(v, root, commit)
@@ -157,7 +157,99 @@ func Start(v Vcs, root string, branch string, commit string) fails work.VcsFaile
 		next = target
 	}
 	try checkOut(v, root, next, target)
-	let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit) && Write(v.trees, root, ".git/HEAD", commit) && Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
+	let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit) && Write(v.trees, root, ".git/HEAD", commit)
+}
+
+// GuardPushes writes the push URL Guard of the one remote a memory checkout
+// has, origin.
+func GuardPushes(v Vcs, root string) fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	let _ = Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
+}
+
+// Locals is each .git/refs/heads/ file and each .git/refs/stash/N file
+// of the checkout (Stash writes them), in path order.
+func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
+	let files = try checkout(v, root)
+	let mut out = []work.Local{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		if strings.HasPrefix(path, ".git/refs/heads/") || strings.HasPrefix(path, ".git/refs/stash/") {
+			out = out.Append(work.Local{Ref: strings.TrimPrefix(path, ".git/"), Commit: maps.GetOr(files, path, "")})
+		}
+	}
+	out
+}
+
+func Tracked(v Vcs, root string, path string) bool fails work.VcsFailed {
+	(try checkout(v, root)).Get(".git/index/" + path) != None
+}
+
+// Exclude adds the line to .git/info/exclude, once.
+func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
+	let have = maps.GetOr(try checkout(v, root), ".git/info/exclude", "")
+	if !slices.Contains(strings.Split(have, "\n"), pattern) {
+		let _ = Write(v.trees, root, ".git/info/exclude", have+pattern+"\n")
+	}
+}
+
+func Remote(v Vcs, root string, commit string) bool fails work.VcsFailed {
+	let s = v.store.Get()
+	for path, value in try checkout(v, root) {
+		if strings.HasPrefix(path, ".git/refs/remotes/") && reaches(s, value, commit) {
+			return true
+		}
+	}
+	false
+}
+
+// Stash commits the checkout's working files as a stash entry on top of
+// HEAD (refs/stash/N, N the entries before it) and puts the files back as HEAD has
+// them, as git stash does; false when the checkout is not there.
+func Stash(v Vcs, root string) bool {
+	let files = checkout(v, root) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let head = maps.GetOr(files, ".git/HEAD", "")
+	let tree = stored(v, Working(files))
+	let commit = committed(v, "s", Node{Tree: tree, Parents: []string{head}})
+	let mut n = 0
+	for path in maps.Keys(files) {
+		if strings.HasPrefix(path, ".git/refs/stash/") {
+			n = n + 1
+		}
+	}
+	let back = treeOf(v, root, head) catch {
+	case work.VcsFailed:
+		return false
+	}
+	checkOut(v, root, back, back) catch {
+	case work.VcsFailed:
+		return false
+	}
+	Write(v.trees, root, ".git/refs/stash/\(n)", commit)
+}
+
+// SideCommit commits HEAD's files with path set to text, on top of HEAD,
+// as the branch named branch, and leaves the checkout as it is; it is
+// the commit, "" when the checkout is not there.
+func SideCommit(v Vcs, root string, branch string, path string, text string) string {
+	let files = checkout(v, root) catch {
+	case work.VcsFailed:
+		return ""
+	}
+	let head = maps.GetOr(files, ".git/HEAD", "")
+	let was = treeOf(v, root, head) catch {
+	case work.VcsFailed:
+		return ""
+	}
+	let mut tree = Map[string, string]{}
+	for p, t in was {
+		tree[p] = t
+	}
+	tree[path] = text
+	let commit = committed(v, "b", Node{Tree: stored(v, tree), Parents: []string{head}})
+	if Write(v.trees, root, ".git/refs/heads/"+branch, commit) { commit } else { "" }
 }
 
 func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {
@@ -165,7 +257,7 @@ func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotF
 	let s = v.store.Get()
 	let mut writes = Map[string, string]{}
 	for p in refs {
-		let value = try Ref(v, root, p.From)
+		let value = if s.commits.Get(p.From) != None { p.From } else { try Ref(v, root, p.From) }
 		if value == "" {
 			return work.VcsFailed{Reason: "\(root): no ref \(p.From)"}
 		}

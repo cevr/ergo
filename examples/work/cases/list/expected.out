@@ -1,1 +1,1 @@
-[{"name":"a","id":"","path":".work/base/a","parent":"base","branch":"main","cloner":"reflink","state":{"_tag":"Active"},"since":901,"base":"","latest":"","deps":"","token":"","moving":""}]
+[{"name":"a","id":"","path":".work/base/a","parent":"base","branch":"main","cloner":"reflink","state":{"_tag":"Active"},"since":901,"base":"","latest":"","deps":"","token":"","moving":"","pinned":false,"until":0}]

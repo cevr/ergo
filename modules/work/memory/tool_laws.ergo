@@ -221,7 +221,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: ""}) catch {
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
 				case work.Unkept:
 				}
 				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
@@ -296,8 +296,9 @@ law UseKeepsAWorkspace(sync bool) {
 // work its parent does not hold (b, made on a, with a file of its own)
 // and its parent after it, and the base, not the parent that goes too,
 // keeps b's work at ArchiveRef: the ref resolves there, and its tree is
-// b's files as they were. Without -archive both stay.
-law ArchiveKeepsTheWork(text string, archive bool) {
+// b's files as they were; a branch only b had (side) and a stash entry of
+// b's are kept beside it, each at its commit. Without -archive both stay.
+law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	let w = world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
@@ -307,6 +308,11 @@ law ArchiveKeepsTheWork(text string, archive bool) {
 	case _:
 		return false
 	}
+	let sideCommit = if side { SideCommit(w.vcs, b.Path, "side", "side.txt", text) } else { "" }
+	if stash && !(Write(w.trees, b.Path, "stashed.txt", text) && Stash(w.vcs, b.Path)) {
+		return false
+	}
+	let stashCommit = if stash { maps.GetOr(Files(w.trees, b.Path), ".git/refs/stash/0", "") } else { "" }
 	let _ = Write(w.trees, b.Path, "draft.txt", text)
 	let files = Working(Files(w.trees, b.Path))
 	w.clock.Advance(time.Times(1s, 7200))
@@ -327,7 +333,118 @@ law ArchiveKeepsTheWork(text string, archive bool) {
 	case _:
 		return false
 	}
-	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files
+	let prefix = work.ArchivePrefix("b", b.Id)
+	let keeps = func(to string, c string) bool {
+		c == "" || (w.vcs.Resolve(theBase, to) catch {
+		case _:
+			""
+		}) == c
+	}
+	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files && keeps(prefix+"/heads/side", sideCommit) && keeps(prefix+"/stash/0", stashCommit)
+}
+
+// RmKeepsEveryBranch: rm of a clean workspace whose head its parent
+// holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
+// entry (kind 1) would go with it; a branch a remote-tracking ref holds
+// is on the remote already (kind 2), and the workspace goes.
+law RmKeepsEveryBranch(kind int, text string) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let k = small(kind, 3)
+	if k == 1 {
+		if !(Write(w.trees, a.Path, "stashed.txt", text) && Stash(w.vcs, a.Path)) {
+			return false
+		}
+	} else {
+		let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+		if c == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", c)) {
+			return false
+		}
+	}
+	let mut refused = false
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+	case work.NotHeld:
+		refused = true
+		[]work.Removed{}
+	case _:
+		return false
+	}
+	refused == (k != 2)
+}
+
+// PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports
+// it Pinned) and takes it again once unpinned; another idle one goes.
+law PinKeepsAWorkspace(unpin bool) {
+	let w = world(true)
+	for name in []string{"a", "b"} {
+		let _ = w.tool.New(name, fresh(false)) catch {
+		case _:
+			return false
+		}
+	}
+	let pinned = w.tool.Pin("a") catch {
+	case _:
+		return false
+	}
+	if unpin {
+		let _ = w.tool.Unpin("a") catch {
+		case _:
+			return false
+		}
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let a = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == "a" && i.Removed == unpin && (unpin || i.Why == "Pinned") }) >= 0
+	let b = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == "b" && i.Removed }) >= 0
+	pinned.Pinned && a && b
+}
+
+// InUseKeepsAWorkspace: gc -idle does not take a workspace the host says
+// is in use (a file changed in the window, a process in it), and reports
+// why; one it says nothing of goes.
+law InUseKeepsAWorkspace(why string) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	w.runner.Use(a.Path, why)
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let used = strings.TrimSpace(why)
+	len(out.Idle) == 1 && out.Idle[0].Removed == (used == "") && (used == "" || (out.Idle[0].Why == "InUse" && out.Idle[0].Detail == used))
+}
+
+// IdleTrashWaitsADay: the trash of a workspace gc -idle removed is not
+// purged by that gc nor by any gc within IdleTrash seconds; after them,
+// gc purges it.
+law IdleTrashWaitsADay(wait int) {
+	let w = world(true)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let s = small(wait, 2*work.IdleTrash)
+	w.clock.Advance(time.Times(1s, s))
+	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	len(first.Idle) == 1 && first.Idle[0].Removed && len(first.Purged) == 0 && (len(later.Purged) == 1) == (s >= work.IdleTrash)
 }
 
 // StackRecordsItsParent: a workspace made -on another records that
@@ -503,4 +620,14 @@ func replaced(want []Expected, e Expected) []Expected {
 		}
 	}
 	out
+}
+
+// InitExcludesAnUntrackedConfig: init keeps a work.toml the base does
+// not track out of its status (and so of every clone's) by the base's
+// own .git/info/exclude; a committed one it leaves to Git.
+law InitExcludesAnUntrackedConfig(committed bool) {
+	let tree = if committed { Map[string, string]{work.ConfigFile: "[work]\n"} } else { Map[string, string]{} }
+	let w = worldWith(true, tree, "", "")
+	let exclude = maps.GetOr(Files(w.trees, theBase), ".git/info/exclude", "")
+	strings.Contains(exclude, "/"+work.ConfigFile+"\n") != committed
 }
