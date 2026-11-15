@@ -36,7 +36,7 @@
       "origin": "wf10/dod/NS6",
       "file": "examples/cells/host/host.ergo",
       "from": "\tlet at = Span(b)\n",
-      "to": "\tlet at = Rect{C: floor(b.X/CellW), R: floor(b.Y/CellH), W: cellOf(b.X+b.W, CellW) - floor(b.X/CellW), H: cellOf(b.Y+b.H, CellH) - floor(b.Y/CellH)}\n",
+      "to": "\tlet at = Rect{C: floor(b.X / CellW), R: floor(b.Y / CellH), W: cellOf(b.X+b.W, CellW) - floor(b.X/CellW), H: cellOf(b.Y+b.H, CellH) - floor(b.Y/CellH)}\n",
       "rule": "HitMatchesDraw (NS6 item 2's mutant): drawing rounds a box down while hit testing rounds to the nearest grid line; the cell a control is drawn in no longer hits it.",
       "anchor": {"tests": ["examples:cells"]},
       "killers": ["examples:cells"]
