@@ -1217,10 +1217,12 @@ func (fc *funcCtx) failAround(o operand, direct bool) string {
 	return past
 }
 
-// failPast writes the label after a handler (failAround).
+// failPast writes the label after a handler (failAround), on an empty
+// statement: the handler may end a switch case, where the next token is
+// a case, and Go labels only a statement.
 func (fc *funcCtx) failPast(past string) {
 	if past != "" {
-		fc.line(past + ":")
+		fc.line(past + ": ;")
 	}
 }
 
