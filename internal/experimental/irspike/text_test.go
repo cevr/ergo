@@ -1,13 +1,11 @@
 package irspike
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,8 +21,8 @@ import (
 //   - the printed module builds with the derivative without -ergoir, so
 //     Go's own parser and types2 check the IR bodies, independently of the
 //     IR decoder's checks;
-//   - go vet finds nothing in the IR bodies (the source emitter's bodies
-//     of the same module are not this test's);
+//   - go vet finds nothing in the printed module (the IR bodies and the
+//     source emitter's bodies around them);
 //   - each IR function's structure as compiled from the text
 //     (-ergoirshape) equals its structure as compiled from the IR: the
 //     text is what was compiled, not only Go that checks (mutant
@@ -57,98 +55,86 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 	if err != nil {
 		t.Fatalf("%s: %v", target.key(), err)
 	}
-	what := target.key()
-	funcs := 0
-	check := func() {
-		if len(rep.IR) == 0 {
-			t.Logf("%s has no IR bodies", what)
-			return
-		}
-		replay := fmt.Sprintf("replay: go test -run '%s' ./internal/experimental/irspike", t.Name())
-		work := t.TempDir()
-		text := filepath.Join(work, "text")
-		irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
-		if err := goText(files, ir, filepath.Join(work, "ir.bin"), text, irShape, nil); err != nil {
-			t.Errorf("%s: %v\n%s", what, err, replay)
-			return
-		}
-		if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
-			t.Errorf("%s: the printed Go text does not build: %v\n%s", what, err, replay)
-			return
-		}
-		vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
-		vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
-		var out strings.Builder
-		vet.Stdout, vet.Stderr = &out, &out
-		if _, err := Measure(vet); err != nil {
-			// Vet reports the source emitter's bodies too; a finding is
-			// the IR's when it lies in an IR body's .ergo lines.
-			if found, ok := irVetFindings(t, files, out.String()); !ok || len(found) > 0 {
-				t.Errorf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, strings.Join(found, "\n"), replay)
-				if !ok {
-					t.Log(out.String())
-				}
-				return
+	textCheck(t, src, ir, target.key(), files, rep)
+}
+
+// TestIRTextRepros runs the text checks on the smallest repros of fixed
+// bugs, each with the function it needs an IR body of:
+//   - duplocals (TXT r1): two try temporaries of one scope were both
+//     named v and err, so the text did not compile, or := reused the
+//     first variable (mutant ir-temp-name-reused);
+//   - shadow (IRG3b): a source local kept its Ergo spelling, so a local
+//     named strconv shadowed the package its int's text calls (mutant
+//     ir-local-raw-spelling);
+//   - pollend (IRG3b): a loop body ending in a return or a break was
+//     followed by its back-edge poll, unreachable code to go vet
+//     (mutant ir-loop-poll-after-terminating-body).
+//
+// It builds Go for the reason TestIRTextChecks does.
+func TestIRTextRepros(t *testing.T) {
+	src, ir := needsBuild(t)
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}} {
+		t.Run(r.name, func(t *testing.T) {
+			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
-		for _, fn := range rep.IR {
-			a, ok := compiled[fn]
-			if !ok {
-				t.Errorf("%s: %s: the IR build wrote no structure for it\n%s", what, fn, replay)
-				continue
+			files, rep, err := lower.LowerIRTests(u)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if b := printed[fn]; a != b {
-				t.Errorf("%s: %s: the printed text is not what was compiled\n%s\n%s", what, fn, firstDifference(a, b), replay)
-				continue
+			if !slices.Contains(rep.IR, r.fn) {
+				t.Fatalf("%s: %s has no IR body: %v", r.name, r.fn, rep.Fallback)
 			}
-			funcs++
-		}
-	}
-	check()
-	if funcs != len(rep.IR) {
-		t.Fatalf("%s: checked %d of %d IR functions", what, funcs, len(rep.IR))
-	}
-	if funcs > 0 {
-		t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
+			textCheck(t, src, ir, r.name, files, rep)
+		})
 	}
 }
 
-// irVetFindings are the lines of vet's output at positions inside an IR
-// body (its .ergo file, from its first to its last line); ok is false when
-// vet failed with no finding at an .ergo position at all.
-func irVetFindings(t *testing.T, files []lower.File, out string) (found []string, ok bool) {
+// textCheck checks the Go text of the IR bodies of one lowered module
+// (what names it): it builds, vets and compiles to what was compiled,
+// for every IR function of rep.
+func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File, rep lower.IRReport) {
 	t.Helper()
-	var ir struct {
-		Files []string `json:"files"`
-		Funcs []struct {
-			Pos [3]int `json:"pos"`
-			End [3]int `json:"end"`
-		} `json:"funcs"`
+	if len(rep.IR) == 0 {
+		t.Logf("%s has no IR bodies", what)
+		return
 	}
-	for _, f := range files {
-		if f.Path == lower.IRFileName {
-			if err := json.Unmarshal(f.Data, &ir); err != nil {
-				t.Fatal(err)
-			}
-		}
+	replay := fmt.Sprintf("replay: go test -run '%s' ./internal/experimental/irspike", t.Name())
+	work := t.TempDir()
+	text := filepath.Join(work, "text")
+	irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
+	if err := goText(files, ir, filepath.Join(work, "ir.bin"), text, irShape, nil); err != nil {
+		t.Fatalf("%s: %v\n%s", what, err, replay)
 	}
-	at := regexp.MustCompile(`^(.+\.ergo):(\d+):\d+: `)
-	for _, l := range strings.Split(out, "\n") {
-		m := at.FindStringSubmatch(l)
-		if m == nil {
+	if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
+		t.Fatalf("%s: the printed Go text does not build: %v\n%s", what, err, replay)
+	}
+	vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
+	vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
+	var out strings.Builder
+	vet.Stdout, vet.Stderr = &out, &out
+	if _, err := Measure(vet); err != nil {
+		t.Fatalf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, out.String(), replay)
+	}
+	compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
+	funcs := 0
+	for _, fn := range rep.IR {
+		a, ok := compiled[fn]
+		if !ok {
+			t.Errorf("%s: %s: the IR build wrote no structure for it\n%s", what, fn, replay)
 			continue
 		}
-		ok = true
-		line, _ := strconv.Atoi(m[2])
-		for _, fn := range ir.Funcs {
-			if fn.Pos[0] >= 0 && fn.Pos[0] < len(ir.Files) && ir.Files[fn.Pos[0]] == m[1] && fn.Pos[1] <= line && line <= fn.End[1] {
-				found = append(found, l)
-				break
-			}
+		if b := printed[fn]; a != b {
+			t.Errorf("%s: %s: the printed text is not what was compiled\n%s\n%s", what, fn, firstDifference(a, b), replay)
+			continue
 		}
+		funcs++
 	}
-	return found, ok
+	if funcs != len(rep.IR) {
+		t.Fatalf("%s: checked %d of %d IR functions", what, funcs, len(rep.IR))
+	}
+	t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
 }
 
 // readShapes reads an -ergoirshape file: function name -> its structure.
