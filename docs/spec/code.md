@@ -1,6 +1,6 @@
 # Code: questions about a workspace's code
 
-Status: **partly implemented**: the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a). `Calls`, `Reach`, `Machine` and `Api` (SEM2), the server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17), rename (SEM5), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).
+Status: **partly implemented**: the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a); `Rename` with the proof `Alpha` and the refusals `NameTaken`, `OutsideWorkspace` and `Capture`, over `Model` (SEM5's core). `Calls`, `Reach`, `Machine` and `Api` (SEM2), the server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17; with them rename covers parameters, locals, variants, laws and tests), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).
 
 Std package `code` answers questions about code from the **fact tables** the checker's result gives for each package ([GLOSSARY](../../GLOSSARY.md), Fact table). No tool walks typed trees to answer a name question, and none reads source text with a regular expression.
 
@@ -39,7 +39,7 @@ A change is a plan first. `Planner.Plan` computes a change's edits, checks the r
 
 ```
 type Planner {
-	Plan(c Change) Planned fails BadChange,
+	Plan(c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture,
 	PlanOf(id string) Planned fails NoPlan,
 	law PlanIsDeterministic(pick int, word int) { … },
 	law PlanOfIsThePlan(pick int, word int) { … },
@@ -53,6 +53,7 @@ type Writer {
 
 type Change = Replace{Of string, Text string} | Insert{After string, Text string}
 	| Delete{Of string} | Fixes{Rules []string} | Script{Steps []Change}
+	| Rename{Of string, To string}
 type Proof = Alpha{} | SameCode{} | Checked{}
 type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
 ```
@@ -62,7 +63,7 @@ type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
 3. **Formatting.** Only the text a change writes is formatted, so a declaration the change does not touch keeps its bytes (law `UntouchedKeepsBytes`). A file that was canonical stays canonical (`CanonicalStaysCanonical`).
 4. **The overlay check.** The changed sources are checked as an overlay through the `Checker` seam.
    - When the overlay has a diagnostic the base does not have (counted by code and message), the plan is `Blocked` by those diagnostics (`OverlayDiagnosticBlocks`), and `Apply` refuses it with `NotReady`.
-   - Otherwise the plan is `Ready`. Its proof is `SameCode` when the base checks and the lowered program is unchanged (`ReformatIsSameCode`). It is `Checked` when the code changed, or when the base did not check: in that case no proof is claimed. `Alpha` belongs to rename (SEM5).
+   - Otherwise the plan is `Ready`. Its proof is `SameCode` when the base checks and the lowered program is unchanged (`ReformatIsSameCode`). It is `Checked` when the code changed, or when the base did not check: in that case no proof is claimed. `Alpha` is a rename's proof ([Rename](#rename)).
 5. **The plan.** A plan holds:
    - its id: a digest of the change and of the revisions it read; the same change at the same revisions gives the same id (`PlanIsDeterministic`);
    - every file it read, with that file's revision;
@@ -89,6 +90,30 @@ type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
 9. **Out of scope** (as in the model): two outside writes to one file inside one apply; a writer that keeps the old file open and writes through it later; power loss.
 
 *Prior art:* gopls's `go_rename_symbol` returns edits and writes nothing; go fix merges fixes against one baseline and drops the ones that conflict; LSP's `WorkspaceEdit` names the document versions it was computed from; Roslyn's FixAll may merge incorrectly. Here a plan names its revisions, refuses overlaps, and checks its overlay before anything is written, so a semantic conflict is a refused plan rather than a broken tree.
+
+## Rename
+
+`Rename{Of, To}` is a `Change`: the declaration at `Of`, and every site that names it, takes the name `To`. It is planned like any change, and its proof is `Alpha`. (SEMTOOLS SEM5's core, on the `Model` checker; the product checker's rows are SEM4b's.)
+
+```
+Plan(c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture
+
+type NameTaken { Handle string, To string, By string }
+type OutsideWorkspace { Handle string }
+type Capture { Handle string, To string, Rows []string }
+```
+
+1. **The family.** An operation is renamed with the function of every type that provides its operation type, as the `Provides` edges of the check (`Report.Binds`) bind them. Renaming such a function renames its operation and the other providers' functions too.
+2. **Refusals.**
+   - `To` that is not a name is `BadChange`.
+   - A family member outside the workspace (std or a dependency: `Report.Workspace` names the workspace's packages), or a site of one there, is `OutsideWorkspace`.
+   - A name that a family member's scope declares already (its package, or its type for a field, an operation or a method) is `NameTaken`, with the declaration that has it.
+3. **Edits.** Each site that the tables give is edited, and only the name's bytes are replaced: a qualifier or an import alias before the name keeps its bytes, and so does a comment that mentions the old name. A field's rename edits the keys of record literals too, since they are sites of the field.
+4. **The proof.** The edited sources are checked again. Their tables must equal the tables before, under the name map: each old handle becomes its new one, and so does every handle under it (a type's members), and a column moves by the length change of each edit before it on its line. When a row differs, a use now resolves to another declaration (a local that shadows the new name), or a word now names the symbol. The plan is then refused with `Capture`, which lists the differing rows. Otherwise the plan is `Ready{Alpha}`, unless the result has a diagnostic the base did not have (counted by code), in which case it is `Blocked`.
+5. **The law.** `RenameIsAlpha` compares each plan with a reference. `Program(seed)` draws a workspace as a tree: a dependency with an operation type, two packages with operation types and the types that provide them, fields read in bodies and set in record literals, an import alias, locals, words that name nothing, and comments that mention symbols. The reference renames inside that tree and renders it again. For every symbol and every drawn name, the plan's outcome must be the reference's: bad, outside, taken, capture, or `Ready{Alpha}` with the reference's bytes. The plan's five named mutants are each killed by this law: a field key left unrenamed, an operation renamed without its providers, a capture accepted, an import alias rewritten, a comment changed. So is a sixth: no `NameTaken`.
+6. **Gaps.** Parameters, locals, variants, laws and tests are not renamed yet, because `Model` has no rows for them. The product checker's rows bring them with SEM4b. A rename to the old name and back gives the first bytes: that follows from `RenameIsAlpha`'s byte comparison, so it has no law of its own (AGENTS.md, Tests).
+
+*Prior art:* Gleam's language server renames from the references its compiler recorded and refuses a name that is taken; gopls's rename checks for shadowing and conflicts before it returns edits (`renameCheck`); rust-analyzer refuses some renames that would change name resolution [recalled, not re-read]. Here, rather than a rule for each case, the check of the result is compared with the tables, so any capture is found by one comparison.
 
 ## ergo code
 

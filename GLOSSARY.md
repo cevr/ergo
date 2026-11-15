@@ -481,6 +481,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Proof class**: What a plan claims about behaviour: `Alpha` (a rename: the fact tables after equal those before under the name map), `SameCode` (the lowered program is equal), `Law` (a rewrite that is a law, with its last run), or `Checked` (the result checks; nothing is claimed about behaviour).
 
+**Name capture**: A rename whose result resolves differently: a use of the renamed declaration now resolves to another one (a local that shadows the new name), or a word now names the renamed declaration. It shows as a fact-table row that differs from the tables before under the name map, and the plan is refused `Capture` ([code](docs/spec/code.md#rename)). Not a pattern's named capture.
+
 **Pattern**: Code to find, written as an Ergo function and checked by the ordinary checker. Its body is the code; a name in it matches a use of the same symbol, whatever the qualifier at the site.
 
 **Hole**: A parameter of a pattern. It matches an expression of its type; used twice, it matches equal code both times.
