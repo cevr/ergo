@@ -37,7 +37,7 @@
       "name": "fk10-any-path-is-the-table", "origin": "wf10/fk10a",
       "file": "examples/fk-table/query/query.ergo",
       "from": "\tif at != \"/\" && at != \"\" {\n",
-      "to": "\tif false {\n",
+      "to": "\tif at != at {\n",
       "rule": "Only the root is the table (law OnlyTheRootIsTheTable).",
       "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
     },
@@ -119,6 +119,86 @@
       "from": "Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
       "to": "Emit[query.Route, Replace]{Next: query.Browse{Query: query.Query{..q, Search: s.Text}}, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
       "rule": "A control changes nothing itself; the address does (law UrlIsAFunctionOfTheControls).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-open-at-first", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/listbox/listbox.ergo",
+      "from": "Stay[Box]{Next: Box{..b, Open: true, Active: within(b, p.Selected)}}",
+      "to": "Stay[Box]{Next: Box{..b, Open: true, Active: within(b, p.Selected*0)}}",
+      "rule": "An opening list makes the selected item active (case scenes: the diet list opened again on Herbivore).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-pick-keeps-open", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/listbox/listbox.ergo",
+      "from": "Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Selected{Index: p.Index}, Focus}}",
+      "to": "Emit[Box, []Effect]{Next: Box{..b, Open: true}, Output: []Effect{Selected{Index: p.Index}, Focus}}",
+      "rule": "A pick shuts the list (law OnlyAPickSelects; law AListChoiceIsTheTableChoice; cases).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-escape-selects", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/listbox/listbox.ergo",
+      "from": "Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Focus}}",
+      "to": "Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Selected{Index: b.Active}, Focus}}",
+      "rule": "Escape shuts the list with no choice (law OnlyAPickSelects; case scenes: Escape after Home).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-active-past-the-end", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/listbox/listbox.ergo",
+      "from": "\tif i >= b.Count {\n\t\treturn b.Count - 1\n",
+      "to": "\tif i > b.Count {\n\t\treturn b.Count - 1\n",
+      "rule": "The active item stays in the list (law ActiveStaysInTheList).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-no-focus-back", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/explorer/explorer.ergo",
+      "from": "\t\t\t\tout = out.Append(Focus{Filter: l.Filter})\n",
+      "to": "\t\t\t\tout = out.Append(Focus{Filter: DietFilter})\n",
+      "rule": "The focus goes back to the button of the list chosen in (law AListChoiceIsTheTableChoice; cases: focus Period).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-period-off-by-one", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/explorer/explorer.ergo",
+      "from": "table.ChosePeriod{Period: PeriodAt(s.Index)}",
+      "to": "table.ChosePeriod{Period: PeriodAt(s.Index + 1)}",
+      "rule": "A period list's item is the period it names (law AListChoiceIsTheTableChoice; cases).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-arrow-up-goes-down", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/screen/screen.ergo",
+      "from": "Some{Value: listbox.Moved{By: -1}}",
+      "to": "Some{Value: listbox.Moved{By: 1}}",
+      "rule": "ArrowUp moves the active item up (case scenes: key ArrowUp from Omnivore).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-header-says-descending", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/screen/screen.ergo",
+      "from": "\"Sort by \\(name), currently ascending\"",
+      "to": "\"Sort by \\(name), currently descending\"",
+      "rule": "A header's name says its sorting, as upstream's aria-label (cases: sorting Length ascending).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-kilograms-grouped-by-four", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/screen/screen.ergo",
+      "from": "if i > 0 && (len(s)-i)%3 == 0 {",
+      "to": "if i > 0 && (len(s)-i)%4 == 0 {",
+      "rule": "A weight groups its thousands, as toLocaleString (cases: 1,300 kg).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10b-rows-share-a-key", "origin": "wf10/fk10b",
+      "file": "examples/fk-table/screen/screen.ergo",
+      "from": "ui.Same(f, ui.ByText(d.Name)) {",
+      "to": "ui.Same(f, ui.ByText(\"\")) {",
+      "rule": "A row is kept only while its dinosaur is the same: one key for every row keeps stale rows (cases).",
       "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
     }
   ]
