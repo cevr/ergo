@@ -42,6 +42,11 @@ type Mutant struct {
 	// Anchor is set for an edit that has no coverage block of its own (a
 	// string literal: an emitted Go template, a rule-text constant).
 	Anchor *Anchor `json:"anchor,omitempty"`
+	// Refused, when set, says why the formatter's or the compiler's
+	// refusal of the mutated source is the rule the mutant breaks (a
+	// diagnostic mutant). Without it, a source the formatter would rewrite
+	// or the compiler refuses is invalid, never killed (Config.Sources).
+	Refused string `json:"refused,omitempty"`
 }
 
 // Anchor names the code that uses a mutated literal: the lines of Text (a
