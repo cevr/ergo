@@ -196,6 +196,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Go import**: `import go path`, which imports a Go package through its binding (an Ergo file of `extern go` declarations that `ergo bind go` generates; Go's standard library is embedded). The name it binds is the Go package name (`import go math/rand/v2` binds `rand`). A call into a package of the reviewed pure list charges nothing; any other Go call charges the predeclared `go.Foreign` capability, which only the entry provides. A Go pointer that is stored or returned is a `go.Ref[T]`; Ergo's `*T` stays a borrow.
 
+**Foreign fact**: A statement about what a Go function does with an operand that may change the code at its calls, such as `reads p`: the function only reads `p`. A fact is checked when the pinned Go toolchain derives it (escape analysis, read by `ergo bind go` into the binding's `// ergo:reads` line) and vouched when a reviewed row asserts it. A law can guard a fact; it never licenses one. See [interop](docs/spec/interop.md#foreign-facts).
+
+**Vouched**: The level of a foreign fact that a reviewed row asserts because Go's analysis cannot see it (an assembly body, a function variable, C). A vouched fact with a passing guard law is validated; without one it is assumed. Contrast a checked fact, which the toolchain derives.
+
 ## Constructs, contracts and laws
 
 **Dense id**: A std `dense.ID[K]`, the id of a row of a store of `K`: one `uint32`, four bytes and no pointer, made only by the store's `Put` or `Next`, so it is never forged and never of another row type. `dense.Opt[K]` is a dense id or none in the same four bytes. See [stdlib](docs/spec/stdlib.md#dense-stores).

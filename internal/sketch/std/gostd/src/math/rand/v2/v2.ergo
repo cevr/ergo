@@ -20,6 +20,7 @@ extern go math/rand/v2.ChaCha8.Seed func (c own *ChaCha8) Seed(seed [32]byte) ne
 extern go math/rand/v2.ChaCha8.Uint64 func (c own *ChaCha8) Uint64() uint64 needs go.Foreign
 
 // ergo:go func (*ChaCha8).UnmarshalBinary(data []byte) error
+// ergo:reads data
 extern go math/rand/v2.ChaCha8.UnmarshalBinary func (c own *ChaCha8) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func ExpFloat64() float64
@@ -83,6 +84,7 @@ extern go math/rand/v2.PCG.Seed func (p own *PCG) Seed(seed1 uint64, seed2 uint6
 extern go math/rand/v2.PCG.Uint64 func (p own *PCG) Uint64() uint64 needs go.Foreign
 
 // ergo:go func (*PCG).UnmarshalBinary(data []byte) error
+// ergo:reads data
 extern go math/rand/v2.PCG.UnmarshalBinary func (p own *PCG) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func Perm(n int) []int

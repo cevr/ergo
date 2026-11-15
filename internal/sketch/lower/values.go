@@ -378,6 +378,7 @@ type valueWalk struct {
 	done     bool                      // decide has run
 	args     []syntax.Expr             // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
+	goOps    map[syntax.Expr]goOperand // each goArgs operand's call (gofacts.go)
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool  // their literals
 	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
@@ -476,9 +477,10 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
 			}
-			for _, a := range list {
+			for i, a := range list {
 				if goShared(w.typeOf(a)) {
 					w.goArgs = append(w.goArgs, a)
+					w.goOperand(a, n, c, i)
 				}
 			}
 		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
@@ -961,11 +963,13 @@ func (w *valueWalk) decide() {
 		// both lowerings: a copy here would lose the write, not keep a
 		// value.
 		if inner := unparen(a); w.goHeld(inner) {
+			w.goOperandReport(a, "shared", "Go's own Map or slice, a Go call's result or a Go struct's field, goes back to Go as Go holds it")
 			vf.goShare[inner] = true
 			continue
 		}
 		// So is a let that holds one and that only Go calls use (H5).
 		if id, ok := unparen(a).(*syntax.Ident); ok {
+			w.goOnlyReport(a, id, goOnly)
 			if v, ok := w.info.Uses[id].(*check.Var); ok && goOnly[w.vars[v]] {
 				continue
 			}
@@ -975,10 +979,17 @@ func (w *valueWalk) decide() {
 			// Two Maps may share an entry, which Go may write (V8): Go
 			// is given a deep copy, fresh or not.
 			vf.clone[a], vf.deep[a] = true, true
+			w.goOperandReport(a, "copy", "a deep copy: two Maps may share an entry, which Go may write")
 		case hostCopyAlways:
 			vf.clone[a] = true
+			w.goOperandReport(a, "copy", "the reference lowering copies every Go operand")
 		default:
 			w.freshen(a)
+			if vf.clone[a] {
+				w.goOperandReport(a, "copy", "Go may write or keep the operand, and another binding reads its value later")
+			} else {
+				w.goOperandReport(a, "no copy", "the operand is fresh, or a local dead after the call")
+			}
 		}
 	}
 	// A value that moves into a provider cell (cells.go).

@@ -29,6 +29,13 @@ ergo inspect api --diff OLD NEW [--json]
    Exit 0 means inspection succeeded (even if there are API changes), 1 is
    a source or operational error, and 2 is an invalid invocation.
 
+4. `ergo inspect facts FILE|DIR [--json]` ([facts.md](facts.md), Lowering
+   7) also prints a `fact-go-reads` row at each Go call operand that a
+   foreign fact of the binding names ([interop.md](interop.md#foreign-facts)):
+   position, the Go function, `reads p`, the level (`checked` for a derived
+   fact) and its source, and what the lowering did with it. The JSON row
+   adds `law` (the guarding law of a vouched fact) and `use`.
+
 Evidence: `TestOwnershipAPIModel` generates checked packages and edits
 (copy, take, export, plain-data signature); its independent model decides
 which contracts change and which newly restrict resource callers.

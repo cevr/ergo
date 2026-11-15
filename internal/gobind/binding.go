@@ -134,6 +134,9 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		if d.Variadic {
 			body.WriteString("// ergo:variadic\n")
 		}
+		if len(d.Reads) > 0 {
+			body.WriteString("// ergo:reads " + strings.Join(d.Reads, " ") + "\n")
+		}
 		body.WriteString("extern go " + d.Target(path) + " " + d.Ergo + "\n")
 		for _, m := range d.Members {
 			body.WriteString("\n// ergo:go " + m.Go + "\n")
@@ -207,6 +210,9 @@ type closer struct {
 	// modules is the module stamp of each package outside Go's standard
 	// library, by import path (ModuleLine).
 	modules map[string]string
+	// facts are the derived facts of the bound packages (Derive, meet);
+	// nil when none were derived.
+	facts Facts
 }
 
 func newCloser(platforms []Platform) *closer {
@@ -279,6 +285,11 @@ func (c *closer) decls(path string) []Decl {
 		}
 		return true
 	})
+	for i := range merged {
+		if merged[i].Refused == "" {
+			merged[i].reads(path, c.facts)
+		}
+	}
 	c.done[path] = merged
 	return merged
 }

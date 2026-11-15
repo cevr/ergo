@@ -48,6 +48,10 @@ type Decl struct {
 	// Context: the first parameter is Go's context.Context, hidden in the
 	// Ergo signature; the lowering passes the calling task's context (IG10).
 	Context bool
+	// Reads are the Ergo binders of the parameters (a method's receiver
+	// included) that Go's escape analysis says the function only reads,
+	// on every platform: the binding's `// ergo:reads` line (Derive).
+	Reads   []string
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -56,9 +60,10 @@ type Decl struct {
 	// signature, a receiver, a defined type's underlying type); Lines
 	// are a struct's or an interface's members with their own refs.
 	// Close reads them; Render does not.
-	Refs    []string
-	Lines   []Line
-	refPkgs []*types.Package
+	Refs     []string
+	Lines    []Line
+	refPkgs  []*types.Package
+	readable []readable
 }
 
 // Line is one field or method of a mapped struct or interface.
@@ -92,6 +97,7 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 	d := m.decl(obj, recv)
 	if d.Refused == "" {
 		d.Refs = m.refs
+		d.readable = m.readable
 	}
 	d.refPkgs = m.refPkgs
 	return d
@@ -104,6 +110,55 @@ type mapper struct {
 	// ".Map" for a prelude type (Close); refPkgs their packages.
 	refs    []string
 	refPkgs []*types.Package
+	// readable are the parameters of a function that may carry a derived
+	// `reads` fact (readsShape), set by funcDecl.
+	readable []readable
+}
+
+// readable is a parameter, or a method's receiver, that may carry a
+// derived `reads` fact: its Go name, which Go's escape analysis prints,
+// and its binder in the Ergo signature, which the binding's
+// `// ergo:reads` line names.
+type readable struct{ goName, ergoName string }
+
+// readsShape reports a Go parameter type whose `reads` fact Go's escape
+// analysis can establish: a slice (or a type over one) whose elements
+// reach no map, interface, function or channel. Go's analysis does not
+// count a write into a map as a mutation (`m[k] = v`, `delete(m, k)` and
+// `m[k][0] = v` all print "does not escape, mutate, or call" at go1.27;
+// LF0's fixture), and it cannot follow an interface, a function value or a
+// channel, so a type that reaches one gets no fact.
+func readsShape(t types.Type) bool {
+	s, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok && plainElem(s.Elem(), map[types.Type]bool{})
+}
+
+// plainElem reports a type that reaches no map, interface, function,
+// channel or unsafe pointer through its elements, fields and pointers.
+func plainElem(t types.Type, seen map[types.Type]bool) bool {
+	t = types.Unalias(t)
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		return u.Kind() != types.UnsafePointer
+	case *types.Slice:
+		return plainElem(u.Elem(), seen)
+	case *types.Array:
+		return plainElem(u.Elem(), seen)
+	case *types.Pointer:
+		return plainElem(u.Elem(), seen)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !plainElem(u.Field(i).Type(), seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // prelude records a use of the prelude type name, which a type of the bound
@@ -343,6 +398,18 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 			mode = "own "
 		}
 		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
+		if readsShape(r.Type()) && recv.TypeArgs().Len() == 0 && recv.TypeParams().Len() == 0 {
+			m.readable = append(m.readable, readable{r.Name(), name})
+		}
+	}
+	// A generic function's escape verdict is printed per instance shape,
+	// not per declaration, so it gets no fact (LAWFFI risk 3).
+	if sig.TypeParams().Len() == 0 && (recv == nil || recv.TypeParams().Len() == 0) {
+		for i, p := range params {
+			if v := sig.Params().At(i + first); readsShape(v.Type()) {
+				m.readable = append(m.readable, readable{v.Name(), p.name})
+			}
+		}
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
