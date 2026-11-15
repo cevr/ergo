@@ -1669,6 +1669,26 @@ func mentionsTypeParam(t check.Type) bool {
 		return mentionsTypeParam(t.Key) || mentionsTypeParam(t.Elem)
 	case *check.Pointer:
 		return mentionsTypeParam(t.Elem)
+	case *check.Signature:
+		// A function type names one in a parameter or a result (std ui's
+		// []func(KeyPress) Option[E]: a mono copy of since there would
+		// spell E outside every scope that declares it).
+		for _, p := range t.Params {
+			if mentionsTypeParam(p.Type) {
+				return true
+			}
+		}
+		for _, r := range t.Results {
+			if mentionsTypeParam(r) {
+				return true
+			}
+		}
+	case *check.Tuple:
+		for _, e := range t.Types {
+			if mentionsTypeParam(e) {
+				return true
+			}
+		}
 	}
 	return false
 }
