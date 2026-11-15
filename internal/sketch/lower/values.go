@@ -2334,8 +2334,10 @@ func (w *valueWalk) namedFunc(op syntax.Expr) *check.Func {
 
 // funcNamed is the function x names, f or pkg.f, or nil. The checker
 // records no Uses entry for a qualified name's selector, so pkg.f is the
-// one function of that name in the imported package; a name that several
-// functions share (196m rule 3) names none here.
+// function of that name in the imported package. It is the only one: two
+// functions share a name only when their first parameters are distinct
+// types of the package (196m rule 3), and the checker refuses a reference
+// to such a name other than as x.f(…) (S108, overloadedText).
 func funcNamed(info *check.Info, x syntax.Expr) *check.Func {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
@@ -2353,16 +2355,11 @@ func funcNamed(info *check.Info, x syntax.Expr) *check.Func {
 		if !ok || pn.Pkg == nil {
 			return nil
 		}
-		var found *check.Func
 		for _, f := range pn.Pkg.Funcs {
 			if f.Name == x.Sel.Name {
-				if found != nil {
-					return nil
-				}
-				found = f
+				return f
 			}
 		}
-		return found
 	}
 	return nil
 }
