@@ -198,7 +198,11 @@ func (l *lowerer) slotName(g *check.Func, gd *funcDecl) string {
 		return gd.slot
 	}
 	gd.slot = l.pkgName(slotVariantKey(g), g.Name+"Slot")
-	l.pending = append(l.pending, func() { l.emitBodyAs(gd, false, nil, false, true) })
+	l.pending = append(l.pending, func() {
+		gd.emitSlot = true
+		defer func() { gd.emitSlot = false }()
+		l.emitBody(gd, false, nil, false)
+	})
 	return gd.slot
 }
 

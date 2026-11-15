@@ -3754,8 +3754,8 @@
       "name": "scalar-scatter-tag",
       "origin": "wf10 OPT6b",
       "file": "internal/sketch/lower/scalar.go",
-      "from": "\" = \" + strconv.Itoa(k) + \", \" + val",
-      "to": "\" = 0, \" + val",
+      "from": "strconv.Itoa(k)+\", \"+val",
+      "to": "\"0, \"+val",
       "rule": "scalar.go: a write of a union value into a scalar local sets the tag of its variant.",
       "killers": [
         "lower:TestScalarLocalsAgree"
@@ -3820,7 +3820,7 @@
       "name": "scalar-join-fallback",
       "origin": "wf10 OPT6b",
       "file": "internal/sketch/lower/scalar.go",
-      "from": "\t\tif !sl.inline {\n\t\t\tname := fc.declare(v)",
+      "from": "\t\tif !fc.slotTaken(call, site, val) && !sl.inline {\n\t\t\tname := fc.declare(v)",
       "to": "\t\tif false {\n\t\t\tname := fc.declare(v)",
       "rule": "scalar.go: a join local whose call is not inlined is a plain union local.",
       "killers": [
@@ -4547,6 +4547,6 @@
     {"name":"uni-slot-shared-by-two-live-results","origin":"wf10 UNI2","file":"internal/sketch/lower/slot.go","from":"\tif !site.sl.declared {\n\t\tfc.scalarDeclare(site.sl, site.sl.name)\n\t}\n\treturn site\n","to":"\tif !site.sl.declared {\n\t\tfc.scalarDeclare(site.sl, site.sl.name)\n\t\tfor _, t := range fc.slotTemps {\n\t\t\tif t.union == site.sl.union {\n\t\t\t\tsite.sl.slots = t.slots\n\t\t\t}\n\t\t}\n\t\tfc.slotTemps = append(fc.slotTemps, site.sl)\n\t}\n\treturn site\n","rule":"Each call that writes a slot writes a slot set declared at its own site: two results live at once never share a slot.","killers":["lower:TestFlatUnionsAgree"]},
     {"name":"uni-slot-result-stored","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\tsite := fc.slotOffer(call, sl, gathered)\n\t\tval := fc.assigned(x)\n\t\tdelete(fc.joinAt, call)","to":"\t\tsite := fc.slotOffer(call, sl, false)\n\t\tval := fc.assigned(x)\n\t\tdelete(fc.joinAt, call)","rule":"A result the caller stores, appends, passes or returns from a box frame keeps its box: only a result the caller only matches is written into its slots.","killers":["lower:TestFlatUnionsAgree"]},
     {"name":"uni-slot-across-loop-iteration","origin":"wf10 UNI2","file":"internal/sketch/lower/body.go","from":"\t\tif !fc.slotTaken(call, site, val) {\n\t\t\tfc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go","to":"\t\tif site != nil && site.took {\n\t\t\tdelete(fc.slotAt, call)\n\t\t\tfc.line(\"_ = \" + val)\n\t\t} else if !fc.slotTaken(call, site, val) {\n\t\t\tfc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go","rule":"Each assignment of a loop-carried local that a call's slots take writes the local's tag again: a later iteration never reads an earlier iteration's variant.","killers":["lower:TestFlatUnionsAgree"]},
-    {"name":"uni-kept-box-stale","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\t} else {\n\t\t\tfc.line(sl.box + \" = nil\")\n\t\t}","to":"\t\t}","rule":"A scalar local keeps the box its value came in only while it holds that value: a write of a value with no settled box drops it, so gather never returns an earlier value.","killers":["lower:TestFlatUnionsAgree"]}
+    {"name":"uni-kept-box-stale","origin":"wf10 UNI2","file":"internal/sketch/lower/scalar.go","from":"\t\tlhs, rhs = lhs+\", \"+sl.box, rhs+\", nil\"\n","to":"\t\tlhs = lhs\n","rule":"A scalar local keeps the box its value came in only while it holds that value: a write of a value with no settled box drops it, so gather never returns an earlier value.","killers":["lower:TestFlatUnionsAgree"]}
   ]
 }

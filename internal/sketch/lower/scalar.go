@@ -461,28 +461,25 @@ func (fc *funcCtx) scatterKept(sl *scalarLocal, val string, keep bool) {
 	fc.line("switch " + x + " := " + sl.union + "(" + val + ").(type) {")
 	for k, g := range sl.variants {
 		fc.line("case " + g + ":")
-		fc.line("\t" + sl.name + ", " + sl.slots[k] + " = " + strconv.Itoa(k) + ", " + x)
+		fc.line("\t" + fc.scalarWrite(sl, k, x))
 	}
 	fc.line("default:")
 	fc.line("\t_ = " + x)
 	fc.line("\tpanic(\"ergo: defect: a value of " + sl.union + " that is none of its variants\")")
 	fc.line("}")
-	if sl.box != "" {
-		if keep {
-			fc.line(sl.box + " = " + val)
-		} else {
-			fc.line(sl.box + " = nil")
-		}
+	if keep && sl.box != "" {
+		fc.line(sl.box + " = " + val)
 	}
 }
 
 // scalarWrite is the Go statement that puts val, a value of variant k,
 // into the scalar local sl; its box is no longer the value.
 func (fc *funcCtx) scalarWrite(sl *scalarLocal, k int, val string) string {
+	lhs, rhs := sl.name+", "+sl.slots[k], strconv.Itoa(k)+", "+val
 	if sl.box != "" {
-		return sl.name + ", " + sl.slots[k] + ", " + sl.box + " = " + strconv.Itoa(k) + ", " + val + ", nil"
+		lhs, rhs = lhs+", "+sl.box, rhs+", nil"
 	}
-	return sl.name + ", " + sl.slots[k] + " = " + strconv.Itoa(k) + ", " + val
+	return lhs + " = " + rhs
 }
 
 // gather is the union value of the scalar local sl, in a Go local of its

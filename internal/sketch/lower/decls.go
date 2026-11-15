@@ -93,8 +93,9 @@ type funcDecl struct {
 	dropped string
 	// slot is the Go name of the slot variant once it is queued, and
 	// slotOK the callee's slot decision: 1 yes, 2 no (slot.go).
-	slot   string
-	slotOK int8
+	slot     string
+	slotOK   int8
+	emitSlot bool // emitBody writes the slot variant
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -947,14 +948,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 // known-callback variant (known.go): its callback parameters plain and no
 // entry poll; with sp, fd's copy for a known record (record.go); with
 // drop, fd's variant with no result (drop.go): each return evaluates its
-// value for its effects and returns nothing.
+// value for its effects and returns nothing. While fd.emitSlot is set it
+// writes fd's slot variant (slot.go): its result written through the slot
+// pointers, its tag returned.
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
-	l.emitBodyAs(fd, known, sp, drop, false)
-}
-
-// emitBodyAs is emitBody, or with slot fd's slot variant (slot.go): its
-// result written through the slot pointers, its tag returned.
-func (l *lowerer) emitBodyAs(fd *funcDecl, known bool, sp *specCopy, drop, slot bool) {
+	slot := fd.emitSlot
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
