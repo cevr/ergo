@@ -473,6 +473,7 @@ var bodyTable = map[string]bodyFact{
 	"TextInt":                   {body: Body{Params: []Param{{Type: "int64"}}, Results: []string{"string"}}},
 	"TextList":                  {body: Body{Params: []Param{{Type: "[]string"}}, Results: []string{"string"}}},
 	"TextUint":                  {body: Body{Params: []Param{{Type: "uint64"}}, Results: []string{"string"}}},
+	"TimeAsleep":                {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Timeline"}, {Type: "*Task[T]"}}, Results: []string{"bool"}}},
 	"TimeCount":                 {body: Body{Params: []Param{{Type: "time.Duration"}, {Type: "time.Duration"}}, Results: []string{"int"}, Pure: true}},
 	"TimeDivide":                {body: Body{Params: []Param{{Type: "time.Duration"}, {Type: "int"}}, Results: []string{"time.Duration"}, Pure: true}},
 	"TimeDurationText":          {body: Body{Params: []Param{{Type: "time.Duration"}}, Results: []string{"string"}, Pure: true}},

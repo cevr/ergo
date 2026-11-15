@@ -263,6 +263,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
 	// Advance wakes sleepers without waiting.
 	"TimeHostNow": {},
+	"TimeAsleep":  {},
 	"TimeFormat":  {},
 	"TimeParse":   {},
 	"TimeSub":     {},
