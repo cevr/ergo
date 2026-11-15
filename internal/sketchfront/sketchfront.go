@@ -384,8 +384,18 @@ func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
 		return lower.Unit{}, build.Input{}, err
 	}
 	input, err := unitInput(unit, analysisDependencies(a), req)
+	if req.Toolchain.Profile == build.Dev {
+		// The dev profile's module is emitted without go/format: other
+		// bytes, so another emission key (test-speed FT5).
+		unit.Raw = true
+		input.Flags = append(input.Flags, rawFlag)
+	}
 	return unit, input, err
 }
+
+// rawFlag is the emission flag of a module lowered without go/format
+// (lower.Unit.Raw), the dev profile's.
+const rawFlag = "go/format=off"
 
 // analysisUnit is the validated unit of a checked analysis; source
 // anchors a program of one source text.

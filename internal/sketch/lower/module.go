@@ -209,6 +209,7 @@ type lowerer struct {
 	prenamed bool       // the naming pass is done
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
+	raw      bool       // Unit.Raw: program skips go/format
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in under the reference growth rule (growth.go),
@@ -386,6 +387,7 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	if tests == nil && u.Rewrite != nil {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}
+	l.raw = u.Raw
 	return l
 }
 
@@ -611,6 +613,9 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(table)
 	out.WriteString(l.user.String())
 	out.WriteString(inits)
+	if l.raw {
+		return anchorLines([]byte(out.String())), nil
+	}
 	l.formats++
 	formatted, err := format.Source([]byte(out.String()))
 	if err != nil {
