@@ -953,8 +953,23 @@ func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 
 // releaseAt writes the releases the plan records at key, a place that
 // ends inside the frame: last acquired first. A value whose entry left
-// the list (a hand-off on this path) is skipped by its entry (R21).
+// the list (a hand-off on this path) is skipped by its entry (R21). The
+// plan's order is the declarations'; a reassignment registers its new
+// value last (R41), so two or more entries are released by one
+// v1.ReleaseAll, which follows the list's order at run time (R5).
 func (fc *funcCtx) releaseAt(key syntax.Node) {
+	var group []string
+	flush := func() {
+		switch len(group) {
+		case 0:
+		case 1:
+			fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", group[0], nil, "", nil, nil, key))
+		default:
+			fc.line(fc.runtimeCall("ReleaseAll", fc.ownBinding("ReleaseAll", key), "", "", []string{"[]*" + fc.l.rt() + ".Owned{" + strings.Join(group, ", ") + "}"}, "", nil, nil, key))
+		}
+		group = nil
+	}
+	defer flush()
 	for _, r := range fc.l.info.Releases[key] {
 		var h string
 		if r.Var != nil {
@@ -976,11 +991,12 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 				key = r.Var
 			}
 			if _, ok := st.bit[key]; ok {
+				flush()
 				fc.staticRelease(key)
 				continue
 			}
 		}
-		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+		group = append(group, h)
 	}
 }
 

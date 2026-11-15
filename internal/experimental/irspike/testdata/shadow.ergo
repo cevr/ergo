@@ -1,0 +1,11 @@
+// The smallest repro of a source local spelled like a Go package or
+// predeclared name (wf10 IRG3b, TXT r3's follow-up): the IR kept the Ergo
+// spelling, so `strconv` shadowed the package the text of an int calls,
+// and `make` shadowed Go's (Ergo's prelude names, such as string, len and
+// int64, cannot be redeclared).
+
+func shadow(n int) string {
+	let strconv = n + 1
+	let make = n * 2
+	"\(strconv) \(make)"
+}

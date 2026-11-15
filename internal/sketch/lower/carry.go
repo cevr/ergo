@@ -58,6 +58,22 @@ const paramCarry = true
 // useBytes is the memory bound of a union flat by use (above).
 const useBytes = 128
 
+// A machine's state is flat past both bounds (MSB2). A step is a function
+// value std's run calls, so its state is carried by every step, and each
+// step that returns a new state of a variant with fields boxed it: one
+// allocation per signal (router's Idle, a courier's Open). Flat, the state
+// travels inline in the step's Decision (genericunion.go, no size bound)
+// and in the actor's field: a copy of its bytes where the box cost an
+// allocation and a load. An actor holds one state, so the use bound,
+// which bounds a slice's waste, does not apply; a slice of states pays
+// the widest form per element, as Rust's and Swift's enums do.
+//
+// The reference is unionBound "register" too: there a state follows the
+// register bound alone, as before R3b and MSB2.
+func (l *lowerer) stateFlat(tn *check.TypeName, states map[*check.TypeName]bool) bool {
+	return unionBound != "register" && states[tn]
+}
+
 // flatByUse reports whether the union tn may be flat past the register
 // bound: no call carries a value of it, and the reference is not chosen.
 func (l *lowerer) flatByUse(tn *check.TypeName) bool {

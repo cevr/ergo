@@ -158,6 +158,11 @@ func (g *witGen) function(j int) {
 	g.passes = append(g.passes, passes)
 }
 
+// witProviders are the providers main passes, as written at a call:
+// Counter and Log through a pointer, Fixed by value (TestKnownProvidersAgree
+// has its own, every provider by value).
+var witProviders = map[string]string{"Counter": "&c", "Log": "&l", "Fixed": "x"}
+
 // witProgram is the program of seed, the copies its lowering should
 // make, and whether it ends in a defect.
 func witProgram(seed uint64, reached map[string]bool) (src string, copies int, defect bool) {
@@ -167,7 +172,7 @@ func witProgram(seed uint64, reached map[string]bool) (src string, copies int, d
 		g.function(j)
 	}
 	names := slices.Sorted(func(yield func(string) bool) {
-		for k := range providers {
+		for k := range witProviders {
 			if !yield(k) {
 				return
 			}
@@ -178,14 +183,14 @@ func witProgram(seed uint64, reached map[string]bool) (src string, copies int, d
 		j, p := g.r.IntN(nf), names[g.r.IntN(len(names))]
 		g.copyOf(j, p)
 		reached["provider "+p] = true
-		fmt.Fprintf(&calls, "\tlet r%d = g%d(Tag{n: %d}, %s, %d) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n", n, j, n, providers[p], g.r.IntN(6))
+		fmt.Fprintf(&calls, "\tlet r%d = g%d(Tag{n: %d}, %s, %d) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n", n, j, n, witProviders[p], g.r.IntN(6))
 		fmt.Fprintf(&calls, "\tConsole.Println(\"%d \\(r%d) \\(c.sum) \\(c.puts) \\(l.text)\")\n", n, n)
 	}
 	// Each provider is passed at least once (a let mut never written
 	// through is a diagnostic).
 	for _, p := range names {
 		g.copyOf(0, p)
-		fmt.Fprintf(&calls, "\tlet z%s = g0(Tag{n: 9}, %s, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"%s \\(z%s)\")\n", p, providers[p], p, p)
+		fmt.Fprintf(&calls, "\tlet z%s = g0(Tag{n: 9}, %s, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"%s \\(z%s)\")\n", p, witProviders[p], p, p)
 	}
 	defect = seed%2 == 0
 	if defect {

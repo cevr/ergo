@@ -919,6 +919,36 @@ func (h *Owned) Release() {
 	e.own()
 }
 
+// ReleaseAll releases the values of hs still in their lists at the end of
+// a scope inside the frame, last registered first (R5). The list's order is
+// the acquisitions' order at run time: an assignment registers its new
+// value last (R41), so a value reassigned after a later declaration is
+// released before it, which no order fixed by declaration gives. A defect
+// is raised at once, as Release raises it; the frame's End then releases
+// what is still listed, last first (R9).
+func ReleaseAll(hs []*Owned) {
+	for {
+		var next *Owned
+		nearest := 0
+		for _, h := range hs {
+			if h == nil || h.e == nil {
+				continue
+			}
+			d := 0
+			for e := h.s.last; e != nil && e != h.e; e = e.prev {
+				d++
+			}
+			if next == nil || d < nearest {
+				next, nearest = h, d
+			}
+		}
+		if next == nil {
+			return
+		}
+		next.Release()
+	}
+}
+
 // runOwn is the frame's release of an owned value at its End: a defect
 // joins the frame's exits, and the releases after it still run (R9).
 func (s *Scope) runOwn(e *entry) {

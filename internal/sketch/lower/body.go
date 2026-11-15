@@ -1044,7 +1044,7 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 	fc.out = &strings.Builder{}
 	// The iteration is a scope of its own (R6): what its body still owns
 	// is released before the back-edge poll.
-	fc.scoped(body, func() bool { return fc.block(body.List) })
+	terminates := fc.scoped(body, func() bool { return fc.block(body.List) })
 	text := fc.out.String()
 	fc.out = saved
 	if loop.next == "" {
@@ -1057,7 +1057,16 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 		fc.depth--
 		fc.line(loop.next + ":")
 	}
-	if fc.frame.polls {
+	// A body that ends in a return or a break with no continue to jump to
+	// the poll never reaches it: go vet calls a poll there unreachable.
+	if n := len(body.List); loop.next == "" && n > 0 {
+		if br, ok := body.List[n-1].(*syntax.BranchStmt); ok && br.Tok == syntax.BREAK {
+			terminates = true
+		}
+	} else {
+		terminates = false
+	}
+	if fc.frame.polls && !terminates {
 		fc.depth++
 		fc.at(s)
 		fc.poll(s)
@@ -1259,7 +1268,9 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		// (scalar.go); a case binds its slot before its body writes.
 		subject = sl.name
 	} else {
-		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 {
+		// No fold when the statement owns the subject's value (R43,
+		// ownTemp): its registration runs between the value and the arms.
+		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 && fc.l.info.OwnedTemps[s.Subjects[0].X] == nil {
 			var types [][]string
 			var defs, binds []bool
 			for _, a := range arms {

@@ -186,6 +186,9 @@ func (d *direct) build() error {
 			return err
 		}
 	}
+	if err := d.toolHomeOff(); err != nil {
+		return err
+	}
 	// The plan names the toolchain, so the module is read twice: once
 	// with the host's release tags to learn the standard imports the plan
 	// lists, and again with the plan's, which decide the build.
@@ -516,14 +519,68 @@ func (d *direct) archive(importPath string) (archive, bool) {
 	return a, ok
 }
 
+// toolHome is the HOME of the compiles and links the direct path runs,
+// under Ergo's cache. The compiler and the linker write Go's telemetry
+// counters under os.UserConfigDir()/go/telemetry/local unless the mode file
+// there says off (cmd/internal/telemetry/counter.Open,
+// golang.org/x/telemetry/internal/counter.Open, internal/telemetry.Dir.Mode);
+// no environment variable turns them off (GOTELEMETRY is a read-only go env
+// value). Under the user's HOME the direct path would write there where
+// `go build` is the one that does; with this HOME it writes nothing, since
+// toolHomeOff sets the mode to off. The go command Ergo runs keeps the
+// user's HOME and the user's telemetry mode.
+func (d *direct) toolHome() string { return filepath.Join(d.c.Root, "go", "tool-home") }
+
+// toolConfig is os.UserConfigDir for the tools' environment (toolEnv):
+// $HOME/Library/Application Support on darwin and ios, which ignore
+// XDG_CONFIG_HOME, else $XDG_CONFIG_HOME. The direct path refuses windows.
+func (d *direct) toolConfig() string {
+	switch runtime.GOOS {
+	case "darwin", "ios":
+		return filepath.Join(d.toolHome(), "Library", "Application Support")
+	}
+	return filepath.Join(d.toolHome(), "config")
+}
+
+// toolHomeOff writes the telemetry mode "off" the tools read, as `go
+// telemetry off` writes it, once: by a rename, so a concurrent build reads
+// a whole file or none.
+func (d *direct) toolHomeOff() error {
+	dir := filepath.Join(d.toolConfig(), "go", "telemetry")
+	mode := filepath.Join(dir, "mode")
+	if data, err := os.ReadFile(mode); err == nil && strings.TrimSpace(string(data)) == "off" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, "mode-")
+	if err != nil {
+		return err
+	}
+	_, werr := f.WriteString("off\n")
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Rename(f.Name(), mode)
+	}
+	if werr != nil {
+		os.Remove(f.Name())
+	}
+	return werr
+}
+
 // toolEnv is the environment of a compile or link: the process's, with the
-// target and level the plan resolved, and GOROOT as cmd/go sets it.
+// target and level the plan resolved, GOROOT as cmd/go sets it, and a HOME
+// of Ergo's (toolHome).
 func (d *direct) toolEnv(goroot string) []string {
 	env := os.Environ()
 	// PWD is the tool's directory, as cmd/go sets it (base.AppendPWD): the
 	// compiler resolves a relative //line file name against its working
 	// directory, which it reads from PWD when PWD names it.
-	set := [][2]string{{"GOOS", d.plan.GOOS}, {"GOARCH", d.plan.GOARCH}, {"GOEXPERIMENT", d.plan.Experiment}, {"GOROOT", goroot}, {"GOFLAGS", ""}, {"CGO_ENABLED", "0"}, {"PWD", d.module.Dir}}
+	set := [][2]string{{"GOOS", d.plan.GOOS}, {"GOARCH", d.plan.GOARCH}, {"GOEXPERIMENT", d.plan.Experiment}, {"GOROOT", goroot}, {"GOFLAGS", ""}, {"CGO_ENABLED", "0"}, {"PWD", d.module.Dir},
+		{"HOME", d.toolHome()}, {"XDG_CONFIG_HOME", filepath.Join(d.toolHome(), "config")}}
 	if d.plan.LevelKey != "" {
 		set = append(set, [2]string{d.plan.LevelKey, d.plan.LevelValue})
 	}

@@ -1,0 +1,6 @@
+# The patched Go compiler of the IR build path (plan-tier §1.4). ergo
+# applies the patch to the pristine source of this Go release and builds
+# cmd/compile once; scripts/irport checks the patch against this lock.
+go go1.27.0
+base 413adc6245e6dab11e09ca0ecd56c1a07cab7f09
+patch go1.27.0.patch sha256:3ec4c3f3c2a97795f85087825a6801513191029addbf3c8b5a8f33ea42997c56

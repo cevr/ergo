@@ -28,6 +28,10 @@ type Cost struct {
 // Measure runs cmd and counts its process tree's work.
 func Measure(cmd *exec.Cmd) (Cost, error) { return MeasureBounded(cmd, 0) }
 
+// CountSelf counts the user instructions f retires on this thread
+// (opcount.CountSelf; -1 when the host exposes no counter).
+func CountSelf(f func()) int64 { return opcount.CountSelf(f) }
+
 // MeasureBounded is Measure with the program under proclimit's memory
 // limit (0: none), which the kernel enforces. Its error is the start's or
 // cmd.Wait's (an *exec.ExitError for a nonzero exit).

@@ -202,7 +202,43 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 			b.WriteString("\t\t\t" + goOf[k] + ": " + goOf[sig] + ",\n")
 		}
 	}
-	b.WriteString("\t\t},\n\t})\n}\n\n")
+	b.WriteString("\t\t},\n")
+	// A flat state or signal (flatunion.go) is one Go type for all its
+	// variants: the runner names a value's variant by its tag (MSB1), and
+	// any other value by its Go type, as VariantOf does.
+	if mt, ok := td.named.Underlying().(*check.MachineType); ok && (l.flatUnionOf(mt.State) != nil || l.flatUnionOf(mt.Signal) != nil) {
+		var cases strings.Builder
+		done := map[string]bool{}
+		for i, t := range []check.Type{mt.State, mt.Signal} {
+			if fu := l.flatUnionOf(t); fu != nil {
+				gt := tc.goType(t)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\t\tcase " + gt + ":\n\t\t\t\tswitch " + fu.tagExpr(tc, "x") + " {\n")
+				for k, v := range fu.variants {
+					cases.WriteString("\t\t\t\tcase " + strconv.Itoa(k) + ":\n\t\t\t\t\treturn " + rt + ".VariantOf[" + tc.goType(v) + "]()\n")
+				}
+				cases.WriteString("\t\t\t\t}\n")
+				continue
+			}
+			vs := g.States
+			if i == 1 {
+				vs = g.Signals
+			}
+			for _, v := range vs {
+				gt := tc.goType(v.Type)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\t\tcase " + gt + ":\n\t\t\t\treturn " + rt + ".VariantOf[" + gt + "]()\n")
+			}
+		}
+		b.WriteString("\t\tVariant: func(v any) string {\n\t\t\tswitch x := v.(type) {\n" + cases.String() + "\t\t\t}\n\t\t\treturn \"\"\n\t\t},\n")
+	}
+	b.WriteString("\t})\n}\n\n")
 	return b.String()
 }
 
@@ -319,7 +355,7 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " && " + t + ".Value.In <= 0 {\n" +
-			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + fc.variantAny(sig.Params[0].Type, s) + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body
