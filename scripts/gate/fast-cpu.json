@@ -8,6 +8,7 @@
   "ergo.local/prototype/internal/sketch/api": 1,
   "ergo.local/prototype/internal/sketch/check": 62.6,
   "ergo.local/prototype/internal/sketch/eval": 1.8,
+  "ergo.local/prototype/internal/sketch/facts": 1.7,
   "ergo.local/prototype/internal/sketch/lower": 38.8,
   "ergo.local/prototype/internal/sketch/machinegraph": 0.9,
   "ergo.local/prototype/internal/sketch/std": 4.5,

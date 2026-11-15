@@ -60,7 +60,7 @@ func TestImporterLeavesImportUnchanged(t *testing.T) {
 			var order []string
 			pkgs := map[string]*check.Package{}
 			before := map[string]*graph{}
-			checkedHook = func(path string, pkg *check.Package) {
+			checkedHook = func(_ check.Importer, path string, pkg *check.Package) {
 				if pkg == nil {
 					return
 				}
