@@ -309,6 +309,11 @@ law ProtocolHolds(ops []int) {
 			if !holds(n, p) || !told(n, p, dismissed) {
 				return false
 			}
+			// ReadyIsStable: only a dropped cache makes a Ready client
+			// Loading; a late frame, an old snapshot included, never does.
+			if ready(get(before, who).State) && !ready(p.State) && (op%16+16)%16 != 12 {
+				return false
+			}
 		}
 	}
 	true
@@ -351,4 +356,32 @@ law SettledIsServerState(ops []int) {
 		}
 	}
 	true
+}
+
+func ready(st Client) bool {
+	match st.Status {
+	case replica.Ready[lease.Pool]:
+		true
+	case replica.Loading:
+		false
+	}
+}
+
+// OldFrameIsIgnored (C2, model m5 and m6): a frame the authority made
+// earlier, a delta or a snapshot, that arrives after the client read past
+// it changes nothing: the client stays Ready with the same state. The
+// client has a command pending when the old frame is made, so the drain
+// moves the log past it; with tail, the frame is a delta or a snapshot.
+law OldFrameIsIgnored(ops []int, from int, tail bool) {
+	let mut n = Start(if tail { 4 } else { 0 })
+	for op in ops {
+		n = Apply(n, op)
+	}
+	n = Apply(n, 0)
+	let cursor = replica.Peek(n.A.State).Cursor
+	let old = server.Pull(n.Auth, replica.ClientID("a"), (from%(cursor+1)+cursor+1)%(cursor+1))
+	n = Drain(n, 4)
+	let st = n.A.State
+	let late = step(st, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: old, At: at})
+	Quiet(n) && late == st
 }

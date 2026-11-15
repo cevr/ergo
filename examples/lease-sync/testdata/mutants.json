@@ -78,7 +78,7 @@
       "file": "examples/lease-sync/replica/client.ergo",
       "from": "\t\t\tif s.At <= st.cursor {\n",
       "to": "\t\t\tif s.At < 0 {\n",
-      "rule": "A snapshot at or behind the cursor is ignored: ReadyIsStable, ProtocolHolds.",
+      "rule": "A snapshot at or behind the cursor is ignored: replicatest OldFrameIsIgnored (no other law reaches an old snapshot).",
       "anchor": {"tests": ["examples:lease-sync"]}, "killers": ["examples:lease-sync"]
     },
     {
