@@ -71,8 +71,9 @@ func TestPathsRoundTrip(t *testing.T) {
 				if u, exportErr = check.NewUserExport(imp); exportErr != nil {
 					return
 				}
+				u.Record = true
 			}
-			exportErr = u.Add(pkg)
+			_, exportErr = u.Add(pkg)
 		}
 		a, err := CheckDir(dir.dir)
 		checkedHook = nil

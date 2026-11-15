@@ -38,6 +38,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
@@ -154,6 +155,10 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// cache, when set, holds earlier checks to take packages from, and fps
+	// the fingerprints of the packages checked or taken so far (CheckCache).
+	cache *CheckCache
+	fps   map[string]fingerprint.Package
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -231,12 +236,22 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 }
 
 func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirWith(fsys, dir, platform, nil)
+}
+
+func hostPlatform() gobind.Platform {
+	return gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+}
+
+// checkDirWith checks the program at dir, taking packages from cache when
+// it is not nil (CheckCache).
+func checkDirWith(fsys FS, dir string, platform gobind.Platform, cache *CheckCache) (Analysis, error) {
 	prepareStd()
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
-	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}, cache: cache, fps: map[string]fingerprint.Package{}}
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -600,6 +615,28 @@ func (l *loader) checkAll() {
 		if i == len(l.order)-1 {
 			path = "main" // the root package is the program's main package
 		}
+		var key string
+		cacheable := false
+		if l.cache != nil {
+			key, cacheable = l.cache.key(l, p, path)
+		}
+		if cacheable {
+			if pkg, ok := l.cache.reuse(l, p, key); ok {
+				p.pkg = pkg
+				// The decoded package holds its own syntax trees: the
+				// lowering and the evaluator read those.
+				for k, f := range pkg.Files() {
+					p.files[k].syntax = f
+				}
+				stage.Add(stage.PackagesReused, 1)
+				l.fingerprintAfter(p, path, pkg.Files())
+				l.cache.store(l, p, key, pkg)
+				if checkedHook != nil {
+					checkedHook(l, path, pkg)
+				}
+				continue
+			}
+		}
 		pkg, ds := check.Check(path, files, l)
 		stage.Add(stage.PackagesChecked, 1)
 		for _, f := range files {
@@ -619,6 +656,12 @@ func (l *loader) checkAll() {
 		}
 		if len(ds) > 0 {
 			p.broken = true
+		}
+		if l.cache != nil {
+			l.fingerprintAfter(p, path, files)
+			if cacheable && !p.broken {
+				l.cache.store(l, p, key, pkg)
+			}
 		}
 	}
 }
