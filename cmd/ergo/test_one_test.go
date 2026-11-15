@@ -183,7 +183,7 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 				}
 				out, errText, code := testRunCLI(t, bin, m.root, xdg, tmp, append([]string{"test", pkg.Dir, "--receipt", receipt}, flags...)...)
 				wantOut.WriteString("package " + pkg.Path + "\n" + out)
-				wantErr.WriteString(errText)
+				wantErr.WriteString(withoutBuildNote(errText))
 				if code > 1 {
 					wantCode = code
 					break
@@ -199,7 +199,7 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 			command.Dir = m.root
 			command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "TMPDIR="+tmp, build.GoBuildVariable+"=go", "PATH="+goLogger(t, calls)+string(os.PathListSeparator)+os.Getenv("PATH"))
 			stdout, stderr, code := runSmokeCommand(t, command)
-			out, errText := string(stdout), string(stderr)
+			out, errText := string(stdout), withoutBuildNote(string(stderr))
 			if out != wantOut.String() || code != wantCode {
 				fail("ergo test ./...: exit %d, want %d\n--- stdout\n%s--- each package\n%s", code, wantCode, out, wantOut.String())
 			}
