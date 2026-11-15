@@ -17,7 +17,7 @@ clone clone
 # other import fails until it is reviewed and listed here; reflect and
 # unsafe are never listed.
 import cmp container/heap encoding/binary fmt go/constant go/token maps math math/bits path regexp runtime slices sort strconv strings sync unicode unicode/utf8
-import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sketch/syntax
+import ergo.local/prototype/internal/sketch/stdlib ergo.local/prototype/internal/sketch/syntax
 # math/big (L6 refinements, refine.go and typeops.go): exact integer sets
 # over every integer width (a uint64 bound, 2^64-1, and the count of a set
 # exceed int64). The checker uses only its integer arithmetic (big.Int),

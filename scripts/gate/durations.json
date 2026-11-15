@@ -1183,7 +1183,7 @@
   "ergo.local/prototype/internal/sketch/machinegraph": {
     "TestGraphMatchesTheModel": 0.08
   },
-  "ergo.local/prototype/internal/sketch/std": {
+  "ergo.local/prototype/internal/sketch/stdlib": {
     "TestCallsLedgerRun": 0,
     "TestCallsToEachFunctionCheck": 0,
     "TestContextPackagesSurface": 0,

@@ -48,7 +48,7 @@ import (
 // on a lower edit scripts/examples, sketchfront and tsproj took 42 CPU-s;
 // on a std edit bindc, scripts/examples, sketchfront, std, syntax and
 // gobind took 89).
-var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo", "scripts/examples", "internal/sketchfront", "internal/tsproj", "internal/bindc", "internal/sketch/std", "internal/sketch/syntax", "internal/gobind"}
+var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo", "scripts/examples", "internal/sketchfront", "internal/tsproj", "internal/bindc", "internal/sketch/stdlib", "internal/sketch/syntax", "internal/gobind"}
 
 // coverageVersion is the record format; a record of another version is
 // no record. Version 2 observes the embedded std files (observedEmbeds).

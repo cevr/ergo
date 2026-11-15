@@ -119,7 +119,7 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
-	"internal/sketch/std": declare(
+	"internal/sketch/stdlib": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
 		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
 		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),

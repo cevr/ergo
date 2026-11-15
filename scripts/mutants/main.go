@@ -230,7 +230,7 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		// The lowering's tests run the CLI the runner built (main_test.go,
 		// cliVariable), not one each test process builds.
 		{Name: "lower", Package: "./internal/sketch/lower", Env: []string{"ERGO_TEST_CLI={bin:ergo}"}},
-		{Name: "std", Package: "./internal/sketch/std"},
+		{Name: "std", Package: "./internal/sketch/stdlib"},
 		{Name: "api", Package: "./internal/sketch/api"},
 		{Name: "ergo", Package: "./cmd/ergo"},
 		// The case budget is off: a slow case under the runner's load is not
