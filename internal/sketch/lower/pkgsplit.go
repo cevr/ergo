@@ -335,7 +335,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				defOf.add(d.Name.Name, d, i)
 			}
 		case *ast.GenDecl:
-			if d.Doc != nil && hasEmbed(d.Doc) {
+			if embedDirective(tf, f, d) {
 				g.pin, g.embed = true, true
 			}
 			for _, s := range d.Specs {
@@ -1027,6 +1027,22 @@ func recvBase(r *ast.FieldList) string {
 			return ""
 		}
 	}
+}
+
+// embedDirective reports a //go:embed directive in the comments just
+// before d: its doc, or the group that ends on d's line. A /*line*/
+// comment before the var keyword ends the group on that line, so the
+// parser attaches no doc, and the compiler still reads the directive.
+func embedDirective(tf *token.File, f *ast.File, d *ast.GenDecl) bool {
+	if d.Doc != nil && hasEmbed(d.Doc) {
+		return true
+	}
+	i := sort.Search(len(f.Comments), func(i int) bool { return f.Comments[i].Pos() >= d.Pos() })
+	if i == 0 {
+		return false
+	}
+	c := f.Comments[i-1]
+	return tf.Line(c.End()) == tf.Line(d.Pos()) && hasEmbed(c)
 }
 
 // hasEmbed reports a //go:embed directive in a declaration's comments.
