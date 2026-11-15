@@ -35,13 +35,16 @@ func TestFolderOpen() string {
 	return real
 }
 
-// TestFolderRemove removes the case's folder and all it holds. A
-// read-only directory a case made is made writable first, so the removal
-// does not stop at it. A folder that cannot be removed is a defect of the
-// runner: the next case must not see this one's files.
+// TestFolderRemove ends the case's sandbox helper, if a command of the
+// folder started one (exec_sandbox_linux.go), and removes the case's
+// folder and all it holds. A read-only directory a case made is made
+// writable first, so the removal does not stop at it. A folder that
+// cannot be removed is a defect of the runner: the next case must not see
+// this one's files.
 //
 //ergo:host
 func TestFolderRemove(dir string) {
+	execSandboxEnd(dir)
 	err := os.RemoveAll(dir)
 	if err != nil {
 		filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {

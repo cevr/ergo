@@ -409,7 +409,7 @@ func (r *Running) finish() {
 
 // hostProc is a program of the host in a process group of its own.
 type hostProc struct {
-	cmd   *exec.Cmd
+	child *execChild
 	group int
 	exit  execExit
 	done  chan struct{}
@@ -426,10 +426,10 @@ func (p *hostProc) signal(sig syscall.Signal) {
 }
 
 func (p *hostProc) reap() int {
-	_ = p.cmd.Wait()
+	status := p.child.reap()
 	execAwaitGroupEnd(p.group)
 	p.exit.close()
-	return execStatus(p.cmd.ProcessState)
+	return status
 }
 
 // ExecStart is the body of exec.Host's Start on the caller's task t: it
@@ -541,35 +541,17 @@ func execStart(t *rt.Task, root string, name string, args []string, env map[stri
 	if err != nil {
 		return fail(execErr(name, err))
 	}
-	var sandbox execSandboxed
-	if root != "" {
-		if sandbox, err = execSandbox(cmd, root); err != nil {
-			exit.close()
-			return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
-		}
-	}
 	cmd.WaitDelay = execWaitDelay
-	err = cmd.Start()
+	child, err := execBegin(cmd, root)
 	for _, w := range writes {
 		_ = w.Close() // the program holds its own copies
 	}
 	writes = nil
 	if err != nil {
-		sandbox.abandon()
 		exit.close()
-		if sandbox.on() {
-			// No user namespace for the sandbox (exec.go's execRun).
-			return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
-		}
-		return fail(execErr(name, err))
+		return fail(execStartErr(name, err))
 	}
-	if err := sandbox.started(); err != nil {
-		_ = cmd.Wait()
-		execAwaitGroupEnd(cmd.Process.Pid)
-		exit.close()
-		return fail(ExecFailed{Name: name, Reason: sandboxReason(err)})
-	}
-	p := &hostProc{cmd: cmd, group: cmd.Process.Pid, exit: exit, done: make(chan struct{})}
+	p := &hostProc{child: child, group: child.pid, exit: exit, done: make(chan struct{})}
 	go func() { exit.await(p.group); close(p.done) }()
 	var out, errs io.ReadCloser
 	if reads[0] != nil {

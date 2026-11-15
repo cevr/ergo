@@ -10,14 +10,14 @@ import "os/exec"
 // are not. Darwin's sandbox-exec is deprecated and its profile language
 // undocumented, so it is not used.
 
-type execSandboxed struct{}
+func execSandboxStart(cmd *exec.Cmd, root string) (*execChild, error) { return execHostStart(cmd) }
 
-func execSandbox(cmd *exec.Cmd, root string) (execSandboxed, error) { return execSandboxed{}, nil }
+// execSandboxEnd has no helper to end.
+func execSandboxEnd(root string) {}
 
-func (execSandboxed) on() bool { return false }
+// execSandboxError is never made here: no sandbox can fail.
+type execSandboxError struct{ err error }
 
-func (execSandboxed) abandon() {}
-
-func (execSandboxed) started() error { return nil }
+func (e execSandboxError) Error() string { return e.err.Error() }
 
 func sandboxReason(err error) string { return err.Error() }

@@ -514,6 +514,7 @@ var bodyTable = map[string]bodyFact{
 	"deadline.WakesItsWaiter":   {refusal: "runtime/v1: deadline.WakesItsWaiter: the receiver type deadline is not declared"},
 	"deadlines.NewTimer":        {refusal: "runtime/v1: deadlines.NewTimer: the receiver type deadlines is not declared"},
 	"eagerError.Error":          {refusal: "runtime/v1: eagerError.Error: the receiver type eagerError is not declared"},
+	"execSandboxError.Error":    {refusal: "runtime/v1: execSandboxError.Error: the receiver type execSandboxError is not declared"},
 	"httpConn.CloseWrite":       {refusal: "runtime/v1: httpConn.CloseWrite: the receiver type httpConn is not declared"},
 	"httpConn.Read":             {refusal: "runtime/v1: httpConn.Read: the receiver type httpConn is not declared"},
 	"httpConn.SetDeadline":      {refusal: "runtime/v1: httpConn.SetDeadline: the receiver type httpConn is not declared"},
