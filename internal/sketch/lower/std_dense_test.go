@@ -372,6 +372,23 @@ func lawSparseAgreesWithSet(seed int, count int) bool {
 
 test DenseSparseAgreesWithSet(seed int, count int) { assert lawSparseAgreesWithSet(seed, count) }
 
+type flat {}
+
+func lawFlatRowsKeepIDs(k int, c int) bool {
+	let n = (k%300 + 300) % 300
+	let mut a = dense.New[flat]()
+	let mut b = dense.WithCap[flat]((c%40 + 40) % 40)
+	let mut ok = true
+	for i in 0..n {
+		let ia = a.Put(flat)
+		let ib = b.Put(flat)
+		ok = ok && dense.Index(ia) == i && dense.Index(ib) == i && dense.Len(a) == i+1 && dense.Len(b) == i+1 && dense.Has(a, ia) && dense.Has(b, ib)
+	}
+	ok && len(dense.Rows(a)) == n && len(dense.Rows(b)) == n
+}
+
+test DenseFlatRowsKeepIDs(k int, c int) { assert lawFlatRowsKeepIDs(k, c) }
+
 func lawIDAtIsNext(k int) bool {
 	let n = (k%32 + 32) % 32
 	let mut c = dense.NewCount[int]()
@@ -485,6 +502,7 @@ var stdDenseLawStatements = map[string]string{
 	"dense ValueOfIntern":             `ValueOfIntern(xs []int, probe int) { let (s, ids, t, tids) = interned(xs) let mut values = Map[int, bool]{} let mut texts = Map[string, bool]{} let mut ok = true for i, x in xs { values[x] = true texts[word(x)] = true ok = ok && Value(s, ids[i]) == x && Text(t, tids[i]) == word(x) ok = ok && Lookup(s, x) == Some[ID[int]]{Value: ids[i]} && FindText(t, word(x)) == Some[ID[Str]]{Value: tids[i]} } let absent = maps.GetOr(values, probe, false) let absentText = maps.GetOr(texts, word(probe), false) ok = ok && (absent || Lookup(s, probe) == None) && (absentText || FindText(t, word(probe)) == None) ok && Interned(s) == len(values) && Texts(t) == len(texts) }`,
 	"dense ReleaseThenReuse":          `ReleaseThenReuse(seed int, count int) { let n = (count%64 + 64) % 64 let mut x = (seed%2147483648 + 2147483648) % 2147483648 let mut c = NewCounted[int]() let mut live = Map[int, ID[int]]{} let mut held = Map[int, int]{} let mut freed = Map[ID[int], bool]{} for _ in 0..n { x = (x*1103515245 + 12345) % 2147483648 let v = (x / 16) % 8 let op = (x / 1024) % 3 match live.Get(v) { case Some[ID[int]] as id: if c.Add(v) != id.Value { return false } if op == 1 { c.Use(id.Value) held[v] = maps.GetOr(held, v, 0) + 1 } else if op == 2 && maps.GetOr(held, v, 0) > 0 { c.Release(id.Value) held[v] = maps.GetOr(held, v, 0) - 1 if maps.GetOr(held, v, 0) == 0 { live = live.Delete(v) held = held.Delete(v) freed[id.Value] = true } } case None: let reuse = len(freed) > 0 let id = c.Add(v) for _, other in live { if other == id { return false } } if reuse != maps.GetOr(freed, id, false) { return false } freed = freed.Delete(id) live[v] = id } if Live(c) != len(live) { return false } for w, id in live { if Member(c, id) != w || Uses(c, id) != maps.GetOr(held, w, 0) || Find(c, w) != (Some[ID[int]]{Value: id}) { return false } } if live.Get(v) == None && Find(c, v) != None { return false } } true }`,
 	"dense SparseAgreesWithSet":       `SparseAgreesWithSet(seed int, count int) { let n = (count%64 + 64) % 64 let mut x = (seed%2147483648 + 2147483648) % 2147483648 let (_, ids) = filled([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) let mut s = NewSparse[int]() let mut model = Map[ID[int], bool]{} for _ in 0..n { x = (x*1103515245 + 12345) % 2147483648 let id = ids[(x/16)%16] let op = (x / 1024) % 7 if op < 4 { s.Insert(id) model[id] = true } else if op < 6 { s.Remove(id) model = model.Delete(id) } else { s.Clear() model = Map[ID[int], bool]{} } if Size(s) != len(model) { return false } for other in ids { if Contains(s, other) != maps.GetOr(model, other, false) { return false } } let mut seen = Map[ID[int], bool]{} for m in Members(s) { if !maps.GetOr(model, m, false) || maps.GetOr(seen, m, false) { return false } seen[m] = true } } true }`,
+	"dense FlatRowsKeepIDs":           `FlatRowsKeepIDs(k int, c int) { let n = (k%300 + 300) % 300 let mut a = New[flat]() let mut b = WithCap[flat]((c%40 + 40) % 40) let mut ok = true for i in 0..n { let ia = a.Put(flat) let ib = b.Put(flat) ok = ok && Index(ia) == i && Index(ib) == i && Len(a) == i+1 && Len(b) == i+1 && Has(a, ia) && Has(b, ib) } ok && len(Rows(a)) == n && len(Rows(b)) == n }`,
 	"dense IDAtIsNext":                `IDAtIsNext(k int) { let n = (k%32 + 32) % 32 let mut c = NewCount[int]() let mut ids = []ID[int]{} for _ in 0..n { ids = ids.Append(c.Next()) } let mut ok = true for i, id in ids { ok = ok && IDAt(c, i) == id } ok }`,
 	"dense EmptyRunsKeepTheirPlace":   `EmptyRunsKeepTheirPlace(xs []int) { let mut p = NewPool[int]() let before = p.PutList([]int{}) let _ = p.PutList(xs) let after = p.PutList([]int{}) RunLen(before) == 0 && RunLen(after) == 0 && (before == after) == (len(xs) == 0) }`,
 	"dense CutRestores":               `CutRestores(below []int, above []int, v int) { let mut s = NewStack[int]() for x in below { s.StackPush(x) } let m = Mark(s) for x in above { s.StackPush(x) } let deep = Depth(s) == len(below)+len(above) && slices.Equal(Since(s, m), above) s.Cut(m) let cut = Depth(s) == m && m == len(below) && slices.Equal(Since(s, 0), below) && len(Since(s, m)) == 0 s.StackPush(v) deep && cut && Depth(s) == m+1 && Since(s, m)[0] == v && slices.Equal(Since(s, 0)[0:m], below) }`,
