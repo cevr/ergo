@@ -11,6 +11,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"ergo.local/prototype/internal/embedread"
 )
 
 //go:generate go run ergo.local/prototype/internal/gobind/gostdgen src
@@ -18,16 +20,23 @@ import (
 //go:embed src
 var bindings embed.FS
 
+// sourceDir is this package's checkout directory, where a read of an
+// embedded binding is noted in the mutant runner's coverage pass
+// (embedread).
+var sourceDir = embedread.Dir()
+
 // Binding returns the binding file of the Go standard-library package at
 // importPath, and whether it has one.
 func Binding(importPath string) (string, bool) {
 	if importPath == "" || strings.Contains(importPath, "..") {
 		return "", false
 	}
-	data, err := bindings.ReadFile(path.Join("src", importPath, path.Base(importPath)+".ergo"))
+	name := path.Join("src", importPath, path.Base(importPath)+".ergo")
+	data, err := bindings.ReadFile(name)
 	if err != nil {
 		return "", false
 	}
+	embedread.Note(sourceDir, name)
 	return string(data), true
 }
 

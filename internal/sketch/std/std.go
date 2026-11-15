@@ -16,7 +16,14 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"ergo.local/prototype/internal/embedread"
 )
+
+// sourceDir is this package's checkout directory, where a read of an
+// embedded source is noted in the mutant runner's coverage pass
+// (embedread).
+var sourceDir = embedread.Dir()
 
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
@@ -65,6 +72,7 @@ func Prelude() map[string]string {
 	if err != nil {
 		panic("std: the prelude is not embedded: " + err.Error())
 	}
+	embedread.Note(sourceDir, "prelude.ergo")
 	return map[string]string{"prelude.ergo": string(data)}
 }
 
@@ -84,10 +92,12 @@ func Package(importPath string) (map[string]string, bool) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".ergo") {
 			continue
 		}
-		data, err := sources.ReadFile(path.Join(importPath, entry.Name()))
+		name := path.Join(importPath, entry.Name())
+		data, err := sources.ReadFile(name)
 		if err != nil {
 			return nil, false
 		}
+		embedread.Note(sourceDir, name)
 		files[entry.Name()] = string(data)
 	}
 	if len(files) == 0 {

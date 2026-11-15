@@ -391,7 +391,7 @@ func (e *engine) env(extra ...string) []string {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable:
+		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable, embedReadsVariable:
 			continue
 		}
 		out = append(out, kv)
@@ -804,7 +804,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 		argv = append(argv, "-test.testlogfile="+testLog)
 		defer os.Remove(testLog)
 	}
-	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir)...), e.cfg.CoverDeadline)
+	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir, embedReadsVariable+"=1")...), e.cfg.CoverDeadline)
 	if testLog != "" {
 		if f, err := os.Open(testLog); err == nil {
 			mu.Lock()

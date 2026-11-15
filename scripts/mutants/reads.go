@@ -17,8 +17,15 @@ import (
 // test process), and every regular file of the checkout the test opened
 // is recorded as a read: a block of the whole file (readBlock) whose tests
 // are the readers, which coverage.covering adds for every line of the
-// file. A file a test reads through go:embed (std's .ergo sources), or that
-// a program it starts reads, is not in the log.
+// file. A file a test reads through go:embed is in the log when its
+// package notes it (internal/embedread: std's .ergo sources and gostd's
+// bindings); a file a program the test starts reads is not.
+
+// embedReadsVariable is internal/embedread's Variable: in the coverage
+// pass, a package that embeds its sources (std, std/gostd) opens the
+// checkout file of each embedded file it reads, so the test log names it
+// (GT8b).
+const embedReadsVariable = "ERGO_MUTANTS_EMBED_READS"
 
 // readBlock is the block line of a read: no block of the cover tool
 // starts at line 0.
