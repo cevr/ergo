@@ -236,6 +236,10 @@ package (`chart.MinMax`, `chart.LineInto`). `TestDashGuiOnTheDesktop`
 holds both to the example's `dash-gui scene` on 24 seeded sensors, frame
 counts and scene scripts (`-dash.seed=N` replays one).
 
+Headless, `Drain` takes what the session posted (`Pump`) after each frame,
+as the window's own loop does after every input; `TestDashGuiHeapStaysFlat`
+holds the live heap after 4n frames to the one after n (F-GP4c-1).
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.

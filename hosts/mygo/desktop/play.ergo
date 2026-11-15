@@ -4,11 +4,16 @@
 // through the pixels, the hit test and the focus.
 
 import actor
+import go ergo.local/prototype/hosts/mygo/screen
 import ui
 import ui/layout
 import utf8
 
-// Drain feeds the window's queued input to d.
+// Drain feeds the window's queued input to d. After each frame it takes
+// what the session posted (Pump), as the window's own loop does after
+// every input: the session's watcher posts a Committed at each state the
+// actor commits, and a post into a full queue would hold the watcher, and
+// with it every state the actor commits from then on (F-GP4c-1).
 func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		let (next, ok) = d.w.Poll()
@@ -16,6 +21,9 @@ func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor
 			return
 		}
 		try Feed(d, next)
+		if next.Kind == screen.Frame {
+			try Pump(d)
+		}
 	}
 }
 
