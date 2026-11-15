@@ -1040,6 +1040,30 @@
       "to": "\t\tat = start + size\n",
       "rule": "Read takes each blob of cat-file --batch by its size and the newline after it (git's SnapshotLeavesTheIndex reads four files).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-plugintest-keys-unchecked", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\tif !KeysUnique(before) {",
+      "to": "\tif false {",
+      "rule": "plugin-test refuses two units of one key by law KeysAreUnique (memory's PluginTestRefusesEachFault).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-plugintest-edit-unchecked", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\tif !StaysInItsUnit(before, u.Units, inside) {",
+      "to": "\t\tif false {",
+      "rule": "plugin-test refuses a key that moves with an edit before its unit by law EditStaysInItsUnit (memory's PluginTestRefusesEachFault).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-plugintest-layer-unchecked", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/plugintest.ergo",
+      "from": "\t\tlet a = answers[i]\n",
+      "to": "\t\tlet a = answers[0]\n",
+      "rule": "plugin-test checks the layer that writes the files as they are by law EmptyLayerIsTheBase (memory's PluginTestRefusesEachFault).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

@@ -19,13 +19,16 @@ import time
 import utf8
 import github.com/cevr/ergo/modules/work/work
 
-// Lines is the reference language. drops and seesComments are the two
-// faults work plugin-test must refuse: units that lose the last byte,
-// and comment lines read as part of a body.
-type Lines { drops bool, seesComments bool } implements work.Splitter, work.Indexer, work.Checker
+// Lines is the reference language. fault names one fault work
+// plugin-test must refuse ("" for none): "drops" (units lose the last
+// byte), "comments" (comment lines read as part of a body), "dupes" (two
+// units of one name both answered), "positional" (a key carries the
+// unit's offset, so an edit before a unit changes its key) and "layer" (a
+// file of a layer has a diagnostic of its own, even unchanged).
+type Lines { fault string } implements work.Splitter, work.Indexer, work.Checker
 
 // NewLines is the reference language with no fault.
-func NewLines() Lines { Lines{drops: false, seesComments: false} }
+func NewLines() Lines { Lines{fault: ""} }
 
 // linesOf is text cut after each newline (the last piece may have none).
 func linesOf(text string) []string {
@@ -60,19 +63,23 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 	let mut cur = ""
 	let mut key = ""
 	let mut kind = "preamble"
+	let mut at = 0
+	let mut start = 0
 	for i, line in linesOf(text) {
+		at = at + len(line)
 		if !strings.HasPrefix(line, "unit ") {
 			cur = cur + line
 			continue
 		}
 		if cur != "" {
-			units = units.Append(work.Unit{Key: key, Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+			units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
 		}
+		start = at - len(line)
 		key = unitName(line)
 		if key == "" {
 			return work.Unreadable{File: file, Why: "a unit with no name at line \(i + 1)"}
 		}
-		if seen.Get(key) != None {
+		if seen.Get(key) != None && l.fault != "dupes" {
 			return work.Unreadable{File: file, Why: "two units named \(key)"}
 		}
 		seen[key] = true
@@ -80,19 +87,23 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 		cur = line
 	}
 	if cur != "" {
-		units = units.Append(work.Unit{Key: key, Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
+		units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: []work.Unit{}})
 	}
-	if l.drops && len(units) > 0 {
+	if l.fault == "drops" && len(units) > 0 {
 		let last = units[len(units)-1]
 		units[len(units)-1] = work.Unit{..last, Text: last.Text[0 : len(last.Text)-1]}
 	}
 	units
 }
 
+// keyed is a unit's key: its name, or with the fault "positional" its
+// name and the offset where it starts.
+func keyed(l Lines, name string, start int) string { if l.fault == "positional" { "\(name)@\(start)" } else { name } }
+
 func exported(key string) bool { key != "" && key[0] >= 'A' && key[0] <= 'Z' }
 
 // shape is a unit's contract (its header) and its body (the other lines
-// that are not blank, nor comments unless seesComments).
+// that are not blank, nor comments unless the fault is "comments").
 func shape(l Lines, u work.Unit) (string, []string) {
 	let mut header = ""
 	let mut body = []string{}
@@ -100,7 +111,7 @@ func shape(l Lines, u work.Unit) (string, []string) {
 		let text = strings.TrimSpace(line)
 		if i == 0 && u.Kind == "unit" {
 			header = text
-		} else if text != "" && (l.seesComments || !strings.HasPrefix(text, "#")) {
+		} else if text != "" && (l.fault == "comments" || !strings.HasPrefix(text, "#")) {
 			body = body.Append(text)
 		}
 	}
@@ -221,6 +232,9 @@ func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic
 				out = out.Append(work.Diagnostic{File: path, Line: i + 1, Column: 1, Message: strings.TrimPrefix(line, "error ")})
 			}
 		}
+		if l.fault == "layer" && slices.IndexFunc(layer, func(e work.FileEdit) bool { e.Path == path }) >= 0 {
+			out = out.Append(work.Diagnostic{File: path, Line: 1, Column: 1, Message: "edited"})
+		}
 	}
 	out
 }
@@ -340,7 +354,7 @@ law PluginFailuresAreUnanswered(names []string, bodies []string) {
 			}
 		}
 	}
-	let dropping = work.PluginOf(serving(Lines{drops: true, seesComments: false}), "lines", "/")
+	let dropping = work.PluginOf(serving(Lines{fault: "drops"}), "lines", "/")
 	let _ = dropping.Units("a.lines", text) catch {
 	case work.Unanswered:
 		return true
@@ -421,9 +435,9 @@ let linesOnly = work.PluginTestOptions{Files: Some[string]{Value: "*.lines"}, Ma
 test PluginTestNamesTheLaw {
 	let ok = try pluginWorld(NewLines(), pluginFiles).PluginTest("lines", linesOnly)
 	assert ok == work.PluginAdmitted{Command: "lines", Level: 2, Files: 2, Unreadable: 0, Laws: []string{"UnitsAreTheFile", "KeysAreUnique", "EditStaysInItsUnit", "ChangesOfSameIsEmpty", "CommentEditIsNoChange", "CheckIsPure", "EmptyLayerIsTheBase"}}
-	let dropped = refusal(pluginWorld(Lines{drops: true, seesComments: false}, pluginFiles))
+	let dropped = refusal(pluginWorld(Lines{fault: "drops"}, pluginFiles))
 	assert dropped == work.PluginRefused{Command: "lines", Law: "UnitsAreTheFile", File: "a.lines", Why: "the units' texts join to 27 bytes, the file has 28"}
-	let comments = refusal(pluginWorld(Lines{drops: false, seesComments: true}, pluginFiles))
+	let comments = refusal(pluginWorld(Lines{fault: "comments"}, pluginFiles))
 	assert comments == work.PluginRefused{Command: "lines", Law: "CommentEditIsNoChange", File: "a.lines", Why: "a comment added at its end is a change of A (body)"}
 }
 
@@ -450,4 +464,16 @@ test LanguageRunsOnlyTrusted {
 		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
 	}
 	assert bad.Command == ""
+}
+
+// plugin-test refuses the three other faults with the law each breaks:
+// two units of one name (KeysAreUnique), a key that moves with an edit
+// before its unit (EditStaysInItsUnit), a layer that writes the files as
+// they are yet changes the diagnostics (EmptyLayerIsTheBase).
+test PluginTestRefusesEachFault {
+	let dupes = Map[string, string]{"d.lines": "unit d(x)\n  one\nunit d(y)\n  two\n"}
+	assert refusal(pluginWorld(Lines{fault: "dupes"}, dupes)) == work.PluginRefused{Command: "lines", Law: "KeysAreUnique", File: "d.lines", Why: "two units have one key"}
+	let moved = refusal(pluginWorld(Lines{fault: "positional"}, Map[string, string]{"p.lines": "unit A(x) y\n  call\nunit c\n"}))
+	assert moved == work.PluginRefused{Command: "lines", Law: "EditStaysInItsUnit", File: "p.lines", Why: "a space added at byte 10, in unit A@0, changed another unit"}
+	assert refusal(pluginWorld(Lines{fault: "layer"}, pluginFiles)) == work.PluginRefused{Command: "lines", Law: "EmptyLayerIsTheBase", File: "", Why: "2 diagnostics, the first check had 0"}
 }
