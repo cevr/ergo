@@ -26,6 +26,7 @@ Each is an edit of `unparkedWaits` in `runtime_waits_test.go`, judged by hand (t
 | `Wait()` calls not counted | TestRuntimeWaitsPark | The rows `machineStart` and `Task.Wait` go stale. |
 | `rt.Park` not seen | TestRuntimeWaitsPark | Every parked wait (`Actor.await`, `Queue.wait`, …) is flagged. |
 | Function literals not entered (`mk1-residue-skips-literals`) | TestRuntimeWaitRule | Survives TestRuntimeWaitsPark; the rule test's literal is not flagged. |
+| A borrow, record, union or dense-id key allowed, an import not resolved, or a string-defined key refused (`cs11-map-*`) | TestCompilerMapKeyRule | The rule module's refused keys differ from the expected five. |
 
 # Unsafe inventory mutants (wf10 STD-sh r2)
 

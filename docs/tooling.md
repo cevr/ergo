@@ -348,6 +348,7 @@ Spec references move with a renumbering: `go run ./scripts/specrefs DOC SECTION`
   - `TestTestsCompareNoWallClock`: a test in `internal/sketch` compares no measured duration with any nonzero constant; elsewhere the floor is 10 s (`wallclock-allow.txt`).
   - `TestSplitsPinNoDomain`: a split in `internal/sketch` sets no `Count`/`Digest` (`count`/`digest`) pin, in its literal or by an assignment (`split-pin-allow.txt`).
   - `TestSketchBuildsSayWhy`: a declaration in an `internal/sketch` test file that calls `buildAll` or `ergoCLI`, or runs the `go` command, has a "builds Go because" line in its own doc comment (`builds-go-allow.txt`).
+- **Compiler data rule** (compile-speed CS11; `internal/residue/compiler_maps_test.go`). `TestCompilerHasNoPointerKeyedMaps`: no `Map` in the self-hosted `compiler/` module is keyed by a node, a type or a symbol. A key is a builtin or std type, or a type `compiler/` defines over string; never a borrow, a record, union, operation type or machine `compiler/` declares, or a defined integer it declares (a dense id). A per-id result is a dense side table. The rule passes while `compiler/` does not exist; `TestCompilerMapKeyRule` runs it on a small module.
 
 ## Package split
 
