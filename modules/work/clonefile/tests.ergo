@@ -1,0 +1,9 @@
+// The work.Cloner laws on the host, in a folder of each case's own
+// (TestAmbient). On macOS with APFS they run cp -c for real; off macOS
+// (a cp with no -c) or off APFS a clone is Unsupported and the laws hold
+// by their failure cases.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()) }
