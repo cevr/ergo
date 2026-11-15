@@ -131,7 +131,7 @@ type valueFacts struct {
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
-	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	from     map[freshParam]int8        // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
@@ -160,7 +160,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
-			from:     map[freshKey]int8{},
+			from:     map[freshParam]int8{},
 			consumes: map[*syntax.CallExpr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
@@ -2006,8 +2006,8 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	return vv.init != nil && w.fresh(vv.init)
 }
 
-// freshKey names a parameter of a function: freshFrom's question.
-type freshKey struct {
+// freshParam names a parameter of a function: freshFrom's question.
+type freshParam struct {
 	f *check.Func
 	i int
 }
@@ -2021,7 +2021,7 @@ type freshKey struct {
 // is not fresh, as in freshResult.
 func (l *lowerer) freshFrom(f *check.Func, i, n int) bool {
 	vf := l.valueFacts()
-	k := freshKey{f, i}
+	k := freshParam{f, i}
 	switch vf.from[k] {
 	case 1, 3:
 		return false
