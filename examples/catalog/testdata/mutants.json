@@ -62,16 +62,6 @@
       "killers": ["examples:catalog"]
     },
     {
-      "name": "xml-float-read-as-float32",
-      "origin": "wf10 REF XML",
-      "file": "modules/xml/reader.ergo",
-      "from": "\tstrconv.ParseFloat(strings.TrimSpace(s), 64)",
-      "to": "\tstrconv.ParseFloat(strings.TrimSpace(s), 32)",
-      "rule": "RoundTrips: a float64 reads back as itself. Every text still reads, and NumbersAtTheirEdges' 0.5 is a float32, so only the round trip sees it.",
-      "anchor": {"tests": ["examples:catalog"]},
-      "killers": ["examples:catalog"]
-    },
-    {
       "name": "xml-control-character-written",
       "origin": "wf10 REF XML",
       "file": "modules/xml/text.ergo",

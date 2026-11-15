@@ -102,10 +102,12 @@
       "name": "rpcgen-refined-one-step",
       "origin": "wf10 FD1a (FD1-g1)",
       "file": "internal/rpcgen/rpcgen.go",
-      "from": "\t\t\tx = bk.String() + \"(v)\"\n",
+      "from": "\t\t\tx = bk.Name + \"(v)\"\n",
       "to": "\t\t\tx = \"v\"\n",
       "rule": "The int walker of a defined or refined int converts through its base, int64(int(v)): a refined value converts in one step only to its base.",
-      "killers": ["internal/rpcgen:TestRefinedIntConvertsThroughItsBase"]
+      "killers": [
+        "internal/rpcgen:TestRefinedIntConvertsThroughItsBase"
+      ]
     },
     {
       "name": "rpc-method-405",
