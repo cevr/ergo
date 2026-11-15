@@ -159,8 +159,9 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 			return []Op[E]{}
 		}
 	case Tick as t:
+		let moving = s.frame.moving
 		let signals = ticked(&s.frame, t.At)
-		if len(signals) == 0 {
+		if len(signals) == 0 && !moving {
 			return []Op[E]{}
 		}
 		for e in signals {

@@ -175,8 +175,8 @@ func writeAgain[E](f *Frame[E], i int) bool {
 // not kept. The groups are taken from the last to the first, so the
 // groups inside a group are known when it is kept.
 func keepGroups[E](f *Frame[E]) {
-	f.passes = f.passes + 1
-	let stamp = f.passes
+	f.keptPasses = f.keptPasses + 1
+	let stamp = f.keptPasses
 	let mut inner = [][]groupKey[E]{}
 	if f.nested {
 		for _ in 0..f.ngroups {
