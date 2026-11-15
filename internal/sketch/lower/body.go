@@ -112,10 +112,14 @@ type funcCtx struct {
 	// inGroup is the component call whose own call is being written
 	// inside its group (uigroup.go), so that call is not a group again.
 	inGroup *syntax.CallExpr
-	scope   *namer
-	out     *strings.Builder
-	depth   int
-	locals  map[*check.Var]string
+	// preset holds the Go locals a component call's computed arguments
+	// were evaluated into before its group (uigroup.go): its own call
+	// reads them, so each argument is evaluated once.
+	preset map[syntax.Expr]string
+	scope  *namer
+	out    *strings.Builder
+	depth  int
+	locals map[*check.Var]string
 	// cells are the immutable locals a let binds by a provider cell
 	// conversion, with it (cells.go).
 	cells map[*check.Var]check.Conversion

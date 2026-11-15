@@ -277,6 +277,9 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // expr lowers x; in a statement header, a composite literal value is
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if v, ok := fc.preset[x]; ok {
+		return operand{val: v} // evaluated once already (uigroup.go)
+	}
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
 		// The value rule's copy (values.go).

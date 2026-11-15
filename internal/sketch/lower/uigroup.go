@@ -10,9 +10,9 @@ import (
 
 // Skipping (P-ui; stdlib.md, UI 13). A component call is a statement call
 // of a function the program declares whose first argument is a
-// *ui.Frame[E] and whose other arguments are values of types that compare
-// with == and hold no pointer, written as names, field selections or
-// constants, with no error or capability row: a view is pure apart from
+// *ui.Frame[E] (a name) and whose other arguments are values of types
+// that compare with == and hold no pointer, written as any expression
+// with no error or capability row (NS2a), the call itself having none: a view is pure apart from
 // its writes through the frame (UI 1), so equal arguments write equal
 // nodes. The lowering passes such a call through std ui's group, which
 // writes the nodes the last pass's call wrote when its arguments are
@@ -20,10 +20,13 @@ import (
 //
 //	group[E, A](env, f, args, func(_ *Env) (struct{}, error) { Card(env, f, a, b); return struct{}{}, nil }, site)
 //
-// A is the one argument's type, or a struct of them. The arguments are
-// evaluated twice (into args, and by the call when it runs), which is why
-// only names, selections and constants qualify: they have no effect and
-// give the same value both times.
+// A is the one argument's type, or a struct of them. A name, a field
+// selection or a constant is written twice (into args, and in the call
+// when it runs): it has no effect and gives the same value both times.
+// Any other argument is evaluated once, in order, into a Go local that
+// both read (fc.preset), as an ordinary call evaluates it once; one with
+// a row (a failure, a capability, a try or catch) is no group, as Compose
+// takes any argument expression and compares its value in the callee.
 //
 // SetUISkipForTest(false) selects the reference: every call runs
 // (TestUISkipAgrees); so does a compiler built with
@@ -66,11 +69,36 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 		return nil
 	}
 	for _, a := range x.Args[1:] {
-		if !plainOperand(a) || !groupArg(fc.typeOf(a)) {
+		if !(plainOperand(a) || fc.rowFree(a)) || !groupArg(fc.typeOf(a)) {
 			return nil
 		}
 	}
 	return g
+}
+
+// rowFree reports an expression whose evaluation can neither fail nor use
+// a capability: no try or catch, and no call with a row, outside a
+// function literal (which an argument of a group cannot be: a function
+// does not compare).
+func (fc *funcCtx) rowFree(x syntax.Expr) bool {
+	free := true
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if !free {
+			return false
+		}
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.TryExpr, *syntax.CatchExpr:
+			free = false
+		case *syntax.CallExpr:
+			if c := fc.l.info.Calls[n]; c == nil || failsHere(c) || len(rowElems(c.Needs)) > 0 || c.StartsTask {
+				free = false
+			}
+		}
+		return free
+	})
+	return free
 }
 
 // groupFrame is the frame type t points to and its group function, or
@@ -196,9 +224,19 @@ func pointerFree(t check.Type, seen map[check.Type]bool) bool {
 func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (string, bool, bool) {
 	frame, _ := groupFrame(fc.typeOf(x.Args[0]))
 	var types, vals []string
+	preset := map[syntax.Expr]string{}
 	for _, a := range x.Args[1:] {
-		types = append(types, fc.goType(fc.typeOf(a)))
-		vals = append(vals, fc.value(a))
+		t := fc.goType(fc.typeOf(a))
+		types = append(types, t)
+		v := fc.value(a)
+		if _, constant := fc.l.info.Values[a]; !constant && !plainOperand(a) {
+			// Evaluated once, here, in order: the call reads the local.
+			loc := fc.temp("arg")
+			fc.line("var " + loc + " " + t + " = " + v)
+			preset[a] = loc
+			v = loc
+		}
+		vals = append(vals, v)
 	}
 	f := fc.value(x.Args[0])
 	var argType, args string
@@ -215,10 +253,10 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 		argType = "struct{" + strings.Join(fields, "; ") + "}"
 		args = argType + "{" + strings.Join(vals, ", ") + "}"
 	}
-	old := fc.inGroup
-	fc.inGroup = x
+	old, oldPreset := fc.inGroup, fc.preset
+	fc.inGroup, fc.preset = x, preset
 	text, _, fallible := fc.callText(x, c)
-	fc.inGroup = old
+	fc.inGroup, fc.preset = old, oldPreset
 	if fallible {
 		ice(x, "a component call lowered as fallible")
 	}

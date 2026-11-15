@@ -168,6 +168,70 @@ func headed(f *ui.Frame[int], s St) {
 	}
 }
 
+// tally counts its calls in c: an argument that calls it shows how often
+// the argument was evaluated.
+func tally(c *Counter) int {
+	c.N = c.N + 1
+	c.N / 3
+}
+
+func shown(f *ui.Frame[int], n int) {
+	ui.Text(f, "shown \(n)")
+}
+
+func talliedView(f *ui.Frame[int], c *Counter) {
+	shown(f, tally(c))
+}
+
+// tallied renders a component whose argument calls tally, over four
+// passes: the argument is evaluated once a pass, whether the call runs or
+// is written again (its value changes every third call).
+func tallied() needs Console {
+	let mut f = ui.NewFrame[int]()
+	let mut c = Counter{N: 0}
+	for _ in 0..4 {
+		let _ = ui.Render(&f, talliedView, &c)
+	}
+	Console.Println("tallied \(c.N)")
+	Console.Println(shot(ui.FrameShape(&f), ""))
+}
+
+func labelled(f *ui.Frame[int], id int, label string) {
+	ui.Row(f, ui.Plain()) {
+		ui.Text(f, label)
+		ui.Check(f, "c", false, id)
+	}
+}
+
+// computed is the cards of elsewhere written with a computed label, a
+// call that is a group since NS2a: a change of the header alone runs none.
+func computed(f *ui.Frame[int], s St) {
+	ui.Text(f, "tick \(s.A)")
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
+			labelled(f, it.Id, "row \(it.Id) \(it.Text)")
+		}
+	}
+}
+
+// allChange renders n cards, then n cards each with a new text: every
+// component runs (groups and reference alike), and the nodes compared, the
+// components run and the groups kept are counted.
+func allChange(n int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let _ = ui.Render(&f, computed, St{A: 0, It: it, Items: listed(n, -1)})
+	let mut xs = []Item{}
+	for i in 0..n {
+		xs = xs.Append(Item{Id: i, Text: "new", Done: false})
+	}
+	let _ = ui.Render(&f, computed, St{A: 0, It: it, Items: xs})
+	Console.Println("allchange \(n) compared \(ui.Compared(&f))")
+	Console.Println("allcount \(n) \(ui.GroupRuns(&f)) \(ui.GroupsKept(&f))")
+	let _ = ui.Render(&f, computed, St{A: 1, It: it, Items: xs})
+	Console.Println("allcount \(n) header \(ui.GroupRuns(&f)) \(ui.Compared(&f))")
+}
+
 // elsewhere renders n cards under a header, then again with only the
 // header changed: the components run and the nodes Commit compared then.
 func elsewhere(n int) needs Console {
@@ -354,7 +418,9 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		w("\tui.Text(f, \"stopped\")")
 		w("}")
 	default:
-		args := []string{"a, it", "it.Id, it", "3, it", "a+1, it"}[g.r.IntN(4)]
+		// Names, selections and constants, and computed arguments (NS2a):
+		// arithmetic, a pure call, a record built with an interpolation.
+		args := []string{"a, it", "it.Id, it", "3, it", "a+1, it", "a*2%5, it", "len(rows(a)), it", "a%3, Item{Id: it.Id, Text: \"\\(it.Text)\\(a%2)\", Done: it.Done}"}[g.r.IntN(7)]
 		c := g.call(i, args)
 		if c == "" {
 			w(`ui.Text(f, "leaf \(it.Id)")`)
@@ -473,7 +539,11 @@ func (g *uiSkipGen) states(n int) []string {
 // cards runs none of them and compares no node of theirs, at n 50 and
 // 200 (elsewhere, NS1); a card inside a component written again is kept
 // with it (nested). After each seed a pass that calls no component holds
-// no argument slot (held 0, as the reference holds none).
+// no argument slot (held 0, as the reference holds none). A component
+// argument that calls a function counting its calls is evaluated once a
+// pass (tallied), and rows whose label is computed are kept when it is
+// equal and run once when every label changes, comparing the nodes the
+// reference compares (allChange, at 50 and 200).
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
@@ -483,7 +553,8 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg,
 // ui-group-off-unchecked, ui-group-same-skip-pure, ui-group-cut-kept,
 // ui-group-again-skips, ui-group-fresh-impure-leak, ui-group-cut-slot-leak,
-// ui-group-inner-unstamped, ui-group-inner-unlisted.
+// ui-group-inner-unstamped, ui-group-inner-unlisted, ui-ns2a-arg-twice,
+// ui-ns2a-arg-unvalued, ui-ns2a-computed-refused.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
@@ -510,7 +581,7 @@ func TestUISkipAgrees(t *testing.T) {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -532,7 +603,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") {
 				keep = append(keep, l)
 			}
 		}
@@ -573,7 +644,7 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
-		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "):
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "):
 			elsewhere = append(elsewhere, l)
 		}
 	}
@@ -587,7 +658,11 @@ func TestUISkipAgrees(t *testing.T) {
 	// header and its sibling alone, at 50 rows as at 200.
 	// A group written again keeps the groups inside it: the card in framed
 	// is kept through it, so framed alone runs when its tag changes.
-	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
-		t.Errorf("elsewhere: %q, want %q (n, components run, nodes compared; components run in nested)", elsewhere, want)
+	// When every row's computed argument changes, each row runs once and
+	// Commit compares what the reference compares (allchange, a behaviour
+	// line, equal under both builds); a later pass that changes the header
+	// alone runs none of them (allcount, NS1 and NS2a).
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change)", elsewhere, want)
 	}
 }
