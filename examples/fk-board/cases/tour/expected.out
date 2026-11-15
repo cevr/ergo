@@ -1,0 +1,147 @@
+> show
+  To Do (6): card-1 card-2 card-3 card-4 card-5 card-6
+  In Progress (5): card-7 card-8 card-9 card-10 card-11
+  Done (6): card-12 card-13 card-14 card-15 card-16 card-17
+> press card-6
+  drag: pressed card-6
+> release
+  drag: idle
+> press card-1
+  drag: pressed card-1
+> move 100 103 todo 3
+> move 100 200 todo 3
+  drag: dragging card-1 over todo 3
+> release
+  drag: idle
+  says: Dropped Align the finder scope in position 4 of To Do.
+  asks: save the board
+> press card-2 300 100
+  drag: pressed card-2
+> move 300 120 in-progress 0
+  drag: dragging card-2 over in-progress 0
+> release
+  drag: idle
+  says: Dropped Recoat the primary mirror in position 1 of In Progress.
+  asks: save the board
+> press card-3
+  drag: pressed card-3
+> move 100 200 todo 1
+  drag: dragging card-3 over todo 1
+> move 400 200 off
+  drag: dragging card-3 over nothing
+> release
+  drag: idle
+  says: Drag cancelled, Log the meteor shower counts returned to original position.
+> press card-4
+  drag: pressed card-4
+> move 100 200 done 0
+  drag: dragging card-4 over done 0
+> escape
+  drag: idle
+  says: Drag cancelled, Replace the dome's drive belt returned to original position.
+> show
+  To Do (5): card-3 card-4 card-1 card-5 card-6
+  In Progress (6): card-2 card-7 card-8 card-9 card-10 card-11
+  Done (6): card-12 card-13 card-14 card-15 card-16 card-17
+> lift card-5
+  drag: lifted card-5 to todo 3
+  says: Picked up Calibrate the spectrograph. Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel.
+> down
+  asks: where a move goes from todo 3: todo 4
+  drag: lifted card-5 to todo 4
+  says: Position 5 in To Do.
+  asks: focus card-5
+> down
+  asks: where a move goes from todo 4: todo 4
+  asks: focus card-5
+> up
+  asks: where a move goes from todo 4: todo 3
+  drag: lifted card-5 to todo 3
+  says: Position 4 in To Do.
+  asks: focus card-5
+> up
+  asks: where a move goes from todo 3: todo 2
+  drag: lifted card-5 to todo 2
+  says: Position 3 in To Do.
+  asks: focus card-5
+> up
+  asks: where a move goes from todo 2: todo 1
+  drag: lifted card-5 to todo 1
+  says: Position 2 in To Do.
+  asks: focus card-5
+> up
+  asks: where a move goes from todo 1: todo 0
+  drag: lifted card-5 to todo 0
+  says: Position 1 in To Do.
+  asks: focus card-5
+> drop
+  drag: idle
+  says: Dropped Calibrate the spectrograph in position 1 of To Do.
+  asks: focus card-5
+  asks: save the board
+> lift card-7
+  drag: lifted card-7 to in-progress 1
+  says: Picked up Map the variable stars of Cygnus. Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel.
+> next
+  asks: where a move goes from in-progress 1: done 0
+  drag: lifted card-7 to done 0
+  says: Moved to Done, position 1.
+  asks: focus card-7
+> next
+  asks: where a move goes from done 0: done 0
+  asks: focus card-7
+> next
+  asks: where a move goes from done 0: done 0
+  asks: focus card-7
+> previous
+  asks: where a move goes from done 0: in-progress 0
+  drag: lifted card-7 to in-progress 0
+  says: Moved to In Progress, position 1.
+  asks: focus card-7
+> down
+  asks: where a move goes from in-progress 0: in-progress 1
+  drag: lifted card-7 to in-progress 1
+  says: Position 2 in In Progress.
+  asks: focus card-7
+> drop
+  drag: idle
+  says: Dropped Map the variable stars of Cygnus in position 2 of In Progress.
+  asks: focus card-7
+  asks: save the board
+> lift card-12
+  drag: lifted card-12 to done 0
+  says: Picked up Order the new eyepieces. Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel.
+> next
+  asks: where a move goes from done 0: done 0
+  asks: focus card-12
+> escape
+  drag: idle
+  says: Drag cancelled, Order the new eyepieces returned to original position.
+  asks: focus card-12
+> show
+  To Do (5): card-5 card-3 card-4 card-1 card-6
+  In Progress (6): card-2 card-7 card-8 card-9 card-10 card-11
+  Done (6): card-12 card-13 card-14 card-15 card-16 card-17
+> add done
+  form: open on done, title ""
+  asks: focus the form
+> type   Polish the lens
+  form: open on done, title "  Polish the lens  "
+> submit
+  asks: an id for "Polish the lens" in done
+  form: shut
+  asks: save the board
+> add todo
+  form: open on todo, title ""
+  asks: focus the form
+> type
+  form: open on todo, title "   "
+> submit
+> type Count the moths
+  form: open on todo, title "Count the moths"
+> cancel
+  form: shut
+> end
+  To Do (5): card-5 card-3 card-4 card-1 card-6
+  In Progress (6): card-2 card-7 card-8 card-9 card-10 card-11
+  Done (7): card-12 card-13 card-14 card-15 card-16 card-17 new-1

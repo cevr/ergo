@@ -1,0 +1,26 @@
+// Package memory holds Shelf, a board.Store that keeps the board for one
+// run.
+
+import fkboard/board
+import sync
+
+// Shelf is a board.Store in memory. Its board is in a sync.Ref, so every
+// copy of a Shelf is the same store. NewShelf makes one.
+type Shelf { saved sync.Ref[Option[[]board.Column]], saves sync.Ref[int] }
+
+// NewShelf is a Shelf with nothing saved.
+func NewShelf() Shelf {
+	Shelf{saved: sync.NewRef[Option[[]board.Column]](None), saves: sync.NewRef[int](0)}
+}
+
+// Load is the board saved last.
+func Load(s Shelf) Option[[]board.Column] fails board.Broken { s.saved.Get() }
+
+// Save keeps columns.
+func Save(s Shelf, columns []board.Column) fails board.Broken {
+	s.saved.Set(Some[[]board.Column]{Value: columns})
+	s.saves.Set(s.saves.Get() + 1)
+}
+
+// Saves is how many saves the shelf took.
+func Saves(s Shelf) int { s.saves.Get() }
