@@ -77,42 +77,115 @@ func NewMirror[E](root Id[E]) Mirror[E] {
 	m
 }
 
-// Apply applies ops in order.
+// Apply applies ops in order, all or nothing: when an op does not fit,
+// Apply undoes the ops before it, in reverse, and fails with BadPatch, so
+// the mirror is as it was before the patch (a typed failure never leaves
+// half a change, and a host can resync without guessing). A Remove takes
+// its subtree out of the map at once, so a later op of the patch cannot
+// name it, and frees its entries only when the whole patch fits.
 func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
+	let mut done = []undo[E]{}
 	for op in ops {
-		match op {
-		case Insert[E] as o:
-			if holds(m, o.Id) {
-				return BadPatch{Why: "insert of a node the mirror holds"}
+		let u = applyOp(m, op) catch {
+		case BadPatch as err:
+			rollBack(m, done)
+			return err
+		}
+		done = done.Append(u)
+	}
+	for u in done {
+		match u {
+		case undoRemove[E] as x:
+			for d in x.dropped {
+				let _ = arena.Free(&m.store, d.ref) catch {
+				case arena.Stale:
+					Unreachable("ui: the mirror holds a freed entry")
+				}
 			}
-			let pr = try held(m, o.Parent)
-			try checkBefore(m, o.Parent, o.Id, o.Before)
-			m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
-			link(m, pr, o.Id, o.Before)
-		case Move[E] as o:
-			let r = try held(m, o.Id)
-			if entry(m, r).parent != o.Parent {
-				return BadPatch{Why: "move to another parent"}
+		case _:
+		}
+	}
+}
+
+// undo is how to take back one applied op: an Insert by forgetting its
+// node, a Move by putting the node back before the sibling it had, a
+// Remove by putting its subtree's entries back in the map and its node
+// back before the sibling it had, a Set by setting the node it had.
+type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before Option[Id[E]]} | undoRemove{id Id[E], before Option[Id[E]], dropped []dropped[E]} | undoSet{id Id[E], node Node[E]}
+
+// dropped is an entry a Remove took out of the map, not yet freed.
+type dropped[E] { id Id[E], ref arena.Ref[mirrored[E]] }
+
+// applyOp applies one op, and is how to take it back.
+func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
+	match op {
+	case Insert[E] as o:
+		if holds(m, o.Id) {
+			return BadPatch{Why: "insert of a node the mirror holds"}
+		}
+		let pr = try held(m, o.Parent)
+		try checkBefore(m, o.Parent, o.Id, o.Before)
+		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
+		link(m, pr, o.Id, o.Before)
+		undoInsert[E]{id: o.Id}
+	case Move[E] as o:
+		let r = try held(m, o.Id)
+		let e = entry(m, r)
+		if e.parent != o.Parent {
+			return BadPatch{Why: "move to another parent"}
+		}
+		let pr = try held(m, o.Parent)
+		try checkBefore(m, o.Parent, o.Id, o.Before)
+		unlink(m, pr, r)
+		link(m, pr, o.Id, o.Before)
+		undoMove[E]{id: o.Id, before: e.next}
+	case Remove[E] as o:
+		let r = try held(m, o.Id)
+		if o.Id == m.root {
+			return BadPatch{Why: "remove of the root"}
+		}
+		let e = entry(m, r)
+		let pr = try held(m, e.parent)
+		unlink(m, pr, r)
+		undoRemove[E]{id: o.Id, before: e.next, dropped: dropTree(m, o.Id, []dropped[E]{})}
+	case Set[E] as o:
+		let r = try held(m, o.Id)
+		let e = entry(m, r)
+		if kindOf(e.node) != kindOf(o.Node) {
+			return BadPatch{Why: "set changes the kind of a node"}
+		}
+		let node = o.Node
+		edit(m, r, func(n *mirrored[E]) { n.node = node })
+		undoSet[E]{id: o.Id, node: e.node}
+	}
+}
+
+// rollBack takes back done, the last op first.
+func rollBack[E](m *Mirror[E], done []undo[E]) {
+	for i in 0..len(done) {
+		match done[len(done)-1-i] {
+		case undoInsert[E] as x:
+			let r = refOf(m, x.id)
+			unlink(m, refOf(m, entry(m, r).parent), r)
+			let _ = arena.Free(&m.store, r) catch {
+			case arena.Stale:
+				Unreachable("ui: the mirror holds a freed entry")
 			}
-			let pr = try held(m, o.Parent)
-			try checkBefore(m, o.Parent, o.Id, o.Before)
+			m.refs = m.refs.Delete(x.id)
+		case undoMove[E] as x:
+			let r = refOf(m, x.id)
+			let pr = refOf(m, entry(m, r).parent)
 			unlink(m, pr, r)
-			link(m, pr, o.Id, o.Before)
-		case Remove[E] as o:
-			let r = try held(m, o.Id)
-			if o.Id == m.root {
-				return BadPatch{Why: "remove of the root"}
+			link(m, pr, x.id, x.before)
+		case undoRemove[E] as x:
+			for d in x.dropped {
+				m.refs[d.id] = d.ref
 			}
-			let pr = try held(m, entry(m, r).parent)
-			unlink(m, pr, r)
-			forget(m, o.Id)
-		case Set[E] as o:
-			let r = try held(m, o.Id)
-			if kindOf(entry(m, r).node) != kindOf(o.Node) {
-				return BadPatch{Why: "set changes the kind of a node"}
-			}
-			let node = o.Node
-			edit(m, r, func(n *mirrored[E]) { n.node = node })
+			let pr = refOf(m, entry(m, refOf(m, x.id)).parent)
+			link(m, pr, x.id, x.before)
+		case undoSet[E] as x:
+			let node = x.node
+			edit(m, refOf(m, x.id), func(n *mirrored[E]) { n.node = node })
 		}
 	}
 }
@@ -257,19 +330,16 @@ func childIds[E](m *Mirror[E], e mirrored[E]) []Id[E] {
 	}
 }
 
-func forget[E](m *Mirror[E], id Id[E]) {
-	match m.refs.Get(id) {
-	case Some[arena.Ref[mirrored[E]]] as r:
-		for k in childIds(m, entry(m, r.Value)) {
-			forget[E](m, k)
-		}
-		let _ = arena.Free(&m.store, r.Value) catch {
-		case arena.Stale:
-			Unreachable("ui: the mirror holds a freed entry")
-		}
-		m.refs = m.refs.Delete(id)
-	case None:
+// dropTree takes the subtree of id out of the map, and is its entries, which
+// stay in the store until the patch fits.
+func dropTree[E](m *Mirror[E], id Id[E], acc []dropped[E]) []dropped[E] {
+	let r = refOf(m, id)
+	let mut out = acc.Append(dropped[E]{id: id, ref: r})
+	for k in childIds(m, entry(m, r)) {
+		out = dropTree[E](m, k, out)
 	}
+	m.refs = m.refs.Delete(id)
+	out
 }
 
 // MirrorShape is what m shows, the children of the root.
@@ -340,8 +410,8 @@ law MirrorWorkIsLinear(n int, seed int) {
 	reads[2]-reads[1] == 2*(reads[1]-reads[0])
 }
 
-// badPatchView is the law's view: two columns of keyed text rows, keys
-// from cols. (a law's helper)
+// badPatchView is the law's view: columns of keyed text rows, keys from
+// cols. (a law's helper)
 func badPatchView(f *Frame[int], cols [][]int) {
 	for c in cols {
 		Column(f, Plain()) {
@@ -352,20 +422,40 @@ func badPatchView(f *Frame[int], cols [][]int) {
 	}
 }
 
-// badPatchRejected is whether bad, applied after good on a fresh mirror
-// of root, fails with BadPatch, while good alone applies. (a law's helper)
-func badPatchRejected(root Id[int], good []Op[int], bad Op[int]) bool {
+// badPatchRejected is whether the patch good then bad fails with
+// BadPatch on a mirror of root that applied base, and leaves it as it was:
+// the same screen and the same held nodes, and good then applies to it as
+// to a mirror that never saw the failed patch. (a law's helper)
+func badPatchRejected(root Id[int], base []Op[int], good []Op[int], bad Op[int]) bool {
 	let mut m = NewMirror[int](root)
+	Apply(&m, base) catch {
+	case BadPatch:
+		return false
+	}
+	let shape = MirrorShape(&m)
+	let held = Held(&m)
+	let mut failed = false
+	Apply(&m, good.Append(bad)) catch {
+	case BadPatch:
+		failed = true
+	}
+	if !failed || !SameShapes(MirrorShape(&m), shape) || Held(&m) != held {
+		return false
+	}
+	let mut w = NewMirror[int](root)
+	Apply(&w, base) catch {
+	case BadPatch:
+		return false
+	}
+	Apply(&w, good) catch {
+	case BadPatch:
+		return false
+	}
 	Apply(&m, good) catch {
 	case BadPatch:
 		return false
 	}
-	let mut failed = false
-	Apply(&m, []Op[int]{bad}) catch {
-	case BadPatch:
-		failed = true
-	}
-	failed
+	SameShapes(MirrorShape(&m), MirrorShape(&w)) && Held(&m) == Held(&w)
 }
 
 // insertsUnder is the Inserts of ops whose parent is p. (a law's helper)
@@ -383,13 +473,31 @@ func insertsUnder(ops []Op[int], p Id[int]) []Insert[int] {
 	out
 }
 
-// MirrorRejectsBadPatches (FK11-g8 follow-up): over drawn screens of two
-// columns of rows and a second pass that adds rows, each op that does
-// not fit the mirror the first pass built fails with BadPatch: an Insert
-// of an Id it holds, an Insert under or a Set, Move or Remove of an Id it
-// does not hold, an Insert or Move whose Before is itself, a node it does not
-// hold or a child of the other column, a Move to the other column, a
-// Remove of the root, and a Set that changes a node's kind.
+// insertsOf is the Inserts of ops of a text node that says text. (a law's helper)
+func insertsOf(ops []Op[int], text string) []Insert[int] {
+	let mut out = []Insert[int]{}
+	for op in ops {
+		match op {
+		case Insert[int] as o:
+			if o.Node == (TextNode{Value: text, Style: Plain()}) {
+				out = out.Append(o)
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// MirrorRejectsBadPatches (FK11-g8 follow-up): over drawn screens of
+// three columns of rows and a second pass that adds rows, each op that
+// does not fit the mirror the first pass built fails with BadPatch: an
+// Insert of an Id it holds, an Insert under or a Set, Move or Remove of
+// an Id it does not hold, an Insert or Move whose Before is itself, a node
+// it does not hold or a child of another column, a Move to another
+// column, a Remove of the root, and a Set that changes a node's kind. A
+// patch is all or nothing: each bad op comes after valid ones in its
+// patch (a Set, a Move, an Insert, a Remove of a row and of a whole
+// column), and the failed patch leaves the mirror as it was.
 law MirrorRejectsBadPatches(a int, b int) {
 	let na = (a%5+5)%5 + 1
 	let nb = (b%5+5)%5 + 1
@@ -398,41 +506,47 @@ law MirrorRejectsBadPatches(a int, b int) {
 	let mut more = []int{}
 	for i in 0..na {
 		xs = xs.Append(i)
+		more = more.Append(i)
 	}
 	for i in 0..nb {
 		ys = ys.Append(100 + i)
 	}
-	for x in xs {
-		more = more.Append(x)
-	}
+	xs = xs.Append(99)
 	more = more.Append(50)
+	more = more.Append(51)
+	let zs = []int{200, 201}
 	let mut f = NewFrame[int]()
 	let root = Root(&f)
-	let first = Render(&f, badPatchView, [][]int{xs, ys})
-	let second = Render(&f, badPatchView, [][]int{more, ys})
-	let cols = insertsUnder(first, root)
-	if len(cols) != 2 {
+	let first = Render(&f, badPatchView, [][]int{xs, ys, zs})
+	let second = Render(&f, badPatchView, [][]int{more, ys, zs})
+	let rows = insertsOf(first, "row 0")
+	let others = insertsOf(first, "row 100")
+	let gones = insertsOf(first, "row 99")
+	let zrows = insertsOf(first, "row 200")
+	let freshes = insertsOf(second, "row 50")
+	let adds = insertsOf(second, "row 51")
+	if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 {
 		return false
 	}
-	// The composer emits a parent's Inserts right to left: the column
-	// the second pass adds to is the left one.
-	let mut lc = cols[0].Id
-	let mut rc = cols[1].Id
-	if len(insertsUnder(second, rc)) == 1 {
-		lc = cols[1].Id
-		rc = cols[0].Id
-	}
-	let left = insertsUnder(first, lc)
-	let right = insertsUnder(first, rc)
-	let added = insertsUnder(second, lc)
-	if len(left) != na || len(right) != nb || len(added) != 1 {
+	let row = rows[0]
+	let other = others[0]
+	let fresh = freshes[0]
+	let lc = row.Parent
+	let rc = other.Parent
+	if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 {
 		return false
 	}
-	let row = left[0]
-	let other = right[0]
-	let fresh = added[0]
 	let text = TextNode{Value: "x", Style: Plain()}
 	let box = BoxNode{Style: Plain()}
+	// The valid ops before each bad one: a Set, a Move, an Insert, and a
+	// Remove of a row and of a whole column.
+	let good = []Op[int]{
+		Set[int]{Id: other.Id, Node: TextNode{Value: "changed", Style: Plain()}},
+		Move[int]{Id: other.Id, Parent: rc, Before: None},
+		Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node},
+		Remove[int]{Id: gones[0].Id},
+		Remove[int]{Id: zrows[0].Parent},
+	}
 	let bad = []Op[int]{
 		row,
 		Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text},
@@ -444,21 +558,22 @@ law MirrorRejectsBadPatches(a int, b int) {
 		Move[int]{Id: fresh.Id, Parent: lc, Before: None},
 		Remove[int]{Id: root},
 		Remove[int]{Id: fresh.Id},
+		Remove[int]{Id: gones[0].Id},
 		Set[int]{Id: fresh.Id, Node: text},
 		Set[int]{Id: row.Id, Node: box},
 	}
 	for op in bad {
-		if !badPatchRejected(root, first, op) {
+		if !badPatchRejected(root, first, good, op) {
 			return false
 		}
 	}
-	// The second pass's own Insert fits.
+	// The second pass fits.
 	let mut m = NewMirror[int](root)
 	Apply(&m, first) catch {
 	case BadPatch:
 		return false
 	}
-	Apply(&m, []Op[int]{fresh}) catch {
+	Apply(&m, second) catch {
 	case BadPatch:
 		return false
 	}

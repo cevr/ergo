@@ -1063,41 +1063,47 @@ func lawMirrorRejectsBadPatches(a int, b int) bool {
 	let mut more = []int{}
 	for i in 0..na {
 		xs = xs.Append(i)
+		more = more.Append(i)
 	}
 	for i in 0..nb {
 		ys = ys.Append(100 + i)
 	}
-	for x in xs {
-		more = more.Append(x)
-	}
+	xs = xs.Append(99)
 	more = more.Append(50)
+	more = more.Append(51)
+	let zs = []int{200, 201}
 	let mut f = ui.NewFrame[int]()
 	let root = ui.Root(&f)
-	let first = ui.Render(&f, badPatchView, [][]int{xs, ys})
-	let second = ui.Render(&f, badPatchView, [][]int{more, ys})
-	let cols = insertsUnder(first, root)
-	if len(cols) != 2 {
+	let first = ui.Render(&f, badPatchView, [][]int{xs, ys, zs})
+	let second = ui.Render(&f, badPatchView, [][]int{more, ys, zs})
+	let rows = insertsOf(first, "row 0")
+	let others = insertsOf(first, "row 100")
+	let gones = insertsOf(first, "row 99")
+	let zrows = insertsOf(first, "row 200")
+	let freshes = insertsOf(second, "row 50")
+	let adds = insertsOf(second, "row 51")
+	if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 {
 		return false
 	}
-	// The composer emits a parent's Inserts right to left: the column
-	// the second pass adds to is the left one.
-	let mut lc = cols[0].Id
-	let mut rc = cols[1].Id
-	if len(insertsUnder(second, rc)) == 1 {
-		lc = cols[1].Id
-		rc = cols[0].Id
-	}
-	let left = insertsUnder(first, lc)
-	let right = insertsUnder(first, rc)
-	let added = insertsUnder(second, lc)
-	if len(left) != na || len(right) != nb || len(added) != 1 {
+	let row = rows[0]
+	let other = others[0]
+	let fresh = freshes[0]
+	let lc = row.Parent
+	let rc = other.Parent
+	if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 {
 		return false
 	}
-	let row = left[0]
-	let other = right[0]
-	let fresh = added[0]
 	let text = ui.TextNode{Value: "x", Style: ui.Plain()}
 	let box = ui.BoxNode{Style: ui.Plain()}
+	// The valid ops before each bad one: a ui.Set, a ui.Move, an ui.Insert, and a
+	// ui.Remove of a row and of a whole column.
+	let good = []ui.Op[int]{
+		ui.Set[int]{Id: other.Id, Node: ui.TextNode{Value: "changed", Style: ui.Plain()}},
+		ui.Move[int]{Id: other.Id, Parent: rc, Before: None},
+		ui.Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node},
+		ui.Remove[int]{Id: gones[0].Id},
+		ui.Remove[int]{Id: zrows[0].Parent},
+	}
 	let bad = []ui.Op[int]{
 		row,
 		ui.Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text},
@@ -1109,21 +1115,22 @@ func lawMirrorRejectsBadPatches(a int, b int) bool {
 		ui.Move[int]{Id: fresh.Id, Parent: lc, Before: None},
 		ui.Remove[int]{Id: root},
 		ui.Remove[int]{Id: fresh.Id},
+		ui.Remove[int]{Id: gones[0].Id},
 		ui.Set[int]{Id: fresh.Id, Node: text},
 		ui.Set[int]{Id: row.Id, Node: box},
 	}
 	for op in bad {
-		if !badPatchRejected(root, first, op) {
+		if !badPatchRejected(root, first, good, op) {
 			return false
 		}
 	}
-	// The second pass's own ui.Insert fits.
+	// The second pass fits.
 	let mut m = ui.NewMirror[int](root)
 	ui.Apply(&m, first) catch {
 	case ui.BadPatch:
 		return false
 	}
-	ui.Apply(&m, []ui.Op[int]{fresh}) catch {
+	ui.Apply(&m, second) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -1140,18 +1147,36 @@ func badPatchView(f *ui.Frame[int], cols [][]int) {
 	}
 }
 
-func badPatchRejected(root ui.Id[int], good []ui.Op[int], bad ui.Op[int]) bool {
+func badPatchRejected(root ui.Id[int], base []ui.Op[int], good []ui.Op[int], bad ui.Op[int]) bool {
 	let mut m = ui.NewMirror[int](root)
+	ui.Apply(&m, base) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let shape = ui.MirrorShape(&m)
+	let held = ui.Held(&m)
+	let mut failed = false
+	ui.Apply(&m, good.Append(bad)) catch {
+	case ui.BadPatch:
+		failed = true
+	}
+	if !failed || !ui.SameShapes(ui.MirrorShape(&m), shape) || ui.Held(&m) != held {
+		return false
+	}
+	let mut w = ui.NewMirror[int](root)
+	ui.Apply(&w, base) catch {
+	case ui.BadPatch:
+		return false
+	}
+	ui.Apply(&w, good) catch {
+	case ui.BadPatch:
+		return false
+	}
 	ui.Apply(&m, good) catch {
 	case ui.BadPatch:
 		return false
 	}
-	let mut failed = false
-	ui.Apply(&m, []ui.Op[int]{bad}) catch {
-	case ui.BadPatch:
-		failed = true
-	}
-	failed
+	ui.SameShapes(ui.MirrorShape(&m), ui.MirrorShape(&w)) && ui.Held(&m) == ui.Held(&w)
 }
 
 func insertsUnder(ops []ui.Op[int], p ui.Id[int]) []ui.Insert[int] {
@@ -1160,6 +1185,20 @@ func insertsUnder(ops []ui.Op[int], p ui.Id[int]) []ui.Insert[int] {
 		match op {
 		case ui.Insert[int] as o:
 			if o.Parent == p {
+				out = out.Append(o)
+			}
+		case _:
+		}
+	}
+	out
+}
+
+func insertsOf(ops []ui.Op[int], text string) []ui.Insert[int] {
+	let mut out = []ui.Insert[int]{}
+	for op in ops {
+		match op {
+		case ui.Insert[int] as o:
+			if o.Node == (ui.TextNode{Value: text, Style: ui.Plain()}) {
 				out = out.Append(o)
 			}
 		case _:
@@ -1211,7 +1250,7 @@ var stdUITreeStatements = map[string]string{
 	"ui LocatorAgreesWithAccessTree": `LocatorAgreesWithAccessTree(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for _ in 0..3 { let s = genState(&r) let ops = Render(&f, func(g *Frame[int], st []int) { for p in ps { render(g, p, st, 0) catch { case Missing: Unreachable("ui laws: a read is drawn only under a boundary") case Pending: Unreachable("ui laws: a read is drawn only under a boundary") } } extras(g, st[0]) }, s) Apply(&m, ops) catch { case BadPatch: return false } let mut shapes = models(ps, s, 0) for x in extraShapes(s[0]) { shapes = shapes.Append(x) } let want = accessModel(shapes, false, "") let mut locs = []Locator{} for role in []Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Generic} { locs = locs.Append(WithRole{Role: role, Name: ""}) } let w = want[draw(&r, len(want))] locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name}) locs = locs.Append(WithLabel{Label: w.a.Name}) locs = locs.Append(WithPlaceholder{Text: w.a.Name}) locs = locs.Append(WithText{Text: w.a.Name}) for loc in locs { let mut model = []seen{} for x in want { if wants(loc, x) { model = model.Append(x) } } let got = LocateIn(&m, loc) if len(got) != len(model) { return false } for i, id in got { if AccessOf(&m, id) != model[i].a { return false } } if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) { return false } if len(model) > 0 { let x = model[0] let checked = x.a.Checked == (Some{Value: true}) let unchecked = x.a.Checked == (Some{Value: false}) if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked { return false } if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) { return false } if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) { return false } match x.a.Value { case Some[string] as v: if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) { return false } case None: if matches(&m, loc, ToHaveValue{Value: ""}) { return false } } } } } true }`,
 	"ui SameEqualsRecompute":         `SameEqualsRecompute(seed int, steps int) { let mut r = seeded(seed) // revived: a Same in a Box in a boundary whose read, of a slot the // Same's key does not hold, fails and passes in turn, so the Box is // parked and comes back while the Same's key stays. let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}} let ps = genRoot(&r).Append(revived) let qs = unmemo(ps) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut s = genState(&r) let mut again = false let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}} for _ in 0..(steps%8+8)%8+2 { let a = pass(&f, ps, s) let b = pass(&g, qs, s) if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) { return false } if again && Skips(&f) != sameCount(ps, s, 0) { return false } if sent(Handle(&f, key).Signal) != sent(Handle(&g, key).Signal) { return false } let ka = Kids(&f, Root(&f)) let kb = Kids(&g, Root(&g)) if len(ka) != len(kb) { return false } for i in 0..len(ka) { if !signalsMatch(&f, &g, ka[i], kb[i]) { return false } } again = false let pick = draw(&r, 4) if pick == 0 { again = true } else if pick == 1 { let ta = toggles(&f, Root(&f), []Id[int]{}) let tb = toggles(&g, Root(&g), []Id[int]{}) if len(ta) != len(tb) { return false } if len(ta) > 0 { let i = draw(&r, len(ta)) if Handle(&f, Press[int]{Id: ta[i]}) != Handle(&g, Press[int]{Id: tb[i]}) { return false } } } else if pick == 2 { s[draw(&r, slots)] = draw(&r, 64) } else { s[3] = draw(&r, 3) } } true }`,
 	"ui MirrorWorkIsLinear":          `MirrorWorkIsLinear(n int, seed int) { let k = (n%40+40)%40 + 1 let mut reads = []int{} for size in []int{k, 2 * k, 4 * k} { let mut xs = []int{} for i in 0..size { xs = xs.Append(i) } let view = func(f *Frame[int], rows []int) { Column(f, Plain()) { Each(f, rows, func(x int) Key { ByInt(x) }) func(x int) { Text(f, "row \(x)") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, xs)) catch { case BadPatch: return false } reads = reads.Append(MirrorReads(&m)) let before = MirrorReads(&m) let found = LocateIn(&m, WithText{Text: "row \((seed%size + size) % size)"}) if len(found) != 1 || MirrorReads(&m)-before != Held(&m) { return false } } reads[2]-reads[1] == 2*(reads[1]-reads[0]) }`,
-	"ui MirrorRejectsBadPatches":     `MirrorRejectsBadPatches(a int, b int) { let na = (a%5+5)%5 + 1 let nb = (b%5+5)%5 + 1 let mut xs = []int{} let mut ys = []int{} let mut more = []int{} for i in 0..na { xs = xs.Append(i) } for i in 0..nb { ys = ys.Append(100 + i) } for x in xs { more = more.Append(x) } more = more.Append(50) let mut f = NewFrame[int]() let root = Root(&f) let first = Render(&f, badPatchView, [][]int{xs, ys}) let second = Render(&f, badPatchView, [][]int{more, ys}) let cols = insertsUnder(first, root) if len(cols) != 2 { return false } // The composer emits a parent's Inserts right to left: the column // the second pass adds to is the left one. let mut lc = cols[0].Id let mut rc = cols[1].Id if len(insertsUnder(second, rc)) == 1 { lc = cols[1].Id rc = cols[0].Id } let left = insertsUnder(first, lc) let right = insertsUnder(first, rc) let added = insertsUnder(second, lc) if len(left) != na || len(right) != nb || len(added) != 1 { return false } let row = left[0] let other = right[0] let fresh = added[0] let text = TextNode{Value: "x", Style: Plain()} let box = BoxNode{Style: Plain()} let bad = []Op[int]{ row, Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text}, Move[int]{Id: row.Id, Parent: rc, Before: None}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}}, Move[int]{Id: fresh.Id, Parent: lc, Before: None}, Remove[int]{Id: root}, Remove[int]{Id: fresh.Id}, Set[int]{Id: fresh.Id, Node: text}, Set[int]{Id: row.Id, Node: box}, } for op in bad { if !badPatchRejected(root, first, op) { return false } } // The second pass's own Insert fits. let mut m = NewMirror[int](root) Apply(&m, first) catch { case BadPatch: return false } Apply(&m, []Op[int]{fresh}) catch { case BadPatch: return false } true }`,
+	"ui MirrorRejectsBadPatches":     `MirrorRejectsBadPatches(a int, b int) { let na = (a%5+5)%5 + 1 let nb = (b%5+5)%5 + 1 let mut xs = []int{} let mut ys = []int{} let mut more = []int{} for i in 0..na { xs = xs.Append(i) more = more.Append(i) } for i in 0..nb { ys = ys.Append(100 + i) } xs = xs.Append(99) more = more.Append(50) more = more.Append(51) let zs = []int{200, 201} let mut f = NewFrame[int]() let root = Root(&f) let first = Render(&f, badPatchView, [][]int{xs, ys, zs}) let second = Render(&f, badPatchView, [][]int{more, ys, zs}) let rows = insertsOf(first, "row 0") let others = insertsOf(first, "row 100") let gones = insertsOf(first, "row 99") let zrows = insertsOf(first, "row 200") let freshes = insertsOf(second, "row 50") let adds = insertsOf(second, "row 51") if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 { return false } let row = rows[0] let other = others[0] let fresh = freshes[0] let lc = row.Parent let rc = other.Parent if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 { return false } let text = TextNode{Value: "x", Style: Plain()} let box = BoxNode{Style: Plain()} // The valid ops before each bad one: a Set, a Move, an Insert, and a // Remove of a row and of a whole column. let good = []Op[int]{ Set[int]{Id: other.Id, Node: TextNode{Value: "changed", Style: Plain()}}, Move[int]{Id: other.Id, Parent: rc, Before: None}, Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node}, Remove[int]{Id: gones[0].Id}, Remove[int]{Id: zrows[0].Parent}, } let bad = []Op[int]{ row, Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text}, Move[int]{Id: row.Id, Parent: rc, Before: None}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}}, Move[int]{Id: fresh.Id, Parent: lc, Before: None}, Remove[int]{Id: root}, Remove[int]{Id: fresh.Id}, Remove[int]{Id: gones[0].Id}, Set[int]{Id: fresh.Id, Node: text}, Set[int]{Id: row.Id, Node: box}, } for op in bad { if !badPatchRejected(root, first, good, op) { return false } } // The second pass fits. let mut m = NewMirror[int](root) Apply(&m, first) catch { case BadPatch: return false } Apply(&m, second) catch { case BadPatch: return false } true }`,
 }
 
 // TestUITreeModel runs the probe's tests with --seed 1; lawledger.Run holds that
