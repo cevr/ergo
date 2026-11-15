@@ -48,18 +48,17 @@ const (
 // processes the thread starts, and enabled in each at its exec (as `perf
 // stat` counts a command), so the caller's own threads are never counted.
 func openCounter() (int, error) {
-	return openThreadCounter(perfFormatEnabled|perfFormatRunning, perfFlagDisabled|perfFlagInherit|perfFlagExclKernel|perfFlagExclHV|perfFlagEnableExec)
-}
-
-// openThreadCounter opens a disabled counter of user-space instructions on
-// the calling thread with the read format and flags given.
-func openThreadCounter(format, flags uint64) (int, error) {
-	attr := perfEventAttr{
+	return openThreadCounter(perfEventAttr{
 		Type:       perfTypeHardware,
 		Config:     perfCountHWInstr,
-		ReadFormat: format,
-		Flags:      flags,
-	}
+		ReadFormat: perfFormatEnabled | perfFormatRunning,
+		Flags:      perfFlagDisabled | perfFlagInherit | perfFlagExclKernel | perfFlagExclHV | perfFlagEnableExec,
+	})
+}
+
+// openThreadCounter opens the counter attr describes on the calling
+// thread.
+func openThreadCounter(attr perfEventAttr) (int, error) {
 	attr.Size = uint32(unsafe.Sizeof(attr))
 	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), perfFlagFDCloexec, 0)
 	if errno != 0 {
@@ -74,7 +73,7 @@ func openThreadCounter(format, flags uint64) (int, error) {
 func CountSelf(f func()) int64 {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	fd, err := openThreadCounter(0, perfFlagDisabled|perfFlagExclKernel|perfFlagExclHV)
+	fd, err := openThreadCounter(perfEventAttr{Type: perfTypeHardware, Config: perfCountHWInstr, Flags: perfFlagDisabled | perfFlagExclKernel | perfFlagExclHV})
 	if err != nil {
 		f()
 		return -1
