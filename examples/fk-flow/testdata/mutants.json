@@ -30,7 +30,7 @@
       "file": "examples/fk-flow/balls/balls.ergo",
       "from": "Field{..f, Balls: []Ball{}}",
       "to": "Field{..f, Balls: []Ball{}, NextID: 0}",
-      "rule": "Clear keeps the numbering (case tour: ball 3 after a clear).",
+      "rule": "Clear keeps the numbering (law DropsDrawFromTheStream; the screen shows no ball's number).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
     {
