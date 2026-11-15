@@ -269,7 +269,7 @@ Decided: the same count decides, with two added classes for tables that live ins
 - Measured: 26 locals are aliases (85,264 instances), for example `paramMap:m` and `selfBinding:m`, which pass a type parameter substitution on. They need no table of their own.
 - Measured: 29 fields and 48 locals hold no entry on the corpus: error paths (`checker.intoInvalid`, `checker.refusedWheres`), traces (`checker.guardTrace`, `refWalker`'s trace sets), and code that no example reaches (`mentioner`, `keepWalk`). S3 sizes them from their code, not from this corpus.
 
-Known gaps: the peak is measured at the census points, so a delete, clear or reassignment outside a statement list (in a `for` header) is not a census point, and a map that shrinks there is under-counted. Distinct keys of a std object met in several modules count once, as in SL8. Instances count map values, not calls: a local that stays nil is not an instance.
+Known gaps: the peak is measured at the census points, so a delete, clear or reassignment outside a statement list (in a `for` header) is not a census point, and a map that shrinks there is under-counted. Distinct keys of a std object met in several modules count once, as in SL8. Instances count map values, not calls: a local that stays nil is not an instance. Two runs at this head give the same counts, except that the largest instance of `ValueRanks.Rank`'s two locals is 19 in one run and 18 in the other (inferred: the order of a Go map's iteration in the checker changes which walk reaches them first); the table gives the first run.
 
 Read by key / written / in a loop / deleted / len / passed are use sites in the source at this head, as in SL8's tables.
 
