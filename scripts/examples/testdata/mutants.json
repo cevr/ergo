@@ -452,7 +452,7 @@
       "origin": "wf10 TOK-BISECT",
       "file": "scripts/examples/main.go",
       "from": "map[string]bool{spec: true}",
-      "to": "map[string]bool{}",
+      "to": "map[string]bool{spec: false}",
       "rule": "A workload package may hold its workload file beside its .ergo files.",
       "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoExamplesHoldTheirLaws"]
     },
