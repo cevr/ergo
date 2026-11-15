@@ -488,5 +488,7 @@ func nodeText[E](n Node[E]) string {
 		"zone \(keyText(x.Key))"
 	case LiveNode as x:
 		"live \"\(x.Text)\""
+	case TransitionNode as x:
+		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
 	}
 }

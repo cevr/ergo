@@ -47,6 +47,13 @@ type Frame[E] {
 	stops   []CallSite,
 	nstops  int,
 	slow    Option[slowWatch[E]],
+	// now is the time of the last frame (Tick), tickAt that time while
+	// the pass a Tick caused runs, passes the passes so far, and moving
+	// whether a Presence of this pass moves (H5e).
+	now    duration,
+	tickAt Option[duration],
+	passes int,
+	moving bool,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -137,7 +144,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, now: duration(int64(0)), tickAt: None, passes: 0, moving: false}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
@@ -149,7 +156,9 @@ func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Opti
 func Render[E comparable, S, R](f *Frame[E], view func(f *Frame[E], s S) needs R, s S) []Op[E] needs R {
 	begin(f)
 	view(f, s)
-	Commit(f)
+	let ops = Commit(f)
+	f.tickAt = None
+	ops
 }
 
 // begin starts a pass: nothing written yet.
@@ -185,6 +194,8 @@ func begin[E](f *Frame[E]) {
 	f.written = 0
 	f.nstops = 0
 	f.slow = None
+	f.passes = f.passes + 1
+	f.moving = false
 }
 
 // identify is the identity of the next entry at site under the current
@@ -775,6 +786,8 @@ func kindOf[E](n Node[E]) int {
 		13
 	case LiveNode:
 		14
+	case TransitionNode:
+		15
 	}
 }
 
