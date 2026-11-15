@@ -66,6 +66,7 @@ type Driver[S, E, D, F] {
 	check   bool,
 	differ  Option[string],
 	work    int,
+	history   ui.MemoryHistory,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -129,6 +130,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		check:     false,
 		differ:    None,
 		work:      0,
+		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
 	}
 	learn(&d.metrics, w, "", textSize)
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
