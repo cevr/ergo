@@ -280,6 +280,22 @@ func TestCacheInputs(t *testing.T) {
 				}
 			}
 		})
+		t.Run("Cover", func(t *testing.T) {
+			// A coverage build (cover.go, GT7) is the action's alone: the
+			// same module links from its coverage copy and prints the same.
+			covered["Toolchain.Cover"] = true
+			tc := hostToolchain()
+			tc.Cover = t.TempDir()
+			binary := filepath.Join(t.TempDir(), "program")
+			var stderr strings.Builder
+			report, err := tc.Build(Cache{Root: root}, module, binary, &stderr)
+			if err != nil || !strings.Contains(report.Refused, "coverage build") {
+				t.Fatalf("Cover built by %v: %v\n%s", report, err, stderr.String())
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("the coverage build prints %q, want %q", got, want)
+			}
+		})
 		t.Run("Root", func(t *testing.T) {
 			// A managed toolchain's GOROOT is the action's (internal/toolchain):
 			// the action states it and still links the same module.
