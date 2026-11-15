@@ -2,6 +2,10 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-15
+
+- **Windows is not a v1 platform (2026-11-15).** There is no Windows machine to test on. `runtime/v1/unsupported_os.go`'s diagnostic is the contract: the runtime builds for Linux, Darwin and the BSDs, and on any other GOOS (Windows, js, wasip1, Plan 9, AIX, illumos, Solaris) `go build` and `go vet` stop at that declaration. So the build platforms are the binding platforms (`gobind.Platforms`); batch 21's integration reverted GP1c's windows/amd64, js/wasm and wasip1/wasm build platforms and their `*_other.go` runtime files.
+
 ## Owner direction, 2026-11-14
 
 - **The warm compiler server is `ergo dev` (2026-11-14, compile-speed CS9, #203).** The compile-speed plan (§4.6) called the daemon that holds a workspace's warm state `ergo serve`; the owner named it `ergo dev`. Decided: the command is `ergo dev [DIR] [--idle DURATION]`, its client switch is `ERGO_DEV=off`, its socket and lock live under `dev/` in the cache root, and its lifecycle model is `models/dev`. There is no `serve` alias: pre-release, a renamed command has one spelling (no compatibility while pre-release). Rules: [tooling.md](tooling.md#ergo-dev). Prior art: `gleam dev`, `mix phx.server`, and `next dev` each name the long-running development process by what the developer is doing, not by its transport.
