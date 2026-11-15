@@ -1148,8 +1148,8 @@
     {
       "name": "wg4-tree-untrusted-run", "origin": "wf10/semws WG4",
       "file": "modules/work/work/merge.ergo",
-      "from": "if trusted(t, c) { Some[LanguageLine]{Value: l.Value} } else { None }",
-      "to": "if trusted(t, c) || true { Some[LanguageLine]{Value: l.Value} } else { None }",
+      "from": "\tif !trusted(t, c) {\n\t\treturn out\n",
+      "to": "\tif !trusted(t, c) && false {\n\t\treturn out\n",
       "rule": "A tree merge runs a language's plugin only after work trust (memory's MergeByLanguageIsMergeUnits, untrusted).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },

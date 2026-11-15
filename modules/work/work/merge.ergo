@@ -362,7 +362,7 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 			}
 			let units = match (k, LanguageOf(c, p)) {
 			case (None, Some[LanguageLine] as l):
-				if trusted(t, c) { Some[LanguageLine]{Value: l.Value} } else { None }
+				Some[LanguageLine]{Value: l.Value}
 			case _:
 				None
 			}
@@ -510,7 +510,7 @@ func folderTree(t Tool, root string) Map[string, string] fails fs.NotFound | fs.
 	let mut todo = []string{""}
 	for len(todo) > 0 {
 		let rel = todo[len(todo)-1]
-		todo = todo[0:len(todo)-1]
+		todo = todo[0 : len(todo)-1]
 		for name in try t.files.ReadDir(if rel == "" { root } else { root + "/" + rel }) {
 			let path = if rel == "" { name } else { rel + "/" + name }
 			if (try t.files.Stat(root + "/" + path)).Dir {
