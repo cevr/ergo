@@ -3,4 +3,4 @@
 # cmd/compile once; scripts/irport checks the patch against this lock.
 go go1.27.0
 base 413adc6245e6dab11e09ca0ecd56c1a07cab7f09
-patch go1.27.0.patch sha256:5eb79da772b06af8cf861d68244a8cc5590b726768528726df3881740450a63e
+patch go1.27.0.patch sha256:1ca5129cf44cfe2d1c76814c4f596ca6f660d74cca2cee5ee2753363ccd0445f

@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..b27c59b
+index 0000000..41af35f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,234 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -93,6 +93,8 @@ index 0000000..b27c59b
 +	// Cases are a "tswitch"'s clauses (ergoir_fail.go); Else is its
 +	// default clause, at ElsePos.
 +	Cases []*ergoCase `json:"cases,omitempty"`
++	// Y is a "count" loop's bound (ergoir_stmt.go).
++	Y *ergoExpr `json:"y,omitempty"`
 +}
 +
 +type ergoExpr struct {
@@ -317,10 +319,10 @@ index 0000000..29ad509
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..3e742ac
+index 0000000..1be85c9
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,372 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -400,6 +402,15 @@ index 0000000..3e742ac
 +		default:
 +			c.errorf(x.Pos, "ergoir: unary %s on %v", x.Op, t)
 +			return nil, nil
++		}
++		if b, ok := e0.(*syntax.Operation); ok && b.Y != nil {
++			// A binary operand stands in parentheses, as Go's parser
++			// leaves it: the writer's staticBool reads Not(AndAnd) as the
++			// AndAnd's own value, and !(p && false) would drop its branch.
++			p := &syntax.ParenExpr{X: e0}
++			p.SetPos(e0.Pos())
++			ergoValue(p, t, nil)
++			e0 = p
 +		}
 +		e := &syntax.Operation{Op: op, X: e0}
 +		e.SetPos(pos)
@@ -996,10 +1007,10 @@ index 0000000..257a84e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..5b841be
+index 0000000..8a9a03f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,270 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1137,6 +1148,30 @@ index 0000000..5b841be
 +				return nil
 +			}
 +		}
++		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
++		return st
++	case "count":
++		// for i := X; i < Y; i++ { body }: a for-in over an integer Range
++		// (IRG4b), i the loop's integer local; Y is read each iteration.
++		v := c.local(s.Pos, s.Local)
++		lo, lt := c.expr(s.X)
++		if v == nil || lo == nil || s.Y == nil {
++			return nil
++		}
++		if !ergoIsInteger(v.Type()) || !c.assignable(s.Pos, "count", lt, v.Type()) {
++			c.errorf(s.Pos, "ergoir: count of %v", v.Type())
++			return nil
++		}
++		init := &syntax.AssignStmt{Op: syntax.Def, Lhs: c.name(s.Pos, v, true), Rhs: lo}
++		init.SetPos(pos)
++		cond := c.cond(&ergoExpr{K: "bin", Pos: s.Pos, Op: "<", X: &ergoExpr{K: "local", Pos: s.Pos, I: s.Local}, Y: s.Y})
++		if cond == nil {
++			return nil
++		}
++		post := &syntax.AssignStmt{Op: syntax.Add, Lhs: c.name(s.Pos, v, false)}
++		post.SetPos(pos)
++		st := &syntax.ForStmt{Init: init, Cond: cond, Post: post}
++		st.SetPos(pos)
 +		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
 +		return st
 +	case "break", "continue":
