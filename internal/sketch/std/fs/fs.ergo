@@ -375,6 +375,34 @@ func Remove(_ Host, path string) fails NotFound | Denied | Failed {
 	try hostRemove(path)
 }
 
+// FileLock is an exclusive kernel lock on a file, which LockFile took and
+// UnlockFile gives back. Its field gives this package the construction
+// authority: no other package makes one.
+type FileLock { fd int }
+
+// LockFile takes an exclusive kernel lock (flock) on the file at path,
+// made when it is missing, or None when another open of the file holds
+// it for all of wait (0 tries once). Two LockFile calls exclude each
+// other whether they are in one process or two, and the host releases
+// the lock of a process that ends, however it ends, so a dead holder
+// never strands it. The lock is advisory: it excludes only LockFile. The
+// wait is a host wait, as a slow read's is: a stop of the caller ends it
+// at most wait later. It is a function of Host alone: a memory disk has
+// one process, whose own lock counts.
+func LockFile(_ Host, path string, wait duration) Option[FileLock] fails NotFound | Denied | Failed {
+	let fd = try hostLockFile(path, wait)
+	if fd < 0 {
+		return None
+	}
+	Some[FileLock]{Value: FileLock{fd: fd}}
+}
+
+// UnlockFile gives back the lock l. A second UnlockFile of l does
+// nothing.
+func UnlockFile(_ Host, l FileLock) { hostUnlockFile(l.fd) }
+
+extern go ergo.local/prototype/runtime/v1.FSLockFile func hostLockFile(path string, wait duration) int fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSUnlockFile func hostUnlockFile(fd int)
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed

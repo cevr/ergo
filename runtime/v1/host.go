@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"ergo.local/prototype/runtime/rt"
@@ -684,6 +685,81 @@ func FSRemove(path string) error {
 		return fsErr(path, err)
 	}
 	return nil
+}
+
+// fileLocks are the descriptors of the locks FSLockFile holds, by a
+// number it gives each lock and never gives again (a descriptor's number
+// is reused once it is closed). So FSUnlockFile closes only a descriptor
+// this process locked, once: a second unlock of a lock, or one of a
+// number no lock gave, closes nothing.
+var fileLocks = struct {
+	sync.Mutex
+	next int
+	held map[int]int
+}{held: map[int]int{}}
+
+// FSLockFile is the body of fs.Host's LockFile: an exclusive kernel lock
+// (flock) on the file at path, made with mode 0666 less the umask when it
+// is missing, and the lock's number. It tries at once, then again after
+// pauses of 1 ms doubling to 32 ms, until wait has passed; a lock still
+// held by another open of the file is -1 with no error (None). The lock
+// is on the open file description, so two LockFile calls of one process
+// exclude each other as two processes do, and the kernel releases it
+// when the process ends, however it ends. The descriptor is
+// close-on-exec, so a program the holder starts does not keep the lock.
+//
+//ergo:host
+func FSLockFile(path string, wait time.Duration) (int, error) {
+	fd, err := flockFile(path, wait)
+	if fd < 0 {
+		return -1, err
+	}
+	fileLocks.Lock()
+	defer fileLocks.Unlock()
+	fileLocks.next++
+	fileLocks.held[fileLocks.next] = fd
+	return fileLocks.next, nil
+}
+
+// flockFile is FSLockFile's descriptor, or -1.
+func flockFile(path string, wait time.Duration) (int, error) {
+	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC, 0o666)
+	if err != nil {
+		return -1, fsErr(path, &fs.PathError{Op: "open", Path: path, Err: err})
+	}
+	deadline := time.Now().Add(wait)
+	pause := time.Millisecond
+	for {
+		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return fd, nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EINTR {
+			_ = syscall.Close(fd)
+			return -1, fsErr(path, &fs.PathError{Op: "flock", Path: path, Err: err})
+		}
+		left := time.Until(deadline)
+		if left <= 0 {
+			_ = syscall.Close(fd)
+			return -1, nil
+		}
+		time.Sleep(min(pause, left))
+		pause = min(pause*2, 32*time.Millisecond)
+	}
+}
+
+// FSUnlockFile is the body of fs.Host's UnlockFile: it closes the
+// descriptor of the lock FSLockFile numbered n, which releases the lock.
+//
+//ergo:host
+func FSUnlockFile(n int) {
+	fileLocks.Lock()
+	fd, held := fileLocks.held[n]
+	delete(fileLocks.held, n)
+	fileLocks.Unlock()
+	if held {
+		_ = syscall.Close(fd)
+	}
 }
 
 // The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a

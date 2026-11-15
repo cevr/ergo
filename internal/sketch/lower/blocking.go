@@ -503,6 +503,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSChmod":         {},
 	"FSRename":        {},
 	"FSRemove":        {},
+	// A file lock (SEMWS WG1): a try, then pauses on the host until its
+	// wait passes, as a slow read waits; it releases nothing.
+	"FSLockFile":   {},
+	"FSUnlockFile": {},
 	// fs.Root on the host (G1f): reads below a root, which neither wait
 	// nor release.
 	"FSOpenRoot":        {},
