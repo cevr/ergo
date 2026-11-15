@@ -103,7 +103,15 @@ func Begin(t Tool, m Making, o NewOptions) Making fails NoRevision | Diverged | 
 	case VcsFailed as e:
 		match o.On {
 		case Some[string] as on:
-			if try cloneable(t, on.Value) == None {
+			// Gone, or made again under its name (a trashed name is free)
+			// in the same folder: either way not the parent Look found.
+			let same = match try cloneable(t, on.Value) {
+			case Some[Workspace] as p:
+				p.Value.Id == m.ParentId
+			case None:
+				false
+			}
+			if !same {
 				return NoWorkspace{Name: on.Value}
 			}
 		case None:
@@ -164,6 +172,7 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 		}
 	case None:
 	}
+	try freeName(t, m.Name)
 	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: "", Pinned: false, Until: 0})
 	if !try t.lock.Hold(m.Id) {
 		return Unkept{Reason: "the lock of the reservation \(m.Id) is held by another work"}

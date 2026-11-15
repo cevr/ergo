@@ -147,9 +147,23 @@ func Trust(t Tool) Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.
 	Trusted{Digest: Digest(c), Commands: Commands(c)}
 }
 
-// put keeps w in the registry under the lock.
+// put keeps w in the registry under the lock; a live w first frees its
+// name from a trashed record (freeName).
 func put(t Tool, w Workspace) fails Unkept | Locked {
 	try hold(t)
+	let live = match w.State {
+	case Trashed:
+		false
+	case Creating, Active, Landing, Landed, Abandoned:
+		true
+	}
+	if live {
+		freeName(t, w.Name) catch {
+		case Unkept as e:
+			t.lock.Release("")
+			return e
+		}
+	}
 	t.registry.Put(w) catch {
 	case Unkept as e:
 		t.lock.Release("")

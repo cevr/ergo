@@ -448,14 +448,34 @@ func live(t Tool, name string) Option[Workspace] fails Unkept {
 }
 
 // taken reports whether a record of any state has name.
+// taken reports whether a workspace that is not trashed has name: a
+// trashed one does not hold its name, so rm then new of a name works
+// before any gc.
 func taken(t Tool, name string) bool fails Unkept {
-	let all = try t.registry.All()
-	for w in all {
+	liveIn(try t.registry.All(), name) != None
+}
+
+// TrashedName is the registry's name of a trashed workspace once its
+// name is taken again: the old name and its id, by a tilde no name
+// holds (CheckName), so gc still finds and purges it.
+func TrashedName(name string, id string) string { name + "~" + id }
+
+// freeName gives a trashed record of name its TrashedName and forgets
+// it under name, so a new record can take name, after every other (as
+// after a gc that purged the trash); under the lock. The renamed record
+// is written first: a crash between the two writes leaves the trash
+// twice, which gc purges, never a trash no record names.
+func freeName(t Tool, name string) fails Unkept {
+	for w in try t.registry.All() {
 		if w.Name == name {
-			return true
+			match w.State {
+			case Trashed:
+				try t.registry.Put(Workspace{..w, Name: TrashedName(w.Name, w.Id)})
+				try t.registry.Drop(name)
+			case Creating, Active, Landing, Landed, Abandoned:
+			}
 		}
 	}
-	false
 }
 
 // moved is w after the signal e at the Unix second at. The lifecycle
