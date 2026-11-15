@@ -97,6 +97,9 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	if name == "" {
 		return ExecResult{}, ExecNotFound{Name: name} // no program has the empty name
 	}
+	if execUnsupported != "" {
+		return ExecResult{}, ExecFailed{Name: name, Reason: execUnsupported}
+	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			reason := "not a directory"
@@ -108,7 +111,7 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	}
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = execGroupAttr()
 	if len(env) > 0 {
 		keys := make([]string, 0, len(env))
 		for k := range env {
@@ -241,7 +244,7 @@ func execKillGroup(group int) {
 	if execKillHook != nil {
 		execKillHook(group)
 	}
-	_ = syscall.Kill(-group, syscall.SIGKILL)
+	_ = execKill(-group, syscall.SIGKILL)
 }
 
 // execReapWait bounds how long Run waits, after it kills the group, for the
@@ -264,7 +267,7 @@ const execReapWait = 500 * time.Millisecond
 // first probe fails with ESRCH and the call does not wait.
 func execAwaitGroupEnd(group int) {
 	deadline := time.Now().Add(execReapWait)
-	for pause := 20 * time.Microsecond; syscall.Kill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
+	for pause := 20 * time.Microsecond; execKill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
 		time.Sleep(pause)
 	}
 }

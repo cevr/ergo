@@ -2,8 +2,6 @@ package v1
 
 import (
 	"io"
-	"sync"
-	"syscall"
 	"unicode/utf8"
 
 	"ergo.local/prototype/runtime/rt"
@@ -35,11 +33,15 @@ type TermWindow struct {
 	Rows int
 }
 
-// termStack holds the states the pushes saved, latest last.
-var termStack struct {
-	sync.Mutex
-	saved []syscall.Termios
-}
+// termMode is a mode an Enter pushes. term_unix.go changes the terminal's
+// state to it; on a platform with no terminal control (term_other.go)
+// every stream is not a terminal, so Enter fails with TermNotTerminal.
+type termMode int
+
+const (
+	termRaw termMode = iota
+	termNoEcho
+)
 
 // TermEnterRaw is the body of term.Host's Enter(Raw): standard input's
 // terminal reads each key as it comes, with no echo, no line editing and
@@ -48,7 +50,7 @@ var termStack struct {
 //
 //ergo:host
 func TermEnterRaw() error {
-	return termEnter(0, rawState)
+	return termEnter(0, termRaw)
 }
 
 // TermEnterNoEcho is the body of term.Host's Enter(NoEcho): the terminal
@@ -56,7 +58,7 @@ func TermEnterRaw() error {
 //
 //ergo:host
 func TermEnterNoEcho() error {
-	return termEnter(0, noEchoState)
+	return termEnter(0, termNoEcho)
 }
 
 // TermLeave is the body of term.Host's Leave: the terminal goes back to
@@ -100,51 +102,6 @@ func TermReadKey(t *rt.Task) (string, error) {
 		return "", ReadFailed{Reason: fsReason(err)}
 	}
 	return keyToken(b), nil
-}
-
-func termEnter(fd int, change func(*syscall.Termios)) error {
-	termStack.Lock()
-	defer termStack.Unlock()
-	before, ok := getTermios(fd)
-	if !ok {
-		return TermNotTerminal{}
-	}
-	next := before
-	change(&next)
-	if !setTermios(fd, &next) {
-		return TermNotTerminal{}
-	}
-	termStack.saved = append(termStack.saved, before)
-	return nil
-}
-
-func termLeave(fd int) {
-	termStack.Lock()
-	defer termStack.Unlock()
-	n := len(termStack.saved)
-	if n == 0 {
-		return
-	}
-	before := termStack.saved[n-1]
-	termStack.saved = termStack.saved[:n-1]
-	setTermios(fd, &before)
-}
-
-// rawState is cfmakeraw without its output change: no input translation,
-// no echo, no canonical mode, no signal keys, eight-bit characters, and a
-// read that waits for one byte.
-func rawState(t *syscall.Termios) {
-	t.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
-	t.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
-	t.Cflag &^= syscall.CSIZE | syscall.PARENB
-	t.Cflag |= syscall.CS8
-	t.Cc[syscall.VMIN] = 1
-	t.Cc[syscall.VTIME] = 0
-}
-
-// noEchoState turns echo off and keeps line editing.
-func noEchoState(t *syscall.Termios) {
-	t.Lflag &^= syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHONL
 }
 
 // keyLen is the length of the first key at the front of b, or -1 when b

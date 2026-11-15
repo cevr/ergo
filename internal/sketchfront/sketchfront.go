@@ -28,6 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -57,18 +58,45 @@ type Analysis struct {
 // Check parses source and checks it as one package with the 2026 checker.
 // A syntax error is the only diagnostic of a source that does not parse.
 func Check(source string) Analysis {
-	return CheckOptions(source, check.Options{})
+	return checkSource(source, nil, check.Options{})
 }
 
 // CheckOptions checks source like Check, in the checker modes opts selects.
 func CheckOptions(source string, opts check.Options) Analysis {
+	return checkSource(source, nil, opts)
+}
+
+// CheckForPlatform is Check against the stated GOOS/GOARCH: an import of
+// Go's standard library whose binding does not state the platform is S104
+// (stdUnbound, load.go).
+func CheckForPlatform(source string, platform gobind.Platform) Analysis {
+	return checkSource(source, platformStd{check.NewGoBindings(nil), platform}, check.Options{})
+}
+
+// platformStd resolves the standard library, as a nil importer does, with
+// Go bindings that refuse a standard-library binding off its platforms.
+type platformStd struct {
+	goBindings *check.GoBindings
+	platform   gobind.Platform
+}
+
+func (p platformStd) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
+
+func (p platformStd) GoBindings() *check.GoBindings {
+	if p.goBindings.Unbound == nil {
+		p.goBindings.Unbound = func(path string) string { return stdUnbound(p.platform, path) }
+	}
+	return p.goBindings
+}
+
+func checkSource(source string, imp check.Importer, opts check.Options) Analysis {
 	file, err := syntax.Parse(source)
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
 	prepareStd(nil)
-	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, nil, opts)
+	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, imp, opts)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
