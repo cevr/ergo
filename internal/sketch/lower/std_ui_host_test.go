@@ -1018,6 +1018,13 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
+	let waiting = ui.PlayTrace(&h, []ui.Act{ui.SettleAll}) catch {
+	case _:
+		return false
+	}
+	if ui.Fetching(&h) != 1 || len(waiting) != 1 || !strings.HasSuffix(waiting[0], "; waiting on the clock: 1") {
+		return false
+	}
 	ui.Play(&h, []ui.Act{ui.AdvanceBy{By: 1h}, ui.SettleAll}) catch {
 	case _:
 		return false

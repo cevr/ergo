@@ -164,30 +164,38 @@ func Posted[S, E, D, F](h *TestHost[S, E, D, F]) int { h.posted.Len() }
 // actor's latest state, also one its work or timer committed (drawn by
 // its Committed, once: FK2-g2), with each live
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
-// the clock waits until an Advance; Settle does not move the clock, so a
-// script advances first.
+// the clock waits until an Advance: Settle does not move the clock, and
+// returns with it still in flight (Fetching; the trace's "waiting on the
+// clock: N"), so a script advances and settles again (FK4-g2). A fetch
+// that waits outside the domain (a server of the test's) is waited for,
+// while no task sleeps on the clock.
 func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
-		for InFlight(&h.session) > 0 {
-			let ev = h.posted.Pop() catch {
-			case queue.Closed:
-				return
-			}
-			try apply(h, ev)
-		}
-		// A machine's work runs on a task of its own: advancing the clock by
-		// nothing returns once every task of its domain waits again, so each
-		// work a signal started has run to its end or its next wait, and the
-		// signals it sent are taken (FK1-g6).
+		// A machine's work and a fetch run on tasks of their own: advancing
+		// the clock by nothing returns once every task of its domain waits
+		// again, so each has run to its end or its next wait, and what it
+		// posted is taken (FK1-g6). The watcher is a task of the domain too,
+		// so by then it has posted the Committed of each state the work
+		// committed: its pass draws a state no pass read (actor.Version),
+		// and a press whose pass showed its state costs no second pass
+		// (FK2-g2).
 		h.clock.Advance(duration(int64(0)))
-		// The watcher is a task of the domain too, so by then it has posted
-		// the Committed of each state the work committed, and Pump takes it:
-		// its pass draws a state no pass read (actor.Version), and a press
-		// whose pass showed its state costs no second pass (FK2-g2).
 		try Pump(h)
 		if InFlight(&h.session) == 0 {
 			return
 		}
+		// Fetches are left, and every task of the domain waits with nothing
+		// more posted. A task asleep on the clock waits for the script's
+		// Advance, which Settle never makes, so it returns rather than wait
+		// for ever (FK4-g2).
+		if time.Sleepers(h.clock) > 0 {
+			return
+		}
+		let ev = h.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try apply(h, ev)
 	}
 }
 
@@ -468,7 +476,7 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 	for i, act in script {
 		try playOne(h, act)
 		if lines || on {
-			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))"
+			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))\(waitText(h, act))"
 			if on {
 				traceStep(line)
 			}
@@ -478,6 +486,19 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 		}
 	}
 	out
+}
+
+// waitText is what a SettleAll left in flight, waiting on the clock:
+// "; waiting on the clock: N", or nothing (FK4-g2).
+func waitText[E comparable, S, D, F](h *TestHost[S, E, D, F], act Act) string {
+	match act {
+	case SettleAll:
+		if InFlight(&h.session) > 0 {
+			return "; waiting on the clock: \(InFlight(&h.session))"
+		}
+	case _:
+	}
+	""
 }
 
 // playOne runs one act of a script.

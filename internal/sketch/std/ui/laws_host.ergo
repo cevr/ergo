@@ -158,8 +158,11 @@ func valueOf(k int) int { k*10 + 7 }
 // it ends, and sleeps an hour on the clock. A press of "next" changes the
 // key: when the press returns, the fetch of the old key has ended (its task
 // was stopped, not left asleep), one fetch is in flight, and the program
-// holds no result. After the clock moves an hour, Settle returns with the
-// live key's result shown and no fetch in flight (settledShowsLatest).
+// holds no result. A Settle then returns with the fetch still asleep on
+// the clock, in flight, and its trace line says "waiting on the clock: 1":
+// it never blocks on a sleeper the script could wake (FK4-g2). After the
+// clock moves an hour, Settle returns with the live key's result shown and
+// no fetch in flight (settledShowsLatest).
 law CancelledFetchStops(steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -218,6 +221,13 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 		if now != s.key {
 			return false
 		}
+	}
+	let waiting = PlayTrace(&h, []Act{SettleAll}) catch {
+	case _:
+		return false
+	}
+	if Fetching(&h) != 1 || len(waiting) != 1 || !strings.HasSuffix(waiting[0], "; waiting on the clock: 1") {
+		return false
 	}
 	Play(&h, []Act{AdvanceBy{By: 1h}, SettleAll}) catch {
 	case _:
