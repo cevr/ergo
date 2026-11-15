@@ -62,10 +62,14 @@ func (n *readNode) join(all bool, fields map[string]bool) bool {
 	return changed
 }
 
-// readRecord is the record a parameter of type t is, or nil.
+// readRecord is the record a parameter of type t is, or nil. An
+// instance of a generic type is nil (read all): asking for its underlying
+// type would instantiate its body, n × k instances over n parameters of a
+// k-variant union (TestGenericDefaultSwitchLinear), and the lowering
+// compares no generic record by fields.
 func readRecord(t Type) *Struct {
 	n, ok := t.(*Named)
-	if !ok {
+	if !ok || len(n.TArgs) != 0 {
 		return nil
 	}
 	s, _ := n.Underlying().(*Struct)
