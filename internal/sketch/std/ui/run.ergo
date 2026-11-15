@@ -5,8 +5,12 @@ import actor
 // posts with the epoch it was started for, a pointer event on an Area
 // (Point), a key press (KeyDown), a frame at a time since the host
 // started (Tick), which a host sends only while the view animates, or a
-// list's viewport as the host scrolled or sized it (Scrolled).
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length}
+// list's viewport as the host scrolled or sized it (Scrolled), or a
+// change of place the program did not make (URLChanged: the user went
+// back, or to an address), or a state the actor committed that no event
+// of the loop's sent (Committed: a reply its work sent, a timer), which the
+// session's watcher posts, at most one at a time before the next pass.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
@@ -36,7 +40,7 @@ type Host[E] {
 // load's fetch runs as a task of Run's caller and posts its result to h;
 // a fetch whose load ended is stopped. Run fails with h's Closed, or with
 // Stopped when a has ended.
-func Run[E comparable, S, D, F](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)

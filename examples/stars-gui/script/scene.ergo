@@ -57,6 +57,8 @@ func Scene(rows []catalog.Star, height int, lines Seq[string], clock time.Manual
 			ui.Play(&h, Acts(m.Signal, field(ui.Screen(&h)))) catch {
 			case ui.NoNode as x:
 				io.Stdout.Println("? no node " + x.Label)
+			case ui.Mismatch as miss:
+				io.Stdout.Println("? want " + miss.Want + ", got " + miss.Got)
 			case actor.Stopped as s:
 				return s
 			case ui.BadPatch as b:
@@ -180,7 +182,7 @@ func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
 				}
 			}
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
 		}
 		for t in Shown(s.Kids, w) {
 			out = out.Append(t)

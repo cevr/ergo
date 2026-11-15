@@ -13,13 +13,18 @@ import (
 // source fails TestUIHostModel until this restatement changes with it.
 const stdUIHostProbe = `import ui
 import actor
+import hex
+import json
 import machines
 import queue
 import scope
 import strings
+import sync
 import time
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
+
+type Missing { V int }
 
 type rng { x int }
 
@@ -32,8 +37,11 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int) prog {
-	let kind = draw(r, 8)
+func genProg(r *rng, depth int, bounded bool) prog {
+	let kind = draw(r, 12)
+	if kind == 9 && bounded {
+		return pRead{slot: draw(r, slots)}
+	}
 	if depth == 0 || kind < 4 {
 		match kind % 4 {
 		case 0:
@@ -46,9 +54,10 @@ func genProg(r *rng, depth int) prog {
 			pSwap{slot: draw(r, slots)}
 		}
 	} else {
+		let inner = bounded || kind == 8 || kind == 9
 		let mut kids = []prog{}
 		for _ in 0..draw(r, 4) {
-			kids = kids.Append(genProg(r, depth-1))
+			kids = kids.Append(genProg(r, depth-1, inner))
 		}
 		match kind {
 		case 4:
@@ -57,8 +66,14 @@ func genProg(r *rng, depth int) prog {
 			pRow{kids: kids}
 		case 6:
 			pPress{slot: draw(r, slots), kids: kids}
-		case _:
+		case 7:
 			pEach{slot: draw(r, slots), kids: kids}
+		case 10:
+			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
+		case _:
+			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
 	}
 }
@@ -75,7 +90,7 @@ func items(v int) []int {
 	let mut out = []int{}
 	for i in 0..6 {
 		let k = (i + v) % 6
-		if (k + v/6) % 3 != 0 {
+		if (k+v/6)%3 != 0 {
 			out = out.Append(k)
 		}
 	}
@@ -88,6 +103,13 @@ func gapped(v int) ui.Style {
 	st
 }
 
+func described(v int) string {
+	if v%2 == 0 {
+		return "d\(v)"
+	}
+	""
+}
+
 func swap(f *ui.Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		ui.Text(f, "even \(v)", at)
@@ -96,10 +118,10 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) {
+func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
-		ui.Text(f, "t\(s[x.slot]+row)")
+		ui.Text(f, "t\(s[x.slot] + row)")
 	case pInput as x:
 		let v = s[x.slot] + row
 		ui.Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
@@ -108,73 +130,392 @@ func render(f *ui.Frame[int], p prog, s []int, row int) {
 	case pSwap as x:
 		swap(f, s[x.slot]+row)
 	case pBox as x:
-		ui.Box(f, gapped(s[x.slot])) {
+		try ui.Box(f, gapped(s[x.slot])) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 	case pRow as x:
-		ui.Row(f, ui.Plain()) {
+		try ui.Row(f, ui.Plain()) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 		ui.Text(f, "after")
 	case pPress as x:
-		ui.Pressable(f, "press", s[x.slot]%4+row) {
+		try ui.Pressable(f, "press", s[x.slot]%4+row) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
+			}
+		}
+	case pFieldset as x:
+		try ui.Fieldset(f, s[x.slot]%3 == 0, described(s[x.slot])) {
+			for c in x.kids {
+				try render(f, c, s, row)
 			}
 		}
 	case pEach as x:
-		ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+		try ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
 			for c in x.kids {
-				render(f, c, s, k)
+				try render(f, c, s, k)
 			}
 		}
 		ui.Text(f, "after")
+	case pSame as x:
+		let dig = digest(x.kids, s, row)
+		if x.memo {
+			try ui.Same(f, ui.ByInt(dig)) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		} else {
+			try ui.Box(f, ui.Plain()) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		}
+	case pBound as x:
+		if x.form == 0 {
+			ui.Boundary(f) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else if x.form == 1 {
+			ui.Box(f, ui.Plain()) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else {
+			ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
+				for c in x.kids {
+					try render(f, c, s, k)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		}
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 1 {
+			return ui.Pending
+		}
+		if v%3 == 2 {
+			return Missing{V: v}
+		}
 	}
 }
 
-func model(p prog, s []int, row int) []ui.Shape[int] {
+func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
+	let fl = ui.NewFlag(f, false)
+	ui.Toggle(f, fl, "same")
+	ui.Box(f, ui.Plain()) {
+		let inner = ui.NewFlag(f, false)
+		ui.Toggle(f, inner, "inner")
+	}
+	for c in kids {
+		try render(f, c, s, row)
+	}
+}
+
+func digest(kids []prog, s []int, row int) int {
+	let mut used = []bool{}
+	for _ in 0..slots {
+		used = used.Append(false)
+	}
+	for c in kids {
+		used = reads(c, used)
+	}
+	let mut d = row
+	for i in 0..slots {
+		d = d * 64
+		if used[i] {
+			d = d + s[i]
+		}
+	}
+	d
+}
+
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
 	match p {
 	case pText as x:
-		[]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot]+row)", Style: ui.Plain()})}
+		out[x.slot] = true
 	case pInput as x:
-		[]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot]+row)", Placeholder: "type"})}
+		out[x.slot] = true
 	case pCheck as x:
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})}
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+func unmemo(ps []prog) []prog {
+	let mut out = []prog{}
+	for p in ps {
+		let q = match p {
+		case pBox as x:
+			pBox{slot: x.slot, kids: unmemo(x.kids)}
+		case pRow as x:
+			pRow{kids: unmemo(x.kids)}
+		case pPress as x:
+			pPress{slot: x.slot, kids: unmemo(x.kids)}
+		case pEach as x:
+			pEach{slot: x.slot, kids: unmemo(x.kids)}
+		case pBound as x:
+			pBound{form: x.form, slot: x.slot, kids: unmemo(x.kids)}
+		case pFieldset as x:
+			pFieldset{slot: x.slot, kids: unmemo(x.kids)}
+		case pSame as x:
+			pSame{kids: unmemo(x.kids), memo: false}
+		case _:
+			p
+		}
+		out = out.Append(q)
+	}
+	out
+}
+
+func sameCount(ps []prog, s []int, row int) int {
+	let mut n = 0
+	for p in ps {
+		n = n + match p {
+		case pSame:
+			1
+		case pBox as x:
+			sameCount(x.kids, s, row)
+		case pRow as x:
+			sameCount(x.kids, s, row)
+		case pPress as x:
+			sameCount(x.kids, s, row)
+		case pFieldset as x:
+			sameCount(x.kids, s, row)
+		case pEach as x:
+			let mut c = 0
+			for k in items(s[x.slot]) {
+				c = c + sameCount(x.kids, s, k)
+			}
+			c
+		case pBound as x:
+			boundCount(x, s, row)
+		case _:
+			0
+		}
+	}
+	n
+}
+
+func boundCount(x pBound, s []int, row int) int {
+	let mut c = 0
+	for k in boundRows(x, s, row) {
+		if outcomes(x.kids, s, k).fail != 0 {
+			return 0
+		}
+		c = c + sameCount(x.kids, s, k)
+	}
+	c
+}
+
+type outcome { shapes []ui.Shape[int], fail int, v int }
+
+func done(shapes []ui.Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
+
+func model(p prog, s []int, row int) outcome {
+	match p {
+	case pText as x:
+		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
+	case pInput as x:
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type"})})
+	case pCheck as x:
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
 		let v = s[x.slot] + row
 		if v%2 == 0 {
-			return []ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})}
+			return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})})
 		}
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})}
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})})
 	case pBox as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: o.shapes}})
 	case pRow as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: models(x.kids, s, row)}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: o.shapes}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})})
 	case pPress as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
+	case pFieldset as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "same", On: false}), ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: kids}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
-			for c in models(x.kids, s, k) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail != 0 {
+				return o
+			}
+			for c in o.shapes {
 				out = out.Append(c)
 			}
 		}
-		out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()}))
+		done(out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()})))
+	case pBound as x:
+		let mut out = []ui.Shape[int]{}
+		for k in boundRows(x, s, row) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail == 1 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "pending", Style: ui.Plain()})})
+			}
+			if o.fail == 2 && o.v%2 == 0 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "missing \(o.v)", Style: ui.Plain()})})
+			}
+			if o.fail == 2 {
+				return done([]ui.Shape[int]{})
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		if x.form == 1 {
+			return done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: out}})
+		}
+		done(out)
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 0 {
+			return done([]ui.Shape[int]{})
+		}
+		outcome{shapes: []ui.Shape[int]{}, fail: v % 3, v: v}
 	}
 }
 
-func models(ps []prog, s []int, row int) []ui.Shape[int] {
+func outcomes(ps []prog, s []int, row int) outcome {
 	let mut out = []ui.Shape[int]{}
 	for p in ps {
-		for x in model(p, s, row) {
+		let o = model(p, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		for x in o.shapes {
 			out = out.Append(x)
 		}
 	}
-	out
+	done(out)
+}
+
+func models(ps []prog, s []int, row int) []ui.Shape[int] { outcomes(ps, s, row).shapes }
+
+func stopsAt(ps []prog, s []int, row int) bool {
+	for p in ps {
+		if stopIn(p, s, row) {
+			return true
+		}
+	}
+	false
+}
+
+func stopIn(p prog, s []int, row int) bool {
+	match p {
+	case pBox as x:
+		stopsAt(x.kids, s, row)
+	case pRow as x:
+		stopsAt(x.kids, s, row)
+	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
+		stopsAt(x.kids, s, row)
+	case pEach as x:
+		for k in items(s[x.slot]) {
+			if stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case pBound as x:
+		for k in boundRows(x, s, row) {
+			if outcomes(x.kids, s, k).fail != 0 || stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+func boundRows(x pBound, s []int, row int) []int {
+	if x.form == 2 {
+		return items(s[x.slot])
+	}
+	[]int{row}
 }
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
@@ -182,7 +523,12 @@ func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shap
 func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	ui.Render(f, func(g *ui.Frame[int], st []int) {
 		for p in ps {
-			render(g, p, st, 0)
+			render(g, p, st, 0) catch {
+			case Missing:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			case ui.Pending:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			}
 		}
 	}, s)
 }
@@ -190,7 +536,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 func genRoot(r *rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
-		ps = ps.Append(genProg(r, 3))
+		ps = ps.Append(genProg(r, 3, false))
 	}
 	ps
 }
@@ -255,29 +601,200 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int]) bool {
+func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
+	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
 	let typed = sent(ui.Handle(f, ui.Type[int]{Id: id, Text: "abc"}).Signal)
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:
 		match n.Value {
+		case ui.FieldsetNode as d:
+			under = off || d.Disabled
+			ok = pressed == -1 && typed == -1
 		case ui.PressableNode[int] as p:
 			ok = pressed == p.On && typed == -1
 		case ui.CheckNode[int] as c:
 			ok = pressed == c.On && typed == -1
 		case ui.InputNode as i:
-			ok = i.Value == "v\(typed-3)" && pressed == -1
+			ok = i.Value == "v\(typed - 3)" && pressed == -1
 		case _:
+			ok = pressed == -1 && typed == -1
+		}
+		if off {
 			ok = pressed == -1 && typed == -1
 		}
 	case None:
 		return false
 	}
 	for k in ui.Kids(f, id) {
-		ok = ok && signalsAgree(f, k)
+		ok = ok && signalsAgree(f, k, under)
 	}
 	ok
+}
+
+
+type seen { node ui.Node[int], a ui.Access, text string }
+
+func accessModel(shapes []ui.Shape[int], off bool, desc string) []seen {
+	let mut out = []seen{}
+	for sh in shapes {
+		let mut o = off
+		let mut d = desc
+		match sh.Node {
+		case ui.FieldsetNode as x:
+			o = off || x.Disabled
+			if x.Description != "" {
+				d = x.Description
+			}
+		case _:
+		}
+		out = out.Append(seen{node: sh.Node, a: readAs(sh.Node, o, d), text: textOf(sh)})
+		for x in accessModel(sh.Kids, o, d) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func readAs(n ui.Node[int], off bool, desc string) ui.Access {
+	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	match n {
+	case ui.PressableNode[int] as x:
+		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None}
+	case ui.CheckNode[int] as x:
+		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None}
+	case ui.ToggleNode as x:
+		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None}
+	case ui.InputNode as x:
+		ui.Access{Role: ui.TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}}
+	case ui.TextNode as x:
+		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.FieldsetNode:
+		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.AreaNode as x:
+		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.CanvasNode as x:
+		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.RowsNode as x:
+		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case _:
+		base
+	}
+}
+
+func textOf(sh ui.Shape[int]) string {
+	let mut out = ""
+	match sh.Node {
+	case ui.TextNode as t:
+		out = t.Value
+	case _:
+	}
+	for k in sh.Kids {
+		out = out + textOf(k)
+	}
+	out
+}
+
+func wants(loc ui.Locator, x seen) bool {
+	match loc {
+	case ui.WithRole as l:
+		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
+	case ui.WithLabel as l:
+		let labelled = x.a.Role == ui.Button || x.a.Role == ui.Checkbox || x.a.Role == ui.Switch || x.a.Role == ui.Region || x.a.Role == ui.Image || x.a.Role == ui.List
+		labelled && x.a.Name == l.Label
+	case ui.WithPlaceholder as l:
+		x.a.Role == ui.TextBox && x.a.Name == l.Text
+	case ui.WithText as l:
+		x.a.Role == ui.Static && x.a.Name == l.Text
+	}
+}
+
+func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+	ui.ExpectIn(m, loc, is) catch {
+	case ui.Mismatch:
+		return false
+	}
+	true
+}
+
+func extras(f *ui.Frame[int], v int) {
+	ui.Fieldset(f, v%2 == 1, "x\(v)") {
+		let on = ui.NewFlag(f, true)
+		ui.Toggle(f, on, "tg\(v % 3)")
+		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
+			ui.Text(f, "in area")
+		}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
+	}
+}
+
+func extraShapes(v int) []ui.Shape[int] {
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
+}
+
+
+func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
+		return false
+	}
+	match ui.NodeOf(f, a) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+		case _:
+			if sent(ui.Handle(f, ui.Press[int]{Id: a}).Signal) != sent(ui.Handle(g, ui.Press[int]{Id: b}).Signal) {
+				return false
+			}
+		}
+	case None:
+		return false
+	}
+	if sent(ui.Handle(f, ui.Type[int]{Id: a, Text: "abc"}).Signal) != sent(ui.Handle(g, ui.Type[int]{Id: b, Text: "abc"}).Signal) {
+		return false
+	}
+	let ka = ui.Kids(f, a)
+	let kb = ui.Kids(g, b)
+	if len(ka) != len(kb) {
+		return false
+	}
+	for i in 0..len(ka) {
+		if !signalsMatch(f, g, ka[i], kb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+	let mut all = out
+	match ui.NodeOf(f, id) {
+	case Some[ui.Node[int]] as n:
+		match n.Value {
+		case ui.ToggleNode:
+			all = all.Append(id)
+		case _:
+		}
+	case None:
+	}
+	for k in ui.Kids(f, id) {
+		all = toggles(f, k, all)
+	}
+	all
 }
 
 
@@ -353,8 +870,25 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		} else {
 			model = machines.Next(model, shelfStep(model, 0))
 		}
-		ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+		// Half the presses go by locator, and each step expects the count
+		// the model shows and the number of delete buttons (H4r).
+		let mut tap ui.Act = ui.TapOn{Label: label}
+		if draw(&r, 2) == 0 {
+			tap = ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: label}}
+		}
+		let expect = []ui.Act{ui.ExpectOn{At: ui.WithText{Text: "\(len(model.rows)) rows"}, Is: ui.ToExist}, ui.ExpectOn{At: ui.WithLabel{Label: "del"}, Is: ui.ToHaveCount{Count: len(model.rows)}}}
+		ui.Play(&h, []ui.Act{tap, expect[0], expect[1]}) catch {
 		case _:
+			return false
+		}
+		let mut refused = false
+		ui.Play(&h, []ui.Act{ui.ExpectOn{At: ui.WithLabel{Label: "del"}, Is: ui.ToHaveCount{Count: len(model.rows) + 1}}}) catch {
+		case ui.Mismatch:
+			refused = true
+		case _:
+			return false
+		}
+		if !refused {
 			return false
 		}
 		let s = ui.StateOf(&h)
@@ -931,12 +1465,1090 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 		if len(now) > 0 {
 			first = now[0]
 		}
-		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: len(model.items), RowHeight: ui.Length(rh), First: first}, Kids: rows}
+		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: len(model.items), RowHeight: ui.Length(rh), First: first, Offset: ui.Length(off)}, Kids: rows}
 		let screen = ui.Screen(&h)
 		if ui.StateOf(&h) != model || len(screen) != 3 || !ui.SameShapes(screen[2:], []ui.Shape[int]{want}) {
 			return false
 		}
 		if ui.RowRuns(&h) != len(now) || ui.RowRuns(&h) > int(height/rh)+2+2*ui.Overscan {
+			return false
+		}
+	}
+	true
+}
+
+let places = []string{"/", "/a", "/b?x=1", "/c#top", "/a/b?q=2#f"}
+
+func placeOf(u ui.URL) Option[int] {
+	for i, p in places {
+		if ui.Href(u) == p {
+			return Some{Value: i}
+		}
+	}
+	None
+}
+
+func routeStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func routeTimer(s int) Option[Timeout[int]] { None }
+
+func routeWork(s int) Option[func(send func(e int))] { None }
+
+func routeMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork}
+}
+
+func home(u ui.URL) Option[int] { Some{Value: 0} }
+
+func routeView(f *ui.Frame[int], s int) {
+	ui.OnURL(f, placeOf)
+	ui.OnURL(f, home)
+	ui.Text(f, "at \(places[s])")
+}
+
+func lawHrefParses(seed int) bool {
+	let mut r = seeded(seed)
+	let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"}
+	let u = ui.URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]}
+	ui.ParseURL(ui.Href(u)) == u
+}
+
+func lawNavigationFollowsModel(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		navigationFollows(seed, steps, m)
+	}
+}
+
+func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(routeMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, routeView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut stack = []string{"/"}
+	let mut shown = 0
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut act ui.Act = ui.GoBack
+		if draw(&r, 3) != 0 {
+			let mut href = "/nowhere"
+			if draw(&r, 4) != 0 {
+				href = places[draw(&r, len(places))]
+			}
+			act = ui.NavigateTo{Href: href}
+			stack = stack.Append(href)
+		} else if len(stack) > 1 {
+			let mut kept = []string{}
+			for i in 0..len(stack)-1 {
+				kept = kept.Append(stack[i])
+			}
+			stack = kept
+		} else {
+			act = ui.GoBack
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let top = stack[len(stack)-1]
+		match placeOf(ui.ParseURL(top)) {
+		case Some[int] as p:
+			shown = p.Value
+		case None:
+			shown = 0
+		}
+		if ui.Href(ui.Current(ui.History(&h))) != top || ui.Depth(ui.History(&h)) != len(stack)-1 || ui.StateOf(&h) != shown {
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.ExpectOn{At: ui.WithText{Text: "at \(places[shown])"}, Is: ui.ToExist}}) catch {
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+type capA { tagA() int }
+
+type capB { tagB() int }
+
+type capC { tagC() int }
+
+type aIs { v int }
+
+type bIs { v int }
+
+type cIs { v int }
+
+func tagA(p aIs) int { p.v }
+
+func tagB(p bIs) int { p.v }
+
+func tagC(p cIs) int { p.v }
+
+type boundLoad { set int, inner bool }
+
+func fetchNone() int { 0 }
+
+func fetchA() int needs capA { capA.tagA() }
+
+func fetchB() int needs capB { 10 * capB.tagB() }
+
+func fetchAB() int needs capA | capB { capA.tagA() + 10*capB.tagB() }
+
+func fetchC() int needs capC { 100 * capC.tagC() }
+
+func fetchAC() int needs capA | capC { capA.tagA() + 100*capC.tagC() }
+
+func fetchBC() int needs capB | capC { 10*capB.tagB() + 100*capC.tagC() }
+
+func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 100*capC.tagC() }
+
+func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
+	let base = 1000 * (i + 1)
+	match set {
+	case 1:
+		ui.Load(f, ui.ByInt(i), func() int needs capA { base + fetchA() })
+	case 2:
+		ui.Load(f, ui.ByInt(i), func() int needs capB { base + fetchB() })
+	case 3:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capB { base + fetchAB() })
+	case 4:
+		ui.Load(f, ui.ByInt(i), func() int needs capC { base + fetchC() })
+	case 5:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capC { base + fetchAC() })
+	case 6:
+		ui.Load(f, ui.ByInt(i), func() int needs capB | capC { base + fetchBC() })
+	case 7:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capB | capC { base + fetchABC() })
+	case _:
+		ui.Load(f, ui.ByInt(i), func() int { base + fetchNone() })
+	}
+}
+
+func boundView(f *ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+	for i, l in plan {
+		ui.Box(f, ui.Plain()) {
+			if l.inner {
+				with context { capA: aIs{v: 3 - outer[0]}, capB: bIs{v: 3 - outer[1]}, capC: cIs{v: 3 - outer[2]} } {
+					loadFor(f, i, l.set)
+				}
+			} else {
+				loadFor(f, i, l.set)
+			}
+		}
+	}
+	ui.Text(f, "loads")
+}
+
+func logStep(s []int, e int) Decision[[]int, int] { Enter[[]int]{Next: s.Append(e)} }
+
+func logTimer(s []int) Option[Timeout[int]] { None }
+
+func logWork(s []int) Option[func(send func(e int))] { None }
+
+func logMachine() Machine[[]int, int, int] {
+	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork}
+}
+
+func lawLoadUsesTheBoundService(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		loadsBound(seed, m)
+	}
+}
+
+func loadsBound(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut plan = []boundLoad{}
+	for _ in 0..draw(&r, 3)+1 {
+		plan = plan.Append(boundLoad{set: draw(&r, 8), inner: draw(&r, 2) == 0})
+	}
+	let outer = []int{draw(&r, 2) + 1, draw(&r, 2) + 1, draw(&r, 2) + 1}
+	let mut want = []int{}
+	for i, l in plan {
+		let mut code = 1000 * (i + 1)
+		for c in 0..3 {
+			if l.set/[]int{1, 2, 4}[c]%2 == 1 {
+				let mut tag = outer[c]
+				if l.inner {
+					tag = 3 - outer[c]
+				}
+				code = code + tag*[]int{1, 10, 100}[c]
+			}
+		}
+		want = want.Append(code)
+	}
+	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
+		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
+		let mut h = ui.NewTestHost(a, func(f *ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let got = ui.StateOf(&h)
+		if len(got) != len(plan) {
+			return false
+		}
+		for g in got {
+			let mut seen = false
+			for w in want {
+				seen = seen || w == g
+			}
+			if !seen {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func cursorStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func cursorTimer(s int) Option[Timeout[int]] { None }
+
+func cursorWork(s int) Option[func(send func(e int))] { None }
+
+func cursorMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork}
+}
+
+func keptOffset(k int, rh float64, off float64, height float64) float64 {
+	let top = float64(k) * rh
+	let bottom = top + rh
+	if height >= rh && top >= off && bottom <= off+height {
+		return off
+	}
+	if height < rh {
+		return top
+	}
+	let up = top
+	let down = bottom - height
+	if (off-up)*(off-up) <= (down-off)*(down-off) {
+		return up
+	}
+	down
+}
+
+func lawRowsKeepTheCursor(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cursorKept(seed, steps, m)
+	}
+}
+
+func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let sizes = []int{0, 3, 50, 1000}
+	let n = sizes[draw(&r, len(sizes))]
+	let rh = float64(draw(&r, 40) + 10)
+	let view = func(f *ui.Frame[int], s int) {
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			for i in 0..n+1 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		ui.RowsKeeping(f, "list", n, ui.Length(rh), s, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+			ui.Text(f, "row \(i)")
+		}
+	}
+	let a = actor.StartMachine(cursorMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut off = 0.0
+	let mut height = 0.0
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act ui.Act = ui.SettleAll
+		if draw(&r, 2) == 0 {
+			off = float64(draw(&r, n*int(rh)+1))
+			height = float64(draw(&r, 300))
+			act = ui.ScrollOn{Label: "list", Offset: ui.Length(off), Height: ui.Length(height)}
+		} else {
+			let k = draw(&r, n+1)
+			act = ui.KeyIn{Press: ui.KeyPress{Name: "\(k)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+			if k != ui.StateOf(&h) && k < n {
+				off = keptOffset(k, rh, off, height)
+			}
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let now = shownRows(n, rh, off, height)
+		let mut rows = []ui.Shape[int]{}
+		for i in now {
+			rows = rows.Append(leaf(ui.TextNode{Value: "row \(i)", Style: ui.Plain()}))
+		}
+		let mut first = n
+		if len(now) > 0 {
+			first = now[0]
+		}
+		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: n, RowHeight: ui.Length(rh), First: first, Offset: ui.Length(off)}, Kids: rows}
+		if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{want}) {
+			return false
+		}
+	}
+	true
+}
+
+func escapedForm(e string) bool {
+	let mut i = 0
+	for i < len(e) {
+		let c = e[i]
+		if c == '%' {
+			if i+2 >= len(e) || !strings.Contains("0123456789ABCDEF", e[i+1:i+2]) || !strings.Contains("0123456789ABCDEF", e[i+2:i+3]) {
+				return false
+			}
+			i = i + 3
+		} else if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			i = i + 1
+		} else {
+			return false
+		}
+	}
+	true
+}
+
+func lawEscapeRoundTrips(s string, t string) bool {
+	let e = ui.Escape(s)
+	let mut lower = ""
+	for i in 0..len(s) {
+		lower = lower + "%" + hex.Encode(s[i:i+1])
+	}
+	let plain = strings.ReplaceAll(t, "%", "")
+	escapedForm(e) && ui.Unescape(e) == s && ui.Unescape(lower) == s && ui.Unescape(plain) == plain && ui.Unescape(s+"%4g"+plain) == ui.Unescape(s)+"%4g"+plain
+}
+
+func lawSegmentsReadPathOf(xs []string) bool {
+	let path = ui.PathOf(xs)
+	let mut want = []string{}
+	for x in xs {
+		if x != "" {
+			want = want.Append(x)
+		}
+	}
+	let got = ui.Segments(ui.URL{Path: path, Query: "", Fragment: ""})
+	if len(got) != len(want) || ui.ParseURL(path).Path != path {
+		return false
+	}
+	for i, x in want {
+		if got[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+type queryRecord {
+	Name  string,
+	Sort  string "sort by&",
+	Page  int,
+	Big   uint64,
+	Ratio float64,
+	On    bool,
+	Note  json.Optional[string],
+	Tags  []string,
+}
+
+type queryNested { Name string, Inner queryRecord }
+
+func lawQueryRoundTrips(seed int, a string, b string, tags []string) bool {
+	let mut r = seeded(seed)
+	let mut note json.Optional[string] = json.Absent
+	if draw(&r, 2) == 0 {
+		note = json.Present{Value: b + a}
+	}
+	let mut ts = tags
+	if len(ts) == 0 {
+		ts = []string{a}
+	}
+	let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts}
+	let u = ui.WithQuery(ui.URL{Path: "/list", Query: "", Fragment: "top"}, v) catch {
+	case ui.QueryShape:
+		return false
+	}
+	let back = ui.QueryOf[queryRecord](ui.ParseURL(ui.Href(u))) catch {
+	case _:
+		return false
+	}
+	let nested = ui.EncodeQuery(queryNested{Name: a, Inner: v}) catch {
+	case ui.QueryShape as q:
+		q.Key
+	}
+	let scalar = ui.EncodeQuery(draw(&r, 9)) catch {
+	case ui.QueryShape as q:
+		"none" + q.Key
+	}
+	back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none"
+}
+
+func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s >= last {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			send(s + 1)
+		}}
+	}
+}
+
+func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func replyTimer(s int) Option[Timeout[int]] { None }
+
+func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last)}
+}
+
+func replyView(f *ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
+
+func lawWorkReplyIsShown(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		replyShown(n, m)
+	}
+}
+
+func replyShown(n int, m time.Manual) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, replyView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{leaf(ui.TextNode{Value: "at 0", Style: ui.Plain()})}) {
+		return false
+	}
+	for i in 0..last {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == i+1 }) catch {
+		case actor.Stopped:
+			return false
+		}
+		ui.Settle(&h) catch {
+		case _:
+			return false
+		}
+		if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{leaf(ui.TextNode{Value: "at \(i + 1)", Style: ui.Plain()})}) {
+			return false
+		}
+	}
+	true
+}
+
+func lawWatcherShowsWorkReplies(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watchReplies(n)
+	}
+}
+
+func watchReplies(n int) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let posted = queue.New[ui.Event[int]](8)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let (s, first) = ui.Start(a, replyView, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	for i in 1..last+1 {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let mut shown = false
+		for !shown {
+			let ev = posted.Pop() catch {
+			case queue.Closed:
+				return false
+			}
+			match ev {
+			case ui.Committed:
+			case _:
+				return false
+			}
+			let ops = ui.Step(&session, ev) catch {
+			case actor.Stopped:
+				return false
+			}
+			shown = writesText(ops, "at \(i)")
+		}
+	}
+	true
+}
+
+func writesText(ops []ui.Op[int], v string) bool {
+	for op in ops {
+		let mut node Option[ui.Node[int]] = None
+		match op {
+		case ui.Insert[int] as x:
+			node = Some{Value: x.Node}
+		case ui.Set[int] as x:
+			node = Some{Value: x.Node}
+		case _:
+		}
+		match node {
+		case Some[ui.Node[int]] as x:
+			match x.Value {
+			case ui.TextNode as t:
+				if t.Value == v {
+					return true
+				}
+			case _:
+			}
+		case None:
+		}
+	}
+	false
+}
+
+type Boom { N int }
+
+func crashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 2 {
+		return Boom{N: s}
+	}
+	if e == 0 {
+		return Enter[int]{Next: s + 1}
+	}
+	Enter[int]{Next: s}
+}
+
+func crashTimer(s int) Option[Timeout[int]] { None }
+
+func crashWork(s int) Option[func(send func(e int))] { None }
+
+func crashMachine() Machine[int, int, int, Boom] {
+	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork}
+}
+
+func crashAppView(f *ui.Frame[int], s int) {
+	ui.Text(f, "count \(s)")
+	ui.Pressable(f, "add", 0) {
+		ui.Text(f, "+")
+	}
+	ui.Pressable(f, "defect", 1) {
+		ui.Text(f, "!")
+	}
+	ui.Pressable(f, "fail", 2) {
+		ui.Text(f, "x")
+	}
+	let fl = ui.NewFlag(f, false)
+	ui.Toggle(f, fl, "keep")
+}
+
+func crashText(c ui.Crash[Boom]) string {
+	match c {
+	case ui.DefectCrash:
+		"crashed: defect"
+	case ui.FailureCrash[Boom] as x:
+		match x.Failure {
+		case Boom as b:
+			"crashed: failure \(b.N)"
+		}
+	}
+}
+
+func crashOwnView(f *ui.Frame[int], c ui.Crash[Boom]) {
+	ui.Text(f, crashText(c))
+	ui.Pressable(f, "reload", 3) {
+		ui.Text(f, "reload")
+	}
+}
+
+func pressShape(label string, on int, text string) ui.Shape[int] {
+	ui.Shape[int]{Node: ui.PressableNode{Label: label, On: on, Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: text, Style: ui.Plain()})}}
+}
+
+func crashAppShapes(n int, on bool) []ui.Shape[int] {
+	[]ui.Shape[int]{leaf(ui.TextNode{Value: "count \(n)", Style: ui.Plain()}), pressShape("add", 0, "+"), pressShape("defect", 1, "!"), pressShape("fail", 2, "x"), leaf(ui.ToggleNode{Label: "keep", On: on})}
+}
+
+func lawCrashShowsTheCrashView(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashShown(seed, steps, m)
+	}
+}
+
+func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let reports = sync.NewRef(0)
+	let crashes = ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {
+		reports.Update(func(n int) int { n + 1 })
+	}}
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut count = 0
+	let mut on = false
+	let mut crash Option[ui.Crash[Boom]] = None
+	let mut crashed = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let pick = draw(&r, 4)
+		let mut label = "reload"
+		match crash {
+		case Some[ui.Crash[Boom]]:
+			crash = None
+			count = 0
+			on = false
+		case None:
+			if pick == 0 {
+				label = "add"
+				count = count + 1
+			} else if pick == 1 {
+				label = "defect"
+				crash = Some{Value: ui.DefectCrash}
+				crashed = crashed + 1
+			} else if pick == 2 {
+				label = "fail"
+				crash = Some{Value: ui.FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crashed = crashed + 1
+			} else {
+				label = "keep"
+				on = !on
+			}
+		}
+		ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+		case _:
+			return false
+		}
+		let want = match crash {
+		case Some[ui.Crash[Boom]] as c:
+			[]ui.Shape[int]{leaf(ui.TextNode{Value: crashText(c.Value), Style: ui.Plain()}), pressShape("reload", 3, "reload")}
+		case None:
+			crashAppShapes(count, on)
+		}
+		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || ui.CrashOf(&h) != crash {
+			return false
+		}
+	}
+	true
+}
+
+func lawReloadIsInitial(seed int, defect bool) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		reloadInitial(seed, defect, m)
+	}
+}
+
+func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut script = []ui.Act{}
+	for _ in 0..draw(&r, 6) {
+		script = script.Append(ui.TapOn{Label: if draw(&r, 2) == 0 { "add" } else { "keep" }})
+	}
+	script = script.Append(ui.TapOn{Label: if defect { "defect" } else { "fail" }})
+	script = script.Append(ui.TapOn{Label: "reload"})
+	ui.Play(&h, script) catch {
+	case _:
+		return false
+	}
+	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	ui.SameShapes(ui.Screen(&h), ui.Screen(&fresh)) && ui.CrashOf(&h) == None
+}
+
+func workCrashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 5 {
+		return Enter[int]{Next: -1}
+	}
+	Enter[int]{Next: s}
+}
+
+func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s != -1 {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			Unreachable("crash app: a defect of the work, on purpose")
+		}}
+	}
+}
+
+func keyView(f *ui.Frame[int], s int) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "1" {
+			return Some{Value: 1}
+		}
+		if k.Name == "5" {
+			return Some{Value: 5}
+		}
+		None
+	})
+	ui.Text(f, "at \(s)")
+}
+
+func keyCrashView(f *ui.Frame[int], c ui.Crash[Boom]) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
+	ui.Text(f, "crashed")
+}
+
+func key(name string) ui.Event[int] {
+	ui.KeyDown{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+func endedOf(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
+	for {
+		let ev = posted.Pop() catch {
+		case queue.Closed:
+			return None
+		}
+		let ops = ui.Step(session, ev) catch {
+		case actor.Stopped:
+			return None
+		}
+		match ev {
+		case ui.Ended as x:
+			if x.Run == run {
+				return Some{Value: ops}
+			}
+		case _:
+		}
+	}
+}
+
+func lawSessionCrashFollowsTheEnd(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashFollows()
+	}
+}
+
+func crashFollows() bool needs Scheduler {
+	let gate = queue.New[int](1)
+	let posted = queue.New[ui.Event[int]](64)
+	let reports = sync.NewRef(0)
+	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
+	let crashes = ui.Crashes[int, Boom]{View: keyCrashView, Report: func(c ui.Crash[Boom]) {
+		reports.Update(func(k int) int { k + 1 })
+	}}
+	let (s, first) = ui.StartApp(mach, 1, keyView, crashes, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	// A defect of a step; its actor's ui.Ended comes before the reload.
+	let a = ui.Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(a, "crashed") || reports.Get() != 1 || !endsQuiet(&session, posted, 0) || reports.Get() != 1 {
+		return false
+	}
+	let b = ui.Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	// A defect of the second actor; its ui.Ended comes after the reload.
+	let c = ui.Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	let d = ui.Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(b, "at 0") || !writesText(c, "crashed") || !writesText(d, "at 0") || !endsQuiet(&session, posted, 1) || reports.Get() != 2 {
+		return false
+	}
+	// A defect of the third actor's work.
+	let e = ui.Step(&session, key("5")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(e, "at -1") {
+		return false
+	}
+	gate.Push(0) catch {
+	case queue.Closed:
+		return false
+	}
+	match endedOf(&session, posted, 2) {
+	case Some[[]ui.Op[int]] as ops:
+		writesText(ops.Value, "crashed") && reports.Get() == 3
+	case None:
+		false
+	}
+}
+
+func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
+	match endedOf(session, posted, run) {
+	case Some[[]ui.Op[int]] as ops:
+		len(ops.Value) == 0
+	case None:
+		false
+	}
+}
+
+type statsApp { texts int, paints int, rows int, stops bool, key int, canvas bool, rev bool }
+
+type Halt {}
+
+func haltIf(b bool) fails Halt {
+	if b {
+		return Halt
+	}
+}
+
+func statsStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func statsMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0)}
+}
+
+func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
+	func(f *ui.Frame[int], s int) {
+		let st = apps[s]
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			for i in 0..len(apps) {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		ui.Column(f, ui.Plain()) {
+			for j in 0..st.texts {
+				ui.Text(f, "t\(j)")
+			}
+			if st.canvas {
+				ui.Canvas(f, "c", 40, 40) func(p *ui.Paint) {
+					for j in 0..st.paints {
+						ui.Fill(p, ui.RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
+					}
+				}
+			}
+			let order = if st.rev { []int{2, 1, 0} } else { []int{0, 1, 2} }
+			ui.Each(f, order, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
+				ui.Text(f, "e\(x)")
+			}
+			ui.Rows(f, "list", st.rows, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+				ui.Text(f, "r\(i)")
+			}
+			ui.Boundary(f) {
+				ui.Text(f, "in")
+				try haltIf(st.stops)
+			} catch {
+			case Halt:
+				ui.Text(f, "out")
+			}
+			let key = st.key
+			ui.Load(f, ui.ByInt(key), func() int { s })
+		}
+	}
+}
+
+func opCounts(ops []ui.Op[int]) (int, int, int, int, int) {
+	let mut ins = 0
+	let mut mov = 0
+	let mut rem = 0
+	let mut set = 0
+	let mut paint = 0
+	for op in ops {
+		let mut node Option[ui.Node[int]] = None
+		match op {
+		case ui.Insert[int] as x:
+			ins = ins + 1
+			node = Some{Value: x.Node}
+		case ui.Move[int]:
+			mov = mov + 1
+		case ui.Remove[int]:
+			rem = rem + 1
+		case ui.Set[int] as x:
+			set = set + 1
+			node = Some{Value: x.Node}
+		}
+		match node {
+		case Some[ui.Node[int]] as n:
+			match n.Value {
+			case ui.CanvasNode as c:
+				paint = paint + len(c.Paint)
+			case _:
+			}
+		case None:
+		}
+	}
+	(ins, mov, rem, set, paint)
+}
+
+func lawStatsCountEveryPhase(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		statsFollow(seed, steps)
+	}
+}
+
+func statsFollow(seed int, steps int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut apps = []statsApp{statsApp{texts: 0, paints: 0, rows: 0, stops: false, key: 0, canvas: false, rev: false}}
+	let n = (steps%12+12)%12 + 1
+	for _ in 0..n {
+		apps = apps.Append(statsApp{texts: draw(&r, 5), paints: draw(&r, 4), rows: draw(&r, 3) * 10, stops: draw(&r, 2) == 0, key: draw(&r, 2), canvas: draw(&r, 3) != 0, rev: draw(&r, 2) == 0})
+	}
+	let a = actor.StartMachine(statsMachine(), 1, func(o int) {})
+	let (s, _) = ui.Start(a, statsView(apps), func(ev ui.Event[int]) {})
+	let mut session = s
+	let mut prev = apps[0]
+	for i in 1..len(apps) {
+		let ops = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "\(i)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		let st = apps[i]
+		let shown = len(shownRows(st.rows, 10.0, 0.0, 0.0))
+		let stopped = if st.stops { 1 } else { 0 }
+		let changed = if st.key != prev.key { 1 } else { 0 }
+		let canvas = if st.canvas { 1 } else { 0 }
+		let (ins, mov, rem, set, paint) = opCounts(ops)
+		let want = ui.Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Painted: paint, Fetches: changed, Cancels: changed}
+		let got = ui.SessionStats(&session)
+		if got != want || len(ui.StoppedAt(&session)) != stopped {
+			return false
+		}
+		// The paint ops are the canvas's when it is new or its paint
+		// changed; three rows move when the ui.Each's order flips.
+		if st.canvas && (!prev.canvas || st.paints != prev.paints) && paint != st.paints {
+			return false
+		}
+		if st.rev != prev.rev && mov == 0 {
+			return false
+		}
+		prev = st
+	}
+	true
+}
+
+type slowLog { texts int, log []ui.Slow }
+
+type slowSignal = MoreText{} | WasSlow{S ui.Slow}
+
+func slowStep(s slowLog, e slowSignal) Decision[slowLog, int] {
+	match e {
+	case MoreText:
+		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log}}
+	case WasSlow as w:
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S)}}
+	}
+}
+
+func slowTimer(s slowLog) Option[Timeout[slowSignal]] { None }
+
+func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
+
+func lawSlowAboveTheBudget(seed int, bound int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		slowFollow(seed, (bound%5+5)%5+1)
+	}
+}
+
+func slowFollow(seed int, bound int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f *ui.Frame[slowSignal], s slowLog) {
+		// Every third pass asks for nothing: an ui.OnSlow holds for its pass.
+		if s.texts%3 != 0 {
+			ui.OnSlow(f, ui.Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x ui.Slow) slowSignal { WasSlow{S: x} })
+		}
+		ui.OnKey(f, func(k ui.KeyPress) Option[slowSignal] { Some{Value: MoreText} })
+		ui.Text(f, "log \(len(s.log))")
+		for j in 0..s.texts {
+			ui.Text(f, "t\(j)")
+		}
+	}
+	let posted = queue.New[ui.Event[slowSignal]](256)
+	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}}, Step: slowStep, After: slowTimer, Work: slowWork}, 1, func(o int) {})
+	let (s, _) = ui.Start(a, view, func(ev ui.Event[slowSignal]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let mut want = []ui.Slow{}
+	for _ in 0..draw(&r, 8)+3 {
+		let _ = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		// The pass wrote the log's line and the texts.
+		let texts = a.State().texts
+		if texts%3 != 0 && texts+1 > bound {
+			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
+			// the law takes the posted events until it shows it.
+			let mut shown = false
+			for !shown {
+				let ev = posted.Pop() catch {
+				case queue.Closed:
+					return false
+				}
+				let ops = ui.Step(&session, ev) catch {
+				case actor.Stopped:
+					return false
+				}
+				for op in ops {
+					match op {
+					case ui.Set[slowSignal] as x:
+						shown = shown || x.Node == ui.TextNode{Value: "log \(len(want))", Style: ui.Plain()}
+					case _:
+					}
+				}
+			}
+		}
+	}
+	let log = a.State().log
+	if len(log) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if log[i] != x {
 			return false
 		}
 	}
@@ -966,17 +2578,123 @@ test UiPaintMatchesList(seed int, steps int) {
 test UiRowsAreTheCutEach(seed int, steps int) {
 	assert lawRowsAreTheCutEach(seed, steps)
 }
+
+test UiHrefParses(seed int) {
+	assert lawHrefParses(seed)
+}
+
+test UiNavigationFollowsModel(seed int, steps int) {
+	assert lawNavigationFollowsModel(seed, steps)
+}
+
+test UiLoadUsesTheBoundService(seed int) {
+	assert lawLoadUsesTheBoundService(seed)
+}
+
+test UiRowsKeepTheCursor(seed int, steps int) {
+	assert lawRowsKeepTheCursor(seed, steps)
+}
+
+test UiEscapeRoundTrips(s string, t string) {
+	assert lawEscapeRoundTrips(s, t)
+}
+
+test UiSegmentsReadPathOf(xs []string) {
+	assert lawSegmentsReadPathOf(xs)
+}
+
+test UiQueryRoundTrips(seed int, a string, b string, tags []string) {
+	assert lawQueryRoundTrips(seed, a, b, tags)
+}
+
+test UiWorkReplyIsShown(n int) {
+	assert lawWorkReplyIsShown(n)
+}
+
+test UiWatcherShowsWorkReplies(n int) {
+	assert lawWatcherShowsWorkReplies(n)
+}
+
+test UiCrashShowsTheCrashView(seed int, steps int) {
+	assert lawCrashShowsTheCrashView(seed, steps)
+}
+
+test UiReloadIsInitial(seed int, defect bool) {
+	assert lawReloadIsInitial(seed, defect)
+}
+
+test UiSessionCrashFollowsTheEnd(n int) {
+	assert lawSessionCrashFollowsTheEnd(n)
+}
+
+test UiStatsCountEveryPhase(seed int, steps int) {
+	assert lawStatsCountEveryPhase(seed, steps)
+}
+
+test UiSlowAboveTheBudget(seed int, bound int) {
+	assert lawSlowAboveTheBudget(seed, bound)
+}
+
+
+test UiLocationPushThenBackRestores(path string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	let u = ui.URL{Path: "/" + path, Query: "", Fragment: ""}
+	let before = h.Current()
+	h.Push(u)
+	let there = h.Current()
+	assert h.Back() && there == u && h.Current() == before
+}
+
+test UiLocationReplaceKeepsDepth(a string, b string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	let u = ui.URL{Path: "/" + a, Query: "", Fragment: ""}
+	let v = ui.URL{Path: "/" + b, Query: "q", Fragment: ""}
+	let before = h.Current()
+	h.Push(u)
+	h.Replace(v)
+	let there = h.Current()
+	assert h.Back() && there == v && h.Current() == before
+}
+
+test UiLocationBackStopsAtTheStart(n int, path string) {
+	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
+	for i in 0..(n%4+4)%4 {
+		h.Push(ui.URL{Path: "/\(i)", Query: "", Fragment: ""})
+	}
+	h.Replace(ui.URL{Path: "/" + path, Query: "", Fragment: ""})
+	for h.Back() {
+	}
+	let first = h.Current()
+	assert !h.Back() && h.Current() == first
+}
 `
 
 // stdUIHostStatements is the statement of each ui law, as the ledger writes it,
 // by ledger key.
 var stdUIHostStatements = map[string]string{
-	"ui ScriptShowsTheView":  `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
-	"ui CancelledFetchStops": `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
-	"ui NoTickWhenSettled":   `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
-	"ui InputGivesSignal":    `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
-	"ui PaintMatchesList":    `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
-	"ui RowsAreTheCutEach":   `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
+	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
+	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
+	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
+	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
+	"ui PaintMatchesList":              `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
+	"ui RowsAreTheCutEach":             `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
+	"ui HrefParses":                    `HrefParses(seed int) { let mut r = seeded(seed) let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"} let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]} ParseURL(Href(u)) == u }`,
+	"ui NavigationFollowsModel":        `NavigationFollowsModel(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { navigationFollows(seed, steps, m) } }`,
+	"ui LoadUsesTheBoundService":       `LoadUsesTheBoundService(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { loadsBound(seed, m) } }`,
+	"ui RowsKeepTheCursor":             `RowsKeepTheCursor(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cursorKept(seed, steps, m) } }`,
+	"ui EscapeRoundTrips":              `EscapeRoundTrips(s string, t string) { let e = Escape(s) let mut lower = "" for i in 0..len(s) { lower = lower + "%" + hex.Encode(s[i:i+1]) } let plain = strings.ReplaceAll(t, "%", "") escapedForm(e) && Unescape(e) == s && Unescape(lower) == s && Unescape(plain) == plain && Unescape(s+"%4g"+plain) == Unescape(s)+"%4g"+plain }`,
+	"ui SegmentsReadPathOf":            `SegmentsReadPathOf(xs []string) { let path = PathOf(xs) let mut want = []string{} for x in xs { if x != "" { want = want.Append(x) } } let got = Segments(URL{Path: path, Query: "", Fragment: ""}) if len(got) != len(want) || ParseURL(path).Path != path { return false } for i, x in want { if got[i] != x { return false } } true }`,
+	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
+	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
+	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
+	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
+	"ui ReloadIsInitial":               `ReloadIsInitial(seed int, defect bool) { let m = time.NewManual(0) with context { Scheduler: m } { reloadInitial(seed, defect, m) } }`,
+	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
+	"ui StatsCountEveryPhase":          `StatsCountEveryPhase(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { statsFollow(seed, steps) } }`,
+	"ui SlowAboveTheBudget":            `SlowAboveTheBudget(seed int, bound int) { let m = time.NewManual(0) with context { Scheduler: m } { slowFollow(seed, (bound%5+5)%5+1) } }`,
+	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
+	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
+	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
 }
 
 // TestUIHostModel runs the probe's tests with --seed 1; lawledger.Run holds that

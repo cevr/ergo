@@ -674,6 +674,11 @@ type i1Graph struct {
 	// opaque: the shape calls a function value, so its frames, and a
 	// subject that calls them, poll at entry whatever the effect.
 	opaque bool
+	// polls are frames that poll at entry whatever the effect: a
+	// function that runs its non-escaping parameter's argument is opaque
+	// read alone, while its caller joins the argument's footprint in its
+	// place (H2-fp; rows.md, Footprints 3).
+	polls []string
 	// provider: the recursion runs in a provider method, which has no row.
 	// The subject reaches it through a capability, and its entry is not
 	// asserted.
@@ -720,10 +725,12 @@ var i1Graphs = append([]i1Graph{
 	}, call: "left(%d)", frames: []string{"left"}},
 	// Through a literal called where it is written: an edge, not a value.
 	{name: "lit-in-place", decls: i1Fib("left(n int)", "func() int { left(n - 1) }()", "left(n - 2)"), call: "left(%d)", frames: []string{"left"}},
-	// Through a user function's trailing block, which run calls as a value.
+	// Through a user function's trailing block, which run calls as its
+	// non-escaping parameter: left joins the block's footprint (H2-fp), so
+	// it polls only when impure, and run, opaque read alone, always polls.
 	{name: "trailing", decls: func(row, clause string) string {
 		return "func run(cb func() int" + row + ") int" + row + " { cb() }\n" + i1Fib("left(n int)", "run() { left(n - 1) }", "run() { left(n - 2) }")(row, clause)
-	}, call: "left(%d)", frames: []string{"left", "run"}, opaque: true},
+	}, call: "left(%d)", frames: []string{"left", "run"}, polls: []string{"run"}},
 	// A provider method recursing by a dot call on its receiver.
 	{name: "provider-self", decls: func(row, clause string) string {
 		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
@@ -772,6 +779,9 @@ func i1RecursionCases() []i1Case {
 			entries := map[string]bool{}
 			for _, f := range g.frames {
 				entries[f] = want
+			}
+			for _, f := range g.polls {
+				entries[f] = true
 			}
 			if !g.provider {
 				entries["subject"] = e.name == "opaque" || e.name == "scope" || g.opaque
@@ -1428,7 +1438,7 @@ func i1LivePrograms() map[string]string {
 		if g.provider {
 			e = i1Effects[2]
 		}
-		if g.opaque {
+		if g.opaque || len(g.polls) > 0 {
 			// The shape alone must force entry checks. A separate
 			// capability effect could hide an opacity regression.
 			e = i1Effects[0]

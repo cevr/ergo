@@ -113,6 +113,9 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.AreaNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.FieldsetNode:
+		// A Fieldset shows nothing of its own: it stacks its children.
+		plainStyle()
 	case ui.RowsNode:
 		// A list fills the room it is given, and its parent's width; its
 		// rows are out of the flow (build places each), so it asks for no
@@ -345,7 +348,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 	let focus = d.focus == (Some{Value: id})
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode:
 		drawKids(d, id, dy, clip, line)
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)

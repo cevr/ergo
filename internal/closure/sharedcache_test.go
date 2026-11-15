@@ -48,15 +48,13 @@ func TestSharedCacheTarget(t *testing.T) {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		t.Fatal(err)
 	}
-	memo := filepath.Join(os.Getenv("GOCACHE"), "memo")
-	if err := os.MkdirAll(memo, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range slices.Sorted(maps.Keys(plan)) {
 		t.Run(name, func(t *testing.T) {
 			for _, path := range plan[name] {
-				sum := sha256.Sum256([]byte(path))
-				entry := filepath.Join(memo, hex.EncodeToString(sum[:8]))
+				entry := memoEntry(os.Getenv("GOCACHE"), path)
+				if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
+					t.Fatal(err)
+				}
 				if _, err := os.Stat(entry); err == nil {
 					fmt.Println(memoHit, path)
 					continue
@@ -71,6 +69,15 @@ func TestSharedCacheTarget(t *testing.T) {
 			}
 		})
 	}
+}
+
+// memoEntry is the memo's entry for path in the cache dir, laid out as
+// the go command lays out its cache (a two-digit subdirectory, a -d file),
+// so that seedCache places a std store's entries.
+func memoEntry(cache, path string) string {
+	sum := sha256.Sum256([]byte(path))
+	name := hex.EncodeToString(sum[:8])
+	return filepath.Join(cache, name[:2], name+"-d")
 }
 
 // memoCase is one generated sweep: packages, each a plan of subtests
@@ -137,7 +144,9 @@ func memoCases(files []string, n int, seed uint64) []memoCase {
 // cache entry another package made, and none is added from another
 // package. Each package's runs take, from the one cache, every file they
 // need again after the first time (the hits are the reads less the
-// distinct files), so the runs do share it. A failing case names its
+// distinct files), so the runs do share it; and the cache starts from the
+// std store (seedCache), whose entry each run takes without a read. A
+// failing case names its
 // seed; ERGO_CLOSURE_CACHE_SEED=<seed> replays it alone.
 func TestSharedCacheKeepsEachPackagesInputs(t *testing.T) {
 	needSandbox(t)
@@ -180,7 +189,22 @@ func checkMemoCase(t *testing.T, f fixture, self string, files []string, c memoC
 	t.Helper()
 	work := t.TempDir()
 	sem := make(chan struct{}, 1)
-	for p, plan := range c.plans {
+	// A std store (seedCache) with the entry of a file outside the
+	// checkout, as GOROOT is; the file does not exist, so only the
+	// store's entry lets a run take it. Each package's first subtest needs
+	// it, so every run that needs it hits it, the first one too.
+	store := t.TempDir()
+	const stdInput = "/nonexistent/closure-std-store/goroot-input"
+	if err := os.MkdirAll(filepath.Dir(memoEntry(store, stdInput)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(memoEntry(store, stdInput), []byte("a std compile"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for p, given := range c.plans {
+		plan := maps.Clone(given)
+		first := slices.Sorted(maps.Keys(plan))[0]
+		plan[first] = append(slices.Clone(plan[first]), stdInput)
 		file := filepath.Join(work, fmt.Sprintf("plan%d.json", p))
 		data, err := json.Marshal(plan)
 		if err != nil {
@@ -194,7 +218,7 @@ func checkMemoCase(t *testing.T, f fixture, self string, files []string, c memoC
 			runs = append(runs, sweepRun{args: []string{"-test.run=^TestSharedCacheTarget$/^(" + strings.Join(names, "|") + ")$"}, tests: names})
 		}
 		stem := filepath.Join(work, fmt.Sprintf("p%d", p))
-		entries, _, err := runPlan(f.root, []string{f.root}, "internal/p", f.pkg, stem, self, runs, sem, []string{memoVariable + "=" + file})
+		entries, _, err := runPlan(f.root, []string{f.root}, "internal/p", f.pkg, stem, self, runs, store, sem, []string{memoVariable + "=" + file})
 		if err != nil {
 			t.Fatalf("%s package %d: %v", at, p, err)
 		}
@@ -208,9 +232,12 @@ func checkMemoCase(t *testing.T, f fixture, self string, files []string, c memoC
 		reads := 0
 		for _, needs := range plan {
 			for _, path := range needs {
+				reads++
+				if path == stdInput {
+					continue
+				}
 				rel, _ := filepath.Rel(f.root, path)
 				want[filepath.ToSlash(rel)] = true
-				reads++
 			}
 		}
 		if !maps.Equal(got, want) {
@@ -228,8 +255,9 @@ func checkMemoCase(t *testing.T, f fixture, self string, files []string, c memoC
 			}
 			hits += strings.Count(string(data), memoHit)
 		}
-		if want := reads - countDistinct(plan); hits != want {
-			t.Errorf("%s package %d (plan %v, runs %v): %d memo hits, want %d: the runs do not share one cache", at, p, plan, c.runs[p], hits, want)
+		// Each file misses once, but the store's, which every read hits.
+		if want := reads - countDistinct(plan) + 1; hits != want {
+			t.Errorf("%s package %d (plan %v, runs %v): %d memo hits, want %d: the runs do not share one cache seeded from the std store", at, p, plan, c.runs[p], hits, want)
 		}
 	}
 }

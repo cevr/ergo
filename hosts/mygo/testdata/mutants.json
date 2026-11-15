@@ -414,6 +414,15 @@
       "to": "if false && (word == \"left\" || word == \"right\"",
       "rule": "the control plays a move of N as N keys, as a window does (up and down keep the column of each line they leave)",
       "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+    },
+    {
+      "name": "wasm-node-env-inherits-gomaxprocs",
+      "origin": "LY P-ui queue (GP's browser-run finding)",
+      "file": "hosts/mygo/examples_test.go",
+      "from": "\tcmd.Env = nodeEnv()\n",
+      "to": "\tcmd.Env = os.Environ()\n",
+      "rule": "a js/wasm binary under node runs without the gate's GOMAXPROCS: the Go runtime on js/wasm dies in its start with newosproc when GOMAXPROCS is over 1",
+      "killers": ["mygo:TestWasmRunsUnderAnInheritedGOMAXPROCS"]
     }
   ]
 }

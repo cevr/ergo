@@ -54,6 +54,15 @@
       "to": "ok && w != \"\" && text != \"\" {",
       "rule": "A binding does not state a build platform where its declarations differ from the binding platforms'.",
       "killers": ["gobind:TestBindMappingProperty"]
+    },
+    {
+      "name": "gobind-w1-std-widened",
+      "origin": "wf10 LY W1",
+      "file": "internal/gobind/std.go",
+      "from": "return bindOn(dir, env, v, Platforms, paths)",
+      "to": "return Bind(dir, env, v, paths...)",
+      "rule": "Go's standard-library bindings state the binding platforms only, as generated (an import of one off them is S104).",
+      "killers": ["gobind:TestGoStdBindingsMatchToolchain"]
     }
   ]
 }

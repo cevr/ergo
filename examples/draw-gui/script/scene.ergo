@@ -49,6 +49,8 @@ func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual
 			ui.Play(&h, []ui.Act{act(m.Signal)}) catch {
 			case ui.NoNode as x:
 				io.Stdout.Println("? no node " + x.Label)
+			case ui.Mismatch as miss:
+				io.Stdout.Println("? want " + miss.Want + ", got " + miss.Got)
 			case actor.Stopped as s:
 				return s
 			case ui.BadPatch as b:
@@ -118,7 +120,7 @@ func texts(shapes []ui.Shape[canvas.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode:
 		}
 		for t in texts(s.Kids) {
 			out = out.Append(t)
