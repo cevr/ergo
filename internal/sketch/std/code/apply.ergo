@@ -716,7 +716,7 @@ func applyIsSafe(seed int, mode int, at int, out int) bool {
 			return false
 		}
 	}
-	let wrote = outAt > 0 && Calls(h) >= outAt
+	let wrote = outAt > 0 && h.Calls() >= outAt
 	let files = Contents(disk)
 	let mut news = 0
 	let mut olds = 0

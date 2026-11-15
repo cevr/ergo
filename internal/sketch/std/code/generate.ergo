@@ -5,7 +5,9 @@ import strings
 // of them (an Ambiguous address), member handles (Type.Member), a local
 // named by its position, sites of every kind that name declarations of
 // their own package and of another, positions that two sites share, and
-// a package that does not check, and contracts of exported functions.
+// a package that does not check, contracts of exported functions, and
+// calls between functions, laws and locals (cycles and calls to self
+// included).
 // The same seed gives the same tables.
 func Generated(seed int) Tables {
 	let names = []string{"Run", "Parse", "Token", "Token.Kind", "Token.Text", "Load", "Check#law"}
@@ -29,7 +31,7 @@ func Generated(seed int) Tables {
 		decls = decls.Append(local)
 		handles = handles.Append(local.Handle)
 		let complete = roll(seed, 300 + i, 5) != 0
-		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}})
+		out = out.Append(Package{Path: path, Complete: complete, Diagnostics: if complete { 0 } else { 1 + roll(seed, 400 + i, 3) }, Decls: decls, Sites: []Site{}, Contracts: []Contract{}, Calls: []Call{}})
 	}
 	let mut filled = []Package{}
 	for i, p in out {
@@ -41,7 +43,20 @@ func Generated(seed int) Tables {
 			// Lines 30..34 and columns 1..3: some sites share a position.
 			sites = sites.Append(Site{Symbol: h, Kind: kind, Package: p.Path, File: p.Path + "/a.ergo", Line: 30 + roll(seed, salt + 2, 5), Column: 1 + roll(seed, salt + 3, 3), In: ""})
 		}
-		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls)})
+		let mut calls = []Call{}
+		let mut callers = []string{}
+		for d in p.Decls {
+			if d.Kind == "func" || d.Kind == "law" {
+				callers = callers.Append(d.Handle)
+			}
+		}
+		if len(callers) > 0 {
+			for j in 0..roll(seed, 700 + i, 9) {
+				let salt = 2000 + i*100 + j*3
+				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt + 1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2})
+			}
+		}
+		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls})
 	}
 	Tables{Revision: "gen-\(seed)", Root: "gen/p\(packages - 1)", Packages: filled}
 }

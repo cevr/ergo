@@ -60,10 +60,16 @@ func codeRunOn(t *testing.T, tables string, args ...string) (int, string, string
 //     their file, line, column and kind;
 //   - `symbol SHORT` (the handle without its package) is that declaration
 //     when one package declares the name, and Ambiguous with every
-//     candidate when several do.
+//     candidate when several do;
+//   - `calls --of HANDLE` at depth 1 is the call sites in the declaration
+//     (out) or of it (in): the sites of kind call the tables enclose in
+//     it, or name it. Besides the drawn ones, each package's first
+//     declaration that calls a parameter or a local (a function value) is
+//     asked.
 //
 // Every example program, in an order the seed draws; full tier only. ERGO_CODE_SEED=N replays a seed. Mutants code-root-main,
-// code-short-first, code-site-dropped (cmd/ergo/testdata/mutants.json).
+// code-short-first, code-site-dropped, code-call-value-dropped
+// (cmd/ergo/testdata/mutants.json).
 func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
 	if testing.Short() {
 		// The fast tier's CPU budget has no headroom (scripts/gate
@@ -132,6 +138,20 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 		}
 		return h
 	}
+	// handleOf is symbol id's handle as the tables give it: printed, or
+	// for a declared symbol without one, its position; "" for none.
+	handleOf := func(pt pkgTable, id uint32) string {
+		s := pt.table.Symbols[id]
+		if s.Handle != "" {
+			return printed(pt, s.Handle)
+		}
+		if !s.Declared {
+			return ""
+		}
+		name := pt.table.Files[s.File]
+		line, col := pt.syn[name].Position(syntax.Pos(s.Off))
+		return fmt.Sprintf("%s:%d:%d", name, line, col)
+	}
 	// short is each short name's printed handles, over every package.
 	short := map[string][]string{}
 	for _, pt := range pkgs {
@@ -144,14 +164,24 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 		}
 	}
 	for _, pt := range pkgs {
-		var declared []facts.Symbol
-		for _, s := range pt.table.Symbols {
+		var declared []uint32
+		for id, s := range pt.table.Symbols {
 			if s.Declared && s.Handle != "" {
-				declared = append(declared, s)
+				declared = append(declared, uint32(id))
 			}
 		}
+		var picks []uint32
 		for range min(len(declared), perPackage) {
-			s := declared[r.IntN(len(declared))]
+			picks = append(picks, declared[r.IntN(len(declared))])
+		}
+		for _, site := range pt.table.Sites {
+			if k := pt.table.Symbols[site.Sym].Kind; site.Kind == facts.Call && site.Encl != facts.NoSym && (k == facts.Param || k == facts.Local) && pt.table.Symbols[site.Encl].Handle != "" && handleOf(pt, site.Sym) != "" {
+				picks = append(picks, site.Encl)
+				break
+			}
+		}
+		for _, id := range picks {
+			s := pt.table.Symbols[id]
 			h := printed(pt, s.Handle)
 			status, out, errText := codeRunOn(t, text, "symbol", h)
 			var d struct {
@@ -189,6 +219,59 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 			}
 			if !slices.Equal(got, want) || page.Total != len(want) {
 				fail("references --of %s:\n got %d %v\nwant %d %v", h, page.Total, got, len(want), want)
+			}
+			// The calls at depth 1, out of it and into it.
+			var out1, in1 []string
+			for _, site := range pt.table.Sites {
+				if site.Kind == facts.Call && site.Encl == id && handleOf(pt, site.Sym) != "" {
+					name := pt.table.Files[site.File]
+					line, col := pt.syn[name].Position(syntax.Pos(site.Off))
+					out1 = append(out1, fmt.Sprintf("%s>%s %s:%d:%d", h, handleOf(pt, site.Sym), name, line, col))
+				}
+			}
+			for _, ref := range refs {
+				owner := pkgs[ref.Table]
+				if ref.Site.Kind != facts.Call || ref.Site.Encl == facts.NoSym || handleOf(owner, ref.Site.Encl) == "" {
+					continue
+				}
+				name := owner.table.Files[ref.Site.File]
+				line, col := owner.syn[name].Position(syntax.Pos(ref.Site.Off))
+				in1 = append(in1, fmt.Sprintf("%s>%s %s:%d:%d", handleOf(owner, ref.Site.Encl), h, name, line, col))
+			}
+			for _, dir := range []string{"out", "in"} {
+				want := out1
+				if dir == "in" {
+					want = in1
+				}
+				status, out, errText = codeRunOn(t, text, "calls", "--of", h, "--direction", dir, "--limit", "1000")
+				if k := s.Kind; k == facts.Type || k == facts.TypeParam || k == facts.Field || k == facts.Variant || k == facts.Package {
+					if status != 1 || !strings.HasPrefix(errText, "NotCallable: ") {
+						fail("calls --of %s (a %s): status %d %q %q; want NotCallable", h, k, status, out, errText)
+					}
+					continue
+				}
+				var calls struct {
+					Hops []struct {
+						Depth int
+						Call  struct {
+							From, To, File string
+							Line, Column   int
+						}
+					}
+				}
+				if status != 0 || json.Unmarshal([]byte(out), &calls) != nil {
+					fail("calls --of %s --direction %s: status %d %q %q", h, dir, status, out, errText)
+				}
+				var got []string
+				for _, hop := range calls.Hops {
+					c := hop.Call
+					got = append(got, fmt.Sprintf("%s>%s %s:%d:%d", c.From, c.To, c.File, c.Line, c.Column))
+				}
+				slices.Sort(got)
+				slices.Sort(want)
+				if !slices.Equal(got, want) {
+					fail("calls --of %s --direction %s:\n got %v\nwant %v", h, dir, got, want)
+				}
 			}
 			// The short name.
 			name := strings.TrimPrefix(h, pt.path+".")

@@ -63,8 +63,9 @@ type Site {
 }
 
 // Package is one package's tables, as the checker wrote them: its
-// declarations and its sites, each in table order, and the contracts of
-// its exported functions (api.ergo; none when it does not check).
+// declarations and its sites, each in table order, the contracts of its
+// exported functions (api.ergo; none when it does not check), and its
+// calls, one per call site, in table order (calls.ergo).
 // Complete is false when the package does not check: its rows are the
 // ones the checker resolved, and Diagnostics counts its errors.
 type Package {
@@ -74,6 +75,7 @@ type Package {
 	Decls       []Decl,
 	Sites       []Site,
 	Contracts   []Contract,
+	Calls       []Call,
 }
 
 // Tables are a workspace's fact tables at one revision. Root is the path
@@ -151,6 +153,9 @@ type Reader {
 	Symbol(a string) Decl fails NoSymbol | Ambiguous,
 	// References is a page of the sites of the declaration at q.Of.
 	References(q RefQuery) SitePage fails NoSymbol | Ambiguous,
+	// Calls is a page of the calls out of the declaration at q.Of, or
+	// into it, to a depth.
+	Calls(q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable,
 	// Api is the contracts of a package's exported functions.
 	Api(q ApiQuery) ApiView fails NoPackage,
 
@@ -167,6 +172,10 @@ type Reader {
 	// PagesPartition: the pages of an answer, read in order at any size,
 	// hold each of its rows once, in the order of one page that holds all.
 	law PagesPartition(pick int, size int) { pagesPartition(pick, size) },
+	// CallsAreSteps: a calls answer one step deeper begins with the answer
+	// before and adds only hops of the new depth; at depth 1 each hop is a
+	// call of (or, in, to) the declaration asked about.
+	law CallsAreSteps(pick int, depth int, inbound bool) { callsAreSteps(pick, depth, inbound) },
 }
 
 // DefaultLimit is a page's size when a query sets none; MaxLimit is the

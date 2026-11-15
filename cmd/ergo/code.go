@@ -104,6 +104,7 @@ type (
 		Decls       []codeDecl     `json:"decls"`
 		Sites       []codeSite     `json:"sites"`
 		Contracts   []codeContract `json:"contracts"`
+		Calls       []codeCall     `json:"calls"`
 	}
 	// codeContract is api.Function with code.Contract's keys; an answer's
 	// JSON decodes back into api.Function, whose field names match them
@@ -146,6 +147,15 @@ type (
 		Column  int    `json:"column"`
 		In      string `json:"in"`
 	}
+	// codeCall is a call edge of the tables (facts.Table.Calls) with its
+	// site's position: code.Call.
+	codeCall struct {
+		From   string `json:"from"`
+		To     string `json:"to"`
+		File   string `json:"file"`
+		Line   int    `json:"line"`
+		Column int    `json:"column"`
+	}
 )
 
 // codeTablesOf is the fact tables of the program a checked, one package
@@ -167,7 +177,7 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 	}
 	for _, p := range pkgs {
 		out.Root = p.Path
-		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package)}
+		cp := codePackage{Path: p.Path, Complete: p.Package != nil, Decls: []codeDecl{}, Sites: []codeSite{}, Contracts: codeContractsOf(p.Package), Calls: []codeCall{}}
 		syn := map[string]*syntax.File{}
 		var files []facts.File
 		for _, f := range p.Files {
@@ -206,8 +216,9 @@ func codeContractsOf(p *check.Package) []codeContract {
 	return out
 }
 
-// addCodeRows adds the declarations and sites of t to cp. The checker
-// names the root package main; its handles take the package's path.
+// addCodeRows adds the declarations, sites and call edges of t to cp.
+// The checker names the root package main; its handles take the
+// package's path.
 func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*syntax.File) {
 	pos := func(file uint16, off uint32) (string, int, int) {
 		name := t.Files[file]
@@ -247,6 +258,14 @@ func addCodeRows(cp *codePackage, t *facts.Table, path string, syn map[string]*s
 			in = handles[s.Encl]
 		}
 		cp.Sites = append(cp.Sites, codeSite{Symbol: handles[s.Sym], Kind: s.Kind.String(), Package: path, File: file, Line: line, Column: col, In: in})
+	}
+	for _, e := range t.Calls {
+		if handles[e.From] == "" || handles[e.To] == "" {
+			continue
+		}
+		s := t.Sites[e.Site]
+		file, line, col := pos(s.File, s.Off)
+		cp.Calls = append(cp.Calls, codeCall{From: handles[e.From], To: handles[e.To], File: file, Line: line, Column: col})
 	}
 }
 
