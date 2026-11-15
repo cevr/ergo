@@ -1628,7 +1628,7 @@ func OrderRow(o Order) html.Node {
 
 ## UI
 
-Package `ui` (`internal/sketch/std/ui`) is Ergo over std `arena`: the frame and its retained tree, the patch, view-local cells, loads whose fetches run as tasks, pointer, key and frame events, canvases, virtual rows, text layout, a `Run` loop and the in-process test host. Its laws run in `TestUITreeModel`, `TestUILoadModel`, `TestUIHostModel` and `TestUITextModel` (lower). The desktop and terminal hosts are later units.
+Package `ui` (`internal/sketch/std/ui`) is Ergo over std `arena`: the frame and its retained tree, the patch, view-local cells, loads whose fetches run as tasks, pointer, key and frame events, canvases, virtual rows, text layout, a `Run` loop and the in-process test host. Its laws run in `TestUITreeModel`, `TestUILoadModel`, `TestUIHostModel` and `TestUITextModel` (lower). The desktop host is `hosts/mygo`; the terminal cell host is `examples/cells/host` ([UI cell host](#ui-cell-host)).
 
 ```go
 func Screen(f *ui.Frame[todo.Signal], l todo.List) {
@@ -1686,6 +1686,30 @@ func Screen(f *ui.Frame[todo.Signal], l todo.List) {
 *Prior art:* Foldkit's `slow` option warns when an update, a view, a patch or a subscription's dependencies take longer than a threshold of time; React's `<Profiler onRender>` reports `actualDuration` and `baseDuration` in milliseconds; Phoenix LiveView emits `:telemetry` events with durations for `mount` and `handle_event`; Elm and Lustre have no frame statistics. They all measure time, which differs between two runs; this item counts work, which an agent can compare across runs and a test can assert, and leaves time to the profiler (the plan's DV units).
 
 *Prior art:* Gio (Go) threads `layout.Context` through widget functions and keeps widget state in values the program owns (`widget.Editor`, `widget.Bool`), as `Draft` and `Flag` are kept here; Jetpack Compose keys a node by its call site and passes its composer as a hidden parameter, with a slot table of erased values (`remember`); SwiftUI keys `@State` by structural position; Elm and Gleam's Lustre build a value tree per frame and diff it, with `Html.Keyed` for identity, and keep all state in the model; Inferno and ivi place keyed children by a longest increasing subsequence; Phoenix LiveView (Elixir) sends statics once and dynamics by change, P-ui's later lowering, and its `assign_async` gives an async value per key; Effect's `AsyncResult` and effect-atom's async atoms are the `Async` union. ReScript renders through React's runtime and has no tree of its own.
+
+### UI cell host
+
+The terminal cell host (T1, NS6) is `examples/cells/host`, an Ergo package that other programs require as a module. It steps a `Session` as `TestHost` does and lays the tree out in points with `ui/layout`, under the `Measure` of the grid (`Cells`: a rune is one cell of 8 points, a line one row of 16).
+
+1. **One rounding rule.** A box covers the cells `Span(box)` gives: each edge is rounded to the nearest grid line, and half a cell rounds up. Drawing and hit testing both use it, so the cell a node is drawn in is the cell that hits it (law `HitMatchesDraw`).
+2. **Cells from semantics.** A node is drawn from its `Access`: its name, and its state from one table, the marks. A Check shows `[x]` or `[ ]` before its label, a Toggle `(•)` or `( )`, and a Pressable and an Input sit between `[` and `]`. A control under a disabled Fieldset is faint, and the focused control is in reverse video. A Pressable that holds no Text is drawn as its label (an icon button), and a Canvas as its label, faint. Law `CellsShowEveryName`: every node that shows and has a name has that name's first cells in the grid, or the name is in the left-out table.
+3. **Left out, never imitated.** The host does not draw the following, and does not stand in for them with characters:
+
+   | left out | what shows instead |
+   | --- | --- |
+   | opacity (a color's alpha) | the cell is drawn or not |
+   | shadows and blur | nothing |
+   | radii and borders | a box shows no frame |
+   | images (pixels) | a Canvas's label |
+   | a canvas's paint list beyond its label | the label |
+   | sub-cell sizes and positions | the cells `Span` gives |
+   | an Area's label, a list's label | their children, their rows |
+   | a Pressable's label when it holds a Text | the Text |
+   | an Input's placeholder while it holds a value | the value |
+
+4. **A patch is applied whole.** A host applies every op of one pass to its tree before it draws, and no input is read between two ops of one patch. The cell host writes a pass as one frame inside the synchronized-update marks (`CSI ? 2026 h` … `CSI ? 2026 l`). It holds only the cells that changed: a run after one cursor move, and each pen change once. Laws: `PatchIsOneFrame` (on a fake terminal's op log, each write is one whole frame, there are no more frames than patches and the host's own redraws, and replaying them gives the host's grid), `DiffReplaysToGrid`, `FrameWritesTheChanges` and `PatchWritesItsChange`. The last two count the cells written per patch, as a guard.
+
+*Prior art:* ratatui and Bubble Tea draw a frame into a buffer and write the difference from the last. Textual and Ink lay a tree out with flexbox and round to cells. Notcurses and Ghostty's renderer use mode 2026 so that a frame shows whole. Gleam, Elixir and ReScript have no terminal host in their standard libraries: Gleam's `shore` and Elixir's `ratatouille` are libraries over a cell buffer, as this host is.
 
 ## Host packages
 
