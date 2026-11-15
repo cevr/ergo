@@ -16,6 +16,13 @@ var overShardTarget = map[string]string{
 	// cmd/ergo is outside lane gate-speed's files (check-split-2, batch
 	// 9); recorded 18.04 s.
 	"cmd/ergo TestPackageNeverWritesUnderHome": "follow-up: split TestPackageNeverWritesUnderHome (cmd/ergo)",
+	// Rows GS33a filled for tests the record had no row for, from -short
+	// runs at the gate's budget (2026-11-15, load 18 to 31): each was over
+	// the target before it had a row.
+	"internal/sketch/check TestOwnershipFlowModel":         "follow-up: split TestOwnershipFlowModel (check); -short 22.27 s",
+	"internal/sketch/check TestReleaseNeedsModel":          "follow-up: split TestReleaseNeedsModel (check); -short 12.62 s",
+	"internal/sketch/lower TestCopyCountsMatchModel":       "follow-up: split TestCopyCountsMatchModel (lower); -short 17.84 s",
+	"internal/sketch/lower TestEveryGoBoundFunctionLowers": "follow-up: split TestEveryGoBoundFunctionLowers (lower); -short 20.79 s",
 	// The IR tests run in the full tier since IRT0b and are sharded since
 	// its round 2, which split the agreement and text checks into one or
 	// two example targets a part. Their rows were measured at the lane's
