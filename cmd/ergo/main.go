@@ -488,7 +488,7 @@ func checkCommand(args []string) error {
 		return err
 	}
 	if recursivePattern(opts.file) {
-		return recursiveCommand(opts, checkPackage)
+		return recursiveCommand(opts, nil, checkPackage)
 	}
 	return checkPackage(opts)
 }

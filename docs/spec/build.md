@@ -13,7 +13,8 @@ store: it parses, checks, lowers, compiles, links and starts nothing
 `cmd/ergo/warm.go`).
 
 1. **The request key.** A request is its command (`build`, `run`, `check`
-   or `test`), the admitted package folder, the options that change its
+   or `test`), the admitted package folder (for `ergo test ./...`, the
+   folder it walks, as its own request), the options that change its
    answer (target, platform, `--locked`, `--json`, `--seed`,
    `--eval-steps`, `--eval-bytes`, `--states`, `--law`, `--skip-law`,
    `--run`), for a test the bytes of the law ledger a full run writes, for
@@ -32,7 +33,10 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    executable's blob in the direct path's store, the bytes `check`
    printed, or a passing test run's output (the test result cache's
    record, [testing](../testing.md)), which `test` replays with the
-   replay note. A failing run writes none. Only a request that succeeded and printed nothing on stderr
+   replay note. For `ergo test ./...` it is each package's result in
+   order, written only when every package passed and printed nothing on
+   stderr, and its inputs include every folder discovery listed, so an
+   added or removed package is seen. A failing run writes none. Only a request that succeeded and printed nothing on stderr
    writes one.
 3. **The warm check.** The next request with the key reads the manifest,
    lists the folders, looks the paths up, and reads and hashes every input
@@ -59,8 +63,9 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    request; that case is outside the warm budget.
 6. **What takes the normal path every time.** A program of one file, `ergo
    build -work`, `ergo test` with `--count 1`, `--explore`, a schedule
-   search or `--receipt`, `ergo test ./...` (each package then replays
-   the test result cache, [testing](../testing.md)), a compiler with a process-scoped identity, a
+   search or `--receipt`, `ergo test ./...` with `--law` or `--receipt`
+   (each package then replays the test result cache,
+   [testing](../testing.md)), a compiler with a process-scoped identity, a
    managed Go release not yet installed, and every request with
    `ERGO_BUILD=full`, the reference path, which neither reads nor writes a
    manifest.
