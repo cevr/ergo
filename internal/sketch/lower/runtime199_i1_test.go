@@ -108,7 +108,7 @@ type Probe {
 	Tick(),
 	Mark(),
 }
-type Silent {}
+type Silent {} implements Probe
 type Fault {}
 func Tick(_ Silent) {}
 func Mark(_ Silent) {}
@@ -735,7 +735,7 @@ var i1Graphs = append([]i1Graph{
 // call's own point is what stops it (the live witness is red under a
 // mutant that drops that point, not under one that drops entry polls).
 const i1OpCycle = `type Worker { Run(n int) int, }
-type Impl {}
+type Impl {} implements Worker
 func Run(_ Impl, n int) int {
 	with Work { left(n) }
 }
@@ -1282,7 +1282,7 @@ extern go strings.TrimSpace func hostTrim(s string) string
 type Probe {
 	Tick(),
 }
-type Silent {}
+type Silent {} implements Probe
 func Tick(_ Silent) {}
 let Local = context { Probe: Silent }
 func nonnegative(n int) bool { n >= 0 }
@@ -1462,7 +1462,7 @@ func spin() int needs Probe {
 	out["order"] = `type Pair {
 	Join(a string, b string) string,
 }
-type Glue {}
+type Glue {} implements Pair
 func Join(_ Glue, a string, b string) string { a + b }
 let Joined = context { Pair: Glue }
 func step(s string) string needs Console {

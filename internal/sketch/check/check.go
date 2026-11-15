@@ -45,6 +45,16 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return CheckTest(path, files, imp, nil)
+}
+
+// CheckTest is Check for a package whose loader gives it the role of under's
+// test package (builders.go, rule 2; nil for none): its New<X> functions
+// may build under's operation types. The role comes from the loader, which
+// knows the package's import path whether it is the program's root
+// (checked as main) or an import (TestedPath), so a package checks the
+// same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -58,6 +68,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
+	c.pkg.testOf = under
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -813,21 +824,33 @@ func (s *stdImporter) available(path string) {
 // calls it under the snapshot's lock, for each segment in import order.
 func (s *stdImporter) decoded(path string) {
 	s.mu.Lock()
-	s.work.StdPackagesDecoded++
+	module := strings.Contains(path, "\x00") // ModuleSegment
+	if module {
+		s.work.ModulePackagesDecoded++
+	} else {
+		s.work.StdPackagesDecoded++
+	}
 	s.mu.Unlock()
-	s.available(path)
+	if !module {
+		s.available(path)
+	}
 }
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
 // files it parsed and the std packages it checked from source, and the std
-// packages it decoded from an installed snapshot. The prelude is not
-// counted. A check's work must grow with the std packages it imports, not
-// with the std (the counted check budget, TestCheckWorkGrowsWithImports);
-// it counts work, never time.
+// packages it decoded from an installed snapshot, and the bytes it read
+// from that snapshot (CHK1c). The prelude is not counted. A check's work
+// must grow with the std packages it imports, not with the std (the
+// counted check budget, TestCheckWorkGrowsWithImports and
+// TestStdDecodeGrowsWithImports); it counts work, never time.
+// ModulePackagesDecoded counts the packages of required modules decoded
+// from the snapshot (InstalledPackage, NP5).
 type Work struct {
-	StdFilesParsed     int64
-	StdPackagesChecked int64
-	StdPackagesDecoded int64
+	StdFilesParsed        int64
+	StdPackagesChecked    int64
+	StdPackagesDecoded    int64
+	StdSnapshotBytesRead  int64
+	ModulePackagesDecoded int64
 }
 
 // WorkDone returns the Work of the Std importer in this process so far.
@@ -836,7 +859,11 @@ func WorkDone() Work { return Std.(*stdImporter).done() }
 func (s *stdImporter) done() Work {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.work
+	w := s.work
+	if s.snap != nil {
+		w.StdSnapshotBytesRead = s.snap.read.Load()
+	}
+	return w
 }
 
 // count adds files parsed and packages checked to s's Work.
@@ -865,6 +892,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
@@ -882,8 +910,26 @@ func (s *stdImporter) load(path string) (*Package, error) {
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
+}
+
+// testOf is the std package whose test package is at path (fstest's fs),
+// or nil (TestedPath).
+func (s *stdImporter) testOf(path string) *Package {
+	base, ok := TestedPath(path)
+	if !ok {
+		return nil
+	}
+	if _, isStd := std.Package(base); !isStd {
+		return nil
+	}
+	under, err := s.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 func sortedKeys[V any](m map[string]V) []string {

@@ -15,7 +15,7 @@ import (
 // context, so a local context's release is charged at the with that builds
 // it, never at its let.
 func TestReleaseNeedRowMessages(t *testing.T) {
-	const closes = `type Res {}
+	const closes = `type Res {} implements Closer
 func Use(_ Res) {}
 func Close(_ Res) needs Log { Log.Say("closed") }
 let W = context { A: Res }

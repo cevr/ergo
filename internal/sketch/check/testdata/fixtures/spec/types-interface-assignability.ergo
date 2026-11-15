@@ -1,5 +1,5 @@
 type Store { Get() string }
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string { return "ok" }
 func NewStore() Store  { return Mem } // Mem implements Store

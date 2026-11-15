@@ -9,7 +9,7 @@ import sync
 // next check (a defect), so a script shows the router restart. Its field
 // is unexported: NewDirectory makes one, and every copy is the same
 // directory.
-type Directory { armed sync.Ref[bool] }
+type Directory { armed sync.Ref[bool] } implements route.Registry
 
 // Room is how many routes a table holds.
 let Room = 4

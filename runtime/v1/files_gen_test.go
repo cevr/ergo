@@ -136,5 +136,8 @@ func bodyLiteral(b Body) string {
 	if b.Host {
 		fields = append(fields, "Host: true")
 	}
+	if b.Owned != "" {
+		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }

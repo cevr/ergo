@@ -498,6 +498,12 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		}
 		fmt.Fprintf(&b, "type %s struct{}\nfunc (r %s) Close%s { panic(0) }\nvar Value%d %s\nvar Pointer%d *%s\n\n", name, recv, signature, i, name, i, name)
 		want[name] = verdict{ergo: "type " + name + " {}"}
+		if i < 2 {
+			// The binding declares the release (resources R1): the
+			// package's own Closer (below) hides the prelude's, so the
+			// clause names io.Closer, the contract's Go form.
+			want[name] = verdict{ergo: "type " + name + " {} implements io.Closer"}
+		}
 		ergoSig := signature
 		switch i {
 		case 1:

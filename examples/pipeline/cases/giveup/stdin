@@ -1,0 +1,9 @@
+# The runner of stage 1 is offline for its first try, which counts as a
+# failure (-fail 1:-1). Stage 2 fails five tries (-fail 2:5): the run
+# gives up after three, and the next run starts.
+submit test 2
+submit docs 1
+wait
+show test
+show docs
+board

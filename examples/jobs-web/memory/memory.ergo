@@ -15,7 +15,7 @@ import sync
 type Memory {
 	runs sync.Ref[Map[int, job.Run]],
 	last sync.Ref[int],
-}
+} implements jobs.Jobs
 
 // New is a Memory with no jobs. ergo test runs the jobs.Jobs laws
 // against it.

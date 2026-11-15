@@ -2,8 +2,8 @@
 import timeout
 type Store { Get() string }
 type Factory { Get() string }
-type Holder { Value string }
-type Build {}
+type Holder { Value string } implements Store
+type Build {} implements Factory
 func Get(h Holder) string { return h.Value }
 func Get(_ Build) string  { return again() }
 func again() string       { return with W { Store.Get() } }

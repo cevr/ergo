@@ -1,6 +1,8 @@
 package sketchfront
 
 import (
+	"slices"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -20,6 +22,14 @@ type CheckedPackage struct {
 	// Package is the checked package; nil when the package, or a package
 	// it imports, has diagnostics, or when it was not checked.
 	Package *check.Package
+	// Module is the required module that holds the package, as PATH@VERSION;
+	// "" for a package of the program's own module. Trusted is true when
+	// the root's ergo.mod has the line trust go PATH, and Go lists the
+	// package's uses of Go (import go, extern go) in source order
+	// (grammar.md, Source files 1, Trusted Go).
+	Module  string
+	Trusted bool
+	Go      []string
 }
 
 // CheckedFile is one source file of a CheckedPackage.
@@ -74,7 +84,10 @@ func (a Analysis) Packages() []CheckedPackage {
 	}
 	var out []CheckedPackage
 	for _, p := range append(append([]*loadedPackage{}, a.program.imports...), a.program.root) {
-		c := CheckedPackage{Path: p.path, Dir: p.dir}
+		c := CheckedPackage{Path: p.path, Dir: p.dir, Go: p.goUses}
+		if p.mod != nil {
+			c.Module, c.Trusted = p.mod.name, slices.Contains(a.program.trust, p.mod.path)
+		}
 		if !p.broken {
 			c.Package = p.pkg
 		}

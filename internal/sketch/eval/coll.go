@@ -1,7 +1,9 @@
 package eval
 
 import (
+	"cmp"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -89,6 +91,74 @@ type mapBacking struct {
 }
 
 func newMap() mapV { return mapV{b: &mapBacking{m: map[Value]Value{}}} }
+
+// keyOrder is the keys of m in one fixed order, a function of the keys
+// alone. Go's map order changes from one range to the next, so work the
+// evaluator charges while it walks a Map (a sort's comparisons, an
+// equality that stops at the first different entry) walks this order, and
+// a program's step counts are the same on every run
+// (TestEvalReportIsDeterministic). The order costs no steps.
+func keyOrder(m map[Value]Value) []Value {
+	keys := make([]Value, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keyLess(keys[i], keys[j]) })
+	return keys
+}
+
+// keyLess is a strict total order on the basic values a Map holds as keys:
+// by Go type, then by value (cmp.Less, which puts NaN first).
+func keyLess(a, b Value) bool {
+	if ta, tb := reflect.TypeOf(a), reflect.TypeOf(b); ta != tb {
+		return ta.String() < tb.String()
+	}
+	switch x := a.(type) {
+	case string:
+		return x < b.(string)
+	case bool:
+		return !x && b.(bool)
+	case int:
+		return cmp.Less(x, b.(int))
+	case int8:
+		return cmp.Less(x, b.(int8))
+	case int16:
+		return cmp.Less(x, b.(int16))
+	case int32:
+		return cmp.Less(x, b.(int32))
+	case int64:
+		return cmp.Less(x, b.(int64))
+	case uint:
+		return cmp.Less(x, b.(uint))
+	case uint8:
+		return cmp.Less(x, b.(uint8))
+	case uint16:
+		return cmp.Less(x, b.(uint16))
+	case uint32:
+		return cmp.Less(x, b.(uint32))
+	case uint64:
+		return cmp.Less(x, b.(uint64))
+	case uintptr:
+		return cmp.Less(x, b.(uintptr))
+	case float32:
+		return cmp.Less(x, b.(float32))
+	case float64:
+		return cmp.Less(x, b.(float64))
+	case complex64:
+		y := b.(complex64)
+		if real(x) != real(y) {
+			return cmp.Less(real(x), real(y))
+		}
+		return cmp.Less(imag(x), imag(y))
+	case complex128:
+		y := b.(complex128)
+		if real(x) != real(y) {
+			return cmp.Less(real(x), real(y))
+		}
+		return cmp.Less(imag(x), imag(y))
+	}
+	return fmt.Sprintf("%#v", a) < fmt.Sprintf("%#v", b)
+}
 
 // basicValue reports a value with no parts: one that holds no store.
 func basicValue(v Value) bool {

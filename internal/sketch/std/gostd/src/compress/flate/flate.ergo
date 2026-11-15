@@ -72,7 +72,7 @@ extern go compress/flate.WriteError type WriteError {
 extern go compress/flate.WriteError.Error func (e *WriteError) Error() string needs go.Foreign takes e
 
 // ergo:go type Writer struct
-extern go compress/flate.Writer type Writer {}
+extern go compress/flate.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).Close() error
 extern go compress/flate.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w

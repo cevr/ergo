@@ -81,6 +81,59 @@ control (measured); the whole snapshot file (2.9 MB) is read into memory
 and the binary is 2 MB larger (inferred causes, not profiled). Raw samples:
 the wf10 run's `chk1/b/instr-2.log`; the command is `chk1/instr.sh`.
 
+### Peak memory, CHK1c (measured, 2026-11-12)
+
+CHK1c reads the snapshot by offset: the install reads the header and the
+base, and a package's first import reads its segment
+(`Work.StdSnapshotBytesRead`; TestStdDecodeGrowsWithImports holds it to
+the header, the base and the import closure's segments). The process keeps
+the open file, not the bytes.
+
+Two more causes were measured with page and allocation profiles of a check
+with no std import:
+
+- The cache key hashed the 2.3 MB of embedded std sources in every
+  process (3 MB of peak RSS, 4 M instructions). The key is now the
+  compiler's identity alone: that identity is the digest of the compiler's
+  bytes, which embed the std sources, so a std edit still changes the key.
+- The rest was pages of the binary, not heap: the heap of the cached check
+  is smaller than the source check's (3.8 MB against 4.0 MB anonymous
+  RSS). The decoder's code is about 45 pages. More pages came from stack
+  growth inside the decoder's recursion: each copy of a growing stack reads
+  the stack maps of every frame on it. `InstallStd` now grows the stack once,
+  while few frames are on it (`growStack`): 192 fewer resident pages of the
+  binary (3922 to 3730). TestInstallGrowsTheStackOnce counts the stack
+  moves of a first check after the install: zero.
+
+Method: as above, seven interleaved rounds, median per target, peak RSS is
+the child's `ru_maxrss`. `nocache` is 0142c37cb with the std cache off
+(cmd/ergo does not call UseStdCache), `base` is 0142c37cb (CHK1b r2), and
+`head` is CHK1c. Load was 36 to 48 on 16 cores. All 294 runs exited 0.
+
+| Target | nocache M | base M | head M | head / nocache | RSS MB nocache / base / head |
+| --- | ---: | ---: | ---: | ---: | --- |
+| editions/sketch (no std import) | 15.6 | 14.0 | 9.1 | 0.58 | 18.5 / 25.0 / 18.4 |
+| hello, Console only | 14.2 | 12.1 | 7.7 | 0.54 | 18.3 / 24.8 / 18.3 |
+| lookup | 67.4 | 35.1 | 30.3 | 0.45 | 21.8 / 26.4 / 20.0 |
+| deps | 633.7 | 311.8 | 318.7 | 0.50 | 47.5 / 38.5 / 37.4 |
+| router | 696.4 | 311.1 | 334.0 | 0.48 | 49.3 / 40.7 / 39.4 |
+| sudoku | 334.3 | 261.2 | 255.8 | 0.77 | 29.1 / 31.7 / 25.3 |
+| regex | 503.4 | 366.4 | 372.7 | 0.74 | 38.9 / 40.2 / 36.6 |
+| lru | 296.1 | 175.5 | 135.8 | 0.46 | 34.7 / 35.2 / 28.7 |
+| stackvm | 206.8 | 139.2 | 119.8 | 0.58 | 31.0 / 33.2 / 26.6 |
+| jsonv | 692.4 | 352.7 | 373.8 | 0.54 | 48.6 / 39.7 / 38.1 |
+| calc | 487.5 | 277.7 | 269.9 | 0.55 | 38.0 / 36.1 / 35.0 |
+| bookmarks | 766.2 | 286.3 | 307.8 | 0.40 | 54.4 / 38.1 / 36.5 |
+| tidewalk-replay | 156.3 | 86.4 | 81.3 | 0.52 | 27.9 / 30.4 / 23.8 |
+| csvreport | 493.4 | 234.9 | 163.5 | 0.33 | 38.4 / 37.8 / 31.1 |
+| sum | 5,364 | 2,864 | 2,780 | 0.52 | |
+
+Peak RSS of the head is at or below the no-cache control on every target.
+On the larger targets the instruction counts vary by up to about 7%
+between builds and runs (the collector runs concurrently); a probe with
+three builds of the same change measured router 313 to 325 M and jsonv
+347 to 370 M. Raw samples: the wf10 run's `chk1/CHK1c/receipt-1.log`.
+
 The CPU-time receipt over all 54 targets for the final head stays pending
 a quiet-host window (`chk1/b/bench-pending.md`); CPU time depends on load,
 instruction counts do not.

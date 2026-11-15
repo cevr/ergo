@@ -64,7 +64,7 @@ extern go encoding/xml.Directive type Directive []byte
 extern go encoding/xml.Directive.Copy func (d Directive) Copy() Directive needs go.Foreign
 
 // ergo:go type Encoder struct
-extern go encoding/xml.Encoder type Encoder {}
+extern go encoding/xml.Encoder type Encoder {} implements Closer
 
 // ergo:go func (*Encoder).Close() error
 extern go encoding/xml.Encoder.Close func (enc *Encoder) Close() fails go.Error needs go.Foreign takes enc

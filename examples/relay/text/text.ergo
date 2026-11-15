@@ -9,7 +9,7 @@ import strings
 // NoteText writes a Note as the byte length of its sender, a colon, the
 // sender and the body: Note{From: "ann", Body: "hi"} is "3:annhi", so a
 // sender or a body may hold any text, a colon included.
-type NoteText {}
+type NoteText {} implements chat.Codec[chat.Note]
 
 func Encode(_ NoteText, n chat.Note) string { "\(len(n.From)):\(n.From)\(n.Body)" }
 
@@ -23,7 +23,7 @@ func Decode(_ NoteText, s string) chat.Note fails chat.Malformed {
 
 // JoinText writes a Join as its seat, a colon and the name:
 // Join{Name: "bo", Seat: 2} is "2:bo".
-type JoinText {}
+type JoinText {} implements chat.Codec[chat.Join]
 
 func Encode(_ JoinText, j chat.Join) string { "\(j.Seat):\(j.Name)" }
 

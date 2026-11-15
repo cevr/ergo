@@ -12,7 +12,7 @@ extern go net/textproto.Conn type Conn {
 	Reader   Reader,
 	Writer   Writer,
 	Pipeline Pipeline,
-}
+} implements Closer
 
 // ergo:go func (*Conn).Close() error
 extern go net/textproto.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign takes c

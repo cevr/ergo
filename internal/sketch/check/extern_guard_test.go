@@ -116,6 +116,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"ProvidesClause.Names": {guardType, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nfunc f() { with context provides @Upper { C: P } { C.M() } }\n"},
 	"StarExpr.X":           {guardType, "func f(p *@Upper) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @Upper\n"},
+	"TypeDecl.Implements":  {guardType, "type T {} implements @Upper\n"},
 	// A where reads only its subject and literals (refine.go): an extern
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @Upper > 0\n"},

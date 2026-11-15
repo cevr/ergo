@@ -1,0 +1,138 @@
+// The law of the actor stage: a scene played on it ends where the fold
+// does (the d05 probe of the wf10 domain plan, as a std law). staged is a
+// machine with each part a stage must wait for: a step, a timer that
+// re-arms on each tick, and work that sends a signal back.
+
+import machines
+import testing
+import time
+
+// staged counts what was added and the ticks of its timer while open;
+// a save is work, and its end closes it.
+type staged = stagedOpen{N int, Ticks int} | stagedSaving{N int, Ticks int} | stagedSaved{N int, Ticks int}
+
+// stagedSignal is what staged reads: an add, a save, the save's end (its
+// work's signal) and a tick (its timer's).
+type stagedSignal = stagedAdd{N int} | stagedSave{} | stagedStored{} | stagedTick{}
+
+// stagedStep: an add keeps the open entry and its timer (Stay); a tick
+// re-enters it, so the timer re-arms; a save enters saving, whose work
+// sends the end.
+func stagedStep(s staged, e stagedSignal) Decision[staged, int] {
+	match (s, e) {
+	case (stagedOpen as o, stagedAdd as a):
+		Stay[staged]{Next: stagedOpen{N: o.N + a.N, Ticks: o.Ticks}}
+	case (stagedOpen as o, stagedTick):
+		Enter[staged]{Next: stagedOpen{N: o.N, Ticks: o.Ticks + 1}}
+	case (stagedOpen as o, stagedSave):
+		Enter[staged]{Next: stagedSaving{N: o.N, Ticks: o.Ticks}}
+	case (stagedSaving as v, stagedStored):
+		Enter[staged]{Next: stagedSaved{N: v.N, Ticks: v.Ticks}}
+	case (_, _):
+		Ignore
+	}
+}
+
+// stagedTimer ticks an open entry each second.
+func stagedTimer(s staged) Option[Timeout[stagedSignal]] {
+	match s {
+	case stagedOpen:
+		Some[Timeout[stagedSignal]]{Value: Timeout[stagedSignal]{In: 1s, Signal: stagedTick}}
+	case stagedSaving, stagedSaved:
+		None
+	}
+}
+
+// stagedWork is the save: it sends its end.
+func stagedWork(s staged) Option[machines.Work[stagedSignal, Scheduler]] {
+	match s {
+	case stagedSaving:
+		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Work{Run: func() stagedSignal { stagedStored }}}
+	case stagedOpen, stagedSaved:
+		None
+	}
+}
+
+type stagedLife machine[staged, stagedSignal] {
+	initial: stagedOpen{N: 0, Ticks: 0},
+	step:    stagedStep,
+	after:   stagedTimer,
+	work:    stagedWork,
+}
+
+// stagedStepOf is the step of the act k: an add of k, a save, a move of
+// the clock by k mod 1500 milliseconds, or a settle.
+func stagedStepOf(k int) testing.Step[stagedSignal] {
+	match ((k % 4) + 4) % 4 {
+	case 0:
+		testing.Do[stagedSignal]{Act: stagedAdd{N: k}}
+	case 1:
+		testing.Do[stagedSignal]{Act: stagedSave}
+	case 2:
+		testing.Advance{By: stagedMove(k)}
+	case _:
+		testing.Settle
+	}
+}
+
+// stagedMove is the move of the act k.
+func stagedMove(k int) duration { duration(int64(((k % 1500) + 1500) % 1500) * int64(1ms)) }
+
+// stagedFolded is the state after each act, by the fold: an add adds, a
+// save ends saved (the work's end), a move ticks once per second the open
+// entry has waited since it was last entered, and a settle changes
+// nothing.
+func stagedFolded(acts []int) []staged {
+	let mut s staged = stagedOpen{N: 0, Ticks: 0}
+	let mut since = 0
+	let mut out = []staged{}
+	for k in acts {
+		match (s, stagedStepOf(k)) {
+		case (stagedOpen as o, testing.Do as d):
+			match d.Act {
+			case stagedAdd as a:
+				s = stagedOpen{N: o.N + a.N, Ticks: o.Ticks}
+			case stagedSave:
+				s = stagedSaved{N: o.N, Ticks: o.Ticks}
+			case stagedStored, stagedTick:
+			}
+		case (stagedOpen as o, testing.Advance as m):
+			let waited = since + int(int64(m.By) / int64(1ms))
+			s = stagedOpen{N: o.N, Ticks: o.Ticks + waited / 1000}
+			since = waited % 1000
+		case (_, _):
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+// stagedAgrees plays each act, then a settle, on a stage of stagedLife
+// over clock, and compares each settled show with the fold; Play gives
+// one show per step.
+func stagedAgrees(acts []int, clock time.Manual) bool needs Scheduler {
+	let mut steps = []testing.Step[stagedSignal]{}
+	for k in acts {
+		steps = steps.Append(stagedStepOf(k)).Append(testing.Settle)
+	}
+	let a = StartMachine(stagedLife{}, 8, func(o int) {})
+	let shows = testing.Play(NewStage(a, clock), steps) catch {
+	case testing.Refused:
+		return false
+	}
+	a.Stop()
+	let want = stagedFolded(acts)
+	let mut same = len(shows) == len(steps)
+	for i, s in want {
+		same = same && shows[2*i+1] == s
+	}
+	same
+}
+
+// ActorStageAgreesWithFold: a scene of adds, saves, moves of the clock and
+// settles, played on the stage of an actor, shows after each settle the
+// state the fold gives, and one show per step.
+law ActorStageAgreesWithFold(acts []int) {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } { stagedAgrees(acts, clock) }
+}

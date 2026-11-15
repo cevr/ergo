@@ -1,0 +1,6 @@
+# ergo test cannot build the stdio Transport: it holds the process's
+# standard input and output, which only main makes (New needs Ambient), and
+# a law cannot generate or read them twice. memory.Transport carries the
+# law (StopsWhenAsked runs there); stdio's Messages is std io's Lines,
+# whose own stop law is std's InputLinesStops.
+skip law mcp.Transport.StopsWhenAsked for Transport: its values have no generator: io.In has an unexported field, so only package io builds it; use io.NewStdin; a func NewTransport() Transport with no rows would build one for each case

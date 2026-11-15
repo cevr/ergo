@@ -22,7 +22,7 @@ import time
 // `context { time.Clock: c, Scheduler: c }`. Effect's TestClock moves
 // only on adjust; this clock follows Go's testing/synctest and Tokio's
 // paused time.
-type VirtualClock { line time.Timeline }
+type VirtualClock { line time.Timeline } implements Scheduler, time.Clock
 
 // NewVirtualClock is a VirtualClock whose time is sec seconds after
 // January 1, 1970 UTC. The calling task joins its domain, and leaves the

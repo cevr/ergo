@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"go/constant"
 	"go/format"
 	"go/scanner"
 	"go/token"
@@ -230,18 +231,22 @@ type lowerer struct {
 	lastDir     string
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
-	// letUses counts each package let's uses and its uses where a Go
-	// constant is safe (forms.go, constLet).
-	letUses map[*check.Var][2]int
 
-	types    map[*check.TypeName]*typeDecl
-	funcs    map[*check.Func]*funcDecl
-	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
-	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
-	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
-	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats    knownStats                 // what known.go and alias.go did (tests only)
-	vars     map[*check.Var]string      // package-level lets
+	types  map[*check.TypeName]*typeDecl
+	funcs  map[*check.Func]*funcDecl
+	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
+	closed map[*check.Func]knownState // closed-frame decisions (known.go)
+	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
+	stats  knownStats                 // what known.go and alias.go did (tests only)
+	vars   map[*check.Var]string      // package-level lets
+	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
+	// constVals are those lets' values, which the bounds facts read
+	// (bounds.go).
+	constVals map[*check.Var]constant.Value
+	// unstable are, per package, the let mut locals a bounds fact never
+	// names (bounds.go, unstableVars).
+	unstable map[*check.Info]map[*check.Var]bool
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -408,6 +413,8 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
 		vars:      map[*check.Var]string{},
+		consts:    map[*check.Var]bool{},
+		constVals: map[*check.Var]constant.Value{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
 		scripts:   map[string]bool{},

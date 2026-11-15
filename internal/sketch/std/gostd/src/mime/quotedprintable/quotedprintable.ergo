@@ -18,7 +18,7 @@ extern go mime/quotedprintable.Reader.Read func (r *Reader) Read(p []byte) int f
 // ergo:go type Writer struct
 extern go mime/quotedprintable.Writer type Writer {
 	Binary bool,
-}
+} implements Closer
 
 // ergo:go func (*Writer).Close() error
 extern go mime/quotedprintable.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w

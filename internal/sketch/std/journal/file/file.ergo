@@ -23,7 +23,7 @@ type Journal[S, E] {
 	append   escaping func(e E) fails journal.Failed,
 	snapshot escaping func(s S) fails journal.Failed,
 	load     escaping func() journal.Log[S, E],
-}
+} implements journal.Journal[S, E]
 
 // Open is the journal of the file at path, read with host: an empty one
 // when there is no file there yet. states and signals turn the values

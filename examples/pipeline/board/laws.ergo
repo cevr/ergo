@@ -1,0 +1,46 @@
+// The rule of the board as a law over generated runs.
+
+import pipeline/run
+
+// Act is one generated command: to the run Pick names (one of three),
+// a cancel when Move is a multiple of 4, else the command that moves the
+// run on (run.Forward), passed or failed by OK.
+type Act { Pick int, Move int, OK bool, Stages int }
+
+// Names are the runs of the law.
+let Names = []string{"a", "b", "c"}
+
+func nameOf(pick int) string { Names[((pick%3)+3)%3] }
+
+// BoardIsFoldOfEvents: the board folded from the events of every run is
+// the board of the runs' states, with each run once, in the column of
+// its state, in the order the runs moved last.
+law BoardIsFoldOfEvents(acts []Act) {
+	let mut runs = Map[string, run.Run]{}
+	let mut order = []string{}
+	let mut v = Empty
+	for a in acts {
+		let id = nameOf(a.Pick)
+		let s = match runs.Get(id) {
+		case Some[run.Run] as r:
+			r.Value
+		case None:
+			run.Unsubmitted
+		}
+		let c = if a.Move%4 == 0 { run.Cancel{Why: "stop"} } else { run.Forward(s, a.OK, a.Stages) }
+		let es = run.Decide(s, c) catch {
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength:
+			[]run.Event{}
+		}
+		for e in es {
+			v = Apply(v, id, e)
+			match moved(e) {
+			case Some[Column]:
+				order = without(order, id).Append(id)
+			case None:
+			}
+		}
+		runs[id] = run.Fold(s, es)
+	}
+	v == Of(order, runs)
+}

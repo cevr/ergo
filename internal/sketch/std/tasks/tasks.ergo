@@ -205,6 +205,7 @@ type Policy = FailFast | LogFailures | Restart
 // may hold it. Only the task that made it calls its operations.
 type Set[E] {
 	runtimeOnly(),
+	..Closer,
 	// Wait waits until no member runs. It fails with the failure that
 	// ended the Set, at this Wait and at each later one, and raises the
 	// defects of members that no Wait or Stop raised yet. A stop of the
@@ -214,9 +215,6 @@ type Set[E] {
 	// ended, its exit actions included. It raises the members' defects
 	// and drops their failures.
 	Stop(),
-	// Close is the Set's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end. It is Stop; a Set is a resource.
-	Close(),
 	// Len is how many members run now.
 	Len() int,
 

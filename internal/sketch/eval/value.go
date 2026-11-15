@@ -266,7 +266,10 @@ func equal(a, b Value, spend func(int64) bool) (eq, paid bool) {
 		if !spend(int64(len(a.b.m))) {
 			return false, false
 		}
-		for k, av := range a.b.m {
+		// The walk stops at the first different entry, so it walks the
+		// keys' fixed order, not the Map's (keyOrder).
+		for _, k := range keyOrder(a.b.m) {
+			av := a.b.m[k]
 			bw, ok := bv.b.m[k]
 			if !ok {
 				return false, true

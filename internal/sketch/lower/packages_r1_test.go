@@ -324,8 +324,8 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 func TestVerifyR1ContextPositions(t *testing.T) {
 	needsBuild(t)
 	root := checkPackage(t, "main", []pkgSource{
-		{"/probe/a.ergo", "type A { Get() int }\ntype One {}\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
-		{"/probe/b.ergo", "type B { Get() int }\ntype Two {}\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},
+		{"/probe/a.ergo", "type A { Get() int }\ntype One {} implements A\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
+		{"/probe/b.ergo", "type B { Get() int }\ntype Two {} implements B\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},
 		{"/probe/c.ergo", `let W = context { X, Y }
 func main() needs Console {
 	let a = with W { useA() }

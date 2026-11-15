@@ -135,6 +135,7 @@
       "to": "case !sub && top == s.running && action != \"=== PAUSE\":",
       "rule": "A paused test's wait is not its CPU.",
       "killers": ["scripts/gate:TestCPUSpansAttributeToTopLevelTests"]
-    }
+    },
+    {"name":"mk0-step-blind-to-modules","origin":"wf10 MK0","file":"scripts/gate/steps.go","from":"\t\t\tInstalled: []string{\"examples\", \"modules\"},","to":"\t\t\tInstalled: []string{\"examples\"},","rule":"The examples step walks modules/ too, so an edit of a module reruns it (the fast tier's reach).","killers":["scripts/gate:TestFastTierReachOfAnEdit"]}
   ]
 }

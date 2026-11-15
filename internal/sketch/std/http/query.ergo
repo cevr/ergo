@@ -49,7 +49,7 @@ type queryGroup { name string, values []string }
 // 0 before the object, 1 between keys, 2 at a key's value, 3 in a key's
 // list, 4 after the object. at is the current key; item the next value of
 // the list; repeated the key a scalar read met with more than one value.
-type queryReader { groups []queryGroup, state sync.Ref[int], at sync.Ref[int], item sync.Ref[int], repeated sync.Ref[Option[string]] }
+type queryReader { groups []queryGroup, state sync.Ref[int], at sync.Ref[int], item sync.Ref[int], repeated sync.Ref[Option[string]] } implements Reader
 
 func queryReaderOf(fields []Field) queryReader {
 	let mut groups = []queryGroup{}

@@ -20,7 +20,7 @@ type Memory {
 	waiting sync.Ref[Map[int, queue.Queue[bool]]],
 	holds   sync.Ref[int],
 	notes   queue.Queue[Note],
-}
+} implements limits.Limiter
 
 // Note is what a Hold tells while it runs: that it waits, and that its
 // release ran, on every exit (granted, failed or stopped).

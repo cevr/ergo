@@ -38,13 +38,13 @@ const lawRunB13 = `type Store {
 
 func twice() int needs Store { Store.Count() * 2 }
 
-type Tally { counts Map[string, int] }
+type Tally { counts Map[string, int] } implements Store
 
 func Count(t Tally) int { len(t.counts) }
 
 func Doubled(t Tally) int { 2 * len(t.counts) }
 
-type Stuck { at int }
+type Stuck { at int } implements Store
 
 func Count(s Stuck) int { s.at }
 
@@ -103,7 +103,7 @@ type Counter {
 	},
 }
 
-type Tally { total sync.Ref[int] }
+type Tally { total sync.Ref[int] } implements Counter
 
 func NewTally() Tally { Tally{total: sync.NewRef(0)} }
 
@@ -111,7 +111,7 @@ func Add(t Tally, n int) { t.total.Update(func(v int) int { v + n }) }
 
 func Total(t Tally) int { t.total.Get() }
 
-type Lossy { total sync.Ref[int] }
+type Lossy { total sync.Ref[int] } implements Counter
 
 func NewLossy(start int) Lossy { Lossy{total: sync.NewRef(start)} }
 
@@ -119,7 +119,7 @@ func Add(l Lossy, n int) { l.total.Set(n) }
 
 func Total(l Lossy) int { l.total.Get() }
 
-type Plain { total sync.Ref[int], hook func(int) int }
+type Plain { total sync.Ref[int], hook func(int) int } implements Counter
 
 func Add(p Plain, n int) { p.total.Set(p.total.Get() + n) }
 
@@ -390,17 +390,17 @@ type Ranked[T Named] {
 	law Same(v T) { Rank(v) == Rank(v) },
 }
 
-type Fn { f func(int) int }
+type Fn { f func(int) int } implements Shape
 
 func Area(_ Fn) int { 1 }
 
-type Fns {}
+type Fns {} implements Box[func(int) int]
 
 func Put(_ Fns, v func(int) int) {}
 
 law Calls(f func(int) int) { f(1) == f(1) }
 
-type Res { n int }
+type Res { n int } implements Shape, Closer
 
 func Area(_ Res) int { 1 }
 
@@ -453,7 +453,7 @@ type Notes {
 	},
 }
 
-type Book { files fs.Files, writes fs.Writes }
+type Book { files fs.Files, writes fs.Writes } implements Notes
 
 func Add(b Book, line string) {
 	b.writes.AppendFile("notes", line + "\n") catch {
@@ -468,13 +468,13 @@ func All(b Book) string {
 	}
 }
 
-type Lossy { files fs.Files, writes fs.Writes }
+type Lossy { files fs.Files, writes fs.Writes } implements Notes
 
 func Add(l Lossy, line string) {}
 
 func All(l Lossy) string { "" }
 
-type Stuck { q queue.Queue[int] }
+type Stuck { q queue.Queue[int] } implements Notes
 
 func Add(s Stuck, line string) {}
 
@@ -488,7 +488,7 @@ type Loud {
 	},
 }
 
-type Echo { out io.Stdout, n sync.Ref[int] }
+type Echo { out io.Stdout, n sync.Ref[int] } implements Loud
 
 func Shout(e Echo, s string) int {
 	e.out.Println("echo:" + s)
@@ -589,11 +589,11 @@ func TestLawRunGenericListed(t *testing.T) {
 	law Moves(v T) { Not(v) != v },
 }
 
-type Turn {}
+type Turn {} implements Flip[bool]
 
 func Not(_ Turn, v bool) bool { !v }
 
-type Stuck {}
+type Stuck {} implements Flip[bool]
 
 func Not(_ Stuck, v bool) bool { v }
 
@@ -810,7 +810,7 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 const lawRunFiles = `import fs
 import sync
 
-type Drifty { reads sync.Ref[int] }
+type Drifty { reads sync.Ref[int] } implements fs.Files
 
 func NewDrifty() Drifty { Drifty{reads: sync.NewRef[int](0)} }
 
@@ -827,7 +827,7 @@ func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
-type DriftyDenied { reads sync.Ref[int] }
+type DriftyDenied { reads sync.Ref[int] } implements fs.Files
 
 func NewDriftyDenied() DriftyDenied { DriftyDenied{reads: sync.NewRef[int](0)} }
 
@@ -844,7 +844,7 @@ func ReadDir(f DriftyDenied, path string) []string fails fs.NotFound | fs.Denied
 
 func Stat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
-type DriftyFailed { reads sync.Ref[int] }
+type DriftyFailed { reads sync.Ref[int] } implements fs.Files
 
 func NewDriftyFailed() DriftyFailed { DriftyFailed{reads: sync.NewRef[int](0)} }
 
@@ -861,7 +861,7 @@ func ReadDir(f DriftyFailed, path string) []string fails fs.NotFound | fs.Denied
 
 func Stat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
-type Flaky { reads sync.Ref[int] }
+type Flaky { reads sync.Ref[int] } implements fs.Files
 
 func NewFlaky() Flaky { Flaky{reads: sync.NewRef[int](0)} }
 
@@ -878,7 +878,7 @@ func ReadDir(f Flaky, path string) []string fails fs.NotFound | fs.Denied | fs.F
 
 func Stat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
-type Shifty { reads sync.Ref[int] }
+type Shifty { reads sync.Ref[int] } implements fs.Files
 
 func NewShifty() Shifty { Shifty{reads: sync.NewRef[int](0)} }
 
@@ -895,7 +895,7 @@ func ReadDir(s Shifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
-type Steady {}
+type Steady {} implements fs.Files
 
 func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	if path == "" {

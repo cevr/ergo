@@ -106,7 +106,7 @@ extern go archive/zip.OpenReader func OpenReader(name string) go.Ref[ReadCloser]
 // ergo:go type ReadCloser struct
 extern go archive/zip.ReadCloser type ReadCloser {
 	Reader Reader,
-}
+} implements Closer
 
 // ergo:go func (*ReadCloser).Close() error
 extern go archive/zip.ReadCloser.Close func (rc *ReadCloser) Close() fails go.Error needs go.Foreign takes rc
@@ -141,7 +141,7 @@ extern go archive/zip.RegisterDecompressor func RegisterDecompressor(method uint
 extern go archive/zip.Store let Store uint16
 
 // ergo:go type Writer struct
-extern go archive/zip.Writer type Writer {}
+extern go archive/zip.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).AddFS(fsys fs.FS) error
 extern go archive/zip.Writer.AddFS func (w *Writer) AddFS(fsys fs.FS) fails go.Error needs go.Foreign takes w, fsys

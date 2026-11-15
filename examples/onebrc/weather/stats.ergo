@@ -1,0 +1,81 @@
+// Package weather is the domain of the One Billion Row Challenge: weather
+// stations, their temperature readings in tenths of a degree, and the
+// summary of each station. Stats merge by a law-abiding operation, which
+// is what lets the readings be counted in parallel chunks and the chunks
+// merged in any grouping and order.
+
+// Stats is what the readings of one station sum up to, in tenths of a
+// degree.
+type Stats { Min int, Max int, Sum int, Count int }
+
+// lo is the smaller of a and b.
+func lo(a int, b int) int { if a < b { a } else { b } }
+
+// hi is the larger of a and b.
+func hi(a int, b int) int { if a > b { a } else { b } }
+
+// Empty is the Stats of no reading: the identity of Merge.
+func Empty() Stats {
+	Stats{Min: 9223372036854775807, Max: -9223372036854775808, Sum: 0, Count: 0}
+}
+
+// Of is the Stats of one reading.
+func Of(tenths int) Stats { Stats{Min: tenths, Max: tenths, Sum: tenths, Count: 1} }
+
+// Merge is the Stats of the readings of a and of b together.
+func Merge(a Stats, b Stats) Stats {
+	Stats{Min: lo(a.Min, b.Min), Max: hi(a.Max, b.Max), Sum: a.Sum + b.Sum, Count: a.Count + b.Count}
+}
+
+// Add is s with one more reading. The table updates a station in place
+// by it.
+func Add(s Stats, tenths int) Stats {
+	Stats{Min: lo(s.Min, tenths), Max: hi(s.Max, tenths), Sum: s.Sum + tenths, Count: s.Count + 1}
+}
+
+// MergeAssociative: chunks merge in any grouping.
+law MergeAssociative(a Stats, b Stats, c Stats) { Merge(Merge(a, b), c) == Merge(a, Merge(b, c)) }
+
+// MergeCommutative: chunks merge in any order.
+law MergeCommutative(a Stats, b Stats) { Merge(a, b) == Merge(b, a) }
+
+// EmptyIsIdentity: a chunk with no reading of a station changes nothing.
+law EmptyIsIdentity(a Stats) { Merge(a, Empty()) == a && Merge(Empty(), a) == a }
+
+// AddIsMergeOfOne: the table's in-place update is the merge with one
+// reading, so a chunk's Stats is the merge of its readings.
+law AddIsMergeOfOne(s Stats, tenths int) { Add(s, tenths) == Merge(s, Of(tenths)) }
+
+// Mean is the mean of s in tenths, rounded half up: the floor of
+// Sum/Count + 1/2, exactly. s has a reading.
+func Mean(s Stats) int { floorDiv(2*s.Sum+s.Count, 2*s.Count) }
+
+// floorDiv is a / b rounded down; b is positive.
+func floorDiv(a int, b int) int {
+	let q = a / b
+	if a%b != 0 && a < 0 {
+		return q - 1
+	}
+	q
+}
+
+// MeanIsHalfUp: the mean rounds the exact quotient half up, never toward
+// zero.
+law MeanIsHalfUp(sum int, count int) {
+	let n = 1 + (count%1000+1000)%1000
+	let s = (sum%1000000+1000000)%1000000 - 500000
+	let m = Mean(Stats{Min: 0, Max: 0, Sum: s, Count: n})
+	2*m*n <= 2*s+n && 2*s+n < 2*(m+1)*n
+}
+
+// Tenths is the text of a temperature in tenths: "-1.5", "0.0", "12.3".
+func Tenths(v int) string {
+	let a = if v < 0 { -v } else { v }
+	let sign = if v < 0 { "-" } else { "" }
+	"\(sign)\(a / 10).\(a % 10)"
+}
+
+// Line is the summary text of one station: "name=min/mean/max".
+func Line(name string, s Stats) string {
+	"\(name)=\(Tenths(s.Min))/\(Tenths(Mean(s)))/\(Tenths(s.Max))"
+}

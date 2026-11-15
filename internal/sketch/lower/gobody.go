@@ -207,6 +207,16 @@ func appenderExtern(f *check.Func) bool {
 	return path == runtimeImport && goBodyAppends(name)
 }
 
+// pureV1 reports a std extern bound to a pure runtime/v1 body (stdlib.md,
+// Pure bodies), not a Go builtin or a host function.
+func (l *lowerer) pureV1(f *check.Func) bool {
+	if !pureStdBody(f) || f.Decl.Extern == nil {
+		return false
+	}
+	path, _ := f.Decl.Extern.Split()
+	return path == runtimeImport
+}
+
 // madeResult reports a std extern whose runtime/v1 body makes its result
 // (goBodyMakes), so a call's result is fresh. Only std binds runtime/v1
 // (a user extern binds Go's standard library).

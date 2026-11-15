@@ -111,7 +111,7 @@ test MarkupEscapesAndBlocks {
 }
 
 // files is a Source of fixed pages and templates, sorted by path.
-type files { pages Map[string, string], templates Map[string, string] }
+type files { pages Map[string, string], templates Map[string, string] } implements Source
 
 func Pages(f files) []string { sortedKeys(f.pages) }
 

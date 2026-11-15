@@ -10,6 +10,14 @@ extern go ergo.local/prototype/runtime/v1.CmpCompare func Compare[T ordered](a T
 // Less reports whether a is before b in Compare's order.
 extern go ergo.local/prototype/runtime/v1.CmpLess func Less[T ordered](a T, b T) bool
 
+// Max is the larger of a and b, as Go's builtin max: for floats, a NaN
+// gives NaN and Max(-0, +0) is +0.
+extern go ergo.local/prototype/runtime/v1.CmpMax func Max[T ordered](a T, b T) T
+
+// Min is the smaller of a and b, as Go's builtin min: for floats, a NaN
+// gives NaN and Min(-0, +0) is -0.
+extern go ergo.local/prototype/runtime/v1.CmpMin func Min[T ordered](a T, b T) T
+
 // CompareIsAntisymmetric: swapping the arguments negates the result.
 law CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }
 
@@ -21,6 +29,10 @@ law CompareIsTransitive(a int, b int, c int) {
 	}
 	true
 }
+
+// MaxMinSplit: Max and Min do not depend on the order of their arguments,
+// and one gives a and the other b.
+law MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a) && Max(a, b)+Min(a, b) == a+b && Min(a, b) <= Max(a, b) }
 
 // LessIsCompareBelowZero: Less is Compare's -1.
 law LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }

@@ -1,0 +1,69 @@
+// The entry rule of the host's two commits, as a law of a timed run
+// (machines.RunTimed on a testing.VirtualClock, so it takes no wall
+// time): Keep keeps the entry and its timer, Commit opens a new one.
+
+import machines
+import testing
+import time
+
+// Bell is the signal of the law's machine: a note to record, or the
+// state's timer.
+type Bell = Note{N int} | Ring{}
+
+// bellStep records each note with Keep, by a StepID, and ends at the
+// timer.
+func bellStep(l Ledger[int, int], s Bell) Decision[Ledger[int, int], Receipt] {
+	match s {
+	case Note as n:
+		Keep(l, StepID(l, "note"), l.State+n.N, []int{n.N})
+	case Ring:
+		Done[Receipt]{Output: Receipt{ID: CommandID("ring"), Stream: l.Stream, Position: l.Position}}
+	}
+}
+
+// bellTimer rings 10s after the entry opens.
+func bellTimer(l Ledger[int, int]) Option[Timeout[Bell]] {
+	Some[Timeout[Bell]]{Value: Timeout[Bell]{In: 10s, Signal: Ring}}
+}
+
+// Bells is the law's machine.
+type Bells machine[Ledger[int, int], Bell] {
+	initial: Begin[int, int]("bell", 0),
+	step:    bellStep,
+	after:   bellTimer,
+}
+
+// rung is the position the ledger had when the bell rang, over trace,
+// or -1 when it did not ring by end.
+func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | Scheduler {
+	let o = machines.RunTimed(Bells{}, trace, end) catch {
+	case machines.Rejected:
+		return -2
+	}
+	match o {
+	case machines.Finished[Ledger[int, int], Receipt] as f:
+		f.State.Position
+	case machines.Running[Ledger[int, int], Receipt]:
+		-1
+	}
+}
+
+// KeepKeepsTheTimer: a step that keeps its entry (Keep, a Stay) keeps
+// the entry's timer, whatever it records: notes at seconds 1 to 9 do not
+// move the bell, which rings 10s after the start, before a note at 10.5s.
+// It is the rule of runtime.md, Machines and actors 9.2, for the host:
+// only a step that enters (Commit, an Emit) starts the timer again.
+law KeepKeepsTheTimer(notes []int) {
+	let mut trace = []machines.Timed[Bell]{}
+	for i, n in notes {
+		if i >= 9 {
+			break
+		}
+		trace = trace.Append(machines.Timed[Bell]{At: duration(int64(i+1) * int64(1s)), Signal: Note{N: n}})
+	}
+	let before = len(trace)
+	trace = trace.Append(machines.Timed[Bell]{At: 10s + 500ms, Signal: Note{N: 1}})
+	let c = testing.NewVirtualClock(0)
+	let at = with context { Scheduler: c, time.Clock: c } { rung(trace, 60s) }
+	at == before
+}

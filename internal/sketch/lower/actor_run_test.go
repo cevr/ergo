@@ -13,6 +13,7 @@ const actorLawsProbe = `import actor
 import machines
 import sync
 import tasks
+import testing
 import time
 
 func tallyStep(s int, e int) Decision[int, int] {
@@ -453,25 +454,176 @@ func RestartRecovers(signals []int, n int) bool {
 test ActorRestartIsFresh(signals []int, n int) { assert RestartIsFresh(signals, n) }
 
 test ActorRestartRecovers(signals []int, n int) { assert RestartRecovers(signals, n) }
+
+// staged and its helpers restate the machine of the actor stage's law
+// (std actor stage_laws.ergo), which this package cannot name.
+type staged = stagedOpen{N int, Ticks int} | stagedSaving{N int, Ticks int} | stagedSaved{N int, Ticks int}
+
+type stagedSignal = stagedAdd{N int} | stagedSave{} | stagedStored{} | stagedTick{}
+
+func stagedStep(s staged, e stagedSignal) Decision[staged, int] {
+	match (s, e) {
+	case (stagedOpen as o, stagedAdd as a):
+		Stay[staged]{Next: stagedOpen{N: o.N + a.N, Ticks: o.Ticks}}
+	case (stagedOpen as o, stagedTick):
+		Enter[staged]{Next: stagedOpen{N: o.N, Ticks: o.Ticks + 1}}
+	case (stagedOpen as o, stagedSave):
+		Enter[staged]{Next: stagedSaving{N: o.N, Ticks: o.Ticks}}
+	case (stagedSaving as v, stagedStored):
+		Enter[staged]{Next: stagedSaved{N: v.N, Ticks: v.Ticks}}
+	case (_, _):
+		Ignore
+	}
+}
+
+func stagedTimer(s staged) Option[Timeout[stagedSignal]] {
+	match s {
+	case stagedOpen:
+		Some[Timeout[stagedSignal]]{Value: Timeout[stagedSignal]{In: 1s, Signal: stagedTick}}
+	case stagedSaving, stagedSaved:
+		None
+	}
+}
+
+func stagedWork(s staged) Option[machines.Work[stagedSignal, Scheduler]] {
+	match s {
+	case stagedSaving:
+		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Work{Run: func() stagedSignal { stagedStored }}}
+	case stagedOpen, stagedSaved:
+		None
+	}
+}
+
+type stagedLife machine[staged, stagedSignal] {
+	initial: stagedOpen{N: 0, Ticks: 0},
+	step:    stagedStep,
+	after:   stagedTimer,
+	work:    stagedWork,
+}
+
+func stagedStepOf(k int) testing.Step[stagedSignal] {
+	match ((k % 4) + 4) % 4 {
+	case 0:
+		testing.Do[stagedSignal]{Act: stagedAdd{N: k}}
+	case 1:
+		testing.Do[stagedSignal]{Act: stagedSave}
+	case 2:
+		testing.Advance{By: stagedMove(k)}
+	case _:
+		testing.Settle
+	}
+}
+
+func stagedMove(k int) duration { duration(int64(((k % 1500) + 1500) % 1500) * int64(1ms)) }
+
+func stagedFolded(acts []int) []staged {
+	let mut s staged = stagedOpen{N: 0, Ticks: 0}
+	let mut since = 0
+	let mut out = []staged{}
+	for k in acts {
+		match (s, stagedStepOf(k)) {
+		case (stagedOpen as o, testing.Do as d):
+			match d.Act {
+			case stagedAdd as a:
+				s = stagedOpen{N: o.N + a.N, Ticks: o.Ticks}
+			case stagedSave:
+				s = stagedSaved{N: o.N, Ticks: o.Ticks}
+			case stagedStored, stagedTick:
+			}
+		case (stagedOpen as o, testing.Advance as m):
+			let waited = since + int(int64(m.By) / int64(1ms))
+			s = stagedOpen{N: o.N, Ticks: o.Ticks + waited / 1000}
+			since = waited % 1000
+		case (_, _):
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+func stagedAgrees(acts []int, clock time.Manual) bool needs Scheduler {
+	let mut steps = []testing.Step[stagedSignal]{}
+	for k in acts {
+		steps = steps.Append(stagedStepOf(k)).Append(testing.Settle)
+	}
+	let a = actor.StartMachine(stagedLife{}, 8, func(o int) {})
+	let shows = testing.Play(actor.NewStage(a, clock), steps) catch {
+	case testing.Refused:
+		return false
+	}
+	a.Stop()
+	let want = stagedFolded(acts)
+	let mut same = len(shows) == len(steps)
+	for i, s in want {
+		same = same && shows[2*i+1] == s
+	}
+	same
+}
+
+test ActorActorStageAgreesWithFold(acts []int) {
+	let clock = time.NewManual(0)
+	assert with context { Scheduler: clock } { stagedAgrees(acts, clock) }
+}
+
+// stagedSettled restates the Stage laws on the stage of a running
+// stagedLife after the acts: two settles show one state, and a settled
+// stage shows it twice.
+func stagedSettled(acts []int, clock time.Manual) bool needs Scheduler {
+	let a = actor.StartMachine(stagedLife{}, 8, func(o int) {})
+	let st = actor.NewStage(a, clock)
+	for k in acts {
+		match stagedStepOf(k) {
+		case testing.Do as d:
+			st.Do(d.Act) catch {
+			case testing.Refused:
+				return false
+			}
+		case testing.Advance as m:
+			st.Advance(m.By)
+		case testing.Settle:
+			st.Settle()
+		}
+	}
+	st.Settle()
+	let v = st.Show()
+	st.Settle()
+	let idempotent = st.Show() == v
+	let stable = st.Show() == st.Show()
+	a.Stop()
+	idempotent && stable
+}
+
+test TestingStageSettleIsIdempotent(acts []int) {
+	let clock = time.NewManual(0)
+	assert with context { Scheduler: clock } { stagedSettled(acts, clock) }
+}
+
+test TestingStageShowIsStable(acts []int) {
+	let clock = time.NewManual(0)
+	assert with context { Scheduler: clock } { stagedSettled(acts, clock) }
+}
 `
 
 // actorLawStatements is the statement of each actor law, as the ledger
 // writes it.
 var actorLawStatements = map[string]string{
-	"actor Actor.ChangesStops":  `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
-	"actor Actor.StopIsFinal":   `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
-	"actor CanIsTheStep":        `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
-	"actor FeedStepsInOrder":    `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
-	"actor DoneIsFinal":         `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
-	"actor ExitIsShared":        `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
-	"actor FailedIsExit":        `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }`,
-	"actor SelectStops":         `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
-	"actor SelectByStops":       `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
-	"actor SelectOncePerChange": `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
-	"actor RejectKeepsState":    `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
-	"actor RestartIsFresh":      `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
-	"actor RestartRecovers":     `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
-	"actor SendsStepInOrder":    `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
+	"actor Actor.ChangesStops":         `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
+	"actor Actor.StopIsFinal":          `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
+	"actor CanIsTheStep":               `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
+	"actor FeedStepsInOrder":           `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
+	"actor DoneIsFinal":                `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
+	"actor ExitIsShared":               `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
+	"actor FailedIsExit":               `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }`,
+	"actor SelectStops":                `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
+	"actor SelectByStops":              `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
+	"actor SelectOncePerChange":        `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
+	"actor RejectKeepsState":           `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
+	"actor RestartIsFresh":             `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
+	"actor RestartRecovers":            `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
+	"actor SendsStepInOrder":           `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
+	"testing Stage.SettleIsIdempotent": `SettleIsIdempotent() { Settle() let v = Show() Settle() Show() == v }`,
+	"testing Stage.ShowIsStable":       `ShowIsStable() { Settle() Show() == Show() }`,
+	"actor ActorStageAgreesWithFold":   `ActorStageAgreesWithFold(acts []int) { let clock = time.NewManual(0) with context { Scheduler: clock } { stagedAgrees(acts, clock) } }`,
 }
 
 // TestStdActorLawsRun runs the probe's tests with --seed 1; lawledger.Run

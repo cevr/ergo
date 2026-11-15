@@ -73,7 +73,7 @@ func taskOwnProgram(seed int) (string, string) {
 	var src, want strings.Builder
 	var afterEnd strings.Builder
 	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport slices\nimport strconv\nimport scope\n")
-	src.WriteString("type Fault {}\ntype R { N int }\nfunc Close(r R) needs Console { Console.Println(\"close \" + strconv.Itoa(r.N)) }\n")
+	src.WriteString("type Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) needs Console { Console.Println(\"close \" + strconv.Itoa(r.N)) }\n")
 	src.WriteString("func main() fails Fault | tasks.Closed needs Console {\n")
 	// Keep the existing move controls: these destinations release after
 	// the later resource bindings, so R27 must not turn them into lends.

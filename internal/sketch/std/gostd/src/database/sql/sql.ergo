@@ -27,7 +27,7 @@ extern go database/sql.ColumnType.Nullable func (ci *ColumnType) Nullable() (boo
 extern go database/sql.ColumnType.ScanType func (ci *ColumnType) ScanType() reflect.Type needs go.Foreign takes ci
 
 // ergo:go type Conn struct
-extern go database/sql.Conn type Conn {}
+extern go database/sql.Conn type Conn {} implements Closer
 
 // ergo:go func (*Conn).BeginTx(ctx context.Context, opts *TxOptions) (*Tx, error)
 // ergo:context
@@ -60,7 +60,7 @@ extern go database/sql.Conn.PrepareContext func (c *Conn) PrepareContext(query s
 // ergo:refused ConvertAssign: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type DB struct
-extern go database/sql.DB type DB {}
+extern go database/sql.DB type DB {} implements Closer
 
 // ergo:go func (*DB).Begin() (*Tx, error)
 extern go database/sql.DB.Begin func (db *DB) Begin() go.Ref[Tx] fails go.Error needs go.Foreign takes db
@@ -327,7 +327,7 @@ extern go database/sql.Row.Err func (r *Row) Err() fails go.Error needs go.Forei
 // ergo:refused Row.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type Rows struct
-extern go database/sql.Rows type Rows {}
+extern go database/sql.Rows type Rows {} implements Closer
 
 // ergo:go func (*Rows).Close() error
 extern go database/sql.Rows.Close func (rs *Rows) Close() fails go.Error needs go.Foreign takes rs
@@ -354,7 +354,7 @@ extern go database/sql.Rows.NextResultSet func (rs *Rows) NextResultSet() bool n
 // ergo:refused Scanner: no method of the interface maps
 
 // ergo:go type Stmt struct
-extern go database/sql.Stmt type Stmt {}
+extern go database/sql.Stmt type Stmt {} implements Closer
 
 // ergo:go func (*Stmt).Close() error
 extern go database/sql.Stmt.Close func (s *Stmt) Close() fails go.Error needs go.Foreign takes s

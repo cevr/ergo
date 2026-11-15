@@ -4,7 +4,7 @@ type Probe {
 	Healthy(endpoint string) bool fails ProbeUnavailable,
 }
 
-type HealthyProbe {}
+type HealthyProbe {} implements Probe
 
 func Healthy(_ HealthyProbe, endpoint string) bool fails ProbeUnavailable {
 	return endpoint == "primary"

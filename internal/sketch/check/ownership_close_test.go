@@ -19,7 +19,7 @@ import (
 // Close admitted.
 func TestCloseFormsTakeOnce(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Releaser { Close() }
+	src := ofPrelude + `type Releaser { ..Closer }
 
 func addr() {
 	let mut h = open(1)

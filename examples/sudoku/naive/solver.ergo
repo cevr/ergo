@@ -6,7 +6,7 @@
 import sudoku/board
 
 // Solver is the backtracking solver.
-type Solver {}
+type Solver {} implements board.Solver
 
 // Solve is the first solution of puzzle in the order of cells and
 // digits.

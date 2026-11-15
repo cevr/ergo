@@ -6,6 +6,7 @@ The sections are:
 - **Language**: the Go-shaped language of `docs/spec/`.
 - **Constructs, contracts and laws**: how constructs are admitted, and the vocabulary of laws and evidence.
 - **Runtime and providers**: tasks, interruption, exits and lawful providers.
+- **Domain modeling**: aggregates, deciders, views, policies, sagas, stories and scenes, and the terms of infrastructure as code.
 - **Earlier `.ef` language**: terms of the retired language that [#205](https://github.com/cevr/ergo/issues/205) removed with its compiler. They stay as design reference.
 - **Tooling and testing**.
 
@@ -15,7 +16,9 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Package**: One unit of checking: a folder, every `.ergo` file directly in it, in name order. The folder names the package (the last element of its import path); a file has no `package` clause. A program's packages are lowered into one Go package (196b Q5: one lowering path for std and user packages; a Go package per Ergo package waits for an edit-rebuild receipt).
 
-**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std and its own module only.
+**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std, its own module, and the Ergo modules its `go.mod` requires (MD1; [grammar](docs/spec/grammar.md#source-files), Required modules).
+
+**Trust line**: A `trust go MODULE` line of the root module's `ergo.mod`: the program admits the Go code (`import go`, `extern go`) of that required module, which Ergo does not check. Without it such a use is S108. Only the root's trust lines count (MD3; [grammar](docs/spec/grammar.md#source-files), Trusted Go).
 
 **Module root**: The folder that holds `ergo.mod`. The loader finds the nearest one at or above a program's folder; every diagnostic names its file relative to it.
 
@@ -215,7 +218,13 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Predeclared language identifier**: A name the language specification defines in every package without an import or library declaration, following Go's predeclared `len` and `error`, such as `with`, `duration` and the prelude types. Capability services are not predeclared language identifiers, even when the compiler declares them.
 
-**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend retention or emission keyed on the item does not by itself make it one.
+**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend emission, optimization or tooling keyed on the item makes it one too, unless the item is a predeclared name (owner, 2026-11-12).
+
+**Seam**: The files of the compiler that may know that the standard library exists, to find, ship, cache and name it; they change no meaning. The list is in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary); every other read of std membership is a special-cased library item.
+
+**Predeclared name**: A name the language gives a meaning to with no import: a prelude declaration the compiler knows, or an operation name of a language protocol (`Close`, `Wire`). The readers of each are listed in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary).
+
+**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract.
 
 **Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 
@@ -287,6 +296,18 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
+**Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability. The frame holds the retained tree, its view-local cells and its loads; `ui.Render` runs one pass and reconciles what it wrote into a patch (`[]ui.Op[E]`). `E` is the program's signal type.
+
+**Load epoch (ui)**: The number of one fetch a `ui.Load` asked for, unique within its frame. A new key, a new place or a removal ends the epoch, and a result is taken only while its epoch is live (`ui.Arrive`), so a result never shows for a key it was not fetched for. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Paint list (ui)**: The content of a `ui.Canvas`: a list of `ui.PaintOp` values (fills and strokes of paths, and transforms and clips each closed by a pop) that the canvas's draw function wrote through a borrowed `*ui.Paint`. It is a field of the canvas node, so an unchanged list is no change, and a host replays it. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Text measure (ui)**: std `ui.Measure`, the operation type through which text layout asks the host how wide text is and how high its lines are (`Width`, `LineHeight`). `ui.LayoutText` breaks text into lines with it, and `ui.CaretAt`, `ui.OffsetAt` and `ui.SelectionRects` give the caret and selection geometry. `ui.Monospace` is the measure of cell grids and tests. See [stdlib](docs/spec/stdlib.md#ui).
+
+**UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
+
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
@@ -304,6 +325,36 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Point event**: A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a context `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
 
 **Trace evidence**: The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
+
+## Domain modeling
+
+The building blocks of domain-driven design, as Ergo writes them. [docs/domain.md](docs/domain.md) states each as a rule and quotes it from `examples/pipeline`. *Pattern* means a shape of ordinary Ergo code, with no construct or std package of its own.
+
+**Aggregate** (pattern): A consistency boundary whose state is a union of modes, changed only by its commands: a `Decide` that gives the events of a command or its rejection, an `Evolve` that folds one event into the state, and a machine whose step is `Decide` then the fold. One actor runs the aggregates of a bounded context, by id (docs/domain.md, rule 4).
+
+**Decider** (pattern): The pair of an aggregate's pure functions, `Decide(s S, c C) []E fails R` and `Evolve(s S, e E) S`, with its initial state. `Decide` has no `needs` row and `Evolve` no row at all, so a replay of the same commands gives the same events and state. A rejection is a record in `Decide`'s error row.
+
+**Envelope** (pattern; module `domain`'s record planned, DK2): The record a command travels in, with its id and the context the domain reads (actor, tenant, time), so `Decide` takes the context as data and never as an ambient value.
+
+**Receipt** (pattern): The answer to a command the context took: the command's id and the position of its events in the context's log. A resend of the same id gets the first receipt and changes nothing.
+
+**View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
+
+**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads.
+
+**Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
+
+**Story** (pattern): The pure reference of what a program should do for a list of acts: the domain's rules written again over its `Decide` and fold, with the world's answers read from a table.
+
+**Scene** (pattern): The same acts played on the real program, with each external system a `testing.Script`, a clock only the scene moves, and every held call released by the end. A law says the scene ends where the story does (`SceneAgreesWithStory`).
+
+**Stage**: `testing.Stage`, the one kernel that domain, UI and page scenes share: play an act, settle until no work runs, advance the clock, show; `testing.Play` plays a list of steps on one. `actor.NewStage` is an actor's (stdlib.md, Testing 14). Distinct from a stage of the worked example's pipeline, which is a step of a run.
+
+**Stack** (designed: `models/infra`; module `infra` planned, IA1): An ordinary function that asks kinds for the objects of a deployment, passing the value of one object to the next.
+
+**Kind** (designed: `models/infra`; IA1): An operation type a stack calls for one kind of cloud object, `Ensure(id, props) A`. Plan and apply are two providers of it.
+
+**Driver** (designed: `models/infra`; IA1): What a provider module implements for one kind: `Attrs`, `Apply`, `Read` and `Delete`, keyed by id, with the laws `AttrsIsApply`, `RetrySafe`, `ReadAfterApply` and `DeleteIsIdempotent`. Distinct from **Resource**, a value with a checked `Close`.
 
 ## Earlier `.ef` language
 
