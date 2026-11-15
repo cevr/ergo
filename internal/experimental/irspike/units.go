@@ -96,6 +96,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"continue in a polling loop", "G2"},
 	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
+	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of a pointer-receiver method", "G4"},
 	{"call of an extern function", "G4"},
 	{"call that passes owned values", "G4"},
@@ -165,6 +166,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
 	{"copy for a known record", "G4"},
+	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
 	{"value copy", "G4"}, // the value rule's copy (values.go)
@@ -200,6 +202,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed
+	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
 }
