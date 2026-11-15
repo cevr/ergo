@@ -229,6 +229,7 @@ type splitGroup struct {
 	natural int   // the package of its source, -1 for none
 	pin     bool  // stays in the root: main, init, an embedded asset
 	embed   bool
+	generic bool  // a generic function or type: its users compile its instantiations
 	pkg     int
 	refs    []int
 }
@@ -341,6 +342,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			if name := d.Name.Name; name == "main" || isGoInit(name) {
 				g.pin = true
 			}
+			g.generic = d.Type.TypeParams != nil
 			if !isGoInit(d.Name.Name) {
 				groupOf[d.Name.Name] = len(groups)
 				defOf.add(d.Name.Name, d, i)
@@ -354,6 +356,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				case *ast.TypeSpec:
 					groupOf[s.Name.Name] = len(groups)
 					defOf.add(s.Name.Name, s, i)
+					g.generic = g.generic || s.TypeParams != nil
 				case *ast.ValueSpec:
 					for _, n := range s.Names {
 						if n.Name != "_" {

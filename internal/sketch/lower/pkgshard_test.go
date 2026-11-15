@@ -149,7 +149,7 @@ func TestShardsTypecheck(t *testing.T) {
 }
 
 // everyShard cuts after every component: each is its own shard.
-var everyShard = &shardOpts{min: 1, one: 1}
+var everyShard = &shardOpts{pkg: 1, min: 1, one: 1}
 
 // genShardProgram is n functions of one Ergo package: each calls one or
 // two later ones, and one in eight also the one before it, which makes
@@ -216,7 +216,7 @@ func TestShardsLocalUnderInsert(t *testing.T) {
 		}
 		seeds = []uint64{n}
 	}
-	opts := &shardOpts{min: 4000, one: 4}
+	opts := &shardOpts{pkg: 1, min: 4000, one: 4}
 	const main = "\nfunc main() needs Console { Console.Println(\"\\(f0(4))\") }\n"
 	const n = 50
 	for _, seed := range seeds {

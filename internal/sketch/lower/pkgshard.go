@@ -41,19 +41,22 @@ import (
 // compiler. Gleam, ReScript and Elixir emit one host module per source
 // module and leave the host's unit as is.
 
-// shardOpts are the cut: a shard ends after a component whose first name
-// hashes to 0 mod one, once it holds min bytes of declarations. A shard
+// shardOpts are the cut: a package is cut only when its declarations
+// hold pkg bytes, and a shard ends after a component whose first name
+// hashes to 0 mod one, once its cost (cutShards) is min bytes. A shard
 // past min thus takes four more components on average at one = 4; one = 1
 // cuts after every component past min.
 type shardOpts struct {
-	min int
-	one uint32
+	pkg, min int
+	one      uint32
 }
 
-// devShards is the cut of a test build: a 144 KB test program makes about
-// eight shards, each of which pays the compile's process start and
-// imports (58 M to 107 M instructions, plan §3.5).
-var devShards = &shardOpts{min: 8 << 10, one: 4}
+// devShards is the cut of a test build. Each shard pays the compile's
+// process start and imports (58 M to 107 M instructions, plan §3.5) and
+// its instantiations again, so a package is cut only from 64 KiB, and a
+// shard holds 24 KiB of cost or more (docs/receipts/compile-speed.md,
+// "Declaration shards").
+var devShards = &shardOpts{pkg: 64 << 10, min: 24 << 10, one: 4}
 
 // shardDir is the folder of the shards of every package.
 const shardDir = "shard"
@@ -76,7 +79,7 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 				total += size(g)
 			}
 		}
-		if total < o.min {
+		if total < o.pkg {
 			continue
 		}
 		stay := map[int]bool{}
@@ -173,19 +176,47 @@ func rootReach(groups []splitGroup, members []int) map[int]bool {
 // cutShards orders the components of members callees first and cuts them
 // into runs of groups (each run's first group is its first component's
 // first group).
+//
+// A run's cost is the bytes of its declarations and of every generic
+// declaration outside it that it instantiates, transitively (Go compiles
+// an instantiation in each package that makes it; a shard of tests that
+// instantiates the program's generic graph pays for the graph's bodies).
 func cutShards(groups []splitGroup, members []int, o *shardOpts, name func(g int) string, size func(g int) int) [][]int {
 	comps := components(groups, members)
 	var runs [][]int
 	var run []int
-	bytes := 0
+	cost := 0
+	in := map[int]bool{}
+	counted := map[int]bool{}
+	var instantiate func(g int)
+	instantiate = func(g int) {
+		for _, v := range groups[g].refs {
+			if groups[v].generic && !in[v] && !counted[v] {
+				counted[v] = true
+				cost += size(v)
+				instantiate(v)
+			}
+		}
+	}
 	for _, c := range comps {
 		run = append(run, c...)
 		for _, g := range c {
-			bytes += size(g)
+			in[g] = true
+			if counted[g] {
+				// Counted as an instantiation, now its own declaration.
+				counted[g] = false
+				cost -= size(g)
+			}
+			cost += size(g)
 		}
-		if bytes >= o.min && fnv32(name(c[0]))%o.one == 0 {
+		for _, g := range c {
+			instantiate(g)
+		}
+		if cost >= o.min && fnv32(name(c[0]))%o.one == 0 {
 			runs = append(runs, run)
-			run, bytes = nil, 0
+			run, cost = nil, 0
+			clear(in)
+			clear(counted)
 		}
 	}
 	if len(run) > 0 {
