@@ -1,6 +1,7 @@
 {
   "about": "Focused scheduler regression mutants, run with their named killers. Model searches reserve all scheduler slots for memory isolation.",
   "mutants": [
+    {"name":"gs28-selection-lost","origin":"wf10 GS28","file":"scripts/gate/tier.go","from":"\t\t\t\tpl.chosen = &chosen\n","to":"\t\t\t\t_ = chosen\n","rule":"Each package's selection, made at once with the others, narrows that package's step.","killers":["scripts/gate:TestFastTierSkipsWhatTheSelectorSkips"]},
     {"name":"gs24-drop-never","origin":"wf10 GS24","file":"scripts/gate/tier.go","from":"\t\t\tif len(fast) == 0 && len(chosen.skip) > 0 {\n","to":"\t\t\tif false {\n","rule":"A package whose every fast test the selection skips has no fast-tier step.","killers":["scripts/gate:TestFastTierSkipsWhatTheSelectorSkips"]},
     {"name":"gs24-drop-unsaid","origin":"wf10 GS24","file":"scripts/gate/tier.go","from":"\t\t\t\tdropped = append(dropped, fmt.Sprintf(","to":"\t\t\t\t_ = append(dropped, fmt.Sprintf(","rule":"A dropped package's step is named in a line the gate prints.","killers":["scripts/gate:TestFastTierSkipsWhatTheSelectorSkips"]},
     {"name":"gs23-stale-not-collected","origin":"wf10 GS23","file":"scripts/gate/main.go","from":"\t\t\t\t\tstale[step.Sweep] = results[i].duration.Seconds()\n","to":"","rule":"A sweep the gate finds stale has its row rewritten at the end of the run.","killers":["scripts/gate:TestStaleSweepRewritesItsRow"]},
