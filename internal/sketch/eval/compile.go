@@ -243,7 +243,7 @@ func (in *interp) compileBinary(fr *frame, x *syntax.BinaryExpr, f *facts) fastE
 // callOf's path through stackArgs and callPlanned.
 func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr {
 	c := f.call
-	if c == nil || c.Kind != check.CallFunc || c.Site != nil || f.unreachable || x.Trailing != nil || c.Recv != nil || len(c.Func.Sig.TParams) > 0 {
+	if c == nil || c.Kind != check.CallFunc || c.Site != nil || f.unreachable || x.Trailing != nil || len(c.Func.Sig.TParams) > 0 {
 		return nil
 	}
 	p := in.planAt(f, c.Func)
@@ -251,6 +251,7 @@ func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr 
 		return nil
 	}
 	var at syntax.Node = x
+	recv := in.receiverForm(fr, c.Recv, c.Func)
 	args := make([]fastExpr, len(x.Args))
 	for i, a := range x.Args {
 		args[i] = in.operand(fr, a, in.kid(fr, f, i, a))
@@ -261,6 +262,13 @@ func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr 
 			return nil, ab
 		}
 		mark := len(in.argStack)
+		if recv != nil {
+			v, ab := recv(in, fr)
+			if ab != nil {
+				return nil, ab
+			}
+			in.argStack = append(in.argStack, v)
+		}
 		for _, a := range args {
 			v, ab := a(in, fr)
 			if ab != nil {
@@ -270,12 +278,33 @@ func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr 
 			in.argStack = append(in.argStack, v)
 		}
 		if hands {
+			in.handParts(fr, c.Recv)
 			in.handParts(fr, x.Args...)
 		}
 		n := len(in.argStack)
 		v, ab := in.callPlanned(fr, x, p, nil, in.argStack[mark:n:n])
 		in.argStack = in.argStack[:mark]
 		return v, ab
+	}
+}
+
+// receiverForm is the form of receiver(recv, fn): nil for no receiver,
+// recv's value in a value position when fn takes it as it is, else the
+// walk's borrow or dereference.
+func (in *interp) receiverForm(fr *frame, recv syntax.Expr, fn *check.Func) fastExpr {
+	if recv == nil {
+		return nil
+	}
+	if len(fn.Sig.Params) > 0 && isPointer(fn.Sig.Params[0].Type) != isPointer(fr.typeOf(recv)) {
+		return func(in *interp, fr *frame) (Value, *abrupt) { return in.receiver(fr, recv, fn) }
+	}
+	g := in.operand(fr, recv, in.fx(fr, recv))
+	return func(in *interp, fr *frame) (Value, *abrupt) {
+		v, ab := g(in, fr)
+		if ab != nil {
+			return nil, escape(ab)
+		}
+		return v, nil
 	}
 }
 

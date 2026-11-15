@@ -1581,6 +1581,15 @@
       "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     },
     {
+      "name": "oracle-o35-receiver-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tif recv == nil {\n\t\treturn nil\n\t}\n",
+      "to": "\tif recv == nil || true {\n\t\treturn nil\n\t}\n",
+      "rule": "A compiled dot call evaluates its receiver, with its step, before its arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",
