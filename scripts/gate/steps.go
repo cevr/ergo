@@ -279,6 +279,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	sweepCosts, err := readSweepCosts(root)
+	if err != nil {
+		return nil, err
+	}
 	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
 	// The explored build's worker and children laws (runtime/v1
@@ -356,7 +360,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 				continue
 			}
-			sweep := sweepStep(dir, sweepWeight(durations, pkg))
+			sweep := sweepStep(dir, sweepWeight(durations, pkg, sweepCosts[dir]))
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
 			add(sweep)
@@ -769,14 +773,16 @@ const sweepWeightFactor = 4
 // importPath, or 0 (unrecordedWeight) when durations.json has no row for
 // it. A host package's sweep weighs 0 too: the sweep does not run its tests
 // (internal/closure's unsweepable: they start bwrap), so their recorded
-// time, hundreds of seconds for scripts/gate, does not predict the step.
-func sweepWeight(durations map[string]map[string]float64, importPath string) float64 {
+// time, hundreds of seconds for scripts/gate, does not predict the step. A
+// package whose sweep was recorded (sweepCostFile) weighs at least what it
+// took (GS23).
+func sweepWeight(durations map[string]map[string]float64, importPath string, recorded sweepCost) float64 {
 	for _, host := range hostTestPackages {
 		if strings.HasSuffix(importPath, "/"+host) {
 			return 0
 		}
 	}
-	return sweepWeightFactor * packageSeconds(durations[importPath])
+	return max(sweepWeightFactor*packageSeconds(durations[importPath]), recorded.Sweep)
 }
 
 // packageSeconds is the recorded time of every test of a package's rows

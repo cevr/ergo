@@ -664,6 +664,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sweepCosts, err := readSweepCosts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	roots := []string{root}
 	protect, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -720,6 +724,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		used     map[string]bool
 		identity string
 		took     string
+		measured sweepCost
 		err      error
 	}
 	results := make([]result, len(targets))
@@ -730,8 +735,8 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], std, sem)
-			results[i].took = took
+			entries, took, measured, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], sweepCosts[dir], std, sem)
+			results[i].took, results[i].measured = took, measured
 			if err != nil {
 				results[i].err = err
 				return
@@ -742,6 +747,24 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	// The real costs of the packages that swept to the end, for the gate's
+	// record (sweepCostFile); a sweep stopped by a deadline has no cost to
+	// record.
+	if out := os.Getenv(sweepCostOutVariable); out != "" {
+		measured := map[string]sweepCost{}
+		for i, dir := range targets {
+			if results[i].err == nil {
+				measured[dir] = results[i].measured
+			}
+		}
+		data, err := json.Marshal(measured)
+		if err == nil {
+			err = os.WriteFile(out, data, 0o644)
+		}
+		if err != nil {
+			t.Errorf("%s=%s: %v", sweepCostOutVariable, out, err)
+		}
+	}
 
 	for i, dir := range targets {
 		r := results[i]
@@ -963,29 +986,40 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // every run. The log and the output of a package run whole go to stem.log
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
-// held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
+// held its slot. recorded is the package's last recorded sweep
+// (sweepCostFile), which bounds the build and the runs; measured is what
+// this sweep took.
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, recorded sweepCost, std string, sem chan struct{}) (entries []entry, took string, measured sweepCost, err error) {
 	sem <- struct{}{}
 	start := time.Now()
-	err = buildTestBinary(root, dir, binary)
-	took = "build " + time.Since(start).Round(100*time.Millisecond).String()
+	err = buildTestBinary(root, dir, binary, recorded.Run)
+	build := time.Since(start)
+	took = "build " + build.Round(100*time.Millisecond).String()
 	<-sem
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
 	pkgDir := filepath.Join(root, filepath.FromSlash(dir))
 	names, err := scanTests(pkgDir)
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
 	plan, err := sweepPlan(dir, names, costs)
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
-	plan = withDeadlineCosts(plan, cpu)
+	plan = withDeadlineCosts(plan, cpu, recorded)
 	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
-	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
-	return entries, took, err
+	shown := make([]string, len(durations))
+	for i, d := range durations {
+		shown[i] = d.Round(100 * time.Millisecond).String()
+	}
+	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(shown, " "))
+	measured = measuredSweep(build, durations, time.Since(start))
+	if recorded.Sweep > 0 {
+		took += fmt.Sprintf("; recorded sweep %.0fs, slowest run %.0fs (%s)", recorded.Sweep, recorded.Run, sweepCostFile)
+	}
+	return entries, took, measured, err
 }
 
 // runPlan runs the planned runs of one package's test binary, each in its
@@ -1006,7 +1040,7 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 // (TestSharedCacheKeepsEachPackagesInputs). A std store (std, when not
 // empty; fillStdStore) seeds the cache with the standard library's
 // compiles, which read nothing in the working tree.
-func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []string, error) {
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []time.Duration, error) {
 	cache, err := newSharedCache()
 	if err != nil {
 		return nil, nil, err
@@ -1019,7 +1053,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 	}
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
-	durations := make([]string, len(plan))
+	durations := make([]time.Duration, len(plan))
 	var wg sync.WaitGroup
 	// The heaviest run takes the first slot, so the longest run starts
 	// first and the package's last run to end is a light one.
@@ -1034,7 +1068,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 			}
 			start := time.Now()
 			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, run.deadlineCost, extra, binary, run.args...)
-			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
+			durations[i] = time.Since(start)
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
 	}
@@ -1051,10 +1085,10 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 }
 
 // buildTestBinary builds the test binary of the package in dir. The build
-// has a run's bound (runDeadline), so a build that does not end fails with
-// its package named.
-func buildTestBinary(root, dir, binary string) error {
-	bound, err := runDeadline(0)
+// has a run's bound (runDeadline of cost, the package's slowest recorded
+// sweep run), so a build that does not end fails with its package named.
+func buildTestBinary(root, dir, binary string, cost float64) error {
+	bound, err := runDeadline(cost)
 	if err != nil {
 		return err
 	}

@@ -182,6 +182,10 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sweepCosts, err := readSweepCosts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cpu, err := readTestCPU(root)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +211,7 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 			if _, ok := durations[module+"/"+step.Sweep]; !ok {
 				t.Errorf("%s has no row for %s: its steps weigh unrecordedWeight; run ./scripts/gate.sh -record-durations ./%s", durationsFile, step.Sweep, step.Sweep)
 			}
-			want := sweepWeightFactor * total(module+"/"+step.Sweep)
+			want := max(sweepWeightFactor*total(module+"/"+step.Sweep), sweepCosts[step.Sweep].Sweep)
 			if slices.Contains(hostTestPackages, step.Sweep) {
 				want = 0
 			} else if step.Weight <= 0 {

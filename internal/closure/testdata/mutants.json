@@ -1,6 +1,9 @@
 {
   "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping.",
   "mutants": [
+    {"name":"gs23-recorded-run-ignored","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"max(sum, plan[i].cost, recorded.Run)","to":"max(sum, plan[i].cost)","rule":"A run's deadline cost is at least its package's slowest recorded sweep run.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
+    {"name":"gs23-build-not-a-run","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"\tslowest := build\n","to":"\tslowest := time.Duration(0)\n","rule":"The build of the test binary counts as a run of the sweep: its bound is the slowest run's.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
+    {"name":"gs23-sweep-is-the-slowest-run","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"Sweep: math.Ceil(whole.Seconds())","to":"Sweep: math.Ceil(slowest.Seconds())","rule":"The recorded sweep is the package's whole sweep, not its slowest run.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
     {
       "name": "b15-r8-closure-skips-ended-child",
       "origin": "wf10 batch-15 fix-r8 item 5",

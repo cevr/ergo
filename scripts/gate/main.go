@@ -367,6 +367,7 @@ func main() {
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
 	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
+	sweeps := flag.Bool("sweeps", false, "with -record-durations: run the closure sweep of the named package directories (every swept package when none is named) one at a time and rewrite their real costs in "+sweepCostFile)
 	flag.Parse()
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
@@ -376,6 +377,9 @@ func main() {
 	}
 	if *cpu && (!*recordDurations || *fast) {
 		fatal(errors.New("-cpu goes with -record-durations only, without -fast"))
+	}
+	if *sweeps && (!*recordDurations || *fast || *cpu || *coverage) {
+		fatal(errors.New("-sweeps goes with -record-durations only, without -fast, -cpu or -coverage"))
 	}
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
@@ -450,6 +454,12 @@ func main() {
 	}
 	if *recordDurations {
 		g.recordCPU = *cpu
+		if *sweeps {
+			if err := writeSweepCosts(g.root, g.limit, os.Stdout, flag.Args()); err != nil {
+				fatal(err)
+			}
+			return
+		}
 		if *coverage {
 			if err := writeCoverage(g.root, g.cacheDir, g.limit, flag.Args(), os.Stdout); err != nil {
 				fatal(err)
@@ -905,6 +915,11 @@ func (g *gate) run(out io.Writer) int {
 		}
 	}
 	slots.holdFor(ready)
+	// A sweep's real run is checked against its record (sweepCostStale).
+	sweepCosts, err := readSweepCosts(g.root)
+	if err != nil {
+		fmt.Fprintf(out, "gate: %v\n", err)
+	}
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -927,6 +942,9 @@ func (g *gate) run(out io.Writer) int {
 			slots.acquireN(first[i], priority[i], held)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
+				if note := sweepCostStale(step.Sweep, sweepCosts[step.Sweep], results[i].duration.Seconds()); note != "" {
+					results[i].output = fmt.Appendf(results[i].output, "%s\n", note)
+				}
 			} else {
 				results[i] = g.execute(step)
 			}

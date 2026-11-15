@@ -1853,5 +1853,8 @@
   },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
+  },
+  "ergo.local/prototype/scripts/specrefs": {
+    "TestWrappedReferencesMove": 0
   }
 }
