@@ -116,8 +116,10 @@ func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, fir
 				break
 			}
 		}
-		let counts = ui.Counts(&h)
 		let asks = try run(&h, site, gone)
+		// The act's work and that of the address it asked for: a replacement
+		// is no input of the test host, so its passes join the act's step.
+		let counts = ui.Counts(&h)
 		if len(asks) > 0 {
 			Console.Println("  asks: " + strings.Join(asks, ", "))
 		}
