@@ -64,6 +64,34 @@ type Unit struct {
 	// unit, not only those its run build's sites use: std's ledger
 	// (FreshStdLedger) holds each law proved once, for every program.
 	AllLaws bool
+	// CoverMarks writes a cover mark (CoverMark) where a std body would
+	// write a //line directive if it had them (GATE2 GT7b): a full-line
+	// comment, which changes no Go position, so the mutant runner's
+	// coverage pass can map a std body's Go lines to its .ergo lines. Only
+	// a coverage build sets it (internal/sketch/build CoverVariable); its
+	// emission key holds CoverMarkFlag. Without it the emitted Go is as
+	// before, byte for byte.
+	CoverMarks bool
+}
+
+// coverMarksAll lowers every unit with CoverMarks. Only this package's
+// TestMain sets it, in the mutant runner's coverage pass (the build
+// package's CoverVariable set), whose programs the test harness links
+// with -cover (support_test.go).
+var coverMarksAll bool
+
+// CoverMarkFlag is the emission flag (build.Input.Flags) of a unit lowered
+// with CoverMarks.
+const CoverMarkFlag = "cover-marks"
+
+// coverMarkPrefix starts a cover mark.
+const coverMarkPrefix = "//ergo:cover "
+
+// CoverMark is the cover mark of path, line and column: a comment on a
+// line of its own; the Go lines after it come from that .ergo line on,
+// as after a //line directive, until the next mark or directive.
+func CoverMark(path string, line, column int) string {
+	return fmt.Sprintf("%s%s:%d:%d\n", coverMarkPrefix, path, line, column)
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

@@ -363,7 +363,13 @@ func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
 	if err != nil {
 		return lower.Unit{}, build.Input{}, err
 	}
+	// A coverage build (build.CoverVariable) lowers std bodies with cover
+	// marks; its key says so, so no other build reuses that module.
+	unit.CoverMarks = req.Toolchain.Cover != ""
 	input, err := unitInput(unit, analysisDependencies(a), req)
+	if unit.CoverMarks {
+		input.Flags = append(input.Flags, lower.CoverMarkFlag)
+	}
 	return unit, input, err
 }
 

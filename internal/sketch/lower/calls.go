@@ -1198,6 +1198,7 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	// the declaration table, and it reads its own package's Info.
 	std := l.stdContext(w)
 	fc := newFuncCtx(l, newNamer(l.names), !std)
+	fc.marks = std && l.coverMarks
 	fc.owner = w.Name
 	if std {
 		saved := l.info
@@ -1307,9 +1308,9 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	defer fc.l.leave(fc.l.enter(e.Provider, nil))
 	if pkg != nil && pkg.Std() {
 		fc.l.info = pkg.Info // leave restores it
-		saved := fc.directives
-		fc.directives = false
-		defer func() { fc.directives = saved }()
+		saved, savedMarks := fc.directives, fc.marks
+		fc.directives, fc.marks = false, fc.l.coverMarks
+		defer func() { fc.directives, fc.marks = saved, savedMarks }()
 	}
 	fc.at(e.Provider)
 	saved := fc.env
