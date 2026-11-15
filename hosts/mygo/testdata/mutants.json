@@ -569,6 +569,42 @@
       "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
     },
     {
+      "name": "GPa-lists-new",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "w.pending[:0], w.glyphs[:0], 0, w.access[:0]",
+      "to": "w.pending[:0], nil, 0, nil",
+      "rule": "a list's text and accessibility nodes reuse the buffers of the list shown two frames before",
+      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+    },
+    {
+      "name": "GPa-points-new",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false",
+      "to": "w.strokes, w.pts, w.inStroke = nil, nil, false",
+      "rule": "a list's strokes and their points reuse the buffers of the list shown two frames before",
+      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+    },
+    {
+      "name": "GPa-access-always",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tw.publishAccess(false)",
+      "to": "\tw.publishAccess(true)",
+      "rule": "an accessibility tree that did not change is not published again",
+      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+    },
+    {
+      "name": "GPa-pix-new",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tpix := w.pix[:tw*th]",
+      "to": "\tpix := make([]byte, tw*th)",
+      "rule": "a stroke's mask is rasterized into one buffer, which the text system copies into its atlas",
+      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",

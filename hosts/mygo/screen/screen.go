@@ -19,6 +19,7 @@ import (
 	"hash/maphash"
 	"math"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -93,12 +94,22 @@ type Window struct {
 	field   platform.TextInputState
 
 	// The strokes of the list being made and of the shown one (a stroke's
-	// op is a placeholder that draw turns into its mask), the one
-	// StrokeBegin opened, how many masks draw rasterized, and how many
+	// op is a placeholder that draw turns into its mask) and their points
+	// (each list's arena, which its strokes index), the one StrokeBegin
+	// opened (inStroke), how many masks draw rasterized, and how many
 	// strokes it drew as Lines since the atlas left their mask out.
 	strokes, shownStrokes, refStrokes []stroke
-	drawing                           *stroke
-	masks, lined                      int
+	pts, shownPts, refPts             []float32
+	drawing                           stroke
+	inStroke                          bool
+	// published is the accessibility tree last given the surface, and
+	// publishedFocus its focus; pix, q and disc rasterize's buffers.
+	published      []platform.AccessNode
+	publishedFocus uint64
+	pix            []byte
+	q              []float32
+	disc           [][2]float32
+	masks, lined   int
 	// vw and vh are the frame being built's size in device pixels.
 	vw, vh  float32
 	z       vec.Rasterizer
@@ -151,13 +162,12 @@ type seg struct {
 }
 
 // stroke is a polyline Present draws as one mask, at op index at of the
-// list (its placeholder): its points in DIPs, x then y, its width and
-// its color.
+// list (its placeholder): its points in DIPs, x then y, at [p0, p1) of
+// its list's arena, its width and its color.
 type stroke struct {
-	at    int
-	pts   []float32
-	width float32
-	color scene.Color
+	at, p0, p1 int
+	width      float32
+	color      scene.Color
 }
 
 // maskSeed keys the masks of strokes: one process, one seed.
@@ -280,7 +290,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		return true
 	case platform.AccessibilityOn:
 		w.mu.Lock()
-		w.publishAccess()
+		w.publishAccess(true)
 		w.mu.Unlock()
 	}
 	return false
@@ -437,8 +447,8 @@ func (w *Window) Begin() {
 
 // begin is Begin with w.mu held.
 func (w *Window) begin() {
-	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
-	w.strokes, w.drawing = nil, nil
+	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
+	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
 	w.focus, w.field = 0, platform.TextInputState{}
 	clear(w.segs)
 	w.open = w.open[:0]
@@ -484,6 +494,9 @@ func (w *Window) Again(key int) bool {
 	}
 	for _, k := range w.shownStrokes[s.st0:s.st1] {
 		k.at += t.op0 - s.op0
+		p0 := len(w.pts)
+		w.pts = append(w.pts, w.shownPts[k.p0:k.p1]...)
+		k.p0, k.p1 = p0, len(w.pts)
 		w.strokes = append(w.strokes, k)
 	}
 	w.access = append(w.access, w.shownAccess[s.ac0:s.ac1]...)
@@ -500,6 +513,7 @@ func (w *Window) Hold() {
 	w.refGlyphs = append(w.refGlyphs[:0], w.glyphs...)
 	w.refAccess = append(w.refAccess[:0], w.access...)
 	w.refStrokes = append(w.refStrokes[:0], w.strokes...)
+	w.refPts = append(w.refPts[:0], w.pts...)
 	w.begin()
 	w.mu.Unlock()
 }
@@ -525,8 +539,14 @@ func (w *Window) Differs() string {
 			return fmt.Sprintf("text %d is %+v, the reference's %+v", i, w.glyphs[i], w.refGlyphs[i])
 		}
 	}
-	if !reflect.DeepEqual(w.strokes, w.refStrokes) && (len(w.strokes) > 0 || len(w.refStrokes) > 0) {
-		return fmt.Sprintf("strokes %+v, the reference's %+v", w.strokes, w.refStrokes)
+	if len(w.strokes) != len(w.refStrokes) {
+		return fmt.Sprintf("%d strokes, the reference %d", len(w.strokes), len(w.refStrokes))
+	}
+	for i, k := range w.strokes {
+		r := w.refStrokes[i]
+		if k.at != r.at || k.width != r.width || k.color != r.color || !slices.Equal(w.pts[k.p0:k.p1], w.refPts[r.p0:r.p1]) {
+			return fmt.Sprintf("stroke %d is %+v %v, the reference's %+v %v", i, k, w.pts[k.p0:k.p1], r, w.refPts[r.p0:r.p1])
+		}
 	}
 	if len(w.access) != len(w.refAccess) {
 		return fmt.Sprintf("%d accessibility nodes, the reference %d", len(w.access), len(w.refAccess))
@@ -593,15 +613,15 @@ func lineOp(x0, y0, x1, y1, width float64, color scene.Color) scene.Op {
 // Painter.StrokePath draws.
 func (w *Window) StrokeBegin(width float64, color uint32) {
 	w.mu.Lock()
-	w.drawing = &stroke{width: float32(width), color: rgba(color)}
+	w.drawing, w.inStroke = stroke{width: float32(width), color: rgba(color), p0: len(w.pts)}, true
 	w.mu.Unlock()
 }
 
 // StrokeTo adds the point x, y to the polyline StrokeBegin opened.
 func (w *Window) StrokeTo(x, y float64) {
 	w.mu.Lock()
-	if w.drawing != nil {
-		w.drawing.pts = append(w.drawing.pts, float32(x), float32(y))
+	if w.inStroke {
+		w.pts = append(w.pts, float32(x), float32(y))
 	}
 	w.mu.Unlock()
 }
@@ -611,14 +631,19 @@ func (w *Window) StrokeTo(x, y float64) {
 func (w *Window) StrokeEnd() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if !w.inStroke {
+		return
+	}
 	k := w.drawing
-	w.drawing = nil
-	if k == nil || len(k.pts) == 0 || !(k.width > 0) {
+	w.inStroke = false
+	k.p1 = len(w.pts)
+	if k.p1 == k.p0 || !(k.width > 0) {
+		w.pts = w.pts[:k.p0]
 		return
 	}
 	k.at = len(w.pending)
 	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Transform: scene.Translation(0, 0)})
-	w.strokes = append(w.strokes, *k)
+	w.strokes = append(w.strokes, k)
 }
 
 // MasksDrawn is how many stroke masks the frames drawn so far
@@ -696,14 +721,17 @@ func (w *Window) Present() {
 		w.pending = append(w.pending, scene.Op{Kind: scene.OpPopClip})
 	}
 	w.shown = append(w.shown[:0], w.pending...)
-	w.texts = w.glyphs
-	w.shownStrokes = w.strokes
-	w.shownAccess = w.access
+	// The shown list's buffers become the next list's (begin empties
+	// them): two of each, not a new one a frame.
+	w.texts, w.glyphs = w.glyphs, w.texts
+	w.shownStrokes, w.strokes = w.strokes, w.shownStrokes
+	w.shownPts, w.pts = w.pts, w.shownPts
+	w.shownAccess, w.access = w.access, w.shownAccess
 	w.segs, w.prev = w.prev, w.segs
 	clear(w.segs)
 	w.painted++
 	field := w.field
-	w.publishAccess()
+	w.publishAccess(false)
 	w.mu.Unlock()
 	if w.conn != nil {
 		post := func() { w.conn.Surface.SetTextInput(field) }
@@ -714,12 +742,23 @@ func (w *Window) Present() {
 	w.invalidate()
 }
 
-// publishAccess gives the surface the accessibility tree; w.mu is held.
-func (w *Window) publishAccess() {
+// sameNode reports whether two accessibility nodes Access made are the
+// same: the fields it sets (reflect.DeepEqual would allocate a frame).
+func sameNode(a, b platform.AccessNode) bool {
+	return a.ID == b.ID && a.Parent == b.Parent && a.Role == b.Role && a.Label == b.Label && a.Value == b.Value && a.Bounds == b.Bounds && a.States == b.States
+}
+
+// publishAccess gives the surface the shown list's accessibility tree,
+// when it differs from the one last given or force; w.mu is held.
+func (w *Window) publishAccess(force bool) {
 	if w.conn == nil {
 		return
 	}
-	tree := &platform.AccessTree{Nodes: append([]platform.AccessNode(nil), w.access...), Focus: w.focus}
+	if !force && w.focus == w.publishedFocus && slices.EqualFunc(w.shownAccess, w.published, sameNode) {
+		return
+	}
+	w.published, w.publishedFocus = append(w.published[:0], w.shownAccess...), w.focus
+	tree := &platform.AccessTree{Nodes: append([]platform.AccessNode(nil), w.shownAccess...), Focus: w.focus}
 	if w.conn.Post != nil {
 		w.conn.Post(func() { w.conn.Surface.UpdateAccessibility(tree) })
 	}
@@ -788,7 +827,7 @@ func (w *Window) build(width, height, scale float64) {
 			w.glyphLine(s, texts[k], float32(scale))
 		}
 		if j < len(strokes) && strokes[j].at == i {
-			w.strokeMask(s, strokes[j], float32(scale))
+			w.strokeMask(s, strokes[j], w.shownPts[strokes[j].p0:strokes[j].p1], float32(scale))
 			j++
 			continue
 		}
@@ -807,13 +846,13 @@ func (w *Window) build(width, height, scale float64) {
 // point, as Line's rounded rectangles do. A mask wider or taller than
 // maskTile pixels draws as tiles (strokeTiles). When the atlas cannot hold
 // it, the stroke is a Line a segment.
-func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
+func (w *Window) strokeMask(s *scene.Scene, t stroke, pts []float32, scale float32) {
 	hw := t.width * scale / 2
-	n := len(t.pts) / 2
+	n := len(pts) / 2
 	minX, minY := float32(math.MaxFloat32), float32(math.MaxFloat32)
 	maxX, maxY := float32(-math.MaxFloat32), float32(-math.MaxFloat32)
 	for i := 0; i < n; i++ {
-		x, y := t.pts[2*i]*scale, t.pts[2*i+1]*scale
+		x, y := pts[2*i]*scale, pts[2*i+1]*scale
 		minX, maxX = min(minX, x), max(maxX, x)
 		minY, maxY = min(minY, y), max(maxY, y)
 	}
@@ -822,10 +861,13 @@ func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 	mw := int(math.Ceil(float64(maxX+hw-x0))) + 2
 	mh := int(math.Ceil(float64(maxY+hw-y0))) + 2
 	if mw <= 0 || mh <= 0 || mw > maskSpanMax || mh > maskSpanMax || math.IsNaN(float64(x0+y0)) {
-		w.strokeLines(s, t)
+		w.strokeLines(s, t, pts)
 		return
 	}
-	q := make([]float32, 2*n)
+	if cap(w.q) < 2*n {
+		w.q = make([]float32, 2*n)
+	}
+	q := w.q[:2*n]
 	var hs maphash.Hash
 	hs.SetSeed(maskSeed)
 	var buf [8]byte
@@ -833,8 +875,8 @@ func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 	binary.LittleEndian.PutUint32(buf[4:], uint32(n))
 	hs.Write(buf[:])
 	for i := 0; i < n; i++ {
-		q[2*i] = float32(math.Round(float64((t.pts[2*i]*scale-x0)*4))) / 4
-		q[2*i+1] = float32(math.Round(float64((t.pts[2*i+1]*scale-y0)*4))) / 4
+		q[2*i] = float32(math.Round(float64((pts[2*i]*scale-x0)*4))) / 4
+		q[2*i+1] = float32(math.Round(float64((pts[2*i+1]*scale-y0)*4))) / 4
 		binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(q[2*i]))
 		binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(q[2*i+1]))
 		hs.Write(buf[:])
@@ -844,11 +886,11 @@ func (w *Window) strokeMask(s *scene.Scene, t stroke, scale float32) {
 	if mw > maskTile || mh > maskTile {
 		if !w.strokeTiles(s, t, key, q, hw, x0, y0, mw, mh) {
 			s.Glyphs = s.Glyphs[:start]
-			w.strokeLines(s, t)
+			w.strokeLines(s, t, pts)
 			return
 		}
 	} else if !w.maskGlyph(s, key, q, hw, x0, y0, 0, 0, mw, mh, t.color) {
-		w.strokeLines(s, t)
+		w.strokeLines(s, t, pts)
 		return
 	}
 	if end := int32(len(s.Glyphs)); end > start {
@@ -967,14 +1009,14 @@ const (
 )
 
 // strokeLines adds t to s as a Line a segment (a point, a dot).
-func (w *Window) strokeLines(s *scene.Scene, t stroke) {
+func (w *Window) strokeLines(s *scene.Scene, t stroke, pts []float32) {
 	w.lined++
-	n := len(t.pts) / 2
+	n := len(pts) / 2
 	if n == 1 {
-		s.Ops = append(s.Ops, lineOp(float64(t.pts[0]), float64(t.pts[1]), float64(t.pts[0]), float64(t.pts[1]), float64(t.width), t.color))
+		s.Ops = append(s.Ops, lineOp(float64(pts[0]), float64(pts[1]), float64(pts[0]), float64(pts[1]), float64(t.width), t.color))
 	}
 	for i := 1; i < n; i++ {
-		s.Ops = append(s.Ops, lineOp(float64(t.pts[2*i-2]), float64(t.pts[2*i-1]), float64(t.pts[2*i]), float64(t.pts[2*i+1]), float64(t.width), t.color))
+		s.Ops = append(s.Ops, lineOp(float64(pts[2*i-2]), float64(pts[2*i-1]), float64(pts[2*i]), float64(pts[2*i+1]), float64(t.width), t.color))
 	}
 }
 
@@ -1004,7 +1046,10 @@ func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 		z.ClosePath()
 	}
 	sides := max(8, int(math.Ceil(float64(2*math.Pi*hw/1.5))))
-	disc := make([][2]float32, sides)
+	if cap(w.disc) < sides {
+		w.disc = make([][2]float32, sides)
+	}
+	disc := w.disc[:sides]
 	n := len(q) / 2
 	for i := 0; i < n; i++ {
 		cx, cy := q[2*i], q[2*i+1]
@@ -1025,7 +1070,13 @@ func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 		nx, ny := -dy/l*hw, dx/l*hw
 		poly([][2]float32{{ax + nx, ay + ny}, {cx + nx, cy + ny}, {cx - nx, cy - ny}, {ax - nx, ay - ny}})
 	}
-	pix := make([]byte, tw*th)
+	// The text system copies the mask into its atlas (Mask), so the
+	// buffer is the next mask's, as MyGo's rasterizePath reuses one.
+	if cap(w.pix) < tw*th {
+		w.pix = make([]byte, tw*th)
+	}
+	pix := w.pix[:tw*th]
+	clear(pix)
 	z.Mask(pix, tw)
 	return pix
 }
