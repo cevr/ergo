@@ -69,6 +69,7 @@ var skipFields = map[string]string{
 	"check.checker.nodeCheck":    "test hook",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
+	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
 	// A module package's importer serves its check alone (check/export.go,
 	// ModuleImporter); the decoded wrapper imports nothing.
 	"check.moduleImporter.next": "the loader of the process that checked the package",

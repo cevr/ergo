@@ -271,6 +271,15 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 			for _, f := range pkg.files {
 				e.nodes.Reach(f.syntax)
 			}
+			// Then the declarations the checker made (an inline variant's,
+			// whose type parameters are a copy of its union's), in the
+			// package's order: the copies of one origin tie in a map's
+			// order (c.origins), so they get their ids here.
+			for _, tn := range pkg.Types {
+				if tn.Decl != nil {
+					e.nodes.Reach(tn.Decl)
+				}
+			}
 		}
 	}
 	write("", func() { reach(s.base.prelude.pkg); e.encPtrstdBase(s.base) })
