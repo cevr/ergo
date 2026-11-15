@@ -9,21 +9,24 @@ import (
 	"strings"
 )
 
-// .ergo coverage (GATE2 GT7). In the coverage pass the runner sets
+// .ergo coverage (GATE2 GT7, GT7b). In the coverage pass the runner sets
 // ERGO_COVER_GO (internal/sketch/build, cover.go) for every child, so each
 // program the ergo CLI builds while a test runs is a coverage build of a
 // copy of its lowered module, at DIR/KEY with import path
 // ergo.local/cover/KEY, and writes its counters to the test's GOCOVERDIR.
-// The cover tool names such a block by the base name of the //line
-// directive that governs it (main.ergo) but numbers it by the Go file's
-// own lines, so the block alone names no .ergo line. ergoMapper reads the
-// copy's Go files and maps each Go line of the block, through the //line
-// and /*line*/ directives the lowering writes, to the .ergo file and line
-// it came from; a line of a checkout file is recorded as a block of that
-// file, which coverage.covering reads as it reads a Go block. A Go line
-// that no directive governs (the runtime, a std body, which the lowering
-// writes without directives) maps to nothing: a top-level func starts
-// with no position.
+// The cover tool of go1.27 names such a block by the file of its start's
+// Go position (the base name of the last //line or /*line*/ directive
+// before it, or the Go file itself), go1.26's by the Go file; both number
+// it by the Go file's own lines, so the block alone names no .ergo line.
+// ergoMapper reads the copy's Go files, finds the one whose line holds a
+// start of that name, and maps each Go line of the block to the .ergo
+// line it came from: after a //line or /*line*/ directive, or after a
+// cover mark (//ergo:cover, which a coverage build writes in std bodies,
+// lowered without directives: lower.CoverMark), each line is one on. A
+// line of a checkout file is recorded as a block of that file, which
+// coverage.covering reads as it reads a Go block. A top-level func starts
+// with no .ergo position (the runtime, a body with neither), though its Go
+// position goes on.
 
 // coverGoVariable is internal/sketch/build's CoverVariable.
 const coverGoVariable = "ERGO_COVER_GO"
@@ -31,25 +34,37 @@ const coverGoVariable = "ERGO_COVER_GO"
 // coverGoModule is the module path prefix of a coverage copy.
 const coverGoModule = "ergo.local/cover/"
 
-// ergoPos is a position of .ergo source: an absolute path and a line.
+// coverMark starts a cover mark (lower.CoverMark).
+const coverMark = "//ergo:cover "
+
+// stdTree is where a cover mark's std/… path lives in the checkout.
+const stdTree = "internal/sketch/std/"
+
+// ergoPos is a position of .ergo source: a path (absolute, or std/… of a
+// cover mark) and a line.
 type ergoPos struct {
 	file string
 	line int
 }
 
-// goLines are the positions of one Go file's lines (index 0 is line 1),
-// several when a line holds inline directives.
-type goLines [][]ergoPos
+// goLine is one Go line: its .ergo positions, several when it holds an
+// inline directive, and the names the cover tool of go1.27 may give a
+// block that starts on it (the file of its Go position at its start and
+// after each inline directive).
+type goLine struct {
+	at    []ergoPos
+	names []string
+}
 
 type ergoMapper struct {
 	dir  string // ERGO_COVER_GO of the coverage pass
 	root string // the checkout copy the programs were lowered from
 	read map[string][]string
-	maps map[string]goLines
+	maps map[string][]goLine
 }
 
 func newErgoMapper(dir, root string) *ergoMapper {
-	return &ergoMapper{dir: dir, root: root, read: map[string][]string{}, maps: map[string]goLines{}}
+	return &ergoMapper{dir: dir, root: root, read: map[string][]string{}, maps: map[string][]goLine{}}
 }
 
 // blocks maps a profile block of a coverage copy (name is
@@ -60,11 +75,14 @@ func (m *ergoMapper) blocks(name string, lo, hi int) []blockKey {
 	if !ok || m == nil {
 		return nil
 	}
-	key, base, ok := strings.Cut(rest, "/")
-	if !ok || key == "" || strings.Contains(key, "..") {
+	// rest is KEY/BASE, or KEY/DIR/BASE for a package below the copy's
+	// root (a program of internal/sketch/lower's dispatcher, p/NAME);
+	// key is the package's directory in the copy.
+	at := strings.LastIndexByte(rest, '/')
+	if at <= 0 || strings.Contains(rest, "..") {
 		return nil
 	}
-	base = untag(base)
+	key, base := rest[:at], untag(rest[at+1:])
 	seen := map[blockKey]bool{}
 	var out []blockKey
 	for _, goFile := range m.goFiles(key) {
@@ -72,12 +90,13 @@ func (m *ergoMapper) blocks(name string, lo, hi int) []blockKey {
 		if hi > len(lines) {
 			continue
 		}
-		own := base == goFile
+		// The block's name is its start's Go position, or the Go file's
+		// own (the cover tool of go1.26 names every block so).
+		if base != goFile && !slices.Contains(lines[lo-1].names, base) {
+			continue
+		}
 		for g := lo; g <= hi; g++ {
-			for _, p := range lines[g-1] {
-				if !own && path.Base(p.file) != base {
-					continue
-				}
+			for _, p := range lines[g-1].at {
 				rel, inside := m.relative(p.file)
 				if !inside {
 					continue
@@ -93,7 +112,15 @@ func (m *ergoMapper) blocks(name string, lo, hi int) []blockKey {
 	return out
 }
 
+// relative is file's path in the checkout: a std/… path of a cover mark
+// is in stdTree; an absolute path must be inside the copy root.
 func (m *ergoMapper) relative(file string) (string, bool) {
+	if rest, ok := strings.CutPrefix(file, "std/"); ok {
+		if strings.Contains(rest, "..") {
+			return "", false
+		}
+		return stdTree + rest, true
+	}
 	rel, err := filepath.Rel(m.root, filepath.FromSlash(file))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
 		return "", false
@@ -101,7 +128,8 @@ func (m *ergoMapper) relative(file string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// goFiles are the Go files at the top of the copy KEY.
+// goFiles are the Go files of the package directory key (KEY or
+// KEY/DIR) of a copy.
 func (m *ergoMapper) goFiles(key string) []string {
 	if files, ok := m.read[key]; ok {
 		return files
@@ -118,28 +146,40 @@ func (m *ergoMapper) goFiles(key string) []string {
 	return files
 }
 
-func (m *ergoMapper) lines(key, goFile string) goLines {
+func (m *ergoMapper) lines(key, goFile string) []goLine {
 	id := key + "/" + goFile
 	if l, ok := m.maps[id]; ok {
 		return l
 	}
 	data, _ := os.ReadFile(filepath.Join(m.dir, key, goFile))
-	l := mapGoLines(string(data))
+	l := mapGoLines(goFile, string(data))
 	m.maps[id] = l
 	return l
 }
 
-// mapGoLines is the .ergo position of each line of a Go file, by its
-// //line and /*line*/ directives: a //line directive gives the next line
-// its position, an inline one the text after it, and each line after
-// that is one more; a line that starts a top-level func has none, and
-// neither have the lines after it until the next directive.
-func mapGoLines(text string) goLines {
+// mapGoLines maps each line of the Go file name. The Go position's file
+// is name until a //line directive or an inline /*line*/ one, then that
+// directive's base name. The .ergo position: a //line directive or a cover
+// mark gives the next line its position, an inline directive the text
+// after it, and each line after that is one more; a line that starts a
+// top-level func has none, nor have the lines after it until the next
+// directive or mark.
+func mapGoLines(name, text string) []goLine {
 	lines := strings.Split(text, "\n")
-	out := make(goLines, len(lines))
+	out := make([]goLine, len(lines))
 	var cur *ergoPos
+	goName := name
 	for g, line := range lines {
 		if rest, ok := strings.CutPrefix(line, "//line "); ok {
+			if p, ok := parseDirective(rest); ok {
+				cur = &p
+				goName = path.Base(p.file)
+			} else {
+				cur = nil
+			}
+			continue
+		}
+		if rest, ok := strings.CutPrefix(strings.TrimLeft(line, "\t "), coverMark); ok {
 			if p, ok := parseDirective(rest); ok {
 				cur = &p
 			} else {
@@ -150,8 +190,9 @@ func mapGoLines(text string) goLines {
 		if strings.HasPrefix(line, "func ") {
 			cur = nil
 		}
+		out[g].names = []string{goName}
 		if cur != nil {
-			out[g] = append(out[g], *cur)
+			out[g].at = append(out[g].at, *cur)
 		}
 		var last *ergoPos
 		for rest := line; ; {
@@ -164,7 +205,11 @@ func mapGoLines(text string) goLines {
 				break
 			}
 			if p, ok := parseDirective(rest[at+len("/*line ") : at+end]); ok {
-				out[g] = append(out[g], p)
+				out[g].at = append(out[g].at, p)
+				goName = path.Base(p.file)
+				if !slices.Contains(out[g].names, goName) {
+					out[g].names = append(out[g].names, goName)
+				}
 				last = &p
 			}
 			rest = rest[at+end:]

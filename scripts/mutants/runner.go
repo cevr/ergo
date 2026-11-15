@@ -560,6 +560,15 @@ func (e *engine) tool(name string) *Tool {
 	return nil
 }
 
+// coverMode is the counter mode of every coverage build of the coverage
+// pass: the test binaries, the tools, and the programs a test builds
+// (internal/sketch/build's coverage build, lower's dispatcher), whose
+// counters share the test's GOCOVERDIR, and go tool covdata refuses two
+// modes in one directory. It is atomic because a coverage build writes its
+// counters itself when a signal ends it (runtime/coverage.WriteCountersDir
+// needs atomic counters; GATE2 GT7b).
+const coverMode = "atomic"
+
 // buildTool builds a tool into bin; with cover, with coverage of the
 // covered packages and of the tool's own package (a binary whose main
 // package is not covered writes no counters).
@@ -570,7 +579,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 	}
 	argv := []string{"go", "build"}
 	if cover {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
 	}
 	argv = append(append(argv, t.Flags...), "-o", filepath.Join(bin, name), t.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline), nil
@@ -579,7 +588,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
 	if cover && len(e.cfg.Cover) > 0 && s.Module == "" {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
 	if s.Tags != "" {
 		argv = append(argv, "-tags="+s.Tags)

@@ -31,9 +31,19 @@ import (
 // counters land in the running test's directory and the program never
 // prints the cover runtime's "GOCOVERDIR not set" warning; the main
 // package then unsets it again, so the program sees the environment it
-// was given. Without the variable nothing here runs, and the emitted
+// was given. covdir also writes the counters when SIGINT or SIGTERM ends
+// the program (a server a test interrupts, GT7b) and then dies of that
+// signal; a program with a Go handler of its own for those signals loses
+// it under coverage. Without the variable nothing here runs, and the emitted
 // module, the cache and the direct path are as before.
 const CoverVariable = "ERGO_COVER_GO"
+
+// CoverFlags are the go build flags of a coverage build, before its
+// -coverpkg. The mode is atomic: covdir writes the counters itself when a
+// signal ends the program (runtime/coverage.WriteCountersDir needs atomic
+// counters), and the mutant runner builds its tests in the same mode, as
+// go tool covdata refuses two modes in one directory.
+const CoverFlags = "-cover -covermode=atomic"
 
 // coverModule is the module path prefix of a coverage build's copy.
 const coverModule = "ergo.local/cover"
@@ -46,13 +56,23 @@ func (t Toolchain) coverBuild(module Module, output string, stderr io.Writer) (R
 		return report, fmt.Errorf("coverage build: %w", err)
 	}
 	covered := t
-	covered.GOFLAGS = strings.TrimSpace("-cover -coverpkg=" + importPath + " " + t.GOFLAGS)
+	covered.GOFLAGS = strings.TrimSpace(CoverFlags + " -coverpkg=" + importPath + " " + t.GOFLAGS)
 	child := covered.Command(Module{Dir: dir}, output)
 	child.Stdout, child.Stderr = stderr, stderr
 	if err := child.Run(); err != nil {
 		return report, fmt.Errorf("Go build failed: %w", err)
 	}
 	return report, nil
+}
+
+// CoverCopy makes the coverage copy of the Go module at dir under root, as
+// Build does with CoverVariable set (GATE2 GT7b): a test harness that
+// links lowered programs itself (internal/sketch/lower's dispatcher) links
+// the copy with -cover, so the mutant runner maps its blocks as it maps a
+// coverage build's. It returns the copy's directory and import path; the
+// copy holds the covdir package at IMPORT/covdir.
+func CoverCopy(root, dir string) (string, string, error) {
+	return coverCopy(root, Module{Dir: dir})
 }
 
 // coverKey names a module's coverage copy: its emission key, or the digest
@@ -214,29 +234,62 @@ func coverGoMod(data []byte, src, importPath string) ([]byte, error) {
 // covdirSource is the coverage copy's covdir package (CoverVariable).
 const covdirSource = `// Package covdir gives a coverage build started with no GOCOVERDIR the
 // GOCOVERDIR of its nearest ancestor process that has one (written by
-// internal/sketch/build, coverage builds only).
+// internal/sketch/build, coverage builds only). A program an interrupt or a
+// termination ends (a server a test stops) dies of the signal before the
+// cover runtime's exit hook runs, so covdir writes the counters first and
+// then dies of the same signal, as the program would have.
 package covdir
 
 import (
 	"os"
+	"os/signal"
+	"runtime/coverage"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Set reports that init set GOCOVERDIR; the main package unsets it.
 var Set bool
 
 func init() {
-	if os.Getenv("GOCOVERDIR") != "" {
+	dir := os.Getenv("GOCOVERDIR")
+	if dir == "" {
+		dir = ancestorDir()
+		if dir == "" {
+			dir = os.TempDir() + "/ergo-cover-orphans"
+			os.MkdirAll(dir, 0o755)
+		}
+		os.Setenv("GOCOVERDIR", dir)
+		Set = true
+	}
+	flushOnSignal(dir)
+}
+
+// flushOnSignal writes the counters into dir when SIGINT or SIGTERM
+// arrives, then resets the signal and raises it again. A signal the
+// program inherited ignored stays ignored: Notify would end that.
+func flushOnSignal(dir string) {
+	var sigs []os.Signal
+	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM} {
+		if !signal.Ignored(s) {
+			sigs = append(sigs, s)
+		}
+	}
+	if len(sigs) == 0 {
 		return
 	}
-	dir := ancestorDir()
-	if dir == "" {
-		dir = os.TempDir() + "/ergo-cover-orphans"
-		os.MkdirAll(dir, 0o755)
-	}
-	os.Setenv("GOCOVERDIR", dir)
-	Set = true
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sigs...)
+	go func() {
+		s := <-ch
+		coverage.WriteMetaDir(dir)
+		coverage.WriteCountersDir(dir)
+		signal.Reset(s)
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			p.Signal(s)
+		}
+	}()
 }
 
 func ancestorDir() string {
