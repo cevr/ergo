@@ -452,9 +452,12 @@ type Gauge machine[Tri, Kick] {
 	law NeverHi never reaches Hi,
 }
 
-law SomeIsNone(o Option[int]) { o == None }
+// Holds is the Option laws' subject in the package (S115).
+func Holds() bool { true }
 
-law ListedAllNone(o Option[bool]) { o == None || o == Some{false} }
+law SomeIsNone(o Option[int]) { o == None && Holds() }
+
+law ListedAllNone(o Option[bool]) { (o == None || o == Some{false}) && Holds() }
 
 law PackSmall(p Pack) {
 	match p.o {

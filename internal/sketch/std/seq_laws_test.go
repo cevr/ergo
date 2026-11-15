@@ -189,18 +189,27 @@ func Blank() Seq[int] { Seq[int](func(yield func(v int) bool) {}) }
 
 func Lawful(xs []int) Seq[int] { Seq[int](func(yield func(v int) bool) {}) }
 
-law LawfulStops(xs []int) { true }
+law LawfulStops(xs []int) {
+	let _ = Lawful(xs)
+	true
+}
 
 // seq-exempt: both.
 func Both(xs []int) Seq[int] { Seq[int](func(yield func(v int) bool) {}) }
 
-law BothStops() { true }
+law BothStops() {
+	let _ = Both([]int{})
+	true
+}
 
 func Items(b Box) Seq[int] { Seq[int](func(yield func(v int) bool) {}) }
 
 law BoxItemsStops(b Box) { true }
 
-law ItemsStops() { true }
+law ItemsStops() {
+	let _ = Box{xs: []int{}}.Items()
+	true
+}
 
 func Items(o Other) Seq[int] { Seq[int](func(yield func(v int) bool) {}) }
 

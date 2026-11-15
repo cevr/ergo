@@ -34,7 +34,7 @@ func TestModuleLawSelectionReceipts(t *testing.T) {
 				if i == bad {
 					body = "false"
 				}
-				name, src := fmt.Sprintf("p%d/law.ergo", i), fmt.Sprintf("law Rule%d(b bool) { %s }\n", i, body)
+				name, src := fmt.Sprintf("p%d/law.ergo", i), fmt.Sprintf("law Rule%d(b bool) { Truth(b) == %s }\n\nfunc Truth(_ bool) bool { true }\n", i, body)
 				smokeWrite(t, root, name, src)
 				fmt.Fprintf(&sources, "// %s\n%s\n", name, src)
 			}

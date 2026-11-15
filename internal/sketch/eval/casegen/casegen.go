@@ -47,8 +47,10 @@ func Generate(seed uint64) Program {
 	src := fmt.Sprintf(`
 type Flag { A bool, B bool }
 test Property(x Flag) { assert !x.A }
-law Refutes(x bool) { x }
-law Samples(x int) { x != %d }
+func Holds(x bool) bool { x }
+func Num(x int) int { x }
+law Refutes(x bool) { Holds(x) }
+law Samples(x int) { Num(x) != %d }
 type Bounded int where 0 <= it && it <= %d
 law Domain(x Bounded) { x >= 0 }
 type Reader { Read() int, law Fresh() { Read() != %d } }
@@ -57,7 +59,7 @@ func NewP(n int) P { P{N: n} }
 func Read(p P) int { p.N }
 law Slot(r Reader, x bool) { r.Read() != %d }
 test Nested(xs []int8, m Map[string, int16], pair (bool, int), f float32, s string) { assert len(xs) == 0 }
-law Skips(f func() bool) { f() }
+law Skips(f func() bool) { Holds(f()) }
 type Mirror[T comparable] { Echo(v T) T, law Same(v T) { Echo(v) == v } }
 type BoolEcho { B bool }
 func Echo(p BoolEcho, v bool) bool { v }

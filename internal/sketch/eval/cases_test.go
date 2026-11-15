@@ -122,7 +122,8 @@ import a
 import b
 func useA() contract.Reader { a.P }
 func useB() contract.Reader { b.P }
-law Own() { %d >= 0 }
+func Seed() int { %d }
+law Own() { Seed() >= 0 }
 `, seed)
 		root := makePkg("main", src)
 		r, err := Run(root, DefaultBudget())
