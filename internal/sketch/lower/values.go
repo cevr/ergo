@@ -1835,7 +1835,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			if outer := w.windowRead(p); outer != nil {
 				o.kind, o.call = occRead, outer
 			} else {
+				// A window read at once (readonly.go) copies nothing
+				// either (MAPCOPY, slices.Slice(r.s, 0, 2)[1]).
 				o.call, o.deps, o.result = p, true, true
+				w.readAtOnce(o, p)
 			}
 		case w.unkept(p, c, child) && !w.l.isPure(c.Func):
 			// The callee keeps nothing of it (keeps.go), unless it sees a
