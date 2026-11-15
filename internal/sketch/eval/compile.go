@@ -243,11 +243,17 @@ func (in *interp) compileBinary(fr *frame, x *syntax.BinaryExpr, f *facts) fastE
 // callOf's path through stackArgs and callPlanned.
 func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr {
 	c := f.call
-	if c == nil || c.Kind != check.CallFunc || c.Site != nil || f.unreachable || x.Trailing != nil || len(c.Func.Sig.TParams) > 0 {
+	if c == nil || c.Kind != check.CallFunc || c.Site != nil || f.unreachable || x.Trailing != nil {
 		return nil
 	}
 	p := in.planAt(f, c.Func)
-	if !p.ergo || p.takes || p.collection {
+	if p.takes || p.collection {
+		return nil
+	}
+	if !p.ergo {
+		return in.compileNativeCall(fr, x, f, c, p)
+	}
+	if len(c.Func.Sig.TParams) > 0 {
 		return nil
 	}
 	var at syntax.Node = x
@@ -285,6 +291,59 @@ func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr 
 		v, ab := in.callPlanned(fr, x, p, nil, in.argStack[mark:n:n])
 		in.argStack = in.argStack[:mark]
 		return v, ab
+	}
+}
+
+// compileNativeCall is the form of callOf's path through args and
+// callPlanned for a function the evaluator's native runs: its arguments
+// in a slice of their own (a native may keep it), the receiver first,
+// then the native. A generic native reads no type argument; one whose
+// type parameter an operation type constrains is walked (call refuses it).
+func (in *interp) compileNativeCall(fr *frame, x *syntax.CallExpr, f *facts, c *check.Call, p *funcPlan) fastExpr {
+	if p.nat == nil {
+		return nil
+	}
+	if len(c.Func.Sig.TParams) > 0 {
+		if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
+			return nil
+		}
+	}
+	var at syntax.Node = x
+	recv := in.receiverForm(fr, c.Recv, c.Func)
+	args := make([]fastExpr, len(x.Args))
+	for i, a := range x.Args {
+		args[i] = in.operand(fr, a, in.kid(fr, f, i, a))
+	}
+	n := len(x.Args)
+	if recv != nil {
+		n++
+	}
+	hands := len(fr.info.PartHands) > 0
+	nat, fn := p.nat, c.Func
+	return func(in *interp, fr *frame) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		vals := make([]Value, 0, n)
+		if recv != nil {
+			v, ab := recv(in, fr)
+			if ab != nil {
+				return nil, ab
+			}
+			vals = append(vals, v)
+		}
+		for _, a := range args {
+			v, ab := a(in, fr)
+			if ab != nil {
+				return nil, escape(ab)
+			}
+			vals = append(vals, v)
+		}
+		if hands {
+			in.handParts(fr, c.Recv)
+			in.handParts(fr, x.Args...)
+		}
+		return nat(in, fr, x, fn, vals)
 	}
 }
 

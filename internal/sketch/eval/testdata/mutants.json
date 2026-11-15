@@ -1617,6 +1617,24 @@
       "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
     },
     {
+      "name": "oracle-o36-native-call-uncharged",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n\t\tvals := make([]Value, 0, n)",
+      "to": "\t\t_ = at\n\t\tvals := make([]Value, 0, n)",
+      "rule": "A compiled call of a native charges the call's step, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-native-args-reused",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tvals := make([]Value, 0, n)",
+      "to": "\t\tvals := in.argStack[len(in.argStack):]",
+      "rule": "A native's arguments are a slice of its own: a native that keeps them (a record, a closure) sees them unchanged by a later call.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",
