@@ -311,9 +311,23 @@ func cardsGuard(n int) needs Console {
 	let it = Item{Id: 0, Text: "", Done: false}
 	let _ = ui.Render(&f, cardsView, St{A: 0, It: it, Items: listed(n, -1)})
 	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, -1)})
-	Console.Println("cards \(n) tick \(ui.GroupRuns(&f)) \(ui.Compared(&f)) \(ui.Unplaced(&f))")
+	Console.Println("cards \(n) tick \(ui.GroupRuns(&f)) \(ui.Compared(&f)) \(ui.Unplaced(&f)) \(ui.Swept(&f))")
 	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, n/2)})
 	Console.Println("cards \(n) edit \(ui.GroupRuns(&f)) \(ui.Unplaced(&f))")
+}
+
+// shrunk renders n cards as components under a header, then the cards
+// less the last, then the header alone changed: the groups kept, which
+// lost the last card's, and the kept entries the last pass walked (none:
+// it kept every held group). Mutants ui-keep-sweep-always,
+// ui-keep-sweep-never and ui-keep-nheld-drift.
+func shrunk(n int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let _ = ui.Render(&f, headed, St{A: 0, It: it, Items: listed(n, -1)})
+	let _ = ui.Render(&f, headed, St{A: 0, It: it, Items: listed(n-1, -1)})
+	let _ = ui.Render(&f, headed, St{A: 1, It: it, Items: listed(n-1, -1)})
+	Console.Println("shrunk \(n) \(ui.GroupsKept(&f)) \(ui.Swept(&f))")
 }
 
 // looped writes n texts at one site: tops that share a site and row.
@@ -742,7 +756,8 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-ns2a-arg-unvalued, ui-ns2a-computed-refused, ui-ns2b-nested-unjoined,
 // ui-ns2b-whole-record, ui-ns2b-field-unread, ui-ns2c-off,
 // ui-ns2c-same-length, ui-ns2c-keep-aliases, ui-ns2c-fields-unkept,
-// ui-prior-place-uncounted, ui-cut-nkids-kept.
+// ui-prior-place-uncounted, ui-cut-nkids-kept, ui-group-seen-unpassed,
+// ui-keep-sweep-always, ui-keep-sweep-never, ui-keep-nheld-drift.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	var seeds []uint64
@@ -772,7 +787,7 @@ func TestUISkipAgrees(t *testing.T) {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n\tloopedTwice()\n\tcutTwice()\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n\tloopedTwice()\n\tcutTwice()\n\tshrunk(50)\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -794,7 +809,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") && !strings.HasPrefix(l, "subset ") && !strings.HasPrefix(l, "cards ") && !strings.HasPrefix(l, "looped ") && !strings.HasPrefix(l, "cut ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") && !strings.HasPrefix(l, "subset ") && !strings.HasPrefix(l, "cards ") && !strings.HasPrefix(l, "looped ") && !strings.HasPrefix(l, "cut ") && !strings.HasPrefix(l, "shrunk ") {
 				keep = append(keep, l)
 			}
 		}
@@ -835,7 +850,7 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
-		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "), strings.HasPrefix(l, "subset "), strings.HasPrefix(l, "cards "), strings.HasPrefix(l, "looped "), strings.HasPrefix(l, "cut "):
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "), strings.HasPrefix(l, "subset "), strings.HasPrefix(l, "cards "), strings.HasPrefix(l, "looped "), strings.HasPrefix(l, "cut "), strings.HasPrefix(l, "shrunk "):
 			elsewhere = append(elsewhere, l)
 		}
 	}
@@ -856,7 +871,7 @@ func TestUISkipAgrees(t *testing.T) {
 	// NS2b: a record argument with a slice is a group of the fields its
 	// component reads: kept while only the slice or an unread field
 	// changes, run when a field read through a nested call changes.
-	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1", "cards 50 tick 0 1 0", "cards 50 edit 1 0", "cards 200 tick 0 1 0", "cards 200 edit 1 0", "looped 0", "cut 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1", "cards 50 tick 0 1 0 0", "cards 50 edit 1 0", "cards 200 tick 0 1 0 0", "cards 200 edit 1 0", "looped 0", "cut 1", "shrunk 50 50 0"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
 		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change; components run and groups kept in subset)", elsewhere, want)
 	}
 }
