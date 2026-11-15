@@ -1,0 +1,104 @@
+// events tallies a log of connection events read from standard input.
+//
+//	events stream   a JSON array of events, read one event at a time
+//	events lines    one JSON event per line (newline-delimited JSON)
+//	events whole    a JSON array of events, read whole, then decoded
+//	events gen N    print a generated log of N events, as a JSON array
+//
+// stream and lines hold one event and one chunk of input at a time;
+// whole holds the text and every event (json.Decode), as the reference.
+// This binary is the only place that chooses the providers: the host's
+// standard input.
+
+import events/conn
+import io
+import json
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: events stream|lines|whole < LOG, or events gen N"
+
+// Mode is how the log is read.
+type Mode = Stream | Lines | Whole | Gen
+
+type Stream {}
+type Lines {}
+type Whole {}
+
+// Gen prints a generated log of N events.
+type Gen { N int }
+
+// Parse is the mode args ask for.
+func Parse(args []string) Mode fails os.Exit {
+	if len(args) == 1 && args[0] == "stream" {
+		return Stream
+	}
+	if len(args) == 1 && args[0] == "lines" {
+		return Lines
+	}
+	if len(args) == 1 && args[0] == "whole" {
+		return Whole
+	}
+	if len(args) == 2 && args[0] == "gen" {
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "events: N must be a count\n\(Usage)"}
+		}
+		if n >= 0 {
+			return Gen{N: n}
+		}
+	}
+	os.Exit{Code: 2, Message: Usage}
+}
+
+// Tally reads the log from in as m says.
+func Tally(m Mode, stdin io.In) conn.Tally fails os.Exit {
+	let read = func() conn.Tally fails json.Malformed | io.ReadFailed | WireWrongKind | WireMissingField | WireUnknownTag {
+		match m {
+		case Stream:
+			conn.Count(json.NewElements[conn.Event](json.NewStream(stdin, 0, 0)))
+		case Lines:
+			conn.Count(json.NewElements[conn.Event](json.NewSequenceStream(stdin, 0, 0)))
+		case Whole, Gen:
+			let text = try stdin.ReadAll()
+			conn.Of(try json.Decode(json.Codec[[]conn.Event]{MaxBytes: 0, MaxDepth: 0}, text))
+		}
+	}
+	read() catch {
+	case json.Malformed as b:
+		return os.Exit{Code: 1, Message: "events: not JSON at byte \(b.Offset): \(b.Reason)"}
+	case io.ReadFailed as f:
+		return os.Exit{Code: 1, Message: "events: reading standard input: \(f.Reason)"}
+	case WireWrongKind as w:
+		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): want \(w.Want)"}
+	case WireMissingField as w:
+		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): no \(w.Field)"}
+	case WireUnknownTag as w:
+		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): no event kind \(w.Tag)"}
+	}
+}
+
+// place names a path in the log for a person: an element of the array
+// ("[3].id"), the log itself, or a field of a line's event ("id"), a path
+// in its own value.
+func place(path string) string {
+	if path == "" {
+		return "the log"
+	}
+	if path[0] == '[' {
+		return "event " + path
+	}
+	"an event's " + path
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	let m = try Parse(host.Args())
+	match m {
+	case Gen as g:
+		io.NewHost().Print(conn.Generate(g.N))
+	case _:
+		io.NewHost().Print(conn.Report(try Tally(m, io.NewStdin())))
+	}
+}

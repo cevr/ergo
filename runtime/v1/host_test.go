@@ -512,7 +512,8 @@ func TestIOStdinConcurrent(t *testing.T) {
 // TestIOStdinShared (S1b round 2, M2): every Stdin read of the host goes
 // through one reader, so no read loses what another read ahead. For
 // seeded inputs and seeded plans, a sequence of IOLines loops (each with a
-// break after k lines) and IOReadAll calls, over a pipe on os.Stdin, gives
+// break after k lines), IORead chunks and IOReadAll calls, over a pipe on
+// os.Stdin, gives
 // back exactly the input, in order. The inputs have and lack a final line
 // feed and hold carriage returns, invalid UTF-8 and lines longer than the
 // reader's 4096-byte buffer.
@@ -546,6 +547,18 @@ func TestIOStdinShared(t *testing.T) {
 		var got strings.Builder
 		var plan []string
 		for step := 0; step < 4 && got.Len() < len(s); step++ {
+			if next(4) == 0 {
+				// IORead (io.In's Read) takes at most max bytes, and
+				// at least one before the end.
+				max := 1 + next(6000)
+				chunk, err := IORead(rt.Root("io"), max)
+				if err != nil || len(chunk) > max || chunk == "" {
+					t.Fatalf("input %q, plan %q: IORead(%d) gave %q, %v", s, plan, max, chunk, err)
+				}
+				plan = append(plan, fmt.Sprintf("Read %d", max))
+				got.WriteString(chunk)
+				continue
+			}
 			if next(3) == 0 {
 				all, err := IOReadAll(rt.Root("io"))
 				if err != nil {

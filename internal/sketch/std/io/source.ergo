@@ -1,0 +1,164 @@
+// Source is an input read chunk by chunk (docs/spec/stdlib.md, io;
+// corpus-wave SJ0). A reader that must not hold its whole input in memory,
+// such as std json's Stream, takes a Source and asks for the next chunk
+// when it has used the one before. It follows Go's io.Reader and Effect's
+// Stream of Uint8Array chunks, by purpose: the reader decides when the
+// next part of the input is read, and the input is never held whole.
+//
+// A chunk is a string: Ergo's string holds bytes, and a chunk is never
+// changed after Read gives it, so it needs no borrow and a reader may keep
+// it as long as it likes. A chunk may end inside a UTF-8 sequence or any
+// token of a format; a reader that cuts tokens carries the part across
+// the edge (ChunksJoinToInput is the only promise about where chunks end).
+//
+// The providers: Memory, a text in memory cut at given offsets
+// (CutAt) or into chunks of one size (Chunked); a file of the host, mapped
+// read-only and cut as Chunked cuts (File); standard input, read as it
+// arrives (In, the host's Stdin provider, is also its Source); an http
+// body, which std http gives whole (http.Buffered's Text), is Chunked
+// over that text. Memory keeps its place in a sync.Ref, so every copy of
+// it reads on from one place, as std codec's Replay does; In's place is
+// the process's one reader of standard input.
+
+import fs
+import slices
+import sync
+
+// Source gives an input in chunks, in order.
+// law-exempt: a law over Source alone cannot know the input it reads; the memory provider carries the law (ChunksJoinToInput).
+type Source {
+	// Read is the next chunk of the input, a text that is not empty, or
+	// None at the end of the input. After None, every Read is None.
+	Read() Option[string] fails ReadFailed,
+}
+
+// DefaultChunk is the size of a chunk when a provider is asked for a
+// size that is not positive: 64 KiB.
+let DefaultChunk = 65536
+
+// Memory is a Source over a text in memory. Its chunks end at its cut
+// offsets and at most size bytes after the chunk's start (no size limit
+// when size is not positive). Memory reads no host.
+type Memory { text string, cuts []int, size int, pos sync.Ref[place] }
+
+// place is where a Memory reads next: at, the offset of the next chunk,
+// and next, the index of the first cut that may still end a chunk.
+type place { at int, next int }
+
+// CutAt is a Memory whose chunks end at the offsets of cuts that lie
+// inside text (after 0, before len(text)) and grow, in the order cuts
+// gives them: an offset outside text, or not after the cut before it, is
+// passed over. So CutAt(t, []int{}) gives t as one chunk.
+func CutAt(text string, cuts []int) Memory {
+	let mut kept = []int{}
+	for c in cuts {
+		if c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) {
+			kept = kept.Append(c)
+		}
+	}
+	Memory{text: text, cuts: kept, size: 0, pos: sync.NewRef[place](place{at: 0, next: 0})}
+}
+
+// Chunked is a Memory whose chunks are size bytes each, the last one
+// shorter (DefaultChunk bytes when size is not positive).
+func Chunked(text string, size int) Memory {
+	let n = if size > 0 { size } else { DefaultChunk }
+	Memory{text: text, cuts: []int{}, size: n, pos: sync.NewRef[place](place{at: 0, next: 0})}
+}
+
+// Read is the next chunk of m's text. Each Read is one step of the place
+// (sync.Modify), so a copy of m reads on where m stopped.
+func Read(m Memory) Option[string] fails ReadFailed {
+	let text = m.text
+	let cuts = m.cuts
+	let size = m.size
+	sync.Modify(m.pos, func(p place) (Option[string], place) {
+		if p.at >= len(text) {
+			return (None, p)
+		}
+		let mut end = len(text)
+		if size > 0 && len(text)-p.at > size {
+			end = p.at + size
+		}
+		// The cuts grow and lie inside text (CutAt keeps only those), so
+		// the next one ends this chunk when it comes before end.
+		let mut next = p.next
+		if next < len(cuts) && cuts[next] < end {
+			end = cuts[next]
+			next = next + 1
+		}
+		(Some[string]{Value: text[p.at:end]}, place{at: end, next: next})
+	})
+}
+
+// File is the file at path of the host, mapped read-only (fs.MapFile),
+// as a Memory cut into chunks of size bytes: the page cache holds the
+// text, not the heap, so a reader that drops its chunks reads a file
+// larger than memory in a flat heap.
+func File(host fs.Host, path string, size int) Memory fails fs.NotFound | fs.Denied | fs.Failed {
+	Chunked(try fs.MapFile(host, path), size)
+}
+
+// Read is the next chunk of standard input, at most DefaultChunk bytes,
+// or None at its end: In is the host's Source as well as its Stdin. It
+// reads through the one buffered reader of the process that every Stdin
+// read of the host uses, so a Read goes on where a Lines or ReadAll
+// before it stopped, and it gives what the host has delivered without
+// waiting to fill a chunk.
+func Read(_ In) Option[string] fails ReadFailed {
+	let chunk = try hostRead(DefaultChunk)
+	if chunk == "" { None } else { Some[string]{Value: chunk} }
+}
+
+// ChunksJoinToInput: the chunks of a Memory, read until None, are not
+// empty, end at the offsets CutAt keeps and Chunked's size, join to its
+// text, and a Read after None is None again.
+law ChunksJoinToInput(text string, cuts []int, size int) {
+	let mut kept = []int{}
+	for c in cuts {
+		if c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) {
+			kept = kept.Append(c)
+		}
+	}
+	let mut joined = ""
+	let mut ends = []int{}
+	let m = CutAt(text, cuts)
+	for {
+		match try m.Read() {
+		case Some[string] as c:
+			if c.Value == "" {
+				return false
+			}
+			joined = joined + c.Value
+			ends = ends.Append(len(joined))
+		case None:
+			break
+		}
+	}
+	let again = try m.Read()
+	let mut want = kept
+	if len(text) > 0 {
+		want = want.Append(len(text))
+	}
+	let n = if size < 0 { -(size % 9) + 1 } else { size%9 + 1 }
+	let mut sized = ""
+	let mut pieces = 0
+	let chunked = Chunked(text, n)
+	for {
+		match try chunked.Read() {
+		case Some[string] as c:
+			if c.Value == "" || len(c.Value) > n || (len(c.Value) < n && len(sized)+len(c.Value) != len(text)) {
+				return false
+			}
+			sized = sized + c.Value
+			pieces = pieces + 1
+		case None:
+			break
+		}
+	}
+	joined == text && again == None && slices.Equal(ends, want) && sized == text && pieces == (len(text)+n-1)/n
+}
+
+// hostRead is the next chunk of standard input, at most max bytes, or ""
+// at its end (stdlib.md, io 6).
+extern go ergo.local/prototype/runtime/v1.IORead func hostRead(max int) string fails ReadFailed
