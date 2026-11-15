@@ -156,6 +156,7 @@ type valueGen struct {
 	pending []func() // prints of closures and tasks, run at the end
 	turn    int      // the moves written so far, which pick the next one's form (no draw)
 	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
+	oturn   int      // the kMaps writes written so far, every third a move over a kept part (moveOver)
 	refs    []*vref
 	h       *rand.Rand // the draws of the hand-over statements (values_hand_test.go)
 	hands   []handFn
@@ -444,6 +445,27 @@ func dropS(p *[]int) {
 	if len(*p) > 1 {
 		*p = (*p)[1:]
 	}
+}
+
+// overM moves src whole into n past headM's kept part of it (moveOver,
+// wf10 ST X1): e is copied instead, so the write through n misses it.
+func headM(ms []Map[int, int]) Map[int, int] {
+	if len(ms) == 0 {
+		return Map[int, int]{}
+	}
+	ms[0]
+}
+
+func overM(ms []Map[int, int], k int, v int) int {
+	let r = sync.NewRef[[]Map[int, int]](ms)
+	sync.Modify(r, func(all []Map[int, int]) (int, []Map[int, int]) {
+		let e = headM(all)
+		let mut n = all
+		if len(n) > 0 {
+			n[0][k] = v
+		}
+		(dm(e) * 7 + dms(n), n)
+	})
 }
 
 // note1, pick and flushS keep nothing of their slice (KEEP1), and print,
@@ -1039,6 +1061,16 @@ func (g *valueGen) write() {
 			return
 		}
 		key := g.r.IntN(9)
+		if g.shared {
+			// A move past a kept part (moveOver), in turn: no new draw;
+			// the write below keeps the binding a let mut.
+			if g.oturn++; g.oturn%3 == 0 {
+				e, n := maps.Clone(b.val.ms[0]), b.val.copy()
+				n.ms[0][key] = v
+				g.printInt(fmt.Sprintf("overM(%s, %d, %d)", b.name, key, v), dmModel(e)*7+n.digest(kMaps))
+				g.reached["move over a kept part"] = true
+			}
+		}
 		g.line(fmt.Sprintf("%s[0][%d] = %d", b.name, key, v))
 		b.val.ms[0][key] = v
 		g.reached["write element"] = true
@@ -1418,6 +1450,7 @@ var valuePaths = []string{
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
+	"move over a kept part",
 	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }

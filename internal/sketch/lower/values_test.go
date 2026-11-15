@@ -208,10 +208,28 @@ func tally(n int) int {
 	})
 }
 
+func shelfAt(all Map[int, Box], k int) Box {
+	match all.Get(k) {
+	case Some[Box] as b:
+		b.Value
+	case None:
+		Box{M: Map[int, int]{}, S: []int{}}
+	}
+}
+
+func shelve(r sync.Ref[Map[int, Box]], k int) int {
+	sync.Modify(r, func(all Map[int, Box]) (int, Map[int, Box]) {
+		let s = shelfAt(all, k)
+		let mut next = all
+		next[k] = Box{M: s.M, S: s.S.Append(k)}
+		(len(s.S), next)
+	})
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2))")
 }
 `
 
@@ -279,6 +297,13 @@ func TestValueRuleElides(t *testing.T) {
 	// in-place form, with no copy of the Map in or out (inPlaceLit, ST G1).
 	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateInPlace[") || !strings.Contains(body, "RefModifyInPlace[") || strings.Count(body, ", true)") != 2 {
 		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
+	}
+	// shelve's literal reads one entry, then writes one key back (wf10 ST
+	// X1, pinata's payments): the bind takes the Map whole, and the entry
+	// the read kept is copied instead (moveOver). The Map's copy is only
+	// the cell's clone argument, once.
+	if body := goFunc(t, code, "shelve"); strings.Count(body, "ergoCloneMap") != 1 || !strings.Contains(body, "ergoCloneBox(") {
+		t.Errorf("shelve copies the whole Map at the bind, not the entry it read:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls

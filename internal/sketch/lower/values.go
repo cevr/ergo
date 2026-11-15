@@ -861,6 +861,7 @@ func (w *valueWalk) decide() {
 			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
 				continue
 			}
+			w.moveOver(o.value)
 			w.freshen(o.value)
 		}
 		// An argument of an owned parameter enters the callee's root: it
@@ -2132,7 +2133,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if o.kind == occEscape || o.kind == occReturn {
 			// A copied read shares nothing; nor does a handed one (V7),
 			// whose storage only the binding's new value holds.
-			if !w.vf.clone[o.path] && !w.vf.handed[o.path] {
+			// So does a pure call's whose result is copied (alias.go,
+			// moveOver).
+			if !w.vf.clone[o.path] && !w.vf.handed[o.path] && !(o.result && o.call != nil && w.vf.clone[o.call]) {
 				return false
 			}
 		}
