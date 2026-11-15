@@ -4366,6 +4366,17 @@
       ]
     },
     {
+      "name": "bounds-mapped-text-checked",
+      "origin": "wf10 MAPPED",
+      "file": "internal/sketch/lower/bounds.go",
+      "from": "\tif check.IsMappedText(t) {\n\t\treturn true\n\t}\n",
+      "to": "",
+      "rule": "A mapped text (fs.Text) lowers to a Go string, so the bounds facts take the checks off its proved cuts as off a string's (speed only).",
+      "killers": [
+        "cmd/ergo:TestOneBRCCountsAsHandGo"
+      ]
+    },
+    {
       "name": "copy-evidence-std-only",
       "origin": "wf10 STD-NOPRIV NP2",
       "file": "internal/sketch/lower/wiretext.go",

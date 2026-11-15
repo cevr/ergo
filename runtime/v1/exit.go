@@ -56,8 +56,11 @@ func (p *Panic) String() string { return fmt.Sprint(p.Value) }
 // with the Go stack at the panic and t's context values now. Call it inside
 // the recover, while the panicking frame is still on the stack, and before
 // the frame's regions close.
+//
+// A fault inside a live mapping is recorded as the rt.MappedFault that
+// names its file (rt.FaultValue).
 func defectOf(t *rt.Task, p any) *Panic {
-	return &Panic{Value: p, Stack: debug.Stack(), Context: contextOf(t)}
+	return &Panic{Value: rt.FaultValue(p), Stack: debug.Stack(), Context: contextOf(t)}
 }
 
 // exit carries a recorded exit, in rt's canonical form, across lowered

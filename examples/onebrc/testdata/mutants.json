@@ -12,8 +12,8 @@
     {
       "name": "onebrc-long-name-compare-stops-at-16", "origin": "wf10 1BRC",
       "file": "examples/onebrc/weather/table.ergo",
-      "from": "(n <= 16 || strings.Slice(",
-      "to": "(true || strings.Slice(",
+      "from": "(n <= 16 || text[",
+      "to": "(true || text[",
       "rule": "Two stations longer than 16 bytes with the same first 16 bytes and length are one station only when all their bytes agree.",
       "killers": ["cmd/ergo:TestOneBRCAgrees"]
     },

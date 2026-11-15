@@ -152,6 +152,7 @@ func (c *Cause) recovered(t *Task, p any, inRelease bool, floor int) {
 // capability call the panic unwound, 0 for none.
 func (c *Cause) defect(t *Task, p any, inRelease bool, left uint64) {
 	chain, cut := t.Chain()
+	p = FaultValue(p)
 	c.Reasons = append(c.Reasons, Reason{Kind: KindDefect, Value: p, Chain: chain, ChainCut: cut, InRelease: inRelease})
 	if t.trace != nil {
 		t.traceDefect(p, inRelease, left, &chain[0])

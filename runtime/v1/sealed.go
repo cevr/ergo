@@ -19,3 +19,4 @@ func (*Stream) runtimeOnly()         {}
 func (*Redacted[T]) runtimeOnly()    {}
 func (*Running) runtimeOnly()        {}
 func (*Exchange) runtimeOnly()       {}
+func (*Mapped) runtimeOnly()         {}
