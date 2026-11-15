@@ -48,7 +48,7 @@
     },
     {"name":"cu6-into-hops-lost", "origin":"wf10 CU6", "file":"internal/sketch/std/http/network.ergo", "from":"try fetchInto(n.origins, n.anyOrigin, n.limits, n.hops,", "to":"try fetchInto(n.origins, n.anyOrigin, n.limits, -1,", "rule":"The streamed provider keeps the Network's redirect policy.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6-file-parts-dropped", "origin":"wf10 CU6", "file":"internal/sketch/std/http/network.ergo", "from":"{ try file.Put(part) }", "to":"{ }", "rule":"FetchFile writes every part of the body to its file.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
-    {"name":"cu6b-success-wide","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"case AnySuccess:\n\t\tstatus >= 200 && status < 300","to":"case AnySuccess:\n\t\tstatus >= 200 && status < 500","rule":"The default rule takes exactly 200 to 299.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
+    {"name":"cu6b-success-wide","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"status >= 200 && status < 300","to":"status >= 200 && status < 500","rule":"The default rule takes exactly 200 to 299.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-statuses-ignored","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"if v == status { return true }","to":"if v == status { return false }","rule":"Statuses takes exactly its values.","killers":["lower:TestStdHTTPLawsRun"],"anchor":{"tests":["lower:TestStdHTTPLawsRun"]}},
     {"name":"cu6b-inmemory-prefix","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"if len(body) > 1024 { body[0:1024] } else { body }","to":"if len(body) > 10 { body[0:10] } else { body }","rule":"The in-memory Net's StatusRefused Prefix is the body's first 1024 bytes.","killers":["lower:TestStdHTTPLawsRun"],"anchor":{"tests":["lower:TestStdHTTPLawsRun"]}},
     {"name":"cu6b-inmemory-ignores-accept","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"if !Accepts(accept, response.Status) {","to":"if false {","rule":"The in-memory Net gives put only an accepted body.","killers":["lower:TestStdHTTPLawsRun"],"anchor":{"tests":["lower:TestStdHTTPLawsRun"]}},
@@ -181,9 +181,9 @@
     {
       "name": "http-imports-fstest",
       "origin": "wf10 G1f r2",
-      "file": "internal/sketch/std/http/client.ergo",
-      "from": "import strings\nimport sync",
-      "to": "import strings\nimport sync\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
+      "file": "internal/sketch/std/http/laws.ergo",
+      "from": "import sync",
+      "to": "import sync\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
       "rule": "A production http import does not depend on fstest, even through law helpers.",
       "killers": ["lower:TestHTTPHasNoTestProviderDependency"], "anchor": {"tests": ["lower:TestHTTPHasNoTestProviderDependency"]}
     },
