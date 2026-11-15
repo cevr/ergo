@@ -1,0 +1,17 @@
+// Package memory is a Documents provider over texts held in memory, for
+// tests: a document is named by a key.
+
+import tomlparse/app
+
+// Texts holds the documents by name.
+type Texts { Documents Map[string, string] }
+
+// Read is the document named path.
+func Read(t Texts, path string) string fails app.Unreadable {
+	match t.Documents.Get(path) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		app.Unreadable{Path: path, Reason: "no such document"}
+	}
+}

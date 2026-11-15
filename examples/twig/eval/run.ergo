@@ -1,0 +1,480 @@
+import math
+import strings
+import twig/resolve
+import twig/syntax
+
+// exec runs the statements body in the frame env.
+func exec(m *Machine, p resolve.Program, body []resolve.Code, env int) fails Flow {
+	for c in body {
+		m.nodes += 1
+		match c {
+		case resolve.Do as d:
+			let _ = try eval(m, p, d.X, env)
+		case resolve.Bind as b:
+			let v = try eval(m, p, b.Val, env)
+			m.frames[env].Slots[b.Slot] = v
+		case resolve.SetVar as s:
+			let v = try eval(m, p, s.Val, env)
+			let f = frameOf(m, env, s.Hops)
+			m.frames[f].Slots[s.Slot] = v
+		case resolve.SetElem as s:
+			let x = try eval(m, p, s.X, env)
+			let i = try eval(m, p, s.I, env)
+			let v = try eval(m, p, s.Val, env)
+			try setElem(m, x, i, v, s.At)
+		case resolve.SetField as s:
+			let x = try eval(m, p, s.X, env)
+			let v = try eval(m, p, s.Val, env)
+			try setField(m, p, x, s.Key, v, s.At)
+		case resolve.Cond as c2:
+			if try truth(m, p, c2.Test, env, c2.At) {
+				try exec(m, p, c2.Then, env)
+			} else {
+				try exec(m, p, c2.Else, env)
+			}
+		case resolve.Loop as l:
+			try loop(m, p, l, env)
+		case resolve.Each as e:
+			try each(m, p, e, env)
+		case resolve.Ret as r:
+			return Returned{V: try eval(m, p, r.Val, env)}
+		case resolve.Brk:
+			return Broke
+		case resolve.Cnt:
+			return Continued
+		case resolve.MakeFn as f:
+			m.frames[env].Slots[f.Slot] = Fn{Code: f.Code, Env: env}
+		}
+	}
+}
+
+// loop runs a while loop: its body while its test is true, until a break.
+func loop(m *Machine, p resolve.Program, l resolve.Loop, env int) fails Flow {
+	for try truth(m, p, l.Test, env, l.At) {
+		exec(m, p, l.Body, env) catch {
+		case Broke:
+			return
+		case Continued:
+		case Returned as r:
+			return r
+		case RunError as e:
+			return e
+		}
+	}
+}
+
+// each runs a for loop: its body once for each element of a list, by
+// index, while the index is inside the list as it is then.
+func each(m *Machine, p resolve.Program, e resolve.Each, env int) fails Flow {
+	let over = try eval(m, p, e.Over, env)
+	match over {
+	case List as l:
+		let mut i = 0
+		for i < len(m.lists[l.Id]) {
+			m.frames[env].Slots[e.Slot] = m.lists[l.Id][i]
+			i += 1
+			exec(m, p, e.Body, env) catch {
+			case Broke:
+				return
+			case Continued:
+			case Returned as r:
+				return r
+			case RunError as x:
+				return x
+			}
+		}
+	case _:
+		RunError{At: e.At, Msg: "for needs a list, not " + KindOf(over)}
+	}
+}
+
+// truth is the bool that n gives, which must be one.
+func truth(m *Machine, p resolve.Program, n resolve.Node, env int, at Pos) bool fails RunError {
+	let v = try eval(m, p, n, env)
+	match v {
+	case Bool as b:
+		b.B
+	case _:
+		RunError{At: at, Msg: "a condition must be a bool, not " + KindOf(v)}
+	}
+}
+
+// eval is the value of n in the frame env.
+func eval(m *Machine, p resolve.Program, n resolve.Node, env int) Value fails RunError {
+	m.nodes += 1
+	match n {
+	case resolve.KInt as k:
+		Int{N: k.N}
+	case resolve.KFloat as k:
+		Float{F: k.F}
+	case resolve.KStr as k:
+		Str{S: k.S}
+	case resolve.KBool as k:
+		Bool{B: k.B}
+	case resolve.KNil:
+		Nil
+	case resolve.Local as l:
+		m.frames[env].Slots[l.Slot]
+	case resolve.Outer as o:
+		m.frames[frameOf(m, env, o.Hops)].Slots[o.Slot]
+	case resolve.Prim as b:
+		Builtin{Op: b.Op}
+	case resolve.Negate as x:
+		let v = try eval(m, p, x.X, env)
+		match v {
+		case Int as i:
+			Int{N: -i.N}
+		case Float as f:
+			Float{F: -f.F}
+		case _:
+			RunError{At: x.At, Msg: "- cannot take " + KindOf(v)}
+		}
+	case resolve.Invert as x:
+		let v = try eval(m, p, x.X, env)
+		match v {
+		case Bool as b:
+			Bool{B: !b.B}
+		case _:
+			RunError{At: x.At, Msg: "not cannot take " + KindOf(v)}
+		}
+	case resolve.Bin as b:
+		let l = try eval(m, p, b.L, env)
+		let r = try eval(m, p, b.R, env)
+		try Binary(b.Op, l, r, b.At)
+	case resolve.Both as b:
+		let l = try eval(m, p, b.L, env)
+		match l {
+		case Bool as x:
+			if !x.B {
+				return l
+			}
+			try boolean(try eval(m, p, b.R, env), "and", b.At)
+		case _:
+			RunError{At: b.At, Msg: "and cannot take " + KindOf(l)}
+		}
+	case resolve.Either as b:
+		let l = try eval(m, p, b.L, env)
+		match l {
+		case Bool as x:
+			if x.B {
+				return l
+			}
+			try boolean(try eval(m, p, b.R, env), "or", b.At)
+		case _:
+			RunError{At: b.At, Msg: "or cannot take " + KindOf(l)}
+		}
+	case resolve.Apply as a:
+		let f = try eval(m, p, a.Fn, env)
+		let mut args = []Value{}
+		for x in a.Args {
+			args = args.Append(try eval(m, p, x, env))
+		}
+		try call(m, p, f, args, a.At)
+	case resolve.Elem as e:
+		let x = try eval(m, p, e.X, env)
+		let i = try eval(m, p, e.I, env)
+		try elem(m, x, i, e.At)
+	case resolve.Get as g:
+		let x = try eval(m, p, g.X, env)
+		try field(m, p, x, g.Key, g.At)
+	case resolve.MakeList as l:
+		let mut items = []Value{}
+		for x in l.Items {
+			items = items.Append(try eval(m, p, x, env))
+		}
+		m.lists = m.lists.Append(items)
+		List{Id: len(m.lists) - 1}
+	case resolve.MakeRec as r:
+		let mut vals = []Value{}
+		for x in r.Vals {
+			vals = vals.Append(try eval(m, p, x, env))
+		}
+		m.recs = m.recs.Append(Record{Keys: r.Keys, Vals: vals})
+		Rec{Id: len(m.recs) - 1}
+	case resolve.Closure as c:
+		Fn{Code: c.Code, Env: env}
+	}
+}
+
+// boolean is v, which the operator op needs to be a bool.
+func boolean(v Value, op string, at Pos) Value fails RunError {
+	match v {
+	case Bool:
+		v
+	case _:
+		RunError{At: at, Msg: op + " cannot take " + KindOf(v)}
+	}
+}
+
+// Binary is l op r, for an operator that evaluates both operands. An int
+// wraps on overflow; an int division or remainder by zero fails.
+func Binary(op syntax.BinOp, l Value, r Value, at Pos) Value fails RunError {
+	match op {
+	case syntax.Eq:
+		return Bool{B: Same(l, r)}
+	case syntax.Ne:
+		return Bool{B: !Same(l, r)}
+	case _:
+	}
+	match (l, r) {
+	case (Int as a, Int as b):
+		match op {
+		case syntax.Add:
+			Int{N: a.N + b.N}
+		case syntax.Sub:
+			Int{N: a.N - b.N}
+		case syntax.Mul:
+			Int{N: a.N * b.N}
+		case syntax.Div:
+			if b.N == 0 {
+				return RunError{At: at, Msg: "division by zero"}
+			}
+			Int{N: a.N / b.N}
+		case syntax.Mod:
+			if b.N == 0 {
+				return RunError{At: at, Msg: "division by zero"}
+			}
+			Int{N: a.N % b.N}
+		case syntax.Lt:
+			Bool{B: a.N < b.N}
+		case syntax.Le:
+			Bool{B: a.N <= b.N}
+		case syntax.Gt:
+			Bool{B: a.N > b.N}
+		case syntax.Ge:
+			Bool{B: a.N >= b.N}
+		case syntax.Eq, syntax.Ne, syntax.And, syntax.Or:
+			mismatch(op, l, r, at)
+		}
+	case (Float as a, Float as b):
+		match op {
+		case syntax.Add:
+			Float{F: a.F + b.F}
+		case syntax.Sub:
+			Float{F: a.F - b.F}
+		case syntax.Mul:
+			Float{F: a.F * b.F}
+		case syntax.Div:
+			Float{F: a.F / b.F}
+		case syntax.Lt:
+			Bool{B: a.F < b.F}
+		case syntax.Le:
+			Bool{B: a.F <= b.F}
+		case syntax.Gt:
+			Bool{B: a.F > b.F}
+		case syntax.Ge:
+			Bool{B: a.F >= b.F}
+		case syntax.Mod, syntax.Eq, syntax.Ne, syntax.And, syntax.Or:
+			mismatch(op, l, r, at)
+		}
+	case (Str as a, Str as b):
+		match op {
+		case syntax.Add:
+			Str{S: a.S + b.S}
+		case syntax.Lt:
+			Bool{B: a.S < b.S}
+		case syntax.Le:
+			Bool{B: a.S <= b.S}
+		case syntax.Gt:
+			Bool{B: a.S > b.S}
+		case syntax.Ge:
+			Bool{B: a.S >= b.S}
+		case syntax.Sub, syntax.Mul, syntax.Div, syntax.Mod, syntax.Eq, syntax.Ne, syntax.And, syntax.Or:
+			mismatch(op, l, r, at)
+		}
+	case (_, _):
+		mismatch(op, l, r, at)
+	}
+}
+
+func mismatch(op syntax.BinOp, l Value, r Value, at Pos) RunError {
+	RunError{At: at, Msg: syntax.Symbol(op) + " cannot take " + KindOf(l) + " and " + KindOf(r)}
+}
+
+// call calls f with args.
+func call(m *Machine, p resolve.Program, f Value, args []Value, at Pos) Value fails RunError {
+	m.calls += 1
+	match f {
+	case Fn as fn:
+		let arity = p.Funcs[fn.Code].Arity
+		if len(args) != arity {
+			return RunError{At: at, Msg: p.Funcs[fn.Code].Name + " takes " + count(arity) + ", not " + count(len(args))}
+		}
+		if m.depth >= MaxDepth {
+			return RunError{At: at, Msg: "calls nest deeper than \(MaxDepth)"}
+		}
+		let env = enter(m, p.Funcs[fn.Code].Slots, fn.Env)
+		for i, a in args {
+			m.frames[env].Slots[i] = a
+		}
+		m.depth += 1
+		let mut result Value = Nil
+		exec(m, p, p.Funcs[fn.Code].Body, env) catch {
+		case Returned as r:
+			result = r.V
+		case Broke, Continued:
+			result = Nil
+		case RunError as e:
+			m.depth -= 1
+			return e
+		}
+		m.depth -= 1
+		if !p.Funcs[fn.Code].Captured {
+			m.free = m.free.Append(env)
+		}
+		result
+	case Builtin as b:
+		let arity = resolve.Arity(b.Op)
+		if len(args) != arity {
+			return RunError{At: at, Msg: resolve.BuiltinName(b.Op) + " takes " + count(arity) + ", not " + count(len(args))}
+		}
+		try builtin(m, p, b.Op, args, at)
+	case _:
+		RunError{At: at, Msg: "a " + KindOf(f) + " is not a function"}
+	}
+}
+
+// count is n arguments, in words.
+func count(n int) string {
+	if n == 1 { "1 argument" } else { "\(n) arguments" }
+}
+
+// builtin runs the builtin op on args, which are as many as it takes.
+func builtin(m *Machine, p resolve.Program, op resolve.Builtin, args []Value, at Pos) Value fails RunError {
+	let v = args[0]
+	match op {
+	case resolve.Print:
+		m.out.WriteString(Show(m, p.Funcs, p.Fields, v))
+		m.out.WriteByte('\n')
+		Nil
+	case resolve.Len:
+		match v {
+		case List as l:
+			Int{N: len(m.lists[l.Id])}
+		case Str as s:
+			Int{N: len(s.S)}
+		case _:
+			RunError{At: at, Msg: "len cannot take " + KindOf(v)}
+		}
+	case resolve.Push:
+		match v {
+		case List as l:
+			m.lists[l.Id] = m.lists[l.Id].Append(args[1])
+			Nil
+		case _:
+			RunError{At: at, Msg: "push cannot take " + KindOf(v)}
+		}
+	case resolve.Str:
+		Str{S: Show(m, p.Funcs, p.Fields, v)}
+	case resolve.ToFloat:
+		match v {
+		case Int as i:
+			Float{F: float64(i.N)}
+		case Float:
+			v
+		case _:
+			RunError{At: at, Msg: "float cannot take " + KindOf(v)}
+		}
+	case resolve.ToInt:
+		match v {
+		case Float as f:
+			let n = math.ToInt(f.F) catch {
+			case math.OutOfRange:
+				return RunError{At: at, Msg: "int cannot take a float out of range"}
+			}
+			Int{N: n}
+		case Int:
+			v
+		case _:
+			RunError{At: at, Msg: "int cannot take " + KindOf(v)}
+		}
+	case resolve.Sqrt:
+		match v {
+		case Float as f:
+			Float{F: math.Sqrt(f.F)}
+		case _:
+			RunError{At: at, Msg: "sqrt cannot take " + KindOf(v)}
+		}
+	}
+}
+
+// elem is x[i].
+func elem(m *Machine, x Value, i Value, at Pos) Value fails RunError {
+	let k = try index(i, at)
+	match x {
+	case List as l:
+		if k < 0 || k >= len(m.lists[l.Id]) {
+			return RunError{At: at, Msg: "index \(k) is outside a list of \(len(m.lists[l.Id]))"}
+		}
+		m.lists[l.Id][k]
+	case Str as s:
+		if k < 0 || k >= len(s.S) {
+			return RunError{At: at, Msg: "index \(k) is outside a string of \(len(s.S))"}
+		}
+		Str{S: strings.Slice(s.S, k, k+1)}
+	case _:
+		RunError{At: at, Msg: "a " + KindOf(x) + " has no elements"}
+	}
+}
+
+// setElem is x[i] = v.
+func setElem(m *Machine, x Value, i Value, v Value, at Pos) fails RunError {
+	let k = try index(i, at)
+	match x {
+	case List as l:
+		if k < 0 || k >= len(m.lists[l.Id]) {
+			return RunError{At: at, Msg: "index \(k) is outside a list of \(len(m.lists[l.Id]))"}
+		}
+		m.lists[l.Id][k] = v
+	case _:
+		RunError{At: at, Msg: "a " + KindOf(x) + " has no elements to set"}
+	}
+}
+
+// index is the int i, which an index must be.
+func index(i Value, at Pos) int fails RunError {
+	match i {
+	case Int as n:
+		n.N
+	case _:
+		RunError{At: at, Msg: "an index must be an int, not " + KindOf(i)}
+	}
+}
+
+// slot is where the field key is in the record id, or -1.
+func slot(m *Machine, id int, key int) int {
+	for i, k in m.recs[id].Keys {
+		if k == key {
+			return i
+		}
+	}
+	-1
+}
+
+// field is x.key.
+func field(m *Machine, p resolve.Program, x Value, key int, at Pos) Value fails RunError {
+	match x {
+	case Rec as r:
+		let i = slot(m, r.Id, key)
+		if i < 0 {
+			return RunError{At: at, Msg: "the record has no field " + p.Fields[key]}
+		}
+		m.recs[r.Id].Vals[i]
+	case _:
+		RunError{At: at, Msg: "a " + KindOf(x) + " has no field " + p.Fields[key]}
+	}
+}
+
+// setField is x.key = v, for a field the record has.
+func setField(m *Machine, p resolve.Program, x Value, key int, v Value, at Pos) fails RunError {
+	match x {
+	case Rec as r:
+		let i = slot(m, r.Id, key)
+		if i < 0 {
+			return RunError{At: at, Msg: "the record has no field " + p.Fields[key]}
+		}
+		m.recs[r.Id].Vals[i] = v
+	case _:
+		RunError{At: at, Msg: "a " + KindOf(x) + " has no field " + p.Fields[key]}
+	}
+}

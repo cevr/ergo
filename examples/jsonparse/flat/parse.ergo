@@ -1,0 +1,230 @@
+import jsonparse/json
+import strconv
+import strings
+
+// builder is the tree being read and the parser's place. Parse owns it.
+// stack holds the ids of the children of the open containers, the
+// innermost last; top is how many of its entries are live. A container
+// that closes copies its children from the stack to extras and lowers
+// top, so stack keeps its storage and grows only to the deepest
+// document's need.
+type builder {
+	src    string,
+	pos    int,
+	depth  int,
+	nodes  []Node,
+	extras []NodeId,
+	pool   []string,
+	stack  []NodeId,
+	top    int,
+}
+
+// Parse is the flat tree of the JSON text src, with json.Parse's failure
+// where json.Parse fails.
+func Parse(src string) Tree fails json.Malformed {
+	let mut b = builder{src: src, pos: 0, depth: 0, nodes: []Node{}, extras: []NodeId{}, pool: []string{}, stack: []NodeId{}, top: 0}
+	skip(&b)
+	let root = try value(&b)
+	skip(&b)
+	if b.pos < len(b.src) {
+		return fail(&b, b.pos, "expected the end, found "+found(&b))
+	}
+	Tree{Src: src, Nodes: b.nodes, Extras: b.extras, Pool: b.pool, Root: root}
+}
+
+func fail(b *builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
+
+func found(b *builder) string {
+	if b.pos >= len(b.src) {
+		return "the end"
+	}
+	strconv.Quote(strings.Slice(b.src, b.pos, b.pos+1))
+}
+
+func skip(b *builder) {
+	for b.pos < len(b.src) {
+		let c = b.src[b.pos]
+		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
+			return
+		}
+		b.pos += 1
+	}
+}
+
+// add appends n and is its id.
+func add(b *builder, n Node) NodeId {
+	b.nodes = b.nodes.Append(n)
+	NodeId(int32(len(b.nodes) - 1))
+}
+
+// push puts id on the stack of open children.
+func push(b *builder, id NodeId) {
+	if b.top < len(b.stack) {
+		b.stack[b.top] = id
+	} else {
+		b.stack = b.stack.Append(id)
+	}
+	b.top += 1
+}
+
+// close copies the stack's entries from mark to extras, lowers top to
+// mark, and is where they start in extras.
+func close(b *builder, mark int) int32 {
+	let start = len(b.extras)
+	for k in mark..b.top {
+		b.extras = b.extras.Append(b.stack[k])
+	}
+	b.top = mark
+	int32(start)
+}
+
+func value(b *builder) NodeId fails json.Malformed {
+	if b.pos >= len(b.src) {
+		return fail(b, b.pos, "expected a value, found the end")
+	}
+	let c = b.src[b.pos]
+	match c {
+	case '{':
+		try object(b)
+	case '[':
+		try array(b)
+	case '"':
+		try text(b)
+	case 't':
+		try word(b, "true")
+		add(b, Node{Kind: True, A: 0, B: 0})
+	case 'f':
+		try word(b, "false")
+		add(b, Node{Kind: False, A: 0, B: 0})
+	case 'n':
+		try word(b, "null")
+		add(b, Node{Kind: Null, A: 0, B: 0})
+	case _:
+		if c != '-' && (c < '0' || c > '9') {
+			return fail(b, b.pos, "expected a value, found "+found(b))
+		}
+		try numeral(b)
+	}
+}
+
+func word(b *builder, w string) fails json.Malformed {
+	for k in 0..len(w) {
+		if b.pos >= len(b.src) || b.src[b.pos] != w[k] {
+			return fail(b, b.pos, "expected \(w), found "+found(b))
+		}
+		b.pos += 1
+	}
+}
+
+// numeral reads a number with json's machine and keeps its span.
+func numeral(b *builder) NodeId fails json.Malformed {
+	let start = b.pos
+	let (n, broken) = json.Scan(strings.Slice(b.src, start, len(b.src)))
+	match broken {
+	case Some[string] as why:
+		fail(b, start+n, why.Value)
+	case None:
+		b.pos = start + n
+		add(b, Node{Kind: Number, A: int32(start), B: int32(n)})
+	}
+}
+
+// text reads a string: a span of the source when it has no escape and
+// only ASCII, else json's decoding, kept in the pool.
+func text(b *builder) NodeId fails json.Malformed {
+	let start = b.pos + 1
+	let mut i = start
+	for i < len(b.src) {
+		let c = b.src[i]
+		if c == '"' {
+			b.pos = i + 1
+			return add(b, Node{Kind: Text, A: int32(start), B: int32(i - start)})
+		}
+		if c == '\\' || c < 0x20 || c >= 0x80 {
+			break
+		}
+		i += 1
+	}
+	let d = try json.ReadString(b.src, b.pos)
+	b.pos = d.End
+	b.pool = b.pool.Append(d.Text)
+	add(b, Node{Kind: Pooled, A: int32(len(b.pool) - 1), B: 0})
+}
+
+// enter opens a container: one level deeper, at most json.MaxDepth.
+func enter(b *builder) fails json.Malformed {
+	b.depth += 1
+	if b.depth > json.MaxDepth {
+		return fail(b, b.pos, "nesting deeper than \(json.MaxDepth)")
+	}
+	b.pos += 1
+	skip(b)
+}
+
+func array(b *builder) NodeId fails json.Malformed {
+	try enter(b)
+	let mark = b.top
+	if b.pos < len(b.src) && b.src[b.pos] == ']' {
+		b.pos += 1
+		b.depth -= 1
+		return add(b, Node{Kind: Array, A: int32(len(b.extras)), B: 0})
+	}
+	for {
+		push(b, try value(b))
+		skip(b)
+		if b.pos < len(b.src) {
+			let c = b.src[b.pos]
+			if c == ',' {
+				b.pos += 1
+				skip(b)
+				continue
+			}
+			if c == ']' {
+				b.pos += 1
+				b.depth -= 1
+				let count = int32(b.top - mark)
+				return add(b, Node{Kind: Array, A: close(b, mark), B: count})
+			}
+		}
+		return fail(b, b.pos, "expected ',' or ']', found "+found(b))
+	}
+}
+
+func object(b *builder) NodeId fails json.Malformed {
+	try enter(b)
+	let mark = b.top
+	if b.pos < len(b.src) && b.src[b.pos] == '}' {
+		b.pos += 1
+		b.depth -= 1
+		return add(b, Node{Kind: Object, A: int32(len(b.extras)), B: 0})
+	}
+	for {
+		if b.pos >= len(b.src) || b.src[b.pos] != '"' {
+			return fail(b, b.pos, "expected a string key, found "+found(b))
+		}
+		push(b, try text(b))
+		skip(b)
+		if b.pos >= len(b.src) || b.src[b.pos] != ':' {
+			return fail(b, b.pos, "expected ':', found "+found(b))
+		}
+		b.pos += 1
+		skip(b)
+		push(b, try value(b))
+		skip(b)
+		if b.pos < len(b.src) {
+			let c = b.src[b.pos]
+			if c == ',' {
+				b.pos += 1
+				skip(b)
+				continue
+			}
+			if c == '}' {
+				b.pos += 1
+				b.depth -= 1
+				let count = int32((b.top - mark) / 2)
+				return add(b, Node{Kind: Object, A: close(b, mark), B: count})
+			}
+		}
+		return fail(b, b.pos, "expected ',' or '}', found "+found(b))
+	}
+}

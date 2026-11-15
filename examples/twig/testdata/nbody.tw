@@ -1,0 +1,55 @@
+// Three bodies under gravity, stepped with a fixed time step; each body
+// is a record in a list, changed in place.
+fn body(x, y, vx, vy, m) {
+	return {x: x, y: y, vx: vx, vy: vy, m: m}
+}
+
+fn energy(bodies) {
+	let e = 0.0
+	let i = 0
+	while i < len(bodies) {
+		let a = bodies[i]
+		e = e + 0.5 * a.m * (a.vx * a.vx + a.vy * a.vy)
+		let j = i + 1
+		while j < len(bodies) {
+			let b = bodies[j]
+			let dx = a.x - b.x
+			let dy = a.y - b.y
+			e = e - a.m * b.m / sqrt(dx * dx + dy * dy)
+			j = j + 1
+		}
+		i = i + 1
+	}
+	return e
+}
+
+fn step(bodies, dt) {
+	for a in bodies {
+		for b in bodies {
+			if a == b {
+				continue
+			}
+			let dx = b.x - a.x
+			let dy = b.y - a.y
+			let d2 = dx * dx + dy * dy
+			let f = b.m / (d2 * sqrt(d2))
+			a.vx = a.vx + dx * f * dt
+			a.vy = a.vy + dy * f * dt
+		}
+	}
+	for a in bodies {
+		a.x = a.x + a.vx * dt
+		a.y = a.y + a.vy * dt
+	}
+}
+
+let bodies = [body(0.0, 0.0, 0.0, 0.0, 10.0), body(1.0, 0.0, 0.0, 3.0, 0.1), body(-2.0, 0.0, 0.0, -2.2, 0.2)]
+print(energy(bodies))
+let n = 0
+while n < 1000 {
+	step(bodies, 0.001)
+	n = n + 1
+}
+print(energy(bodies))
+print(bodies[1])
+print(int(bodies[2].x * 1000.0))

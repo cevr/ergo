@@ -1,0 +1,80 @@
+// Package toml reads TOML 1.0 text into a tree of values, and writes a
+// tree back as TOML, or as the tagged JSON of toml-test. Parse fails at
+// the first byte that is not TOML (Malformed), at a key defined twice
+// (Duplicate), or at a key whose table, array of tables or value cannot
+// take what the text does with it (Clash); each failure has its line and
+// column.
+
+// Value is a TOML value.
+type Value =
+	| Str{S string}
+	| Int{N int64}
+	| Float{F float64}
+	| Bool{B bool}
+	| Moment{Kind Clock, Text string}
+	| Array{Items []Value}
+	| Table{Members []Member}
+
+// Member is a key of a table and its value, in the order the text
+// defines them.
+type Member { Key string, Val Value }
+
+// Clock is which of TOML's four date and time forms a Moment is. Its Text
+// is the form as written, with the separator T and the zone Z upper case.
+type Clock = OffsetDateTime | LocalDateTime | LocalDate | LocalTime
+
+type OffsetDateTime {}
+type LocalDateTime {}
+type LocalDate {}
+type LocalTime {}
+
+// MaxDepth is how deep arrays and inline tables may nest: one more is a
+// failure, not a stack overflow.
+let MaxDepth = 10000
+
+// Count is the number of values in v, v itself and every table included.
+func Count(v Value) int {
+	match v {
+	case Array as a:
+		let mut n = 1
+		for x in a.Items {
+			n += Count(x)
+		}
+		n
+	case Table as t:
+		let mut n = 1
+		for m in t.Members {
+			n += Count(m.Val)
+		}
+		n
+	case Str, Int, Float, Bool, Moment:
+		1
+	}
+}
+
+// Depth is how deep v nests: 0 for a scalar, 1 for an array or a table of
+// scalars.
+func Depth(v Value) int {
+	match v {
+	case Array as a:
+		let mut d = 0
+		for x in a.Items {
+			let e = Depth(x)
+			if e > d {
+				d = e
+			}
+		}
+		d + 1
+	case Table as t:
+		let mut d = 0
+		for m in t.Members {
+			let e = Depth(m.Val)
+			if e > d {
+				d = e
+			}
+		}
+		d + 1
+	case Str, Int, Float, Bool, Moment:
+		0
+	}
+}

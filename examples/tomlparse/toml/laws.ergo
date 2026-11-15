@@ -1,0 +1,51 @@
+// The rules of the parser and the printers as laws, over generated
+// trees.
+
+// PrintParsesBack: a tree printed as TOML reads back as the tree: for the
+// samples of seed, Tagged(Parse(Print(v))) is Tagged(v). A printer that
+// quotes a key or escapes a byte the parser reads as another, or a parser
+// that puts a member in the wrong table, breaks it.
+law PrintParsesBack(seed int) {
+	for v in Samples(seed) {
+		let back = Parse(Print(v)) catch {
+		case Malformed, Duplicate, Clash:
+			return false
+		}
+		if Tagged(back) != Tagged(v) {
+			return false
+		}
+	}
+	true
+}
+
+// RedefinedKeysFail: a key of the root table given a value once more,
+// before the text that defines it, fails at that text with the key: as a
+// Duplicate when the text gives it a value, as a Clash when a header
+// makes it a table or adds to it as an array of tables.
+law RedefinedKeysFail(seed int) {
+	for v in Samples(seed) {
+		match v {
+		case Table as t:
+			for m in t.Members {
+				let text = Shown(m.Key) + " = 1\n" + Print(v)
+				let _ = Parse(text) catch {
+				case Duplicate as d:
+					if sections(m.Val) || d.Key != Shown(m.Key) {
+						return false
+					}
+					continue
+				case Clash as c:
+					if !sections(m.Val) || c.Key != Shown(m.Key) {
+						return false
+					}
+					continue
+				case Malformed:
+					return false
+				}
+				return false
+			}
+		case Str, Int, Float, Bool, Moment, Array:
+		}
+	}
+	true
+}

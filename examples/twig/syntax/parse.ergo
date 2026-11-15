@@ -1,0 +1,378 @@
+import strconv
+
+// ParseError is a token where the grammar wants another.
+type ParseError { At Pos, Msg string }
+
+// Failure is a source that is no program: the row of Parse.
+type Failure = LexError | ParseError
+
+// parser is the tokens and the index of the next one. Parse owns it, and
+// each rule takes it by borrow and moves it on.
+type parser { toks []Token, pos int }
+
+// Parse is the program of src: its statements, in order.
+func Parse(src string) []Stmt fails Failure {
+	let mut p = parser{toks: try Lex(src), pos: 0}
+	let mut out = []Stmt{}
+	for !ended(peek(&p)) {
+		out = out.Append(try statement(&p))
+	}
+	out
+}
+
+func peek(p *parser) Token { p.toks[p.pos] }
+
+// next is the next token, and moves past it. The End token is never
+// passed, so the index stays inside the tokens.
+func next(p *parser) Token {
+	let t = p.toks[p.pos]
+	if !ended(t) {
+		p.pos += 1
+	}
+	t
+}
+
+func ended(t Token) bool {
+	match t.Kind {
+	case End:
+		true
+	case Ident, Keyword, IntTok, FloatTok, StrTok, Punct:
+		false
+	}
+}
+
+// is reports whether t is the punctuation or keyword w.
+func is(t Token, w string) bool {
+	match t.Kind {
+	case Punct, Keyword:
+		t.Text == w
+	case Ident, IntTok, FloatTok, StrTok, End:
+		false
+	}
+}
+
+func unexpected(t Token, want string) ParseError {
+	ParseError{At: t.At, Msg: "expected " + want + ", found " + Describe(t)}
+}
+
+// expect moves past the punctuation or keyword w, or fails.
+func expect(p *parser, w string) fails ParseError {
+	let t = next(p)
+	if !is(t, w) {
+		return unexpected(t, "\""+w+"\"")
+	}
+}
+
+// name reads a name.
+func name(p *parser, what string) string fails ParseError {
+	let t = next(p)
+	match t.Kind {
+	case Ident:
+		t.Text
+	case Keyword, IntTok, FloatTok, StrTok, Punct, End:
+		unexpected(t, what)
+	}
+}
+
+// block reads statements between braces.
+func block(p *parser) []Stmt fails ParseError {
+	try expect(p, "{")
+	let mut out = []Stmt{}
+	for !is(peek(p), "}") {
+		if ended(peek(p)) {
+			return unexpected(peek(p), "\"}\"")
+		}
+		out = out.Append(try statement(p))
+	}
+	let _ = next(p)
+	out
+}
+
+// params reads a parameter list in parentheses.
+func params(p *parser) []string fails ParseError {
+	try expect(p, "(")
+	let mut out = []string{}
+	if is(peek(p), ")") {
+		let _ = next(p)
+		return out
+	}
+	for {
+		let at = peek(p).At
+		let n = try name(p, "a parameter name")
+		for q in out {
+			if q == n {
+				return ParseError{At: at, Msg: "the parameter " + n + " is named twice"}
+			}
+		}
+		out = out.Append(n)
+		if is(peek(p), ")") {
+			let _ = next(p)
+			return out
+		}
+		try expect(p, ",")
+	}
+}
+
+// statement reads one statement.
+func statement(p *parser) Stmt fails ParseError {
+	let t = peek(p)
+	let at = t.At
+	match t.Kind {
+	case Keyword:
+		match t.Text {
+		case "fn":
+			match p.toks[p.pos+1].Kind {
+			case Ident:
+				let _ = next(p)
+				let n = try name(p, "a function name")
+				let ps = try params(p)
+				return FnDecl{Name: n, Params: ps, Body: try block(p), At: at}
+			case Keyword, IntTok, FloatTok, StrTok, Punct, End:
+			}
+		case "let":
+			let _ = next(p)
+			let n = try name(p, "a variable name")
+			try expect(p, "=")
+			return Let{Name: n, Val: try expr(p, 0), At: at}
+		case "if":
+			let _ = next(p)
+			return try ifStmt(p, at)
+		case "while":
+			let _ = next(p)
+			let c = try expr(p, 0)
+			return While{Cond: c, Body: try block(p), At: at}
+		case "for":
+			let _ = next(p)
+			let n = try name(p, "a variable name")
+			try expect(p, "in")
+			let over = try expr(p, 0)
+			return For{Var: n, Over: over, Body: try block(p), At: at}
+		case "return":
+			let _ = next(p)
+			let v = peek(p)
+			if is(v, "}") || ended(v) || v.Fresh {
+				return Return{Val: NilLit{At: at}, At: at}
+			}
+			return Return{Val: try expr(p, 0), At: at}
+		case "break":
+			let _ = next(p)
+			return Break{At: at}
+		case "continue":
+			let _ = next(p)
+			return Continue{At: at}
+		case _:
+		}
+	case Ident, IntTok, FloatTok, StrTok, Punct, End:
+	}
+	let x = try expr(p, 0)
+	if !is(peek(p), "=") {
+		return ExprStmt{X: x, At: at}
+	}
+	let eq = next(p)
+	match x {
+	case Name, Index, Field:
+		Assign{Target: x, Val: try expr(p, 0), At: eq.At}
+	case IntLit, FloatLit, StrLit, BoolLit, NilLit, Unary, Binary, Call, ListLit, RecLit, FnLit:
+		ParseError{At: eq.At, Msg: "only a name, an element or a field can be assigned"}
+	}
+}
+
+// ifStmt reads an if after its keyword, with its else if and else parts.
+func ifStmt(p *parser, at Pos) Stmt fails ParseError {
+	let c = try expr(p, 0)
+	let then = try block(p)
+	if !is(peek(p), "else") {
+		return If{Cond: c, Then: then, Else: []Stmt{}, At: at}
+	}
+	let _ = next(p)
+	if is(peek(p), "if") {
+		let inner = next(p)
+		return If{Cond: c, Then: then, Else: []Stmt{try ifStmt(p, inner.At)}, At: at}
+	}
+	If{Cond: c, Then: then, Else: try block(p), At: at}
+}
+
+// binOp is the infix operator that t spells.
+func binOp(t Token) Option[BinOp] {
+	match t.Kind {
+	case Punct:
+		match t.Text {
+		case "+":
+			Some{Value: Add}
+		case "-":
+			Some{Value: Sub}
+		case "*":
+			Some{Value: Mul}
+		case "/":
+			Some{Value: Div}
+		case "%":
+			Some{Value: Mod}
+		case "<":
+			Some{Value: Lt}
+		case "<=":
+			Some{Value: Le}
+		case ">":
+			Some{Value: Gt}
+		case ">=":
+			Some{Value: Ge}
+		case "==":
+			Some{Value: Eq}
+		case "!=":
+			Some{Value: Ne}
+		case _:
+			None
+		}
+	case Keyword:
+		match t.Text {
+		case "and":
+			Some{Value: And}
+		case "or":
+			Some{Value: Or}
+		case _:
+			None
+		}
+	case Ident, IntTok, FloatTok, StrTok, End:
+		None
+	}
+}
+
+// expr reads an expression whose infix operators bind at least min: the
+// Pratt loop. A call, an index and a field bind tighter than every
+// operator; ( and [ continue the expression only on its line.
+func expr(p *parser, min int) Expr fails ParseError {
+	let mut left = try prefix(p)
+	for {
+		let t = peek(p)
+		if is(t, "(") && !t.Fresh {
+			let _ = next(p)
+			left = Call{Fn: left, Args: try list(p, ")"), At: t.At}
+			continue
+		}
+		if is(t, "[") && !t.Fresh {
+			let _ = next(p)
+			let i = try expr(p, 0)
+			try expect(p, "]")
+			left = Index{X: left, I: i, At: t.At}
+			continue
+		}
+		if is(t, ".") {
+			let _ = next(p)
+			left = Field{X: left, Key: try name(p, "a field name"), At: t.At}
+			continue
+		}
+		match binOp(t) {
+		case None:
+			return left
+		case Some as o:
+			let power = Power(o.Value)
+			if power < min {
+				return left
+			}
+			let _ = next(p)
+			let right = try expr(p, power+1)
+			left = Binary{Op: o.Value, L: left, R: right, At: t.At}
+		}
+	}
+}
+
+// list reads expressions separated by commas, up to the punctuation end.
+func list(p *parser, end string) []Expr fails ParseError {
+	let mut out = []Expr{}
+	if is(peek(p), end) {
+		let _ = next(p)
+		return out
+	}
+	for {
+		out = out.Append(try expr(p, 0))
+		if is(peek(p), end) {
+			let _ = next(p)
+			return out
+		}
+		try expect(p, ",")
+	}
+}
+
+// prefix reads an operand: a literal, a name, a prefix operator and its
+// operand, a list, a record, a function or an expression in parentheses.
+func prefix(p *parser) Expr fails ParseError {
+	let t = next(p)
+	match t.Kind {
+	case IntTok:
+		let n = strconv.Atoi(t.Text) catch {
+		case strconv.OutOfRange, strconv.Malformed:
+			return ParseError{At: t.At, Msg: "the number " + t.Text + " is too large"}
+		}
+		IntLit{N: n, At: t.At}
+	case FloatTok:
+		let f = strconv.ParseFloat(t.Text) catch {
+		case strconv.OutOfRange, strconv.Malformed:
+			return ParseError{At: t.At, Msg: "the number " + t.Text + " is too large"}
+		}
+		FloatLit{F: f, At: t.At}
+	case StrTok:
+		StrLit{S: t.Text, At: t.At}
+	case Ident:
+		Name{Id: t.Text, At: t.At}
+	case Keyword:
+		match t.Text {
+		case "true":
+			BoolLit{B: true, At: t.At}
+		case "false":
+			BoolLit{B: false, At: t.At}
+		case "nil":
+			NilLit{At: t.At}
+		case "not":
+			Unary{Op: Not, X: try expr(p, PrefixPower), At: t.At}
+		case "fn":
+			let ps = try params(p)
+			FnLit{Params: ps, Body: try block(p), At: t.At}
+		case _:
+			unexpected(t, "an expression")
+		}
+	case Punct:
+		match t.Text {
+		case "-":
+			Unary{Op: Neg, X: try expr(p, PrefixPower), At: t.At}
+		case "(":
+			let inner = try expr(p, 0)
+			try expect(p, ")")
+			inner
+		case "[":
+			ListLit{Items: try list(p, "]"), At: t.At}
+		case "{":
+			try record(p, t.At)
+		case _:
+			unexpected(t, "an expression")
+		}
+	case End:
+		unexpected(t, "an expression")
+	}
+}
+
+// record reads a record literal after its {: keys and values, a key at
+// most once.
+func record(p *parser, at Pos) Expr fails ParseError {
+	let mut keys = []string{}
+	let mut vals = []Expr{}
+	if is(peek(p), "}") {
+		let _ = next(p)
+		return RecLit{Keys: keys, Vals: vals, At: at}
+	}
+	for {
+		let kat = peek(p).At
+		let k = try name(p, "a field name")
+		for q in keys {
+			if q == k {
+				return ParseError{At: kat, Msg: "the field " + k + " is given twice"}
+			}
+		}
+		try expect(p, ":")
+		keys = keys.Append(k)
+		vals = vals.Append(try expr(p, 0))
+		if is(peek(p), "}") {
+			let _ = next(p)
+			return RecLit{Keys: keys, Vals: vals, At: at}
+		}
+		try expect(p, ",")
+	}
+}
