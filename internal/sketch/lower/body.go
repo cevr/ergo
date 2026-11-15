@@ -1230,7 +1230,9 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		// (scalar.go); a case binds its slot before its body writes.
 		subject = sl.name
 	} else {
-		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 {
+		// No fold when the statement owns the subject's value (R43,
+		// ownTemp): its registration runs between the value and the arms.
+		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 && fc.l.info.OwnedTemps[s.Subjects[0].X] == nil {
 			var types [][]string
 			var defs, binds []bool
 			for _, a := range arms {
