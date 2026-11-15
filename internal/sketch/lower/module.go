@@ -202,7 +202,7 @@ type lowerer struct {
 	libs         []*check.Package // the libraries the program reaches (libraries)
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
-	stdSrc       map[syntax.Node]stdFile // each node of a reached std package's files (locate)
+	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
@@ -607,6 +607,8 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	// Entry, environment and library declarations come before the first
 	// //line directive, so their lines stay main.go's.
+	// The rest is written at once: one array of the final size (SL9b).
+	out.Grow(len(entryText) + l.gen.Len() + len(table) + l.user.Len() + len(inits) + 4096)
 	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
@@ -697,15 +699,20 @@ func anchorLines(src []byte) []byte {
 	if len(inserts) == 0 {
 		return src
 	}
-	var b strings.Builder
+	size := len(src)
+	for _, in := range inserts {
+		size += len(in.text)
+	}
+	// One array of the final size, returned as it is (SL9b: a growing
+	// builder and its copy were most of this pass's bytes).
+	b := make([]byte, 0, size)
 	prev := 0
 	for _, in := range inserts {
-		b.Write(src[prev:in.at])
-		b.WriteString(in.text)
+		b = append(b, src[prev:in.at]...)
+		b = append(b, in.text...)
 		prev = in.at
 	}
-	b.Write(src[prev:])
-	return []byte(b.String())
+	return append(b, src[prev:]...)
 }
 
 // rt is the runtime package's name in main.go.
