@@ -30,6 +30,11 @@ import math/big
 # import no ergo.local package (go list -deps), so they cannot name, receive
 # or build a syntax node.
 import bytes crypto/sha256
+# CHK1c: export.go reads a snapshot's segments on demand through an
+# io.ReaderAt (bytes only) and counts the bytes read in a sync/atomic
+# Int64. Neither imports an ergo.local package (go list -deps), so they
+# cannot name, receive or build a syntax node.
+import io sync/atomic
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no

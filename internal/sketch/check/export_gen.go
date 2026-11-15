@@ -6,6 +6,7 @@ package check
 import (
 	"ergo.local/prototype/internal/sketch/syntax"
 	"go/constant"
+	"io"
 	"math/big"
 	"strings"
 )
@@ -5133,11 +5134,13 @@ func (e *encoder) encFieldsWork(v *Work) {
 	e.encT136(v.StdFilesParsed)
 	e.encT136(v.StdPackagesChecked)
 	e.encT136(v.StdPackagesDecoded)
+	e.encT136(v.StdSnapshotBytesRead)
 }
 
 func (e *encoder) encWork(v Work) { e.encFieldsWork(&v) }
 
 func (e *encoder) encFieldssnapshot(v *snapshot) {
+	e.encIo_ReaderAt(v.r)
 	e.encT206(v.segs)
 	e.encT141(v.byPath)
 	e.encobjTable(v.objs)
@@ -7101,6 +7104,8 @@ func (e *encoder) encFieldssegment(v *segment) {
 	e.encT205(v.nodeStart)
 	e.encT103(v.deps)
 	e.encT208(v.data)
+	e.encT205(v.off)
+	e.encT205(v.size)
 	e.encT279(v.sum)
 }
 
@@ -7626,6 +7631,20 @@ func (e *encoder) encPtrSyntax_Field(v *syntax.Field) {
 		return
 	}
 	e.uint(e.nodes.ID(v))
+}
+
+func (e *encoder) encIo_ReaderAt(v io.ReaderAt) {
+	switch x := v.(type) {
+	case nil:
+		e.uint(0)
+	default:
+		if id, ok := e.nodes.Lookup(x); ok {
+			e.uint(1)
+			e.uint(id)
+			return
+		}
+		e.failf("no codec for a %T in io.ReaderAt", x)
+	}
 }
 
 func (e *encoder) encT206(v []segment) {
@@ -14658,6 +14677,7 @@ func (d *decoder) decFieldsWork(v *Work) {
 	v.StdFilesParsed = d.decT136()
 	v.StdPackagesChecked = d.decT136()
 	v.StdPackagesDecoded = d.decT136()
+	v.StdSnapshotBytesRead = d.decT136()
 }
 
 func (d *decoder) decWork() (v Work) {
@@ -14666,6 +14686,7 @@ func (d *decoder) decWork() (v Work) {
 }
 
 func (d *decoder) decFieldssnapshot(v *snapshot) {
+	v.r = d.decIo_ReaderAt()
 	v.segs = d.decT206()
 	v.byPath = d.decT141()
 	v.objs = d.decobjTable()
@@ -17868,6 +17889,8 @@ func (d *decoder) decFieldssegment(v *segment) {
 	v.nodeStart = d.decT205()
 	v.deps = d.decT103()
 	v.data = d.decT208()
+	v.off = d.decT205()
+	v.size = d.decT205()
 	v.sum = d.decT279()
 }
 
@@ -18650,6 +18673,17 @@ func (d *decoder) decPtrSyntax_Field() *syntax.Field {
 		return nil
 	}
 	return x.(*syntax.Field)
+}
+
+func (d *decoder) decIo_ReaderAt() io.ReaderAt {
+	switch d.uint() {
+	case 0:
+		return nil
+	case 1:
+		return d.node().(io.ReaderAt)
+	}
+	d.failf("bad tag in io.ReaderAt")
+	return nil
 }
 
 func (d *decoder) decT206() []segment {

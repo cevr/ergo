@@ -1,11 +1,11 @@
 package sketchfront
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,8 +30,8 @@ func resetStdCache(t *testing.T) {
 
 // TestStdCacheWork is the disk-cache acceptance guard. The cold process
 // writes a snapshot, the warm process checks zero std packages, and a corrupt
-// file or a failed write falls back to source. It also guards both cache key
-// inputs and excludes process-only producer identities. Source-only checks
+// file or a failed write falls back to source. It also guards the cache key
+// (the compiler's identity) and excludes process-only producer identities. Source-only checks
 // cannot catch any of these mutants (testdata/mutants.json).
 func TestStdCacheWork(t *testing.T) {
 	savedIdentity := compilerIdentity
@@ -45,22 +45,10 @@ func TestStdCacheWork(t *testing.T) {
 	})
 	compiler := "sha256:" + strings.Repeat("a", 64)
 	compilerIdentity = func() (string, error) { return compiler, nil }
-	deps := stdDependencies()
-	key := stdSnapshotKey(compiler, deps)
-	if stdSnapshotKey(compiler+"b", deps) == key {
+	// The compiler's identity keys std: its bytes embed the std sources.
+	key := stdSnapshotKey(compiler)
+	if stdSnapshotKey(compiler+"b") == key {
 		t.Fatal("compiler identity is not keyed")
-	}
-	for i := range deps {
-		edited := slices.Clone(deps)
-		edited[i].Implementation += "edit"
-		if stdSnapshotKey(compiler, edited) == key {
-			t.Fatalf("std source %s is not keyed", deps[i].Name)
-		}
-		edited = slices.Clone(deps)
-		edited[i].Name += "edit"
-		if stdSnapshotKey(compiler, edited) == key {
-			t.Fatalf("std package identity %s is not keyed", deps[i].Name)
-		}
 	}
 	root := t.TempDir()
 	UseStdCache(root)
@@ -104,7 +92,7 @@ func TestStdCacheWork(t *testing.T) {
 	run(true) // fallback repairs the cache
 	compiler = "process:" + strings.Repeat("b", 64)
 	run(false)
-	privatePath := filepath.Join(root, "std", stdSnapshotKey(compiler, deps)+".snap")
+	privatePath := filepath.Join(root, "std", stdSnapshotKey(compiler)+".snap")
 	if _, err := os.Stat(privatePath); !os.IsNotExist(err) {
 		t.Fatalf("process-only compiler published a snapshot: %v", err)
 	}
@@ -185,7 +173,7 @@ func TestStdCacheAgreesWithSource(t *testing.T) {
 		}
 	}
 	resetStdCache(t)
-	if err := check.InstallStd(data); err != nil {
+	if err := check.InstallStd(bytes.NewReader(data), int64(len(data))); err != nil {
 		t.Fatal(err)
 	}
 	for i, c := range cases {
