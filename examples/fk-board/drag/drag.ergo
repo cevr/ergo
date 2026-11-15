@@ -1,0 +1,164 @@
+// Package drag is drag and drop for sortable lists in containers, a port
+// of the model of @foldkit/ui's DragAndDrop: the machine Dragger, which a
+// pointer or the keyboard drives. A drag that ends on a target gives the
+// output Reordered, and one given up gives Cancelled; the parent reads
+// them as upstream's OutMessage. The machine knows no page: where a
+// keyboard move goes is the host's to answer (Resolve, then Resolved), as
+// upstream asks the DOM.
+
+// Point is a position in pixels.
+type Point { X int, Y int }
+
+// Target is where a drop would land: a container and an index in it.
+type Target { Container string, Index int }
+
+// State is the drag's phase: none; a pointer pressed on an item and not
+// yet moved past the threshold; a pointer drag; a keyboard drag, with the
+// spot it would drop at.
+type State = Idle{} | Pending{Item string, Container string, Index int, Origin Point} | Dragging{Item string, From string, FromIndex int, Origin Point, At Point, Target Option[Target]} | Lifted{Item string, From string, FromIndex int, To string, ToIndex int}
+
+// Drag is the machine's state: its id, the threshold in pixels a pointer
+// moves before a press is a drag, and the phase.
+type Drag { ID string, Threshold int, State State }
+
+// Direction is an arrow key of a keyboard drag, or a move to the next or
+// the previous container (upstream binds them to Tab and Shift+Tab).
+type Direction = Up{} | Down{} | Left{} | Right{} | NextContainer{} | PreviousContainer{}
+
+// Signal is what the drag reads: a pointer pressed on an item, moved (in
+// screen points for the threshold, in client points for the ghost, over a
+// target or none), released; Escape; Space on an item; the host's answer
+// to a keyboard move; Space again (the drop); an arrow; a frame of
+// auto-scroll; and a focus done.
+type Signal = Pressed{Item string, Container string, Index int, Screen Point} | Moved{Screen Point, Client Point, Target Option[Target]} | Released{} | Cancel{} | Activated{Item string, Container string, Index int} | Resolved{Container string, Index int} | Confirmed{} | Arrow{Way Direction} | ScrollFrame{} | Focused{}
+
+// Effect is what the drag gives: an item moved, a drag given up, an item
+// to focus, or a keyboard move for the host to resolve.
+type Effect = Reordered{Item string, From string, FromIndex int, To string, ToIndex int} | Cancelled{} | Focus{Item string} | Resolve{Item string, Container string, Index int, Way Direction}
+
+// New is an idle drag with id, vertical, with upstream's threshold of
+// 5 pixels.
+func New(id string) Drag { Drag{ID: id, Threshold: 5, State: Idle} }
+
+// Dragger is drag and drop as a machine.
+type Dragger machine[Drag, Signal] {
+	initial: New("drag"),
+	step:    Step,
+}
+
+// Step is the drag's transition.
+func Step(d Drag, sig Signal) Decision[Drag, []Effect] {
+	match sig {
+	case Pressed as p:
+		to(d, Pending{Item: p.Item, Container: p.Container, Index: p.Index, Origin: p.Screen}, []Effect{})
+	case Moved as m:
+		match d.State {
+		case Pending as p:
+			let dx = m.Screen.X - p.Origin.X
+			let dy = m.Screen.Y - p.Origin.Y
+			if dx*dx+dy*dy < d.Threshold*d.Threshold {
+				return Ignore
+			}
+			to(d, Dragging{Item: p.Item, From: p.Container, FromIndex: p.Index, Origin: p.Origin, At: m.Client, Target: m.Target}, []Effect{})
+		case Dragging as g:
+			to(d, Dragging{..g, At: m.Client, Target: m.Target}, []Effect{})
+		case Idle, Lifted:
+			Ignore
+		}
+	case Released:
+		match d.State {
+		case Pending:
+			to(d, Idle, []Effect{})
+		case Dragging as g:
+			match g.Target {
+			case Some[Target] as t:
+				to(d, Idle, []Effect{Reordered{Item: g.Item, From: g.From, FromIndex: g.FromIndex, To: t.Value.Container, ToIndex: t.Value.Index}})
+			case None:
+				to(d, Idle, []Effect{Cancelled})
+			}
+		case Idle, Lifted:
+			Ignore
+		}
+	case Cancel:
+		match d.State {
+		case Idle, Pending:
+			to(d, Idle, []Effect{})
+		case Dragging:
+			to(d, Idle, []Effect{Cancelled})
+		case Lifted as l:
+			to(d, Idle, []Effect{Focus{Item: l.Item}, Cancelled})
+		}
+	case Activated as a:
+		to(d, Lifted{Item: a.Item, From: a.Container, FromIndex: a.Index, To: a.Container, ToIndex: a.Index}, []Effect{})
+	case Resolved as r:
+		match d.State {
+		case Lifted as l:
+			to(d, Lifted{..l, To: r.Container, ToIndex: r.Index}, []Effect{Focus{Item: l.Item}})
+		case Idle, Pending, Dragging:
+			Ignore
+		}
+	case Confirmed:
+		match d.State {
+		case Lifted as l:
+			to(d, Idle, []Effect{Focus{Item: l.Item}, Reordered{Item: l.Item, From: l.From, FromIndex: l.FromIndex, To: l.To, ToIndex: l.ToIndex}})
+		case Idle, Pending, Dragging:
+			Ignore
+		}
+	case Arrow as w:
+		match d.State {
+		case Lifted as l:
+			Emit[Drag, []Effect]{Next: d, Output: []Effect{Resolve{Item: l.Item, Container: l.To, Index: l.ToIndex, Way: w.Way}}}
+		case Idle, Pending, Dragging:
+			Ignore
+		}
+	case ScrollFrame, Focused:
+		Ignore
+	}
+}
+
+// to is the drag in state s, giving out.
+func to(d Drag, s State, out []Effect) Decision[Drag, []Effect] {
+	let next = Drag{..d, State: s}
+	if len(out) == 0 {
+		return Stay[Drag]{Next: next}
+	}
+	Emit[Drag, []Effect]{Next: next, Output: out}
+}
+
+// Effects is what the decision gives.
+func Effects(dec Decision[Drag, []Effect]) []Effect {
+	match dec {
+	case Emit[Drag, []Effect] as e:
+		e.Output
+	case Enter[Drag], Stay[Drag], Ignore, Reject, Done[[]Effect]:
+		[]Effect{}
+	}
+}
+
+// After is the drag after the decision.
+func After(d Drag, dec Decision[Drag, []Effect]) Drag {
+	match dec {
+	case Emit[Drag, []Effect] as e:
+		e.Next
+	case Enter[Drag] as e:
+		e.Next
+	case Stay[Drag] as s:
+		s.Next
+	case Ignore, Reject, Done[[]Effect]:
+		d
+	}
+}
+
+// Item is the item a drag holds, if any (upstream's maybeDraggedItemId).
+func Item(s State) Option[string] {
+	match s {
+	case Pending as p:
+		Some[string]{Value: p.Item}
+	case Dragging as g:
+		Some[string]{Value: g.Item}
+	case Lifted as l:
+		Some[string]{Value: l.Item}
+	case Idle:
+		None
+	}
+}
