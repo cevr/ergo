@@ -456,7 +456,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = PointerEvent{Phase: phase, X: x, Y: y}
+			let ev = PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
 			act = PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
@@ -1971,8 +1971,15 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 			want = want.Append(Slow{Counter: "Written", Count: texts + 1, Bound: bound})
 			// The pass that shows the Slow, a Committed's, is not judged:
 			// the law takes the posted events until it shows it.
+			// A Slow is one commit, so it shows within a few posted
+			// events; a loop that judges its own passes never settles.
 			let mut shown = false
+			let mut taken = 0
 			for !shown {
+				taken = taken + 1
+				if taken > 16 {
+					return false
+				}
 				let ev = posted.Pop() catch {
 				case queue.Closed:
 					return false
@@ -2001,4 +2008,372 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	true
+}
+
+// sameHit is whether two zone hits are equal, path by path.
+func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
+	match a {
+	case Some[ZoneHit] as x:
+		match b {
+		case Some[ZoneHit] as y:
+			if len(x.Value.Path) != len(y.Value.Path) || x.Value.Box != y.Value.Box || x.Value.X != y.Value.X || x.Value.Y != y.Value.Y {
+				return false
+			}
+			for i, k in x.Value.Path {
+				if k != y.Value.Path[i] {
+					return false
+				}
+			}
+			true
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[ZoneHit]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+// foundId is the node label finds; the laws name only nodes on the screen.
+func foundId[S, D, F](h *TestHost[S, int, D, F], label string) Id[int] {
+	match Find(h, label) {
+	case Some[Id[int]] as id:
+		id.Value
+	case None:
+		Unreachable("ui laws: no node \(label)")
+	}
+}
+
+func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func zoneTimer(s int) Option[Timeout[int]] { None }
+
+func zoneWork(s int) Option[func(send func(e int))] { None }
+
+func zoneMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork}
+}
+
+// ZoneHitNamesItsPath (H5g): an Area over drawn columns of drawn cards,
+// each column and each card a Zone (a card's inside a Box that is not
+// one), and a Zone outside the Area. A pointer event the host sends over
+// a drawn zone, with a drawn box and position, reaches the Area's function
+// with the keys of the zones from the Area down to that zone, its box and
+// the pointer's offset in it; over no zone, over a node that is not a
+// zone, over the Zone outside the Area, or over a card a pass removed, it
+// carries none.
+law ZoneHitNamesItsPath(seed int, n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		zoneFollows(seed, n, m)
+	}
+}
+
+func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let ncols = draw(&r, 3) + 1
+	let mut cards = []int{}
+	for _ in 0..ncols {
+		cards = cards.Append(draw(&r, 3) + 1)
+	}
+	let got = sync.NewRef[Option[ZoneHit]](None)
+	let view = func(f *Frame[int], s int) {
+		Pressable(f, "drop", 1) {
+			Text(f, "drop")
+		}
+		Area(f, "board", Plain(), func(p PointerEvent) Option[int] {
+			got.Set(p.Zone)
+			None
+		}) {
+			for c in 0..ncols {
+				Zone(f, ByInt(c), Plain()) {
+					Text(f, "col \(c)")
+					// A pass at state 1 drops column 0's cards.
+					let shown = if s == 1 && c == 0 { 0 } else { cards[c] }
+					for k in 0..shown {
+						Box(f, Plain()) {
+							Zone(f, ByText("\(c)-\(k)"), Plain()) {
+								Text(f, "card \(c)-\(k)")
+							}
+						}
+					}
+				}
+			}
+		}
+		Zone(f, ByInt(99), Plain()) {
+			Text(f, "outside")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let board = foundId(&h, "board")
+	let gone = Locate(&h, WithZone{Key: ByText("0-0")})[0]
+	for i in 0..(n%16+16)%16+1 {
+		if i == 1 {
+			Play(&h, []Act{TapOn{Label: "drop"}}) catch {
+			case _:
+				return false
+			}
+		}
+		let box = Rect{X: Length(float64(draw(&r, 50))), Y: Length(float64(draw(&r, 50))), W: 40, H: 20}
+		// A host sends a Zone of its own, which the composer replaces.
+		let p = PointerEvent{Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let c = draw(&r, ncols)
+		let k = draw(&r, cards[c])
+		let hit = Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
+		let mut want Option[ZoneHit] = None
+		let mut over Option[Id[int]] = None
+		match draw(&r, 6) {
+		case 0:
+			over = Some{Value: Locate(&h, WithZone{Key: ByInt(c)})[0]}
+			want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c)}}}
+		case 1:
+			if c == 0 && StateOf(&h) == 1 {
+				over = Some{Value: gone}
+			} else {
+				over = Some{Value: Locate(&h, WithZone{Key: ByText("\(c)-\(k)")})[0]}
+				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c), ByText("\(c)-\(k)")}}}
+			}
+		case 2:
+			over = Some{Value: Locate(&h, WithZone{Key: ByInt(99)})[0]}
+		case 3:
+			over = Some{Value: foundId(&h, "col \(c)")}
+		case 4:
+			// Card 0-0, which the drop at the second event removes.
+			over = Some{Value: gone}
+			if StateOf(&h) != 1 {
+				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(0), ByText("0-0")}}}
+			}
+		case _:
+		}
+		got.Set(Some{Value: ZoneHit{Path: []Key{ByInt(-1)}, Box: box, X: 0.0, Y: 0.0}})
+		match over {
+		case Some[Id[int]] as o:
+			PointOver(&h, board, o.Value, box, p) catch {
+			case _:
+				return false
+			}
+		case None:
+			PointAt(&h, board, p) catch {
+			case _:
+				return false
+			}
+		}
+		if !sameHit(got.Get(), want) {
+			return false
+		}
+	}
+	true
+}
+
+// CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
+// Text outside them, and a press that removes the first Area, each event
+// goes where a model of capture says: to the Area that took the last Down
+// with no Up since, while the tree still holds it, else to the node
+// named. Each Area's signal names it and the phase, so the actor's state
+// is the model's after each event, and the host's Captured is the
+// model's.
+law CaptureKeepsThePointer(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		captureFollows(seed, steps, m)
+	}
+}
+
+func phaseCode(p Phase) int {
+	match p {
+	case Down:
+		1
+	case Moved:
+		2
+	case Up:
+		3
+	case Wheel:
+		4
+	}
+}
+
+func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f *Frame[int], s int) {
+		Pressable(f, "hide", 99) {
+			Text(f, "hide")
+		}
+		Text(f, "top")
+		if s != 99 {
+			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { Some{Value: 10 + phaseCode(p.Phase)} }) {
+				Text(f, "in a")
+			}
+		}
+		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { Some{Value: 20 + phaseCode(p.Phase)} }) {
+			Text(f, "in b")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	// The model: the Area holding the pointer (0 none, 10 a, 20 b) and the
+	// actor's state.
+	let mut held = 0
+	let mut state = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let shownA = state != 99
+		if draw(&r, 8) == 0 {
+			Play(&h, []Act{TapOn{Label: "hide"}}) catch {
+			case _:
+				return false
+			}
+			state = 99
+			if held == 10 {
+				held = 0
+			}
+		} else {
+			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}}
+			let phase = phases[draw(&r, 4)]
+			// The node under the pointer: a (when shown), b or the Text.
+			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			if at == 10 && !shownA {
+				at = 0
+			}
+			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
+			let id = foundId(&h, label)
+			PointAt(&h, id, PointerEvent{Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			case _:
+				return false
+			}
+			let to = if held != 0 { held } else { at }
+			match phase {
+			case Down:
+				if to != 0 {
+					held = to
+				}
+			case Up:
+				held = 0
+			case _:
+			}
+			if to != 0 {
+				state = to + phaseCode(phase)
+			}
+		}
+		if StateOf(&h) != state {
+			return false
+		}
+		let want = if held == 10 { Find(&h, "a") } else if held == 20 { Find(&h, "b") } else { None }
+		if Captured(&h) != want {
+			return false
+		}
+	}
+	true
+}
+
+// AnnounceSaysEachNewText (H5g): a view whose live region shows a drawn
+// text of the state (none at one state), over drawn states: the host says
+// the text of each pass after the first that changed it or wrote the
+// region anew, unless it is empty, and nothing for a pass that left it as
+// it was. The region is a Status to a locator.
+law AnnounceSaysEachNewText(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		announceFollows(seed, steps, m)
+	}
+}
+
+func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let words = []string{"", "moved", "dropped", "cancelled"}
+	let mut texts = []string{}
+	for _ in 0..6 {
+		texts = texts.Append(words[draw(&r, 4)])
+	}
+	let view = func(f *Frame[int], s int) {
+		OnKey(f, func(k KeyPress) Option[int] {
+			for i in 0..6 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		Text(f, "at \(s)")
+		// At state 5 there is no live region, so the next state's is new.
+		if s != 5 {
+			Announce(f, texts[s])
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut want = []string{}
+	let mut prev Option[string] = Some{Value: texts[0]}
+	for _ in 0..(steps%12+12)%12+1 {
+		let s = draw(&r, 6)
+		PressKey(&h, KeyPress{Name: "\(s)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		// prev is the region's text, None while there is no region.
+		if s == 5 {
+			prev = None
+		} else {
+			if prev != (Some{Value: texts[s]}) && texts[s] != "" {
+				want = want.Append(texts[s])
+			}
+			prev = Some{Value: texts[s]}
+		}
+		let regions = if s == 5 { 0 } else { 1 }
+		if len(Locate(&h, WithRole{Role: Status, Name: texts[s]})) != regions {
+			return false
+		}
+	}
+	let said = Announced(&h)
+	if len(said) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if said[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+// posMod is x in [0, m), for any int x.
+func posMod(x int, m int) int { (x%m + m) % m }
+
+// EdgeScrollStaysInRange (H5g): for drawn offsets, viewports, contents,
+// pointer positions (inside and outside the viewport), edges and steps,
+// EdgeScroll stays inside [0, content - height]; within edge of the top
+// it moves up (or stays at 0), within edge of the bottom down (or stays
+// at the end), and in the middle it only clamps.
+law EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
+	let height = Length(float64(posMod(hh, 500) + 1))
+	let content = Length(float64(posMod(c, 2000)))
+	let offset = Length(float64(posMod(o, 2500)))
+	let y = Length(float64(posMod(yy, 700) - 100))
+	let edge = Length(float64(posMod(e, 60)))
+	let step = Length(float64(posMod(st, 40) + 1))
+	let most = if content > height { content - height } else { Length(0.0) }
+	let at = if offset > most { most } else { offset }
+	let next = EdgeScroll(offset, height, content, y, edge, step)
+	if next < Length(0.0) || next > most {
+		return false
+	}
+	if edge > Length(0.0) && y < edge {
+		return next < at || at == Length(0.0)
+	}
+	if edge > Length(0.0) && y > height-edge {
+		return next > at || at == most
+	}
+	next == at
 }

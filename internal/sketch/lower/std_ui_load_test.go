@@ -698,6 +698,9 @@ func wants(loc ui.Locator, x seen) bool {
 		x.a.Role == ui.TextBox && x.a.Name == l.Text
 	case ui.WithText as l:
 		x.a.Role == ui.Static && x.a.Name == l.Text
+	case ui.WithZone:
+		// The generated programs write no zone.
+		false
 	}
 }
 

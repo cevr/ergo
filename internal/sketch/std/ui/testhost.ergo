@@ -22,6 +22,11 @@ type TestHost[S, E, D, F] {
 	mirror  Mirror[E],
 	session Session[S, E, D, F],
 	history MemoryHistory,
+	// captured is the Area a Down went to, which takes every pointer
+	// event until an Up (H5g).
+	captured Option[Id[E]],
+	// said is what the live regions said, in order (Announce).
+	said []string,
 }
 
 // NoNode is the failure of a script step whose label names no node on the
@@ -47,13 +52,33 @@ func hostOf[E comparable, S, D, F](s Session[S, E, D, F], first []Op[E], posted 
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""})}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}}
 }
 
 // apply steps one event and shows its patch.
 func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
 	let ops = try Step(&h.session, ev)
 	try Apply(&h.mirror, ops)
+	for op in ops {
+		match op {
+		case Insert[E] as x:
+			say(h, x.Node)
+		case Set[E] as x:
+			say(h, x.Node)
+		case _:
+		}
+	}
+}
+
+// say logs the text of a live region the patch wrote, unless it is empty.
+func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
+	match n {
+	case LiveNode as l:
+		if l.Text != "" {
+			h.said = h.said.Append(l.Text)
+		}
+	case _:
+	}
 }
 
 // Tap presses the node id.
@@ -146,9 +171,73 @@ func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.sessio
 func Frames[S, E, D, F](h *TestHost[S, E, D, F]) int { h.frames }
 
 // PointAt sends a pointer event to the node id (the host's hit test, which
-// a test does by naming the node).
+// a test does by naming the node), over no zone. While an Area holds the
+// pointer (a Down went to it, and no Up yet), the event goes to that Area
+// instead, wherever the pointer is, and p is in that Area's box: pointer
+// capture, as a host does it (Host, H5g).
 func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
-	try apply(h, Point[E]{Id: id, Pointer: p})
+	try point(h, id, None, p)
+}
+
+// PointOver sends a pointer event to the Area id over the zone zone, whose
+// box in the Area's box is box (the host's hit test of the topmost zone
+// under the pointer). Capture holds as for PointAt.
+func PointOver[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
+	try point(h, id, Some{Value: ZoneBox[E]{Id: zone, Box: box}}, p)
+}
+
+// Captured is the Area that holds the pointer, None when none does.
+func Captured[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] {
+	match h.captured {
+	case Some[Id[E]] as c:
+		if isArea(&h.session.frame, c.Value) {
+			return Some{Value: c.Value}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// Announced is what the live regions said, in order: each text a pass
+// newly showed in one (Announce), none for an empty one.
+func Announced[S, E, D, F](h *TestHost[S, E, D, F]) []string { h.said }
+
+// point routes a pointer event as a host does: to the Area that holds the
+// pointer, if one does and the tree still holds it; a Down makes the
+// Area it goes to hold the pointer, and an Up lets go.
+func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
+	let mut to = id
+	match Captured(h) {
+	case Some[Id[E]] as c:
+		to = c.Value
+	case None:
+		h.captured = None
+	}
+	match p.Phase {
+	case Down:
+		// Captured holds only an Area, so a Down elsewhere holds nothing.
+		h.captured = Some{Value: to}
+	case Up:
+		h.captured = None
+	case _:
+	}
+	try apply(h, Point[E]{Id: to, Pointer: p, Over: over})
+}
+
+// isArea is whether f holds id and it is an Area.
+func isArea[E](f *Frame[E], id Id[E]) bool {
+	match NodeOf(f, id) {
+	case Some[Node[E]] as n:
+		match n.Value {
+		case AreaNode:
+			true
+		case _:
+			false
+		}
+	case None:
+		false
+	}
 }
 
 // ScrollTo reports the viewport of the list id: its scroll offset and
@@ -395,5 +484,9 @@ func nodeText[E](n Node[E]) string {
 			out = out + " \"\(x.Description)\""
 		}
 		out
+	case ZoneNode as x:
+		"zone \(keyText(x.Key))"
+	case LiveNode as x:
+		"live \"\(x.Text)\""
 	}
 }
