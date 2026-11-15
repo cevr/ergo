@@ -254,6 +254,35 @@ test HttpWriteAfterStreamFails(text string) {
 	assert false
 }
 
+test HttpMatchIsSplitMatch(pattern []int, path []int) {
+	let parts = []string{"", "a", "b", ":x", ":"}
+	let pick = func(xs []int) string {
+		let mut text = ""
+		for i, p in xs {
+			let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }]
+			text = if i == 0 { part } else { text + "/" + part }
+		}
+		text
+	}
+	let want = strings.Split(pick(pattern), "/")
+	let got = strings.Split(pick(path), "/")
+	let mut split = len(want) == len(got)
+	for i, part in want {
+		if split && strings.HasPrefix(part, ":") && len(part) > 1 {
+			split = got[i] != ""
+		} else if split {
+			split = part == got[i]
+		}
+	}
+	let found = match http.Match([]http.Route[int]{http.Route{Value: 1, Method: "GET", Path: pick(pattern), Status: 200}}, "GET", pick(path)) {
+	case http.Found:
+		true
+	case http.NotFound, http.MethodNotAllowed:
+		false
+	}
+	assert found == split
+}
+
 test HttpAllowIsWhatMatches(picks []int, asked int) {
 	let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"}
 	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
@@ -447,10 +476,13 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http MatchIsSplitMatch": httpSegmentsStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
+
+// httpSegmentsStatement is MatchIsSplitMatch (GX8).
+const httpSegmentsStatement = `MatchIsSplitMatch(pattern []int, path []int) { let parts = []string{"", "a", "b", ":x", ":"} let pick = func(xs []int) string { let mut text = "" for i, p in xs { let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }] text = if i == 0 { part } else { text + "/" + part } } text } let want = strings.Split(pick(pattern), "/") let got = strings.Split(pick(path), "/") let mut split = len(want) == len(got) for i, part in want { if split && strings.HasPrefix(part, ":") && len(part) > 1 { split = got[i] != "" } else if split { split = part == got[i] } } let found = match Match([]Route[int]{Route{Value: 1, Method: "GET", Path: pick(pattern), Status: 200}}, "GET", pick(path)) { case Found: true case NotFound, MethodNotAllowed: false } found == split }`
 
 const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`
 
