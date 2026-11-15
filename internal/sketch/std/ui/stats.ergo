@@ -32,9 +32,19 @@ type Stats {
 	Cancels   int,
 }
 
+// committed is how many nodes the pass's specs stand for: a block spec
+// its group's tops.
+func committed[E](f *Frame[E]) int {
+	let mut c = 0
+	for i in 0..f.nspecs {
+		c = c + nodesOf(f, f.specs[i])
+	}
+	c
+}
+
 // PassStats is the last pass of f, Signals 0.
 func PassStats[E](f *Frame[E]) Stats {
-	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips, Stopped: f.nstops, Committed: f.nspecs, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
+	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
 	for op in f.ops {
 		match op {
 		case Insert[E] as x:

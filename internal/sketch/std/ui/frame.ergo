@@ -151,7 +151,11 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // and previous sibling (-1 for none), so the children of a spec are a
 // walk, not a list built each pass. nkids is how many children it has so
 // far: the place of the next, which prior tries first. pending is whether
-// a kept group under it has not taken its tops' counts yet.
+// a kept group under it has not taken its tops' counts yet. block is the
+// kept group (an index of keptList) whose top nodes this one spec stands
+// for, written again together (group.ergo, putTops), or -1: a block's
+// nodes are its group's tops, skipped, and Commit, settle and FrameShape
+// read them from the group (blockTop).
 type spec[E] {
 	node    Node[E],
 	id      ident,
@@ -173,6 +177,7 @@ type spec[E] {
 	before  int,
 	nkids   int,
 	pending bool,
+	block   int,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -347,7 +352,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 		prev = arena.Null[node[E]]()
 	}
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false}
+	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1}
 	putSpec(f, sp)
 }
 
@@ -362,9 +367,10 @@ func putSpec[E](f *Frame[E], sp spec[E]) int {
 		f.specs = f.specs.Append(sp)
 	}
 	f.nspecs = i + 1
-	f.written = f.written + 1
+	let w = nodesOf(f, sp)
+	f.written = f.written + w
 	if p < 0 {
-		f.nroot = f.nroot + 1
+		f.nroot = f.nroot + w
 		if f.last < 0 {
 			f.first = i
 		} else {
@@ -372,7 +378,7 @@ func putSpec[E](f *Frame[E], sp spec[E]) int {
 		}
 		f.last = i
 	} else {
-		f.specs[p].nkids = f.specs[p].nkids + 1
+		f.specs[p].nkids = f.specs[p].nkids + w
 		if f.specs[p].last < 0 {
 			f.specs[p].first = i
 		} else {
@@ -397,6 +403,54 @@ func lastKid[E](f *Frame[E], p int) int {
 		return f.last
 	}
 	f.specs[p].last
+}
+
+// nodesOf is how many nodes sp stands for: its block's tops, else one.
+func nodesOf[E](f *Frame[E], sp spec[E]) int {
+	if sp.block >= 0 {
+		return len(f.keptList[sp.block].tops)
+	}
+	1
+}
+
+// blockTop is top k of the block spec s as the spec of that one node:
+// skipped, written again, its old node its own.
+func blockTop[E](f *Frame[E], s int, k int) spec[E] {
+	let x = f.keptList[f.specs[s].block].tops[k]
+	spec[E]{node: x.node, id: x.id, parent: f.specs[s].parent, prev: x.ref, ref: x.ref, onText: x.onText, onPoint: x.onPoint, binds: None, off: x.off, memo: f.specs[s].memo, same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: -1, nkids: 0, pending: false, block: -1}
+}
+
+// kids is the children of a spec as nodes: spec[j] is the spec of child
+// j, and top[j] which top of that spec's block it is (-1 for a spec that
+// is one node).
+type kids { spec []int, top []int }
+
+// kidNodes is the children of spec p (-1 the root) as nodes, in order: a
+// block spec gives each of its tops.
+func kidNodes[E](f *Frame[E], p int) kids {
+	let mut out = kids{spec: []int{}, top: []int{}}
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		if f.specs[s].block >= 0 {
+			for k in 0..len(f.keptList[f.specs[s].block].tops) {
+				out.spec = out.spec.Append(s)
+				out.top = out.top.Append(k)
+			}
+		} else {
+			out.spec = out.spec.Append(s)
+			out.top = out.top.Append(-1)
+		}
+		s = f.specs[s].next
+	}
+	out
+}
+
+// kidSpec is child j of ks as one node's spec.
+func kidSpec[E](f *Frame[E], ks kids, j int) spec[E] {
+	if ks.top[j] >= 0 {
+		return blockTop(f, ks.spec[j], ks.top[j])
+	}
+	f.specs[ks.spec[j]]
 }
 
 // kidsWritten is how many children spec p (-1 the root) has so far.
@@ -620,7 +674,8 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		}
 		return
 	}
-	let want = childrenOf(f, p)
+	let ks = kidNodes(f, p)
+	let want = ks.spec
 	let old = kidsOf(f, pr)
 	let mut oldAt = Map[arena.Ref[node[E]], int]{}
 	let mut used = []bool{}
@@ -629,9 +684,9 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		used = used.Append(false)
 	}
 	let mut src = []int{}
-	for s in want {
+	for j, _ in want {
 		let mut from = -1
-		match oldAt.Get(f.specs[s].prev) {
+		match oldAt.Get(kidSpec(f, ks, j).prev) {
 		case Some[int] as o:
 			if !used[o.Value] {
 				from = o.Value
@@ -654,10 +709,10 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		back = back.Append(false)
 	}
 	let mut revive = []bool{}
-	for j, s in want {
+	for j, _ in want {
 		let mut again = false
 		if src[j] < 0 {
-			match heldAt.Get(f.specs[s].prev) {
+			match heldAt.Get(kidSpec(f, ks, j).prev) {
 			case Some[int] as h:
 				if !back[h.Value] {
 					back[h.Value] = true
@@ -691,7 +746,10 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 	let keep = increasing(src)
 	let mut refs = []arena.Ref[node[E]]{}
 	for j, s in want {
-		let sp = f.specs[s]
+		let sp = kidSpec(f, ks, j)
+		if src[j] < 0 && ks.top[j] >= 0 {
+			Unreachable("ui: a kept group's top is not a child of its parent")
+		}
 		if src[j] >= 0 {
 			refs = refs.Append(old[src[j]])
 		} else if revive[j] {
@@ -700,7 +758,9 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		} else {
 			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.off)))
 		}
-		f.specs[s].ref = refs[j]
+		if ks.top[j] < 0 {
+			f.specs[s].ref = refs[j]
+		}
 	}
 	change(f, pr, func(n *node[E]) {
 		n.kids = refs
@@ -713,7 +773,7 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		if j+1 < len(refs) {
 			before = Some{Value: Id[E]{ref: refs[j+1]}}
 		}
-		let sp = f.specs[want[j]]
+		let sp = kidSpec(f, ks, j)
 		let id = Id[E]{ref: refs[j]}
 		if src[j] < 0 {
 			f.compared = f.compared + 1
@@ -764,10 +824,20 @@ func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
 	let mut i = 0
 	let mut s = firstKid(f, p)
 	for s >= 0 {
-		if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
-			return false
+		let b = f.specs[s].block
+		if b >= 0 {
+			for k in 0..len(f.keptList[b].tops) {
+				if i >= n || f.keptList[b].tops[k].ref != kidAt(f, pr, i) {
+					return false
+				}
+				i = i + 1
+			}
+		} else {
+			if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
+				return false
+			}
+			i = i + 1
 		}
-		i = i + 1
 		s = f.specs[s].next
 	}
 	i == n

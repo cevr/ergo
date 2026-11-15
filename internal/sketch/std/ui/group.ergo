@@ -245,12 +245,16 @@ func writeAgain[E](f *Frame[E], i int) bool {
 	true
 }
 
-// putTops writes the top nodes of kept group i under parent p, skipped.
+// putTops writes the top nodes of kept group i under parent p, skipped,
+// as one block spec: one spec for any number of tops, which Commit keeps
+// in place (fix 5: a spec a top cost a list holder of 800 rows most of
+// its pass). A group with no top writes no spec.
 func putTops[E](f *Frame[E], i int, p int) {
-	for k in 0..len(f.keptList[i].tops) {
-		let x = f.keptList[i].tops[k]
-		let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: arena.Null[node[E]](), onText: x.onText, onPoint: x.onPoint, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false})
+	if len(f.keptList[i].tops) == 0 {
+		return
 	}
+	let x = f.keptList[i].tops[0]
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i})
 }
 
 // clearBefore is whether the few nodes written so far under p (at most
@@ -263,6 +267,10 @@ func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
 	}
 	let mut s = lastKid(f, p)
 	for s >= 0 {
+		let b = f.specs[s].block
+		if b >= 0 && !f.keptList[b].alone {
+			return false
+		}
 		if f.specs[s].id.each == each {
 			return false
 		}
@@ -374,14 +382,19 @@ func keepGroups[E](f *Frame[E]) {
 			let mut each = nowhere
 			for j in g.start..g.end {
 				if f.specs[j].parent == g.parent {
-					let c = f.specs[j]
-					if len(tops) == 0 {
-						each = c.id.each
+					for k in 0..nodesOf(f, f.specs[j]) {
+						let mut c = f.specs[j]
+						if c.block >= 0 {
+							c = blockTop(f, j, k)
+						}
+						if len(tops) == 0 {
+							each = c.id.each
+						}
+						if c.id.n != 0 || c.id.each != each {
+							alone = false
+						}
+						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, off: c.off})
 					}
-					if c.id.n != 0 || c.id.each != each {
-						alone = false
-					}
-					tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, off: c.off})
 				}
 			}
 			let mut nest = []int{}
