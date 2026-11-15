@@ -29,6 +29,61 @@ func init() {
 	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
 		panic(err)
 	}
+	processCache = dir
+}
+
+// processCache is the emission cache root (XDG_CACHE_HOME) of this test
+// process (init).
+var processCache string
+
+// testXDG is a test's own emission cache root, parent/xdg, for a test that
+// asserts on its cache: its modules, staging and private roots are its
+// own, and its Go action store (ergo/go: the direct path's plans, actions
+// and blobs, internal/sketch/build/direct.go) is the process's, linked in.
+// That store is keyed by content (each compile by its inputs, each link
+// by its archives), so a test that shares it builds the same bytes and
+// compiles the runtime's packages once per process, not once per test
+// (GS26: 4 CPU-s per cold program build).
+func testXDG(t *testing.T, parent string) string {
+	t.Helper()
+	xdg := filepath.Join(parent, "xdg")
+	store := filepath.Join(processCache, "ergo", "go")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(xdg, "ergo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(store, filepath.Join(xdg, "ergo", "go")); err != nil {
+		t.Fatal(err)
+	}
+	return xdg
+}
+
+// TestTestCachesShareTheGoStore counts the compiles of two builds in two
+// tests' emission caches (testXDG): the second program differs from the
+// first only in its main package, so it compiles that package alone and
+// reuses the runtime's from the shared store. Without the share each test
+// compiles the runtime again (GS26).
+func TestTestCachesShareTheGoStore(t *testing.T) {
+	t.Parallel()
+	binary := buildTestCLI(t)
+	report := regexp.MustCompile(`LINK=direct \(planned \w+, compiled (\d+), reused (\d+),`)
+	var compiled, reused [2]string
+	for i := range 2 {
+		root := physicalTempDir(t)
+		xdg := testXDG(t, t.TempDir())
+		smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"program "+string(rune('a'+i))+"\") }\n")
+		stdout, stderr, code := cachedCLI(t, binary, root, xdg, "build", "main.ergo", "-o", "app", "-work")
+		m := report.FindStringSubmatch(stderr)
+		if code != 0 || m == nil {
+			t.Fatalf("build %d: exit %d stdout %q stderr %q", i, code, stdout, stderr)
+		}
+		compiled[i], reused[i] = m[1], m[2]
+	}
+	if compiled[1] != "1" || reused[1] == "0" {
+		t.Fatalf("the second test's build compiled %s packages and reused %s (the first compiled %s); want only its main compiled", compiled[1], reused[1], compiled[0])
+	}
 }
 
 // innerRunVariable marks the package run that
@@ -181,6 +236,7 @@ func goOwnHome(t *testing.T) string {
 // under a key only it can trust. Each build still produces a program that
 // runs.
 func TestBuildWithoutAProducerImageIsPrivate(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -299,6 +355,7 @@ var lineDirective = regexp.MustCompile(`(?m)^//line (.+?):\d+(?::\d+)?$`)
 // receipt.LocateSource; the property is that it opens the source. The
 // links are made here, so the case runs on Linux whatever TMPDIR is.
 func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	base := physicalTempDir(t)
 	real := filepath.Join(base, "real-src")
@@ -317,7 +374,7 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	xdg := filepath.Join(physicalTempDir(t), "xdg")
+	xdg := testXDG(t, physicalTempDir(t))
 	for _, c := range []struct {
 		name, dir, spelling string
 		env                 []string
@@ -363,11 +420,12 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 // behavior; a build without -work prints no WORK line; and only build
 // takes -work. Spec D7, #224.
 func TestBuildWorkNamesTheCachedModule(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	// The CLI admits the path it walks, which is physical when the
 	// temporary directory is reached through a link (darwin's /var).
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	source := filepath.Join(root, "main.ergo")
 	write := func(word string) {
 		text := "func main() needs Console {\n\tConsole.Println(\"" + word + "\")\n}\n"

@@ -48,9 +48,10 @@ func emptyDir(t *testing.T, dir, what string) {
 // never calls main. The test binary leaves nothing in the working
 // directory or the temporary directory.
 func TestTestCommand(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	tmp := t.TempDir()
 	cwd := t.TempDir()
 	write := func(name, text string) string { return smokeWrite(t, root, name, text) }
@@ -225,9 +226,10 @@ func testReceipt(t *testing.T, write func(name, text string) string, run func(ar
 // does `ergo test --explore -work`, whose tag is the link's alone, and the
 // test binary is never written into the module.
 func TestBuildAndTestActionsDiffer(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	tmp := t.TempDir()
 	source := smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
 	stdout, stderr, code := testRunCLI(t, binary, root, xdg, tmp, "build", "main.ergo", "-o", "app", "-work")

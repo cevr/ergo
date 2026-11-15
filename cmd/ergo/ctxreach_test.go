@@ -19,6 +19,7 @@ import (
 //     memory package only in `let Memory = context { …, memory.Listing }`,
 //     and main reaches Memory through its local context `live`.
 func TestErgoRunContextOnlyPackage(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/ctxreach", readmeSmokeProgram)
 	site := filepath.Join(workspace, "cmd", "ergo", "testdata", "ctxreach", "site")
