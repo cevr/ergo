@@ -16,7 +16,8 @@ import github.com/cevr/ergo/modules/work/classes
 import slices
 import strings
 
-// OverlapKinds are the names of a units merge's conflicts.
+// OverlapKinds are the names of a units merge's conflicts (and Unparsed:
+// a merged text the language cannot read, given as the line merge).
 let OverlapKinds = []string{"SameDeclaration", "SameNewHandle", "SameMember"}
 
 func byKey(units []Unit) Map[string, Unit] {
@@ -42,7 +43,20 @@ func MergeUnits(s Splitter, file string, base string, ours string, theirs string
 	let o = try s.Units(file, ours)
 	let t = try s.Units(file, theirs)
 	let m = mergedSeq(b, o, t, "")
-	classes.Merged{Text: m.Text, Conflicts: m.Conflicts, Regenerate: false}
+	if len(m.Conflicts) > 0 {
+		return classes.Merged{Text: m.Text, Conflicts: m.Conflicts, Regenerate: false}
+	}
+	// The merged units must read as the language again: two members both
+	// sides put first in one list, each with no separator before it, can
+	// join to a text that does not parse. Then the file is the line merge,
+	// with the conflict Unparsed.
+	let _ = s.Units(file, m.Text) catch {
+	case Unreadable as u:
+		return classes.Merged{Text: classes.Text(classes.MergeText(base, ours, theirs)), Conflicts: []string{"Unparsed \(u.Why)"}, Regenerate: false}
+	case Unanswered as u:
+		return u
+	}
+	classes.Merged{Text: m.Text, Conflicts: []string{}, Regenerate: false}
 }
 
 // seq is a merged run of units: its text and its conflicts.

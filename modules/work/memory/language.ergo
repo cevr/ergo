@@ -153,7 +153,7 @@ func declared(l Lines, s work.Snapshot) Map[string, Map[string, work.Unit]] {
 	let mut out = Map[string, Map[string, work.Unit]]{}
 	for path, text in work.LayerFiles(s.Layer) {
 		let mut keyed = Map[string, work.Unit]{}
-		let units = Units(NewLines(), path, text) catch {
+		let units = NewLines().Units(path, text) catch {
 		case work.Unreadable, work.Unanswered:
 			[]work.Unit{}
 		}
@@ -249,7 +249,7 @@ func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic
 	let mut out = []work.Diagnostic{}
 	for path in slices.Sorted(maps.Keys(files)) {
 		let text = maps.GetOr(files, path, "")
-		let _ = Units(NewLines(), path, text) catch {
+		let _ = NewLines().Units(path, text) catch {
 		case work.Unreadable as u:
 			out = out.Append(work.Diagnostic{File: path, Line: 1, Column: 1, Message: u.Why})
 			continue
@@ -399,6 +399,12 @@ law PluginFailuresAreUnanswered(names []string, bodies []string) {
 func pluginWorld(lines Lines, files Map[string, string]) work.Tool { configuredWorld(lines, files, "", false) }
 
 func configuredWorld(lines Lines, files Map[string, string], config string, trusted bool) work.Tool {
+	let (tool, _) = configuredDisk(lines, files, config, trusted)
+	tool
+}
+
+// configuredDisk is configuredWorld and its disk.
+func configuredDisk(lines Lines, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	Repo(vcs, theBase, "main", files, "c0")
@@ -439,7 +445,7 @@ func configuredWorld(lines Lines, files Map[string, string], config string, trus
 		}
 	}
 	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: serving(lines), Clock: time.NewManual(1000)}
-	work.NewTool(theBase, home, "/data", p, "/")
+	(work.NewTool(theBase, home, "/data", p, "/"), disk)
 }
 
 let pluginFiles = Map[string, string]{"a.lines": "unit A(x)\n  call b\n# a note\n", "b.lines": "unit b(y)\n  error none\n", "c.txt": "not read\n"}
@@ -588,7 +594,7 @@ func memberFile(units Map[int, int]) string {
 // valuesOf is the values a merged text holds: of its units, or of the
 // members of its unit c. None when it does not parse.
 func valuesOf(text string, members bool) Option[Map[int, int]] {
-	let units = Units(NewLines(), "f.lines", text) catch {
+	let units = NewLines().Units("f.lines", text) catch {
 	case work.Unreadable, work.Unanswered:
 		return None
 	}
@@ -640,7 +646,7 @@ law UnitsMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, their
 // keeps reports whether the units of text that side holds are in side's
 // order (unitFile's: by key).
 func keeps(text string, side Map[int, int]) bool {
-	let units = Units(NewLines(), "f.lines", text) catch {
+	let units = NewLines().Units("f.lines", text) catch {
 	case work.Unreadable, work.Unanswered:
 		return false
 	}
@@ -757,4 +763,89 @@ func without0(m Map[int, int]) Map[int, int] {
 		}
 	}
 	out
+}
+
+// Picky is Lines that cannot read a unit whose members are out of key
+// order: a language whose lists need a separator before each member but
+// the first, as TypeScript's import specifiers do.
+type Picky {} implements work.Splitter
+
+func Units(p Picky, file string, text string) []work.Unit fails work.Unreadable | work.Unanswered {
+	let units = try NewLines().Units(file, text)
+	for u in units {
+		let mut keys = []string{}
+		for m in u.Members {
+			keys = keys.Append(m.Key)
+		}
+		if keys != slices.Sorted(slices.Values(keys)) {
+			return work.Unreadable{File: file, Why: "the members of \(u.Key) are out of order"}
+		}
+	}
+	units
+}
+
+// The bug this row fixes: two members both sides put first in one list
+// merged to a text the language cannot read (TypeScript: "{ b a }" for
+// two imports of one module). The merge splits its result again; one
+// that does not parse is the line merge, with the conflict Unparsed.
+test AMergeThatDoesNotParseIsTheLineMerge {
+	let base = "unit c\n  m k3 v1\n  end\n"
+	let ours = "unit c\n  m k1 v1\n  m k3 v1\n  end\n"
+	let theirs = "unit c\n  m k2 v1\n  m k3 v1\n  end\n"
+	let lines = work.MergeUnits(NewLines(), "f.lines", base, ours, theirs) catch {
+	case work.Unreadable, work.Unanswered:
+		return
+	}
+	assert lines.Text == "unit c\n  m k2 v1\n  m k1 v1\n  m k3 v1\n  end\n"
+	let picky = try work.MergeUnits(Picky, "f.lines", base, ours, theirs)
+	assert picky == classes.Merged{Text: classes.Text(classes.MergeText(base, ours, theirs)), Conflicts: []string{"Unparsed the members of c are out of order"}, Regenerate: false}
+}
+
+// languageConfig is a work.toml whose [language.lines] takes the .lines
+// files.
+let languageConfig = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
+
+// MergeByLanguageIsMergeUnits: merge-file auto, and the merge of three
+// trees, take a file of a [language.NAME] to the merge by its plugin's
+// units (class NAME): the text and the conflicts of work.MergeUnits on
+// the language itself. Until work trust the plugin never runs: merge-file
+// refuses, and the tree merges the file by lines.
+law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, trusted bool) {
+	let base = scripted(units, []classes.Edit{})
+	let (b, o, th) = (unitFile(base), unitFile(scripted(base, ourEdits)), unitFile(scripted(base, theirEdits)))
+	let want = work.MergeUnits(NewLines(), "f.lines", b, o, th) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (tool, disk) = configuredDisk(NewLines(), Map[string, string]{"m/b.lines": b, "m/o.lines": o, "m/t.lines": th}, languageConfig, trusted)
+	let mut conflicts = []string{}
+	let mut refused = false
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	case work.MergeConflict as m:
+		conflicts = m.Units
+		refused = m.Why == "the language lines runs only after work trust"
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile(theBase + "/m/o.lines") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let tree = work.MergeTree(tool, c, theBase+"/out", Map[string, string]{"f.lines": b}, Map[string, string]{"f.lines": o}, Map[string, string]{"f.lines": th}) catch {
+	case _:
+		return false
+	}
+	let written = disk.ReadFile(theBase + "/out/f.lines") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	if !trusted {
+		let lines = classes.MergeText(b, o, th)
+		return refused && got == o && written == classes.Text(lines) && (len(tree.Conflicts) > 0) == (lines.Clashes > 0)
+	}
+	got == want.Text && conflicts == want.Conflicts && written == want.Text && (len(tree.Conflicts) > 0) == (len(want.Conflicts) > 0)
 }

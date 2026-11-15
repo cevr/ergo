@@ -165,8 +165,9 @@ func quoted(s string) string { "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 
 // MergeByPath is merge-file's class auto: the class of path by the class
 // lines; a driver line runs its command, whose merge in ours is a
-// candidate (status 0), else a conflict; a path no line takes merges by
-// lines, as Git's own driver does.
+// candidate (status 0), else a conflict; a path no line takes but a
+// [language.NAME]'s files do merges by that language's units (class
+// NAME); any other path merges by lines, as Git's own driver does.
 func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	match ClassOf(c.Classes, path) {
 	case Some[ClassLine] as l:
@@ -194,8 +195,45 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 			try mergeLines(t, path, base, ours, theirs)
 		}
 	case None:
-		try mergeLines(t, path, base, ours, theirs)
+		match LanguageOf(c, path) {
+		case Some[LanguageLine] as l:
+			try mergeByUnits(t, c, l.Value, path, base, ours, theirs)
+		case None:
+			try mergeLines(t, path, base, ours, theirs)
+		}
 	}
+}
+
+// LanguageOf is the first [language.NAME] whose files take path.
+func LanguageOf(c Config, path string) Option[LanguageLine] {
+	for l in c.Languages {
+		if slices.IndexFunc(l.Files, func(p string) bool { Matches(p, path) }) >= 0 {
+			return Some[LanguageLine]{Value: l}
+		}
+	}
+	None
+}
+
+// mergeByUnits merges the three files by the units of the language l's
+// plugin (run in the base, only once work trust allowed it) and writes
+// ours. A side the plugin cannot read, or a plugin that gives no answer,
+// leaves the merge to lines, as Git's.
+func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	if !trusted(t, c) {
+		return MergeConflict{Path: path, Class: l.Name, Units: []string{}, Why: "the language \(l.Name) runs only after work trust"}
+	}
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let merged = MergeUnits(PluginOf(t.runner, l.Command, t.base), path, b, a, other) catch {
+	case Unreadable, Unanswered:
+		return try mergeLines(t, path, base, ours, theirs)
+	}
+	try t.writes.WriteFile(ours, merged.Text)
+	if len(merged.Conflicts) > 0 {
+		return MergeConflict{Path: path, Class: l.Name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
+	}
+	FileMerged{Path: path, Class: l.Name, Regenerate: false}
 }
 
 // mergeWith merges the three files by the class c and writes ours.
@@ -319,8 +357,14 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 			case None:
 				None
 			}
-			match k {
-			case Some[classes.Class] as cls:
+			let units = match (k, LanguageOf(c, p)) {
+			case (None, Some[LanguageLine] as l):
+				if trusted(t, c) { Some[LanguageLine]{Value: l.Value} } else { None }
+			case _:
+				None
+			}
+			match (k, units) {
+			case (Some[classes.Class] as cls, _):
 				let m = classes.Merge(cls.Value, textOf(b), x.Value, y.Value) catch {
 				case classes.Unreadable:
 					conflicts = conflicts.Append(p)
@@ -330,7 +374,17 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 					conflicts = conflicts.Append(p)
 				}
 				m.Text
-			case None:
+			case (None, Some[LanguageLine] as l):
+				let h = classes.MergeText(textOf(b), x.Value, y.Value)
+				let m = MergeUnits(PluginOf(t.runner, l.Value.Command, t.base), p, textOf(b), x.Value, y.Value) catch {
+				case Unreadable, Unanswered:
+					classes.Merged{Text: classes.Text(h), Conflicts: if h.Clashes > 0 { []string{"lines"} } else { []string{} }, Regenerate: false}
+				}
+				if len(m.Conflicts) > 0 {
+					conflicts = conflicts.Append(p)
+				}
+				m.Text
+			case (None, None):
 				let h = classes.MergeText(textOf(b), x.Value, y.Value)
 				if h.Clashes > 0 {
 					conflicts = conflicts.Append(p)

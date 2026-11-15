@@ -284,16 +284,16 @@
     {
       "name": "ws5e-merge-file-writes-nothing", "origin": "wf10/semws WS5a-early (compounding #6)",
       "file": "modules/work/work/merge.ergo",
-      "from": "\ttry t.writes.WriteFile(ours, merged.Text)\n",
-      "to": "",
+      "from": "\ttry t.writes.WriteFile(ours, merged.Text)\n\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: name,",
+      "to": "\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: name,",
       "rule": "merge-file leaves the merge in ours, the file Git keeps: memory's MergeFileWritesTheMerge.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
       "name": "ws5e-merge-file-conflict-clean", "origin": "wf10/semws WS5a-early (compounding #6)",
       "file": "modules/work/work/merge.ergo",
-      "from": "\tif len(merged.Conflicts) > 0 {",
-      "to": "\tif false {",
+      "from": "\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: name,",
+      "to": "\tif false {\n\t\treturn MergeConflict{Path: path, Class: name,",
       "rule": "A merge with conflicts ends with status 1, so Git keeps the file conflicted: the merge-clash case.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
@@ -1119,6 +1119,62 @@
       "from": "Some[string]{Value: o.After}, Some[string]{Value: t.After}",
       "to": "Some[string]{Value: o.After}, Some[string]{Value: o.After}",
       "rule": "The text after a unit's members takes the side that changed it (memory's MembersMergeIsTheReference, tail).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-auto-skips-language", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tmatch LanguageOf(c, path) {",
+      "to": "\t\tmatch LanguageOf(EmptyConfig(), path) {",
+      "rule": "merge-file auto merges a [language.NAME]'s file by its units (memory's MergeByLanguageIsMergeUnits).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-tree-skips-language", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\t\tlet units = match (k, LanguageOf(c, p)) {",
+      "to": "\t\t\tlet units = match (k, LanguageOf(EmptyConfig(), p)) {",
+      "rule": "A tree merge merges a [language.NAME]'s file by its units (memory's MergeByLanguageIsMergeUnits).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-untrusted-run", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif !trusted(t, c) {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "to": "\tif false {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "rule": "merge-file runs a language's plugin only after work trust (memory's MergeByLanguageIsMergeUnits, untrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-tree-untrusted-run", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "if trusted(t, c) { Some[LanguageLine]{Value: l.Value} } else { None }",
+      "to": "if trusted(t, c) || true { Some[LanguageLine]{Value: l.Value} } else { None }",
+      "rule": "A tree merge runs a language's plugin only after work trust (memory's MergeByLanguageIsMergeUnits, untrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-no-resplit", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/units.ergo",
+      "from": "\tlet _ = s.Units(file, m.Text) catch {",
+      "to": "\tlet _ = s.Units(file, ours) catch {",
+      "rule": "A units merge whose text does not parse is the line merge, conflict Unparsed (memory's AMergeThatDoesNotParseIsTheLineMerge).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-writes-nothing", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\ttry t.writes.WriteFile(ours, merged.Text)\n\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "to": "\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "rule": "merge-file writes the units merge into ours (memory's MergeByLanguageIsMergeUnits).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-units-conflict-clean", "origin": "wf10/semws WG4",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif len(merged.Conflicts) > 0 {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "to": "\tif false {\n\t\treturn MergeConflict{Path: path, Class: l.Name,",
+      "rule": "merge-file fails MergeConflict with the units that clash (memory's MergeByLanguageIsMergeUnits).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

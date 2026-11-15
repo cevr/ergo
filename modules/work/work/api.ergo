@@ -774,7 +774,15 @@ func MergeFile(t Tool, class string, base string, ours string, theirs string, o 
 	case Some[classes.Class] as k:
 		k.Value
 	case None:
-		return BadClass{Name: class, Known: slices.Concat(classes.ClassNames, []string{"auto"})}
+		let cfg = try config(t)
+		let mut names = []string{}
+		for l in cfg.Languages {
+			if l.Name == class {
+				return try mergeByUnits(t, cfg, l, path, base, ours, theirs)
+			}
+			names = names.Append(l.Name)
+		}
+		return BadClass{Name: class, Known: slices.Concat(slices.Concat(classes.ClassNames, names), []string{"auto"})}
 	}
 	try mergeWith(t, c, class, path, base, ours, theirs)
 }
