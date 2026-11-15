@@ -59,6 +59,23 @@ func TestOwnershipRunModel(t *testing.T) {
 		cases = append(cases, runCase{name, src, want})
 		programs = append(programs, mustLower(t, name, src))
 	}
+	if os.Getenv("ERGO_SEED") == "" {
+		// Few seeds reassign a let mut that still owns its value (3 of 48,
+		// and none with a use between the reassignment and the frame's
+		// end), so this body does: the old value is released at the
+		// assignment, before the next use (R41; mutant L8-B1 "a
+		// reassignment does not release the old value", OPT9 r2).
+		body := []orStmt{
+			{kind: orOpen, v: 1, id: 1, mut: true},
+			{kind: orUse, w: 1},
+			{kind: orAssign, v: 1, id: 2},
+			{kind: orUse, w: 1},
+		}
+		want, _ := (&orModel{n: 1}).run(body, false)
+		src := orSource(body, 1, false, nil)
+		cases = append(cases, runCase{"ownrun_reassign", src, want})
+		programs = append(programs, mustLower(t, "ownrun_reassign", src))
+	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return

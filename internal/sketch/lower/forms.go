@@ -316,8 +316,7 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 
 // constLet reports whether the package let v, whose value is a checked
 // constant, is written as a Go const: Go then reads its value from the
-// instruction, not from memory (lru's occupied mark, read at every
-// generation check). Go folds an expression whose operands are all
+// instruction, not from memory (std arena's free-list end mark). Go folds an expression whose operands are all
 // constants at compile time, where a division by zero, an overflow, a
 // negative index or a conversion that does not fit is a build error and
 // not the run's defect or wrap, so v is a const only when each of its

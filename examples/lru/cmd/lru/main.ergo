@@ -83,7 +83,8 @@ func LookupAll(text string, capacity int, table memory.Table) fails os.Exit need
 
 // Churn runs ops Get-or-Put operations on a cache of 1024 entries over
 // 4096 keys drawn from a fixed generator, and is the sum of the values
-// the Gets found. bench/hand.go is the same loop in hand-written Go.
+// the Gets found. cmd/ergo/testdata/lruhand is the same loop in
+// hand-written Go, and cmd/ergo's TestLRUCountsAsHandGo counts both.
 func Churn(ops int) int {
 	let mut c = cache.New[int, int](1024) catch {
 	case cache.BadCapacity:

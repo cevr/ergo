@@ -34,7 +34,8 @@ import (
 // it refuses elsewhere.
 //
 // The program runs under the new lowering, under the rule before the
-// size test (inlineCostLowering "budget") and under the reference
+// size test (inlineCostLowering "budget"), with every inlined failure at
+// its call's join (failLowering "join") and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -79,6 +80,38 @@ func pick(b *Box[int], i int) int {
 	case Missing:
 		-1
 	}
+}
+
+// atVia and bumpVia return a fallible call's result and error as their
+// own (OPT9: a return of a call's error, which jumps to its site's
+// failure label only when it failed; bumpVia's other failing return keeps
+// that label); bumpSlow has a loop, so it stays a call. safeAt declares a failure it never returns (its site has no
+// failure label to place).
+func atVia(b *Box[int], i int) int fails Missing {
+	at(b, i)
+}
+
+func bumpSlow(b *Box[int], i int) fails Missing {
+	for x in b.items {
+		if x == -12345 {
+			return Missing{At: x}
+		}
+	}
+	if i < 0 || i >= len(b.items) {
+		return Missing{At: i}
+	}
+	b.items[i] = b.items[i] + 1
+}
+
+func bumpVia(b *Box[int], i int) fails Missing {
+	if i == -77 {
+		return Missing{At: i}
+	}
+	bumpSlow(b, i)
+}
+
+func safeAt(b *Box[int], i int) int fails Missing {
+	clampAt(b, i)
 }
 
 func bump(b *Box[int], i int, d int) {
@@ -172,6 +205,25 @@ func keep[T](v T, p *T, w T) T {
 }
 
 type Probe = Hit{At int} | Lost{At int}
+
+type Pn { v int }
+type Pw { s string }
+type Po { c string }
+type Ps { at int }
+
+// Ptok is a union Go holds as an interface: a variable of a variant
+// passed to weigh is not of its parameter's Go type, so it is converted,
+// not substituted (inline-subst-type).
+type Ptok = Pn | Pw | Po | Ps
+
+func weigh[T](t Ptok, d T) int {
+	match t {
+	case Pn as n:
+		n.v
+	case _:
+		0
+	}
+}
 
 func probeAt[T](p Probe, b *Box[T]) int {
 	match p {
@@ -369,6 +421,28 @@ func (g *inlineGen) stmt() {
 		} else {
 			g.reached["pick-missing"] = true
 		}
+		// The failures of atVia's inlined body, a returned call's error,
+		// at a catch whose value is named (failJump), and into a let mut;
+		// safeAt never fails.
+		a, m, s := g.name("a"), g.name("m"), g.name("s")
+		g.line(fmt.Sprintf("let %s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-2\n\t}", a, i))
+		g.line(fmt.Sprintf("let mut %s = 0", m))
+		g.line(fmt.Sprintf("%s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-3\n\t}", m, i+1))
+		g.line(fmt.Sprintf("let %s = safeAt(&b, %d) catch {\n\tcase Missing:\n\t\t-4\n\t}", s, i))
+		g.line(fmt.Sprintf("Console.Println(\"\\(%s) \\(%s) \\(%s)\")", a, m, s))
+		via := func(i, d int) int {
+			if v, ok := g.at(i); ok {
+				return v
+			}
+			return d
+		}
+		g.out("%d %d %d", via(i, -2), via(i+1, -3), g.clamp(i))
+		g.line(fmt.Sprintf("bumpVia(&b, %d) catch {\n\tcase Missing:\n\t\tb.n = b.n + 1\n\t}", i))
+		if _, ok := g.at(i); ok {
+			g.items[i]++
+		} else {
+			g.n++
+		}
 	case 1:
 		i, d := g.index(), g.r.IntN(50)
 		g.line(fmt.Sprintf("bump(&b, %d, %d)", i, d))
@@ -481,6 +555,10 @@ func (g *inlineGen) stmt() {
 		g.line(fmt.Sprintf("let %s = Hit{At: %d}", h, k))
 		g.line(fmt.Sprintf("Console.Println(\"\\(probeAt(%s, &b))\")", h))
 		g.out("%d", k+g.n)
+		pn := g.name("pn")
+		g.line(fmt.Sprintf("let %s = Pn{v: %d}", pn, w))
+		g.line(fmt.Sprintf("Console.Println(\"\\(weigh(%s, 0))\")", pn))
+		g.out("%d", w)
 	case 10:
 		v := g.r.IntN(20)
 		g.line(fmt.Sprintf("b.items = b.items.Append(%d)", v))
@@ -625,10 +703,11 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
-	// Three lowerings of each program: the rule (""), the rule before
-	// OPT8's size test ("budget", inlineCostLowering) and no inlining
-	// ("ref", inlineLowering "call").
-	modes := []string{"", "budget", "ref"}
+	// Four lowerings of each program: the rule (""), the rule before
+	// OPT8's size test ("budget", inlineCostLowering), every inlined
+	// failure at its call's join ("join", failLowering; OPT9) and no
+	// inlining ("ref", inlineLowering "call").
+	modes := []string{"", "budget", "join", "ref"}
 	stats := map[string]*knownStats{}
 	for _, m := range modes {
 		stats[m] = &knownStats{}
@@ -637,14 +716,21 @@ func TestInlineAgrees(t *testing.T) {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
 		for _, m := range modes {
-			saved := inlineCostLowering
+			saved, savedFail := inlineCostLowering, failLowering
 			if m == "budget" {
 				inlineCostLowering = "budget"
 			}
+			if m == "join" {
+				failLowering = "join"
+			}
 			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
-			inlineCostLowering = saved
+			inlineCostLowering, failLowering = saved, savedFail
 			stats[m].Inlined += s.Inlined
 			stats[m].Substituted += s.Substituted
+			stats[m].FailsAround += s.FailsAround
+			stats[m].FailsJoined += s.FailsJoined
+			stats[m].AliasesAround += s.AliasesAround
+			stats[m].TriesAround += s.TriesAround
 			programs = append(programs, p)
 		}
 	}
@@ -680,5 +766,14 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	if s := stats["ref"]; s.Inlined != 0 || s.Substituted != 0 {
 		t.Errorf("the reference lowering inlined: %+v", *s)
+	}
+	// The failure labels (failJump): the new lowering places each kind,
+	// the join reference none.
+	if s := stats[""]; s.FailsAround == 0 || s.FailsJoined == 0 || s.AliasesAround == 0 || s.TriesAround == 0 {
+		t.Errorf("the new lowering does not place every kind of failure label: around %d (named catches %d, tries %d), joined %d",
+			s.FailsAround, s.AliasesAround, s.TriesAround, s.FailsJoined)
+	}
+	if s := stats["join"]; s.FailsAround+s.FailsJoined != 0 {
+		t.Errorf("the join reference placed failure labels: %+v", *s)
 	}
 }
