@@ -21,8 +21,8 @@ type genPackage struct {
 	// home is, by law, the file the law must end in: its own file when one
 	// of its subjects is there, else its first subject's file.
 	home map[string]string
-	// helperOf is, by helper that only laws use, the law that must hold it
-	// beside itself: the first law, in source order, that uses it.
+	// helperOf is, by helper, the law or test that must hold it beside
+	// itself: the first one, in package order, that uses it.
 	helperOf map[string]string
 }
 
@@ -34,11 +34,13 @@ func generate(r *rand.Rand) genPackage {
 	nf := 2 + r.IntN(3)
 	names := []string{"a.ergo", "b.ergo", "c.ergo", "laws.ergo"}[:nf]
 	decls := map[string][]string{}
-	imports := map[string]bool{}
+	imports, timeImports := map[string]bool{}, map[string]bool{}
 	nfun, nhelp, nlaw := 1+r.IntN(4), r.IntN(3), 1+r.IntN(4)
 	funFile := make([]string, nfun)
+	// A subject is never in laws.ergo: there an exported function only laws
+	// use is read as written for them (Package.LawHelpers).
 	for i := range nfun {
-		funFile[i] = names[r.IntN(nf)]
+		funFile[i] = names[r.IntN(min(nf, 3))]
 		decls[funFile[i]] = append(decls[funFile[i]], fmt.Sprintf("func F%d(n int) int { n + %d }", i, i))
 	}
 	// A helper calls one subject, and maybe strings.
@@ -62,10 +64,11 @@ func generate(r *rand.Rand) genPackage {
 		name, file string
 		direct     []int
 		helps      []int
+		named      int // the subject the name names, or -1
 	}
 	var laws []lawInfo
 	for k := range nlaw {
-		l := lawInfo{name: fmt.Sprintf("L%d", k), file: names[r.IntN(nf)]}
+		l := lawInfo{name: fmt.Sprintf("L%d", k), file: names[r.IntN(nf)], named: -1}
 		var parts []string
 		for range r.IntN(3) {
 			i := r.IntN(nfun)
@@ -87,20 +90,34 @@ func generate(r *rand.Rand) genPackage {
 			parts = append(parts, "strings.Count(\"ab\", \"a\") == 1")
 			imports[l.file] = true
 		}
+		// An import named only in a type: the package name there has no
+		// Uses entry.
+		if r.IntN(3) == 0 {
+			parts = append(parts, "len([]time.Weekday{}) == 0")
+			timeImports[l.file] = true
+		}
+		// Half the laws are named for a subject they call, as SortPermutes
+		// is for Sort: that one is the law's home.
+		if len(l.direct) > 0 && r.IntN(2) == 0 {
+			l.named = l.direct[r.IntN(len(l.direct))]
+			l.name = fmt.Sprintf("F%dL%d", l.named, k)
+		}
 		decls[l.file] = append(decls[l.file], fmt.Sprintf("// %s holds.\nlaw %s(n int) { %s }", l.name, l.name, strings.Join(parts, " && ")))
 		laws = append(laws, l)
 	}
-	// A test uses a helper half the time: that helper then stays put.
-	tested := make([]bool, nhelp)
+	// Tests use helpers too: each helper no law uses, and others at times.
+	type testInfo struct {
+		name, file string
+		help       int
+	}
+	var tests []testInfo
 	for j := range nhelp {
 		if !used[j] || r.IntN(2) == 0 {
-			tested[j] = true
-			f := names[r.IntN(nf)]
-			decls[f] = append(decls[f], fmt.Sprintf("test T%d { assert h%d(1) == h%d(1) }", j, j, j))
+			tc := testInfo{fmt.Sprintf("T%d", j), names[r.IntN(nf)], j}
+			decls[tc.file] = append(decls[tc.file], fmt.Sprintf("test %s { assert h%d(1) == h%d(1) }", tc.name, j, j))
+			tests = append(tests, tc)
 		}
 	}
-	// Package order: by file name, then by place in the file.
-	sort.SliceStable(laws, func(a, b int) bool { return laws[a].file < laws[b].file })
 	for _, l := range laws {
 		var subj []string
 		for _, i := range l.direct {
@@ -110,14 +127,44 @@ func generate(r *rand.Rand) genPackage {
 			subj = append(subj, funFile[helpCalls[j]])
 		}
 		g.home[l.name] = subj[0]
+		if l.named >= 0 {
+			g.home[l.name] = funFile[l.named]
+		}
 		if slices.Contains(subj, l.file) {
 			g.home[l.name] = l.file
 		}
+	}
+	// A helper's first user, in package order (by file name, then laws
+	// before tests in a file, each in the order drawn), keeps it beside
+	// itself.
+	type use struct {
+		file string
+		kind int // 0 a law, 1 a test
+		at   int
+		name string
+	}
+	var uses []use
+	for k, l := range laws {
 		for _, j := range l.helps {
-			h := fmt.Sprintf("h%d", j)
-			if _, ok := g.helperOf[h]; !ok && !tested[j] {
-				g.helperOf[h] = l.name
-			}
+			uses = append(uses, use{l.file, 0, k*16 + j, l.name})
+		}
+	}
+	for k, tc := range tests {
+		uses = append(uses, use{tc.file, 1, k*16 + tc.help, tc.name})
+	}
+	sort.SliceStable(uses, func(a, b int) bool {
+		if uses[a].file != uses[b].file {
+			return uses[a].file < uses[b].file
+		}
+		if uses[a].kind != uses[b].kind {
+			return uses[a].kind < uses[b].kind
+		}
+		return uses[a].at/16 < uses[b].at/16
+	})
+	for _, u := range uses {
+		h := fmt.Sprintf("h%d", u.at%16)
+		if _, ok := g.helperOf[h]; !ok {
+			g.helperOf[h] = u.name
 		}
 	}
 	for _, n := range names {
@@ -126,7 +173,13 @@ func generate(r *rand.Rand) genPackage {
 		}
 		var b strings.Builder
 		if imports[n] {
-			b.WriteString("import strings\n\n")
+			b.WriteString("import strings\n")
+		}
+		if timeImports[n] {
+			b.WriteString("import time\n")
+		}
+		if imports[n] || timeImports[n] {
+			b.WriteString("\n")
 		}
 		b.WriteString(strings.Join(decls[n], "\n\n"))
 		b.WriteString("\n")
@@ -184,7 +237,7 @@ func declsByFile(files []*syntax.File) map[string]string {
 // TestPlanPlacesEveryLaw: for a drawn package, Plan's edit checks with no
 // diagnostic, keeps every declaration, puts each law in its reference
 // home (its own file when that holds a subject, else its first subject's)
-// and each helper only laws use beside the first law that uses it.
+// and each helper beside the first law or test that uses it.
 // LAWLOC_SEED=n replays one seed. Mutants (testdata of check,
 // mutants.json): lawloc-fix-drops-helper (a helper stays behind) and
 // lawloc-fix-no-import (a moved law loses its import).

@@ -19,6 +19,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
@@ -40,6 +41,7 @@ type Result struct {
 	Files    map[string]string
 	Deleted  []string
 	Moves    []Move
+	Helpers  []string // helpers moved beside a test or a type
 	Unplaced []string
 }
 
@@ -60,8 +62,8 @@ type fileEdit struct {
 }
 
 // Plan computes the edit of pkg, whose files are files (each with its Name
-// and Src). It reads only Law.Subjects, Law.Helpers and the package's
-// Info, so it works on a package whose only diagnostics are S115.
+// and Src). It reads only Law.Subjects, Law.FixSubjects, LawHelpers and the
+// package's Info, so it works on a package whose only diagnostics are S115.
 func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 	res := Result{Files: map[string]string{}}
 	edits := map[*syntax.File]*fileEdit{}
@@ -79,10 +81,21 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 			fileOf[d] = f
 		}
 	}
-	seq := 0
-	// after holds, by anchor declaration, the end of the text pasted after
-	// it so far: a second law of one anchor goes after the first.
-	pasted := map[syntax.Decl]bool{}
+	// after holds, by declaration, what goes right after it, in order: a
+	// moved law after its main subject, a helper after its first user.
+	after := map[syntax.Decl][]syntax.Decl{}
+	moving := map[syntax.Decl]bool{}
+	home := map[syntax.Decl]*syntax.File{} // where each moved law goes
+	byLaw := map[syntax.Decl]*Move{}
+	var moves []*Move
+	var order []syntax.Decl // the anchors, in the order they were first used
+	put := func(anchor, d syntax.Decl) {
+		if _, ok := after[anchor]; !ok {
+			order = append(order, anchor)
+		}
+		after[anchor] = append(after[anchor], d)
+		moving[d] = true
+	}
 	for _, law := range pkg.Laws {
 		if law.Owner != nil || law.Machine != nil || law.Decl.Derived != nil || law.Decl.Pair != nil {
 			continue
@@ -91,56 +104,76 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 		if from == nil {
 			continue
 		}
-		if len(law.Subjects) == 0 {
+		subjects := law.FixSubjects
+		if len(subjects) == 0 {
+			subjects = law.Subjects
+		}
+		if len(subjects) == 0 {
 			res.Unplaced = append(res.Unplaced, law.Name)
 			continue
 		}
-		to, anchor := law.Subjects[0].File, law.Subjects[0].Decl
-		for _, s := range law.Subjects {
-			if s.File == from {
-				to, anchor = from, nil
-				break
-			}
+		stays := false
+		for _, s := range subjects {
+			stays = stays || s.File == from
 		}
-		var block []syntax.Decl
-		if anchor != nil {
-			block = append(block, law.Decl)
-		}
-		var helpers []string
-		for _, h := range law.Helpers {
-			if fileOf[h] == to || pasted[h] {
-				continue
-			}
-			pasted[h] = true
-			block = append(block, h)
-			helpers = append(helpers, declName(h))
-		}
-		if len(block) == 0 {
+		mv := &Move{Law: law.Name, From: from.Name, To: from.Name}
+		byLaw[law.Decl] = mv
+		moves = append(moves, mv)
+		if stays {
 			continue
 		}
-		movesLaw := anchor != nil
-		if anchor == nil {
-			anchor = law.Decl // its helpers go after it
+		main := mainSubject(law.Name, subjects)
+		put(main.Decl, law.Decl)
+		home[law.Decl] = main.File
+		mv.To = main.File.Name
+	}
+	// A helper goes beside its first user, where that user ends up.
+	for _, h := range pkg.LawHelpers {
+		dest := fileOf[h.User]
+		if f, ok := home[h.User]; ok {
+			dest = f
 		}
-		at := lineEnd(to.Src, int(anchor.End()))
+		if dest == nil || dest == fileOf[h.Decl] {
+			continue
+		}
+		put(h.User, h.Decl)
+		if mv := byLaw[h.User]; mv != nil {
+			mv.Helpers = append(mv.Helpers, declName(h.Decl))
+		} else {
+			res.Helpers = append(res.Helpers, fmt.Sprintf("%s beside %s in %s", declName(h.Decl), declName(h.User), dest.Name))
+		}
+	}
+	for _, mv := range moves {
+		if mv.From != mv.To || len(mv.Helpers) > 0 {
+			res.Moves = append(res.Moves, *mv)
+		}
+	}
+	// Each anchor that stays gets its declarations, each followed by what
+	// goes after it, at any depth.
+	seq := 0
+	for _, anchor := range order {
+		if moving[anchor] {
+			continue
+		}
+		to := fileOf[anchor]
 		var text strings.Builder
-		for _, d := range block {
-			src := fileOf[d]
-			r := declSpan(src, d)
-			edit(src).cuts = append(edit(src).cuts, cutSpan(src.Src, r))
-			edit(src).moved[d] = true
-			edit(to).arrived = append(edit(to).arrived, d)
-			text.WriteString("\n")
-			text.WriteString(strings.TrimRight(src.Src[r.from:r.to], "\n"))
-			text.WriteString("\n")
+		var emit func(a syntax.Decl)
+		emit = func(a syntax.Decl) {
+			for _, d := range after[a] {
+				src := fileOf[d]
+				r := declSpan(src, d)
+				edit(src).cuts = append(edit(src).cuts, cutSpan(src.Src, r))
+				edit(src).moved[d] = true
+				edit(to).arrived = append(edit(to).arrived, d)
+				text.WriteString("\n")
+				text.WriteString(strings.TrimRight(src.Src[r.from:r.to], "\n"))
+				text.WriteString("\n")
+				emit(d)
+			}
 		}
-		edit(to).inserts = append(edit(to).inserts, insert{at: at, text: text.String(), seq: seq})
+		emit(anchor)
+		edit(to).inserts = append(edit(to).inserts, insert{at: lineEnd(to.Src, int(anchor.End())), text: text.String(), seq: seq})
 		seq++
-		mv := Move{Law: law.Name, From: from.Name, To: from.Name, Helpers: helpers}
-		if movesLaw {
-			mv.To = to.Name
-		}
-		res.Moves = append(res.Moves, mv)
 	}
 	if len(edits) == 0 {
 		return res, nil
@@ -168,13 +201,50 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 			if s, err := format.Source(out); err == nil {
 				out = s
 			} else {
-				return res, fmt.Errorf("%s: the moved text does not format: %v", f.Name, err)
+				return res, fmt.Errorf("%s: the moved text does not format: %v\n%s", f.Name, err, out)
 			}
 		}
 		res.Files[f.Name] = out
 	}
 	sort.Strings(res.Deleted)
 	return res, nil
+}
+
+// mainSubject is the subject a law is named for: of the subjects whose
+// name occurs in the law's name, the one that occurs first (the longer at
+// one place), so SortPermutes goes beside Sort and MaxIsLastSorted beside
+// Max; else its first subject.
+func mainSubject(name string, subjects []check.LawSubject) check.LawSubject {
+	best, at := subjects[0], -1
+	for _, s := range subjects {
+		i := wordAt(name, s.Name)
+		if i < 0 {
+			continue
+		}
+		if at < 0 || i < at || i == at && len(s.Name) > len(best.Name) {
+			best, at = s, i
+		}
+	}
+	return best
+}
+
+// wordAt is where word first occurs in name as whole words of its mixed
+// caps (Sort in SortOrders, not in Sorted), or -1. word starts upper case.
+func wordAt(name, word string) int {
+	if word == "" || !unicode.IsUpper(rune(word[0])) {
+		return -1
+	}
+	for from := 0; ; {
+		i := strings.Index(name[from:], word)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		if end := i + len(word); end == len(name) || unicode.IsUpper(rune(name[end])) {
+			return i
+		}
+		from = i + 1
+	}
 }
 
 func formatted(src string) bool {
@@ -197,7 +267,7 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 	}
 	var add []string
 	for _, d := range e.arrived {
-		for _, s := range usedImports(pkg, d) {
+		for _, s := range usedImports(pkg, d, fileOf[d]) {
 			t := specText(fileOf[d].Src, s)
 			if !have[t] {
 				have[t] = true
@@ -229,7 +299,7 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 	}
 	gone := map[*syntax.ImportSpec]bool{}
 	for d := range e.moved {
-		for _, s := range usedImports(pkg, d) {
+		for _, s := range usedImports(pkg, d, f) {
 			gone[s] = true
 		}
 	}
@@ -241,12 +311,12 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 		if _, ok := d.(*syntax.ImportDecl); ok || e.moved[d] {
 			continue
 		}
-		for _, s := range usedImports(pkg, d) {
+		for _, s := range usedImports(pkg, d, f) {
 			delete(gone, s)
 		}
 	}
 	for _, d := range e.arrived {
-		for _, s := range usedImports(pkg, d) {
+		for _, s := range usedImports(pkg, d, fileOf[d]) {
 			kept[specText(fileOf[d].Src, s)] = true
 		}
 	}
@@ -281,21 +351,38 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 	return nil
 }
 
-// usedImports lists the imports whose names d uses, in source order.
-func usedImports(pkg *check.Package, d syntax.Decl) []*syntax.ImportSpec {
-	var out []*syntax.ImportSpec
-	seen := map[*syntax.ImportSpec]bool{}
+// usedImports lists the imports of f whose names d uses, in f's order. A
+// use is the left of a dot, `p.X`, whose name resolves to no object of the
+// package (a package name in a type, say `world.World`, has no Uses entry)
+// or to the import's own name: so an import counts as used whenever d may
+// use it, and none is cut that d still needs.
+func usedImports(pkg *check.Package, d syntax.Decl, f *syntax.File) []*syntax.ImportSpec {
+	names := map[string]bool{}
 	syntax.Inspect(d, func(n syntax.Node) bool {
-		if id, ok := n.(*syntax.Ident); ok {
-			if p, ok := pkg.Info.Uses[id].(*check.PkgName); ok {
-				if s := p.Spec(); s != nil && !seen[s] {
-					seen[s] = true
-					out = append(out, s)
+		sel, ok := n.(*syntax.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := sel.X.(*syntax.Ident); ok {
+			switch pkg.Info.Uses[id].(type) {
+			case *check.PkgName, nil:
+				if pkg.Info.Defs[id] == nil {
+					names[id.Name] = true
 				}
 			}
 		}
 		return true
 	})
+	var out []*syntax.ImportSpec
+	for _, decl := range f.Decls {
+		if id, ok := decl.(*syntax.ImportDecl); ok {
+			for _, s := range id.Specs {
+				if names[check.ImportLocalName(s)] {
+					out = append(out, s)
+				}
+			}
+		}
+	}
 	return out
 }
 
@@ -326,6 +413,13 @@ func apply(src string, e *fileEdit) string {
 		ops = append(ops, op{at: c.from, to: c.to, seq: math.MaxInt})
 	}
 	for _, in := range e.inserts {
+		// An insert inside a cut (an import added after one that goes)
+		// lands where the cut starts.
+		for _, c := range merged {
+			if c.from < in.at && in.at < c.to {
+				in.at = c.from
+			}
+		}
 		ops = append(ops, op{at: in.at, to: in.at, text: in.text, seq: in.seq})
 	}
 	// From the end back; at one offset, a cut first, then a later insert
@@ -369,10 +463,15 @@ func cutSpan(src string, r span) span {
 	return r
 }
 
-// lineEnd is the offset after the newline that ends the line of at.
+// lineEnd is the offset after the newline that ends the line of at; at
+// itself when a newline ends just before it (an import's end may be after
+// its newline).
 func lineEnd(src string, at int) int {
 	if at > len(src) {
 		return len(src)
+	}
+	if at > 0 && src[at-1] == '\n' {
+		return at
 	}
 	i := strings.IndexByte(src[at:], '\n')
 	if i < 0 {
@@ -406,6 +505,8 @@ func declName(d syntax.Decl) string {
 	case *syntax.FuncDecl:
 		return d.Name.Name
 	case *syntax.ContextDecl:
+		return d.Name.Name
+	case *syntax.TypeDecl:
 		return d.Name.Name
 	case *syntax.VarDecl:
 		var names []string

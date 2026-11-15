@@ -5,9 +5,18 @@
       "name": "lawloc-fix-drops-helper",
       "origin": "wf10 LAWLOC",
       "file": "internal/sketch/lawfix/lawfix.go",
-      "from": "\t\t\tblock = append(block, h)\n",
-      "to": "\t\t\t_ = h\n",
+      "from": "\t\tput(h.User, h.Decl)\n",
+      "to": "\t\t_ = h\n",
       "rule": "ergo fix moves each helper that only laws use beside the first law that uses it.",
+      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+    },
+    {
+      "name": "lawloc-fix-first-subject",
+      "origin": "wf10 LAWLOC",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "main := mainSubject(law.Name, subjects)",
+      "to": "main := subjects[0]",
+      "rule": "A law named for one of its subjects (SortPermutes for Sort) goes beside that subject, not beside the first one it names.",
       "killers": ["lawfix:TestPlanPlacesEveryLaw"]
     },
     {

@@ -65,7 +65,8 @@ type checked struct {
 
 // Run fixes the law placement of every package Options names. Each
 // package is checked, its exported law helper candidates that no other
-// package names are unexported (Unexport) when that adds no diagnostic,
+// package names are unexported (Unexport) when that adds no diagnostic
+// (never in std, whose surface every program sees),
 // and its laws are moved (Plan).
 func Run(opts Options) (Report, error) {
 	var rep Report
@@ -117,7 +118,7 @@ func Run(opts Options) (Report, error) {
 				}
 				return checked{dir, pkg, files, n}, true, nil
 			}
-			if err := rep.fix(load, names, opts.Write); err != nil {
+			if err := rep.fix(load, names, opts.Write, false); err != nil {
 				return rep, err
 			}
 		}
@@ -148,21 +149,34 @@ func Run(opts Options) (Report, error) {
 			}
 			return checked{root, pkg, files, n}, true, nil
 		}
-		if err := rep.fix(load, names, opts.Write); err != nil {
+		if err := rep.fix(load, names, opts.Write, true); err != nil {
 			return rep, err
 		}
 	}
 	return rep, nil
 }
 
-// fix renames, then moves, in one package.
-func (r *Report) fix(load func() (checked, bool, error), names map[string]map[string]bool, write bool) error {
+// fix renames, then moves, in one package. Std never unexports: every
+// program may name its exported functions.
+func (r *Report) fix(load func() (checked, bool, error), names map[string]map[string]bool, write, unexport bool) error {
 	c, ok, err := load()
 	if err != nil || !ok {
 		return err
 	}
 	var cands []*syntax.FuncDecl
+	fileOf := map[syntax.Decl]string{}
+	for _, f := range c.files {
+		for _, d := range f.Decls {
+			fileOf[d] = f.Name
+		}
+	}
 	for _, d := range c.pkg.LawExportedHelpers {
+		// Only a laws file's exported helpers were written for its laws
+		// (laws.ergo, tree_laws.ergo); elsewhere a function only tests use
+		// is still the package's surface.
+		if !strings.Contains(strings.ToLower(filepath.Base(fileOf[d])), "law") {
+			continue
+		}
 		outside := false
 		for dir := range names[d.Name.Name] {
 			if dir != c.dir {
@@ -173,7 +187,7 @@ func (r *Report) fix(load func() (checked, bool, error), names map[string]map[st
 			cands = append(cands, d)
 		}
 	}
-	if len(cands) > 0 {
+	if len(cands) > 0 && unexport {
 		texts, renames := Unexport(c.pkg, c.files, cands)
 		if len(texts) > 0 {
 			if !write {
@@ -243,6 +257,9 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 			line += " with " + strings.Join(m.Helpers, ", ")
 		}
 		r.Moves = append(r.Moves, line)
+	}
+	for _, h := range res.Helpers {
+		r.Moves = append(r.Moves, fmt.Sprintf("moved %s (%s)", h, dir))
 	}
 	for _, u := range res.Unplaced {
 		r.Unplaced = append(r.Unplaced, fmt.Sprintf("law %s in %s names nothing in its package; state it in the package it is about", u, dir))

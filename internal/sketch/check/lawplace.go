@@ -2,7 +2,8 @@ package check
 
 import (
 	"fmt"
-	"slices"
+	"path"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -61,8 +62,20 @@ func (l *Law) File() *syntax.File {
 // their subjects (LAWLOC: the rule and ergo fix land first, the move next).
 const lawPlacementReported = false
 
-// Spec is the import that binds the name, or nil for one the checker made.
-func (p *PkgName) Spec() *syntax.ImportSpec { return p.spec }
+// ImportLocalName is the name an import binds: its alias, else its path's
+// default name (its last element, or a Go package's name).
+func ImportLocalName(spec *syntax.ImportSpec) string {
+	if spec.Name != nil {
+		return spec.Name.Name
+	}
+	path := spec.Path.Value
+	if spec.Path.Kind != syntax.PATH {
+		if p, err := strconv.Unquote(path); err == nil {
+			path = p
+		}
+	}
+	return importDefault(spec, path)
+}
 
 // lawDecls is the package's declaration graph at the level of top-level
 // declarations: who declares each object, which declarations each one
@@ -70,13 +83,19 @@ func (p *PkgName) Spec() *syntax.ImportSpec { return p.spec }
 type lawDecls struct {
 	decl map[Object]syntax.Decl
 	top  map[syntax.Node]syntax.Decl
-	// dotted holds each function x.f(…) reaches (196m, G-ex-e-2): an
-	// operation of its type, never a helper.
-	dotted map[syntax.Decl]bool
-	file   map[syntax.Decl]*fileInfo
-	refs   map[syntax.Decl][]lawRef
-	users  map[syntax.Decl][]syntax.Decl
-	order  []syntax.Decl
+	// dotted holds each function x.f(…) reaches (196m, G-ex-e-2); owner
+	// holds, for one whose type is declared in the package, that type's
+	// declaration, and methods the reverse. A dotted function is a helper
+	// only with its type.
+	dotted  map[syntax.Decl]bool
+	owner   map[syntax.Decl]syntax.Decl
+	methods map[syntax.Decl][]syntax.Decl
+	// memberLaws are the member laws of each type or machine declaration.
+	memberLaws map[syntax.Decl][]*syntax.LawDecl
+	file       map[syntax.Decl]*fileInfo
+	refs       map[syntax.Decl][]lawRef
+	users      map[syntax.Decl][]syntax.Decl
+	order      []syntax.Decl
 }
 
 type lawRef struct {
@@ -85,7 +104,7 @@ type lawRef struct {
 }
 
 func (c *checker) lawDeclGraph() *lawDecls {
-	g := &lawDecls{decl: map[Object]syntax.Decl{}, top: map[syntax.Node]syntax.Decl{}, dotted: map[syntax.Decl]bool{}, file: map[syntax.Decl]*fileInfo{}, refs: map[syntax.Decl][]lawRef{}, users: map[syntax.Decl][]syntax.Decl{}}
+	g := &lawDecls{decl: map[Object]syntax.Decl{}, top: map[syntax.Node]syntax.Decl{}, dotted: map[syntax.Decl]bool{}, owner: map[syntax.Decl]syntax.Decl{}, methods: map[syntax.Decl][]syntax.Decl{}, memberLaws: map[syntax.Decl][]*syntax.LawDecl{}, file: map[syntax.Decl]*fileInfo{}, refs: map[syntax.Decl][]lawRef{}, users: map[syntax.Decl][]syntax.Decl{}}
 	for _, fi := range c.files {
 		for _, d := range fi.syntax.Decls {
 			if _, ok := d.(*syntax.ImportDecl); ok {
@@ -112,17 +131,34 @@ func (c *checker) lawDeclGraph() *lawDecls {
 		}
 	}
 	for _, f := range c.pkg.Funcs {
-		if f.Decl != nil && (f.owner != nil || f.opOwner != nil) {
-			g.dotted[f.Decl] = true
+		if f.Decl == nil || (f.owner == nil && f.opOwner == nil) {
+			continue
+		}
+		g.dotted[f.Decl] = true
+		if f.owner == nil || f.owner.origin().Obj == nil || f.owner.origin().Obj.Decl == nil {
+			continue
+		}
+		if t, ok := g.top[f.owner.origin().Obj.Decl]; ok {
+			g.owner[f.Decl] = t
+			g.methods[t] = append(g.methods[t], f.Decl)
 		}
 	}
-	for _, d := range g.order {
+	var walk func(d syntax.Decl, root syntax.Node)
+	walk = func(d syntax.Decl, root syntax.Node) {
 		seen := map[syntax.Decl]bool{d: true}
-		syntax.Inspect(d, func(n syntax.Node) bool {
+		syntax.Inspect(root, func(n syntax.Node) bool {
 			// A name resolves through Uses; a method or operation called
 			// through a dot has no Uses entry, so its call names it.
 			var o Object
 			switch n := n.(type) {
+			case *syntax.LawDecl:
+				if n != root {
+					// A member law of a type or machine uses what it names
+					// as a law does, not as its type does.
+					g.memberLaws[d] = append(g.memberLaws[d], n)
+					walk(n, n)
+					return false
+				}
 			case *syntax.Ident:
 				o = c.pkg.Info.Uses[n]
 			case *syntax.CallExpr:
@@ -147,6 +183,16 @@ func (c *checker) lawDeclGraph() *lawDecls {
 			g.users[to] = append(g.users[to], d)
 			return true
 		})
+	}
+	for _, d := range g.order {
+		walk(d, d)
+	}
+	// A type names its methods: one that moves takes them, and what they
+	// name is what it names. They are no users of the type.
+	for _, d := range g.order {
+		for _, m := range g.methods[d] {
+			g.refs[d] = append(g.refs[d], lawRef{m, m.(*syntax.FuncDecl).Name.Name})
+		}
 	}
 	return g
 }
@@ -182,9 +228,24 @@ func (g *lawDecls) declOf(o Object) (syntax.Decl, bool) {
 // fix asks which ones it may unexport).
 func (g *lawDecls) helpers(exported bool) map[syntax.Decl]bool {
 	h := map[syntax.Decl]bool{}
+	// byOwner marks a dotted function admitted only as part of its type,
+	// whatever its name (it may provide an operation, which nothing names).
+	byOwner := map[syntax.Decl]bool{}
 	for _, d := range g.order {
-		if len(g.users[d]) > 0 && helperKind(d, exported) && !g.dotted[d] {
+		own := false
+		if t := g.owner[d]; t != nil {
+			f := d.(*syntax.FuncDecl)
+			own = f.Derived == nil && f.Extern == nil
+		}
+		// An exported dotted function is an operation of the package's
+		// surface: never a helper of the rule. ergo fix may still move one
+		// out of a file of laws (exported), but never unexports it.
+		named := len(g.users[d]) > 0 && helperKind(d, exported) && (exported || !(g.dotted[d] && isExported(declName(d))))
+		switch {
+		case named:
 			h[d] = true
+		case own:
+			h[d], byOwner[d] = true, true
 		}
 	}
 	for changed := true; changed; {
@@ -193,26 +254,52 @@ func (g *lawDecls) helpers(exported bool) map[syntax.Decl]bool {
 			if !h[d] {
 				continue
 			}
+			keep := true
+			if t := g.owner[d]; byOwner[d] && !h[t] {
+				keep = false
+			}
+			for _, m := range g.methods[d] {
+				if !h[m] {
+					keep = false
+				}
+			}
 			for _, u := range g.users[d] {
 				switch u.(type) {
 				case *syntax.LawDecl, *syntax.TestDecl:
 					continue
 				}
 				if !h[u] {
-					delete(h, d)
-					changed = true
-					break
+					keep = false
 				}
+			}
+			if !keep {
+				delete(h, d)
+				changed = true
 			}
 		}
 	}
 	return h
 }
 
+// declName is the name of a function, type or context declaration, or "".
+func declName(d syntax.Decl) string {
+	switch d := d.(type) {
+	case *syntax.FuncDecl:
+		return d.Name.Name
+	case *syntax.TypeDecl:
+		return d.Name.Name
+	case *syntax.ContextDecl:
+		return d.Name.Name
+	}
+	return ""
+}
+
 func helperKind(d syntax.Decl, exported bool) bool {
 	switch d := d.(type) {
 	case *syntax.FuncDecl:
-		return d.Recv == nil && d.Derived == nil && d.Name.Name != "main" && (exported || !isExported(d.Name.Name))
+		return d.Recv == nil && d.Derived == nil && d.Extern == nil && d.Name.Name != "main" && (exported || !isExported(d.Name.Name))
+	case *syntax.TypeDecl:
+		return d.Extern == nil && d.Origin == nil && d.Derive == nil && (exported || !isExported(d.Name.Name))
 	case *syntax.VarDecl:
 		for _, s := range d.Specs {
 			for _, n := range s.Names {
@@ -242,66 +329,80 @@ func (c *checker) checkLawPlacement() {
 	}
 	g := c.lawDeclGraph()
 	helper := g.helpers(false)
-	for d := range g.helpers(true) {
-		if f, ok := d.(*syntax.FuncDecl); ok && !helper[d] {
+	// ergo fix reads more helpers than the rule: in a file of laws (one
+	// named for them: laws.ergo, tree_laws.ergo), an exported declaration
+	// that only laws and tests use was written for them too. ergo fix
+	// unexports such a function when no other package names it, and moves
+	// each such declaration beside its first user, so no file of laws is
+	// left. Elsewhere such a declaration is the package's surface, even
+	// when only its tests use it.
+	all := g.helpers(true)
+	lawsFile := map[*fileInfo]bool{}
+	for _, fi := range c.files {
+		lawsFile[fi] = strings.Contains(strings.ToLower(path.Base(fi.syntax.Name)), "law")
+	}
+	fixHelper := map[syntax.Decl]bool{}
+	for _, d := range g.order {
+		if helper[d] || all[d] && lawsFile[g.file[d]] {
+			fixHelper[d] = true
+		}
+		if f, ok := d.(*syntax.FuncDecl); ok && fixHelper[d] && !helper[d] && g.owner[d] == nil && !g.dotted[d] {
 			c.pkg.LawExportedHelpers = append(c.pkg.LawExportedHelpers, f)
 		}
 	}
-	slices.SortFunc(c.pkg.LawExportedHelpers, func(a, b *syntax.FuncDecl) int { return strings.Compare(a.Name.Name, b.Name.Name) })
-	// Each helper's roots: the laws and tests that reach it through
-	// helpers, in package order. A helper moves with its first root when
-	// every root is a law.
-	roots := map[syntax.Decl][]syntax.Decl{}
+	// Each helper's first user: the first law or test, in package order,
+	// that reaches it through helpers (a member law stands at its type).
+	type user struct{ at, decl syntax.Decl }
+	var users []user
 	for _, d := range g.order {
 		switch d.(type) {
 		case *syntax.LawDecl, *syntax.TestDecl:
-		default:
-			continue
+			users = append(users, user{d, d})
 		}
+		for _, m := range g.memberLaws[d] {
+			users = append(users, user{d, m})
+		}
+	}
+	first := map[syntax.Decl]syntax.Decl{}
+	for _, u := range users {
 		seen := map[syntax.Decl]bool{}
 		var visit func(x syntax.Decl)
 		visit = func(x syntax.Decl) {
 			for _, r := range g.refs[x] {
-				if !helper[r.decl] || seen[r.decl] {
+				if !fixHelper[r.decl] || seen[r.decl] {
 					continue
 				}
 				seen[r.decl] = true
-				roots[r.decl] = append(roots[r.decl], d)
+				if _, ok := first[r.decl]; !ok {
+					first[r.decl] = u.at
+				}
 				visit(r.decl)
 			}
 		}
-		visit(d)
+		visit(u.decl)
+	}
+	for _, d := range g.order {
+		if u, ok := first[d]; ok {
+			c.pkg.LawHelpers = append(c.pkg.LawHelpers, LawHelper{Decl: d, User: u})
+		}
 	}
 	for _, law := range top {
 		law.Subjects = g.subjects(law.Decl, helper)
-		seen := map[syntax.Decl]bool{}
-		var visit func(x syntax.Decl)
-		visit = func(x syntax.Decl) {
-			for _, r := range g.refs[x] {
-				if !helper[r.decl] || seen[r.decl] {
-					continue
-				}
-				seen[r.decl] = true
-				if rs := roots[r.decl]; len(rs) > 0 && rs[0] == syntax.Decl(law.Decl) && onlyLaws(rs) {
-					law.Helpers = append(law.Helpers, r.decl)
-				}
-				visit(r.decl)
-			}
-		}
-		visit(law.Decl)
+		law.FixSubjects = g.subjects(law.Decl, fixHelper)
 		if lawPlacementReported {
 			c.reportLawPlacement(law)
 		}
 	}
 }
 
-func onlyLaws(ds []syntax.Decl) bool {
-	for _, d := range ds {
-		if _, ok := d.(*syntax.LawDecl); !ok {
-			return false
-		}
-	}
-	return true
+// LawHelper is a declaration ergo fix moves beside the first law or test
+// that uses it (Package.LawHelpers): a law helper, or an exported
+// declaration of a file of laws that only laws and tests use.
+type LawHelper struct {
+	Decl syntax.Decl
+	// User is the first law or test that reaches it, or the type or
+	// machine declaration of the first member law that does.
+	User syntax.Decl
 }
 
 // subjects lists d's subjects (rule 1, 2): the declarations d names that
