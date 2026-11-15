@@ -623,6 +623,8 @@ law VersionCountsCommits(signals []int) {
 
 // exitSeen is where the counter's exit actions write the state they got;
 // the action's row holds it, so StartMachine's row does (the machine's W).
+//
+// law-exempt: a recorder the exit laws' machine writes to; it has no rule of its own, and ExitSeesLastState and ExitRunsOncePerEntry state what it records.
 type exitSeen {
 	Left(s int),
 }
