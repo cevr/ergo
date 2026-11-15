@@ -1,0 +1,88 @@
+// Laws of the drivers on memory providers, beyond the four of
+// infra.Driver (which run for NewDirs, NewFiles and NewPrograms): what a
+// changed object becomes, and what a Delete leaves running.
+
+import github.com/cevr/ergo/modules/infra
+import exec
+import fs
+import fstest
+
+// server is a ProcessProps of the program the memory spawner knows.
+func server(args string, port int) ProcessProps {
+	ProcessProps{Program: "server", Args: args, Env: "", Dir: "", Port: port, Health: "/healthz"}
+}
+
+// programs is a driver over a new memory spawner, which the caller keeps,
+// whose health check is ready.
+func programs(spawner exec.Processes, ready escaping func(url string) bool) Programs {
+	let m = fstest.NewMemory()
+	ProgramsOn(m, m, spawner, ready, "/work", "/state", 0s)
+}
+
+// ChangedFileHoldsTheNewText: an Apply of a file whose text changed writes
+// the new text over the old.
+law ChangedFileHoldsTheNewText(first string, second string) {
+	let m = fstest.NewMemory()
+	let f = FilesOn(m, m, "/work", "/state")
+	try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: first, Mode: fs.Shared()})
+	let file = try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: second, Mode: fs.Shared()})
+	let text = try m.ReadFile(file.Path)
+	text == second
+}
+
+// DeleteEndsTheProgram: after a Delete, the program that Apply started no
+// longer runs.
+law DeleteEndsTheProgram(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Up)
+	try pr.Apply("api", server(args, port))
+	let running = match try pr.Find("api") {
+	case None:
+		return false
+	case Some[Running] as r:
+		r.Value
+	}
+	try pr.Delete("api")
+	!spawner.Alive(running.Detached)
+}
+
+// SecondApplyKeepsTheProgram: an Apply of the props a program runs with
+// keeps that program, so a run that resumes starts nothing twice.
+law SecondApplyKeepsTheProgram(args string, port int) {
+	let pr = programs(exec.NewProcesses([]string{"server"}), Up)
+	try pr.Apply("api", server(args, port))
+	let first = try pr.Find("api")
+	try pr.Apply("api", server(args, port))
+	let again = try pr.Find("api")
+	first != None && again == first
+}
+
+// ChangedProgramRestarts: an Apply of changed props ends the old program
+// and starts the new one.
+law ChangedProgramRestarts(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Up)
+	try pr.Apply("api", server(args, port))
+	let old = match try pr.Find("api") {
+	case None:
+		return false
+	case Some[Running] as r:
+		r.Value
+	}
+	let now = try pr.Apply("api", server(args, port+1))
+	let read = try pr.Read("api")
+	!spawner.Alive(old.Detached) && read == Some[Process]{Value: now}
+}
+
+// UnansweredLeavesNothing: a program that does not answer its health check
+// fails the Apply, and is ended and forgotten.
+law UnansweredLeavesNothing(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Down)
+	pr.Apply("api", server(args, port)) catch {
+	case infra.Failed:
+		let left = try pr.Find("api")
+		return left == None && !spawner.Alive(exec.Detached{Pid: 1, Start: 1, Name: "server"})
+	}
+	false
+}
