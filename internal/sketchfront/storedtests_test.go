@@ -14,16 +14,19 @@ import (
 
 // TestStoredVerdictsAgree is FT2's model (TESTSPEED plan §6 row 3): for a
 // seeded program and a seeded sequence of edits (a callee's body, a
-// caller's body, a test's body, a comment, the seed), `ergo test`'s tier 1
-// with the verdict store gives the output and exit status of a run that
-// evaluates every obligation (no store), once the marks are cut. After an
-// edit that changes no token (a comment), every passed obligation is read
-// from the store and only the failed ones run again. A failing seed
-// prints its steps and both answers; replay with ERGO_STORED_SEED=N.
+// caller's body, a test's body, a comment, the seed, the compiler),
+// `ergo test`'s tier 1 with the verdict store gives the output and exit
+// status of a run that evaluates every obligation (no store), once the
+// marks are cut. After an edit that changes no token (a comment), every
+// passed obligation is read from the store and only the failed ones run
+// again; after a compiler edit (another compiler identity over the same
+// store root), none is read. A failing seed prints its steps and both
+// answers; replay with ERGO_STORED_SEED=N.
 //
-// It runs in process: the store is in memory and the evaluator needs no
-// build. Mutants only it kills (testdata/mutants.json):
-// ft-reach-drops-callee, ft-key-omits-seed and ft-comment-edit-reruns.
+// It runs in process: the store is a temporary directory and the
+// evaluator needs no build. Mutants only it kills (testdata/mutants.json):
+// ft-reach-drops-callee, ft-key-omits-seed, ft-test-verdict-never-stored,
+// ft-stored-law-form-dropped and ft-key-omits-compiler.
 func TestStoredVerdictsAgree(t *testing.T) {
 	first, last := uint64(1), uint64(6)
 	if s := os.Getenv("ERGO_STORED_SEED"); s != "" {
@@ -37,12 +40,15 @@ func TestStoredVerdictsAgree(t *testing.T) {
 	for seed := first; seed <= last; seed++ {
 		r := rand.New(rand.NewPCG(seed, 0xf72))
 		p := storedProgram{k0: r.IntN(5), k1: 1 + r.IntN(3), e0: r.IntN(5), v: r.IntN(256) - 128, seed: 1 + uint64(r.IntN(3))}
-		store := lawcache.Memory("process:stored-test")
+		// On disk, so a compiler edit finds the old compiler's files.
+		root, compilers := t.TempDir(), 0
+		compiler := func() string { return fmt.Sprintf("sha256:stored-test-%d-%d", seed, compilers) }
+		store := lawcache.Open(root, compiler())
 		var steps []string
 		for step := 0; step < 14; step++ {
 			edit := "start"
 			if step > 0 {
-				switch r.IntN(5) {
+				switch r.IntN(6) {
 				case 0:
 					p.k0, edit = r.IntN(5), "the callee's body"
 				case 1:
@@ -51,8 +57,13 @@ func TestStoredVerdictsAgree(t *testing.T) {
 					p.e0, edit = r.IntN(5), "a test's body"
 				case 3:
 					p.comments, edit = p.comments+1, "a comment"
-				default:
+				case 4:
 					p.seed, edit = 1+uint64(r.IntN(3)), "the seed"
+				default:
+					// Another ergo (its lowering, evaluator, std or runtime):
+					// no verdict of the old one is read.
+					compilers++
+					store, edit = lawcache.Open(root, compiler()), "the compiler"
 				}
 			}
 			steps = append(steps, edit)
@@ -68,6 +79,12 @@ func TestStoredVerdictsAgree(t *testing.T) {
 			}
 			if gotOK != wantOK || cut(got.Stdout) != cut(want.Stdout) || got.Exit != want.Exit || got.Stderr != want.Stderr {
 				t.Fatalf("seed %d: the stored answer is not a full evaluation's after %v\nsource:\n%s\nstored (ok %v, exit %d):\n%s\nfull (ok %v, exit %d):\n%s\nreplay: ERGO_STORED_SEED=%d go test -run '^TestStoredVerdictsAgree$' ./internal/sketchfront", seed, steps, src, gotOK, got.Exit, got.Stdout, wantOK, want.Exit, want.Stdout, seed)
+			}
+			if edit == "the compiler" {
+				if got.Stored != 0 {
+					t.Fatalf("seed %d: after %v (another compiler) %d verdicts were read from the old compiler's store\n%s", seed, steps, got.Stored, got.Stdout)
+				}
+				reached["compiler"] = true
 			}
 			if got.Stored > 0 {
 				reached["stored"] = true
@@ -90,7 +107,7 @@ func TestStoredVerdictsAgree(t *testing.T) {
 		}
 	}
 	if first != last {
-		for _, k := range []string{"stored", "failed", "comment"} {
+		for _, k := range []string{"stored", "failed", "comment", "compiler"} {
 			if !reached[k] {
 				t.Fatalf("the seeds never reached a %s answer (reached %v)", k, reached)
 			}
@@ -151,5 +168,30 @@ func TestRouteNoteSkipsEvaluation(t *testing.T) {
 	}
 	if steps, routed, ok := answer(spin(3000000)); ok || steps == 0 || routed != 0 {
 		t.Fatalf("after an edit of the test: steps %d, routed %d, ok %v; want the evaluator to try again", steps, routed, ok)
+	}
+}
+
+// TestNativeVerdictsKeyTheToolchain is the bug the orchestrator asked
+// about (FT2 r1): a law verdict the test binary wrote depends on the Go
+// toolchain that linked it, so the build of another toolchain, and the
+// evaluator, must not read it; the same toolchain does.
+//
+// Mutant only it kills (testdata/mutants.json):
+// ft-native-key-omits-toolchain.
+func TestNativeVerdictsKeyTheToolchain(t *testing.T) {
+	a := Check("func base(n int) int { n + 1 }\n\nlaw Shifts(n int) { base(n) - n == base(0) }\n")
+	if len(a.Diagnostics) > 0 {
+		t.Fatal(a.Diagnostics)
+	}
+	store := lawcache.Memory("process:toolchain-test")
+	a.TestVerdicts(store, 1, 0, "go A").Record("ok law Shifts (100 cases)\nPASS (1 tests)\n")
+	if a.TestVerdicts(store, 1, 0, "go A").CachedFile() == "" {
+		t.Fatal("the toolchain that stored the verdict does not read it")
+	}
+	if text := a.TestVerdicts(store, 1, 0, "go B").CachedFile(); text != "" {
+		t.Fatalf("another toolchain read the verdict: %q", text)
+	}
+	if got, ok := a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", store); !ok || got.Stored != 0 {
+		t.Fatalf("the evaluator read a verdict the test binary wrote (ok %v, stored %d):\n%s", ok, got.Stored, got.Stdout)
 	}
 }
