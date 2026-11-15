@@ -59,6 +59,30 @@ The runner shrinks a failing case before it reports it: it replays the case with
 
 Integers shrink by their value, not by the generator's choice of small values or edges: the runner records a sign and magnitude after narrowing to the integer's width. It searches toward zero, then checks adjacent values, and revisits every component of a composite value until no pass improves it. Thus a monotone integer predicate such as `n < 5` shrinks to its boundary, `5`, when the replay budget is enough. The budget is 500 replays per failed case; reaching that limit can leave a non-minimal case. Arbitrary predicates have no global-minimum guarantee.
 
+### Two tiers: the evaluator and the test binary
+
+`ergo test PKG` first asks the check-time evaluator (the one `ergo check`
+runs, `internal/sketch/eval`). When it decides every test and law run of
+the package, `ergo test` prints the native test binary's output from it,
+line for line, with ` (evaluated)` after each verdict line, and exits with
+the binary's status (and its `error: K of N tests failed` line). Nothing
+is lowered, built or run. A passing run writes the law ledger as a native
+one does. Both tiers draw a property's or a law's cases from the same
+`--seed`, so a failure names the same case, shrunk the same way.
+
+The test binary answers the whole package (tier 2) when the evaluator
+leaves any obligation undecided: a run that outgrows its budget of steps,
+a skip line or a provider note, a defect (the binary stops at one), a
+machine's reachability law, a failure the evaluator does not write in the
+binary's words, or a host it does not have. `--native` always runs the
+binary; the gate and CI use it. So do `--receipt`, `--explore`, a
+schedule search and the selections `--law`, `--skip-law` and `--run`.
+`ergo test DIR/...` still runs the module's one test binary (TEST-one).
+`TestTiersAgree` (internal/sketch/eval) holds `ergo test` to
+`ergo test --native`: the same output but the marks, the same exit status
+and error line. The stage report counts `obligations_evaluated` and
+`eval_steps`.
+
 ### A module of packages
 
 From a directory in a module, run `ergo test ./...` to select every package
