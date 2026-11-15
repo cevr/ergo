@@ -23,6 +23,19 @@ test CommandsRunInTheFolder {
 	}
 }
 
+// A program that computes a path of its own outside the folder (here its
+// parent, which exec's path check never sees) cannot write it: on Linux
+// the command runs in the folder's sandbox, where the folder is the only
+// writable path (rows.md, Test's ambient 5; TH1b). Other hosts have the
+// path check only, so the script writes outside only on Linux.
+test AProgramWritesOnlyInTheFolder {
+	with onHost {
+		let script = "[ \"$(uname)\" = Linux ] && echo x > \"$(dirname \"$PWD\")/escape\" 2>/dev/null && echo escaped; echo y > kept && echo kept"
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", script}))
+		assert r.Stdout == "kept\n"
+	}
+}
+
 // run runs a git command in the folder and gives its status.
 func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
 	try exec.Runner.Run(exec.New("git", args)).Status
