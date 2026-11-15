@@ -1565,6 +1565,18 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+// PlainCrashSaysWhatItKnows (FK13-g1): the plain crash view names the
+// defect's reason, and of the signal says only what the session knows: a
+// crash after the window's signal may be a timer's or a work's around it,
+// and one with no signal is a timer's or a work's.
+law PlainCrashSaysWhatItKnows(reason string, e int) {
+	let mut f = NewFrame[int]()
+	let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}})
+	let mut g = NewFrame[int]()
+	let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None})
+	writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)")
+}
+
 // sameCrash is whether got is the model's crash want, whose defect's
 // Reason is the end of got's: the runtime's text starts with the
 // Unreachable's position.

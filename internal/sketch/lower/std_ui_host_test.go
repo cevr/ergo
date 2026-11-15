@@ -2168,6 +2168,14 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func lawPlainCrashSaysWhatItKnows(reason string, e int) bool {
+	let mut f = ui.NewFrame[int]()
+	let sent = ui.Render(&f, ui.PlainCrash[int, int, Boom], ui.Crash[int, int, Boom]{Cause: ui.DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}})
+	let mut g = ui.NewFrame[int]()
+	let none = ui.Render(&g, ui.PlainCrash[int, int, Boom], ui.Crash[int, int, Boom]{Cause: ui.FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None})
+	writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)")
+}
+
 func sameCrash(got Option[ui.Crash[int, int, Boom]], want Option[ui.Crash[int, int, Boom]]) bool {
 	match (got, want) {
 	case (Some[ui.Crash[int, int, Boom]] as g, Some[ui.Crash[int, int, Boom]] as w):
@@ -3834,6 +3842,10 @@ test UiCrashShowsTheCrashView(seed int, steps int) {
 	assert lawCrashShowsTheCrashView(seed, steps)
 }
 
+test UiPlainCrashSaysWhatItKnows(reason string, e int) {
+	assert lawPlainCrashSaysWhatItKnows(reason, e)
+}
+
 test UiReloadIsInitial(seed int, defect bool) {
 	assert lawReloadIsInitial(seed, defect)
 }
@@ -3955,6 +3967,7 @@ var stdUIHostStatements = map[string]string{
 	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
 	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
 	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
+	"ui PlainCrashSaysWhatItKnows":     `PlainCrashSaysWhatItKnows(reason string, e int) { let mut f = NewFrame[int]() let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}}) let mut g = NewFrame[int]() let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None}) writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)") }`,
 	"ui ReloadIsInitial":               `ReloadIsInitial(seed int, defect bool) { let m = time.NewManual(0) with context { Scheduler: m } { reloadInitial(seed, defect, m) } }`,
 	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
 	"ui StatsCountEveryPhase":          `StatsCountEveryPhase(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { statsFollow(seed, steps) } }`,

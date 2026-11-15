@@ -25,10 +25,12 @@ type CrashCause[F] = DefectCrash | FailureCrash[F]
 
 // Crash is how an app's actor crashed (FK13-g1): its Cause, the State it
 // crashed in (its last committed state, the one the crashing step began
-// from), and the Signal of the session's that it crashed on: Some when
-// the actor ended on the signal the session had just sent it (its step's
-// defect or failure), None when it ended by its timer or its work, which
-// no signal of the session's caused.
+// from), and the Signal of the session's that it crashed around: Some
+// when the actor ended once the session had sent it that signal, which is
+// most likely the step's defect or failure on it but may be a defect of
+// its timer or its work in the same moment (the session cannot tell them
+// apart without a store per step); None when it ended with no signal of
+// the session's in flight, by its timer or its work.
 type Crash[S, E, F] { Cause CrashCause[F], State S, Signal Option[E] }
 
 // Crashes is what an app shows and does when it crashes: View is its
@@ -50,12 +52,13 @@ func PlainCrash[S, E, F](f *Frame[E], c Crash[S, E, F]) {
 	Text(f, signalLine(c))
 }
 
-// signalLine says what c crashed on: the window's signal, or none (a
+// signalLine says what c crashed around, no more than the session knows:
+// the window's last signal, or a timer or a work around it; or none (a
 // timer or a work, which no signal of the window's caused).
 func signalLine[S, E, F](c Crash[S, E, F]) string {
 	match c.Signal {
 	case Some[E]:
-		"signal: the last one the window sent"
+		"signal: the last one the window sent (or a timer or work around it)"
 	case None:
 		"signal: none (timer or work)"
 	}
