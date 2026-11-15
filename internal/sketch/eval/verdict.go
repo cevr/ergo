@@ -26,8 +26,9 @@ const (
 // the law's file).
 //
 // ok is false when the evaluator cannot write the native line: r is
-// skipped, incomplete or not run, its report is one the evaluator does not
-// write (Message is empty), or it is a machine law. That obligation's
+// skipped, incomplete, not run or a defect (the native run stops at a
+// defect, and the runtime reports its reasons), its report is one the
+// evaluator does not write (Message is empty), or it is a machine law. That obligation's
 // verdict is the native runner's (tier 2).
 func VerdictLine(r Result, source string) (line string, ok bool) {
 	if r.Machine != nil || r.form == formNone {
@@ -44,8 +45,10 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 			return "ok " + r.Name + " (" + strconv.Itoa(r.Cases) + " cases)", true
 		}
 		return "", false
-	case Refuted, Defect:
+	case Refuted:
 	default:
+		// A defect stops the native run: the obligations after it print
+		// nothing, and the runtime reports its reasons. Tier 2 answers it.
 		return "", false
 	}
 	if r.Message == "" {
@@ -63,17 +66,17 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 	case formDrawn:
 		b.WriteString(" (case " + strconv.Itoa(r.Case) + " of " + strconv.Itoa(r.TotalCases) + ", seed " + strconv.FormatUint(r.Seed, 10) + ", size " + strconv.Itoa(r.Case/4))
 		writeArguments(&b, r.Arguments)
-		if r.Drawn != nil && r.Status == Refuted {
+		if r.Drawn != nil {
 			b.WriteString("; shrunk from")
 			writeArguments(&b, r.Drawn)
 		}
-		if source != "" && !law && r.Status == Refuted {
+		if source != "" && !law {
 			b.WriteString("; replay: ergo test " + source + " --seed " + strconv.FormatUint(r.Seed, 10))
 		}
 		b.WriteString(")")
 	}
 	b.WriteString(": " + r.Message)
-	if law && r.Status == Refuted {
+	if law {
 		file := source
 		if file == "" {
 			file = nativeSite(r.Site)
@@ -85,6 +88,42 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 		}
 	}
 	return b.String(), true
+}
+
+// Summary is the native test run of a package whose results are rep's
+// Results, in the order the native runner prints them (Report.Results is:
+// the tests in source order, then each law run, a law's bindings and
+// contexts in order): its standard output, line by line (each verdict
+// line, then "PASS (n tests)" or "FAIL (k of n tests)"), the line its
+// runtime writes to standard error ("error: k of n tests failed", "" on a
+// pass) and its exit status (1 when a test failed, else 0), byte for byte
+// (TESTSPEED FT1).
+//
+// ok is false unless the evaluator decides every result (VerdictLine): a
+// package with a skipped, incomplete, defective or machine-law obligation,
+// or with none at all, is the native runner's whole. Filters (--run,
+// --law, --skip-law) are the native runner's too.
+func Summary(results []Result, source string) (stdout []string, stderr string, exit int, ok bool) {
+	if len(results) == 0 {
+		return nil, "", 0, false
+	}
+	failed := 0
+	for _, r := range results {
+		line, decided := VerdictLine(r, source)
+		if !decided {
+			return nil, "", 0, false
+		}
+		stdout = append(stdout, line)
+		if r.Status != Passed {
+			failed++
+		}
+	}
+	n := strconv.Itoa(len(results))
+	if failed > 0 {
+		k := strconv.Itoa(failed)
+		return append(stdout, "FAIL ("+k+" of "+n+" tests)"), "error: " + k + " of " + n + " tests failed", 1, true
+	}
+	return append(stdout, "PASS ("+n+" tests)"), "", 0, true
 }
 
 // writeArguments writes ": a = 1, b = 2", nothing for no arguments.
