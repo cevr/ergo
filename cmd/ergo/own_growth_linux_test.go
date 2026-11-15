@@ -33,7 +33,14 @@ import (
 //   - testdata/ownvt, lane G's DT1 repro (examples/vt) on 3n bytes: a
 //     []Event threaded through a per-byte step, ev = p.step(b, ev), whose
 //     step owns its parameter (V5), so neither side copies the list (main
-//     e02194103 cloned it at both).
+//     e02194103 cloned it at both);
+//   - testdata/ownshrink, the self-layout plan's SL3 (the tree builder of
+//     toktree-ergo-naive) on n groups: a scratch stack cut back to a mark,
+//     stack = stack[0:mark], then appended to (own-reslice), which main
+//     e02194103 cloned at each cut.
+//
+// SL3's mutant mapcopy-sl3-reslice-never (own-reslice never taken) is
+// caught here as a growth and in TestHandoverAgrees by trim's copy.
 //
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
@@ -69,7 +76,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	if cli == "" {
 		cli = buildTestCLI(t)
 	}
-	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt")
+	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownshrink")
 	dir := t.TempDir()
 	type program struct {
 		name string
@@ -100,6 +107,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			return exec.Command(bin, strconv.Itoa(n), strconv.Itoa(20*n)), ""
 		}},
 		{"ownvt", filepath.Join(ws, "cmd", "ergo", "testdata", "ownvt", "vt.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, strconv.Itoa(n)), ""
+		}},
+		{"ownshrink", filepath.Join(ws, "cmd", "ergo", "testdata", "ownshrink", "shrink.ergo"), 10000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}},
 	}

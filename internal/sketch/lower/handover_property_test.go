@@ -22,7 +22,12 @@ import (
 //   - doc = slices.Concat(doc, x.Items) on a let mut root, and Concat on a
 //     dead local and on a live let (own-consume, and its refusal);
 //   - writes of an element of a let mut root that took a pushed value, so
-//     a root that shared a one-extender array shows it.
+//     a root that shared a one-extender array shows it;
+//   - shrinks (SL3, own-reslice): the root cut from both ends then grown
+//     and written; a let that keeps a window of the root while the root
+//     is cut back to the window's start and grows, so an Append in place
+//     would write the window's first row; and a let mut local taken from
+//     a live let, cut from both ends, grown and written.
 //
 // The generator is also the model: it runs each statement on Go values
 // with value semantics (every bind copies) and computes the line the
@@ -111,10 +116,19 @@ func (g *handoverGen) stmt() {
 		// the root's array, live across the root's later reslices and
 		// Appends (SL3: an Append after a shrink must not write a row the
 		// window shows).
+		// The toktree shape: the root is cut back to the window's start
+		// and grows, so an Append in place writes the window's first row.
 		g.reached["let keeps a window of the root"] = true
-		b := g.r.IntN(len(g.m.items) + 1)
-		a := g.r.IntN(b + 1)
+		for len(g.m.items) < 2 {
+			g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+			g.m.items = append(append([]int(nil), g.m.items...), v)
+		}
+		b := 1 + g.r.IntN(len(g.m.items))
+		a := g.r.IntN(b)
 		g.bind(fmt.Sprintf("Bag{Items: m.Items[%d:%d], N: 0}", a, b), hbag{items: g.m.items[a:b]})
+		g.line(fmt.Sprintf("m.Items = m.Items[0:%d]", a))
+		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v+2))
+		g.m.items = append(append([]int(nil), g.m.items[:a]...), v+2)
 	case 22:
 		// The toktree shape on a let mut local taken from a live let:
 		// the local shrinks from both ends, then grows and is written,
