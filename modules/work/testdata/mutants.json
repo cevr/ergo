@@ -180,9 +180,9 @@
     {
       "name": "ws1-start-no-guard", "origin": "wf10/semws WS1",
       "file": "modules/work/git/git.ergo",
-      "from": "\t\tlet _ = try writes(v, root, []string{\"config\", \"remote.origin.pushurl\", Guard})\n",
-      "to": "",
-      "rule": "new stops pushes to origin as lane-rift.sh does: the new-from case prints the push URL.",
+      "from": "\t\tlet _ = try writes(v, root, []string{\"config\", \"remote.\\(name).pushurl\", Guard})\n",
+      "to": "\t\tlet _ = name\n",
+      "rule": "new stops pushes to every remote as lane-rift.sh does: the new-from case prints the push URL.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
@@ -700,8 +700,8 @@
     {
       "name": "ws9a-idle-abandons", "origin": "wf10/semws WS9a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet why = try rmOnce(t, c, w, false)\n",
-      "to": "\tlet why = try rmOnce(t, c, w, true)\n",
+      "from": "\tlet why = try rmOnce(t, c, w, false, until)\n",
+      "to": "\tlet why = try rmOnce(t, c, w, true, until)\n",
       "rule": "gc -idle never abandons work: an idle workspace whose work is not held stays (memory's ToolAgreesWithTheReference: removed with no abandon).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -884,7 +884,7 @@
     {
       "name": "wg6-archive-not-kept", "origin": "wf10/semws WG6a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet kept = try keepWork(t, w)\n",
+      "from": "\tlet kept = keepWork(t, w) catch {\n\tcase VcsFailed as e:\n\t\treturn (\"NotKept\", \"\", e.Reason)\n\t}\n",
       "to": "\tlet kept = \"\"\n",
       "rule": "gc -archive removes an unheld idle workspace only after its work is kept (memory's ArchiveKeepsTheWork).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -892,8 +892,8 @@
     {
       "name": "wg6-archive-in-parent", "origin": "wf10/semws WG6a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tt.vcs.Push(w.Path, t.base, []Pushed{",
-      "to": "\tt.vcs.Push(w.Path, w.Parent, []Pushed{",
+      "from": "\tt.vcs.Push(w.Path, t.base, pushes) catch {",
+      "to": "\tt.vcs.Push(w.Path, w.Parent, pushes) catch {",
       "rule": "gc -archive keeps the work in the base: a parent workspace removed next would take it (memory's ArchiveKeepsTheWork).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1320,6 +1320,158 @@
       "to": "\t\tif i > 0 && (a == \"--json\" || a == \"-json\") && false {\n",
       "rule": "--json after the command is read as before it (the list-json-after case).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "t1-btrfs-plain-copy", "origin": "wf10/semws verify r1 T1",
+      "file": "modules/work/btrfs/btrfs.ergo",
+      "from": "system.Run(c.trees, \"btrfs\", \"btrfs\", []string{\"subvolume\", \"snapshot\", from, to})",
+      "to": "system.Run(c.trees, \"btrfs\", \"cp\", []string{\"-a\", \"--reflink=never\", \"--\", from, to})",
+      "rule": "btrfs snapshots a subvolume that shares every block: on btrfs a plain copy holds blocks of its own, elsewhere it is not Unsupported (btrfs's SnapshotsARealSubvolume).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "t1-reflink-plain-copy", "origin": "wf10/semws verify r1 T1",
+      "file": "modules/work/reflink/reflink.ergo",
+      "from": "\"--reflink=always\"",
+      "to": "\"--reflink=never\"",
+      "rule": "reflink clones every block: a plain copy holds blocks of its own on btrfs, and is not Unsupported elsewhere (reflink's ReflinksARealTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "t1-clonefile-plain-copy", "origin": "wf10/semws darwin JOB 1 F1/F2",
+      "file": "modules/work/clonefile/clonefile.ergo",
+      "from": "[]string{\"-c\", \"-pPR\", from, to}",
+      "to": "[]string{\"-pPR\", from, to}",
+      "rule": "clonefile clones on APFS and is Unsupported elsewhere: a plain copy succeeds off APFS (clonefile's ClonesARealTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m1-idle-ignores-pin", "origin": "wf10/semws darwin JOB 1 G1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif w.Pinned {\n",
+      "to": "\t\tif false {\n",
+      "rule": "gc -idle never takes a pinned workspace (memory's PinKeepsAWorkspace).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m1-idle-ignores-use", "origin": "wf10/semws verify r1 M1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif use != \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "gc -idle never takes a workspace in use or one it cannot judge (memory's InUseKeepsAWorkspace).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m1-idle-window-from-record", "origin": "wf10/semws verify r1 M1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "inUse(t, w.Path, at-window)",
+      "to": "inUse(t, w.Path, w.Since+(window-window))",
+      "rule": "The idle window is the last window on work's clock, not the time of the record (the gc-idle-window case: files changed after the record, before the window, do not keep a workspace).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "m1-trash-purged-at-once", "origin": "wf10/semws verify r1 M1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "if old && at >= w.Until && w.Moving",
+      "to": "if old && w.Moving",
+      "rule": "The trash gc -idle makes waits IdleTrash before any gc purges it (memory's IdleTrashWaitsADay).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m1-archive-skips-unheld", "origin": "wf10/semws verify r1 M1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tpushes = pushes.Append(Pushed{From: l.Commit, To: to, Force: false})\n",
+      "to": "\t\tpushes = slices.Concat(pushes, []Pushed{})\n\t\tlet _ = to\n",
+      "rule": "gc -idle -archive keeps every branch and stash entry the base does not hold (memory's ArchiveKeepsTheWork).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "b1-kept-skips-unheld", "origin": "wf10/semws verify r1 B1",
+      "file": "modules/work/work/vcs.ergo",
+      "from": "\tif len(try Unheld(root, parent)) > 0 {\n",
+      "to": "\tif false {\n",
+      "rule": "rm of a clean workspace refuses while another branch or a stash holds work only it has (memory's RmKeepsEveryBranch).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g3-held-ignores-remote", "origin": "wf10/semws darwin JOB 1 G3",
+      "file": "modules/work/work/vcs.ergo",
+      "from": "try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)",
+      "to": "try Vcs.Holds(parent, commit)",
+      "rule": "A commit a remote-tracking ref holds is not lost (git's LocalsRemotesAndGuards; memory's RmKeepsEveryBranch).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "b4-no-push-guard", "origin": "wf10/semws verify r1 B4",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif c.Push != \"origin\" {\n\t\ttry t.vcs.GuardPushes(path)\n",
+      "to": "\tif c.Push != \"origin\" && false {\n\t\ttry t.vcs.GuardPushes(path)\n",
+      "rule": "Every workspace, made or adopted, pushes nowhere unless work.toml says push = \"origin\" (the adopt case; memory's laws).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "b4-guard-origin-only", "origin": "wf10/semws verify r1 B4",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tfor name in exec.Split(try answer(v, root, []string{\"remote\"})) {\n",
+      "to": "\tfor name in []string{\"origin\"} {\n",
+      "rule": "The push guard covers every remote (git's LocalsRemotesAndGuards).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g4-init-no-exclude", "origin": "wf10/semws darwin JOB 1 G4",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif !tracked {\n\t\tt.vcs.Exclude",
+      "to": "\tif !tracked && false {\n\t\tt.vcs.Exclude",
+      "rule": "init keeps an untracked work.toml out of the base's status (memory's InitExcludesAnUntrackedConfig).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g7-lock-of-the-clone", "origin": "wf10/semws darwin JOB 1 G7",
+      "file": "modules/work/work/new.ergo",
+      "from": "lockDigest(t, m.Parent, m.Config)",
+      "to": "lockDigest(t, m.Path, m.Config)",
+      "rule": "new records the parent's lock as installed, so a branch whose lock differs installs (the new-branch-lock case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "m1-stamp-unpadded", "origin": "wf10/semws verify r1 M1",
+      "file": "modules/work/work/activity.ergo",
+      "from": "\tfor len(s) < width {\n",
+      "to": "\tfor false {\n",
+      "rule": "The stamp is touch -t's fixed-width form (row StampIsUTC).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g5-no-mac-registry", "origin": "wf10/semws darwin JOB 1 G5",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\tif exists(t, mac) { mac } else { own }\n",
+      "to": "\tif exists(t, mac) && false { mac } else { own }\n",
+      "rule": "Rift's registry is found at its macOS default (RiftRegistryOnAMac).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g6-no-base-from-copy", "origin": "wf10/semws darwin JOB 1 G6",
+      "file": "modules/work/journal/holding.ergo",
+      "from": "\t\tif base == \"\" || filepath.Clean(base) == folder {\n",
+      "to": "\t\tif true {\n",
+      "rule": "An adopted copy finds its base by the registries (journal's AnAdoptedCopyFindsItsBase).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g8-trash-holds-name", "origin": "wf10/semws darwin JOB 1 G8",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tliveIn(try t.registry.All(), name) != None\n",
+      "to": "\tslices.IndexFunc(try t.registry.All(), func(w Workspace) bool { w.Name == name }) >= 0\n",
+      "rule": "A trashed workspace does not hold its name (memory's RmThenNewTakesTheName; the new-after-rm case).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "g8-free-keeps-old-name", "origin": "wf10/semws darwin JOB 1 G8",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\t\t\ttry t.registry.Drop(name)\n",
+      "to": "",
+      "rule": "Freeing a name forgets the trash under it, so the new record is the one name finds (memory's RmThenNewTakesTheName).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
