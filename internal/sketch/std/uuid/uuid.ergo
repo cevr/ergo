@@ -1,12 +1,13 @@
 // Package uuid is RFC 9562 UUIDs (docs/spec/stdlib.md, keyed digests;
-// std-spike D3): V4, 122 random bits, and V7, a Unix millisecond time
-// then random bits, so V7 ids sort by when they were made, as a database
-// index wants. The random bits come from rand.Secure and the time from
+// std-spike D3): V4, 122 random bits, and V7, a Unix millisecond time,
+// a counter and random bits, so the V7 ids of one Generator sort by when
+// they were made, as a database index wants. The random bits come from rand.Secure and the time from
 // time.Clock, both in the caller's row, so a test binds
 // rand.NewSeededSecure and time.NewManual and gets the same ids every run.
 // Go's std has no uuid (github.com/google/uuid is the common package);
 // Effect has none either.
 
+import atomic
 import rand
 import strings
 import time
@@ -43,17 +44,49 @@ func V4() UUID needs rand.Secure {
 	stamp(word(b), word(b[8:16]), 4)
 }
 
+// Generator makes V7 ids in order: each id it makes sorts after the one
+// before, by Compare and by Text, within one millisecond too (RFC 9562
+// §6.2, method 1). It holds the last millisecond and counter it used, in
+// one atomic cell, so tasks that share a Generator share its order. Make
+// one per process and pass it where ids are made; ids of two Generators,
+// or of two processes, are ordered only across milliseconds.
+type Generator { last atomic.Int64 }
+
+// NewGenerator is a Generator that has made no id.
+func NewGenerator() Generator { Generator{last: atomic.NewInt64(0)} }
+
+// counterTop is the largest value of the 12-bit counter in rand_a.
+func counterTop() int64 { 0xfff }
+
 // V7 is a version 7 UUID: the Unix time in milliseconds from time.Clock in
-// the first 48 bits, then 74 random bits from rand.Secure. A time before
-// 1970 counts as 0. Ids made in later milliseconds sort after, by Compare
-// and by Text; ids of one millisecond are in no order.
-func V7() UUID needs rand.Secure | time.Clock {
+// the first 48 bits, a 12-bit counter, then 62 random bits from
+// rand.Secure. The counter starts at a random value under 2048 in each new
+// millisecond and counts up within it; when it passes 4095, or the clock
+// reads an earlier millisecond than g's last, the id takes g's last
+// millisecond (plus one when the counter is spent), so g's ids never go
+// back. A time before 1970 counts as 0.
+func V7(g Generator) UUID needs rand.Secure | time.Clock {
 	let t = time.Clock.Now()
 	let ms = time.UnixSeconds(t)*1000 + time.Nanosecond(t)/1000000
+	let now = if ms < 0 { int64(0) } else { ms & 0xffffffffffff }
 	let b = rand.Secure.Bytes(10)
-	let ts = if ms < 0 { uint64(0) } else { uint64(ms) & 0xffffffffffff }
-	let r = uint64(b[0])<<8 | uint64(b[1])
-	stamp(ts<<16|r, word(b[2:10]), 7)
+	let fresh = int64(b[0]&0x7)<<8 | int64(b[1])
+	let mut next = int64(0)
+	let mut done = false
+	for !done {
+		let prev = g.last.Load()
+		let pms = prev >> 12
+		let pc = prev & counterTop()
+		next = if now > pms {
+			now<<12 | fresh
+		} else if pc < counterTop() {
+			pms<<12 | (pc + 1)
+		} else {
+			(pms+1)<<12 | fresh
+		}
+		done = g.last.CompareAndSwap(prev, next)
+	}
+	stamp(uint64(next>>12)<<16|uint64(next&counterTop()), word(b[2:10]), 7)
 }
 
 // UnixMilli is the Unix time in milliseconds in u's first 48 bits: the
@@ -162,17 +195,43 @@ law V4HasVersionAndVariant(seed uint64) {
 }
 
 // V7IsOrderedByTime: a V7 made at an earlier millisecond sorts before one
-// made at a later millisecond, by Compare and by Text, and holds its time.
+// made at a later millisecond, by Compare and by Text, and holds its time;
+// the counter of a new millisecond starts under 2048 (its first digit is
+// under 8).
 law V7IsOrderedByTime(seed uint64, a int64, b int64) {
 	let x = (a%100000000000 + 100000000000) % 100000000000
 	let y = x + 1 + (b%1000000+1000000)%1000000
 	let m = time.NewManual(x / 1000)
 	time.Advance(m, duration((x%1000)*1000000))
 	let p = rand.NewSeededSecure(seed)
-	let first = with context { rand.Secure: p, time.Clock: m } { V7() }
+	let g = NewGenerator()
+	let first = with context { rand.Secure: p, time.Clock: m } { g.V7() }
 	time.Advance(m, duration((y-x)*1000000))
-	let second = with context { rand.Secure: p, time.Clock: m } { V7() }
-	Version(first) == 7 && Version(second) == 7 && UnixMilli(first) == x && UnixMilli(second) == y && Compare(first, second) < 0 && Text(first) < Text(second)
+	let second = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+	let fresh = strings.Contains("01234567", Text(first)[15:16]) && strings.Contains("01234567", Text(second)[15:16])
+	fresh && Version(first) == 7 && Version(second) == 7 && UnixMilli(first) == x && UnixMilli(second) == y && Compare(first, second) < 0 && Text(first) < Text(second)
+}
+
+// V7IsOrderedInProcess: every id one Generator makes sorts after the one
+// before it, by Compare, when the clock stays in one millisecond (past
+// the 4,096 ids its counter holds, too) or moves on.
+law V7IsOrderedInProcess(seed uint64, n int, steps []bool) {
+	let k = 1 + (n%3000+3000)%3000
+	let m = time.NewManual(1700000000)
+	let p = rand.NewSeededSecure(seed)
+	let g = NewGenerator()
+	let mut prev = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+	let mut ok = Version(prev) == 7
+	let moving = len(steps) > 0 && steps[0]
+	for i in 0..k {
+		if moving && steps[i%len(steps)] {
+			time.Advance(m, 1ms)
+		}
+		let u = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+		ok = ok && Version(u) == 7 && Compare(prev, u) < 0
+		prev = u
+	}
+	ok
 }
 
 // ParseRefusesOtherForms: Parse refuses Text's form with a byte changed
