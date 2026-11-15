@@ -480,12 +480,16 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 	t.base
 }
 
-// startIn starts the branch in the clone and, for a clone made file by
-// file, sets Git to compare only sizes and whole-second times: every
-// inode and change time is new, and Git would read each tracked file
-// again at its first command.
+// startIn starts the branch in the clone and turns on Git's untracked
+// cache there, so a git status after the first (rm's held check is one)
+// walks only the folders that changed, not the whole tree: on a Bun
+// monorepo it takes status from 51 M to 30 M instructions (WG6a). For a
+// clone made file by file it also sets Git to compare only sizes and
+// whole-second times: every inode and change time is new, and Git would
+// read each tracked file again at its first command.
 func startIn(t Tool, by Cloner, path string, branch string, start string) fails VcsFailed {
 	try t.vcs.Start(path, branch, start)
+	try t.vcs.Configure(path, "core.untrackedCache", "true")
 	if !by.KeepsInodes() {
 		try t.vcs.Configure(path, "core.checkStat", "minimal")
 		try t.vcs.Configure(path, "core.trustctime", "false")

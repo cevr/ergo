@@ -1,5 +1,5 @@
 {
-  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a, WG2); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
+  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a, WG2, WG6a); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
       "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
@@ -815,6 +815,22 @@
       "from": "\t\tif !trusted(t, c) {\n\t\t\treturn untrusted(c)\n\t\t}",
       "to": "\t\tlet _ = trusted(t, c)",
       "rule": "A derived command runs only after work trust (the derive-untrusted case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg6-no-untracked-cache", "origin": "wf10/semws WG6a",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry t.vcs.Configure(path, \"core.untrackedCache\", \"true\")\n",
+      "to": "",
+      "rule": "Every new workspace keeps Git's untracked cache, so rm's held check walks only changed folders (the new-carries case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg6-held-tracked-only", "origin": "wf10/semws WG6a",
+      "file": "modules/work/git/git.ergo",
+      "from": "\"status\", \"--porcelain\", \"--untracked-files=normal\"}) == \"\"",
+      "to": "\"status\", \"--porcelain\", \"--untracked-files=no\"}) == \"\"",
+      "rule": "The held check counts untracked files, with the untracked cache on too (the rm-untracked-cached and rm-dirty cases).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     }
   ]

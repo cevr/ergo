@@ -18,8 +18,9 @@ mkdir -p .work/base
 # The hook shows the clone from inside: what it carries (installed
 # packages with their symlink, ignored output, an untracked file), its
 # Git status (the marker is not in it), the marker, the stat settings of a
-# clone made file by file, and its index byte for byte the base's (the
-# branch at HEAD wrote no index).
-cmd='{ ls -A; readlink node_modules/.bin/left-pad; cat dist/out.js; git status --porcelain; cat .git/work-id; git config core.checkStat; git config core.trustctime; cmp -s .git/index ../../../base/.git/index && echo same-index; echo "$WORK_ID $WORK_SOURCE $WORK_DESTINATION"; echo base:; git -C ../../../base status --porcelain; } >&2; exit 3'
+# clone made file by file and the untracked cache every clone keeps, and
+# its index byte for byte the base's (the branch at HEAD wrote no index;
+# compared before git status, which writes the untracked cache into it).
+cmd='{ cmp -s .git/index ../../../base/.git/index && echo same-index; ls -A; readlink node_modules/.bin/left-pad; cat dist/out.js; git status --porcelain; cat .git/work-id; git config core.checkStat; git config core.trustctime; git config core.untrackedCache; echo "$WORK_ID $WORK_SOURCE $WORK_DESTINATION"; echo base:; git -C ../../../base status --porcelain; } >&2; exit 3'
 printf "[hooks]\npostcreate = ['%s']\n" "$cmd" > base/work.toml
 printf 'hooks.postcreate: %s' "$cmd" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-64 > .work/base/.trusted
