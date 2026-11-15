@@ -365,6 +365,25 @@ func textBenches() []textBench {
 // bit size 0 to 64, and on the edges of each size (the largest and
 // smallest values, one past them, with signs, leading zeros and a bad
 // byte after an overflow).
+// TestStrconvQuoteMatchesGo: StrconvQuote, Quote's body written out so
+// it inlines (B1-Q), is Go's strconv.Quote on 100,000 seeded texts of the
+// whole alphabet (control bytes, multi-byte and invalid UTF-8, quotes and
+// backslashes). It kills strconv-quote-ascii-only, which the round trip
+// UnquoteInvertsQuote does not: an all-ASCII quote unquotes back too.
+func TestStrconvQuoteMatchesGo(t *testing.T) {
+	alphabet := append([]string{"\x00", "\x01", "\x7f", "\u00ad", "\U0001f600"}, textAlphabet...)
+	r := rand.New(rand.NewPCG(7, 11))
+	for i := range 100_000 {
+		var b strings.Builder
+		for range r.IntN(12) {
+			b.WriteString(alphabet[r.IntN(len(alphabet))])
+		}
+		if got, want := StrconvQuote(b.String()), strconv.Quote(b.String()); got != want {
+			t.Fatalf("case %d (seed 7, 11): StrconvQuote(%q) = %s, Go's %s", i, b.String(), got, want)
+		}
+	}
+}
+
 func TestStrconvBase10MatchesGo(t *testing.T) {
 	class := func(err error) string {
 		var m Malformed
