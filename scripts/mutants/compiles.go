@@ -148,12 +148,13 @@ func (w *worker) compileErgo(ctx context.Context, file string) string {
 	if o.reason == "" {
 		return ""
 	}
-	return firstDiagnostic(dir, o.tail)
+	return firstDiagnostic(o.tail)
 }
 
 // firstDiagnostic is the first diagnostic of ergo check's JSON report in
-// out, as FILE:LINE:COL: CODE MESSAGE, or out's first line.
-func firstDiagnostic(dir, out string) string {
+// out, as FILE:LINE:COL: CODE MESSAGE (FILE as ergo check names it), or
+// out's first line.
+func firstDiagnostic(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		var report struct {
 			Diagnostics []struct {
@@ -165,10 +166,17 @@ func firstDiagnostic(dir, out string) string {
 			continue
 		}
 		d := report.Diagnostics[0]
-		return fmt.Sprintf("%s:%d:%d: %s %s", path.Join(dir, d.File), d.Span.Line, d.Span.Column, d.Code, d.Message)
+		return fmt.Sprintf("%s:%d:%d: %s %s", d.File, d.Span.Line, d.Span.Column, d.Code, d.Message)
+	}
+	// A report longer than the output's tail keeps its start.
+	if d := ergoDiagnostic.FindStringSubmatch(out); d != nil {
+		return fmt.Sprintf("%s: %s %s", d[2], d[1], d[3])
 	}
 	return firstLine(strings.TrimSpace(out))
 }
+
+// ergoDiagnostic is the start of one diagnostic in ergo check's JSON.
+var ergoDiagnostic = regexp.MustCompile(`"code":"([^"]*)","file":"([^"]*)","message":"((?:[^"\\]|\\.)*)"`)
 
 // apply writes m's edit into path (original is its text). It returns the
 // function that restores the file, or nil and why the edit was not
