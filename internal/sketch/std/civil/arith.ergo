@@ -269,3 +269,124 @@ law NextIsTheNextWeekday(x int64, w int64) {
 	let p = Previous(d, day)
 	(n == MaxDate() || Weekday(n) == day && DaysBetween(d, n) >= 1 && DaysBetween(d, n) <= 7) && (p == MinDate() || Weekday(p) == day && DaysBetween(p, d) >= 1 && DaysBetween(p, d) <= 7)
 }
+
+// PeriodText is p as ISO 8601's duration of calendar units: P, then each
+// field that is not zero with its letter, Y, M, W, D, in that order, each
+// with its own sign as Java's Period writes it ("P1Y2M", "P-3D",
+// "P1Y-2M"); a zero Period is "P0D". It has no time part: a duration of
+// hours is time.DurationISO's text.
+func PeriodText(p Period) string {
+	if p.Years == 0 && p.Months == 0 && p.Weeks == 0 && p.Days == 0 {
+		return "P0D"
+	}
+	let mut s = "P"
+	if p.Years != 0 {
+		s = s + "\(p.Years)Y"
+	}
+	if p.Months != 0 {
+		s = s + "\(p.Months)M"
+	}
+	if p.Weeks != 0 {
+		s = s + "\(p.Weeks)W"
+	}
+	if p.Days != 0 {
+		s = s + "\(p.Days)D"
+	}
+	s
+}
+
+// ParsePeriod is the Period s writes: an optional sign that applies to
+// every field, P, then one or more numbers, each with an optional sign
+// and one of the letters Y, M, W, D, in that order, each once. A time part
+// ("PT1M", a minute) or any other text fails ParseError, as does a field
+// past the range of an int; so "P1M" is one month, never a minute.
+func ParsePeriod(s string) Period fails ParseError {
+	let n = len(s)
+	let mut i = 0
+	let mut negate = false
+	if i < n && (s[i] == '+' || s[i] == '-') {
+		negate = s[i] == '-'
+		i += 1
+	}
+	if i >= n || s[i] != 'P' {
+		return ParseError{Text: s, At: i, Reason: "want P"}
+	}
+	i += 1
+	if i < n && s[i] == 'T' {
+		return ParseError{Text: s, At: i, Reason: "a Period has no time part; time.ParseDurationISO reads PT"}
+	}
+	let mut f = []int{0, 0, 0, 0}
+	let mut next = 0
+	if i >= n {
+		return ParseError{Text: s, At: i, Reason: "want a number"}
+	}
+	for i < n {
+		let start = i
+		let mut minus = false
+		if s[i] == '+' || s[i] == '-' {
+			minus = s[i] == '-'
+			i += 1
+		}
+		// v is the field's value made negative, so the smallest int is read.
+		let mut v = 0
+		let digits = i
+		for i < n && s[i] >= '0' && s[i] <= '9' {
+			let d = int(s[i] - '0')
+			if v < -922337203685477580 || v == -922337203685477580 && d > 8 {
+				return ParseError{Text: s, At: start, Reason: "out of range"}
+			}
+			v = v * 10 - d
+			i += 1
+		}
+		if i == digits {
+			return ParseError{Text: s, At: i, Reason: "want a digit"}
+		}
+		if i >= n {
+			return ParseError{Text: s, At: i, Reason: "want Y, M, W or D"}
+		}
+		let k = if s[i] == 'Y' { 0 } else if s[i] == 'M' { 1 } else if s[i] == 'W' { 2 } else if s[i] == 'D' { 3 } else { -1 }
+		if k < 0 {
+			return ParseError{Text: s, At: i, Reason: if s[i] == 'T' { "a Period has no time part; time.ParseDurationISO reads it" } else { "want Y, M, W or D" }}
+		}
+		if k < next {
+			return ParseError{Text: s, At: i, Reason: "want Y, M, W, D in that order, each once"}
+		}
+		if minus == negate {
+			if v == -9223372036854775807 - 1 {
+				return ParseError{Text: s, At: start, Reason: "out of range"}
+			}
+			v = -v
+		}
+		f[k] = v
+		next = k + 1
+		i += 1
+	}
+	Period{Years: f[0], Months: f[1], Weeks: f[2], Days: f[3]}
+}
+
+// PeriodTextRoundTrips: ParsePeriod reads back every Period's text, each
+// field from the smallest int to the largest.
+law PeriodTextRoundTrips(y int64, m int64, w int64, d int64) {
+	let p = Period{Years: int(y), Months: int(m), Weeks: int(w), Days: int(d)}
+	let back = ParsePeriod(PeriodText(p)) catch {
+	case ParseError:
+		return false
+	}
+	back == p
+}
+
+// PeriodAndDurationTextsApart: a Period's text is no duration's and a
+// duration's is no Period's, so "P1M" is a month and "PT1M" a minute,
+// never the other.
+law PeriodAndDurationTextsApart(y int64, d int64) {
+	let p = Period{Years: 0, Months: int(within(y, 1, 1000)), Weeks: 0, Days: 0}
+	let _ = time.ParseDurationISO(PeriodText(p)) catch {
+	case time.ParseError:
+		let _ = ParsePeriod(time.DurationISO(duration(d))) catch {
+		case ParseError:
+			return true
+		}
+		return false
+	}
+	false
+}

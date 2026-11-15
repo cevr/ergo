@@ -313,6 +313,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Civil format**: A format of dates and times as a value, `civil.DateFormat` or `civil.DateTimeFormat`: a list of `civil.Field` values, built once by `Pattern` (LDML letters), `FromLayout` (Go's layout) or `Fields`, and checked when built. Go's layout is a string read on each call. See [stdlib](docs/spec/stdlib.md#civil).
 
+**Relative distance**: How far apart two instants or two dates are, as a count of one unit and a direction, `civil.Approx { Count, Unit, Past }`, by date-fns's `formatDistanceStrict` rule; `civil.Phrase` writes it in a `Words` value ("3 days ago"). See [stdlib](docs/spec/stdlib.md#civil).
+
 **Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
 
 **Zoned time**: An instant seen on a zone's wall clock, `tz.Zoned { At, Zone }`. Its calendar arithmetic (`tz.Add`) moves the wall date and keeps the wall time; its text is RFC 9557's (`2027-03-14T03:30:00-04:00[America/Toronto]`). Temporal calls it a `ZonedDateTime`. See [stdlib](docs/spec/stdlib.md#tz).

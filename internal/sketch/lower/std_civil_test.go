@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"math/rand/v2"
 	"os/exec"
 	"strings"
@@ -62,6 +63,25 @@ func unit(n int64, w int64) civil.Unit {
 	}
 }
 
+func unitName(u civil.RelUnit) string {
+	match u {
+	case civil.Now:
+		"now"
+	case civil.Seconds:
+		"second"
+	case civil.Minutes:
+		"minute"
+	case civil.Hours:
+		"hour"
+	case civil.Days:
+		"day"
+	case civil.Months:
+		"month"
+	case civil.Years:
+		"year"
+	}
+}
+
 func step(line string) string {
 	let f = strings.Fields(line)
 	let op = f[0]
@@ -96,6 +116,14 @@ func step(line string) string {
 	if op == "S" {
 		let u = unit(num(f[2]), num(f[3]))
 		return "\(civil.UnixDays(civil.StartOf(day(f[1]), u))) \(civil.UnixDays(civil.EndOf(day(f[1]), u)))"
+	}
+	if op == "R" {
+		let a = civil.Distance(time.NewTime(num(f[1]), num(f[2])), time.NewTime(num(f[3]), num(f[4])))
+		return "\(a.Count) \(unitName(a.Unit)) \(a.Past) \(civil.Phrase(a, civil.EnglishWords()))"
+	}
+	if op == "RD" {
+		let a = civil.DistanceDates(day(f[1]), day(f[2]))
+		return "\(a.Count) \(unitName(a.Unit)) \(a.Past) \(civil.Phrase(a, civil.EnglishWords()))"
 	}
 	if op == "X" {
 		let w = weekday(num(f[2]))
@@ -207,6 +235,114 @@ func floorDivModel(a, b int64) int64 {
 	return q
 }
 
+// relModel is the reference of civil.Distance and Phrase in English: the
+// formatDistanceStrict rule (date-fns a9739fb) over a distance of s
+// seconds and ns nanoseconds, in exact rationals: the unit is the largest
+// whose threshold the distance reaches, the count rounds half up, 12
+// months is 1 year, and a count of 0 seconds is "just now".
+func relModel(s, ns int64, past bool) string {
+	x := new(big.Rat).Add(new(big.Rat).SetInt64(s), big.NewRat(ns, 1e9))
+	unit, size := "year", int64(31536000)
+	for _, u := range []struct {
+		name        string
+		below, size int64
+	}{{"second", 60, 1}, {"minute", 3600, 60}, {"hour", 86400, 3600}, {"day", 2592000, 86400}, {"month", 31536000, 2592000}} {
+		if x.Cmp(new(big.Rat).SetInt64(u.below)) < 0 {
+			unit, size = u.name, u.size
+			break
+		}
+	}
+	q := new(big.Rat).Add(new(big.Rat).Quo(x, new(big.Rat).SetInt64(size)), big.NewRat(1, 2))
+	n := new(big.Int).Quo(q.Num(), q.Denom()).Int64() // q > 0: Quo is the floor
+	if unit == "month" && n == 12 {
+		unit, n = "year", 1
+	}
+	if n == 0 {
+		return "0 now false just now"
+	}
+	word := unit
+	if n != 1 {
+		word += "s"
+	}
+	if past {
+		return fmt.Sprintf("%d %s true %d %s ago", n, unit, n, word)
+	}
+	return fmt.Sprintf("%d %s false in %d %s", n, unit, n, word)
+}
+
+// relDistance is the distance from (s1, n1) to (s2, n2) as seconds and
+// nanoseconds, 0 <= ns < 10^9, and whether the second is before the first.
+func relDistance(s1, n1, s2, n2 int64) (int64, int64, bool) {
+	past := s2 < s1 || s2 == s1 && n2 < n1
+	if past {
+		s1, n1, s2, n2 = s2, n2, s1, n1
+	}
+	s, ns := s2-s1, n2-n1
+	if ns < 0 {
+		s, ns = s-1, ns+1e9
+	}
+	return s, ns, past
+}
+
+// relCase is a seeded Distance case: an instant in years 1 to 9999 and a
+// distance at a threshold, at a half, a nanosecond either side of one, or
+// of any size, either way.
+func relCase(r *rand.Rand) (string, string) {
+	s1 := civilMinDay*86400 + r.Int64N((civilMaxDay-civilMinDay)*86400)
+	n1 := r.Int64N(1e9)
+	marks := []int64{0, 1, 30, 60, 90, 3600, 5400, 86400, 129600, 2592000, 3888000, 31536000, 29808000, 47304000}
+	var ds, dn int64
+	switch r.IntN(3) {
+	case 0:
+		ds, dn = marks[r.IntN(len(marks))], 0
+		switch r.IntN(3) {
+		case 0:
+			ds, dn = ds-1, 1e9-1
+		case 1:
+			dn = 1
+		}
+	case 1:
+		ds, dn = marks[r.IntN(len(marks))]/2, 5e8*(marks[r.IntN(len(marks))]%2)
+	default:
+		ds, dn = r.Int64N(int64(1)<<r.IntN(36)), r.Int64N(1e9)
+	}
+	if ds < 0 {
+		ds, dn = 0, 0
+	}
+	s2, n2 := s1+ds, n1+dn
+	if r.IntN(2) == 0 {
+		s2, n2 = s1-ds, n1-dn
+	}
+	for n2 < 0 {
+		s2, n2 = s2-1, n2+1e9
+	}
+	for n2 >= 1e9 {
+		s2, n2 = s2+1, n2-1e9
+	}
+	if s2 < civilMinDay*86400 || s2 >= (civilMaxDay+1)*86400 {
+		// Past the years NewTime takes: draw again.
+		return relCase(r)
+	}
+	s, ns, past := relDistance(s1, n1, s2, n2)
+	return fmt.Sprintf("R %d %d %d %d", s1, n1, s2, n2), relModel(s, ns, past)
+}
+
+// relDatesCase is a seeded DistanceDates case and the model's answer.
+func relDatesCase(r *rand.Rand, a int64) (string, string) {
+	b := civilSat(a + []int64{0, 1, -1, 29, 30, 31, 364, 365, 547, 548}[r.IntN(10)]*(1-2*r.Int64N(2)))
+	if r.IntN(3) == 0 {
+		b = civilSat(a + r.Int64N(800001) - 400000)
+	}
+	if a == b {
+		return fmt.Sprintf("RD %d %d", a, b), "0 day false today"
+	}
+	n := b - a
+	if n < 0 {
+		return fmt.Sprintf("RD %d %d", a, b), relModel(-n*86400, 0, true)
+	}
+	return fmt.Sprintf("RD %d %d", a, b), relModel(n*86400, 0, false)
+}
+
 // civilModelCases generates n operations and the model's answer to each.
 func civilModelCases(r *rand.Rand, n int) (cases, want []string) {
 	edges := []int64{civilMinDay, civilMinDay + 1, civilMaxDay - 1, civilMaxDay, 0, -1}
@@ -226,7 +362,7 @@ func civilModelCases(r *rand.Rand, n int) (cases, want []string) {
 	add := func(c, w string) { cases, want = append(cases, c), append(want, w) }
 	for len(cases) < n {
 		a := day()
-		switch r.IntN(8) {
+		switch r.IntN(10) {
 		case 0:
 			y, m, d := r.IntN(10003)-1, 1+r.IntN(12), r.IntN(34)-1
 			t := time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
@@ -295,6 +431,10 @@ func civilModelCases(r *rand.Rand, n int) (cases, want []string) {
 				out = fmt.Sprint(civilDayOf(t))
 			}
 			add("P "+text, out)
+		case 8:
+			add(relCase(r))
+		case 9:
+			add(relDatesCase(r, a))
 		}
 	}
 	return cases, want
@@ -307,7 +447,11 @@ func civilModelCases(r *rand.Rand, n int) (cases, want []string) {
 // cannot: a calendar that is consistent but not Go's (a leap rule without
 // the 100 or 400 rule, a weekday from the wrong epoch, an ISO week year
 // taken from the date's own year), and a parse that accepts what Go's
-// DateOnly refuses. A failing line prints the operation, Ergo's answer and
+// DateOnly refuses. Since std-spike T5 it also draws Distance and
+// DistanceDates against relModel, the threshold rule in exact rationals,
+// with the English Phrase: at each threshold, a nanosecond either side, at
+// the halves and of any size (mutants t5-threshold-off-by-one,
+// t5-past-not-flipped, t5-plural-for-one, t5-round-half-down). A failing line prints the operation, Ergo's answer and
 // the model's; the seed is fixed, so a rerun replays it.
 //
 // It builds Go because it compares the runs of a built program with a

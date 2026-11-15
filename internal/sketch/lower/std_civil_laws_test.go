@@ -243,6 +243,25 @@ func ldmlPairs() []string { []string{"HH:mm:ss", "h:m:s a", "hh:mm a", "MMM d, E
 
 func goPairs() []string { []string{"15:04:05", "3:4:5 PM", "03:04 PM", "Jan 2, Mon", "January 2 Monday", "Mon, 2 Jan", "15:04:05.000", "15:04:05,000000", "at 15h"} }
 
+func rank(u civil.RelUnit) int {
+	match u {
+	case civil.Now:
+		0
+	case civil.Seconds:
+		1
+	case civil.Minutes:
+		2
+	case civil.Hours:
+		3
+	case civil.Days:
+		4
+	case civil.Months:
+		5
+	case civil.Years:
+		6
+	}
+}
+
 test CivilAddDaysInverts(x int64, k int64) {
 	let d = anyDay(x)
 	let n = int(within(k, -4000000, 4000000))
@@ -315,6 +334,31 @@ test CivilNextIsTheNextWeekday(x int64, w int64) {
 	assert (n == civil.MaxDate() || civil.Weekday(n) == day && civil.DaysBetween(d, n) >= 1 && civil.DaysBetween(d, n) <= 7) && (p == civil.MinDate() || civil.Weekday(p) == day && civil.DaysBetween(p, d) >= 1 && civil.DaysBetween(p, d) <= 7)
 }
 
+test CivilPeriodTextRoundTrips(y int64, m int64, w int64, d int64) {
+	let p = civil.Period{Years: int(y), Months: int(m), Weeks: int(w), Days: int(d)}
+	let back = civil.ParsePeriod(civil.PeriodText(p)) catch {
+	case civil.ParseError:
+		assert false
+		return
+	}
+	assert back == p
+}
+
+test CivilPeriodAndDurationTextsApart(y int64, d int64) {
+	let p = civil.Period{Years: 0, Months: int(within(y, 1, 1000)), Weeks: 0, Days: 0}
+	let _ = time.ParseDurationISO(civil.PeriodText(p)) catch {
+	case time.ParseError:
+		let _ = civil.ParsePeriod(time.DurationISO(duration(d))) catch {
+		case civil.ParseError:
+			assert true
+			return
+		}
+		assert false
+		return
+	}
+	assert false
+}
+
 test CivilTimeOfDayRoundTrips(h int64, m int64, s int64, n int64) {
 	let hour = int(within(h, -1, 24))
 	let minute = int(within(m, -1, 60))
@@ -335,6 +379,15 @@ test CivilInstantInvertsDateTimeOf(sec int64, nsec int64, k int64) {
 	let d = duration(within(k, -100000000000000000, 100000000000000000))
 	let there = civil.AddDuration(dt, d)
 	assert civil.Instant(dt).Equal(t) && (there.Date == civil.MinDate() || there.Date == civil.MaxDate() || civil.Sub(there, dt) == d && civil.AddDuration(there, -d) == dt)
+}
+
+test CivilPartsAddUp(d duration) {
+	let p = civil.Parts(d)
+	let n = int64(d)
+	let sum = int64(p.Days) * 86400000000000 + int64(p.Hours) * 3600000000000 + int64(p.Minutes) * 60000000000 + int64(p.Seconds) * 1000000000 + int64(p.Nanoseconds)
+	let small = p.Hours > -24 && p.Hours < 24 && p.Minutes > -60 && p.Minutes < 60 && p.Seconds > -60 && p.Seconds < 60 && p.Nanoseconds > -1000000000 && p.Nanoseconds < 1000000000
+	let signed = if n < 0 { p.Days <= 0 && p.Hours <= 0 && p.Minutes <= 0 && p.Seconds <= 0 && p.Nanoseconds <= 0 } else { p.Days >= 0 && p.Hours >= 0 && p.Minutes >= 0 && p.Seconds >= 0 && p.Nanoseconds >= 0 }
+	assert sum == n && small && signed
 }
 
 test CivilDateRoundTrips(n int64, y int64, m int64, dd int64) {
@@ -423,6 +476,34 @@ test CivilPatternAgreesWithLayout(seed int64, n int64, ns int64) {
 	}
 	let dt = anyHeld(p, n, ns)
 	assert civil.FormatDateTime(dt, p) == civil.FormatDateTime(dt, l)
+}
+
+test CivilDistanceIsMonotone(sec int64, a int64, b int64) {
+	let from = time.NewTime(within(sec, -62135596800, 253402300799), 0)
+	let x = within(a, 0, 4000000000000000000)
+	let y = within(b, 0, 4000000000000000000)
+	let near = civil.Distance(from, time.Add(from, duration(if x < y { x } else { y })))
+	let far = civil.Distance(from, time.Add(from, duration(if x < y { y } else { x })))
+	assert rank(near.Unit) < rank(far.Unit) || rank(near.Unit) == rank(far.Unit) && near.Count <= far.Count
+}
+
+test CivilDistanceMirrors(s1 int64, n1 int64, s2 int64, n2 int64) {
+	let a = time.NewTime(within(s1, -62135596800, 253402300799), within(n1, 0, 999999999))
+	let b = time.NewTime(within(s2 / 1000000 + s1, -62135596800, 253402300799), within(n2, 0, 999999999))
+	let there = civil.Distance(a, b)
+	let back = civil.Distance(b, a)
+	assert there.Count == back.Count && rank(there.Unit) == rank(back.Unit) && (if rank(there.Unit) == 0 { !there.Past && !back.Past } else { there.Past != back.Past })
+}
+
+test CivilDistanceDatesCountsDates(x int64, k int64) {
+	let a = anyDay(x)
+	let b = anyDay(x + within(k, -800000, 800000))
+	let d = civil.DistanceDates(a, b)
+	if a == b {
+		assert d.Count == 0 && rank(d.Unit) == 4 && !d.Past
+		return
+	}
+	assert d == civil.Distance(civil.Instant(civil.DateTime{Date: a, Time: civil.Midnight()}), civil.Instant(civil.DateTime{Date: b, Time: civil.Midnight()}))
 }
 
 test CivilSpanDaysCount(x int64, k int64) {
@@ -517,29 +598,35 @@ test CivilTextRoundTrips(n int64) {
 // stdCivilLawStatements is the statement of each law the probe
 // restates, by ledger key; lawledger.Run holds it equal to the ledger.
 var stdCivilLawStatements = map[string]string{
-	"civil AddDaysInverts":           `AddDaysInverts(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -4000000, 4000000)) let raw = UnixDays(d) + int64(n) raw < minDay() || raw > maxDay() || AddDays(AddDays(d, n), -n) == d && DaysBetween(d, AddDays(d, n)) == n && AddWeeks(d, 1) == AddDays(d, 7) }`,
-	"civil ArithmeticSaturates":      `ArithmeticSaturates(x int64, k int64) { let d = anyDay(x) let n = int(k) let days = AddDays(d, n) let months = AddMonths(d, n) let raw = UnixDays(d) + within64(k, span()) (raw >= minDay() && raw <= maxDay() || days == (if n < 0 { MinDate() } else { MaxDate() })) && (n < 0 || !Before(months, d)) && (n > 0 || !After(months, d)) && (n < 120000 || months == MaxDate()) && (n > -120000 || months == MinDate()) }`,
-	"civil AddMonthsClamps":          `AddMonthsClamps(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -130000, 130000)) let r = AddMonths(d, n) let moved = (Year(r)*12 + time.MonthNumber(Month(r))) - (Year(d)*12 + time.MonthNumber(Month(d))) let last = DaysIn(Year(r), Month(r)) r == MinDate() || r == MaxDate() || moved == n && Day(r) == (if Day(d) > last { last } else { Day(d) }) }`,
-	"civil AddMonthsRetracts":        `AddMonthsRetracts(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -1300, 1300)) let there = AddMonths(d, n) let r = AddMonths(there, -n) there == MinDate() || there == MaxDate() || Year(r) == Year(d) && Month(r) == Month(d) && Day(r) <= Day(d) && (Day(d) > 28 || r == d) }`,
-	"civil AddMonthsAdds":            `AddMonthsAdds(x int64, i int64, j int64) { let d = StartOf(anyDay(x), Months) let a = int(within(i, -60000, 60000)) let b = int(within(j, -60000, 60000)) let mid = AddMonths(d, a) mid == MinDate() || StartOf(mid, Months) != mid || AddMonths(mid, b) == AddMonths(d, a+b) }`,
-	"civil BetweenInvertsAdd":        `BetweenInvertsAdd(x int64, k int64, u int64, w int64) { let from = anyDay(x) let to = anyDay(UnixDays(from) + within(k, -40000, 40000)) let p = Between(from, to, anyUnit(u, w)) let n = DaysBetween(from, to) let signed = if n < 0 { p.Years <= 0 && p.Months <= 0 && p.Weeks <= 0 && p.Days <= 0 } else { p.Years >= 0 && p.Months >= 0 && p.Weeks >= 0 && p.Days >= 0 } Add(from, p) == to && signed }`,
-	"civil StartOfBounds":            `StartOfBounds(x int64, u int64, w int64) { let d = anyDay(x) let unit = anyUnit(u, w) let start = StartOf(d, unit) let end = EndOf(d, unit) let first = match unit { case Weeks as week: start == MinDate() || Weekday(start) == week.First case Days, Months, Quarters, Years: true } !After(start, d) && !Before(end, d) && StartOf(start, unit) == start && EndOf(end, unit) == end && first && (end == MaxDate() || StartOf(AddDays(end, 1), unit) == AddDays(end, 1)) }`,
-	"civil NextIsTheNextWeekday":     `NextIsTheNextWeekday(x int64, w int64) { let d = anyDay(x) let day = weekdayOf(within(w, 0, 6)) let n = Next(d, day) let p = Previous(d, day) (n == MaxDate() || Weekday(n) == day && DaysBetween(d, n) >= 1 && DaysBetween(d, n) <= 7) && (p == MinDate() || Weekday(p) == day && DaysBetween(p, d) >= 1 && DaysBetween(p, d) <= 7) }`,
-	"civil TimeOfDayRoundTrips":      `TimeOfDayRoundTrips(h int64, m int64, s int64, n int64) { let hour = int(within(h, -1, 24)) let minute = int(within(m, -1, 60)) let second = int(within(s, -1, 60)) let nano = int(within(n, -1, 1000000000)) let valid = hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 && second >= 0 && second <= 59 && nano >= 0 && nano <= 999999999 let t = NewTimeOfDay(hour, minute, second, nano) catch { case NoSuchTime: return !valid } valid && Hour(t) == hour && Minute(t) == minute && Second(t) == second && Nanosecond(t) == nano }`,
-	"civil InstantInvertsDateTimeOf": `InstantInvertsDateTimeOf(sec int64, nsec int64, k int64) { let t = time.NewTime(sec, nsec) let dt = DateTimeOf(t) let d = duration(within(k, -100000000000000000, 100000000000000000)) let there = AddDuration(dt, d) Instant(dt).Equal(t) && (there.Date == MinDate() || there.Date == MaxDate() || Sub(there, dt) == d && AddDuration(there, -d) == dt) }`,
-	"civil DateRoundTrips":           `DateRoundTrips(n int64, y int64, m int64, dd int64) { let d = anyDay(n) let back = NewDate(Year(d), Month(d), Day(d)) catch { case NoSuchDate: return false } let year = int(within(y, -1, 10001)) let month = monthOf(within(m, 1, 12)) let day = int(within(dd, -1, 33)) let valid = year >= 1 && year <= 9999 && day >= 1 && day <= DaysIn(year, month) let made = NewDate(year, month, day) catch { case NoSuchDate: return back == d && !valid } back == d && valid && Year(made) == year && Month(made) == month && Day(made) == day }`,
-	"civil CivilAgreesWithCalendar":  `CivilAgreesWithCalendar(sec int64, nsec int64) { let t = time.NewTime(sec, nsec) let c = time.Calendar(t) let dt = DateTimeOf(t) let d = dt.Date Year(d) == c.Year && Month(d) == c.Month && Day(d) == c.Day && Weekday(d) == c.Weekday && YearDay(d) == c.YearDay && Hour(dt.Time) == c.Hour && Minute(dt.Time) == c.Minute && Second(dt.Time) == c.Second && Nanosecond(dt.Time) == c.Nanosecond }`,
-	"civil WeekdayStepsByDay":        `WeekdayStepsByDay(n int64) { let d = anyDay(n) d == MaxDate() || time.WeekdayNumber(Weekday(AddDays(d, 1))) == (time.WeekdayNumber(Weekday(d))+1)%7 }`,
-	"civil ISOWeekIsThursdays":       `ISOWeekIsThursdays(n int64) { let d = anyDay(n) let w = ISOWeek(d) let thursday = AddDays(StartOf(d, Weeks{First: time.Monday}), 3) w.Year == Year(thursday) && w.Week == (YearDay(thursday)+6)/7 && w.Week >= 1 && w.Week <= 53 && Weekday(thursday) == time.Thursday }`,
-	"civil CompareIsTotalOrder":      `CompareIsTotalOrder(x int64, y int64) { let a = anyDay(x) let b = FromUnixDays(UnixDays(a) + within(y, -2, 2)) Compare(a, b) == -Compare(b, a) && (Compare(a, b) < 0) == Before(a, b) && (Compare(a, b) == 0) == (a == b) && Clamp(b, a, a) == a }`,
-	"civil FormatParseRoundTrips":    `FormatParseRoundTrips(seed int64, n int64, ns int64) { let f = anyFormat(seed) let dt = anyHeld(f, n, ns) let back = ParseDateTime(f, FormatDateTime(dt, f)) catch { case ParseError: return false } back == held(dt, f) }`,
-	"civil ParseIsStrict":            `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1))) }`,
-	"civil TextIsISO":                `TextIsISO(n int64) { let d = anyDay(n) let back = ParseDate(ISODate(), Text(d)) catch { case ParseError: return false } FormatDate(d, ISODate()) == Text(d) && back == d }`,
-	"civil PatternAgreesWithLayout":  `PatternAgreesWithLayout(seed int64, n int64, ns int64) { let k = pick(draw(seed), len(ldmlPairs())) let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch { case BadPattern: return false } let l = FromLayout("2006-01-02 " + goPairs()[k]) catch { case BadPattern: return false } let dt = anyHeld(p, n, ns) FormatDateTime(dt, p) == FormatDateTime(dt, l) }`,
-	"civil SpanDaysCount":            `SpanDaysCount(x int64, k int64) { let from = anyDay(x) let to = AddDays(from, int(within(k, -3, 400))) let s = NewSpan(from, to) catch { case Reversed: return Before(to, from) } let days = slices.Collect(Dates(s)) let mut ok = !Before(to, from) && len(days) == Len(s) && days[0] == From(s) && days[len(days)-1] == To(s) for i in 1..len(days) { ok = ok && DaysBetween(days[i-1], days[i]) == 1 } ok }`,
-	"civil SpanDatesStops":           `SpanDatesStops(x int64, k int64, stop int64) { let s = anySpan(x, within(k, 0, 10)) let at = int(within(stop, 1, 12)) let mut calls = 0 Dates(s)(func(d Date) bool { calls = calls + 1 calls < at }) calls == (if at < Len(s) { at } else { Len(s) }) }`,
-	"civil SplitTiles":               `SplitTiles(x int64, k int64, u int64, w int64) { let s = anySpan(x, k) let unit = anyUnit(u, w) let parts = slices.Collect(Split(s, unit)) let mut ok = len(parts) > 0 && From(parts[0]) == From(s) && To(parts[len(parts)-1]) == To(s) let mut total = 0 for i in 0..len(parts) { let p = parts[i] total = total + Len(p) ok = ok && StartOf(From(p), unit) == StartOf(To(p), unit) if i > 0 { ok = ok && AddDays(To(parts[i-1]), 1) == From(p) } } ok && total == Len(s) }`,
-	"civil SpanSplitStops":           `SpanSplitStops(x int64, k int64, u int64, w int64, stop int64) { let s = anySpan(x, k) let unit = anyUnit(u, w) let n = len(slices.Collect(Split(s, unit))) let at = int(within(stop, 1, 30)) let mut calls = 0 Split(s, unit)(func(p Span) bool { calls = calls + 1 calls < at }) calls == (if at < n { at } else { n }) }`,
-	"civil SpansOverlapIffIntersect": `SpansOverlapIffIntersect(x int64, a int64, y int64, b int64) { let p = anySpan(x, a) let q = anySpan(UnixDays(From(p)) + within(y, -20, 20), b) let agrees = match Intersect(p, q) { case Some[Span] as r: Overlaps(p, q) && Contains(p, From(r.Value)) && Contains(q, From(r.Value)) && Contains(p, To(r.Value)) && Contains(q, To(r.Value)) case None: !Overlaps(p, q) && !Contains(q, From(p)) && !Contains(p, From(q)) } agrees }`,
-	"civil TextRoundTrips":           `TextRoundTrips(n int64) { let d = anyDay(n) let s = Text(d) let back = ParseISODate(s) catch { case ParseError: return false } let longer = ParseISODate(s + "0") catch { case ParseError: MinDate() } let shorter = ParseISODate(strings.Slice(s, 0, 9)) catch { case ParseError: MinDate() } back == d && len(s) == 10 && Text(longer) == "0001-01-01" && Text(shorter) == "0001-01-01" && s == time.Format(time.Unix(UnixDays(d)*86400, 0), time.DateOnly) }`,
+	"civil AddDaysInverts":              `AddDaysInverts(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -4000000, 4000000)) let raw = UnixDays(d) + int64(n) raw < minDay() || raw > maxDay() || AddDays(AddDays(d, n), -n) == d && DaysBetween(d, AddDays(d, n)) == n && AddWeeks(d, 1) == AddDays(d, 7) }`,
+	"civil ArithmeticSaturates":         `ArithmeticSaturates(x int64, k int64) { let d = anyDay(x) let n = int(k) let days = AddDays(d, n) let months = AddMonths(d, n) let raw = UnixDays(d) + within64(k, span()) (raw >= minDay() && raw <= maxDay() || days == (if n < 0 { MinDate() } else { MaxDate() })) && (n < 0 || !Before(months, d)) && (n > 0 || !After(months, d)) && (n < 120000 || months == MaxDate()) && (n > -120000 || months == MinDate()) }`,
+	"civil AddMonthsClamps":             `AddMonthsClamps(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -130000, 130000)) let r = AddMonths(d, n) let moved = (Year(r)*12 + time.MonthNumber(Month(r))) - (Year(d)*12 + time.MonthNumber(Month(d))) let last = DaysIn(Year(r), Month(r)) r == MinDate() || r == MaxDate() || moved == n && Day(r) == (if Day(d) > last { last } else { Day(d) }) }`,
+	"civil AddMonthsRetracts":           `AddMonthsRetracts(x int64, k int64) { let d = anyDay(x) let n = int(within(k, -1300, 1300)) let there = AddMonths(d, n) let r = AddMonths(there, -n) there == MinDate() || there == MaxDate() || Year(r) == Year(d) && Month(r) == Month(d) && Day(r) <= Day(d) && (Day(d) > 28 || r == d) }`,
+	"civil AddMonthsAdds":               `AddMonthsAdds(x int64, i int64, j int64) { let d = StartOf(anyDay(x), Months) let a = int(within(i, -60000, 60000)) let b = int(within(j, -60000, 60000)) let mid = AddMonths(d, a) mid == MinDate() || StartOf(mid, Months) != mid || AddMonths(mid, b) == AddMonths(d, a+b) }`,
+	"civil BetweenInvertsAdd":           `BetweenInvertsAdd(x int64, k int64, u int64, w int64) { let from = anyDay(x) let to = anyDay(UnixDays(from) + within(k, -40000, 40000)) let p = Between(from, to, anyUnit(u, w)) let n = DaysBetween(from, to) let signed = if n < 0 { p.Years <= 0 && p.Months <= 0 && p.Weeks <= 0 && p.Days <= 0 } else { p.Years >= 0 && p.Months >= 0 && p.Weeks >= 0 && p.Days >= 0 } Add(from, p) == to && signed }`,
+	"civil StartOfBounds":               `StartOfBounds(x int64, u int64, w int64) { let d = anyDay(x) let unit = anyUnit(u, w) let start = StartOf(d, unit) let end = EndOf(d, unit) let first = match unit { case Weeks as week: start == MinDate() || Weekday(start) == week.First case Days, Months, Quarters, Years: true } !After(start, d) && !Before(end, d) && StartOf(start, unit) == start && EndOf(end, unit) == end && first && (end == MaxDate() || StartOf(AddDays(end, 1), unit) == AddDays(end, 1)) }`,
+	"civil NextIsTheNextWeekday":        `NextIsTheNextWeekday(x int64, w int64) { let d = anyDay(x) let day = weekdayOf(within(w, 0, 6)) let n = Next(d, day) let p = Previous(d, day) (n == MaxDate() || Weekday(n) == day && DaysBetween(d, n) >= 1 && DaysBetween(d, n) <= 7) && (p == MinDate() || Weekday(p) == day && DaysBetween(p, d) >= 1 && DaysBetween(p, d) <= 7) }`,
+	"civil PeriodTextRoundTrips":        `PeriodTextRoundTrips(y int64, m int64, w int64, d int64) { let p = Period{Years: int(y), Months: int(m), Weeks: int(w), Days: int(d)} let back = ParsePeriod(PeriodText(p)) catch { case ParseError: return false } back == p }`,
+	"civil PeriodAndDurationTextsApart": `PeriodAndDurationTextsApart(y int64, d int64) { let p = Period{Years: 0, Months: int(within(y, 1, 1000)), Weeks: 0, Days: 0} let _ = time.ParseDurationISO(PeriodText(p)) catch { case time.ParseError: let _ = ParsePeriod(time.DurationISO(duration(d))) catch { case ParseError: return true } return false } false }`,
+	"civil TimeOfDayRoundTrips":         `TimeOfDayRoundTrips(h int64, m int64, s int64, n int64) { let hour = int(within(h, -1, 24)) let minute = int(within(m, -1, 60)) let second = int(within(s, -1, 60)) let nano = int(within(n, -1, 1000000000)) let valid = hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 && second >= 0 && second <= 59 && nano >= 0 && nano <= 999999999 let t = NewTimeOfDay(hour, minute, second, nano) catch { case NoSuchTime: return !valid } valid && Hour(t) == hour && Minute(t) == minute && Second(t) == second && Nanosecond(t) == nano }`,
+	"civil InstantInvertsDateTimeOf":    `InstantInvertsDateTimeOf(sec int64, nsec int64, k int64) { let t = time.NewTime(sec, nsec) let dt = DateTimeOf(t) let d = duration(within(k, -100000000000000000, 100000000000000000)) let there = AddDuration(dt, d) Instant(dt).Equal(t) && (there.Date == MinDate() || there.Date == MaxDate() || Sub(there, dt) == d && AddDuration(there, -d) == dt) }`,
+	"civil PartsAddUp":                  `PartsAddUp(d duration) { let p = Parts(d) let n = int64(d) let sum = int64(p.Days) * 86400000000000 + int64(p.Hours) * 3600000000000 + int64(p.Minutes) * 60000000000 + int64(p.Seconds) * 1000000000 + int64(p.Nanoseconds) let small = p.Hours > -24 && p.Hours < 24 && p.Minutes > -60 && p.Minutes < 60 && p.Seconds > -60 && p.Seconds < 60 && p.Nanoseconds > -1000000000 && p.Nanoseconds < 1000000000 let signed = if n < 0 { p.Days <= 0 && p.Hours <= 0 && p.Minutes <= 0 && p.Seconds <= 0 && p.Nanoseconds <= 0 } else { p.Days >= 0 && p.Hours >= 0 && p.Minutes >= 0 && p.Seconds >= 0 && p.Nanoseconds >= 0 } sum == n && small && signed }`,
+	"civil DateRoundTrips":              `DateRoundTrips(n int64, y int64, m int64, dd int64) { let d = anyDay(n) let back = NewDate(Year(d), Month(d), Day(d)) catch { case NoSuchDate: return false } let year = int(within(y, -1, 10001)) let month = monthOf(within(m, 1, 12)) let day = int(within(dd, -1, 33)) let valid = year >= 1 && year <= 9999 && day >= 1 && day <= DaysIn(year, month) let made = NewDate(year, month, day) catch { case NoSuchDate: return back == d && !valid } back == d && valid && Year(made) == year && Month(made) == month && Day(made) == day }`,
+	"civil CivilAgreesWithCalendar":     `CivilAgreesWithCalendar(sec int64, nsec int64) { let t = time.NewTime(sec, nsec) let c = time.Calendar(t) let dt = DateTimeOf(t) let d = dt.Date Year(d) == c.Year && Month(d) == c.Month && Day(d) == c.Day && Weekday(d) == c.Weekday && YearDay(d) == c.YearDay && Hour(dt.Time) == c.Hour && Minute(dt.Time) == c.Minute && Second(dt.Time) == c.Second && Nanosecond(dt.Time) == c.Nanosecond }`,
+	"civil WeekdayStepsByDay":           `WeekdayStepsByDay(n int64) { let d = anyDay(n) d == MaxDate() || time.WeekdayNumber(Weekday(AddDays(d, 1))) == (time.WeekdayNumber(Weekday(d))+1)%7 }`,
+	"civil ISOWeekIsThursdays":          `ISOWeekIsThursdays(n int64) { let d = anyDay(n) let w = ISOWeek(d) let thursday = AddDays(StartOf(d, Weeks{First: time.Monday}), 3) w.Year == Year(thursday) && w.Week == (YearDay(thursday)+6)/7 && w.Week >= 1 && w.Week <= 53 && Weekday(thursday) == time.Thursday }`,
+	"civil CompareIsTotalOrder":         `CompareIsTotalOrder(x int64, y int64) { let a = anyDay(x) let b = FromUnixDays(UnixDays(a) + within(y, -2, 2)) Compare(a, b) == -Compare(b, a) && (Compare(a, b) < 0) == Before(a, b) && (Compare(a, b) == 0) == (a == b) && Clamp(b, a, a) == a }`,
+	"civil FormatParseRoundTrips":       `FormatParseRoundTrips(seed int64, n int64, ns int64) { let f = anyFormat(seed) let dt = anyHeld(f, n, ns) let back = ParseDateTime(f, FormatDateTime(dt, f)) catch { case ParseError: return false } back == held(dt, f) }`,
+	"civil ParseIsStrict":               `ParseIsStrict(seed int64, n int64, ns int64) { let f = anyFormat(seed) let s = FormatDateTime(anyHeld(f, n, ns), f) refused(f, s + "x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s) - 1))) }`,
+	"civil TextIsISO":                   `TextIsISO(n int64) { let d = anyDay(n) let back = ParseDate(ISODate(), Text(d)) catch { case ParseError: return false } FormatDate(d, ISODate()) == Text(d) && back == d }`,
+	"civil PatternAgreesWithLayout":     `PatternAgreesWithLayout(seed int64, n int64, ns int64) { let k = pick(draw(seed), len(ldmlPairs())) let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch { case BadPattern: return false } let l = FromLayout("2006-01-02 " + goPairs()[k]) catch { case BadPattern: return false } let dt = anyHeld(p, n, ns) FormatDateTime(dt, p) == FormatDateTime(dt, l) }`,
+	"civil DistanceIsMonotone":          `DistanceIsMonotone(sec int64, a int64, b int64) { let from = time.NewTime(within(sec, -62135596800, 253402300799), 0) let x = within(a, 0, 4000000000000000000) let y = within(b, 0, 4000000000000000000) let near = Distance(from, time.Add(from, duration(if x < y { x } else { y }))) let far = Distance(from, time.Add(from, duration(if x < y { y } else { x }))) rank(near.Unit) < rank(far.Unit) || rank(near.Unit) == rank(far.Unit) && near.Count <= far.Count }`,
+	"civil DistanceMirrors":             `DistanceMirrors(s1 int64, n1 int64, s2 int64, n2 int64) { let a = time.NewTime(within(s1, -62135596800, 253402300799), within(n1, 0, 999999999)) let b = time.NewTime(within(s2 / 1000000 + s1, -62135596800, 253402300799), within(n2, 0, 999999999)) let there = Distance(a, b) let back = Distance(b, a) there.Count == back.Count && rank(there.Unit) == rank(back.Unit) && (if rank(there.Unit) == 0 { !there.Past && !back.Past } else { there.Past != back.Past }) }`,
+	"civil DistanceDatesCountsDates":    `DistanceDatesCountsDates(x int64, k int64) { let a = anyDay(x) let b = anyDay(x + within(k, -800000, 800000)) let d = DistanceDates(a, b) if a == b { return d.Count == 0 && rank(d.Unit) == 4 && !d.Past } d == Distance(Instant(DateTime{Date: a, Time: Midnight()}), Instant(DateTime{Date: b, Time: Midnight()})) }`,
+	"civil SpanDaysCount":               `SpanDaysCount(x int64, k int64) { let from = anyDay(x) let to = AddDays(from, int(within(k, -3, 400))) let s = NewSpan(from, to) catch { case Reversed: return Before(to, from) } let days = slices.Collect(Dates(s)) let mut ok = !Before(to, from) && len(days) == Len(s) && days[0] == From(s) && days[len(days)-1] == To(s) for i in 1..len(days) { ok = ok && DaysBetween(days[i-1], days[i]) == 1 } ok }`,
+	"civil SpanDatesStops":              `SpanDatesStops(x int64, k int64, stop int64) { let s = anySpan(x, within(k, 0, 10)) let at = int(within(stop, 1, 12)) let mut calls = 0 Dates(s)(func(d Date) bool { calls = calls + 1 calls < at }) calls == (if at < Len(s) { at } else { Len(s) }) }`,
+	"civil SplitTiles":                  `SplitTiles(x int64, k int64, u int64, w int64) { let s = anySpan(x, k) let unit = anyUnit(u, w) let parts = slices.Collect(Split(s, unit)) let mut ok = len(parts) > 0 && From(parts[0]) == From(s) && To(parts[len(parts)-1]) == To(s) let mut total = 0 for i in 0..len(parts) { let p = parts[i] total = total + Len(p) ok = ok && StartOf(From(p), unit) == StartOf(To(p), unit) if i > 0 { ok = ok && AddDays(To(parts[i-1]), 1) == From(p) } } ok && total == Len(s) }`,
+	"civil SpanSplitStops":              `SpanSplitStops(x int64, k int64, u int64, w int64, stop int64) { let s = anySpan(x, k) let unit = anyUnit(u, w) let n = len(slices.Collect(Split(s, unit))) let at = int(within(stop, 1, 30)) let mut calls = 0 Split(s, unit)(func(p Span) bool { calls = calls + 1 calls < at }) calls == (if at < n { at } else { n }) }`,
+	"civil SpansOverlapIffIntersect":    `SpansOverlapIffIntersect(x int64, a int64, y int64, b int64) { let p = anySpan(x, a) let q = anySpan(UnixDays(From(p)) + within(y, -20, 20), b) let agrees = match Intersect(p, q) { case Some[Span] as r: Overlaps(p, q) && Contains(p, From(r.Value)) && Contains(q, From(r.Value)) && Contains(p, To(r.Value)) && Contains(q, To(r.Value)) case None: !Overlaps(p, q) && !Contains(q, From(p)) && !Contains(p, From(q)) } agrees }`,
+	"civil TextRoundTrips":              `TextRoundTrips(n int64) { let d = anyDay(n) let s = Text(d) let back = ParseISODate(s) catch { case ParseError: return false } let longer = ParseISODate(s + "0") catch { case ParseError: MinDate() } let shorter = ParseISODate(strings.Slice(s, 0, 9)) catch { case ParseError: MinDate() } back == d && len(s) == 10 && Text(longer) == "0001-01-01" && Text(shorter) == "0001-01-01" && s == time.Format(time.Unix(UnixDays(d)*86400, 0), time.DateOnly) }`,
 }

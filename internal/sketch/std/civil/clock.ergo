@@ -93,3 +93,27 @@ law InstantInvertsDateTimeOf(sec int64, nsec int64, k int64) {
 	let there = AddDuration(dt, d)
 	Instant(dt).Equal(t) && (there.Date == MinDate() || there.Date == MaxDate() || Sub(there, dt) == d && AddDuration(there, -d) == dt)
 }
+
+// DurationParts is a duration in days of 24 hours, hours, minutes, seconds
+// and nanoseconds, each with the duration's sign.
+type DurationParts { Days int, Hours int, Minutes int, Seconds int, Nanoseconds int }
+
+// Parts is d in parts, as Effect's Duration.parts, for a text of one's
+// own ("2 h 5 min"): Hours is below 24, Minutes and Seconds below 60 and
+// Nanoseconds below 10^9 in size, and a negative d has no part above zero
+// (Go's division toward zero), so the parts add up to d.
+func Parts(d duration) DurationParts {
+	let n = int64(d)
+	DurationParts{Days: int(n / 86400000000000), Hours: int(n / 3600000000000 % 24), Minutes: int(n / 60000000000 % 60), Seconds: int(n / 1000000000 % 60), Nanoseconds: int(n % 1000000000)}
+}
+
+// PartsAddUp: the parts add up to d, each in its range and none of the
+// other sign.
+law PartsAddUp(d duration) {
+	let p = Parts(d)
+	let n = int64(d)
+	let sum = int64(p.Days) * 86400000000000 + int64(p.Hours) * 3600000000000 + int64(p.Minutes) * 60000000000 + int64(p.Seconds) * 1000000000 + int64(p.Nanoseconds)
+	let small = p.Hours > -24 && p.Hours < 24 && p.Minutes > -60 && p.Minutes < 60 && p.Seconds > -60 && p.Seconds < 60 && p.Nanoseconds > -1000000000 && p.Nanoseconds < 1000000000
+	let signed = if n < 0 { p.Days <= 0 && p.Hours <= 0 && p.Minutes <= 0 && p.Seconds <= 0 && p.Nanoseconds <= 0 } else { p.Days >= 0 && p.Hours >= 0 && p.Minutes >= 0 && p.Seconds >= 0 && p.Nanoseconds >= 0 }
+	sum == n && small && signed
+}
