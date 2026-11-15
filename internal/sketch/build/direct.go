@@ -603,7 +603,9 @@ func (d *direct) compile(p *goPackage) error {
 	args := []string{"-o", out, "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
 		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
 		"-goversion", d.plan.Version}
-	if c := min(4, runtime.GOMAXPROCS(0)); c > 1 {
+	c, release := compileSlot(d.c.Root) // slot.go
+	defer release()
+	if c > 1 {
 		args = append(args, "-c="+strconv.Itoa(c))
 	}
 	if d.plan.pie() {
