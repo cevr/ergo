@@ -479,7 +479,11 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
-	k.add("flags", strings.Join(d.compileFlags(p), " "))
+	if flags := d.compileFlags(p); len(flags) > 0 {
+		// Only a profile with flags adds them: a release key, and so a
+		// release executable's build IDs, are the ones before FT5.
+		k.add("flags", strings.Join(flags, " "))
+	}
 	for _, f := range p.Files {
 		data, err := os.ReadFile(f)
 		if err != nil {
