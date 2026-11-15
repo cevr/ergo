@@ -31,7 +31,7 @@ package lower
 // Prior art: HotSpot's C2 keeps a safepoint poll on a loop's back edge
 // only when the loop body has no call, since a call is itself a safepoint;
 // the BEAM counts reductions per call, so a loop of calls is preempted
-// through its calls; Go needs neither, preempting asynchronously.
+// through its calls; Go preempts a goroutine asynchronously instead.
 
 import (
 	"ergo.local/prototype/internal/sketch/check"
