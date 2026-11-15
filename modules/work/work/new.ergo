@@ -103,15 +103,7 @@ func Begin(t Tool, m Making, o NewOptions) Making fails NoRevision | Diverged | 
 	case VcsFailed as e:
 		match o.On {
 		case Some[string] as on:
-			// Gone, or made again under its name (a trashed name is free)
-			// in the same folder: either way not the parent Look found.
-			let same = match try cloneable(t, on.Value) {
-			case Some[Workspace] as p:
-				p.Value.Id == m.ParentId
-			case None:
-				false
-			}
-			if !same {
+			if try cloneable(t, on.Value) == None {
 				return NoWorkspace{Name: on.Value}
 			}
 		case None:

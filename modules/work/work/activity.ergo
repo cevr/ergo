@@ -12,9 +12,10 @@ let UseProbe = "work-use"
 // modification time is after STAMP ($2, touch -t's CCYYMMDDhhmm.SS in
 // UTC, set on the file $3 to compare with find -newer), or a process
 // whose working folder is in it (each /proc/N/cwd; with no /proc,
-// lsof's cwd entries). It prints why it is in use, nothing when it is
-// not, and fails when it cannot tell.
-let UseScript = "set -eu\nroot=$(cd \"$1\" && pwd -P)\nTZ=UTC0 touch -t \"$2\" \"$3\"\nchanged=$(find \"$root\" -newer \"$3\" -print 2>/dev/null | head -n 1) || true\nif [ -n \"$changed\" ]; then printf 'changed since the window began: %s\\n' \"$changed\"; exit 0; fi\nif [ -e /proc/self/cwd ]; then\n  for p in /proc/[0-9]*; do\n    c=$(readlink \"$p/cwd\" 2>/dev/null) || continue\n    case \"$c\" in \"$root\"|\"$root\"/*) printf 'process %s works in it\\n' \"${p#/proc/}\"; exit 0;; esac\n  done\n  exit 0\nfi\nif command -v lsof >/dev/null 2>&1; then\n  lsof -nP -d cwd -Fn 2>/dev/null | while IFS= read -r l; do case \"$l\" in n\"$root\"|n\"$root\"/*) printf 'a process works in it\\n'; break;; esac; done\n  exit 0\nfi\necho 'neither /proc nor lsof tells the processes' >&2\nexit 3\n"
+// lsof's cwd entries). It prints why it is in use (a changed path
+// relative to the folder), nothing when it is not, and fails when it
+// cannot tell.
+let UseScript = "set -eu\nroot=$(cd \"$1\" && pwd -P)\nTZ=UTC0 touch -t \"$2\" \"$3\"\nchanged=$(find \"$root\" -newer \"$3\" -print 2>/dev/null | head -n 1) || true\nif [ -n \"$changed\" ]; then printf 'changed since the window began: %s\\n' \"${changed#\"$root\"/}\"; exit 0; fi\nif [ -e /proc/self/cwd ]; then\n  for p in /proc/[0-9]*; do\n    c=$(readlink \"$p/cwd\" 2>/dev/null) || continue\n    case \"$c\" in \"$root\"|\"$root\"/*) printf 'process %s works in it\\n' \"${p#/proc/}\"; exit 0;; esac\n  done\n  exit 0\nfi\nif command -v lsof >/dev/null 2>&1; then\n  lsof -nP -d cwd -Fn 2>/dev/null | while IFS= read -r l; do case \"$l\" in n\"$root\"|n\"$root\"/*) printf 'a process works in it\\n'; break;; esac; done\n  exit 0\nfi\necho 'neither /proc nor lsof tells the processes' >&2\nexit 3\n"
 
 // inUse is why the workspace at root is in use over the window that
 // began at the second since: a file under it changed after since, or a
