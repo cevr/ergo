@@ -975,6 +975,55 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui/layout.Measure": `import ui/layout
+
+type Mine {} implements layout.Measure
+
+func Widths(_ Mine, text string, size float32) layout.Intrinsic { layout.Intrinsic{Max: 0.0, Min: 0.0} }
+func Height(_ Mine, text string, size float32, width float32) float32 { 0.0 }
+
+func use(m layout.Measure) { _ = m.Height("x", 1.0, 1.0) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"io.Source": `import io
+
+type Mine {} implements io.Source
+
+func Read(_ Mine) Option[string] fails io.ReadFailed { None }
+
+func use(r io.Source) { _ = r.Read() catch { case io.ReadFailed: None } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"bench.Meter": `import bench
+
+type Mine {} implements bench.Meter
+
+func Measure(_ Mine, b bench.Block, series []bench.Series) []bench.Sample { []bench.Sample{} }
+
+func use(m bench.Meter) { _ = len(m.Measure(bench.Block{Side: bench.Base, Number: 0, Warm: false}, []bench.Series{})) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
+	// runtimeOnly, made only by the composer.
+	"ui.GroupArgs": `import ui
+
+type Mine {}
+
+func use(m ui.GroupArgs) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std fs Mapped (wf10 MAPPED): MapFile and MapText return it, and its
 	// runtimeOnly keeps every program value out. Mine has no Text: fs.Text
 	// is never a program function's result (types.md, Borrows 8).
@@ -986,6 +1035,35 @@ func Close(_ Mine) {}
 
 func use(m fs.Mapped) { _ = len(m.Text()) }
 
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Host": `import ui
+type Mine {} implements ui.Host[int]
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+func use(h ui.Host[int]) { h.Frames(false) }
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Measure": `import ui
+type Mine {} implements ui.Measure
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { font.Size }
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "mono", Size: 12.0}) }
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Clipboard": `import ui
+type Mine {} implements ui.Clipboard
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+func use(c ui.Clipboard) { c.Write("x") }
 func main() {
 	use(Mine)
 }
@@ -1031,6 +1109,14 @@ var openStd = map[string]bool{
 	"http.Network":      true,
 	"config.Config":     true,
 	"term.Terminal":     true,
+	// Declared after the migration with no private operation: a program
+	// provides each one, and cmd/<name>/main.ergo binds it.
+	"ui.Host":           true,
+	"ui.Measure":        true,
+	"ui.Clipboard":      true,
+	"ui/layout.Measure": true,
+	"io.Source":         true,
+	"bench.Meter":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
