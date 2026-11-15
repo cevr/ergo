@@ -203,7 +203,7 @@ func (w *escWalk) endsBeforeReturn(n syntax.Node) bool {
 		return false
 	}
 	path, name := k.Func.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
+	if !v1.Owns(path) {
 		return false
 	}
 	p, ok := v1.EndsRunsBeforeReturn(name)

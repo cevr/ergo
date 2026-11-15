@@ -628,7 +628,7 @@ func TestStdHostGuardAgreesWithOracle(t *testing.T) {
 		}
 		fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 		for _, d := range ds {
-			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("seed %d: %v\n%s", seed, ds, src)
 			}
 		}

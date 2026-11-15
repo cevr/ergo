@@ -25,9 +25,9 @@ func stdFixture(t *testing.T, path, src string) *check.Package {
 
 // TestStdRecordsKeyedByPackage (std-align S3b): two std packages each
 // declare a record NotFound, and one program fails with each and catches
-// each in its own arm. A std record binds a runtime struct by its package
-// and its name (v1.StdRecord), so the two records are two Go types and
-// each arm takes its own failure. Before, the lowering bound a std record
+// each in its own arm. A record is a runtime struct only when its
+// declaration names one (docs/spec/stdlib.md, Types 4), so the two records
+// are two Go types and each arm takes its own failure. Before, the lowering bound a std record
 // by its bare name, so both lowered to v1.NotFound, the fs record's struct,
 // and the catch could not tell them apart.
 //
@@ -93,8 +93,8 @@ func main() needs Console {
 		t.Fatalf("lowering: %v", err)
 	}
 	out.files = []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}
-	// fs.NotFound keeps its row: it is v1.NotFound, the value FSReadFile
-	// returns; neither fixture record has a row, so each is a type of the
+	// fs.NotFound names v1.NotFound, the value FSReadFile returns;
+	// neither fixture record names a Go type, so each is a type of the
 	// program.
 	if !strings.Contains(string(code), "ergo.NotFound{") {
 		t.Errorf("fs.NotFound does not lower to the runtime's NotFound:\n%s", code)

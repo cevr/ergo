@@ -30,6 +30,7 @@ func (e CSVParseError) Error() string { return e.Message }
 // no record is no rows, not nil.
 //
 //ergo:pure
+//ergo:wait none
 func CSVReadAll(text string) ([][]string, error) {
 	rows, err := csv.NewReader(strings.NewReader(text)).ReadAll()
 	if err != nil {
@@ -59,6 +60,8 @@ type CSVPosition struct {
 // no Reason when the text ended or each stopped the read: a stop reads no
 // further record (fs3). Rows is a Seq over it. It takes a function, so it
 // is not marked pure (stdlib.md, Pure bodies 2).
+//
+//ergo:wait none
 func CSVScan(text string, each func(fields []string, at []CSVPosition) bool) CSVParseError {
 	return csvScan(strings.NewReader(text), each)
 }
@@ -96,6 +99,7 @@ func csvScan(r *strings.Reader, each func(fields []string, at []CSVPosition) boo
 // field reads back (law RoundTrip).
 //
 //ergo:pure
+//ergo:wait none
 func CSVFormat(rows [][]string) string {
 	var b strings.Builder
 	w := csv.NewWriter(&b)

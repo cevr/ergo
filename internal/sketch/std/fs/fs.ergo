@@ -12,21 +12,21 @@
 // so no file stays open after a call returns, except an explicit HostRoot.
 
 // NotFound is the failure of a path that does not exist.
-type NotFound { Path string }
+extern go ergo.local/prototype/runtime/v1.NotFound type NotFound { Path string }
 
 // Denied is the failure of a path the process may not read or write.
-type Denied { Path string }
+extern go ergo.local/prototype/runtime/v1.Denied type Denied { Path string }
 
 // Failed is any other failure of an operation at Path. Reason is the
 // host's text for it, without the path, such as "is a directory".
-type Failed { Path string, Reason string }
+extern go ergo.local/prototype/runtime/v1.Failed type Failed { Path string, Reason string }
 
 // Info describes the file at a path: its last element, its size in bytes,
 // whether it is a directory, and its permission bits as Perm gives them
 // (Go's fs.FileMode.Perm), so `info.Perm == fs.Perm(fs.Private())` tests
 // a mode. Perm is bits, not a Mode, because Mode has no value for some
 // bits, such as a write without a read.
-type Info { Name string, Size int, Dir bool, Perm int }
+extern go ergo.local/prototype/runtime/v1.Info type Info { Name string, Size int, Dir bool, Perm int }
 
 // Access is what one class of users may do with a file: the three
 // permission bits of that class (read 4, write 2, execute 1). The variants
@@ -224,7 +224,7 @@ type Writes {
 // Escapes is the failure of a Root path that leaves the root: an absolute
 // path, a ".." past the root, or a symbolic link whose target is absolute
 // or leads past the root, even when a later element comes back in.
-type Escapes { Path string }
+extern go ergo.local/prototype/runtime/v1.Escapes type Escapes { Path string }
 
 // Root reads one directory tree and nothing outside it. A path is
 // relative to the root, its elements separated by "/". Each operation
@@ -285,7 +285,7 @@ type Root {
 // closes it on every exit; do not return or retain it beyond that scope
 // until local resource ownership (#197) tracks that move.
 // law-exempt: the host's Root; Root's law runs on it in the host agreement property.
-type HostRoot {
+extern go ergo.local/prototype/runtime/v1.HostRoot type HostRoot {
 	..Root,
 	hostRooted(),
 }

@@ -879,6 +879,16 @@ func isStdPath(path string) bool {
 	return ok || path == std.PreludePath
 }
 
+// TrustsGo is the loader's check.GoTrust for the packages it checks with
+// itself as the importer, the root module's (a required module's package
+// is checked through check.ModuleImporter, which trusts no runtime
+// binding): the root trusts its own module's Go when ergo.mod has the line
+// `trust go NAME` for its own name, the one trust line (orchestrator
+// ruling 2026-11-14; docs/spec/interop.md, Trusted Go).
+func (l *loader) TrustsGo() (string, bool) {
+	return l.module, l.module != "" && slices.Contains(l.trust, l.module)
+}
+
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {

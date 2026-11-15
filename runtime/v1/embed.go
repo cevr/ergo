@@ -15,6 +15,8 @@ type FS struct{ files fs.FS }
 
 // EmbeddedFS wraps a Go embed tree after lowering has removed its private
 // asset namespace. The native control is embed.FS plus io/fs.Sub.
+//
+//ergo:wait none
 func EmbeddedFS(files embed.FS, prefix string) *FS {
 	view, err := fs.Sub(files, prefix)
 	if err != nil {
@@ -24,8 +26,11 @@ func EmbeddedFS(files embed.FS, prefix string) *FS {
 }
 
 // NewEmptyFS is the body of embed.NewEmpty.
+//
+//ergo:wait none
 func NewEmptyFS() *FS { return &FS{files: embed.FS{}} }
 
+//ergo:wait none
 func (f *FS) ReadFile(_ *rt.Task, name string) (string, error) {
 	data, err := fs.ReadFile(f.files, name)
 	if err != nil {
@@ -34,6 +39,7 @@ func (f *FS) ReadFile(_ *rt.Task, name string) (string, error) {
 	return string(data), nil
 }
 
+//ergo:wait none
 func (f *FS) ReadDir(_ *rt.Task, name string) ([]string, error) {
 	entries, err := fs.ReadDir(f.files, name)
 	if err != nil {
@@ -46,6 +52,7 @@ func (f *FS) ReadDir(_ *rt.Task, name string) ([]string, error) {
 	return names, nil
 }
 
+//ergo:wait none
 func (f *FS) Stat(_ *rt.Task, name string) (Info, error) {
 	info, err := fs.Stat(f.files, name)
 	if err != nil {

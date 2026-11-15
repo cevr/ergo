@@ -117,6 +117,7 @@ func (l *lowerer) nameAll() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
 	}
 	l.reserveMono(append([]*check.Package{l.pkg}, libs...)) // mono.go
+	l.reserveHeld()                                         // inforce.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its
@@ -151,6 +152,7 @@ func (l *lowerer) nameAll() {
 	}
 	type entry = generatedEntry
 	var generated []entry
+	provs := l.provFuncs(append([]*check.Package{l.pkg}, libs...)) // provider.go
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
 		for x, c := range p.Info.Implicit {
@@ -220,6 +222,11 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if prov := l.providerOf(c); prov != nil {
+				for _, f := range provs[prov.to] {
+					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
+				}
+			}
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)

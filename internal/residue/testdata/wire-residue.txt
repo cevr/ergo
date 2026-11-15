@@ -177,6 +177,7 @@ internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower
 internal/sketch/lower/testdata/mutants.json	      "name": "option-wire-swapped",
 internal/sketch/lower/testdata/mutants.json	      "rule": "wire: a record's Option field round-trips
 internal/sketch/lower/testdata/mutants.json	"killers": ["examples:wire-config"]
+scripts/examples/fast-tier.txt	wire-config
 internal/sketch/lower/testdata/mutants.json	"file": "internal/sketch/lower/wire.go",
 internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent of the projection and Go codec.
 internal/sketch/lower/wire.go	*
@@ -466,6 +467,22 @@ examples/pipeline/README.md	holds for the generated client over the wire
 examples/pipeline/README.md	the wire sends two requests in the other order
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
+examples/fk-domains/domains/domainsrpc/client.ergo	*
+examples/fk-domains/domains/domainsrpc/server.ergo	*
+examples/fk-domains/domains/domainsrpc/wire.ergo	*
+examples/fk-domains/loopback/loopback.ergo	*
+examples/fk-domains/domains/listing.ergo	*
+examples/fk-domains/domains/registry.ergo	*
+examples/fk-domains/sample/sample.ergo	*
+examples/fk-domains/server/origin.ergo	*
+examples/fk-domains/server/recorded/wire.mjs	*
+examples/fk-domains/README.md	*
+examples/fk-domains/search/search.ergo	Some[string]{Value: domains.Wire(l)}
+examples/fk-domains/expected-skips	*
+examples/fk-domains/origin/README.md	*
+examples/fk-domains/origin/measure/README.md	*
+examples/fk-domains/origin/tests.txt	*
+internal/rpcgen/refined_test.go	*
 examples/jobs-web/loopback/tests.ergo	*
 examples/jobs-web/README.md	is a server through the wire
 examples/jobs-web/README.md	provider hold through the wire.

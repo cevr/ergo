@@ -57,6 +57,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
 	}
+	if check.IsInForce(c) {
+		return fc.inForce(x, c) // inforce.go
+	}
 	if goImportCall(c, fc.typeOf) {
 		return fc.goCall(x, c) // gocall.go
 	}
@@ -410,13 +413,14 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	return "", false, false
 }
 
-// userExtern reports an extern declared outside std (C26, 196x): the
+// userExtern reports an extern that does not bind the Ergo runtime (C26,
+// 196x; a runtime-bound extern is the trusted door, stdBody): the
 // checker admits one only with a signature of basic types, no needs row,
 // no fails row but go.Error (G4), no type parameters and at most one
 // result, and with a target in
 // Go's standard library (check/extern.go).
 func userExtern(f *check.Func) bool {
-	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std() && !f.Pkg.Host() && check.GoBuiltin(f) == ""
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !check.BindsRuntime(f) && !f.Pkg.Host() && check.GoBuiltin(f) == ""
 }
 
 // builtinCall is the Go text of the call x of an extern that binds Go's
@@ -742,7 +746,7 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 	var paths []string
 	for _, p := range pkgs {
 		for _, f := range l.canon.funcs(p) {
-			if !userExtern(f) {
+			if _, own := check.ModuleBody(f); !userExtern(f) && !own {
 				continue
 			}
 			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
@@ -857,13 +861,13 @@ func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 func (fc *funcCtx) typeArgs(sig *check.Signature, args []check.Type, site syntax.Node) string {
 	var out []string
 	for i, tp := range sig.TParams {
-		if tp.Kind != check.KindType {
+		if !fc.l.goParam(tp) {
 			continue
 		}
 		if i >= len(args) {
 			ice(site, "a generic call with %d type arguments for %d parameters", len(args), len(sig.TParams))
 		}
-		out = append(out, fc.goType(args[i]))
+		out = append(out, fc.goArg(tp, args[i]))
 	}
 	if len(out) == 0 {
 		return ""
@@ -916,7 +920,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	}
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {
-			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
+			if fc.l.goParam(tp) && !paramsMention(f.Sig, tp) {
 				unreachable(site, ruleGenericValue, "the generic function %s used as a value with no instance, and its type parameter %s in no parameter", f.Name, tp.Name)
 			}
 		}
@@ -1119,6 +1123,10 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if owning {
 		ws = fc.temp("ws")
 		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(arg), nil, arg))
+		if fc.l.holdsRows() {
+			// The innermost owning with, for a held context (inforce.go).
+			fc.line(env + "." + envWith + " = " + ws)
+		}
 		savedWith, fc.frame.with = fc.frame.with, ws
 	}
 	if lit {
@@ -1148,7 +1156,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 // scopeCall writes a call of the with scope's method name on recv through
 // the runtime binding emitter.
 func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node) string {
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the with scope binding %s has no runtime/v1 body: %v", name, err)
 	}
@@ -1501,8 +1509,10 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// A provider's requirements are met where a context builds it (rows.md,
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
-		// table function that needs capabilities (S108, with #37).
-		if len(rowElems(f.Sig.Uses)) > 0 {
+		// table function that needs capabilities (S108, with #37), except
+		// go.Foreign, which the converting site holds (README Gap 17) and
+		// which no environment holds (module.go).
+		if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {
 			ice(site, "the operation %s of %s is provided by %s, which needs capabilities", op.Name, conv.To, f.Name)
 		}
 		l.useFunc(f, site)

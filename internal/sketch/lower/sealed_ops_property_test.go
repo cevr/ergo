@@ -74,7 +74,9 @@ func stdOpTypes(t *testing.T) []stdOpType {
 			}
 			for _, d := range f.Decls {
 				td, ok := d.(*syntax.TypeDecl)
-				if !ok || td.Extern != nil {
+				// A binding's host type is Go's (gostd); a type that names
+				// a runtime Go type (STD-NOPRIV NP4c) is std's own.
+				if !ok || td.Extern != nil && !strings.HasPrefix(td.Extern.Target.Value, runtimeImport+".") {
 					continue
 				}
 				it, ok := td.Spec.(*syntax.InterfaceType)

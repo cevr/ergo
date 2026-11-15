@@ -1,0 +1,121 @@
+import json
+
+// Registry is the Api of fk-domains: one operation, the original's
+// SearchDomains RPC, named as the original's wire names it so a stock
+// client of the original calls the port's server. It lists label under
+// the catalog's TLDs from offset (0 when absent), at most limit of them
+// (the whole catalog when absent). The range is optional on the wire,
+// as the original's payload {label, offset?, limit?} is.
+//
+// Its laws run against every provider: sample in process, and the
+// generated client through rpc.Loopback (package loopback).
+type Registry {
+	SearchDomains(label Label, offset json.Optional[Offset], limit json.Optional[Limit]) []Listing fails Down,
+
+	// PageIsSliceOfWhole: a page is the items offset to offset+limit of
+	// the whole answer, so pages agree with each other and with a search
+	// that asks for everything.
+	law PageIsSliceOfWhole(pick int, offset Offset, limit Limit) { PageIsSliceOfWhole(pick, offset, limit) },
+
+	// SameAnswerTwice: the same search gives the same listings.
+	law SameAnswerTwice(pick int, offset Offset, limit Limit) { SameAnswerTwice(pick, offset, limit) },
+
+	// FeaturedFirst: a whole answer lists the featured TLDs first, in
+	// their order, then every other TLD of the catalog in its order.
+	law FeaturedFirst(pick int) { FeaturedFirst(pick) },
+
+	// AtMostLimit: a page holds at most limit listings.
+	law AtMostLimit(pick int, offset Offset, limit Limit) { AtMostLimit(pick, offset, limit) },
+}
+
+// labels are the labels the laws search for: the four the sample data
+// marks as taken under .com and .dev, and others of each shape a Label
+// has (one letter, digits, an inner hyphen, the longest).
+let labels = []string{"foldkit", "google", "github", "vercel", "acme", "f", "x9", "a-b", "domains", "0", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0"}
+
+// labelOf is the label a law's pick selects.
+func labelOf(pick int) Label {
+	let n = len(labels)
+	Label{text: labels[((pick%n)+n)%n]}
+}
+
+func page(l Label, offset Offset, limit Limit) []Listing fails Down needs Registry {
+	try Registry.SearchDomains(l, json.Present[Offset]{Value: offset}, json.Present[Limit]{Value: limit})
+}
+
+func whole(l Label) []Listing fails Down needs Registry {
+	try Registry.SearchDomains(l, json.Absent, json.Absent)
+}
+
+func same(a []Listing, b []Listing) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// PageIsSliceOfWhole is the law of that name; a provider that is down
+// has no answer to compare, so Down passes.
+func PageIsSliceOfWhole(pick int, offset Offset, limit Limit) bool needs Registry {
+	let l = labelOf(pick)
+	let p = page(l, offset, limit) catch {
+	case Down:
+		return true
+	}
+	let all = whole(l) catch {
+	case Down:
+		return true
+	}
+	let from = int(offset)
+	let mut to = from + int(limit)
+	if to > len(all) {
+		to = len(all)
+	}
+	from <= to && same(p, all[from:to])
+}
+
+// SameAnswerTwice is the law of that name.
+func SameAnswerTwice(pick int, offset Offset, limit Limit) bool needs Registry {
+	let l = labelOf(pick)
+	let first = page(l, offset, limit) catch {
+	case Down:
+		return true
+	}
+	let second = page(l, offset, limit) catch {
+	case Down:
+		return true
+	}
+	same(first, second)
+}
+
+// FeaturedFirst is the law of that name.
+func FeaturedFirst(pick int) bool needs Registry {
+	let all = whole(labelOf(pick)) catch {
+	case Down:
+		return true
+	}
+	if len(all) != len(Catalog) {
+		return false
+	}
+	let l = labelOf(pick)
+	for i, t in Catalog {
+		if TLDOf(all[i]) != t || NameOf(all[i]) != Wire(l)+"."+t {
+			return false
+		}
+	}
+	true
+}
+
+// AtMostLimit is the law of that name.
+func AtMostLimit(pick int, offset Offset, limit Limit) bool needs Registry {
+	let p = page(labelOf(pick), offset, limit) catch {
+	case Down:
+		return true
+	}
+	len(p) <= int(limit)
+}

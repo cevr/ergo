@@ -1,6 +1,8 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"adapter-ice-on-foreign","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/lower/calls.go","from":"if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {","to":"if len(rowElems(f.Sig.Uses)) > 0 {","rule":"README Gap 17: an operation adapter calls a table function whose capability row is go.Foreign alone, which no environment holds.","killers":["lower:TestOperationAdapterCallsGo"]},
+    {"name":"stdbody-std-only","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/lower/std.go","from":"\tif fd.extern == \"\" || l.intrinsic(fd.fn) != nil {","to":"\tif fd.extern == \"\" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {","rule":"interop.md Trusted Go: a trusted extern of any package calls its runtime body with hidden arguments.","killers":["lower:TestTrustedRootBindsRuntime"]},
     {"name":"ps3-conversion-aliases-source","origin":"wf10 PS3","file":"internal/sketch/lower/cells.go","from":"\tw.freshen(x)\n}","to":"\t_ = x\n}","rule":"A value that moves into a cell is copied unless it is fresh or a dead local: the cell never shares storage with its source.","killers":["lower:TestProviderCellsAgree"]},
     {"name":"ps3-cell-window-off","origin":"wf10 PS3","file":"internal/sketch/lower/rewrite.go","from":"\t\tif !ok || c.Op == nil {","to":"\t\tif true || !ok || c.Op == nil {","rule":"A window on a cell local is rewritten by its provider's proved laws.","killers":["lower:TestProviderCellsAgree"]},
     {"name":"ps2-runner-ignores-symbolic","origin":"wf10 PS2","file":"internal/sketch/lower/valueproof.go","from":"\tif !listable {\n\t\treturn symbolic()\n\t}","to":"\tif !listable {\n\t\treturn skip(\"a law parameter cannot be listed\")\n\t}","rule":"A law over an unlistable parameter goes to the symbolic run, which proves it for every value.","killers":["lower:TestSymbolicProofsSound"]},
@@ -55,13 +57,11 @@
     {"name":"cu6b-remote-accept-lost","origin":"wf10 CU6b","file":"internal/sketch/std/http/network.ergo","from":"func(status int) bool { Accepts(accept, status) }, put)","to":"func(status int) bool { true }, put)","rule":"Remote hands the caller's rule to the streamed exchange.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-client-accept-lost","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"func(status int) bool { Accepts(accept, status) }, put)","to":"func(status int) bool { true }, put)","rule":"Client hands the caller's rule to the streamed exchange.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-dofile-parts-dropped","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"{ try file.Put(part) }","to":"{ }","rule":"DoFile writes every part of an accepted body to its file.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
-    {"name":"cu6b-status-row-unbound","origin":"wf10 CU6b","file":"runtime/v1/files.go","from":"\"http.StatusRefused\":   \"HTTPStatusRefused\",","to":"","rule":"The runtime's refused status is the declared std StatusRefused at the call boundary.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu5-credential-owner-lost", "origin":"wf10 CU5", "file":"internal/sketch/std/http/network.ergo", "from":"owners = owners.Append(c.origin)\n\t\tfields = fields.Append(c.field)\n\t}\n\ttry fetch(", "to":"owners = owners.Append(r.URL)\n\t\tfields = fields.Append(c.field)\n\t}\n\ttry fetch(", "rule":"The std provider passes each credential's declared owner to the runtime, not the request URL.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     { "name": "gs-init-refusal", "file": "internal/sketch/lower/module.go", "from": "if len(l.refusals) == 0 && l.hasInits() && !l.entryInits", "to": "if l.hasInits() && !l.entryInits", "rule": "A refused entry does not trigger a second internal error for its uncalled package initializer; Scheduler still needs an explicit provider.", "killers": ["lower:TestSchedulerEntryNeedsExplicitProvider"] },
     { "name": "gw-encode", "file": "internal/sketch/lower/wirefields.go", "from": "key := check.WireFieldName(f)", "to": "key := check.WireFieldName(&check.Field{Name: f.Name})", "rule": "Every codec encoder uses the explicit field key.", "killers": ["examples:wire-config"] },
     { "name": "gw-decode", "file": "internal/sketch/lower/wire.go", "from": "strconv.Quote(check.WireFieldName(f)) + \":\\n\"", "to": "strconv.Quote(check.WireFieldName(&check.Field{Name: f.Name})) + \":\\n\"", "rule": "Every codec decoder uses the same explicit field key as the encoder.", "killers": ["examples:wire-config"] },
     {"name":"cu7-decode-discards-text", "origin":"wf10 CU7", "file":"internal/sketch/std/toml/toml.ergo", "from":"let r = try Open(text, c.MaxBytes, c.MaxDepth)", "to":"let r = try Open(\"\", c.MaxBytes, c.MaxDepth)", "rule":"TOML Decode passes the parsed document to the shared derived decoder.", "killers":["lower:TestTOMLDecode"], "anchor":{"tests":["lower:TestTOMLDecode"]}},
-    {"name":"cu4c-chunk-record-unbound", "origin":"wf10 CU4c", "file":"runtime/v1/files.go", "from":"\t\"exec.Chunk\":           \"ExecChunk\",\n", "to":"", "rule":"exec.Chunk is the runtime's ExecChunk, so a program's Chunks loop compiles and runs.", "killers":["lower:TestExecStartRuns"],"anchor":{"tests":["lower:TestExecStartRuns"]}},
     {"name":"cu4b-stop-loses-takes", "origin":"wf10 CU4b", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tStop() int takes,", "to":"\tStop() int,", "rule":"Stop consumes the Running; no later Wait may use it.", "killers":["check:TestExecStopTakes"], "anchor":{"tests":["check:TestExecStopTakes"]}},
     {"name":"b16d-flat-release-skips-variant", "origin":"batch-16d OPT4b merge (B1 release glue meets OPT2's flat Option)", "file":"internal/sketch/lower/release.go", "from":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k)))", "to":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k))[:0])", "rule":"An owned flat union's release releases its active variant's resources, as the interface form does.", "killers":["lower:TestFlatUnionsAgree"]},
     {"name":"b16d-map-take-option-none", "origin":"batch-16d OPT4b merge (Map.Take meets OPT2's flat Option)", "file":"internal/sketch/lower/decls.go", "from":"\" = \" + fc.optionSome(tuple.Types[0], v, fc.site) + \" }\\n\"", "to":"\" = \" + fc.optionNone(tuple.Types[0], fc.site) + \" }\\n\"", "rule":"Map.Take's Option is Some of the taken value when the key was present, in either Go form of Option.", "killers":["lower:TestTaskOwnershipRunModel"]},
@@ -88,8 +88,6 @@
     { "name": "e3b-lookup-high", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status > 599", "to": "entry.Status > 999", "rule": "StatusOf refuses invalid statuses above 599.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
     { "name": "e3-success-status", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "Response{Status: route.Status, Header: []Field{Field", "to": "Response{Status: 200, Header: []Field{Field", "rule": "Success takes the matched route's explicit status.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
     { "name": "e3-success-empty", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "if route.Status == 204 || route.Status == 205", "to": "if route.Status == 204", "rule": "A 205 success is empty, like a 204.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
-    {"name":"cu5-origin-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.OriginRefused\":   \"HTTPOriginRefused\",", "to":"", "rule":"The refused runtime origin is the declared std OriginRefused at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
-    {"name":"cu5-hop-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.RedirectLimit\":   \"HTTPRedirectLimit\",", "to":"", "rule":"The runtime hop refusal is the declared std RedirectLimit at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {
       "name": "cu1-version-ignored",
       "origin": "wf10 CU1",
@@ -3024,7 +3022,6 @@
     {"name":"cu3-no-redraw","origin":"wf10 CU3","file":"internal/sketch/std/prompt/prompt.ergo","from":"\t\t\tio.Stderr.Eprint(Redraw(shown, next))","to":"\t\t\tio.Stderr.Eprint(\"\")","rule":"Ask draws each new state's frame.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-marked-twice","origin":"wf10 CU3","file":"internal/sketch/std/prompt/machines.ergo","from":"\t\t\t\tchosen = chosen.Append(i)","to":"\t\t\t\tchosen = chosen.Append(i).Append(i)","rule":"A multi-select answers each marked index once, in ascending order.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-std-machine-unnamed","origin":"wf10 CU3","file":"internal/sketch/lower/naming.go","from":"\t\t\tif !l.isSourced(p) && tn.Decl != nil {","to":"\t\t\tif false && tn.Decl != nil {","rule":"A std machine declaration lowers as a user package's: the naming pass names its initial value.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
-    {"name":"cu3-std-machine-ice","origin":"wf10 CU3","file":"internal/sketch/lower/std.go","from":"\tcase *syntax.MachineType:\n","to":"\tcase *syntax.TupleExpr:\n","rule":"A std machine declaration is a declaration of the program, not a runtime type.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"s-config-redacted-has-wire","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1/redacted.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { Value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.Value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{Value: v} }","rule":"A secret has no encoded form: config.Redacted is an operation type, so encoding a value that reaches it is refused at check time.","killers":["lower:TestRedactedRefusedAtCheck"],"anchor":{"tests":["lower:TestRedactedRefusedAtCheck"]}},
     {"name":"s-config-redacted-has-text","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1/redacted.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{value: v} }","rule":"A secret never appears in a failure report: config.Redacted is an operation type, whose text is its type name.","killers":["lower:TestRedactedNeverPrints"],"anchor":{"tests":["lower:TestRedactedNeverPrints"]}},
     {"name":"gapfail-error-type-root-rows","origin":"wf10 gap-fail","file":"internal/sketch/lower/owners.go","from":"\tfor _, p := range l.libraries() {\n\t\tif p.Info == l.info {\n\t\t\treturn p","to":"\tfor _, p := range l.libraries()[:0] {\n\t\tif p.Info == l.info {\n\t\t\treturn p","rule":"A return in an imported package's body reads that package's rows: a type only the importer raises is a failure there.","killers":["lower:TestFailureRaisedByImporter"]},
@@ -3542,8 +3539,8 @@
       "name": "own-form-never",
       "origin": "wf10 OPT6",
       "file": "internal/sketch/lower/refown.go",
-      "from": "\to, err := v1.BodyOf(owned)\n\tif err != nil || len(o.Params) != len(b.Params)+shift+2 {",
-      "to": "\to, err := v1.BodyOf(owned)\n\tif true || err != nil || len(o.Params) != len(b.Params)+shift+2 {",
+      "from": "\to, err := runtimeBody(owned)\n\tif err != nil || len(o.Params) != len(b.Params)+shift+2 {",
+      "to": "\to, err := runtimeBody(owned)\n\tif true || err != nil || len(o.Params) != len(b.Params)+shift+2 {",
       "rule": "stdlib.md Sync and STM 1: a literal given to a Ref's Update or to sync.Modify takes the held value over, through the runtime body's owned form.",
       "killers": [
         "lower:TestValueRuleElides"
@@ -3883,6 +3880,152 @@
         "lower:TestSealedStdConvertsToItsOperationTypes"
       ]
     },
+    {
+      "name": "ckra-slot-erased",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\treturn tp.Kind == check.KindType || tp.Slot || tp.Kind == check.KindUses && l.isHeld(tp)\n",
+      "to": "\treturn tp.Kind == check.KindType || tp.Kind == check.KindUses && l.isHeld(tp)\n",
+      "rule": "A Slot row is a Go type parameter constrained by error, so Go sees the member's type where Ergo does (CK-rowarg; D6: Go infers the same after row erasure).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckra-slot-arg-error",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\t\tcase *check.Named:\n\t\t\treturn tc.goType(e)\n",
+      "to": "\t\tcase *check.Named:\n\t\t\treturn \"error\"\n",
+      "rule": "A call binds a Slot row of one error type to that type's Go type: the instance the caller holds (CK-rowarg).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckra-into-slot-dropped",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/rowslot.go",
+      "from": "\t\t\t\treturn \"any(\" + val + \").(\" + name + \")\"\n",
+      "to": "\t\t\t\t_ = name\n\t\t\t\treturn val\n",
+      "rule": "A row value written into a field whose Go type is a Slot row's Go parameter is asserted to it (CK-rowarg).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArg"
+      ]
+    },
+    {
+      "name": "ckra-inline-slot",
+      "origin": "wf10 CK CK-rowarg",
+      "file": "internal/sketch/lower/inline.go",
+      "from": " || nativeOf(f) != nil || l.hasGoRow(f.Sig) {",
+      "to": " || nativeOf(f) != nil {",
+      "rule": "A function with a Slot row is not inlined: an inlined body names only its type-kinded parameters, so its match would test the Go instance with error where the caller holds the member's type (CK-rowarg; a defect at run time).",
+      "killers": [
+        "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckif-installs-call-site",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tb.WriteString(ind + r + \".copyEnv(\" + e + \", \" + snap + \")\\n\")\n",
+      "to": "\t\tb.WriteString(ind + \"_ = \" + snap + \"\\n\" + ind + r + \".copyEnv(\" + e + \", *\" + e + \")\\n\")\n",
+      "rule": "A held context installs the providers in force at its hold, not those of the call site (rows.md, Context values, InForce).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-first-cap-only",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tfor _, c := range caps {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "to": "\t\tfor _, c := range caps[:1] {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "rule": "A held context installs every capability of its row (InForce).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-copies-all",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tfor _, c := range caps {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "to": "\t\tfor _, c := range caps {\n\t\t\t_ = l.envField(c)\n\t\t}\n\t\tfor _, ec := range l.envOrder {\n\t\t\tfields = append(fields, ec.field)\n\t\t}\n",
+      "rule": "A held context installs its row's providers and no others: a capability outside R is the call site's (Context values, Making one).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-held-not-passed",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\t\t\t\tgrew = mark(rowArgElems(e.targs[i])) || grew\n",
+      "to": "\t\t\t\t\t_ = e\n",
+      "rule": "A row parameter that a call binds to a held parameter of its callee is held: the caller passes the copier on (inforce.go).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-flag-unset",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif fc.l.holdsRows() {\n\t\t\t// The innermost owning with, for a held context (inforce.go).\n",
+      "to": "\t\tif false && fc.l.holdsRows() {\n\t\t\t// The innermost owning with, for a held context (inforce.go).\n",
+      "rule": "An owning with records its scope in the environment, so a held context installed after it ended is a defect (InForce).",
+      "killers": [
+        "lower:TestInForceAfterWithEnds"
+      ]
+    },
+    {"name":"fk3g1-variant-failure","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\tif c.variantExit(t, row) {\n","to":"\tif false && c.variantExit(t, row) {\n","rule":"A value of an error type that ends a function whose one result is a union with it as a variant, and whose written row does not declare it, is the result's value (FK3-g1; rows.md, Tail results 3).","killers":["lower:TestErrorValueRuleTable"]},
+    {"name":"fk3g1-written-row-ignored","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\tif t.declErrors != nil && (t.declErrors.unknown(c.types) || row.minus(c.types, t.declErrors).known(c.types).Empty()) {\n","to":"\tif false {\n","rule":"A written row that declares the error type chose the failure: Sig fails Missing fails with Missing (FK3-g1).","killers":["lower:TestErrorValueRuleTable"]},
+    {"name":"fk3g1-not-a-variant","origin":"wf10 CK FK3-g1","file":"internal/sketch/check/stmt.go","from":"\ta, _ := c.assignability(typ, res)\n\treturn a.ok()\n","to":"\ta, _ := c.assignability(typ, res)\n\treturn a.ok() || true\n","rule":"Only a variant of the declared union is its value; an error value that is no variant stays a failure (S101 when undeclared; FK3-g1).","killers":["lower:TestErrorValueRuleTable"]},
+    {"name":"law-ptr-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/tests.go","from":"return fc.convert(p.Conv, \"&\"+pv, law.Decl)","to":"return fc.convert(p.Conv, pv, law.Decl)","rule":"A generated case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-binds-value","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"return fc.convert(p.Conv, \"&\"+a, law.Decl)","to":"return fc.convert(p.Conv, a, law.Decl)","rule":"A listed case binds a borrow provider by the address of its value (types.md, Laws 10).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"law-ptr-listed-drops-holder","origin":"wf10 fu-law-ptr","file":"internal/sketch/lower/lawcases.go","from":"\t\t\t\tbind += e + \".\" + l.envField","to":"\t\t\t\tbind = e + \".\" + l.envField","rule":"A listed case declares the variable that holds a borrow provider's value before it binds the provider.","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"dt4-fill-doubling-stops-short","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"fc.line(\"for \" + k + \" := 1; \" + k + \" < len(\" + f + \"); \" + k + \" *= 2 {\")","to":"fc.line(\"for \" + k + \" := 1; \" + k + \" < len(\" + f + \")-1; \" + k + \" *= 2 {\")","rule":"A fill doubles its written part until it covers the whole part.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-fill-guard-skips-length","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"return \"0 <= \" + a + \" && \" + a + \" < \" + b + \" && \" + b + \" <= len(\" + length + \")\"","to":"return \"0 <= \" + a + \" && \" + a + \" < \" + b","rule":"The guard tests the end of the part against the length, so an out-of-bounds loop runs the loop and raises its defect.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-takes-forward-overlap","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"forward := \"(\" + da + \" <= \" + sa + \" || \" + da + \" >= \" + sb + \")\"","to":"forward := \"true\"","rule":"A move whose target starts inside its source, after the source's start, is not memmove: the forward loop runs.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-reads-target-offset","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"sa, sb := at(lo, idiom.src, idiom.srcNeg), at(hi, idiom.src, idiom.srcNeg)\n\t\t// A forward","to":"sa, sb := at(lo, idiom.dst, idiom.dstNeg), at(hi, idiom.dst, idiom.dstNeg)\n\t\t// A forward","rule":"A move copies from the source's offset.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-collect-appends-one-fewer","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"place + \"[\" + sa + \":\" + sb + \"]...)\")","to":"place + \"[\" + sa + \":(\" + sb + \"-1)]...)\")","rule":"A collect appends the whole part of its source.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-invariant-takes-the-index","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\t\t\tok = o != iv\n","to":"\t\t\t\tok = o != iv || o == iv\n","rule":"A value that names the loop variable changes at every index: no fill.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-invariant-blind-to-pointer-into-element","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\t\t\tif holdsByValue(elem, p.Elem, map[string]bool{}) {","to":"\t\t\t\tif false {","rule":"A field read through a pointer into the written elements changes when a store reaches it: no fill.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-move-two-slices","origin":"wf10/dod/DT4","file":"internal/sketch/lower/loops.go","from":"\t\treturn ok && a.Sel.Name == b.Sel.Name && sameSyntax(a.X, b.X)","to":"\t\treturn ok && sameSyntax(a.X, b.X)","rule":"A move reads and writes one slice; a copy between two slices is not a move.","killers":["lower:TestLoopIdiomsAgree"]},
+    {"name":"dt4-provider-kept-use-copied","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\t\t\t\t\tused[i] = false\n","to":"\t\t\t\t\tused[i] = used[i]\n","rule":"A parameter stored, bound or passed at another type keeps the interface: no copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-pass-on-any-type","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"ok && n.Obj == f.Sig.Params[i].Type.(*check.Named).Obj && len(n.TArgs) == 0 {","to":"(ok && n.Obj == f.Sig.Params[i].Type.(*check.Named).Obj && len(n.TArgs) == 0) || j >= 0 {","rule":"Passing the parameter on keeps a copy only at a parameter of the same operation type.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-reference-ignored","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\tif providerLowering == \"dynamic\" || c.Kind != check.ConvOperations {","to":"\tif c.Kind != check.ConvOperations {","rule":"The reference lowering makes no copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-no-pass-through","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"ok && fc.provs[v] != nil {","to":"ok && fc.provs[v] != nil && false {","rule":"A copy passes its known provider on to the copy of the function it calls.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-receiver-not-allowed","origin":"wf10/dod/DT4","file":"internal/sketch/lower/provider.go","from":"\t\t\tif id, i := param(c.Recv); id != nil {\n\t\t\t\tallowed[id], used[i] = true, true","to":"\t\t\tif id, i := param(c.Recv); id != nil && false {\n\t\t\t\tallowed[id], used[i] = true, true","rule":"An operation call's receiver keeps the copy.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-copy-keeps-interface","origin":"wf10/dod/DT4","file":"internal/sketch/lower/decls.go","from":"} else if sp != nil && sp.prov != nil && i == sp.param {","to":"} else if false && sp != nil && sp.prov != nil && i == sp.param {","rule":"A copy's parameter is its adapter's Go pointer type, so its operation calls are static.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"dt4-provider-wrong-parameter","origin":"wf10/dod/DT4","file":"internal/sketch/lower/decls.go","from":"} else if sp != nil && sp.prov != nil && i == sp.param {","to":"} else if sp != nil && sp.prov != nil && i == len(f.Sig.Params)-2 {","rule":"The copy's adapter parameter is the one its call's provider is passed at.","killers":["lower:TestKnownProvidersAgree"]},
+    {"name":"vc1-take-skips-a-statement","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"next, ok := block.List[i+1].(*syntax.AssignStmt)","to":"next, ok := block.List[min(i+2, len(block.List)-1)].(*syntax.AssignStmt)","rule":"A take's overwrite is the statement right after the read: a write between them reaches the old value.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-take-other-place","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(next.Lhs[0], vv.v) && samePlace(next.Lhs[0], o.path) && w.plainFresh(next.Rhs[0], vv.v)","to":"return w.placeOf(next.Lhs[0], vv.v) && w.plainFresh(next.Rhs[0], vv.v)","rule":"A take's overwrite is the read place's own; another place's leaves the old value in the read place.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reslice-other-place","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)","to":"return w.placeOf(stmt.Lhs[0], vv.v)","rule":"A reslice stores into the place it slices.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reslice-any-target","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"return w.placeOf(stmt.Lhs[0], vv.v) && samePlace(stmt.Lhs[0], base)","to":"return true","rule":"A reslice stores into the place it slices, not another binding.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-moved-read-copied","origin":"wf10/dod/VC1","file":"internal/sketch/lower/values.go","from":"\t\t\t\tcase vf.moved[o.path]:\n\t\t\t\t\t// Its place is overwritten next (V7).\n","to":"","rule":"A moved read is not copied (the promised form of takeS and dropS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-reference-moves","origin":"wf10/dod/VC1","file":"internal/sketch/lower/moves.go","from":"if !valueOwned() || valueMutant == \"never-copy\" {","to":"if valueMutant == \"never-copy\" {","rule":"The copying reference moves nothing.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"vc1-moved-not-fresh","origin":"wf10/dod/VC1","file":"internal/sketch/lower/values.go","from":"w.vf.clone[e] || w.vf.moved[e] {","to":"w.vf.clone[e] {","rule":"A moved read is fresh where it is bound: a let mut of it copies nothing.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-names-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif w.names(a, vv.v, o.id) {","to":"\t\tif false && w.names(a, vv.v, o.id) {","rule":"An unkept argument is copied when another operand names its root (f(xs, &xs)): the callee writes it during the call.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-frame-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif wr.frame != o.frame {","to":"\t\tif wr.frame != o.frame && false {","rule":"An unkept argument is copied when a local frame writes its root: the frame may run between the read and the call.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-fn-operand-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\t\tif _, fn := underlyingOf(w.typeOf(a)).(*check.Signature); fn {","to":"\t\tif _, fn := underlyingOf(w.typeOf(a)).(*check.Signature); fn && false {","rule":"An unkept argument is copied when an operand is a function value, which may write what a borrow points to.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-keeps-blind","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\tif k := w.l.keeps(c.Func); j >= len(k) || k[j] {\n\t\treturn false\n\t}\n\tdeps","to":"\tif k := w.l.keeps(c.Func); j >= len(k) {\n\t\treturn false\n\t}\n\tdeps","rule":"An argument the callee keeps (in a function it returns) is copied.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-match-escapes","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"ok && fl.keep {\n\t\t\t\treturn fl.matchBinds(s), false","to":"ok && fl.keep && false {\n\t\t\t\treturn fl.matchBinds(s), false","rule":"A match passes its subject on to the values its cases bind: pick keeps nothing of its Pick (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-novalue-carries","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\tif typed && (t == check.NoValue || !fl.carries(t)) {","to":"\tif typed && !fl.carries(t) {","rule":"A call with no value carries nothing on: note1's last statement keeps nothing of s (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-def-is-use","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"if _, def := fl.info.Defs[id]; def && fl.keep {","to":"if _, def := fl.info.Defs[id]; def && false {","rule":"A binding's own name is not a use of it (pick's case binding; the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"keep1-closure-result-copied","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\to.result = !hidesParts(w.typeOf(p))\n","to":"\t\t\t\t\to.result = true\n","rule":"A pure call whose result is a function value that captured the argument copies the argument: a copy of the function copies no capture (let g = hold(xs); xs[0] = 2).","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"cs-split-serial-actions","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\tif out == nil {","to":"\tif out == nil || true {","rule":"A program of several Ergo packages lowers to several Go packages, so the go command compiles the independent ones at once.","killers":["internal/sketchfront:TestColdCompilesInParallel","internal/sketchfront:TestBodyEditCompilesOnePackage","lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-key-omits-import-iface","origin":"wf10 compile-speed CS4","file":"internal/sketch/build/input.go","from":"\t\tDependencies: append([]Dependency{}, in.Dependencies...),","to":"\t\tDependencies: nil,","rule":"The emission key holds every imported package, so an edit of an import emits that package again (on this base the go command keys each package's compile by its imports' archives; there is no Ergo action key per package yet).","killers":["internal/sketchfront:TestBodyEditCompilesOnePackage"]},
+    {"name":"cs-split-key-omits-mode","origin":"wf10 compile-speed CS4","file":"internal/sketchfront/sketchfront.go","from":"\t\tinput.Emitter += \"+single\"","to":"\t\t_ = 0","rule":"The one-package reference (ERGO_LOWER=single) is a module of its own, never the split one.","killers":["internal/sketchfront:TestBodyEditCompilesOnePackage"]},
+    {"name":"cs-split-init-order","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"if name := d.Name.Name; name == \"main\" || isGoInit(name) {","to":"if name := d.Name.Name; name == \"main\" {","rule":"Every Go init function stays in the root package, so the inits run in the reference's order.","killers":[],"gap":"Equivalent today: the lowering's init functions register into separate runtime tables (the call table, each machine's graph), so their order is not observable. The pin keeps the reference's order by construction."},
+    {"name":"cs-split-place-no-move","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\t\tgroups[v].pkg = p.lower(groups[v].pkg, groups[u].pkg)","to":"\t\t\t_ = p.lower","rule":"A declaration a lower package uses moves down to a package that package sees.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-meet-not-shared","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\tcase p.can(b, a):\n\t\treturn a\n\t}\n\treturn 0","to":"\tcase p.can(b, a):\n\t\treturn a\n\t}\n\treturn 1","rule":"A declaration that two sibling packages use goes to the shared package, which both see.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-natural-ignored","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\tif groups[g].natural >= 0 && !groups[g].pin {","to":"\t\tif false {","rule":"A declaration starts in the Go package of its Ergo source file.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-ref-not-renamed","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\tif o.ref >= 0 && groups[o.ref].pkg != groups[declGroup[o.decl]].pkg {","to":"\t\tif o.ref >= 0 && false {","rule":"A package-scope name used from another Go package gets an exported spelling.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-member-not-renamed","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\tif len(ps) > 1 {","to":"\t\tif len(ps) > 9 {","rule":"A field or method name that occurs in two Go packages gets an exported spelling.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-unqualified","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\t\tname = plan.pkgs[to].alias + \".\" + name","to":"\t\t\t_ = to","rule":"A reference to another Go package's declaration names that package.","killers":["lower:TestSplitLoweringAgrees"]},
+    {"name":"cs-split-foreign-keys-as-refs","origin":"wf10 compile-speed CS4","file":"internal/sketch/lower/pkgsplit.go","from":"\t\t\treturn litForeign, nil, nil","to":"\t\t\treturn litExpr, nil, nil","rule":"The keys of a literal of another Go package's struct are its fields, never the program's declarations.","killers":["example:tui"]},
     {
       "name": "jf-direct-param",
       "origin": "wf10 JSON-fast",

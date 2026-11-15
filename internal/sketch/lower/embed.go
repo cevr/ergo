@@ -8,7 +8,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // packageEmbed uses the host's native embed directive, not a Go payload
@@ -31,7 +30,7 @@ func (fc *funcCtx) packageEmbed(c *check.Call, name, typ string, site syntax.Nod
 			patterns = append(patterns, strconv.Quote(path.Join(e.Prefix, f.Path)))
 		}
 		l.user.WriteString("//go:embed " + strings.Join(patterns, " ") + "\nvar " + raw + " " + l.embedName + ".FS\n")
-		body, err := v1.BodyOf("EmbeddedFS")
+		body, err := runtimeBody("EmbeddedFS")
 		if err != nil {
 			ice(site, "the embedded-tree constructor has no runtime body: %v", err)
 		}

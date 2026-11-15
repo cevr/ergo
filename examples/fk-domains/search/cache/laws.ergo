@@ -1,0 +1,267 @@
+import strings
+
+// The cache's laws (plan §20.4): a model-based property against a list,
+// and one law for each rule the original's KeyedQuery keeps.
+
+// Row is the reference model's entry: a key, whether its load runs (and
+// of which generation), its value and time, and Used, the step at which
+// it was last settled or hit (the least Used goes first).
+type Row { Key int, Pending bool, Gen int, Value int, At int, Used int }
+
+// Model is the reference: a plain list of rows, searched from the start.
+type Model { rows []Row, next int, step int }
+
+func find(m Model, k int) int {
+	for i in 0..len(m.rows) {
+		if m.rows[i].Key == k {
+			return i
+		}
+	}
+	-1
+}
+
+func drop(m Model, k int) Model {
+	let mut out = []Row{}
+	for r in m.rows {
+		if r.Key != k {
+			out = out.Append(r)
+		}
+	}
+	Model{..m, rows: out}
+}
+
+func settledRows(m Model) int {
+	let mut n = 0
+	for r in m.rows {
+		if !r.Pending {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// evict drops the settled row with the least Used while more than cap
+// are settled.
+func evict(m Model, cap int) Model {
+	let mut out = m
+	for settledRows(out) > cap {
+		let mut least = -1
+		for r in out.rows {
+			if !r.Pending && (least == -1 || r.Used < out.rows[find(out, least)].Used) {
+				least = r.Key
+			}
+		}
+		out = drop(out, least)
+	}
+	out
+}
+
+// sees is what the model's read of k at now finds, as the cache's Look
+// prints it: "missing", "waiting g", "fresh v" or "stale v".
+func sees(m Model, k int, now int, fresh int) string {
+	let i = find(m, k)
+	if i == -1 {
+		return "missing"
+	}
+	let r = m.rows[i]
+	if r.Pending {
+		return "waiting \(r.Gen)"
+	}
+	if now-r.At < fresh {
+		return "fresh \(r.Value)"
+	}
+	"stale \(r.Value)"
+}
+
+func looks(l Look[int]) string {
+	match l {
+	case Missing:
+		"missing"
+	case Waiting as w:
+		"waiting \(w.Gen)"
+	case Fresh[int] as f:
+		"fresh \(f.Value)"
+	case Stale[int] as s:
+		"stale \(s.Value)"
+	}
+}
+
+// holds is what the cache holds for k, without a read.
+func holds(c Cache[int, int], k int) string {
+	match Holds(c, k) {
+	case None:
+		"missing"
+	case Some[Entry[int]] as e:
+		match e.Value {
+		case Pending as p:
+			"waiting \(p.Gen)"
+		case Settled[int] as s:
+			"settled \(s.Value) at \(s.At)"
+		}
+	}
+}
+
+func modelHolds(m Model, k int) string {
+	let i = find(m, k)
+	if i == -1 {
+		return "missing"
+	}
+	let r = m.rows[i]
+	if r.Pending {
+		return "waiting \(r.Gen)"
+	}
+	"settled \(r.Value) at \(r.At)"
+}
+
+// Run is a drawn run's trace: each step's read, then what both hold.
+type Run { ok bool, cache Cache[int, int], trace string }
+
+// run applies the drawn ops to the cache and the model and compares, after
+// each op, every read and what each holds for every key. An op picks a
+// kind (read, begin, settle with the live generation, settle with an
+// older one, cut, time passes), a key among five and a value.
+func run(ops []int, fresh int, cap int) Run {
+	let mut c = New[int, int](fresh, cap)
+	let mut m = Model{rows: []Row{}, next: 0, step: 0}
+	let mut now = 0
+	let mut trace = ""
+	for op in ops {
+		let o = if op < 0 { -op } else { op }
+		let kind = o % 6
+		let k = (o / 6) % 5
+		let v = o / 30
+		m = Model{..m, step: m.step + 1}
+		if kind == 0 {
+			let got = Get(c, k, now)
+			c = got.Cache
+			let want = sees(m, k, now, fresh)
+			trace = trace + "get \(k)@\(now): \(looks(got.Look)) / \(want); "
+			if looks(got.Look) != want {
+				return Run{ok: false, cache: c, trace: trace}
+			}
+			if strings.HasPrefix(want, "fresh") {
+				let i = find(m, k)
+				let mut rows = m.rows
+				rows[i] = Row{..rows[i], Used: m.step}
+				m = Model{..m, rows: rows}
+			}
+		} else if kind == 1 {
+			let b = Begin(c, k)
+			c = b.Cache
+			trace = trace + "begin \(k) = \(b.Gen); "
+			if b.Gen != m.next {
+				return Run{ok: false, cache: c, trace: trace}
+			}
+			m = drop(m, k)
+			m = Model{..m, rows: m.rows.Append(Row{Key: k, Pending: true, Gen: m.next, Value: 0, At: 0, Used: 0}), next: m.next + 1}
+		} else if kind == 2 || kind == 3 {
+			let i = find(m, k)
+			let live = if i == -1 { -1 } else if m.rows[i].Pending { m.rows[i].Gen } else { -1 }
+			let gen = if kind == 2 { live } else { live - 1 - v%3 }
+			c = Settle(c, k, gen, v, now)
+			trace = trace + "settle \(k) gen \(gen) = \(v)@\(now); "
+			if i != -1 && m.rows[i].Pending && m.rows[i].Gen == gen && gen >= 0 {
+				let mut rows = m.rows
+				rows[i] = Row{..rows[i], Pending: false, Value: v, At: now, Used: m.step}
+				m = evict(Model{..m, rows: rows}, cap)
+			}
+		} else if kind == 4 {
+			c = Cut(c, k)
+			trace = trace + "cut \(k); "
+			let i = find(m, k)
+			if i != -1 && m.rows[i].Pending {
+				m = drop(m, k)
+			}
+		} else {
+			now = now + 1 + v%(fresh+1)
+			trace = trace + "now \(now); "
+		}
+		for key in 0..5 {
+			if holds(c, key) != modelHolds(m, key) {
+				return Run{ok: false, cache: c, trace: trace + "holds \(key): \(holds(c, key)) / \(modelHolds(m, key))"}
+			}
+		}
+		if SettledCount(c) != settledRows(m) {
+			return Run{ok: false, cache: c, trace: trace + "settled count"}
+		}
+	}
+	Run{ok: true, cache: c, trace: trace}
+}
+
+// CacheFollowsModel: every drawn run of reads, loads, answers (live and
+// late), cuts and time reads and holds what the list model does, which
+// evicts the least recently settled or hit entry (EvictsLeastRecent).
+law CacheFollowsModel(ops []int, fresh int where 1 <= fresh && fresh <= 8, cap int where 1 <= cap && cap <= 4) {
+	run(ops, fresh, cap).ok
+}
+
+// AtMostCapSettled: after any run, at most the capacity's entries are
+// settled.
+law AtMostCapSettled(ops []int, cap int where 1 <= cap && cap <= 4) {
+	SettledCount(run(ops, 3, cap).cache) <= cap
+}
+
+func settleNew(c Cache[int, int], k int, v int, now int) Cache[int, int] {
+	let b = Begin(c, k)
+	Settle(b.Cache, k, b.Gen, v, now)
+}
+
+// FreshInsideTheWindow: a value read age units after it came is Fresh
+// when age is below the freshness, else Stale.
+law FreshInsideTheWindow(age int where 0 <= age && age <= 200, fresh int where 1 <= fresh && fresh <= 100) {
+	let c = settleNew(New[int, int](fresh, 4), 1, 7, 10)
+	let want = if age < fresh { "fresh 7" } else { "stale 7" }
+	looks(Get(c, 1, 10+age).Look) == want
+}
+
+// HitKeepsFreshness: a hit changes the recency, never the freshness: a
+// value hit just before it ages is stale when it ages.
+law HitKeepsFreshness(fresh int where 1 <= fresh && fresh <= 100, hits int where 1 <= hits && hits <= 5) {
+	let mut c = settleNew(New[int, int](fresh, 4), 1, 7, 0)
+	for _ in 0..hits {
+		c = Get(c, 1, fresh-1).Cache
+	}
+	looks(Get(c, 1, fresh).Look) == "stale 7"
+}
+
+// PendingNeverEvicted: a load that runs keeps its entry while any number
+// of other keys settle past the capacity.
+law PendingNeverEvicted(others int where 0 <= others && others <= 12, cap int where 1 <= cap && cap <= 4) {
+	let b = Begin(New[int, int](60, cap), 100)
+	let mut c = b.Cache
+	for k in 0..others {
+		c = settleNew(c, k, k, k)
+	}
+	holds(c, 100) == "waiting \(b.Gen)" && SettledCount(c) <= cap
+}
+
+// EvictsLeastRecent: with two places, settling a third key evicts the
+// one neither settled nor hit last.
+law EvictsLeastRecent(hitFirst bool) {
+	let mut c = settleNew(New[int, int](60, 2), 1, 1, 0)
+	c = settleNew(c, 2, 2, 1)
+	if hitFirst {
+		c = Get(c, 1, 2).Cache
+	}
+	c = settleNew(c, 3, 3, 3)
+	let gone = if hitFirst { 2 } else { 1 }
+	let kept = if hitFirst { 1 } else { 2 }
+	holds(c, gone) == "missing" && holds(c, kept) != "missing" && holds(c, 3) != "missing"
+}
+
+// LateSettleRejected: the answer of a load that a newer load replaced
+// changes nothing, and the newer load's answer is taken.
+law LateSettleRejected(v int, w int) {
+	let a = Begin(New[int, int](60, 4), 1)
+	let b = Begin(a.Cache, 1)
+	let late = Settle(b.Cache, 1, a.Gen, v, 5)
+	holds(late, 1) == "waiting \(b.Gen)" && holds(Settle(late, 1, b.Gen, w, 6), 1) == "settled \(w) at 6"
+}
+
+// CutThenBeginIsNewGeneration: after a cut, a new load of the same key
+// has a generation no load had, so the cut load's answer is not taken.
+law CutThenBeginIsNewGeneration(v int) {
+	let a = Begin(New[int, int](60, 4), 1)
+	let b = Begin(Cut(a.Cache, 1), 1)
+	b.Gen != a.Gen && holds(Settle(b.Cache, 1, a.Gen, v, 5), 1) == "waiting \(b.Gen)" && holds(Settle(Cut(a.Cache, 1), 1, a.Gen, v, 5), 1) == "missing"
+}

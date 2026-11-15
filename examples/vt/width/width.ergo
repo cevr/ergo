@@ -1,0 +1,129 @@
+// Package width is the number of columns a character takes on a screen:
+// two for the wide characters of East Asian scripts and for emoji, one
+// for every other character. A two-stage table answers it, built at start
+// from a list of ranges.
+//
+// The ranges are those of Markus Kuhn's mk_wcwidth (2007), which marks the
+// East Asian Wide and Fullwidth blocks, plus the two emoji blocks that
+// terminals draw wide. Grapheme clusters, combining marks of no width and
+// ambiguous-width characters are out of scope: each is one column.
+
+// Span is the code points From to To, both included.
+type Span { From int, To int }
+
+// Wide is the code points that take two columns, in order, none
+// overlapping.
+let Wide = []Span{
+	Span{From: 0x1100, To: 0x115f},
+	Span{From: 0x2329, To: 0x232a},
+	Span{From: 0x2e80, To: 0x303e},
+	Span{From: 0x3040, To: 0xa4cf},
+	Span{From: 0xac00, To: 0xd7a3},
+	Span{From: 0xf900, To: 0xfaff},
+	Span{From: 0xfe10, To: 0xfe19},
+	Span{From: 0xfe30, To: 0xfe6f},
+	Span{From: 0xff00, To: 0xff60},
+	Span{From: 0xffe0, To: 0xffe6},
+	Span{From: 0x1f300, To: 0x1f64f},
+	Span{From: 0x1f900, To: 0x1f9ff},
+	Span{From: 0x20000, To: 0x2fffd},
+	Span{From: 0x30000, To: 0x3fffd},
+}
+
+// Last is the largest code point.
+let Last = 0x10ffff
+
+// Block is the count of code points one entry of the first stage covers.
+let Block = 256
+
+// Table is the two-stage lookup: the first stage maps the high bits of a
+// code point to a block, and the second holds each block's 256 answers.
+// Blocks with the same answers are one block, so the table is small.
+type Table { first []int, second []bool }
+
+// table is the table of Wide.
+let table = Build(Wide)
+
+// Build is the two-stage table of the wide spans.
+func Build(wide []Span) Table {
+	// Blocks 0 and 1 are the all-narrow and the all-wide block.
+	let mut second = []bool{}
+	for _ in 0..Block {
+		second = second.Append(false)
+	}
+	for _ in 0..Block {
+		second = second.Append(true)
+	}
+	// The first stage ends with the block of the last wide code point;
+	// past it every code point is narrow.
+	let mut end = 0
+	for s in wide {
+		if s.To/Block+1 > end {
+			end = s.To/Block + 1
+		}
+	}
+	let mut first = []int{}
+	for high in 0..end {
+		let base = high * Block
+		// The wide code points of the block, span by span (the spans do
+		// not overlap), each clipped to the block.
+		let mut wides = 0
+		for s in wide {
+			let from = if s.From > base { s.From } else { base }
+			let to = if s.To < base+Block-1 { s.To } else { base + Block - 1 }
+			if from <= to {
+				wides += to - from + 1
+			}
+		}
+		if wides == 0 {
+			first = first.Append(0)
+		} else if wides == Block {
+			first = first.Append(1)
+		} else {
+			let at = len(second)
+			first = first.Append(at / Block)
+			for _ in 0..Block {
+				second = second.Append(false)
+			}
+			for s in wide {
+				let from = if s.From > base { s.From } else { base }
+				let to = if s.To < base+Block-1 { s.To } else { base + Block - 1 }
+				for cp in from..to+1 {
+					second[at+cp-base] = true
+				}
+			}
+		}
+	}
+	Table{first: first, second: second}
+}
+
+// Of is the columns c takes: 2 or 1.
+func Of(c rune) int {
+	let cp = int(c)
+	if cp < 0x1100 || cp/Block >= len(table.first) {
+		return 1
+	}
+	if table.second[table.first[cp/Block]*Block+cp%Block] { 2 } else { 1 }
+}
+
+// InSpans reports whether cp is in one of spans.
+func InSpans(spans []Span, cp int) bool {
+	for s in spans {
+		if cp >= s.From && cp <= s.To {
+			return true
+		}
+	}
+	false
+}
+
+// WidthTableMatchesRanges: for every code point the table gives what the
+// list of ranges gives.
+law WidthTableMatchesRanges() {
+	let mut same = true
+	for cp in 0..Last+1 {
+		if Of(rune(cp)) != (if InSpans(Wide, cp) { 2 } else { 1 }) {
+			same = false
+		}
+	}
+	same
+}

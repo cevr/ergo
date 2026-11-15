@@ -324,6 +324,8 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 // StartMachine passes limit 0, which restarts none and never calls fresh. A
 // typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
 // A negative limit is a defect, as tasks.Restart's is.
+//
+//ergo:wait child
 func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
@@ -354,6 +356,8 @@ func (d *ActorFreshDefect) String() string {
 
 // ActorRestarts is std actor's Restarts(a): how many times a supervised
 // actor restarted (rule 16); 0 for one that never did.
+//
+//ergo:wait none
 func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.Load()) }
 
 // MachineChild is actor.Child's body (rule 13): MachineStart for a child
@@ -368,6 +372,8 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 // starts only when host is an empty host of the calling work's entry, and
 // fills it; any other host is a defect (ActorHostDefect), with nothing
 // started.
+//
+//ergo:wait child
 func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
@@ -402,6 +408,8 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph Gr
 // defect (ActorSaveDefect) that ends the actor: the actor cannot keep its
 // promise that a committed state outlives it. effect-machine's cluster
 // journal defects an append failure the same way.
+//
+//ergo:wait none
 func ActorKeep[S, E any](t *rt.Task, save func(*rt.Task, S, S, E) error, prev, next S, sig E) {
 	if err := save(t, prev, next, sig); err != nil {
 		panic(&ActorSaveDefect{Reason: err.Error()})
@@ -1135,6 +1143,8 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 const noTimer = time.Duration(math.MinInt64)
 
 // ActorNoTimer is the delay std actor gives a state whose After is None.
+//
+//ergo:wait none
 func ActorNoTimer() time.Duration { return noTimer }
 
 // stopTimer stops and drains the current entry's timer child (rule 5). A
@@ -1200,6 +1210,8 @@ type feed struct {
 // ends there. It fails ActorStopped when a has ended or its Stop was
 // requested; run then never runs. A stop of t while it waits raises
 // rt.Interrupted.
+//
+//ergo:wait caller
 func ActorFeed[S, E, D any](t *rt.Task, a *Actor[S, E, D], run func(*rt.Task, func(E))) error {
 	a.feedMu.Lock()
 	a.feedSeq++
@@ -1273,6 +1285,8 @@ func (a *Actor[S, E, D]) startFeed(at *rt.Task, id uint64) {
 // read that fails ActorStopped when a has ended before it was answered
 // (std actor's Can reads it, MU10). It raises rt.Interrupted when t is
 // stopped while it waits.
+//
+//ergo:wait caller
 func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1363,6 +1377,8 @@ func (a *Actor[S, E, D]) finish(exit error) {
 // inbox is full, and returns once e is queued, before it is stepped. It
 // fails ActorStopped when the actor has ended or its Stop was requested.
 // It raises rt.Interrupted when t is stopped before or while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: sendSignal, sig: e}); err != nil {
 		return ActorStopped{}
@@ -1375,6 +1391,8 @@ func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 // typed failure (the actor goes on). It fails ActorStopped when the actor
 // ended before e was stepped, and raises rt.Interrupted when t is stopped
 // while it waits (the step, once taken, still runs).
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	reply := a.takeReply(t)
 	var zero D
@@ -1429,6 +1447,8 @@ func (a *Actor[S, E, D]) giveReply(r *replySlot[S, D]) {
 // it, read in inbox order, so a sender's State follows its own Sends. On an
 // ended actor it is the last committed state. It never fails; it raises
 // rt.Interrupted when t is stopped while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1521,6 +1541,8 @@ func (a *Actor[S, E, D]) dropDoneWait(t *rt.Task, p rt.Parked) {
 // work's included (rule 10). A Stop of an ended
 // actor returns the same at once; every Stop is idempotent. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 	// The interruption comes first: once it is set, the runner's next Pop
 	// raises at its check, so no envelope is taken after the request, also
@@ -1544,6 +1566,8 @@ func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 // result is Stop's: the typed failure that ended the actor, its defect
 // raised. A Stop during a Drain overtakes it: the rest is dropped. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Drain(t *rt.Task) error {
 	rt.Point(t, rt.Op{Kind: rt.OpClose, On: a})
 	if a.task.Traced() {
@@ -1585,6 +1609,8 @@ const (
 // waits until the runner has ended and gives how (exitFinished …
 // exitDefected). Every caller gets the same answer, and so does Stop (one
 // exit, rule 12). A stop of t raises rt.Interrupted.
+//
+//ergo:wait caller
 func ActorExitKind[S, E, D any](t *rt.Task, a *Actor[S, E, D]) int {
 	a.waitDone(t)
 	a.mu.Lock()
@@ -1612,6 +1638,8 @@ func (a *Actor[S, E, D]) exitKindLocked() int {
 
 // ActorFinal is std actor's final(a): the Done decision that ended a, read
 // after ActorExitKind gave exitFinished.
+//
+//ergo:wait none
 func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1620,6 +1648,8 @@ func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
+//
+//ergo:wait none
 func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1631,6 +1661,8 @@ func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 
 // ActorHasLatest is std actor's hasLatest(a): whether a has stepped a
 // signal. Once true it stays true, so ActorLatest after it has a decision.
+//
+//ergo:wait none
 func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1640,6 +1672,8 @@ func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 // ActorLatest is std actor's latest(a): the decision of the last signal a
 // stepped (rule 12; a Reject and an Ignore included, a dropped signal
 // not).
+//
+//ergo:wait none
 func ActorLatest[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1663,6 +1697,8 @@ func defectsOnly(err error) error {
 
 // Dropped is a.Dropped(): how many timer signals and work signals of ended
 // entries the runner dropped (rule 6; decision MQ6).
+//
+//ergo:wait none
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
 // Changes is a.Changes() on the iterating task t: the actor's state when
@@ -1671,6 +1707,8 @@ func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 // the states committed before are given. A break ends the subscription.
 // Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
 // that does not read keeps every state in its buffer.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
 		c := &changes[S]{}

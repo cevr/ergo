@@ -82,6 +82,8 @@ type config struct {
 	// modules; without it a run with no names runs every module too.
 	modules bool
 	names   []string
+	// cache is the verdict cache's directory (cache.go), or "" for none.
+	cache string
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -178,6 +180,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	defer l.removeDir(scratch)
 	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, install: &tsInstall{}, toolEnv: toolEnvironment(os.Environ(), scratch)}
+	if !cfg.record {
+		r.cache = openCache(cfg.cache, cfg)
+	}
 	return r.runAll(selected)
 }
 
@@ -232,6 +237,9 @@ func (r *runner) runAll(selected []*program) int {
 		r.cases += pr.cases
 		r.failures = append(r.failures, pr.failures...)
 	}
+	if r.cache != nil {
+		fmt.Fprintf(r.out, "examples: cache %s: %d programs replayed, %d run\n", r.cache.dir, r.cache.hits, r.cache.misses)
+	}
 	return r.finish()
 }
 
@@ -241,13 +249,13 @@ func (r *runner) runAll(selected []*program) int {
 func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
-	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, toolEnv: r.toolEnv}
+	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, toolEnv: r.toolEnv, cache: r.cache}
 	if p.library {
 		one.runModule(p)
 	} else if r.cfg.record {
 		one.recordProgram(p)
 	} else {
-		one.runProgram(p)
+		one.runCached(p)
 	}
 	pr.cases, pr.failures = one.cases, one.failures
 }
@@ -286,6 +294,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
+	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -392,6 +401,9 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
+		case file == "origin" && entry.IsDir():
+			delete(present, file)
+			problems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)
 		case file == "main.ergo" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
@@ -431,6 +443,10 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
+		case file == "origin" && entry.IsDir():
+			// A Foldkit port's origin folder (FK0): no record.sh goes with it.
+			delete(present, file)
+			problems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)
 		case file == "go.mod" || file == "go.sum":
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
@@ -555,7 +571,7 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		}
 	}
 	if present["origin"] != present["record.sh"] {
-		problem("origin and record.sh go together: a port names its original in origin and runs it in record.sh")
+		problem("origin and record.sh go together: a port names its original in the file origin and runs it in record.sh (a Foldkit port's origin is a folder with no record.sh)")
 	}
 	p.port = present["record.sh"]
 	if present["tags"] {
@@ -782,6 +798,8 @@ type runner struct {
 	// program's runner.
 	ts      *tsRun
 	install *tsInstall
+	// cache is the run's verdict cache, or nil (cache.go).
+	cache *verdictCache
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
@@ -805,8 +823,8 @@ func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, r.toolEnv, "", timeout, 0)
 }
 
-// cacheVariable is build.RootVariable, the emission cache root.
-const cacheVariable = "ERGO_CACHE"
+// emissionCacheVariable is build.RootVariable, the emission cache root.
+const emissionCacheVariable = "ERGO_CACHE"
 
 // toolEnvironment is environ with the emission cache root set to a folder
 // of the run's scratch, whatever the caller set: the runner is a check, and
@@ -814,9 +832,9 @@ const cacheVariable = "ERGO_CACHE"
 // bound). The folder goes with the scratch when the run ends.
 func toolEnvironment(environ []string, scratch string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(entry string) bool {
-		return strings.HasPrefix(entry, cacheVariable+"=")
+		return strings.HasPrefix(entry, emissionCacheVariable+"=")
 	})
-	return append(env, cacheVariable+"="+filepath.Join(scratch, "cache"))
+	return append(env, emissionCacheVariable+"="+filepath.Join(scratch, "cache"))
 }
 
 // toolFailed prints the failure of a compiler leg (fmt, fix or build) and counts

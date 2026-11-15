@@ -1,0 +1,199 @@
+// Screen is the contract a terminal screen keeps: the commands Apply
+// gives it, and the reads a test and replay make. Two providers keep it:
+// package screen, the dense form (packed cells in pages, interned
+// styles), and package plain, the reference (a slice of lines of
+// records). Law ScreenMatchesPlain holds them to each other.
+//
+// The screen has Rows × Cols cells and a cursor in them. Rows and
+// columns count from 0; a command's 1-based arguments are its own. Every
+// command below states what it does; where real terminals differ, it
+// follows xterm and Ghostty, and README.md lists the choices.
+//
+//   - Printing writes the character with the pen's style at the cursor
+//     and moves it right by the character's width. When the cursor
+//     reaches the last column it stays there with a wrap pending; with
+//     autowrap on (mode 7), the next character first marks the row as
+//     wrapped and moves to column 0 of the next line (a line feed). A
+//     wide character that does not fit in the last column wraps first
+//     (autowrap on) or is not printed (off).
+//   - A wide character is two cells: its head and a tail. An edit that
+//     splits one blanks its other half.
+//   - A line feed at the bottom of the scroll region scrolls the region
+//     up; elsewhere it moves down one row, stopping at the last. When
+//     the region is the whole screen and the main buffer is shown, the
+//     line that leaves the top goes to the history.
+//   - The history keeps at most HistoryLimit(config) lines. When a line
+//     would pass the limit, the oldest PageRows lines are dropped at
+//     once (a page, as Ghostty frees its oldest page).
+//   - Erased and scrolled-in cells are blank and take the default style
+//     (no background-colour erase).
+//   - A scroll by n of a region of h rows moves min(n, h) rows.
+type Screen {
+	// Print writes run, which is printable ASCII, one column a byte.
+	Print(run string),
+	// PrintRune writes c, which takes width columns (1 or 2).
+	PrintRune(c rune, width int),
+	// Backspace moves left one column, stopping at column 0.
+	Backspace(),
+	// Tab moves to the next multiple of 8, stopping at the last column.
+	Tab(),
+	// LineFeed is LF, VT, FF and IND.
+	LineFeed(),
+	// CarriageReturn moves to column 0.
+	CarriageReturn(),
+	// ReverseIndex (RI) moves up one row; at the top of the scroll
+	// region it scrolls the region down.
+	ReverseIndex(),
+	// Save (DECSC) keeps the cursor, the pen, origin mode and a pending
+	// wrap.
+	Save(),
+	// Restore (DECRC) brings them back; with nothing saved, it homes
+	// the cursor, resets the pen and turns origin mode off.
+	Restore(),
+	// Reset (RIS) shows the main buffer, blanks it, homes the cursor
+	// and resets the pen, the region, the modes, the saved cursor and
+	// the title. The history stays.
+	Reset(),
+	// Up (CUU) moves up n rows, stopping at the region's top when the
+	// cursor is in the region.
+	Up(n int),
+	// Down (CUD) moves down n rows, stopping at the region's bottom
+	// when the cursor is in the region.
+	Down(n int),
+	// Forward (CUF) moves right n columns.
+	Forward(n int),
+	// Back (CUB) moves left n columns.
+	Back(n int),
+	// MoveTo (CUP, HVP) moves to row and col, both 1-based; in origin
+	// mode the row counts from the region's top and stays in it.
+	MoveTo(row int, col int),
+	// Column (CHA) moves to col, 1-based.
+	Column(col int),
+	// Row (VPA) moves to row, 1-based, as MoveTo does.
+	Row(row int),
+	// EraseDisplay (ED) blanks from the cursor to the end (mode 0),
+	// from the start to the cursor (1), or all of the screen (2).
+	EraseDisplay(mode int),
+	// EraseLine (EL) blanks from the cursor to the end of its row (0),
+	// from the start to the cursor (1), or the row (2).
+	EraseLine(mode int),
+	// InsertLines (IL) moves the rows from the cursor's down by n in the
+	// region, and moves to column 0; outside the region it does nothing.
+	InsertLines(n int),
+	// DeleteLines (DL) moves the rows below the cursor's up by n in the
+	// region, and moves to column 0; outside the region it does nothing.
+	DeleteLines(n int),
+	// InsertBlanks (ICH) moves the cells from the cursor's right by n.
+	InsertBlanks(n int),
+	// DeleteChars (DCH) moves the cells right of the cursor's left by n.
+	DeleteChars(n int),
+	// EraseChars (ECH) blanks n cells from the cursor's.
+	EraseChars(n int),
+	// ScrollUp (SU) scrolls the region up n rows.
+	ScrollUp(n int),
+	// ScrollDown (SD) scrolls the region down n rows.
+	ScrollDown(n int),
+	// SetRegion (DECSTBM) sets the scroll region to rows top to bottom,
+	// 1-based, 0 meaning the screen's edge, when top is above bottom,
+	// and homes the cursor.
+	SetRegion(top int, bottom int),
+	// SetPen sets the style of the characters printed next.
+	SetPen(pen Style),
+	// SetMode sets mode 6 (origin), 7 (autowrap), 25 (cursor shown) or
+	// 1049 (the alternate buffer, saving the cursor on the way in and
+	// restoring it on the way out, and blanking the alternate buffer
+	// as it is entered).
+	SetMode(mode int, on bool),
+	// SetTitle sets the window's title.
+	SetTitle(title string),
+
+	// Pen is the style of the characters printed next.
+	Pen() Style,
+	// Rows and Cols are the screen's size.
+	Rows() int,
+	Cols() int,
+	// History is the count of lines in the history.
+	History() int,
+	// CellAt is the cell at col of line, where lines 0 to History()-1
+	// are the history, oldest first, and the next Rows() are the
+	// buffer shown.
+	CellAt(line int, col int) Shown,
+	// Wrapped reports whether line ended in an autowrap.
+	Wrapped(line int) bool,
+	// Cursor is the cursor's place and modes.
+	Cursor() Cursor,
+	// Title is the window's title.
+	Title() string,
+
+	// HistoryDropsOldestPage: on a screen of LawSize, whose history has
+	// room for one page of 16 lines, n line feeds from the top row send
+	// all but the first Rows()-1 of them to the history, and each time
+	// the history would pass 16 lines its oldest 16 go at once. The
+	// numbers are written out, not read from HistoryLimit and PageRows,
+	// so the law holds the providers and those two to the contract.
+	law HistoryDropsOldestPage(n Feeds) {
+		for _ in 0..int(n) {
+			LineFeed()
+		}
+		let pushed = if int(n) > Rows()-1 { int(n) - (Rows() - 1) } else { 0 }
+		History() == (if pushed == 0 { 0 } else { (pushed-1)%16 + 1 })
+	},
+}
+
+// Feeds is a count of line feeds: 0 to 64.
+type Feeds int where 0 <= it && it <= 64
+
+// LawSize is the screen a law of Screen runs on: 4 rows of 10 columns,
+// and no scrollback asked for, so one page of history.
+let LawSize = Config{Rows: 4, Cols: 10, Scrollback: 0}
+
+// Config is the size of a screen: its rows and columns, and the bytes
+// its history may take, as Ghostty bounds its scrollback in bytes.
+type Config { Rows int, Cols int, Scrollback int }
+
+// PageRows is the rows of one page: the history grows and shrinks by
+// a page.
+let PageRows = 16
+
+// CellBytes is the size of one dense cell.
+let CellBytes = 8
+
+// HistoryPages is the pages of history config allows: at least one.
+func HistoryPages(config Config) int {
+	let pages = config.Scrollback / (PageRows * config.Cols * CellBytes)
+	if pages < 1 { 1 } else { pages }
+}
+
+// HistoryLimit is the most lines the history keeps.
+func HistoryLimit(config Config) int { HistoryPages(config) * PageRows }
+
+// Shown is a cell as a reader sees it: its character (0 for a blank),
+// whether it is one cell, a wide head or a wide tail, and its style.
+type Shown { C rune, Part Part, Style Style }
+
+// Part is the place of a cell in its character.
+type Part = Single{} | Head{} | Tail{}
+
+// Cursor is the cursor's row and column, whether a wrap is pending, and
+// the modes it moves under.
+type Cursor { Row int, Col int, Pending bool, Visible bool, Origin bool, Autowrap bool, Alternate bool }
+
+// Style is how a character is drawn: its colours and its flags. It holds
+// no pointer and compares by value, so a set of styles can intern it.
+type Style { Fg Color, Bg Color, Flags int }
+
+// Color is a colour: 0 is the default, 1 to 256 are the palette's 0 to
+// 255, and RGB colours are Rgb plus 0xRRGGBB.
+type Color int
+
+// Rgb is the first RGB colour.
+let Rgb = Color(0x1000000)
+
+// The flags of a style.
+let Bold = 1
+let Italic = 2
+let Underline = 4
+let Inverse = 8
+
+// Default is the default style.
+let Default = Style{Fg: Color(0), Bg: Color(0), Flags: 0}

@@ -36,6 +36,8 @@ type Static struct {
 // frame's recover(), err its named error result (nil in a frame with no
 // error row). A panic is a fresh defect, a carried exit or an interruption
 // beside *err, as Scope.End records it.
+//
+//ergo:wait none
 func StaticBegin(t *rt.Task, err *error, p any) Static {
 	s := Static{t: t}
 	if err != nil {
@@ -49,6 +51,8 @@ func StaticBegin(t *rt.Task, err *error, p any) Static {
 
 // Part runs one owned value's release; a defect joins the frame's exits
 // and the releases after it still run (R9), as Scope.runOwn does.
+//
+//ergo:wait none
 func (s *Static) Part(rel func()) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -61,6 +65,8 @@ func (s *Static) Part(rel func()) {
 // Failed joins the releases so far into the frame's exit and reports
 // whether the exit failed: the value the frame was returning (its kept
 // bit, ReturnStatic) is then released, as Scope.settleKept does.
+//
+//ergo:wait none
 func (s *Static) Failed() bool {
 	if len(s.exits.Reasons) > 0 {
 		s.e = join(s.e, s.exits.Err())
@@ -71,6 +77,8 @@ func (s *Static) Failed() bool {
 
 // End hands the frame's exit to it, as Scope.End does: a lone typed
 // failure into *err, any other exit raised for the caller's boundary.
+//
+//ergo:wait none
 func (s *Static) End(err *error) {
 	e := s.e
 	if len(s.exits.Reasons) > 0 {
@@ -81,6 +89,8 @@ func (s *Static) End(err *error) {
 
 // OwnStatic registers v, the value of the owned slot whose bit is bit, in
 // the step that receives it (R8): the slot holds v and its bit is set.
+//
+//ergo:wait none
 func OwnStatic[T any](live *uint64, bit uint64, slot *T, v T) T {
 	*slot = v
 	*live |= bit
@@ -89,6 +99,8 @@ func OwnStatic[T any](live *uint64, bit uint64, slot *T, v T) T {
 
 // HandStatic is a hand-off of v, the value of the slot whose bit is bit:
 // its owner no longer releases it (R10, R19).
+//
+//ergo:wait none
 func HandStatic[T any](live *uint64, bit uint64, v T) T {
 	*live &^= bit
 	return v
@@ -97,6 +109,8 @@ func HandStatic[T any](live *uint64, bit uint64, v T) T {
 // ReturnStatic is the return of v, the value of the slot whose bit is bit
 // (R10, Returned): its bit moves to kept, released only if the frame's
 // exit fails.
+//
+//ergo:wait none
 func ReturnStatic[T any](live, kept *uint64, bit uint64, v T) T {
 	*live &^= bit
 	*kept |= bit

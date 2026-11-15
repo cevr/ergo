@@ -1,0 +1,712 @@
+// Package search is fk-domains' search page as one machine, Searcher
+// (plan §20.2): the query in the URL, the debounce, the keyed cache of
+// answers, the range planner, the window of the virtual list, the order,
+// the filters and the cart. Its step is pure but for the clock it reads
+// (needs time.Clock), so a test binds a manual clock. It runs no request:
+// it tells the host what to fetch, cancel and write in the URL (Effect),
+// and the host gives each answer back as a signal (Loaded or Failed).
+//
+// The original's model.ts, message.ts, update.ts and steps/*.ts. Where
+// the original sends a command and waits for its completion message
+// (ReadCurrentTime; 14 of its 46 messages are empty completions), the
+// step reads the clock itself; where it sleeps 150 ms inside the request,
+// the machine waits in Debouncing, whose timer gives Quiet. The design is
+// models/domainsearch: a request is taken only while the cache holds its
+// key as pending for its generation; a change of the query cuts the load
+// in flight; a value is shown from the cache only while it is fresh.
+
+import strings
+import time
+import fk-domains/domains
+import fk-domains/search/cache
+import fk-domains/search/plan
+import fk-domains/search/route
+import fk-domains/search/window
+
+// Phase is where the search is: no query (Landing), a query that is not a
+// label (Invalid: no request is made), a label waiting for the debounce
+// (Debouncing), or a label whose ranges load and show (Showing).
+type Phase = Landing{} | Invalid{Query string} | Debouncing{Label string} | Showing{Label string}
+
+// Key is one load: a range of a label's listings, and the cache
+// generation its answer must carry to be taken.
+type Key { Label string, Offset int, Limit int, Gen int }
+
+// Index is the list the page shows, as catalog positions: every position
+// in catalog order (Identity, which holds nothing per candidate), or the
+// positions Rows in the order and filter's order.
+type Index = Identity{N int} | Listed{Rows []int}
+
+// Search is the machine's state. Route holds the query, the filters and
+// the order (the URL's single source); Pages are the loaded listings of
+// the current label by range (plan.RangeAt), Ranges and Whole what is
+// known of each range and of the whole catalog, Checked how many listings
+// are loaded; InFlight is the load the machine waits on and Failed the
+// load that failed last, for Retry; Index is the derived list, rebuilt
+// only by the signals that change what it lists. IndexBuilds and
+// Comparisons count its builds and the comparisons its sorts made
+// (targets P3 and P8).
+type Search {
+	Phase       Phase,
+	Route       route.Route,
+	Catalog     []string,
+	Cache       cache.Cache[string, []domains.Listing],
+	Ranges      []plan.Load,
+	Whole       plan.Load,
+	Pages       Map[int, []domains.Listing],
+	Checked     int,
+	InFlight    Option[Key],
+	Failed      Option[Key],
+	Window      window.Spec,
+	Index       Index,
+	IndexBuilds int,
+	Comparisons int,
+	Cart        []domains.Available,
+}
+
+// Signal is what the machine reads: a key in the field (Typed), the
+// clear button or Escape (Cleared), a URL the host navigated to (back,
+// forward, a link: Navigated), the debounce's end (Quiet, the timer's),
+// an answer (Loaded, Failed), the list's scroll and size (Scrolled,
+// Resized), the order and the filters, a retry, and the cart.
+type Signal = Typed{Text string} | Cleared{} | Navigated{URL string} | Quiet{} | Loaded{Key Key, Listings []domains.Listing} | Failed{Key Key} | Scrolled{Top int} | Resized{Viewport int} | Ordered{Order route.Order} | FilteredTLD{TLD string} | FilteredAvailable{On bool} | Retry{} | Added{Domain domains.Available} | Removed{Name string}
+
+// Effect is what the machine tells the host: fetch a range (the host
+// calls domains.Registry and answers Loaded or Failed with the key),
+// cancel a fetch, replace the URL (the history entry stays), and scroll
+// the page to the top.
+type Effect = Fetch{Key Key} | Cancel{Key Key} | Replace{URL string} | ScrollToTop{}
+
+// Opening is the machine's input: the URL the page opens at, the catalog,
+// and the list's viewport height in pixels.
+type Opening { URL string, Catalog []string, Viewport int }
+
+// Freshness is how long, in milliseconds, an answer is shown from the
+// cache (the original's staleTime of one minute); Capacity is how many
+// settled answers the cache keeps (maxSettledEntries).
+func Freshness() int { 60000 }
+
+func Capacity() int { 100 }
+
+// Debounce is the quiet time after a key before the search starts.
+func Debounce() duration { 150ms }
+
+// RowHeight is a row's height in pixels; Overscan the rows the window
+// holds beyond the viewport on each side.
+func RowHeight() int { 48 }
+
+func Overscan() int { 4 }
+
+// Begin is the machine's first state: the page of o.URL, with nothing
+// loaded. A URL with a query waits for the debounce, as the original's
+// first range does (its fetch sleeps 150 ms).
+func Begin(o Opening) Search {
+	let r = route.Parse(o.URL)
+	let s = Search{
+		Phase:       phaseOf(Query(r)),
+		Route:       r,
+		Catalog:     o.Catalog,
+		Cache:       cache.New[string, []domains.Listing](Freshness(), Capacity()),
+		Ranges:      fresh(len(o.Catalog)),
+		Whole:       plan.NotLoaded,
+		Pages:       Map[int, []domains.Listing]{},
+		Checked:     0,
+		InFlight:    None,
+		Failed:      None,
+		Window:      window.Spec{ScrollTop: 0, Viewport: o.Viewport, RowHeight: RowHeight(), Count: len(o.Catalog), Overscan: Overscan()},
+		Index:       Identity{N: len(o.Catalog)},
+		IndexBuilds: 0,
+		Comparisons: 0,
+		Cart:        []domains.Available{},
+	}
+	rebuild(s)
+}
+
+func fresh(n int) []plan.Load {
+	let mut out = []plan.Load{}
+	for _ in 0..plan.Count(n) {
+		out = out.Append(plan.NotLoaded)
+	}
+	out
+}
+
+// Query is the route's query, "" for any page but a search.
+func Query(r route.Route) string {
+	match r {
+	case route.Search as s:
+		s.Query
+	case route.Landing, route.NotFound:
+		""
+	}
+}
+
+// Normalize is the label a query searches, as the original's
+// queryToMaybeDomainLabel: trimmed, lower case, an http(s):// prefix
+// dropped, and cut at the first dot or slash; None when that is not a
+// domains.Label.
+func Normalize(query string) Option[string] {
+	let mut t = strings.ToLower(strings.TrimSpace(query))
+	t = strings.TrimPrefix(strings.TrimPrefix(t, "http://"), "https://")
+	let mut end = len(t)
+	for i in 0..len(t) {
+		if t[i] == '.' || t[i] == '/' {
+			end = i
+			break
+		}
+	}
+	let l = domains.ParseLabel(t[0:end]) catch {
+	case domains.Invalid:
+		return None
+	}
+	Some[string]{Value: domains.Wire(l)}
+}
+
+// phaseOf is the phase a query starts: Landing for none, Invalid for a
+// query that is not a label, else Debouncing.
+func phaseOf(query string) Phase {
+	if query == "" {
+		return Landing
+	}
+	match Normalize(query) {
+	case None:
+		Invalid{Query: query}
+	case Some as l:
+		Debouncing{Label: l.Value}
+	}
+}
+
+// LabelOf is the label of a Debouncing or Showing phase, "" else.
+func LabelOf(p Phase) string {
+	match p {
+	case Debouncing as d:
+		d.Label
+	case Showing as s:
+		s.Label
+	case Landing, Invalid:
+		""
+	}
+}
+
+// Timer is the debounce: Debouncing ends with Quiet after Debounce().
+// Each Typed enters Debouncing again, which restarts it.
+func Timer(s Search) Option[Timeout[Signal]] {
+	match s.Phase {
+	case Debouncing:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Debounce(), Signal: Quiet}}
+	case Landing, Invalid, Showing:
+		None
+	}
+}
+
+// Searcher is the search page as a machine.
+type Searcher machine[Search, Signal] {
+	initial: Begin,
+	step:    Step,
+	after:   Timer,
+}
+
+// Now is the clock's time in milliseconds since the Unix epoch, the time
+// the cache reads.
+func Now() int needs time.Clock { time.Count(time.Clock.Now().Sub(time.Unix(0, 0)), 1ms) }
+
+// Step is the machine's transition. A change of the query cuts the load
+// in flight and enters Debouncing (or Landing, or Invalid); Quiet starts
+// the search. A step that tells the host something Emits its effects;
+// since an Emit opens a new entry, an Emit in Debouncing restarts the
+// debounce, as a key does. Every other signal Stays, so it never restarts
+// it.
+func Step(s Search, sig Signal) Decision[Search, []Effect] needs time.Clock {
+	match sig {
+	case Typed as t:
+		typed(s, t.Text)
+	case Cleared:
+		typed(s, "")
+	case Navigated as n:
+		navigated(s, n.URL)
+	case Quiet:
+		match s.Phase {
+		case Debouncing as d:
+			let started = advance(Search{..s, Phase: Showing{Label: d.Label}}, Now())
+			if len(started.Effects) > 0 {
+				return Emit[Search, []Effect]{Next: started.State, Output: started.Effects}
+			}
+			Enter[Search]{Next: started.State}
+		case Landing, Invalid, Showing:
+			Ignore
+		}
+	case Loaded as l:
+		loaded(s, l.Key, l.Listings)
+	case Failed as f:
+		failed(s, f.Key)
+	case Scrolled as sc:
+		if sc.Top == s.Window.ScrollTop {
+			return Ignore
+		}
+		moved(Search{..s, Window: window.Spec{..s.Window, ScrollTop: sc.Top}})
+	case Resized as r:
+		if r.Viewport == s.Window.Viewport {
+			return Ignore
+		}
+		moved(Search{..s, Window: window.Spec{..s.Window, Viewport: r.Viewport}})
+	case Ordered as o:
+		criteria(s, withOrder(s.Route, o.Order))
+	case FilteredTLD as ft:
+		criteria(s, withTLD(s.Route, ft.TLD))
+	case FilteredAvailable as fa:
+		criteria(s, withAvailable(s.Route, fa.On))
+	case Retry:
+		retry(s)
+	case Added as a:
+		for d in s.Cart {
+			if d.Name == a.Domain.Name {
+				return Ignore
+			}
+		}
+		Stay[Search]{Next: Search{..s, Cart: s.Cart.Append(a.Domain)}}
+	case Removed as rm:
+		let mut kept = []domains.Available{}
+		for d in s.Cart {
+			if d.Name != rm.Name {
+				kept = kept.Append(d)
+			}
+		}
+		if len(kept) == len(s.Cart) {
+			return Ignore
+		}
+		Stay[Search]{Next: Search{..s, Cart: kept}}
+	}
+}
+
+// Planned is a state and the effects that made it.
+type Planned { State Search, Effects []Effect }
+
+// told is the decision of a step that made p and stays in its entry
+// unless it told the host something.
+func told(p Planned) Decision[Search, []Effect] {
+	if len(p.Effects) > 0 {
+		return Emit[Search, []Effect]{Next: p.State, Output: p.Effects}
+	}
+	Stay[Search]{Next: p.State}
+}
+
+// then is a's effects followed by b's, in b's state.
+func then(a []Effect, b Planned) Planned {
+	let mut out = a
+	for e in b.Effects {
+		out = out.Append(e)
+	}
+	Planned{State: b.State, Effects: out}
+}
+
+// moved is a scroll or a resize: the window moves and the planner may
+// ask for the range it now shows. The index is not built again.
+func moved(s Search) Decision[Search, []Effect] needs time.Clock {
+	told(advance(s, Now()))
+}
+
+// cut ends the load in flight: its cache entry goes (a late answer is not
+// taken) and the host cancels it.
+func cut(s Search) Planned {
+	match s.InFlight {
+	case None:
+		Planned{State: s, Effects: []Effect{}}
+	case Some[Key] as k:
+		let ck = cacheKey(k.Value.Label, k.Value.Offset, k.Value.Limit)
+		Planned{State: Search{..s, Cache: cache.Cut(s.Cache, ck), InFlight: None}, Effects: []Effect{Cancel{Key: k.Value}}}
+	}
+}
+
+// restart is s for the route r with nothing of a label loaded: a new
+// query's start. The cart, the cache and the viewport's height stay; the
+// list scrolls back to its top.
+func restart(s Search, r route.Route) Search {
+	let n = len(s.Catalog)
+	let next = Search{
+		..s,
+		Phase:    phaseOf(Query(r)),
+		Route:    r,
+		Ranges:   fresh(n),
+		Whole:    plan.NotLoaded,
+		Pages:    Map[int, []domains.Listing]{},
+		Checked:  0,
+		InFlight: None,
+		Failed:   None,
+		Window:   window.Spec{..s.Window, ScrollTop: 0},
+	}
+	if loadedOnly(r) {
+		return rebuild(next)
+	}
+	next
+}
+
+// loadedOnly is whether r's index depends on what is loaded: a price
+// order or available only. Another index lists names only, which a new
+// label does not change.
+func loadedOnly(r route.Route) bool { plan.NeedsWhole(orderOf(r), availableOf(r)) }
+
+// typed is a key in the field: the same text changes nothing (an
+// unchanged input keeps its load); another text cuts the load in flight,
+// writes the URL and enters its phase; the empty text scrolls to the top.
+func typed(s Search, text string) Decision[Search, []Effect] {
+	if text == Query(s.Route) {
+		return Ignore
+	}
+	let c = cut(s)
+	let r = withQuery(s.Route, text)
+	let mut effects = c.Effects.Append(Replace{URL: route.Print(r)})
+	if text == "" {
+		effects = effects.Append(ScrollToTop)
+	}
+	Emit[Search, []Effect]{Next: restart(c.State, r), Output: effects}
+}
+
+// navigated is a URL the host went to. The same route changes nothing;
+// the same query with other criteria keeps the loaded ranges (unrelated
+// URL changes do not restart a settled search); a new query starts at
+// once, since a link or a history step is not typing.
+func navigated(s Search, url string) Decision[Search, []Effect] needs time.Clock {
+	let r = route.Parse(url)
+	if r == s.Route {
+		return Ignore
+	}
+	let q = Query(r)
+	if q == Query(s.Route) {
+		return told(advance(rebuild(Search{..s, Route: r}), Now()))
+	}
+	let c = cut(s)
+	let mut effects = c.Effects
+	if q == "" {
+		effects = effects.Append(ScrollToTop)
+	}
+	let started = restart(c.State, r)
+	let showing = match started.Phase {
+	case Debouncing as d:
+		Search{..started, Phase: Showing{Label: d.Label}}
+	case Landing, Invalid, Showing:
+		started
+	}
+	let p = then(effects, advance(showing, Now()))
+	if len(p.Effects) == 0 {
+		return Enter[Search]{Next: p.State}
+	}
+	Emit[Search, []Effect]{Next: p.State, Output: p.Effects}
+}
+
+// criteria is a change of the order or a filter: the URL follows, the
+// index is built again, and the planner may ask for the whole catalog. A
+// route that the URL cannot hold (a TLD outside the catalog) is ignored.
+func criteria(s Search, r route.Route) Decision[Search, []Effect] needs time.Clock {
+	if r == s.Route || route.Parse(route.Print(r)) != r {
+		return Ignore
+	}
+	let p = then([]Effect{Replace{URL: route.Print(r)}}, advance(rebuild(Search{..s, Route: r}), Now()))
+	Emit[Search, []Effect]{Next: p.State, Output: p.Effects}
+}
+
+// retry asks again for what failed, and only what the page shows: every
+// failed load is not loaded again, and the planner asks for the first
+// that the window shows (the whole catalog when the criteria need it).
+// The ranges that loaded stay.
+func retry(s Search) Decision[Search, []Effect] needs time.Clock {
+	let mut ranges = s.Ranges
+	let mut any = false
+	for k, l in s.Ranges {
+		match l {
+		case plan.Failed:
+			ranges[k] = plan.NotLoaded
+			any = true
+		case plan.NotLoaded, plan.Loading, plan.Loaded:
+		}
+	}
+	let whole = match s.Whole {
+	case plan.Failed:
+		any = true
+		plan.NotLoaded
+	case plan.NotLoaded, plan.Loading, plan.Loaded:
+		s.Whole
+	}
+	if !any {
+		return Ignore
+	}
+	told(advance(Search{..s, Ranges: ranges, Whole: whole, Failed: None}, Now()))
+}
+
+// isWhole is whether r is the whole catalog as one load (a catalog of
+// one range has no whole load apart from that range).
+func isWhole(s Search, r plan.Range) bool {
+	let n = len(s.Catalog)
+	r.Offset == 0 && r.Limit == n && plan.Count(n) > 1
+}
+
+// loaded is an answer. It is taken only when the cache holds its key as
+// pending for its generation, so an answer of a cut or replaced load
+// changes nothing; a taken answer of the current label fills its ranges,
+// builds the index again and plans the next load.
+func loaded(s Search, k Key, listings []domains.Listing) Decision[Search, []Effect] needs time.Clock {
+	if !live(s, k) {
+		return Ignore
+	}
+	let t = Now()
+	let ck = cacheKey(k.Label, k.Offset, k.Limit)
+	let settled = Search{..s, Cache: cache.Settle(s.Cache, ck, k.Gen, listings, t), InFlight: None}
+	if k.Label != LabelOf(s.Phase) {
+		return Stay[Search]{Next: settled}
+	}
+	let filled = rebuild(fill(settled, plan.Range{Offset: k.Offset, Limit: k.Limit}, listings))
+	told(advance(filled, t))
+}
+
+// failed is a load that failed: its entry goes; its range is Failed until
+// a Retry, or until a load of the whole catalog fills it. The planner
+// runs again: criteria that need the whole catalog ask for it now.
+func failed(s Search, k Key) Decision[Search, []Effect] needs time.Clock {
+	if !live(s, k) {
+		return Ignore
+	}
+	let ck = cacheKey(k.Label, k.Offset, k.Limit)
+	let next = Search{..s, Cache: cache.Cut(s.Cache, ck), InFlight: None, Failed: Some[Key]{Value: k}}
+	if k.Label != LabelOf(s.Phase) {
+		return Stay[Search]{Next: Search{..next, Failed: None}}
+	}
+	if isWhole(next, plan.Range{Offset: k.Offset, Limit: k.Limit}) {
+		return Stay[Search]{Next: Search{..next, Whole: plan.Failed}}
+	}
+	let mut ranges = next.Ranges
+	ranges[plan.IndexOf(k.Offset)] = plan.Failed
+	told(advance(Search{..next, Ranges: ranges}, Now()))
+}
+
+// live is whether k is the load the cache waits on.
+func live(s Search, k Key) bool {
+	match cache.Holds(s.Cache, cacheKey(k.Label, k.Offset, k.Limit)) {
+	case Some[cache.Entry[[]domains.Listing]] as e:
+		match e.Value {
+		case cache.Pending as p:
+			p.Gen == k.Gen
+		case cache.Settled[[]domains.Listing]:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+func cacheKey(label string, offset int, limit int) string { "\(label)/\(offset)/\(limit)" }
+
+// fill puts listings, the answer of r, in their ranges; the whole catalog
+// fills every range and ends a failure it replaces.
+func fill(s Search, r plan.Range, listings []domains.Listing) Search {
+	let n = len(s.Catalog)
+	let whole = isWhole(s, r)
+	let mut pages = s.Pages
+	let mut ranges = s.Ranges
+	let mut checked = s.Checked
+	for k in 0..plan.Count(n) {
+		let p = plan.RangeAt(n, k)
+		if !whole && p.Offset != r.Offset {
+			continue
+		}
+		let from = p.Offset - r.Offset
+		let to = from + p.Limit
+		if to > len(listings) {
+			continue
+		}
+		match pages.Get(k) {
+		case None:
+			checked = checked + p.Limit
+		case Some:
+		}
+		pages[k] = listings[from:to]
+		ranges[k] = plan.Loaded
+	}
+	let mut out = Search{..s, Pages: pages, Ranges: ranges, Checked: checked}
+	if whole {
+		out = Search{..out, Whole: plan.Loaded, Failed: None}
+	}
+	out
+}
+
+// request asks for r of the current label at the time t: a fresh entry
+// fills it at once; a stale or missing one is fetched (a stale value is
+// never shown, FreshBound); a pending one is waited on.
+func request(s Search, r plan.Range, t int) Planned {
+	let label = LabelOf(s.Phase)
+	let ck = cacheKey(label, r.Offset, r.Limit)
+	let got = cache.Get(s.Cache, ck, t)
+	let at = Search{..s, Cache: got.Cache}
+	match got.Look {
+	case cache.Fresh[[]domains.Listing] as f:
+		Planned{State: fill(at, r, f.Value), Effects: []Effect{}}
+	case cache.Waiting as w:
+		Planned{State: loading(Search{..at, InFlight: Some[Key]{Value: Key{Label: label, Offset: r.Offset, Limit: r.Limit, Gen: w.Gen}}}, r), Effects: []Effect{}}
+	case cache.Stale[[]domains.Listing], cache.Missing:
+		let b = cache.Begin(at.Cache, ck)
+		let k = Key{Label: label, Offset: r.Offset, Limit: r.Limit, Gen: b.Gen}
+		Planned{State: loading(Search{..at, Cache: b.Cache, InFlight: Some[Key]{Value: k}}, r), Effects: []Effect{Fetch{Key: k}}}
+	}
+}
+
+// loading marks r as loading.
+func loading(s Search, r plan.Range) Search {
+	if isWhole(s, r) {
+		return Search{..s, Whole: plan.Loading}
+	}
+	let mut ranges = s.Ranges
+	ranges[plan.IndexOf(r.Offset)] = plan.Loading
+	Search{..s, Ranges: ranges}
+}
+
+// advance asks for what the planner wants next, as long as the cache
+// answers at once, until a load is in flight or nothing is wanted. It
+// plans only in Showing.
+func advance(s Search, t int) Planned {
+	match s.Phase {
+	case Showing:
+	case Landing, Invalid, Debouncing:
+		return Planned{State: s, Effects: []Effect{}}
+	}
+	let mut at = s
+	let mut effects = []Effect{}
+	let mut done = false
+	for _ in 0..plan.Count(len(s.Catalog))+1 {
+		if done {
+			continue
+		}
+		match plan.Next(Input(at)).Next {
+		case None:
+			done = true
+		case Some[plan.Range] as r:
+			let asked = request(at, r.Value, t)
+			for e in asked.Effects {
+				effects = effects.Append(e)
+			}
+			match asked.State.InFlight {
+			case Some:
+				at = asked.State
+				done = true
+			case None:
+				at = rebuild(asked.State)
+			}
+		}
+	}
+	Planned{State: at, Effects: effects}
+}
+
+// Input is the planner's view of s: the rows the window shows, as
+// catalog positions.
+func Input(s Search) plan.Input {
+	let w = window.Of(window.Spec{..s.Window, Count: Rows(s.Index)})
+	let mut wanted = []int{}
+	for i in w.First..window.End(w) {
+		wanted = wanted.Append(At(s.Index, i))
+	}
+	let inFlight = match s.InFlight {
+	case Some:
+		true
+	case None:
+		false
+	}
+	plan.Input{Size: len(s.Catalog), Ranges: s.Ranges, Whole: s.Whole, Checked: s.Checked, InFlight: inFlight, Wanted: wanted, NeedsWhole: loadedOnly(s.Route)}
+}
+
+// Rows is how many rows the index lists.
+func Rows(ix Index) int {
+	match ix {
+	case Identity as i:
+		i.N
+	case Listed as l:
+		len(l.Rows)
+	}
+}
+
+// At is row i of the index, a catalog position.
+func At(ix Index, i int) int {
+	match ix {
+	case Identity:
+		i
+	case Listed as l:
+		l.Rows[i]
+	}
+}
+
+// ListingAt is the loaded listing at catalog position p, if any.
+func ListingAt(s Search, p int) Option[domains.Listing] {
+	let k = plan.IndexOf(p)
+	match s.Pages.Get(k) {
+	case None:
+		None
+	case Some[[]domains.Listing] as page:
+		let i = p - plan.RangeAt(len(s.Catalog), k).Offset
+		if i < 0 || i >= len(page.Value) {
+			return None
+		}
+		Some[domains.Listing]{Value: page.Value[i]}
+	}
+}
+
+func orderOf(r route.Route) route.Order {
+	match r {
+	case route.Search as s:
+		s.Order
+	case route.Landing, route.NotFound:
+		route.Relevance
+	}
+}
+
+func availableOf(r route.Route) bool {
+	match r {
+	case route.Search as s:
+		s.AvailableOnly
+	case route.Landing, route.NotFound:
+		false
+	}
+}
+
+func tldOf(r route.Route) string {
+	match r {
+	case route.Search as s:
+		s.TLD
+	case route.Landing, route.NotFound:
+		""
+	}
+}
+
+// withQuery is r with the query q; the criteria stay. "" is Landing.
+func withQuery(r route.Route, q string) route.Route {
+	if q == "" {
+		return route.Landing
+	}
+	match r {
+	case route.Search as s:
+		route.Search{..s, Query: q}
+	case route.Landing, route.NotFound:
+		route.Search{Query: q, TLD: "", AvailableOnly: false, Order: route.Relevance}
+	}
+}
+
+func withOrder(r route.Route, o route.Order) route.Route {
+	match r {
+	case route.Search as s:
+		route.Search{..s, Order: o}
+	case route.Landing, route.NotFound:
+		r
+	}
+}
+
+func withTLD(r route.Route, tld string) route.Route {
+	match r {
+	case route.Search as s:
+		route.Search{..s, TLD: tld}
+	case route.Landing, route.NotFound:
+		r
+	}
+}
+
+func withAvailable(r route.Route, on bool) route.Route {
+	match r {
+	case route.Search as s:
+		route.Search{..s, AvailableOnly: on}
+	case route.Landing, route.NotFound:
+		r
+	}
+}

@@ -34,6 +34,7 @@ type ordered interface {
 //
 //ergo:pure
 //ergo:owned SlicesSortOwned
+//ergo:wait none
 func SlicesSort[T ordered](xs []T) []T {
 	out := slices.Clone(xs)
 	slices.Sort(out)
@@ -44,6 +45,8 @@ func SlicesSort[T ordered](xs []T) []T {
 // form, called on a consumed slice, and slices.Sorted's, on the slice it
 // has just collected, which nothing else holds. It writes its argument,
 // so it is not marked pure.
+//
+//ergo:wait none
 func SlicesSortOwned[T ordered](xs []T) []T {
 	slices.Sort(xs)
 	return xs
@@ -52,6 +55,8 @@ func SlicesSortOwned[T ordered](xs []T) []T {
 // SlicesSortFunc is slices.SortFunc(xs, compare): a copy of xs sorted by
 // compare, which returns a negative number, zero or a positive number. The
 // order of equal elements is not kept.
+//
+//ergo:wait none
 func SlicesSortFunc[T any](xs []T, compare func(a T, b T) int) []T {
 	out := slices.Clone(xs)
 	slices.SortFunc(out, compare)
@@ -60,6 +65,8 @@ func SlicesSortFunc[T any](xs []T, compare func(a T, b T) int) []T {
 
 // SlicesSortStableFunc is slices.SortStableFunc(xs, compare): a copy of xs
 // sorted by compare, equal elements in their order in xs.
+//
+//ergo:wait none
 func SlicesSortStableFunc[T any](xs []T, compare func(a T, b T) int) []T {
 	out := slices.Clone(xs)
 	slices.SortStableFunc(out, compare)
@@ -69,12 +76,14 @@ func SlicesSortStableFunc[T any](xs []T, compare func(a T, b T) int) []T {
 // SlicesContains is slices.Contains(xs, x).
 //
 //ergo:pure
+//ergo:wait none
 func SlicesContains[T comparable](xs []T, x T) bool { return slices.Contains(xs, x) }
 
 // SlicesIndex is slices.Index(xs, x): the index of the first x in xs, or
 // -1.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesIndex[T comparable](xs []T, x T) int { return slices.Index(xs, x) }
 
 // SlicesReverse is a copy of xs in the reverse order. Where xs is
@@ -83,6 +92,7 @@ func SlicesIndex[T comparable](xs []T, x T) int { return slices.Index(xs, x) }
 //
 //ergo:pure
 //ergo:owned SlicesReverseOwned
+//ergo:wait none
 func SlicesReverse[T any](xs []T) []T {
 	out := slices.Clone(xs)
 	slices.Reverse(out)
@@ -92,6 +102,8 @@ func SlicesReverse[T any](xs []T) []T {
 // SlicesReverseOwned reverses xs in place and returns it: SlicesReverse's
 // owned form, called on a consumed slice. It writes its argument, so it is
 // not marked pure.
+//
+//ergo:wait none
 func SlicesReverseOwned[T any](xs []T) []T {
 	slices.Reverse(xs)
 	return xs
@@ -102,6 +114,7 @@ func SlicesReverseOwned[T any](xs []T) []T {
 // unsort an Ascending (SS5).
 //
 //ergo:pure
+//ergo:wait none
 func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
 
 // SlicesConcat is slices.Concat(a, b): a new array of at least len(a) +
@@ -111,6 +124,7 @@ func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
 //
 //ergo:pure
 //ergo:owned SlicesConcatOwned
+//ergo:wait none
 func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
 
 // SlicesConcatOwned is append(a, b...): SlicesConcat's owned form, called
@@ -121,6 +135,7 @@ func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
 // SlicesConcatPoison, instead.
 //
 //ergo:check SlicesConcatPoison
+//ergo:wait none
 func SlicesConcatOwned[T any](a []T, b []T) []T { return append(a, b...) }
 
 // SlicesConcatPoison is SlicesConcatOwned's checking form, which a test
@@ -128,6 +143,8 @@ func SlicesConcatOwned[T any](a []T, b []T) []T { return append(a, b...) }
 // it makes the new array SlicesConcat makes, then clears a's whole array,
 // which the proof says no binding reads again. A read the proof missed
 // reads zero values, so the program's own tests see it.
+//
+//ergo:wait none
 func SlicesConcatPoison[T any](a []T, b []T) []T {
 	out := slices.Concat(a, b)
 	clear(a[:cap(a)])
@@ -148,6 +165,7 @@ func AppendPoison[T any](xs []T, x T) []T {
 // A negative n, or a length past int, panics, as Go's does: a defect.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
 
 // SlicesSlice is xs[i:j:j], the full slice expression: no room after j,
@@ -155,12 +173,14 @@ func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
 // of range panics: a defect, as an index out of range is.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesSlice[T any](xs []T, i int, j int) []T { return xs[i:j:j] }
 
 // MapsClone is maps.Clone(m): a new map with the keys and values of m.
 // It is restated, as CmpCompare is, because maps is not in PureImports.
 //
 //ergo:pure
+//ergo:wait none
 func MapsClone[K comparable, V any](m map[K]V) map[K]V {
 	out := make(map[K]V, len(m))
 	for k, v := range m {
@@ -173,17 +193,20 @@ func MapsClone[K comparable, V any](m map[K]V) map[K]V {
 // Ergo body of slices.Max calls it only on a non-empty slice.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesMax[T ordered](xs []T) T { return slices.Max(xs) }
 
 // SlicesMin is slices.Min(xs), under the rule of SlicesMax.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesMin[T ordered](xs []T) T { return slices.Min(xs) }
 
 // SlicesBinarySearch is the index of x in the sorted xs that Go's
 // slices.BinarySearch finds, or -1 when xs has no x.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesBinarySearch[T ordered](xs []T, x T) int {
 	i, found := slices.BinarySearch(xs, x)
 	if !found {
@@ -196,12 +219,14 @@ func SlicesBinarySearch[T ordered](xs []T, x T) int {
 // order.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesEqual[T comparable](a []T, b []T) bool { return slices.Equal(a, b) }
 
 // CmpCompare is Go's cmp.Compare(a, b), restated: -1, 0 or +1. A NaN is
 // less than any other float and equal to a NaN, as in Go.
 //
 //ergo:pure
+//ergo:wait none
 func CmpCompare[T ordered](a T, b T) int {
 	aNaN := a != a
 	bNaN := b != b
@@ -227,6 +252,7 @@ func CmpCompare[T ordered](a T, b T) int {
 // order.
 //
 //ergo:pure
+//ergo:wait none
 func CmpLess[T ordered](a T, b T) bool {
 	return (a != a && b == b) || a < b
 }
@@ -235,10 +261,12 @@ func CmpLess[T ordered](a T, b T) bool {
 // gives NaN, and max(-0, +0) is +0.
 //
 //ergo:pure
+//ergo:wait none
 func CmpMax[T ordered](a T, b T) T { return max(a, b) }
 
 // CmpMin is Go's builtin min(a, b): the smaller value; for floats a NaN
 // gives NaN, and min(-0, +0) is -0.
 //
 //ergo:pure
+//ergo:wait none
 func CmpMin[T ordered](a T, b T) T { return min(a, b) }

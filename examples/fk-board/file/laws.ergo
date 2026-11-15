@@ -1,0 +1,22 @@
+// The file's laws. ergo test also runs board.Store's laws on a Sheet over
+// each case's own fstest.Memory (NewSheet).
+
+import fkboard/board
+import fstest
+import strings
+
+// AForeignLineIsNamed: a file whose board is followed by a line that is
+// neither a column nor a card loads as Broken, naming the file and that
+// line's number.
+law AForeignLineIsNamed(n int, junk int where 0 <= junk && junk <= 2) {
+	let disk = fstest.NewMemory()
+	let text = Encode(board.Sample(n))
+	let line = []string{"garbage", "card\t\"x\"", "column\tnot quoted\t\"A\""}[junk]
+	try disk.WriteFile(Name, text+line+"\n")
+	let at = strings.Count(text, "\n") + 1
+	let _ = NewSheet(disk, disk).Load() catch {
+	case board.Broken as b:
+		return strings.HasPrefix(b.Why, "board.txt:\(at): ")
+	}
+	false
+}

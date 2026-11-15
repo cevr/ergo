@@ -186,6 +186,9 @@ type funcCtx struct {
 	// recs are the record parameters of a copy for a known record and
 	// the record each stands for (record.go).
 	recs map[*check.Var]*knownRec
+	// provs are the operation-type parameters of a copy for a known
+	// provider and the provider each stands for (provider.go).
+	provs map[*check.Var]*knownProv
 	// scalarSet are the locals of the body being written that take the
 	// scalar form, and scalars those declared so far (scalar.go).
 	scalarSet map[*check.Var]bool
@@ -910,6 +913,17 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		x = fc.spill(x)
 	}
 	fc.killWritten(s.Body) // bounds.go, as forStmt
+	// A fill, a move or a collect is a call when its guard holds, and the
+	// loop below otherwise (loops.go).
+	if idiom := fc.loopIdiomOf(s, l); idiom != nil {
+		n, _ := fc.typeOf(s.X).(*check.Named)
+		td := fc.l.typeDecl(n.Obj, s.X)
+		fc.loopIdiomHead(s, idiom, x+"."+td.fieldName["Start"], x+"."+td.fieldName["End"])
+		defer func() {
+			fc.depth--
+			fc.line("}")
+		}()
+	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out

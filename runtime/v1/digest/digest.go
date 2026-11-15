@@ -42,6 +42,7 @@ func (m Base64Malformed) Error() string {
 // HexEncode is hex.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func HexEncode(s string) string { return hex.EncodeToString([]byte(s)) }
 
 // HexDecode is the bytes hex.DecodeString reads from s, or HexMalformed at
@@ -51,6 +52,7 @@ func HexEncode(s string) string { return hex.EncodeToString([]byte(s)) }
 // the byte it reports.
 //
 //ergo:pure
+//ergo:wait none
 func HexDecode(s string) (string, error) {
 	b, err := hex.DecodeString(s)
 	if err == nil {
@@ -68,17 +70,20 @@ func HexDecode(s string) (string, error) {
 // Base64StdEncode is base64.StdEncoding.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Base64StdEncode(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
 // Base64URLEncode is base64.URLEncoding.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Base64URLEncode(s string) string { return base64.URLEncoding.EncodeToString([]byte(s)) }
 
 // Base64StdDecode is the bytes base64.StdEncoding.DecodeString reads from
 // s, or Base64Malformed at Go's CorruptInputError offset.
 //
 //ergo:pure
+//ergo:wait none
 func Base64StdDecode(s string) (string, error) {
 	b, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
@@ -92,6 +97,7 @@ func Base64StdDecode(s string) (string, error) {
 // s, or Base64Malformed at Go's CorruptInputError offset.
 //
 //ergo:pure
+//ergo:wait none
 func Base64URLDecode(s string) (string, error) {
 	b, err := base64.URLEncoding.DecodeString(s)
 	if err != nil {
@@ -104,6 +110,7 @@ func Base64URLDecode(s string) (string, error) {
 // Sha256Sum is the 32 bytes of sha256.Sum256 of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Sha256Sum(s string) string {
 	d := sha256.Sum256([]byte(s))
 	return string(d[:])
@@ -112,11 +119,30 @@ func Sha256Sum(s string) string {
 // Crc32Checksum is crc32.ChecksumIEEE of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Crc32Checksum(s string) uint32 { return crc32.ChecksumIEEE([]byte(s)) }
 
 // Crc32Update is crc32.Update(crc, crc32.IEEETable, the bytes of s).
 //
+// It reads s through a buffer of 512 bytes, so a long s is not copied to
+// a new slice first (FD1-g3: a bench that sums its answers allocated each
+// answer once more). The buffer escapes (crc32.Update reaches the arch
+// code through a function value), so it is one small allocation; a pool
+// would need sync, which a pure function's file may not import. A string
+// no longer than the buffer is converted as it is: that allocates only
+// its own bytes.
+//
 //ergo:pure
+//ergo:wait none
 func Crc32Update(crc uint32, s string) uint32 {
-	return crc32.Update(crc, crc32.IEEETable, []byte(s))
+	if len(s) <= 512 {
+		return crc32.Update(crc, crc32.IEEETable, []byte(s))
+	}
+	var buf [512]byte
+	for len(s) > 0 {
+		n := copy(buf[:], s)
+		crc = crc32.Update(crc, crc32.IEEETable, buf[:n])
+		s = s[n:]
+	}
+	return crc
 }

@@ -2,6 +2,14 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Decided by principle, 2026-11-14
+
+- **One trust line: `trust go MODULE` (orchestrator ruling, 2026-11-14).** Two accepted features defined the `ergo.mod` trust line. MD3 (required modules' Go, [grammar](spec/grammar.md#source-files) rule 1, Trusted Go) wrote `trust go MODULE`; STD-NOPRIV NP4e (the runtime door and a module's own Go bodies, [interop](spec/interop.md#trusted-go), Trusted Go) wrote `trust MODULE`. They met in the merge of wf10/ia2b into wf10/domain. The ruling keeps MD3's form, `trust go MODULE`, for two reasons:
+  - *Explicit everywhere.* The line says what the root vouches for, the module's Go, and it matches S108's text "does not trust its Go".
+  - *One concept, one form.* NP4e's door (a trusted module binds the runtime with hidden arguments, and a Go-backed provider's build holds `go.Foreign`) is also trust in that module's Go, so it uses the same line. There is no second form.
+
+  NP4e's spelling, its grammar.md and interop.md text, its diagnostics and its test rows are respelled to `trust go MODULE`. Nothing else in NP4e changes. A module trusts its own Go with its own name, `trust go app`, which it needs only for the door and its own Go bodies. Its `import go` and `extern go` of Go's standard library need no line.
+
 ## Owner direction, 2026-11-13
 
 - **Never (FKG2).** Owner: "Alright, yeah, let's add it." Ergo gets a prelude `Never`: uninhabited (a closed union with no alternatives), not a bottom type (no subtyping, no implicit conversion); std `never[T](n Never) T` converts where needed. A match on a `Never` value needs no arms; `Decision[S, Never]`'s emit arm is unreachable. Failures keep rows: an absent `fails` already means none, so `fails Never` is refused as a second spelling. Lowers to a never-constructed Go `struct{}`. Prior art: Elm `Never`/`never`, Rust `Infallible`/`!`, TypeScript `never`. Built as unit FKG2. Std's `never` is the prelude function `Absurd`, reached as `n.Absurd[T]()`: a prelude export is capitalised and `Never` names the type (decided by [Exports follow Go's capitalisation](#exports-follow-gos-capitalisation-2026-10-27)). Rules: [types.md, Never](spec/types.md#never).

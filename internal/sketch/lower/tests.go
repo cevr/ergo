@@ -1071,6 +1071,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
+			if p.Ptr {
+				// A borrow provider: its operations take *P, so the run
+				// binds the address of the case's P (types.md, Laws 10).
+				return fc.convert(p.Conv, "&"+pv, law.Decl)
+			}
 			return fc.lawProvider(p, pv, law.Decl)
 		}
 		args := []string{"&" + e}

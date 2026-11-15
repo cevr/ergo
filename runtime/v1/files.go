@@ -116,6 +116,97 @@ type Body struct {
 	// poisons the storage the owned form would have taken over, so a read
 	// that the consumption proof missed reads poison.
 	Check string
+	// Wait is the body's waiting policy, from the directive line
+	// "//ergo:wait KIND" of its doc comment (WaitKinds): which task a call
+	// of it waits on, or none. It is "" for a body with no mark, which no
+	// extern may bind (the lowering's emitter refuses it): a body states
+	// that it does not wait (STD-NOPRIV NP4d; docs/spec/interop.md, Trusted
+	// Go).
+	Wait string
+	// Release is the body's release route, from "//ergo:release ROUTE"
+	// (caller: the body of a checked Close, masked on the caller's task;
+	// frame: an exit action, masked on its frame's task), or "".
+	Release string
+	// BridgeTarget and BridgeProvider are "//ergo:bridge TARGET PROVIDER":
+	// the body stands for the prelude extern whose Go target is TARGET,
+	// with its first operand a zero-field PROVIDER the call erases (the
+	// host Sleep of LiveScheduler).
+	BridgeTarget, BridgeProvider string
+}
+
+// WaitMark, ReleaseMark and BridgeMark start the directive lines of a
+// body's calling policy (Body.Wait, Body.Release, Body.BridgeTarget).
+const (
+	WaitMark    = "//ergo:wait "
+	ReleaseMark = "//ergo:release "
+	BridgeMark  = "//ergo:bridge "
+)
+
+// WaitKinds are the waiting policies a body states, each with whether it
+// takes the caller's task (CallerTask) to wait on or to start under:
+//   - none: the body never waits;
+//   - caller: it waits on the caller's task, and a stop of it ends the wait;
+//   - handle: it waits on the task of the handle it is given;
+//   - drain: an uninterruptible stop and completed drain;
+//   - child: the caller is the parent of the children it starts and joins;
+//   - member: the caller becomes the first member of a clock's domain;
+//   - parent: the caller is the parent of the task it starts;
+//   - settle: it waits until the rest of a manual clock's domain is parked;
+//   - end: it waits, uninterruptibly, for an actor's runner to end.
+var WaitKinds = map[string]bool{
+	"none": false, "caller": true, "handle": false, "drain": false, "child": true,
+	"member": true, "parent": true, "settle": true, "end": true,
+}
+
+// ReleaseRoutes are the release routes a body states, each with whether it
+// takes the caller's task.
+var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
+
+// BodyNames is the name of every exported function and method of Source
+// that BodyOf reads, sorted, a refused one included.
+func BodyNames() []string {
+	names := make([]string, 0, len(bodyTable))
+	for name := range bodyTable {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// Bodies are the Go bodies of a package other than runtime/v1 that follows
+// the hidden-argument convention: a trusted module's own Go package
+// (docs/spec/interop.md, Trusted Go). Its files name v1's hidden types
+// through their import of runtime/v1 (*v1.Scope, v1.Site, v1.Sleeper,
+// v1.ContextPackage, v1.Releaser[T]) and the task as *rt.Task.
+type Bodies struct{ decls goDecls }
+
+// ReadBodies parses the non-test Go files at the root of fsys.
+func ReadBodies(fsys fs.FS) (Bodies, error) {
+	d, err := parseDeclsIn(fsys, "", false)
+	return Bodies{d}, err
+}
+
+// Body is the body of the exported function name under BodyOf's rules,
+// with three more. It is a plain function: a method's receiver and a
+// type parameter are the package's own types, which no Ergo type lowers
+// to. It states its waiting policy (WaitMark), since the lowering calls a
+// body by its policy and none is assumed. It states no release route, no
+// bridge and no owned form, which are the runtime's own.
+func (b Bodies) Body(name string) (Body, error) {
+	if g, ok := b.decls[name]; ok && g.fn != nil && (g.fn.Recv != nil || g.fn.Type.TypeParams != nil) {
+		return Body{}, fmt.Errorf("%s is a method or a generic function; a module's body is a plain function", name)
+	}
+	body, err := b.decls.body(name)
+	if err != nil {
+		return Body{}, errors.New(strings.Replace(err.Error(), "runtime/v1: ", "", 1))
+	}
+	switch {
+	case body.Wait == "":
+		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "":
+		return Body{}, fmt.Errorf("%s states a release route, a bridge or an owned form, which only runtime/v1's bodies state", name)
+	}
+	return body, nil
 }
 
 // PureMark is the directive line that marks a body pure, in the doc
@@ -351,12 +442,13 @@ func parseSources() (goDecls, error) {
 // with the local name its file gives runtime/rt, the import paths of its
 // file, and the package's names of functions and variables at top level.
 type goDecl struct {
-	// pkg is the import path of the declaring package: Path or a leaf.
-	pkg     string
-	fn      *ast.FuncDecl
-	typ     *ast.TypeSpec
-	rt      string
-	v1      string // the file's name for runtime/v1, in a leaf
+	// pkg is the import path of the declaring package: Path, a leaf, or
+	// "" for a module's own package (ReadBodies).
+	pkg string
+	fn  *ast.FuncDecl
+	typ *ast.TypeSpec
+	// q names runtime/rt and runtime/v1 as the file writes them (quals).
+	q       quals
 	imports []string
 	// locals are the file's import paths by the local name it gives them.
 	locals map[string]string
@@ -381,83 +473,62 @@ type reachDecl struct {
 // non-test files, by name ("Go", "Queue.Push", "Closed").
 type goDecls map[string]goDecl
 
-// stdRecords is the binding table of std records (docs/spec/stdlib.md,
-// Types 4; std-align S3b): the key is a record's std package and name,
-// "fs.NotFound", and the value is the exported struct of Source that the
-// record is. The key is the package and the name, never the name alone, so
-// fs.NotFound and a later exec.NotFound bind two Go types; the values are
-// distinct, so no Go type is two records (TestStdRecordTable). A std record
-// with no row is a declaration of the program, as strings.Halves is.
-var stdRecords = map[string]string{
-	"arena.stored":         "ArenaValue",
-	"base64.Malformed":     "Base64Malformed",
-	"actor.Stopped":        "ActorStopped",
-	"exec.Chunk":           "ExecChunk",
-	"exec.Denied":          "ExecDenied",
-	"exec.Failed":          "ExecFailed",
-	"exec.Line":            "ExecLine",
-	"exec.NotFound":        "ExecNotFound",
-	"exec.Result":          "ExecResult",
-	"filepath.NotRelative": "NotRelative",
-	"filepath.Parts":       "Parts",
-	"fs.Denied":            "Denied",
-	"fs.Failed":            "Failed",
-	"fs.Escapes":           "Escapes",
-	"fs.Info":              "Info",
-	"fs.NotFound":          "NotFound",
-	"hex.Malformed":        "HexMalformed",
-	"http.ListenFailed":    "HTTPListenFailed",
-	"http.InvalidLimits":   "HTTPInvalidLimits",
-	"http.InvalidClient":   "HTTPInvalidClient",
-	"http.SendFailed":      "HTTPSendFailed",
-	"http.OriginRefused":   "HTTPOriginRefused",
-	"http.RedirectLimit":   "HTTPRedirectLimit",
-	"http.SinkFailed":      "HTTPSinkFailed",
-	"http.StatusRefused":   "HTTPStatusRefused",
-	"http.Limits":          "HTTPLimits",
-	"http.Field":           "HTTPField",
-	"http.Response":        "HTTPResponse",
-	"http.WriteFailed":     "HTTPWriteFailed",
-	"json.Malformed":       "JSONMalformed",
-	"toml.Malformed":       "TOMLMalformed",
-	"toml.Unrepresentable": "TOMLUnrepresentable",
-	"io.ReadFailed":        "ReadFailed",
-	"term.NotTerminal":     "TermNotTerminal",
-	"term.Window":          "TermWindow",
-	"math.OutOfRange":      "MathOutOfRange",
-	"os.Exit":              "Exit",
-	"os.NoWorkdir":         "NoWorkdir",
-	"queue.Closed":         "Closed",
-	"rpc.Failed":           "RPCFailed",
-	"rpc.Malformed":        "RPCMalformed",
-	"rpc.Envelope":         "RPCEnvelope",
-	"rpc.Unrepresentable":  "RPCUnrepresentable",
-	"rpc.Transport":        "RPCTransport",
-	"strconv.Malformed":    "Malformed",
-	"strconv.OutOfRange":   "OutOfRange",
-	"csv.ParseError":       "CSVParseError",
-	"csv.Position":         "CSVPosition",
-	"time.ParseError":      "ParseError",
-	"time.Reading":         "Reading",
-	"utf8.Decoded":         "Decoded",
-	"timeout.Expired":      "Expired",
-	"tasks.Closed":         "TasksClosed",
+// GoType is the shape of an exported type of Source, which an Ergo type
+// declaration names as its Go type (`extern go …/runtime/v1.Closed type
+// Closed {}`; docs/spec/stdlib.md, The body contract; STD-NOPRIV NP4c).
+// The declaration states the binding, so no table keyed by an Ergo name
+// says which std type is which Go type.
+type GoType struct {
+	// Package is the import path of the leaf that declares it, or ""
+	// for runtime/v1 itself.
+	Package string
+	// Arity is the number of its type parameters.
+	Arity int
+	// Struct reports a plain struct type (no alias, no embedded field),
+	// whose field names are Fields, in order.
+	Struct bool
+	Fields []string
 }
 
-// StdRecord returns the name of the struct of Source that the record name
-// of the std package pkg is, and whether the binding table has one.
-func StdRecord(pkg, name string) (string, bool) {
-	goName, ok := stdRecords[pkg+"."+name]
-	return goName, ok
+// In is the import path of the package that declares the type: Path or
+// a leaf.
+func (t GoType) In() string {
+	if t.Package == "" {
+		return Path
+	}
+	return t.Package
 }
 
-// StdRecords returns a copy of the binding table, keyed "pkg.Name".
-func StdRecords() map[string]string { return maps.Clone(stdRecords) }
+// TypeOf returns the shape of the exported type name of Source, and
+// whether there is one. It reads the generated table (typeTable), so no
+// check parses Source (CHK1).
+func TypeOf(name string) (GoType, bool) {
+	t, ok := typeTable[name]
+	return t, ok
+}
+
+// goType is the shape of the exported type name of the parse.
+func (d goDecls) goType(name string) (GoType, bool) {
+	g, ok := d[name]
+	if !ok || g.typ == nil {
+		return GoType{}, false
+	}
+	t := GoType{Arity: g.typ.TypeParams.NumFields()}
+	if g.pkg != Path {
+		t.Package = g.pkg
+	}
+	if fields, err := d.structFieldsOf(name, t.Arity); err == nil {
+		t.Struct = true
+		if len(fields) > 0 {
+			t.Fields = fields
+		}
+	}
+	return t, true
+}
 
 // StructFields returns the field names, in order, of the exported struct
-// type named name in Source. A record type declared in a std package that
-// is not an operations type, such as queue.Closed, is the Go type its row
-// of the binding table names (StdRecord), so its fields are the record's.
+// type named name in Source. A record whose declaration names a
+// Go type of Source (TypeOf) has that struct's fields.
 // It fails when there is no such struct type.
 func StructFields(name string) ([]string, error) {
 	return StructFieldsOf(name, 0)
@@ -500,8 +571,15 @@ func (d goDecls) structFieldsOf(name string, arity int) ([]string, error) {
 }
 
 // parseDecls parses every non-test Go file at the root of fsys, the
-// package whose import path is pkg.
-func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
+// package whose import path is pkg: runtime/v1's own package (or a
+// fixture of it), whose hidden types are unqualified, or a leaf, which
+// names them through its import of runtime/v1.
+func parseDecls(fsys fs.FS, pkg string) (goDecls, error) { return parseDeclsIn(fsys, pkg, pkg == Path) }
+
+// parseDeclsIn parses every non-test Go file at the root of fsys: v1's own
+// package when own, or another package (a leaf, a module's own Go), which
+// names v1's hidden types through its import of runtime/v1.
+func parseDeclsIn(fsys fs.FS, pkg string, own bool) (goDecls, error) {
 	names, err := fs.Glob(fsys, "*.go")
 	if err != nil {
 		return nil, err
@@ -523,7 +601,10 @@ func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
 		if err != nil {
 			return nil, err
 		}
-		rt, core := "", ""
+		q := quals{}
+		if own {
+			q.v1 = "."
+		}
 		var imports []string
 		locals := map[string]string{}
 		for _, imp := range f.Imports {
@@ -535,17 +616,17 @@ func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
 			}
 			locals[local] = p
 			if p == rtPath {
-				rt = local
+				q.rt = local
 			}
-			if p == Path {
-				core = local
+			if p == Path && !own {
+				q.v1 = local
 			}
 		}
 		for _, d := range f.Decls {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{pkg: pkg, typ: ts, rt: rt, v1: core, imports: imports, locals: locals, values: values, index: index}
+						decls[ts.Name.Name] = goDecl{pkg: pkg, typ: ts, q: q, imports: imports, locals: locals, values: values, index: index}
 					}
 				}
 				continue
@@ -574,7 +655,7 @@ func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{pkg: pkg, fn: fn, rt: rt, v1: core, imports: imports, locals: locals, values: values, index: index}
+			decls[key] = goDecl{pkg: pkg, fn: fn, q: q, imports: imports, locals: locals, values: values, index: index}
 		}
 	}
 	return decls, nil
@@ -615,7 +696,7 @@ func (d goDecls) body(name string) (Body, error) {
 	if !ok || g.fn == nil {
 		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
-	b, err := goShape(g.fn.Type, fileNames{rt: g.rt, v1: g.v1, leaf: g.pkg != Path})
+	b, err := goShape(g.fn.Type, g.q)
 	if err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
@@ -650,7 +731,7 @@ func (d goDecls) body(name string) (Body, error) {
 		if !ok || o.fn == nil || o.fn.Recv != nil || g.fn.Recv != nil {
 			return Body{}, fmt.Errorf("runtime/v1: %s names the %s %s, which is no exported function", name, f.what, form)
 		}
-		ob, err := goShape(o.fn.Type, fileNames{rt: o.rt, v1: o.v1, leaf: o.pkg != Path})
+		ob, err := goShape(o.fn.Type, o.q)
 		if err != nil {
 			return Body{}, fmt.Errorf("runtime/v1: %s: %w", form, err)
 		}
@@ -662,7 +743,68 @@ func (d goDecls) body(name string) (Body, error) {
 		}
 		*f.to = form
 	}
+	if err := policy(g.fn, &b); err != nil {
+		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
+	}
 	return b, nil
+}
+
+// policy reads the calling-policy directives of fn's doc comment into b
+// (WaitMark, ReleaseMark, BridgeMark): each at most once, a known kind, and
+// a body whose policy takes the caller's task takes it as a hidden
+// argument.
+func policy(fn *ast.FuncDecl, b *Body) error {
+	if fn.Doc == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, c := range fn.Doc.List {
+		for _, mark := range []string{WaitMark, ReleaseMark, BridgeMark} {
+			arg, ok := strings.CutPrefix(c.Text, mark)
+			if !ok {
+				continue
+			}
+			if seen[mark] {
+				return fmt.Errorf("%s is written twice", strings.TrimSpace(mark))
+			}
+			seen[mark] = true
+			fields := strings.Fields(arg)
+			switch mark {
+			case WaitMark:
+				caller, known := WaitKinds[arg]
+				if len(fields) != 1 || !known {
+					return fmt.Errorf("%s%s names no wait kind (%s)", WaitMark, arg, kindList(WaitKinds))
+				}
+				if caller && !slices.Contains(b.Hidden, CallerTask) {
+					return fmt.Errorf("it waits by %s on the caller's task but takes no hidden *rt.Task", arg)
+				}
+				b.Wait = arg
+			case ReleaseMark:
+				caller, known := ReleaseRoutes[arg]
+				if len(fields) != 1 || !known {
+					return fmt.Errorf("%s%s names no release route (%s)", ReleaseMark, arg, kindList(ReleaseRoutes))
+				}
+				if caller && !slices.Contains(b.Hidden, CallerTask) {
+					return fmt.Errorf("it releases on the caller's task but takes no hidden *rt.Task")
+				}
+				b.Release = arg
+			case BridgeMark:
+				if len(fields) != 2 {
+					return fmt.Errorf("%s takes a Go target and a provider", strings.TrimSpace(BridgeMark))
+				}
+				b.BridgeTarget, b.BridgeProvider = fields[0], fields[1]
+			}
+		}
+	}
+	if (b.Release != "" || b.BridgeTarget != "") && b.Wait == "" {
+		return fmt.Errorf("it states a release or a bridge but no %s", strings.TrimSpace(WaitMark))
+	}
+	return nil
+}
+
+// kindList is the sorted keys of kinds, for a refusal.
+func kindList(kinds map[string]bool) string {
+	return strings.Join(slices.Sorted(maps.Keys(kinds)), ", ")
 }
 
 // sameShape reports whether a and b have one Go shape, with no function
@@ -891,13 +1033,13 @@ func fieldParams(list *ast.FieldList, names []string) []TypeParam {
 }
 
 // goShape reads a Go function type under the hidden-argument convention.
-func goShape(ft *ast.FuncType, names fileNames) (Body, error) {
+func goShape(ft *ast.FuncType, q quals) (Body, error) {
 	var b Body
 	next := 0 // the index in hiddenOrder a further hidden parameter may take
 	for _, field := range ft.Params.List {
 		n := max(len(field.Names), 1)
 		for range n {
-			h, hidden := hiddenOf(field.Type, names)
+			h, hidden := hiddenOf(field.Type, q)
 			switch {
 			case hidden && len(b.Params) > 0:
 				return Body{}, fmt.Errorf("the hidden %s parameter follows an Ergo parameter", h)
@@ -911,7 +1053,7 @@ func goShape(ft *ast.FuncType, names fileNames) (Body, error) {
 			default:
 				p := Param{Type: types.ExprString(field.Type)}
 				if inner, ok := field.Type.(*ast.FuncType); ok {
-					fb, err := goShape(inner, names)
+					fb, err := goShape(inner, q)
 					if err != nil {
 						return Body{}, fmt.Errorf("function parameter %d: %w", len(b.Params)+1, err)
 					}
@@ -919,7 +1061,7 @@ func goShape(ft *ast.FuncType, names fileNames) (Body, error) {
 				}
 				if at, ok := field.Type.(*ast.ArrayType); ok && at.Len == nil {
 					if inner, ok := at.Elt.(*ast.FuncType); ok {
-						fb, err := goShape(inner, names)
+						fb, err := goShape(inner, q)
 						if err != nil {
 							return Body{}, fmt.Errorf("function slice parameter %d: %w", len(b.Params)+1, err)
 						}
@@ -940,61 +1082,49 @@ func goShape(ft *ast.FuncType, names fileNames) (Body, error) {
 	return b, nil
 }
 
+// quals are the names a file gives runtime/rt and runtime/v1: rt is its
+// local name of runtime/rt or ""; v1 is "." in runtime/v1's own files,
+// whose hidden types are unqualified, its local name of runtime/v1 in
+// another package's file, or "" in a file that imports neither.
+type quals struct{ rt, v1 string }
+
+// v1Type reports whether e names runtime/v1's type name as the file
+// writes it: name in v1's own files, v1.name in another package's.
+func (q quals) v1Type(e ast.Expr, name string) bool {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return q.v1 == "." && x.Name == name
+	case *ast.SelectorExpr:
+		id, ok := x.X.(*ast.Ident)
+		return ok && q.v1 != "" && q.v1 != "." && id.Name == q.v1 && x.Sel.Name == name
+	}
+	return false
+}
+
 // hiddenOf names the hidden parameter whose Go type e is: *Scope, Site,
-// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf,
-// ContextPackage or Releaser[T]. In a leaf, every type but the task is
-// runtime/v1's, written through the leaf's import of it (names.v1).
-func hiddenOf(e ast.Expr, names fileNames) (Hidden, bool) {
-	if x, ok := e.(*ast.StarExpr); ok {
+// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf, ContextPackage or
+// Releaser[T], v1's types qualified as the file names v1 (quals).
+func hiddenOf(e ast.Expr, q quals) (Hidden, bool) {
+	switch x := e.(type) {
+	case *ast.IndexExpr:
+		if q.v1Type(x.X, "Releaser") {
+			return ResultRelease, true
+		}
+	case *ast.StarExpr:
+		if q.v1Type(x.X, "Scope") {
+			return Frame, true
+		}
 		if y, ok := x.X.(*ast.SelectorExpr); ok {
-			if id, ok := y.X.(*ast.Ident); ok && names.rt != "" && id.Name == names.rt && y.Sel.Name == "Task" {
+			if id, ok := y.X.(*ast.Ident); ok && q.rt != "" && id.Name == q.rt && y.Sel.Name == "Task" {
 				return CallerTask, true
 			}
 		}
-		if names.core(x.X) == "Scope" {
-			return Frame, true
+	default:
+		for name, h := range map[string]Hidden{"Site": CallSite, "Sleeper": CallerScheduler, "GraphOf": Graph, "ContextPackage": ReadingPackage} {
+			if q.v1Type(e, name) {
+				return h, true
+			}
 		}
-		return "", false
-	}
-	if x, ok := e.(*ast.IndexExpr); ok {
-		if names.core(x.X) == "Releaser" {
-			return ResultRelease, true
-		}
-		return "", false
-	}
-	switch names.core(e) {
-	case "Site":
-		return CallSite, true
-	case "Sleeper":
-		return CallerScheduler, true
-	case "ContextPackage":
-		return ReadingPackage, true
-	case "GraphOf":
-		return Graph, true
 	}
 	return "", false
-}
-
-// fileNames are the local names a body's file gives the runtime packages
-// a hidden parameter's type comes from: rt for runtime/rt, and v1 for
-// runtime/v1 in a leaf ("" in runtime/v1 itself, whose types are bare).
-type fileNames struct {
-	rt, v1 string
-	leaf   bool
-}
-
-// core is the name of the runtime/v1 type that e names, or "": a bare
-// name in runtime/v1, a name through the leaf's import in a leaf.
-func (n fileNames) core(e ast.Expr) string {
-	switch x := e.(type) {
-	case *ast.Ident:
-		if !n.leaf {
-			return x.Name
-		}
-	case *ast.SelectorExpr:
-		if id, ok := x.X.(*ast.Ident); ok && n.leaf && n.v1 != "" && id.Name == n.v1 {
-			return x.Sel.Name
-		}
-	}
-	return ""
 }

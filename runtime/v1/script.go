@@ -68,9 +68,13 @@ type heldCall[A, F any] struct {
 
 // NewOp is the operation op of a new Script of the type script, with no
 // answer and no calls.
+//
+//ergo:wait none
 func NewOp[A, F any](script, op string) *Op[A, F] { return &Op[A, F]{script: script, name: op} }
 
 // Answer makes f the answer of every later call and ends the hold.
+//
+//ergo:wait none
 func (o *Op[A, F]) Answer(f F) {
 	o.mu.Lock()
 	o.answer, o.set, o.hold = f, true, false
@@ -79,6 +83,8 @@ func (o *Op[A, F]) Answer(f F) {
 
 // Calls is a copy of the arguments of each call so far, oldest first. It
 // marks them read.
+//
+//ergo:wait none
 func (o *Op[A, F]) Calls() []A {
 	o.mu.Lock()
 	out := slices.Clone(o.calls)
@@ -91,6 +97,8 @@ func (o *Op[A, F]) Calls() []A {
 }
 
 // Unread is the arguments of each call no Calls read, oldest first.
+//
+//ergo:wait none
 func (o *Op[A, F]) Unread() []A {
 	o.mu.Lock()
 	out := slices.Clone(o.calls[o.read:])
@@ -102,6 +110,8 @@ func (o *Op[A, F]) Unread() []A {
 }
 
 // Hold makes every later call wait until a Release answers it.
+//
+//ergo:wait none
 func (o *Op[A, F]) Hold() {
 	o.mu.Lock()
 	o.hold = true
@@ -111,6 +121,8 @@ func (o *Op[A, F]) Hold() {
 
 // Release answers the oldest held call with f, or the next call held when
 // none is. A release no call takes is reported at the end of the test.
+//
+//ergo:wait none
 func (o *Op[A, F]) Release(f F) {
 	o.mu.Lock()
 	if len(o.held) == 0 {
@@ -129,6 +141,8 @@ func (o *Op[A, F]) Release(f F) {
 
 // Held is the arguments of each held call no Release answered, oldest
 // first.
+//
+//ergo:wait none
 func (o *Op[A, F]) Held() []A {
 	o.mu.Lock()
 	out := make([]A, len(o.held))
@@ -282,6 +296,8 @@ func (l *heldLedger) report(take bool) string {
 // held calls no Release answered, "<Script>: <Op> has a held call that no
 // Release answered", and its releases no call took, "<Script>: <Op> was
 // released with no held call", joined by "; ", and "" when there are none.
+//
+//ergo:wait none
 func ScriptUnanswered() string { return scriptHeld.report(false) }
 
 // ScriptHeldTake is the end-of-test check (stdlib.md, Testing 10): the

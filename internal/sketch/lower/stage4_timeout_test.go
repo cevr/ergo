@@ -225,6 +225,11 @@ func TestStdExternsHaveBodies(t *testing.T) {
 				t.Errorf("%s.%s: %v", path, f.Name, err)
 				continue
 			}
+			if body.Wait == "" {
+				// STD-NOPRIV NP4d: the policy is written on the body, and a
+				// body with none is not taken as one that does not wait.
+				t.Errorf("%s.%s binds %s, whose Go declaration states no %s (runtime/v1 WaitKinds)", path, f.Name, name, v1.WaitMark+"KIND")
+			}
 			if hasHidden(body.Hidden, v1.CallerScheduler) {
 				found := false
 				for _, e := range rowElems(f.Sig.Uses) {

@@ -95,7 +95,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 		var args []string
 		for i, a := range t.TArgs {
 			if i < len(origin.TParams) && origin.TParams[i].Kind == check.KindType {
-				args = append(args, tc.goType(a))
+				args = append(args, tc.slotType(a))
 			}
 		}
 		if len(args) == 0 {
@@ -471,6 +471,12 @@ func freeTypeParams(t check.Type) []*check.TypeParam {
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
 		switch u := t.(type) {
+		case *check.Union:
+			// A Slot row in a type argument is a Go type parameter (goParam).
+			if tp := check.SlotRow(u); tp != nil && tp.Slot && !seen[tp] {
+				seen[tp] = true
+				out = append(out, tp)
+			}
 		case *check.TypeParam:
 			if u.Kind == check.KindType && !seen[u] {
 				seen[u] = true

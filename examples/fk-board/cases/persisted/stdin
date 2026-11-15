@@ -1,0 +1,8 @@
+# The saved board, with an empty column: a card moved into it.
+show
+lift m2
+next
+drop
+add later
+type Park the scope
+submit

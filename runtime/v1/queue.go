@@ -95,6 +95,8 @@ type sender[T any] struct {
 }
 
 // New is queue.New[T](capacity).
+//
+//ergo:wait none
 func New[T any](capacity int) *Queue[T] {
 	if capacity < 0 {
 		panic("queue.New: negative capacity " + strconv.Itoa(capacity))
@@ -109,6 +111,8 @@ func New[T any](capacity int) *Queue[T] {
 // Push is q.Push(v) on the caller's task t: nil when v entered the queue,
 // Closed when it did not. It raises rt.Interrupted, and v never enters the
 // queue, when t is stopped before it begins or while it waits.
+//
+//ergo:wait caller
 func (q *Queue[T]) Push(t *rt.Task, v T) error {
 	rt.Point(t, rt.Op{Kind: rt.OpPush, On: q})
 	t.Check()
@@ -147,6 +151,8 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 // Pop is q.Pop() on the caller's task t: the front value, or Closed on a
 // closed, empty queue. It raises rt.Interrupted, and takes no value, when
 // t is stopped before it begins or while it waits.
+//
+//ergo:wait caller
 func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 	rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 	t.Check()
@@ -159,6 +165,8 @@ func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 
 // Values is q.Values() on the caller's task t. Each step is a Pop on t,
 // so a stop of t ends the loop with rt.Interrupted.
+//
+//ergo:wait caller
 func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 	return func(yield func(T) bool) {
 		for {
@@ -180,6 +188,8 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 // open or closed. The lowering adapts (T, bool) to the program's Option[T]
 // (stdlib.md, Types 5). Prior art: Go's select with a default case, and
 // v, ok := <-ch; Effect's Queue.poll.
+//
+//ergo:wait none
 func (q *Queue[T]) Poll() (T, bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpPop, On: q})
 	q.mu.Lock()
@@ -195,12 +205,16 @@ func (q *Queue[T]) Poll() (T, bool) {
 // the count each change of the buffer stores (std-speed-1). Prior art: Go's
 // len(ch), which reads the channel's count without its lock too; Effect's
 // Queue.size, without its negative count of waiting takers.
+//
+//ergo:wait none
 func (q *Queue[T]) Len() int {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: q})
 	return int(q.size.Load())
 }
 
 // End is q.End().
+//
+//ergo:wait none
 func (q *Queue[T]) End() {
 	rt.PointRunning(rt.Op{Kind: rt.OpClose, On: q})
 	q.mu.Lock()
@@ -221,6 +235,8 @@ func (q *Queue[T]) End() {
 // rejected, and its caller releases its value), and takes every value left,
 // oldest first. The owner's generated release then releases them last
 // entered first. It never waits.
+//
+//ergo:wait none
 func (q *Queue[T]) Drain() []T {
 	q.End()
 	q.mu.Lock()

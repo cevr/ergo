@@ -84,6 +84,12 @@ type knownStats struct {
 	// ArgsShared is the by-value arguments read from a root that the
 	// result-alias rule passes uncopied (values.go, resultDeps).
 	ArgsShared int
+	// Moves is the reads of a place the next write overwrites whole, taken
+	// with no copy (values.go V7, moves.go).
+	Moves int
+	// Unkept is the arguments read from a root that a call keeps nothing
+	// of by the callee's keeps summary, passed with no copy (keeps.go).
+	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
 	// BorrowCopies is the generic results through a borrow copied at the
@@ -112,6 +118,8 @@ type knownStats struct {
 	Substituted int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
+	// Providers is the copies for known providers made (provider.go).
+	Providers int
 	// Scalars is the locals in the scalar form (scalar.go), Joins those
 	// whose inlined call writes them, and Aliases the parameters of an
 	// inlined call bound to one.
@@ -137,6 +145,9 @@ type knownStats struct {
 	// join (inline.go, failJump; placeFail). Of FailsAround, AliasesAround
 	// are catches whose value is named and TriesAround tries.
 	FailsAround, FailsJoined, AliasesAround, TriesAround int
+	// Loops is the loops written as a fill, a move or a collect
+	// (loops.go).
+	Loops int
 	// Taken is the sites that took each shortcut, by its name in the
 	// registry (shortcuts.go).
 	Taken map[string]int
@@ -259,7 +270,7 @@ func (l *lowerer) knownBody(g *check.Func, closed bool) bool {
 	}
 	info := g.Pkg.Info
 	s := g.Sig
-	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 {
+	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 || l.hasGoRow(s) {
 		return false
 	}
 	fp, ok := info.Footprints[d]

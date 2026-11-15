@@ -9,10 +9,12 @@ import "strings"
 // in memory. Its Close releases nothing.
 //
 //ergo:pure
+//ergo:wait none
 func FSMapText(text string) *Mapped { return &Mapped{text: text} }
 
 // FSClone is the body of fs.Clone: a copy of the text t, which outlives
 // the Mapped t borrows.
 //
 //ergo:pure
+//ergo:wait none
 func FSClone(t string) string { return strings.Clone(t) }
