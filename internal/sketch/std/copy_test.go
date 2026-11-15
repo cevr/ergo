@@ -268,6 +268,8 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 
 // stdCopyBaseline are the packages testdata/std-copy.txt held as differs
 // when the rule landed. A package may leave; none may join.
+// ui joined with the rule: it reached std on another branch while the rule
+// landed, and the two met in the merge of wf10/ia2b into wf10/domain.
 var stdCopyBaseline = []string{
 	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
 	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
@@ -275,7 +277,7 @@ var stdCopyBaseline = []string{
 	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
 	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",
 	"sync", "task", "tasks", "term", "testing", "time", "timeout", "toml",
-	"trace", "utf8",
+	"trace", "ui", "utf8",
 }
 
 // copySource is one std file of a package under test.

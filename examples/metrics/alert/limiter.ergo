@@ -75,7 +75,7 @@ func Drive(p Policy, signals []Signal) []Event {
 		match d {
 		case Emit[State, Event] as e:
 			out = out.Append(e.Output)
-		case Enter[State], Stay[State], Ignore, Reject, Done[Event]:
+		case Enter[State], Stay[State], Tell[State, Event], Ignore, Reject, Done[Event]:
 			out = out.Append(Nothing)
 		}
 		s = machines.Next(s, d)

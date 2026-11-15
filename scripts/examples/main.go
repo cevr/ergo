@@ -66,6 +66,9 @@ type config struct {
 	record  bool
 	check   bool
 	lawless bool
+	// modules runs only the modules of modules/ (MK0), the names being
+	// modules; without it a run with no names runs every module too.
+	modules bool
 	names   []string
 	// cache is the verdict cache's directory (cache.go), or "" for none.
 	cache string
@@ -93,6 +96,9 @@ type program struct {
 	cases  []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
+	// library marks a module of modules/ (MK0, modules.go): no binary,
+	// no cases; the fmt, gen and test legs run.
+	library bool
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -127,6 +133,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportLawless(cfg.root, stdout)
 	}
 	programs, problems := loadExamples(cfg.root, cfg.record)
+	modules, moduleProblems := loadModules(cfg.root)
+	problems = append(problems, moduleProblems...)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -134,7 +142,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "examples: %d layout errors; see examples/README.md\n", len(problems))
 		return 2
 	}
-	selected, err := selectPrograms(cfg, programs)
+	var selected []*program
+	if cfg.modules {
+		selected, err = selectModules(cfg.names, modules)
+	} else if selected, err = selectPrograms(cfg, programs); err == nil && len(cfg.names) == 0 && !cfg.record {
+		// A run of the tags runs every module too: the gate's examples
+		// step checks modules/ (MK0).
+		selected = append(selected, modules...)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -225,7 +240,9 @@ func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
 	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, cache: r.cache}
-	if r.cfg.record {
+	if p.library {
+		one.runModule(p)
+	} else if r.cfg.record {
 		one.recordProgram(p)
 	} else {
 		one.runCached(p)
@@ -259,6 +276,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
+	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -451,20 +469,29 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 	return finishProgram(p, present, problems, record)
 }
 
-// checkCommands checks that cmd holds the one binary of the program,
-// cmd/NAME with its main.ergo.
+// checkCommands checks that cmd holds the program's binary, cmd/NAME
+// with its main.ergo, whose cases run, and that every other folder of
+// cmd is a binary too, cmd/OTHER/main.ergo (a server beside its CLI, as
+// Go's cmd/ holds several), which the test leg checks and builds.
 func checkCommands(p *program, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	if len(entries) != 1 || entries[0].Name() != p.name || !entries[0].IsDir() {
-		return []string{fmt.Sprintf("cmd holds one folder, cmd/%s, the program's binary", p.name)}
+	var problems []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			problems = append(problems, fmt.Sprintf("cmd holds only folders, one per binary; cmd/%s is not one", entry.Name()))
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(dir, entry.Name(), "main.ergo")); err != nil || !info.Mode().IsRegular() {
+			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", entry.Name()))
+		}
 	}
-	if info, err := os.Stat(filepath.Join(dir, p.name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
-		return []string{fmt.Sprintf("no cmd/%s/main.ergo", p.name)}
+	if _, err := os.Stat(filepath.Join(dir, p.name)); err != nil {
+		problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo, the program's binary", p.name))
 	}
-	return nil
+	return problems
 }
 
 // packageSources adds the .ergo files of the package folder dir, and of
@@ -797,6 +824,9 @@ func (r *runner) runProgram(p *program) {
 	}
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		r.toolFailed(p, "fmt", o, err)
+		return
+	}
+	if !r.genProgram(p) {
 		return
 	}
 	dir, err := os.MkdirTemp(r.scratch, "build-")

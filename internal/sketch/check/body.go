@@ -312,8 +312,8 @@ func embedTree(n *Named) bool {
 
 // providerFieldRefusal is why the type field cannot be a derived
 // provider's field type, or "" (patterns.md, Provider plans 3): the
-// lowering makes each field with the Go constructor NewG and answers a
-// call with G.Call, so the field type's declaration names a runtime Go
+// lowering makes each field with the Go constructor NewG(script, op) and
+// answers a call with G.Call(task, args), so the field type's declaration names a runtime Go
 // type G of two type parameters that has both bodies (testing.Op names
 // v1.Op). Any module may use testing.Op, or name G with trust.
 func providerFieldRefusal(field *Named) string {

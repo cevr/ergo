@@ -456,35 +456,11 @@ func (p *hostProc) reap() int {
 //ergo:wait caller
 func ExecStart(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
-	if name == "" {
-		return nil, ExecNotFound{Name: name}
+	cmd, err := execCommand(name, args, env, dir, stdin)
+	if err != nil {
+		return nil, err
 	}
-	if dir != "" {
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			reason := "not a directory"
-			if err != nil {
-				reason = fsReason(err)
-			}
-			return nil, ExecFailed{Name: name, Reason: "dir " + dir + ": " + reason}
-		}
-	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		cmd.Env = os.Environ()
-		for _, k := range keys {
-			cmd.Env = append(cmd.Env, k+"="+env[k])
-		}
-	}
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
 	var files []*os.File  // the sinks' files, the parent's copies
 	var writes []*os.File // the write ends of the ToCaller pipes, the parent's copies
 	var reads [2]*os.File // the read ends: stdout's, stderr's

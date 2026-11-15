@@ -35,7 +35,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 6. [stdlib.md](stdlib.md): the standard-library outline ([#206](https://github.com/cevr/ergo/issues/206)).
 7. [diagnostics.md](diagnostics.md): every diagnostic code, its rule, its section and a fixture.
 8. [interop.md](interop.md): Go imports, generated bindings and Level 2 adapters ([#202](https://github.com/cevr/ergo/issues/202)).
-9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, and `ergo gen rpc` ([#53](https://github.com/cevr/ergo/issues/53)).
+9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, `ergo gen rpc` and `ergo gen cli` ([#53](https://github.com/cevr/ergo/issues/53)).
 10. [facts.md](facts.md): value-tied facts (`given`, `gives`, `keeps`), record invariants, evidence labels and their lowering.
 11. [patterns.md](patterns.md): derived types (`type T derive E`), type plans, plan functions and typed byte patterns.
 12. [inserted.md](inserted.md): every operation the compiler inserts, the written form it stands for, and the rules it must carry (G9).

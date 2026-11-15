@@ -1,0 +1,180 @@
+// Package run is the aggregate of a build pipeline: one run of a list of
+// stages. Its state is a union of modes, never a record with a status
+// field; its commands, events and rejections are unions and records.
+// Decide is pure (no needs row), so a replay of the same commands gives
+// the same events; Evolve is total (an exhaustive match, no rows). The
+// machine Life is the aggregate as a machine: its step is Decide, then
+// the fold of Evolve over the events, which it gives as its output.
+
+// Run is where one run is:
+//
+//	Unsubmitted  no command reached it yet
+//	Queued       it waits for the runner; Stages is its length
+//	Running      the runner works on stage Next (0 is the first)
+//	Failing      stage Stage failed; a retry or a give-up comes next
+//	Done         it ended, with an Outcome
+type Run = Unsubmitted{} | Queued{Stages int} | Running{Stages int, Next int} | Failing{Stages int, Stage int} | Done{Outcome Outcome}
+
+// Outcome is how a run ended.
+type Outcome = Passed{} | GaveUp{Stage int} | Cancelled{Why string}
+
+// Command is what can be asked of a run. Submit, Cancel and Retry come
+// from an operator; Start, Finish and GiveUp from the pipeline that runs
+// it (a retry after a backoff is a Retry too).
+type Command = Submit{Stages int} | Start{} | Finish{Stage int, OK bool} | Retry{Stage int} | GiveUp{Stage int} | Cancel{Why string}
+
+// Event is what happened to a run. The run is the fold of its events.
+type Event = Submitted{Stages int} | Started{} | StagePassed{Stage int} | StageFailed{Stage int} | Retried{Stage int} | Finished{} | Abandoned{Stage int} | Stopped{Why string}
+
+// WrongState: the run is not in a state that takes the command. Status
+// names the state, Command the command.
+type WrongState { Status string, Command string }
+
+// WrongStage: the command names a stage the run is not at.
+type WrongStage { Expected int, Got int }
+
+// Closed: the run has ended; it takes no command.
+type Closed { Status string }
+
+// BadLength: a run has 1 to 9 stages.
+type BadLength { Stages int }
+
+// MaxStages is the longest run.
+let MaxStages = 9
+
+// StatusOf is the name of r's mode, as a board and a rejection show it.
+func StatusOf(r Run) string {
+	match r {
+	case Unsubmitted:
+		"unsubmitted"
+	case Queued:
+		"queued"
+	case Running as g:
+		"running stage \(g.Next + 1) of \(g.Stages)"
+	case Failing as f:
+		"stage \(f.Stage + 1) failed"
+	case Done as d:
+		match d.Outcome {
+		case Passed:
+			"passed"
+		case GaveUp as g:
+			"gave up at stage \(g.Stage + 1)"
+		case Cancelled as c:
+			"cancelled (\(c.Why))"
+		}
+	}
+}
+
+// NameOf is the name of a command, as a rejection shows it.
+func NameOf(c Command) string {
+	match c {
+	case Submit:
+		"submit"
+	case Start:
+		"start"
+	case Finish:
+		"finish"
+	case Retry:
+		"retry"
+	case GiveUp:
+		"give up"
+	case Cancel:
+		"cancel"
+	}
+}
+
+// Decide is the events that the command c gives in the state s, or the
+// rejection. It is pure: it reads no clock, no store and no network.
+func Decide(s Run, c Command) []Event fails WrongState | WrongStage | Closed | BadLength {
+	match (s, c) {
+	case (Done, _):
+		Closed{Status: StatusOf(s)}
+	case (Unsubmitted, Submit as m):
+		if m.Stages < 1 || m.Stages > MaxStages {
+			return BadLength{Stages: m.Stages}
+		}
+		[]Event{Submitted{Stages: m.Stages}}
+	case (Queued, Start):
+		[]Event{Started}
+	case (Running as r, Finish as f):
+		if f.Stage != r.Next {
+			return WrongStage{Expected: r.Next, Got: f.Stage}
+		}
+		if !f.OK {
+			return []Event{StageFailed{Stage: f.Stage}}
+		}
+		if r.Next+1 == r.Stages {
+			return []Event{StagePassed{Stage: f.Stage}, Finished}
+		}
+		[]Event{StagePassed{Stage: f.Stage}}
+	case (Failing as f, Retry as k):
+		if k.Stage != f.Stage {
+			return WrongStage{Expected: f.Stage, Got: k.Stage}
+		}
+		[]Event{Retried{Stage: k.Stage}}
+	case (Failing as f, GiveUp as g):
+		if g.Stage != f.Stage {
+			return WrongStage{Expected: f.Stage, Got: g.Stage}
+		}
+		[]Event{Abandoned{Stage: g.Stage}}
+	case (Queued, Cancel as k):
+		[]Event{Stopped{Why: k.Why}}
+	case (Running, Cancel as k):
+		[]Event{Stopped{Why: k.Why}}
+	case (Failing, Cancel as k):
+		[]Event{Stopped{Why: k.Why}}
+	case (_, _):
+		WrongState{Status: StatusOf(s), Command: NameOf(c)}
+	}
+}
+
+// Evolve is the state after the event e. It is total: an event that the
+// state cannot have keeps the state (Decide never gives one).
+func Evolve(s Run, e Event) Run {
+	match (s, e) {
+	case (Unsubmitted, Submitted as m):
+		Queued{Stages: m.Stages}
+	case (Queued as q, Started):
+		Running{Stages: q.Stages, Next: 0}
+	case (Running as r, StagePassed):
+		Running{Stages: r.Stages, Next: r.Next + 1}
+	case (Running as r, StageFailed as f):
+		Failing{Stages: r.Stages, Stage: f.Stage}
+	case (Failing as f, Retried):
+		Running{Stages: f.Stages, Next: f.Stage}
+	case (Running, Finished):
+		Done{Outcome: Passed}
+	case (Failing, Abandoned as a):
+		Done{Outcome: GaveUp{Stage: a.Stage}}
+	case (_, Stopped as k):
+		Done{Outcome: Cancelled{Why: k.Why}}
+	case (_, _):
+		s
+	}
+}
+
+// Fold is s after each of es, in order.
+func Fold(s Run, es []Event) Run {
+	let mut out = s
+	for e in es {
+		out = Evolve(out, e)
+	}
+	out
+}
+
+// Handle is the aggregate's step: Decide, then the fold of its events,
+// which it gives as the output.
+func Handle(s Run, c Command) Decision[Run, []Event] fails WrongState | WrongStage | Closed | BadLength {
+	let es = try Decide(s, c)
+	Emit{Next: Fold(s, es), Output: es}
+}
+
+// IsDone reports whether r has ended.
+func IsDone(r Run) bool {
+	match r {
+	case Done:
+		true
+	case Unsubmitted, Queued, Running, Failing:
+		false
+	}
+}

@@ -10,7 +10,7 @@ import slices
 
 // Sample is the sample registry. It holds nothing: every answer is a
 // function of the request.
-type Sample {}
+type Sample {} implements domains.Registry
 
 // NewSample is the sample registry.
 func NewSample() Sample { Sample }

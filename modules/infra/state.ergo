@@ -1,0 +1,127 @@
+// Status is a row's: Creating (written before the driver's Apply), Live
+// (after it), Deleting (written before the driver's Delete). A row that is
+// not Live is work a run does again.
+type Status = Creating{} | Live{} | Deleting{}
+
+// Row is what a state store keeps for one object of a kind: its id, its
+// status, the props of the last Ensure, and its place in the order of
+// creation (Seq), which the sweep and a destroy run backwards.
+type Row[P comparable] { ID string, Status Status, Props P, Seq int }
+
+// State is the state store of one kind of a stack's stage: a row per
+// object, by id. A write may fail (a crash, a disk); a read does not.
+type State[P comparable] {
+	Get(id string) Option[Row[P]],
+	Put(row Row[P]) fails Failed,
+	Remove(id string) fails Failed,
+	// List is every row, by id.
+	List() []Row[P],
+
+	// PutThenGet: after a Put, Get gives the row, and List holds it once.
+	law PutThenGet(row Row[P]) {
+		Put(row) catch {
+		case Failed:
+			return true
+		}
+		let mut n = 0
+		for r in List() {
+			if r.ID == row.ID {
+				n = n + 1
+			}
+		}
+		Get(row.ID) == (Some[Row[P]]{Value: row}) && n == 1
+	},
+	// RemoveThenGet: after a Remove, Get gives None and List does not
+	// hold the id; a second Remove succeeds.
+	law RemoveThenGet(row Row[P]) {
+		Put(row) catch {
+		case Failed:
+			return true
+		}
+		Remove(row.ID) catch {
+		case Failed:
+			return true
+		}
+		Remove(row.ID) catch {
+		case Failed:
+			return true
+		}
+		for r in List() {
+			if r.ID == row.ID {
+				return false
+			}
+		}
+		Get(row.ID) == None
+	},
+}
+
+// Held is the failure of an Acquire while another holds the lock.
+type Held { Holder string }
+
+// Lock is the lock of a stack's stage: one run at a time applies. A run
+// that crashed keeps it; an operator breaks it by naming its holder (as
+// Terraform's force-unlock names the lock). There is no lease: a slow
+// holder past a lease is the classic fault.
+type Lock {
+	// Acquire takes the lock for holder. It fails Held when another holds
+	// it; holder may acquire it again.
+	Acquire(holder string) fails Held,
+	// Release frees the lock when holder holds it, and does nothing else.
+	Release(holder string),
+	// Break frees the lock when holder holds it: the operator's act on a
+	// holder that died. It fails Held, with the holder, when holder does
+	// not hold it.
+	Break(holder string) fails Held,
+	// Holder is who holds the lock, None when it is free.
+	Holder() Option[string],
+
+	// LockExcludes: while a holds the lock, b cannot acquire it; once a
+	// releases it, b can.
+	law LockExcludes(a string, b string) {
+		if a == b {
+			return true
+		}
+		Acquire(a) catch {
+		case Held:
+			return true
+		}
+		let mut excluded = false
+		Acquire(b) catch {
+		case Held:
+			excluded = true
+		}
+		if !excluded {
+			return false
+		}
+		Release(a)
+		Acquire(b) catch {
+		case Held:
+			return false
+		}
+		Holder() == (Some[string]{Value: b})
+	},
+	// BreakNamesTheHolder: a Break that names another than the holder
+	// fails and keeps the lock; one that names the holder frees it.
+	law BreakNamesTheHolder(a string, b string) {
+		if a == b {
+			return true
+		}
+		Acquire(a) catch {
+		case Held:
+			return true
+		}
+		let mut refused = false
+		Break(b) catch {
+		case Held:
+			refused = true
+		}
+		if !refused || Holder() != (Some[string]{Value: a}) {
+			return false
+		}
+		Break(a) catch {
+		case Held:
+			return false
+		}
+		Holder() == None
+	},
+}

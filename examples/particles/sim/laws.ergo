@@ -13,7 +13,7 @@ func Word(d Decision[Phase, Game]) string {
 		"enter"
 	case Stay[Phase]:
 		"stay"
-	case Emit[Phase, Game]:
+	case Emit[Phase, Game], Tell[Phase, Game]:
 		"emit"
 	case Ignore:
 		"ignore"
@@ -45,7 +45,7 @@ law RunningTicksStay(seed uint64, n int) {
 	match Step(Running{G: g}, Tick) {
 	case Stay[Phase] as s:
 		GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
-	case Enter[Phase], Emit[Phase, Game], Ignore, Reject, Done[Game]:
+	case Enter[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject, Done[Game]:
 		false
 	}
 }
@@ -59,7 +59,7 @@ law QuitIsDone(seed uint64, n int) {
 			if d.Output.W != g.W || d.Output.Steps != 1 {
 				return false
 			}
-		case Enter[Phase], Stay[Phase], Emit[Phase, Game], Ignore, Reject:
+		case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
 			return false
 		}
 	}

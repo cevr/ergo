@@ -1,0 +1,47 @@
+// Package domain is the event log of a domain model and the host that
+// keeps an aggregate on it (DK2; docs/domain.md). A command travels in an
+// Envelope that names it; the Log keeps each command's events once, at
+// the next position of its stream, and answers a resend with the first
+// Receipt; Sourced is the recover and the save of a durable actor whose
+// state is a Ledger: the actor appends the events its step decided, and a
+// restart folds the log with the aggregate's evolve. The providers live
+// in packages named after what they keep the log in: domain/memory (the
+// process's memory) and domain/file (a file).
+//
+// Effect: the event journal of @effect/cluster's entities and of
+// effect-machine (an append per accepted event, replayed at start); the
+// command's id is EventStoreDB's event id, whose resend is a no-op.
+
+import time
+
+// CommandID names one command. A resend carries the same id, and the log
+// keeps the command once.
+type CommandID string
+
+// Envelope is a command with its context as data: its id, who sent it
+// and when (the Api's provider stamps At from its clock before it sends
+// the envelope). Decide takes the command and what it needs of the rest,
+// so it needs no capability and a replica can run it again
+// (docs/domain.md).
+type Envelope[C] { ID CommandID, By string, At time.Time, Command C }
+
+// Receipt is the answer to a command the log kept: its id, its stream and
+// the position of its record in the stream (1 is the first).
+type Receipt { ID CommandID, Stream string, Position int }
+
+// Recorded is one command's record in a stream: its position, its id and
+// the events its decide gave (none, for a command that changed nothing
+// but was taken).
+type Recorded[E] { Position int, ID CommandID, Events []E }
+
+// Conflict is the failure of an Append whose expected position is not the
+// stream's last: another writer appended since the caller read.
+type Conflict { Stream string, Expected int, Actual int }
+
+// Reused is the failure of an Append whose id the log kept with another
+// stream or other events: an id names one command (sync-spike L2).
+type Reused { ID CommandID }
+
+// Unkept is the failure of a provider that could not keep a record, such
+// as a file it could not write: Reason is the provider's text.
+type Unkept { Reason string }

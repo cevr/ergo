@@ -24,7 +24,7 @@ law NoWayBack(s Status, e Event) {
 		Rank(n.Next) > Rank(s)
 	case Stay[Status] as n:
 		Rank(n.Next) == Rank(s)
-	case Ignore, Reject:
+	case Ignore, Tell[Status, Status], Reject:
 		true
 	}
 }

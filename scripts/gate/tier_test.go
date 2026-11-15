@@ -303,8 +303,13 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if !slices.Equal(fastCPUSteps, []string{examples.Name}) {
 		t.Fatalf("fastCPUSteps is %q: say here what reaches each step", fastCPUSteps)
 	}
+	// A file under a directory the step walks itself (Installed: examples/,
+	// and the modules of modules/, MK0) reaches it too.
+	installed := func(file string) bool {
+		return slices.ContainsFunc(examples.Inputs.Installed, func(dir string) bool { return strings.HasPrefix(file, dir+"/") })
+	}
 	reachSteps := func(file string) (names []string, cpu float64) {
-		if selected(file, examples.Inputs) || packages[cli].closure.Covers(file) {
+		if selected(file, examples.Inputs) || installed(file) || packages[cli].closure.Covers(file) {
 			names = append(names, examples.Name)
 			recorded, ok := fastCPU[examples.Name]
 			if !ok {
@@ -316,6 +321,11 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	}
 	if steps, _ := reachSteps("docs/tooling.md"); len(steps) != 0 {
 		t.Errorf("a docs edit reaches the steps %q; want none", steps)
+	}
+	for _, file := range []string{"examples/pipeline/run/run.ergo", "modules/domain/log/log.ergo"} {
+		if steps, _ := reachSteps(file); !slices.Equal(steps, []string{examples.Name}) {
+			t.Errorf("an edit of %s reaches the steps %q; want %q", file, steps, examples.Name)
+		}
 	}
 	check, cpu := reach("internal/sketch/check/check.go")
 	checkSteps, stepsCPU := reachSteps("internal/sketch/check/check.go")

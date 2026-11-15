@@ -6,7 +6,7 @@ import sync
 
 // Shelf is a board.Store in memory. Its board is in a sync.Ref, so every
 // copy of a Shelf is the same store. NewShelf makes one.
-type Shelf { saved sync.Ref[Option[[]board.Column]], saves sync.Ref[int] }
+type Shelf { saved sync.Ref[Option[[]board.Column]], saves sync.Ref[int] } implements board.Store
 
 // NewShelf is a Shelf with nothing saved.
 func NewShelf() Shelf {

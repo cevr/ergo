@@ -435,7 +435,7 @@ Status: **implemented**: declared in the embedded prelude (`internal/sketch/std/
 - `Option[T]` with `Some` and `None` ([#99](https://github.com/cevr/ergo/issues/99)).
 - `Range[T] { Start T, End T }`, the value of `a..b`, and `Seq[T]`, an iterator ([Loops and len](#loops-and-len)).
 - `Task[T, E]`, a resource ([runtime.md](runtime.md#tasks)).
-- `Decision[S, O]` with `Enter`, `Stay`, `Emit`, `Ignore`, `Reject` and `Done` ([runtime.md](runtime.md#machines-and-actors) 2).
+- `Decision[S, O]` with `Enter`, `Stay`, `Emit`, `Ignore`, `Reject`, `Done` and `Tell` ([runtime.md](runtime.md#machines-and-actors) 2).
 - `Never`, the type with no value, and its function `Absurd` ([Never](#never)).
 - `Timeout[E] { In duration, Signal E }`, a state's timer ([runtime.md](runtime.md#machines-and-actors) 9).
 - `Machine[S, E, O, F, R, W]`, a machine as a value, a record of `Initial S`, `Step func(s S, e E) Decision[S, O] fails F needs R`, `After func(s S) Option[Timeout[E]]` and `Work func(s S) Option[func(send func(e E)) needs W]`, the Start of each state's std `machines.Work` (runtime.md, Machines and actors 12; the work type is not a prelude name).

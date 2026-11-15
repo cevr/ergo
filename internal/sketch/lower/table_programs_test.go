@@ -6,6 +6,7 @@ package lower
 var (
 	_ = declarePrograms("TestGeneratorsReachEveryClass", testBuildProgram("generators", generatorProbes))
 	_ = declarePrograms("TestLawRunB13", testBuildProgram("lawrun_b13", lawRunB13))
+	_ = declarePrograms("TestScriptHeldCallFailsTheTest", testBuildProgram("scriptheld", scriptHeldProgram))
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))
@@ -20,6 +21,10 @@ var (
 	_ = declarePrograms("TestStdSlicesLawsRun", testBuildProgram("stdslices", stdSlicesLawsProbe))
 	_ = declarePrograms("TestStdArenaLawsRun", testBuildProgram("stdarena", stdArenaLawsProbe))
 	_ = declarePrograms("TestStdDenseLawsRun", testBuildProgram("stddense", stdDenseLawsProbe))
+	_ = declarePrograms("TestUITreeModel", testBuildProgram("stduitree", stdUITreeProbe))
+	_ = declarePrograms("TestUILoadModel", testBuildProgram("stduiload", stdUILoadProbe))
+	_ = declarePrograms("TestUIHostModel", testBuildProgram("stduihost", stdUIHostProbe))
+	_ = declarePrograms("TestUITextModel", testBuildProgram("stduitext", stdUITextProbe))
 	_ = declarePrograms("TestSyncLaws", testBuildProgram("synclaws", syncLawsProbe))
 	_ = declarePrograms("TestStdTimeLawsRun", testBuildProgram("stdtime", stdTimeLawsProbe))
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))
