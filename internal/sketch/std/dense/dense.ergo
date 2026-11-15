@@ -173,6 +173,31 @@ func Next[K](c *Count[K]) ID[K] {
 // Total is the count of ids Next made.
 func Total[K](c Count[K]) int { int(c.n) }
 
+// IDAt is the id Next made at position i of c: for i in 0..Total(c). A
+// position outside it is a defect. With it, rows whose fields all live in
+// Cols need no Table: a Table of a type with no fields still keeps a slice.
+func IDAt[K](c Count[K], i int) ID[K] {
+	if i < 0 || i >= int(c.n) {
+		Unreachable("dense: IDAt of a position outside the count")
+	}
+	ID[K]{n: uint32(i)}
+}
+
+// IDAtIsNext: IDAt of each position is the id Next made there.
+law IDAtIsNext(k int) {
+	let n = (k%32 + 32) % 32
+	let mut c = NewCount[int]()
+	let mut ids = []ID[int]{}
+	for _ in 0..n {
+		ids = ids.Append(c.Next())
+	}
+	let mut ok = true
+	for i, id in ids {
+		ok = ok && IDAt(c, i) == id
+	}
+	ok
+}
+
 // Col is a column of V for the rows of K: one field of hand columns.
 type Col[K, V] { xs []V }
 
