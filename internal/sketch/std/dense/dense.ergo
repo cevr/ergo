@@ -93,9 +93,47 @@ func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }
 // Put appends v and returns its id. Every id that named a row before
 // still names the same row.
 func Put[T](t *Table[T], v T) ID[T] {
-	let id = next[T](len(t.rows))
+	let n = len(t.rows)
+	let id = next[T](n)
+	let full = room(t.rows) == n
 	t.rows = t.rows.Append(v)
+	if full && n > 1 && room(t.rows) == n+1 {
+		// Only rows of no size grow to exactly one more than they hold:
+		// Go grows any other full slice of two rows or more to at least
+		// twice, or a quarter more. Go grows a slice of rows of no size on
+		// every append, so the table takes room for every id at once; rows
+		// of no size take no memory (SL2b).
+		let mut all = slices.WithCapacity[T](flatRoom)
+		all = slices.AppendAll(all, t.rows)
+		t.rows = all
+	}
 	id
+}
+
+// room is Go's cap (an extern of Go's builtin, OPT4b).
+extern go cap func room[T](xs []T) int
+
+// flatRoom is the room of a table of rows of no size: one more than the
+// rows a store holds at most.
+let flatRoom = 4294967296
+
+// flat is a row of no size, for the law below.
+type flat {}
+
+// FlatRowsKeepIDs: a table of rows of no size, made empty or with a
+// capacity, gives ids 0 to n-1 and counts its rows, past the Put where it
+// takes room for every id.
+law FlatRowsKeepIDs(k int, c int) {
+	let n = (k%300 + 300) % 300
+	let mut a = New[flat]()
+	let mut b = WithCap[flat]((c%40 + 40) % 40)
+	let mut ok = true
+	for i in 0..n {
+		let ia = a.Put(flat)
+		let ib = b.Put(flat)
+		ok = ok && Index(ia) == i && Index(ib) == i && Len(a) == i+1 && Len(b) == i+1 && Has(a, ia) && Has(b, ib)
+	}
+	ok && len(Rows(a)) == n && len(Rows(b)) == n
 }
 
 // At is the row id names. An id past the end is a defect.
