@@ -409,8 +409,8 @@
       "name": "cache-bound-examples-user-cache",
       "origin": "wf10 CACHE-bound",
       "file": "scripts/examples/main.go",
-      "from": "r.cfg.root, r.toolEnv, \"\", timeout, 0)",
-      "to": "r.cfg.root, os.Environ(), \"\", timeout, 0)",
+      "from": "\tenv, report := r.toolEnv, \"\"\n",
+      "to": "\tenv, report := os.Environ(), \"\"\n",
       "rule": "Every compiler call of the runner builds in the run's own emission cache, which the run removes, never the caller's or the user's.",
       "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
     },
