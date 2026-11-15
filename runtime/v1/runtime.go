@@ -26,9 +26,7 @@
 package v1
 
 import (
-	"fmt"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -68,7 +66,7 @@ func Sleep(t *rt.Task, d time.Duration) {
 //
 //ergo:host
 func Fail(err error) {
-	fmt.Fprintf(stderrSink{}, "error: %v\n", err)
+	_, _ = stderrSink{}.Write([]byte("error: " + rt.Text(err) + "\n"))
 	os.Exit(1)
 }
 
@@ -129,12 +127,7 @@ func (d *MachineTimerDefect) String() string {
 // with In in. The state's text is its Go type's name and fields, as
 // fmt's %+v writes them: Idle{n:1}.
 func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *MachineTimerDefect {
-	v := any(s)
-	name := ""
-	if t := reflect.TypeOf(v); t != nil {
-		name = t.Name()
-	}
-	return &MachineTimerDefect{Machine: machine, State: name + fmt.Sprintf("%+v", v), In: in}
+	return &MachineTimerDefect{Machine: machine, State: rt.TypedText(s), In: in}
 }
 
 // MachineFiringOn is the Go body of std machines' firingOn (FKG1): it sets

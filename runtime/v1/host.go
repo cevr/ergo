@@ -256,7 +256,6 @@ func (m *Mapped) Text() string { return m.text }
 // Close unmaps the mapping, once: a second Close does nothing.
 //
 //ergo:host
-//
 //ergo:wait none
 func (m *Mapped) Close() {
 	if m.data == nil {
@@ -848,7 +847,6 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 // raises rt.Interrupted; the bytes read meanwhile stay for the next read.
 //
 //ergo:host
-//
 //ergo:wait caller
 func IORead(t *rt.Task, max int) (string, error) {
 	if max <= 0 {

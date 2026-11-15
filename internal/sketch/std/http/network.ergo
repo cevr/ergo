@@ -5,8 +5,8 @@
 import fs
 type OriginPolicy = AnyOrigin{} | Origins{Values []string}
 type RedirectPolicy = NoRedirects{} | Follow{MaxHops int}
-extern go ergo.local/prototype/runtime/v1.HTTPOriginRefused type OriginRefused { Origin string }
-extern go ergo.local/prototype/runtime/v1.HTTPRedirectLimit type RedirectLimit { URL string, Limit int }
+extern go ergo.local/prototype/runtime/v1/http.HTTPOriginRefused type OriginRefused { Origin string }
+extern go ergo.local/prototype/runtime/v1/http.HTTPRedirectLimit type RedirectLimit { URL string, Limit int }
 
 // Credential is a header bound to one origin. Only ForOrigin builds it.
 type Credential { origin string, field Field }
@@ -68,7 +68,7 @@ func FetchFile(root fs.HostRoot, path string, r URLRequest) Response fails Reque
 // BodyFile is the new file of one IntoFile: only IntoFile makes one, and
 // it is valid only while the fetch it was given to runs.
 // law-exempt: only IntoFile makes one; TestHTTPFetchIntoMatchesModel and TestHTTPFetchIntoStops hold its file.
-extern go ergo.local/prototype/runtime/v1.BodyFile type BodyFile { Put(part string) fails SinkFailed, partOnly() }
+extern go ergo.local/prototype/runtime/v1/http.BodyFile type BodyFile { Put(part string) fails SinkFailed, partOnly() }
 
 // IntoFile runs fetch with the new file of path below root, which stays
 // the caller's, and puts it in place of path when fetch succeeds. The new
@@ -76,7 +76,7 @@ extern go ergo.local/prototype/runtime/v1.BodyFile type BodyFile { Put(part stri
 // body), so a fetch that puts nothing and fails touches no file; a fetch
 // that fails, or a stop, leaves path as it was. FetchFile and DoFile are
 // IntoFile with the 2xx rule.
-extern go ergo.local/prototype/runtime/v1.HTTPIntoFile func IntoFile[F, R](root fs.HostRoot, path string, fetch func(file BodyFile) Response fails F needs R) Response fails F | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs R
+extern go ergo.local/prototype/runtime/v1/http.HTTPIntoFile func IntoFile[F, R](root fs.HostRoot, path string, fetch func(file BodyFile) Response fails F needs R) Response fails F | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs R
 
 // Remote is a provider of Network. Only NewNet delegates Ambient to it.
 type Remote { origins []string, anyOrigin bool, limits Limits, hops int } implements Network
@@ -105,7 +105,7 @@ func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote
 	Remote{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
+extern go ergo.local/prototype/runtime/v1/http.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
 
 func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let mut owners = []string{}
@@ -133,6 +133,6 @@ func SendURLInto(n Remote, r URLRequest, accept Accept, put func(part string) fa
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPFetchInto func fetchInto(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetchInto func fetchInto(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed
 
-extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

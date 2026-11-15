@@ -73,8 +73,7 @@ type loadedFile struct {
 	// rel is the slash-separated path relative to the module root: the
 	// File of its diagnostics.
 	rel string
-	// abs is the admitted absolute path: //line directives and the build
-	// key name it.
+	// abs is the admitted absolute path, which the build key names.
 	abs  string
 	text string
 	// syntax is nil when the file does not parse.
@@ -126,6 +125,9 @@ type program struct {
 	module, modRoot string
 	// trust are the modules whose Go the root's ergo.mod trusts.
 	trust []string
+	// dir is the module root, or the root package's folder with no
+	// ergo.mod: the directory the emitted source names are relative to.
+	dir string
 }
 
 // loader reads and checks one program.
@@ -317,7 +319,7 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 		}
 	}
 	prepareStd(nil)
-	p := &program{texts: l.texts, bindings: l.bindings}
+	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root}
 	if found {
 		p.module, p.modRoot, p.trust = l.module, l.root, l.trust
 	}
@@ -946,6 +948,7 @@ func (p *program) unit() lower.Unit {
 		u.Imports = append(u.Imports, packageUnit(q))
 	}
 	u.Go = p.goModule
+	u.Root = p.dir
 	return u
 }
 

@@ -42,7 +42,7 @@ const DefaultCapacity = 4096
 // longer than the bound is missing and says so. Recording an event never
 // waits: it reserves a slot with one atomic add and writes it.
 type Recorder struct {
-	start   time.Time
+	since   func() rt.Span // the time since New, on the monotonic clock
 	slots   []slot
 	next    atomic.Uint64
 	dropped atomic.Uint64
@@ -50,16 +50,18 @@ type Recorder struct {
 
 type slot struct {
 	done atomic.Bool // set after ev and at are written
-	at   time.Duration
+	at   rt.Span
 	ev   rt.Event
 }
 
 // Record is one recorded event with its arrival number and the time since the
 // recorder started (monotonic clock). Under a virtual clock the time is the
-// host's, not the program's.
+// host's, not the program's. Recorder names no type of package time (binsize
+// BS3): it is a Tracer, so the types it reaches are used in an interface,
+// and a time.Time among them kept time.Time.Format in every program.
 type Record struct {
 	Seq  uint64
-	Time time.Duration
+	Time rt.Span
 	rt.Event
 }
 
@@ -69,7 +71,8 @@ func New(capacity int) *Recorder {
 	if capacity < 0 {
 		capacity = 0
 	}
-	return &Recorder{start: time.Now(), slots: make([]slot, capacity)}
+	start := time.Now()
+	return &Recorder{since: func() rt.Span { return rt.Span(time.Since(start)) }, slots: make([]slot, capacity)}
 }
 
 // Event records e. It is safe from any goroutine and never blocks.
@@ -80,7 +83,7 @@ func (r *Recorder) Event(e rt.Event) {
 		return
 	}
 	s := &r.slots[i]
-	s.at = time.Since(r.start)
+	s.at = r.since()
 	s.ev = e
 	s.done.Store(true)
 }

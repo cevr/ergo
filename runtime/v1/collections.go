@@ -135,7 +135,6 @@ func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
 // SlicesConcatPoison, instead.
 //
 //ergo:check SlicesConcatPoison
-//
 //ergo:wait none
 func SlicesConcatOwned[T any](a []T, b []T) []T { return append(a, b...) }
 

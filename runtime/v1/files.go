@@ -33,13 +33,11 @@ var SourceFiles = []string{"runtime.go"}
 // rtPath is the import path of runtime/rt, whose *Task is the hidden task.
 const rtPath = runtimefiles.Module + "/runtime/rt"
 
-// v1Path is this package's import path.
-const v1Path = runtimefiles.Module + "/runtime/v1"
-
 // Hidden is a hidden parameter of a std extern's Go body: an argument the
 // Ergo signature does not show and the lowering supplies at the call
 // (docs/spec/stdlib.md, Hidden arguments). Its Go type alone names it: no
-// Ergo type lowers to *Scope, Site, *rt.Task, Sleeper or ContextPackage.
+// Ergo type lowers to *Scope, Site, *rt.Task, Sleeper, GraphOf or
+// ContextPackage.
 type Hidden string
 
 const (
@@ -59,6 +57,9 @@ const (
 	// caller's environment: the provider the program bound, so a test
 	// Scheduler controls the time the body waits (timeout.After).
 	CallerScheduler Hidden = "scheduler"
+	// Graph, a GraphOf, gives the graph of the machine whose states and
+	// signals are the body's type parameters S and E (binsize BS7).
+	Graph Hidden = "graph"
 	// ReadingPackage is the package that declares the context-read extern.
 	ReadingPackage Hidden = "context-package"
 	// ResultRelease, a Releaser[T], is the generated release of the call's
@@ -68,7 +69,7 @@ const (
 )
 
 // hiddenOrder is the order hidden parameters take, each at most once.
-var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, ReadingPackage, ResultRelease}
+var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, Graph, ReadingPackage, ResultRelease}
 
 // Body is the Go shape of one std extern's body: a function of this
 // package, or, for an operation of a type that a std extern returns, the
@@ -128,6 +129,9 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
+	// Package is the import path of the body's package: runtime/v1 (Path)
+	// or one of its leaves (Leaves), which the lowering imports to call it.
+	Package string
 }
 
 // WaitMark, ReleaseMark and BridgeMark start the directive lines of a
@@ -178,7 +182,7 @@ type Bodies struct{ decls goDecls }
 
 // ReadBodies parses the non-test Go files at the root of fsys.
 func ReadBodies(fsys fs.FS) (Bodies, error) {
-	d, err := parseDeclsIn(fsys, false)
+	d, err := parseDeclsIn(fsys, false, "")
 	return Bodies{d}, err
 }
 
@@ -324,8 +328,8 @@ func sourceDecls() (goDecls, error) {
 	return parsedSource()
 }
 
-// parsedSource parses Source once per process.
-var parsedSource = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+// parsedSource parses Source and each leaf's source once per process.
+var parsedSource = sync.OnceValues(func() (goDecls, error) { return parseSources() })
 
 // sourceReads counts the reads of the parsed Source in this process.
 var sourceReads atomic.Int64
@@ -337,10 +341,110 @@ var sourceReads atomic.Int64
 // across a check. It counts work, never time.
 func SourceReads() int64 { return sourceReads.Load() }
 
+// Path is the import path of runtime/v1.
+const Path = runtimefiles.Module + "/runtime/v1"
+
+// Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
+// in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
+// whose Go packages no other body needs (crypto/sha256, encoding/csv,
+// os/exec, math/rand/v2, net/http, encoding/json, log/slog): the Go linker keeps the init task of every
+// imported package, so a program imports a leaf only when it calls one of
+// its bodies, and a program that calls none links none of those packages.
+// A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
+// unique across runtime/v1 and its leaves (sourceDecls), so a body is named
+// by its Go name alone, as before, and PackageOf finds its package.
+var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc"}
+
+// HostText is the import path of the gofmt leaf, which makes fmt the
+// runtime's text of a value the core cannot write without it (rt.Text,
+// rt.TypedText; binsize BS2). It declares no body: a program imports it
+// for its init alone, when it imports go or names a body of hostTextUsers.
+const HostText = Path + "/gofmt"
+
+// hostTextUsers are the exported declarations of runtime/v1 that can
+// write a value with rt.TypedText: a machine's state in the defect of a
+// timer that is not positive. TestHostTextUsersAreListed holds the list
+// against the call graph of runtime/v1.
+var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive"}
+
+// NeedsHostText reports whether a program that names the runtime/v1
+// declaration name imports the gofmt leaf (HostText).
+func NeedsHostText(name string) bool { return slices.Contains(hostTextUsers, name) }
+
+// HostWalk is the import path of the hostwalk leaf, which gives the
+// runtime its reflective walk of a recovered actor's state for the hosts
+// the recover made (rt.Held; binsize BS8). It declares no body: a program
+// imports it for its init alone, when it names a body of hostWalkUsers.
+const HostWalk = Path + "/hostwalk"
+
+// hostWalkUsers are the exported declarations of runtime/v1 that make a
+// host (takeHost): only a host a recover made is walked for (heldHosts),
+// so a program that makes none never walks. TestHostWalkUsersAreListed
+// holds the list against the call graph.
+var hostWalkUsers = []string{"NewHost"}
+
+// NeedsHostWalk reports whether a program that names the runtime/v1
+// declaration name imports the hostwalk leaf (HostWalk).
+func NeedsHostWalk(name string) bool { return slices.Contains(hostWalkUsers, name) }
+
+// Owns reports whether the Go package path is runtime/v1 or one of its
+// leaves: the packages whose exported functions are std bodies.
+func Owns(path string) bool {
+	leaf, ok := strings.CutPrefix(path, Path+"/")
+	return path == Path || ok && slices.Contains(Leaves, leaf)
+}
+
+// PackageOf returns the import path of the package of runtime/v1 or its
+// leaves that declares the exported Go declaration name ("HexEncode",
+// "Stream.IntN", "HexMalformed"), or "" when none does.
+func PackageOf(name string) string {
+	decls, err := sourceDecls()
+	if err != nil {
+		return ""
+	}
+	return decls[name].pkg
+}
+
+// BodyIn is BodyOf for an extern that names its body in the package path:
+// it fails when the body named name is in another package.
+func BodyIn(path, name string) (Body, error) {
+	body, err := BodyOf(name)
+	if err == nil && body.Package != path {
+		return Body{}, fmt.Errorf("runtime/v1: the body %s is in %s, not in %s", name, body.Package, path)
+	}
+	return body, err
+}
+
+// parseSources parses Source and the source of each leaf: the declarations
+// of runtime/v1 and its leaves, a name unique across them.
+func parseSources() (goDecls, error) {
+	decls, err := parseDecls(Source, Path)
+	if err != nil {
+		return nil, err
+	}
+	for _, leaf := range Leaves {
+		path := Path + "/" + leaf
+		leafDecls, err := parseDecls(runtimefiles.Package("v1/"+leaf), path)
+		if err != nil {
+			return nil, err
+		}
+		for name, d := range leafDecls {
+			if other, ok := decls[name]; ok {
+				return nil, fmt.Errorf("runtime/v1: %s is declared in %s and in %s; a body name is unique across runtime/v1 and its leaves", name, other.pkg, path)
+			}
+			decls[name] = d
+		}
+	}
+	return decls, nil
+}
+
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its
 // file, and the package's names of functions and variables at top level.
 type goDecl struct {
+	// pkg is the import path of the declaring package: Path or a leaf;
+	// "" for a trusted module's own package (ReadBodies).
+	pkg string
 	fn  *ast.FuncDecl
 	typ *ast.TypeSpec
 	// q names runtime/rt and runtime/v1 as the file writes them (quals).
@@ -381,6 +485,9 @@ type GoType struct {
 	// whose field names are Fields, in order.
 	Struct bool
 	Fields []string
+	// Package is the import path of the type's package: runtime/v1 (Path)
+	// or one of its leaves (Leaves).
+	Package string
 }
 
 // TypeOf returns the shape of the exported type name of Source, and
@@ -391,13 +498,20 @@ func TypeOf(name string) (GoType, bool) {
 	return t, ok
 }
 
+// TypeIn is TypeOf for a declaration that names the type in the package
+// path: there is none when the type is in another package (BodyIn).
+func TypeIn(path, name string) (GoType, bool) {
+	t, ok := TypeOf(name)
+	return t, ok && t.Package == path
+}
+
 // goType is the shape of the exported type name of the parse.
 func (d goDecls) goType(name string) (GoType, bool) {
 	g, ok := d[name]
 	if !ok || g.typ == nil {
 		return GoType{}, false
 	}
-	t := GoType{Arity: g.typ.TypeParams.NumFields()}
+	t := GoType{Arity: g.typ.TypeParams.NumFields(), Package: g.pkg}
 	if fields, err := d.structFieldsOf(name, t.Arity); err == nil {
 		t.Struct = true
 		if len(fields) > 0 {
@@ -451,14 +565,18 @@ func (d goDecls) structFieldsOf(name string, arity int) ([]string, error) {
 	return fields, nil
 }
 
-// parseDecls parses every non-test Go file at the root of fsys, runtime/v1's
-// own package (or a fixture of it), whose hidden types are unqualified.
-func parseDecls(fsys fs.FS) (goDecls, error) { return parseDeclsIn(fsys, true) }
+// parseDecls parses every non-test Go file at the root of fsys, the package
+// whose import path is pkg: runtime/v1's own package (or a fixture of it),
+// whose hidden types are unqualified, or one of its leaves, which names
+// them through its import of runtime/v1.
+func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
+	return parseDeclsIn(fsys, pkg == Path, pkg)
+}
 
-// parseDeclsIn parses every non-test Go file at the root of fsys: v1's own
-// package when own, or another package, which names v1's hidden types
-// through its import of runtime/v1.
-func parseDeclsIn(fsys fs.FS, own bool) (goDecls, error) {
+// parseDeclsIn parses every non-test Go file at the root of fsys, the
+// package pkg: v1's own package when own, or another package, which names
+// v1's hidden types through its import of runtime/v1.
+func parseDeclsIn(fsys fs.FS, own bool, pkg string) (goDecls, error) {
 	names, err := fs.Glob(fsys, "*.go")
 	if err != nil {
 		return nil, err
@@ -497,7 +615,7 @@ func parseDeclsIn(fsys fs.FS, own bool) (goDecls, error) {
 			if p == rtPath {
 				q.rt = local
 			}
-			if p == v1Path && !own {
+			if p == Path && !own {
 				q.v1 = local
 			}
 		}
@@ -505,7 +623,7 @@ func parseDeclsIn(fsys fs.FS, own bool) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, q: q, imports: imports, locals: locals, values: values, index: index}
+						decls[ts.Name.Name] = goDecl{pkg: pkg, typ: ts, q: q, imports: imports, locals: locals, values: values, index: index}
 					}
 				}
 				continue
@@ -534,7 +652,7 @@ func parseDeclsIn(fsys fs.FS, own bool) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, q: q, imports: imports, locals: locals, values: values, index: index}
+			decls[key] = goDecl{pkg: pkg, fn: fn, q: q, imports: imports, locals: locals, values: values, index: index}
 		}
 	}
 	return decls, nil
@@ -579,6 +697,7 @@ func (d goDecls) body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
+	b.Package = g.pkg
 	if b.TypeParams, err = d.typeParams(g.fn); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
@@ -980,8 +1099,8 @@ func (q quals) v1Type(e ast.Expr, name string) bool {
 }
 
 // hiddenOf names the hidden parameter whose Go type e is: *Scope, Site,
-// *rt (the file's name for runtime/rt).Task, Sleeper, ContextPackage or
-// Releaser[T], v1's types qualified as the file names v1 (quals).
+// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf,
+// ContextPackage or Releaser[T], v1's types qualified as the file names v1 (quals).
 func hiddenOf(e ast.Expr, q quals) (Hidden, bool) {
 	switch x := e.(type) {
 	case *ast.IndexExpr:
@@ -998,7 +1117,7 @@ func hiddenOf(e ast.Expr, q quals) (Hidden, bool) {
 			}
 		}
 	default:
-		for name, h := range map[string]Hidden{"Site": CallSite, "Sleeper": CallerScheduler, "ContextPackage": ReadingPackage} {
+		for name, h := range map[string]Hidden{"Site": CallSite, "Sleeper": CallerScheduler, "ContextPackage": ReadingPackage, "GraphOf": Graph} {
 			if q.v1Type(e, name) {
 				return h, true
 			}

@@ -65,10 +65,11 @@ func (m *stdoutModel) print(s string) {
 //
 // Mutants: sb8-always-direct and sb8-terminal-buffered (the mode),
 // sb8-no-flush-stderr (order against stderr), sb8-no-flush-stdin,
-// sb8-no-flush-run, sb8-no-flush-start (flush points), sb8-no-flush-exit
+// sb8-no-flush-run (a flush point), sb8-no-flush-exit
 // (the end of main), sb8-overflow-kept (the 4 KiB bound), sb8-no-flush-wait
 // (a task's wait), sb8-pop-asks-early (a Pop that finds a value flushes)
-// and sb8-lines-asks-early (a line already read flushes).
+// and sb8-lines-asks-early (a line already read flushes). exec's flush
+// point is the exec leaf's (BS8): TestStartFlushesStdoutFirst there.
 func TestStdoutFlushModel(t *testing.T) {
 	cases := 40
 	if testing.Short() {
@@ -138,7 +139,7 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 	status := mainStatus(func(task *rt.Task) error {
 		for range 1 + next(24) {
 			var step string
-			switch k := next(11); k {
+			switch k := next(9); k {
 			case 0, 1:
 				s := text()
 				step = fmt.Sprintf("Print(%d bytes)", len(s))
@@ -170,26 +171,10 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 				}
 				m.flush()
 			case 5:
-				step = "exec.Run"
-				if _, err := ExecRun(task, "sh", []string{"-c", ":"}, nil, "", "", 0); err != nil {
-					return err
-				}
-				m.flush()
-			case 6:
-				step = "exec.Start printf c, Wait"
-				p, err := ExecStart(task, "sh", []string{"-c", "printf c"}, nil, "", "", 0, execInherit, "", false, execInherit, "", false)
-				if err != nil {
-					return err
-				}
-				p.Wait(task)
-				p.Close(task)
-				m.flush()
-				m.stream.WriteString("c")
-			case 7:
 				step = "Sleep"
 				Sleep(task, time.Microsecond)
 				m.flush()
-			case 8:
+			case 6:
 				// A Pop on an empty queue waits; the value comes only once
 				// it waits (WhenWaiting runs at its Done).
 				step = "Pop that waits"
@@ -201,7 +186,7 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 					return err
 				}
 				m.flush()
-			case 9:
+			case 7:
 				// A Push with room and a Pop that finds the value wait on
 				// nothing: no flush.
 				step = "Push, Pop that does not wait"
@@ -212,7 +197,7 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 				if _, err := q.Pop(task); err != nil {
 					return err
 				}
-			case 10:
+			case 8:
 				// The second line is already read: its take waits on
 				// nothing, so the print between them stays held.
 				step = "Lines (two lines, a Print between)"

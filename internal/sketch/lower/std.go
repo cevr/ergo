@@ -31,6 +31,10 @@ import (
 // the declaration and never a std name. Every other type of every package
 // is a declaration of the program, apart from os.Code below.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
+	ref := l.rtRef
+	if l.probing {
+		ref = func(name string) string { return name }
+	}
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
@@ -41,9 +45,9 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	}
 	if goName, ok := check.GoTypeOf(n); ok {
 		if _, isOps := obj.Decl.Spec.(*syntax.InterfaceType); isOps {
-			return "*" + l.rt() + "." + goName
+			return "*" + ref(goName)
 		}
-		return l.rt() + "." + goName
+		return ref(goName)
 	}
 	// Code is checked as an ordinary refinement. At the runtime record
 	// boundary its representation is the existing Go int field of Exit.
@@ -59,10 +63,22 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	return ""
 }
 
+// runtimeNamed reports whether runtimeType gives n a runtime type. It
+// names nothing in main.go (l.probing): naming a leaf's type imports the
+// leaf, and a test that writes no reference must not import one (binsize
+// BS8; examples/calc, whose only rand.Stream use was such a test,
+// imported the rand leaf unused).
+func (l *lowerer) runtimeNamed(n *check.Named, site syntax.Node) bool {
+	was := l.probing
+	l.probing = true
+	defer func() { l.probing = was }()
+	return l.runtimeType(n, site) != ""
+}
+
 // isRuntimeType reports a std type the runtime's Go type stands for.
 func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 	n, ok := t.(*check.Named)
-	return ok && l.runtimeType(n, site) != ""
+	return ok && l.runtimeNamed(n, site)
 }
 
 // stdBody is the runtime/v1 body of the extern function f, of any package,
@@ -84,11 +100,11 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 		return body, fd.extern, true
 	}
 	i := strings.LastIndex(fd.extern, ".")
-	if i < 0 || fd.extern[:i] != runtimeImport {
+	if i < 0 || !v1.Owns(fd.extern[:i]) {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := runtimeBody(name)
+	body, err := v1.BodyIn(fd.extern[:i], name)
 	if err != nil {
 		ice(fd.fn.Decl, "the function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
@@ -319,7 +335,7 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, x) {
 		body := opBody(n, c.Op.Name, len(args), x)
 		for i, p := range body.Params {
 			if p.Func != nil {
@@ -408,7 +424,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	if tp, ok := t.(*check.TypeParam); ok {
 		return fc.witnessCall(tp, op, vals, env, site)
 	}
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {
 			for _, p := range body.Params {
@@ -433,7 +449,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 // runtime binding, which only runtimeCall emits: it refuses every runtime
 // type, so the blocking owner scan allows it by name.
 func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
 	}
 	// The checker refuses every other way to reach a sealed std operation:
@@ -441,7 +457,7 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	// and a pointer to one (S108 at the call, stage D3b Rule 5). An open
 	// one, such as os.Process, is an interface of the
 	// program, so its operation is the Go method below.
-	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeType(n, site) != "" {
+	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{taskOf(env)}, vals[1:]...)
@@ -576,6 +592,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			// field for the prelude's Scheduler, which the called
 			// signature needs, so the checker has bound it at the call.
 			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
+		case v1.Graph:
+			out = append(out, fc.graphArg(c, site))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")
@@ -588,6 +606,36 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		}
 	}
 	return out
+}
+
+// graphArg is the hidden graph argument of the call c of an actor's start
+// (machine.go, graphArg): the graph of the machine whose states and
+// signals are the call's type arguments for the Go body's first two type
+// parameters (v1.GraphOf: a start's states, then its signals), matched to
+// the Ergo signature's type parameters by name as stdTypeArgs matches
+// them.
+func (fc *funcCtx) graphArg(c *check.Call, site syntax.Node) string {
+	var state, signal string
+	if c != nil && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern != nil {
+		_, name := c.Func.Decl.Extern.Split()
+		if body, err := v1.BodyOf(name); err == nil && len(body.TypeParams) >= 2 {
+			for i, tp := range c.Func.Sig.TParams {
+				if i >= len(c.TypeArgs) {
+					break
+				}
+				switch tp.Name {
+				case body.TypeParams[0].Name:
+					state = fc.goType(c.TypeArgs[i])
+				case body.TypeParams[1].Name:
+					signal = fc.goType(c.TypeArgs[i])
+				}
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		ice(site, "a std body takes a machine's graph, and the called function has no type arguments for its body's first two type parameters")
+	}
+	return fc.l.graphArg(state, signal)
 }
 
 // schedulerCap is the prelude's Scheduler in the needs row of the std

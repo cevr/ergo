@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,7 +16,7 @@ type TOMLMalformed struct {
 }
 
 func (e TOMLMalformed) Error() string {
-	return fmt.Sprintf("toml line %d key %q: %s", e.Line, e.Key, e.Reason)
+	return "toml line " + strconv.Itoa(e.Line) + " key " + strconv.Quote(e.Key) + ": " + e.Reason
 }
 
 // TOMLParse validates a TOML 1.0 document and writes its value in the JSON

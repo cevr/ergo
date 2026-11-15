@@ -95,6 +95,7 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 		}
 		main := "import p0\nimport p1\nimport p2\nimport p3\nfunc main() needs Console {\n\tlet _ = p0.M3{}\n\tlet _ = p1.M2{}\n\tlet _ = p2.M1{}\n\tlet _ = p3.M0{}\n\tConsole.Println(\"\\(" + sum + ")\")\n}\n"
 		if mask%2 == 0 {
+			main = strings.Replace(main, "\tlet _ = p3.M0{}\n", "\tlet _ = p3.M0{}\n\tlet _ = MR{}\n", 1)
 			main += "type R = Root{N int}\nfunc stepR(s R, e p0.Sig) Decision[R, int] { Enter[R]{Next: s} }\ntype MR machine[R, p0.Sig] { initial: Root{N: p3.Read()}, step: stepR }\n"
 		}
 		root := checkPackage(t, "main", []pkgSource{{"/dag/main.ergo", main}}, imp)

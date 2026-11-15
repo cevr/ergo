@@ -17,7 +17,7 @@ import (
 // ratios count on a loaded host).
 
 func speedCounter(t *rt.Task, capacity int) *Actor[int, int, int] {
-	return MachineStart(Site("speed"), t, releaser{make(chan sleep)}, 0,
+	return MachineStart(Site("speed"), t, releaser{make(chan sleep)}, nil, 0,
 		func(_ *rt.Task, s int, e int) (int, error) { return decideStay, nil },
 		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil },
 		func(int) time.Duration { return ActorNoTimer() }, noWork[int], hasNoWork, runNoWork[int],

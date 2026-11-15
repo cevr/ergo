@@ -327,7 +327,8 @@ var waitFlush struct {
 }
 
 // SetWaitFlush sets the function Done runs while output is held
-// (OutputHeld). Call it once, before any task starts.
+// (OutputHeld). Call it once, before the first OutputHeld(true): the
+// atomic record orders the set before every Done that reads it.
 func SetWaitFlush(f func()) { waitFlush.flush = f }
 
 // OutputHeld records whether output is held for the next wait: true after

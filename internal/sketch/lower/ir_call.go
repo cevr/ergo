@@ -80,6 +80,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call of a Go builtin")
 		case userExtern(f):
 			irNo("call of a user extern")
+		case f.Pkg != nil && f.Pkg.Host():
+			irNo("call of a bound Go package's function") // hostCall, as a user extern
 		}
 		// A function of another Ergo package of the program, or a std
 		// function with an Ergo body, is a function of the one Go package

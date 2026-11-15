@@ -25,7 +25,7 @@ const bodyTablePath = "files_gen.go"
 // bodies-table-stale of the ledger. Rewrite the table with:
 // go test ./runtime/v1 -run TestBodyTableIsCurrent -update-bodies
 func TestBodyTableIsCurrent(t *testing.T) {
-	decls, err := parseDecls(Source)
+	decls, err := parseSources()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +114,7 @@ func renderBodyTable(decls goDecls) string {
 		if len(t.Fields) > 0 {
 			fields = append(fields, fmt.Sprintf("Fields: %#v", t.Fields))
 		}
+		fields = append(fields, packageField(t.Package))
 		fmt.Fprintf(&b, "\t%q: {%s},\n", name, strings.Join(fields, ", "))
 	}
 	b.WriteString("}\n")
@@ -183,5 +184,17 @@ func bodyLiteral(b Body) string {
 	if b.BridgeTarget != "" {
 		fields = append(fields, fmt.Sprintf("BridgeTarget: %q, BridgeProvider: %q", b.BridgeTarget, b.BridgeProvider))
 	}
+	if b.Package != "" {
+		fields = append(fields, packageField(b.Package))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
+}
+
+// packageField is the Package field of a generated row: Path, or Path
+// and the leaf's name (binsize BS1).
+func packageField(pkg string) string {
+	if leaf, ok := strings.CutPrefix(pkg, Path+"/"); ok {
+		return fmt.Sprintf("Package: Path + %q", "/"+leaf)
+	}
+	return "Package: Path"
 }

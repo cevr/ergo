@@ -821,7 +821,7 @@ func TestRuntime199DefectOwner(t *testing.T) {
 						case *ast.SelectorExpr:
 							switch fun.Sel.Name {
 							case "Stack":
-								uses = append(uses, use{"debug.Stack", in})
+								uses = append(uses, use{"runtime.Stack", in})
 							case "AddDefect":
 								uses = append(uses, use{"AddDefect", in})
 							}
@@ -851,7 +851,7 @@ func TestRuntime199DefectOwner(t *testing.T) {
 	}
 	allowed := map[use]bool{
 		{"Panic literal", "defectOf"}: true,
-		{"debug.Stack", "defectOf"}:   true,
+		{"runtime.Stack", "defectOf"}: true,
 		{"AddDefect", "capture"}:      true,
 		{"reportDefect", "report"}:    true,
 		{`"panic: "`, "reportDefect"}: true,

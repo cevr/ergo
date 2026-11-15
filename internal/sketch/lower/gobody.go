@@ -211,7 +211,7 @@ func (l *lowerer) pureV1(f *check.Func) bool {
 		return false
 	}
 	path, _ := f.Decl.Extern.Split()
-	return path == runtimeImport
+	return v1.Owns(path)
 }
 
 // madeResult reports a std extern whose runtime/v1 body makes its result
@@ -222,5 +222,5 @@ func (l *lowerer) madeResult(f *check.Func) bool {
 		return false
 	}
 	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyMakes(name)
+	return v1.Owns(path) && goBodyMakes(name)
 }

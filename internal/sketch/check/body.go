@@ -69,7 +69,7 @@ func BodyOf(f *Func) Body {
 		return Body{}
 	}
 	path, name := f.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
+	if !v1.Owns(path) {
 		if body, ok := ModuleBody(f); ok {
 			// A module's own body: its shape and policy, call-only. Its
 			// purity is not read yet (a follow-up of NP4d): no call of it
@@ -79,7 +79,7 @@ func BodyOf(f *Func) Body {
 		return Body{}
 	}
 	b := Body{Runtime: name, MovesOnly: v1.MovesOnly(name), Inert: v1.Inert(name)}
-	if body, err := v1.BodyOf(name); err == nil {
+	if body, err := v1.BodyIn(path, name); err == nil {
 		b.Known = true
 		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
 		b.Value = valueBody(body)
@@ -169,7 +169,7 @@ func OpBodyOf(t Type, op string) OpBody {
 func bindsRuntime(pkg *Package) bool {
 	for _, f := range pkg.Funcs {
 		if f.Decl != nil && f.Decl.Extern != nil {
-			if path, _ := f.Decl.Extern.Split(); path == runtimeModule+"/v1" {
+			if path, _ := f.Decl.Extern.Split(); v1.Owns(path) {
 				return true
 			}
 		}
@@ -222,10 +222,10 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
 	}
 	path, name := tn.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
+	if !v1.Owns(path) {
 		return fmt.Sprintf("extern go %s: a type names a Go type of %s/v1 (docs/spec/stdlib.md, The body contract)", target, runtimeModule)
 	}
-	gt, ok := v1.TypeOf(name)
+	gt, ok := v1.TypeIn(path, name)
 	if !ok {
 		return fmt.Sprintf("extern go %s: runtime/v1 has no exported type %s (docs/spec/stdlib.md, The body contract)", target, name)
 	}
@@ -275,5 +275,5 @@ func GoTypeOf(n *Named) (string, bool) {
 		return "", false
 	}
 	path, name := n.origin().Obj.Decl.Extern.Split()
-	return name, path == runtimeModule+"/v1"
+	return name, v1.Owns(path)
 }

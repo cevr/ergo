@@ -17,21 +17,21 @@ import timeout
 
 // NotFound is the failure of a program Name that is not on the PATH, or of
 // a path Name with no file at it.
-extern go ergo.local/prototype/runtime/v1.ExecNotFound type NotFound { Name string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecNotFound type NotFound { Name string }
 
 // Denied is the failure of a file Name that the process may not run.
-extern go ergo.local/prototype/runtime/v1.ExecDenied type Denied { Name string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecDenied type Denied { Name string }
 
 // Failed is any other failure to start the program Name, such as a
 // working directory that does not exist. Reason is the host's text for it.
-extern go ergo.local/prototype/runtime/v1.ExecFailed type Failed { Name string, Reason string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecFailed type Failed { Name string, Reason string }
 
 // Result is what a program that ran gives back: its exit status and all
 // it wrote to standard output and standard error. A status that is not 0
 // is a Result, not a failure, so a caller matches on it. A program that a
 // signal ended has the status 128 plus the signal's number, as a shell
 // reports it.
-extern go ergo.local/prototype/runtime/v1.ExecResult type Result { Status int, Stdout string, Stderr string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecResult type Result { Status int, Stdout string, Stderr string }
 
 // Command is one program to run: the program Name (a name looked up on
 // the PATH, or a path), its arguments after the name, the environment
@@ -141,14 +141,14 @@ type Streams { Stdout Sink, Stderr Sink }
 
 // Line is one line of a stream whose sink is ToCaller, without its line
 // feed, and whether it came from standard error.
-extern go ergo.local/prototype/runtime/v1.ExecLine type Line { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1/exec.ExecLine type Line { Text string, Stderr bool }
 
 // Chunk is what one read of a stream whose sink is ToCaller gave: its
 // bytes as the program wrote them (any bytes, line feeds included), and
 // whether it came from standard error. A Chunk with no bytes is the end of
 // its stream. Where a stream is cut into chunks is not a promise: only the
 // bytes of each stream, in their order, are.
-extern go ergo.local/prototype/runtime/v1.ExecChunk type Chunk { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1/exec.ExecChunk type Chunk { Text string, Stderr bool }
 
 // Running is a started program. It is a resource: the scope that owns it
 // ends the program when it ends (SIGTERM to the program's process group,
@@ -156,9 +156,9 @@ extern go ergo.local/prototype/runtime/v1.ExecChunk type Chunk { Text string, St
 // of its group is left, on every exit, a stop and a timeout included.
 //
 // law-exempt: the lifecycle is a property against a model over a fake
-// process (runtime/v1 TestRunningMatchesModel); a real program's streams
+// process (runtime/v1/exec TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
-extern go ergo.local/prototype/runtime/v1.Running type Running {
+extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	runtimeOnly(),
 	..Closer,
 	// Lines gives the lines of the streams whose sink is ToCaller, each
@@ -167,7 +167,7 @@ extern go ergo.local/prototype/runtime/v1.Running type Running {
 	// reads the chunks Chunks gives, so a caller may mix the two. A break
 	// or a stop leaves the bytes read and not given for the next Lines or
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
+	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
 	Lines() Seq[Line],
 	// Chunks gives the bytes of the streams whose sink is ToCaller as they
 	// are read, with no wait for a line feed, each stream's in its order,
@@ -176,7 +176,7 @@ extern go ergo.local/prototype/runtime/v1.Running type Running {
 	// caller's reading paces it. A tee is the caller's loop: write each
 	// Chunk where it goes and keep it. A break leaves the rest for the next
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
+	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
 	Chunks() Seq[Chunk],
 	// Wait waits for the program's end and gives its status, 128 plus the
 	// signal's number for a program a signal ended. It drops the bytes not
@@ -205,7 +205,7 @@ extern go ergo.local/prototype/runtime/v1.Running type Running {
 //	}
 func WaitFor(p Running, d duration) int fails timeout.Expired needs Scheduler { try waitFor(p, d) }
 
-extern go ergo.local/prototype/runtime/v1.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
+extern go ergo.local/prototype/runtime/v1/exec.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
 
 // WaitForEndedGivesStatus: a program that has ended gives the status Wait
 // gives, never Expired, whatever the deadline. A Script's Running has
@@ -330,7 +330,7 @@ func toCaller(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
+extern go ergo.local/prototype/runtime/v1/exec.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
 // command, whatever its status, and two commands whose arguments differ
@@ -373,7 +373,7 @@ func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
 	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
 
 // Start starts c on the host, in a process group of its own, with its
 // standard output and standard error going to s's sinks. A file sink that
@@ -382,7 +382,7 @@ func Start(_ Host, c Command, s Streams) Running fails NotFound | Denied | Faile
 	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
-// sinkKind is the runtime's number of a sink (runtime/v1 exec_start.go).
+// sinkKind is the runtime's number of a sink (runtime/v1/exec exec_start.go).
 func sinkKind(s Sink) int {
 	match s {
 	case Inherit:
@@ -414,4 +414,4 @@ func sinkAppends(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed

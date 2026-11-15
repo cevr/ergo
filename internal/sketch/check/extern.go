@@ -236,7 +236,7 @@ func (c *checker) runtimeDoor(f *Func) string {
 		return ""
 	}
 	path, name := f.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
+	if !v1.Owns(path) {
 		return fmt.Sprintf("extern go %s: a trusted package binds a body of %s/v1, whose calling convention the lowering reads; %s is the runtime's own (docs/spec/interop.md, Trusted Go)", target, runtimeModule, path)
 	}
 	if !BodyOf(f).Known {

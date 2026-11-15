@@ -205,7 +205,7 @@ func testBoundaryReleases(t *testing.T) {
 			if !ends(kinds[0]) {
 				go func() {
 					s.v.AwaitTimers(1)
-					s.v.Advance(time.Hour)
+					s.v.Advance(rt.Span(time.Hour))
 				}()
 			}
 			_ = runMain(func(root *rt.Task) error {

@@ -64,7 +64,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 			v = zero
 		}
 	}()
-	timer = s.NewTimer(d)
+	timer = s.NewTimer(Span(d))
 	h = spawn(t, span, false, false, body)
 	stop := t.Done()
 	m := raceParked(t, h, timer, stop)

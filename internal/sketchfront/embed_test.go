@@ -42,10 +42,10 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 				for i := range payload {
 					payload[i] = byte(rng.UintN(256))
 				}
-				files := map[string]string{"ergo.mod": "module app\n", "main.ergo": source + "func main() {}\n", "data/help.txt": string(payload)}
+				files := map[string]string{"ergo.mod": "module app\n", "main.ergo": source + "func main() {\n\t_ = Asset\n}\n", "data/help.txt": string(payload)}
 				assetPath := "data/help.txt"
 				if location == "imported" {
-					files = map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() {}\n", "lib/data/help.txt": string(payload)}
+					files = map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() {\n\t_ = Asset\n}\n", "lib/data/help.txt": string(payload)}
 					assetPath = "lib/data/help.txt"
 				}
 				root := writeTree(t, files)

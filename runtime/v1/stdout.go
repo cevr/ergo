@@ -53,8 +53,10 @@ type stdoutState struct {
 // The buffer's held flag is rt's (rt.OutputHeld), so that a task's wait
 // (rt.Task.Done) flushes it: a program that writes to a pipe and then
 // waits, on a sleep, a queue, a join, a child, the network or its input,
-// shows its output before the wait, with no timer.
-func init() { rt.SetWaitFlush(flushStdout) }
+// shows its output before the wait, with no timer. decide sets the flush
+// (rt.SetWaitFlush) before the first write the buffer keeps, not an init
+// function, which every program would run and link (binsize BS1).
+var waitFlushSet sync.Once
 
 // stdoutForcedDirect makes every later decision direct (StdoutDirect).
 var stdoutForcedDirect atomic.Bool
@@ -111,6 +113,9 @@ func (s *stdoutState) decide() {
 	s.file, s.w = os.Stdout, os.Stdout
 	s.direct = stdoutForcedDirect.Load() || stdoutIsTerminal(os.Stdout)
 	s.decided = true
+	if !s.direct {
+		waitFlushSet.Do(func() { rt.SetWaitFlush(flushStdout) })
+	}
 }
 
 // flushLocked writes the buffer to the host in one write. Called with mu

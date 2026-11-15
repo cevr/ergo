@@ -5,6 +5,7 @@
   "ergo.local/prototype/internal/migrate196": 1.5,
   "ergo.local/prototype/internal/residue": 3.6,
   "ergo.local/prototype/internal/rpcgen": 1.1,
+  "ergo.local/prototype/internal/sizes": 0.6,
   "ergo.local/prototype/internal/sketch/api": 1,
   "ergo.local/prototype/internal/sketch/check": 62.6,
   "ergo.local/prototype/internal/sketch/eval": 1.8,

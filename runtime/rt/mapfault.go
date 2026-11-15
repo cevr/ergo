@@ -1,8 +1,8 @@
 package rt
 
 import (
-	"fmt"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -37,7 +37,11 @@ type MappedFault struct {
 
 // Error names the file and the byte, then the runtime's text.
 func (f MappedFault) Error() string {
-	return fmt.Sprintf("fs: the mapped file %s changed under its mapping (another process truncated it?): no page at byte %d (%v)", f.Path, f.Offset, f.Cause)
+	cause := "<nil>"
+	if f.Cause != nil {
+		cause = f.Cause.Error()
+	}
+	return "fs: the mapped file " + f.Path + " changed under its mapping (another process truncated it?): no page at byte " + strconv.FormatUint(uint64(f.Offset), 10) + " (" + cause + ")"
 }
 
 // mapping is one live mapping: its address range and its file.

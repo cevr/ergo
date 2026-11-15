@@ -43,7 +43,6 @@ func TimeHostNow() Reading {
 // reading reads no wall clock (std-speed-1; time.Host's Since).
 //
 //ergo:host
-//
 //ergo:wait none
 func TimeHostMono() int64 { return int64(time.Since(hostStart)) }
 
@@ -81,7 +80,7 @@ func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 //
 //ergo:wait none
 func (l *Timeline) Read() Reading {
-	n := l.v.Now()
+	n := time.Unix(0, int64(l.v.Now()))
 	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
 }
 
@@ -113,7 +112,7 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	if d < 0 {
 		panic("time.Manual: Advance by a negative duration")
 	}
-	if err := l.v.AdvanceSettled(t, d); err != nil {
+	if err := l.v.AdvanceSettled(t, rt.Span(d)); err != nil {
 		if err == rt.AdvanceRunning {
 			panic("time.Manual: Advance while " + err.Error() + "; one task advances a clock")
 		}

@@ -117,7 +117,6 @@ func StringsBuilderText(buf []byte) string { return string(buf) }
 // append(buf, bs...).
 //
 //ergo:pure
-//
 //ergo:wait none
 func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf, bs...) }
 
@@ -136,7 +135,6 @@ func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf
 // inline it.
 //
 //ergo:pure
-//
 //ergo:wait none
 func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
 	if end := start + n; end <= len(buf) {
@@ -157,7 +155,6 @@ func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
 // StringsBytes is the bytes of s, a copy, as Go's []byte(s).
 //
 //ergo:pure
-//
 //ergo:wait none
 func StringsBytes(s string) []byte { return []byte(s) }
 
@@ -196,7 +193,6 @@ func StringsIndex(s, sub string) int { return strings.Index(s, sub) }
 // switch on the length of sub (std-speed-1).
 //
 //ergo:pure
-//
 //ergo:wait none
 func StringsIndexByte(s string, c byte) int { return strings.IndexByte(s, c) }
 
