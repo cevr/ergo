@@ -1228,9 +1228,25 @@
     {
       "name": "wg4-text-no-slide", "origin": "wf10/semws WG4",
       "file": "modules/work/classes/text.ergo",
-      "from": "\tfor e > 0 {\n",
-      "to": "\tfor e > 0 && false {\n",
+      "from": "\tfor s < len(side) {\n",
+      "to": "\tfor s < len(side) && false {\n",
       "rule": "Each side's insertion is slid to one place before the line merge, so a block both sides added is once (classes' OneBlockBothAddedIsOnce; mergereplay's duplicated test and client methods).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-text-slide-only-down", "origin": "wf10/semws WG4",
+      "file": "modules/work/classes/text.ergo",
+      "from": "\t\t\tfor s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] {\n",
+      "to": "\t\t\tfor s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] && false {\n",
+      "rule": "A run slides up first, joining the pieces of one block the pairing cut apart (classes' OneBlockBothAddedIsOnce).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-text-slide-only-up", "origin": "wf10/semws WG4",
+      "file": "modules/work/classes/text.ergo",
+      "from": "\t\t\tfor e < len(side) && owner[e] >= 0 && side[e] == side[s] {\n",
+      "to": "\t\t\tfor e < len(side) && owner[e] >= 0 && side[e] == side[s] && false {\n",
+      "rule": "A run ends as far down as it goes, off a change of the other side right above it (classes' InsertionAfterAChangeStaysApart; mergereplay case 197).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

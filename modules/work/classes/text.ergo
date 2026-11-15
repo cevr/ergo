@@ -152,13 +152,16 @@ func matches(a []string, b []string) []int {
 }
 
 // slid is the pairing m of base lines to the lines of side with each run
-// of side lines no base line pairs (an insertion) moved up as far as it
-// goes: while the line before the run is the run's last line, the base
-// line paired with the one before is paired with the last instead. An
-// insertion has many places when the lines around it repeat (a block
-// that ends as the one before it does); Git's diff (xdiff's change
-// compaction) picks one, and both sides of a merge must pick the same, or
-// one block both sides added is written twice.
+// of side lines no base line pairs (an insertion) moved as Git's diff
+// (xdiff's change compaction) moves it: up as far as it goes, joining
+// the runs it meets, then down as far as it goes. A run moves up while the
+// line before it is its last line (the base line paired with the one
+// before is paired with the last instead), and down while the line after
+// it is its first. An insertion has many places when the lines around it
+// repeat (a block that ends as the one before it does), and both sides of
+// a merge must pick the same, or one block both sides added is written
+// twice; up joins the pieces of one block the pairing cut apart, and down
+// keeps it off a change of the other side right above it.
 func slid(m []int, side []string) []int {
 	let mut out = m
 	let mut owner = []int{}
@@ -170,26 +173,50 @@ func slid(m []int, side []string) []int {
 			owner[j] = i
 		}
 	}
-	let mut e = len(side)
-	for e > 0 {
-		// The run of unpaired lines that ends at e.
-		let mut s = e
-		for s > 0 && owner[s-1] < 0 {
-			s = s - 1
+	let mut s = 0
+	for s < len(side) {
+		// The run of unpaired lines that starts at s.
+		let mut e = s
+		for e < len(side) && owner[e] < 0 {
+			e = e + 1
 		}
 		if s == e {
-			e = e - 1
+			s = s + 1
 			continue
 		}
-		for s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] {
-			let i = owner[s-1]
-			out[i] = e - 1
-			owner[e-1] = i
-			owner[s-1] = -1
-			s = s - 1
-			e = e - 1
+		let mut moved = true
+		for moved {
+			moved = false
+			for s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] {
+				let i = owner[s-1]
+				out[i] = e - 1
+				owner[e-1] = i
+				owner[s-1] = -1
+				s = s - 1
+				e = e - 1
+				moved = true
+			}
+			for s > 0 && owner[s-1] < 0 {
+				s = s - 1
+			}
 		}
-		e = s
+		moved = true
+		for moved {
+			moved = false
+			for e < len(side) && owner[e] >= 0 && side[e] == side[s] {
+				let i = owner[e]
+				out[i] = s
+				owner[s] = i
+				owner[e] = -1
+				s = s + 1
+				e = e + 1
+				moved = true
+			}
+			for e < len(side) && owner[e] < 0 {
+				e = e + 1
+			}
+		}
+		s = e
 	}
 	out
 }
@@ -263,4 +290,23 @@ law OneBlockBothAddedIsOnce(n int, extra bool) {
 	}
 	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
 	got.Clashes == 0 && Text(got) == strings.Join(theirs, "\n")
+}
+
+// InsertionAfterAChangeStaysApart: theirs changes the first line, ours
+// adds a block that ends as the line after the first does (a blank line):
+// the block has two places, right after the first line or after the
+// blank. Git's is the later one, apart from theirs' change, and the merge
+// is clean; at the earlier one it touches theirs' change and clashes.
+law InsertionAfterAChangeStaysApart(n int, lines int) {
+	let mut block = []string{}
+	for i in 0..(((lines%3)+3)%3 + 1) {
+		block = block.Append("b\(n) \(i)")
+	}
+	block = block.Append("")
+	let base = []string{"x", "", "y"}
+	let ours = slicesAppend(slicesAppend([]string{"x", ""}, block), []string{"y"})
+	let theirs = []string{"x2", "", "y"}
+	let want = slicesAppend(slicesAppend([]string{"x2", ""}, block), []string{"y"})
+	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
+	got.Clashes == 0 && Text(got) == strings.Join(want, "\n")
 }
