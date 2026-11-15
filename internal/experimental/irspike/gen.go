@@ -231,6 +231,10 @@ func (g *gen) value(t gtype, d int) string {
 
 // stmt writes one statement of a function whose result is res.
 func (g *gen) stmt(res gtype, budget int) {
+	if g.depth == 1 && res == tStr && g.n(4) == 0 {
+		g.values() // gen_values.go
+		return
+	}
 	in := g.indent()
 	switch k := g.n(14); {
 	case k < 5 || budget <= 0:
