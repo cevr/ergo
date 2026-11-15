@@ -576,10 +576,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"ActorRecovering": {task: true},
 	// RT-HOOK: a named point runs the functions a test armed there on the
 	// caller's task (their function values take it) and never waits by
-	// itself; At only records its function. Neither reaches a run build
-	// (hook.go).
+	// itself; At records its function and the caller's clock domain, whose
+	// stall it watches for. Neither reaches a run build (hook.go).
 	"HookPoint": {task: true},
-	"HookAt":    {},
+	"HookAt":    {task: true},
 	"Host.Get":  {wait: callerWait},
 	// std ui's trace (NS3's `ergo test --trace`): traced reads whether the
 	// running task's tree records a trace, and traceStep records a step

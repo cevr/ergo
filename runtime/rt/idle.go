@@ -76,11 +76,14 @@ func NewManual(t *Task, start time.Time) *Virtual {
 func newDomain(t *Task, start time.Time) *Virtual {
 	v := NewVirtual(start)
 	v.domain = true
+	var up *Virtual
 	if old := t.member.Load(); old != nil {
+		up = old.v
 		old.leave()
 	}
 	v.live = 1
 	t.member.Store(&member{v: v})
+	domainMade(v, up) // stall.go
 	return v
 }
 
@@ -102,8 +105,12 @@ func (m *member) leave() {
 	v.mu.Lock()
 	m.release()
 	v.live--
+	empty := v.live == 0
 	v.idle()
 	v.mu.Unlock()
+	if empty {
+		domainEmpty(v) // stall.go; outside v.mu, which the watch takes after its own
+	}
 }
 
 // release clears m's parked flag. v.mu is held.
@@ -239,6 +246,7 @@ func (v *Virtual) idle() {
 		close(v.change)
 		v.change = nil
 	}
+	kickStalls() // stall.go
 	if !v.auto || v.live == 0 || v.parked < v.live || len(v.timers) == 0 {
 		return
 	}

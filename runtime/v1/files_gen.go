@@ -203,7 +203,7 @@ var bodyTable = map[string]bodyFact{
 	"HexDecode":                 {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string", "error"}, Pure: true}},
 	"HexEncode":                 {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Pure: true}},
 	"HexMalformed.Error":        {body: Body{Results: []string{"string"}}},
-	"HookAt":                    {body: Body{Params: []Param{{Type: "string"}, {Type: "func(*rt.Task)", Func: &Body{Hidden: []Hidden{"task"}}}}}},
+	"HookAt":                    {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "func(*rt.Task)", Func: &Body{Hidden: []Hidden{"task"}}}}}},
 	"HookPoint":                 {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}}},
 	"Host.Get":                  {body: Body{TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"A", "error"}}},
 	"HostRoot.Name":             {body: Body{Hidden: []Hidden{"task"}, Results: []string{"string"}}},
