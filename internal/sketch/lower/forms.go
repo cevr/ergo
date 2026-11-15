@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"go/constant"
 	"go/scanner"
 	"go/token"
 	"sort"
@@ -349,20 +350,24 @@ func (l *lowerer) constFold(v *check.Var) bool {
 					}
 				}
 			}
+			// A read is counted once, though it may be both a place's
+			// operand and inside a larger constant expression in a place.
+			safe := map[*syntax.Ident]bool{}
 			for _, f := range p.Files() {
 				syntax.Inspect(f, func(n syntax.Node) bool {
 					for _, x := range l.constUses(n) {
-						if id, ok := unparen(x).(*syntax.Ident); ok {
-							if u, ok := l.info.Uses[id].(*check.Var); ok {
-								if c, counted := l.letUses[u]; counted {
-									c[1]++
-									l.letUses[u] = c
-								}
-							}
-						}
+						l.markSafe(x, safe)
 					}
 					return true
 				})
+			}
+			for id := range safe {
+				if u, ok := l.info.Uses[id].(*check.Var); ok {
+					if c, counted := l.letUses[u]; counted {
+						c[1]++
+						l.letUses[u] = c
+					}
+				}
 			}
 		}
 	}
@@ -372,16 +377,21 @@ func (l *lowerer) constFold(v *check.Var) bool {
 
 // constUses are the operands of n that a constant may take with no
 // compile-time fold that can fail: a comparison's operands, an operand of
-// + - * whose other operand is not constant, a dividend, an assigned,
-// bound, returned or yielded value, a composite literal's element value
-// and an argument of a call that is not a conversion.
+// + - * & | ^ &^ whose other operand is not constant, a dividend, a
+// divisor that is a constant other than zero under a variable dividend,
+// a shifted constant under a variable count, a constant count in range
+// under a variable shifted value, a constant string indexed by a
+// variable, an assigned, bound, returned or yielded value, a composite
+// literal's element value and an argument of a call that is not a
+// conversion. An operand that is a larger constant expression is a safe
+// place for its lets only when no fold inside it can fail (markSafe).
 func (l *lowerer) constUses(n syntax.Node) []syntax.Expr {
 	switch n := n.(type) {
 	case *syntax.BinaryExpr:
 		switch n.Op {
 		case syntax.EQL, syntax.NEQ, syntax.LSS, syntax.LEQ, syntax.GTR, syntax.GEQ:
 			return []syntax.Expr{n.X, n.Y}
-		case syntax.ADD, syntax.SUB, syntax.MUL:
+		case syntax.ADD, syntax.SUB, syntax.MUL, syntax.AND, syntax.OR, syntax.XOR, syntax.AND_NOT:
 			var out []syntax.Expr
 			if !l.constLike(n.Y) {
 				out = append(out, n.X)
@@ -390,10 +400,29 @@ func (l *lowerer) constUses(n syntax.Node) []syntax.Expr {
 				out = append(out, n.Y)
 			}
 			return out
+		case syntax.SHL, syntax.SHR:
+			// A constant shifted by a variable count; a variable shifted
+			// by a constant count in range (Go refuses a negative one).
+			if !l.constLike(n.Y) {
+				return []syntax.Expr{n.X}
+			}
+			if !l.constLike(n.X) && l.countInRange(n) {
+				return []syntax.Expr{n.Y}
+			}
 		case syntax.QUO, syntax.REM:
 			if !l.constLike(n.Y) {
 				return []syntax.Expr{n.X}
 			}
+			// A variable divided by a constant that is not zero.
+			if v := l.constValue(n.Y); !l.constLike(n.X) && v != nil && v.Kind() == constant.Int && constant.Sign(v) != 0 {
+				return []syntax.Expr{n.Y}
+			}
+		}
+	case *syntax.IndexExpr:
+		// A constant string indexed by a variable: only a constant index
+		// out of range fails a fold.
+		if b, ok := l.info.Types[n.X].(*check.Basic); ok && b.Kind == check.String && len(n.Indices) == 1 && !l.constLike(n.Indices[0]) {
+			return []syntax.Expr{n.X}
 		}
 	case *syntax.AssignStmt:
 		switch n.Tok {
@@ -459,4 +488,157 @@ func (l *lowerer) constLike(x syntax.Expr) bool {
 		}
 	}
 	return false
+}
+
+// markSafe records the let reads of x, an operand in a place where a
+// constant is safe (constUses): x itself when it is a name, else every
+// name in x when x is a constant expression none of whose folds can fail
+// (foldSafe), as `clsLetter|clsDigit` and `int(limit)` are.
+func (l *lowerer) markSafe(x syntax.Expr, safe map[*syntax.Ident]bool) {
+	x = unparen(x)
+	if id, ok := x.(*syntax.Ident); ok {
+		safe[id] = true
+		return
+	}
+	if !l.constLike(x) || !l.foldSafe(x) {
+		return
+	}
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if id, ok := n.(*syntax.Ident); ok {
+			safe[id] = true
+		}
+		return true
+	})
+}
+
+// foldSafe reports whether Go's fold of the constant expression x cannot
+// fail: its leaves are names and checked literals, and its operators are
+// & | ^ &^ and comparisons, a right shift by a constant count in range,
+// and a conversion of a value that fits its integer type (or of a bool or
+// string to its own kind). Any other operator, as + - * / % << and a
+// unary minus, may overflow or divide by zero and is not safe.
+func (l *lowerer) foldSafe(x syntax.Expr) bool {
+	switch x := x.(type) {
+	case *syntax.Ident:
+		return true
+	case *syntax.BasicLit:
+		_, ok := l.info.Values[x]
+		return ok
+	case *syntax.ParenExpr:
+		return l.foldSafe(x.X)
+	case *syntax.BinaryExpr:
+		switch x.Op {
+		case syntax.AND, syntax.OR, syntax.XOR, syntax.AND_NOT,
+			syntax.EQL, syntax.NEQ, syntax.LSS, syntax.LEQ, syntax.GTR, syntax.GEQ:
+			return l.foldSafe(x.X) && l.foldSafe(x.Y)
+		case syntax.SHR:
+			return l.foldSafe(x.X) && l.foldSafe(x.Y) && l.countInRange(x)
+		}
+	case *syntax.CallExpr:
+		if c := l.info.Calls[x]; c != nil && c.Kind == check.CallConversion && len(x.Args) == 1 {
+			return l.foldSafe(x.Args[0]) && l.fits(x.Args[0], l.info.Types[x])
+		}
+	}
+	return false
+}
+
+// countInRange reports whether the shift s has a constant count in [0,
+// the bit width of its shifted operand's type).
+func (l *lowerer) countInRange(s *syntax.BinaryExpr) bool {
+	bits := intBits(l.info.Types[s.X])
+	c := l.constValue(s.Y)
+	if bits == 0 || c == nil || c.Kind() != constant.Int {
+		return false
+	}
+	n, exact := constant.Int64Val(c)
+	return exact && n >= 0 && n < int64(bits)
+}
+
+// fits reports whether the constant x converts to the type to with no
+// Go compile error: an integer whose value to holds, or a bool or string
+// converted to its own kind.
+func (l *lowerer) fits(x syntax.Expr, to check.Type) bool {
+	from, ok := l.info.Types[x].(*check.Basic)
+	dst, ok2 := to.(*check.Basic)
+	if !ok || !ok2 {
+		return false
+	}
+	switch {
+	case from.Kind == check.Bool || from.Kind == check.String:
+		return dst.Kind == from.Kind
+	case intBits(from) == 0 || intBits(dst) == 0:
+		return false
+	}
+	v := l.constValue(x)
+	if v == nil || v.Kind() != constant.Int {
+		return false
+	}
+	bits := intBits(dst)
+	lo, hi := constant.MakeInt64(0), constant.Shift(constant.MakeUint64(1), token.SHL, uint(bits))
+	if dst.Kind >= check.Int && dst.Kind <= check.Int64 {
+		half := constant.Shift(constant.MakeUint64(1), token.SHL, uint(bits-1))
+		lo, hi = constant.UnaryOp(token.SUB, half, 0), half
+	}
+	return constant.Compare(v, token.GEQ, lo) && constant.Compare(v, token.LSS, hi)
+}
+
+// intBits is the bit width of the integer type t (int and uint are 64
+// bits on every Go target Ergo builds for), or 0.
+func intBits(t check.Type) int {
+	b, ok := t.(*check.Basic)
+	if !ok {
+		return 0
+	}
+	switch b.Kind {
+	case check.Int8, check.Uint8:
+		return 8
+	case check.Int16, check.Uint16:
+		return 16
+	case check.Int32, check.Uint32:
+		return 32
+	case check.Int, check.Int64, check.Uint, check.Uint64, check.Uintptr:
+		return 64
+	}
+	return 0
+}
+
+// constValue is the exact value of the constant expression x when the
+// lowering knows it: a checked constant, a let lowered as a Go constant,
+// or a foldSafe operator over such; else nil.
+func (l *lowerer) constValue(x syntax.Expr) constant.Value {
+	x = unparen(x)
+	if v, ok := l.info.Values[x]; ok {
+		return v
+	}
+	switch x := x.(type) {
+	case *syntax.Ident:
+		if v, ok := l.info.Uses[x].(*check.Var); ok && l.consts[v] {
+			return l.constVals[v]
+		}
+	case *syntax.BinaryExpr:
+		a, b := l.constValue(x.X), l.constValue(x.Y)
+		if a == nil || b == nil || a.Kind() != constant.Int || b.Kind() != constant.Int {
+			return nil
+		}
+		switch x.Op {
+		case syntax.AND:
+			return constant.BinaryOp(a, token.AND, b)
+		case syntax.OR:
+			return constant.BinaryOp(a, token.OR, b)
+		case syntax.XOR:
+			return constant.BinaryOp(a, token.XOR, b)
+		case syntax.AND_NOT:
+			return constant.BinaryOp(a, token.AND_NOT, b)
+		case syntax.SHR:
+			if l.countInRange(x) {
+				n, _ := constant.Uint64Val(b)
+				return constant.Shift(a, token.SHR, uint(n))
+			}
+		}
+	case *syntax.CallExpr:
+		if c := l.info.Calls[x]; c != nil && c.Kind == check.CallConversion && len(x.Args) == 1 && l.fits(x.Args[0], l.info.Types[x]) {
+			return l.constValue(x.Args[0])
+		}
+	}
+	return nil
 }
