@@ -12,16 +12,16 @@
     {
       "name": "fk1-start-while-running-reenters", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\tcase (Running, Start), (Stopped, Stop):\n\t\tIgnore\n",
-      "to": "\tcase (Running as r, Start):\n\t\tEnter[Watch]{Next: Running{Before: r.Elapsed, Since: at, Elapsed: r.Elapsed}}\n\tcase (Stopped, Stop):\n\t\tIgnore\n",
+      "from": "\tcase (Running, Start), (Stopped, Stop), (Starting, Stop), (Stopping, Start):\n\t\tIgnore\n",
+      "to": "\tcase (Running as r, Start):\n\t\tEnter[Watch]{Next: Running{Before: r.Elapsed, Since: at, Elapsed: r.Elapsed}}\n\tcase (Stopped, Stop), (Starting, Stop), (Stopping, Start):\n\t\tIgnore\n",
       "rule": "A start while running keeps the entry: restarting the run from the shown time would lose the clock's time since the last tick (law ShownIsClockElapsed).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
       "name": "fk1-stop-zeros", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
-      "to": "\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
+      "from": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}\n",
+      "to": "\tcase (Running as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
       "rule": "Stop keeps the time.",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
