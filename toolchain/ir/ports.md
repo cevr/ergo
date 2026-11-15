@@ -11,7 +11,7 @@ go run ./scripts/irport -goroot DIR -work NEW_DIR -noder
 `irport` checks the patch against `lock`, copies the Go installation into `NEW_DIR`, applies the patch with ergo's own applier (`toolchain.ApplyPatch`; a rejected hunk is a conflict), builds the patched `cmd/compile`, runs the noder tests, and checks **stock equivalence**: without `-ergoir`, the patched compiler builds every example binary byte for byte as the pristine one does. It prints the row. Then run the agreement tests with the ported compiler (`ERGO_IRSPIKE_GOROOT_IR=NEW_DIR/goroot`, `ERGO_IRSPIKE_GOROOT_SOURCE=DIR`):
 
 ```
-go test -count=1 -run 'TestIRMatchesSource|TestIRAgreesOnExamples|TestIRBodyThatDoesNotCheck' ./internal/experimental/irspike
+go test -count=1 -run 'TestIRMatchesSource|TestIRFailuresMatchSource|TestIRUnionsMatchSource|TestIRAgreesOnExamples|TestIRBodyThatDoesNotCheck' ./internal/experimental/irspike
 ```
 
 A port that passes adds the line `port <release> <patch>` to `lock`: ergo builds only with a release that has one (`internal/toolchain`, Patch). A failed port pins ergo to the last ported release; a failed security-release port goes to the owner at once.

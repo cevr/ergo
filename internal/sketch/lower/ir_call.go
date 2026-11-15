@@ -73,8 +73,20 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
 	case check.CallFunc:
 		f := c.Func
-		if f == nil || f.Pkg != b.l.pkg || check.GoBuiltin(f) != "" || userExtern(f) {
-			irNo("call of a function outside the package")
+		switch {
+		case f == nil:
+			irNo("call without a function")
+		case check.GoBuiltin(f) != "":
+			irNo("call of a Go builtin")
+		case userExtern(f):
+			irNo("call of a user extern")
+		}
+		// A function of another Ergo package of the program, or a std
+		// function with an Ergo body, is a function of the one Go package
+		// the program lowers to, by its Go name; a std extern calls its
+		// runtime/v1 body (ir_pkg.go).
+		if f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil {
+			return b.stdCall(x, c, f, p)
 		}
 		fd := b.l.useFunc(f, x)
 		switch {

@@ -52,6 +52,21 @@ func TestIRCensusFindsEveryReason(t *testing.T) {
 				t.Fatalf("seed %d: %s is lowered by IR, and the census names %v\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIRCensusFindsEveryReason ./internal/experimental/irspike\n%s", seed, f.Name, f.Reasons, seed, text)
 			}
 		}
+		// No generated function inside the subset has a reason of the
+		// units the subset covers (G1): a construct the generator writes
+		// there and the builder refuses is a regression of the builder.
+		// A reason of a later unit can arise from the program's shape (the
+		// value rule's copy of a shared record, G4).
+		for fn, reasons := range got {
+			if _, src := planted[fn]; src || !strings.HasPrefix(fn, "f") || strings.Trim(fn[1:], "0123456789") != "" {
+				continue
+			}
+			for _, r := range reasons {
+				if UnitOf(r) == "G1" {
+					t.Fatalf("seed %d: %s is in the IR subset, and the census names %v\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIRCensusFindsEveryReason ./internal/experimental/irspike\n%s", seed, fn, reasons, seed, text)
+				}
+			}
+		}
 		for fn, want := range planted {
 			if len(want) > 1 {
 				multi++

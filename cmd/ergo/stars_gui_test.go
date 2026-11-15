@@ -79,7 +79,7 @@ func TestStarsGuiAgreesWithControl(t *testing.T) {
 			}{ergoBin, append([]string{"scene"}, args[1:]...)})
 		}
 		for _, run := range runs {
-			got := runCorpus(t, run.bin, dir, run.args, script)
+			got := runGUICorpus(t, run.bin, dir, run.args, script)
 			if got != want {
 				t.Fatalf("seed %d (%d rows high): %s %s printed other text than the reference\n%s\nreplay: STARS_SEED=%d go test -count=1 -run '^TestStarsGuiAgreesWithControl$' ./cmd/ergo",
 					seed, height, filepath.Base(run.bin), run.args[0], firstDiff(got, want), seed)

@@ -204,6 +204,8 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"typeCtx.funcType":         "a function type, which has no body",
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
+		"irBuilder.withOperand":    "the IR's with: the Env copy and its pointer, locals of the body (ir_with.go, IRG6)",
+		"irBuilder.opsConv":        "the IR's operations adapter: a nil *Env where no environment is bound, no closure (ir_with.go, IRG6)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

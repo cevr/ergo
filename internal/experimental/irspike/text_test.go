@@ -1,13 +1,11 @@
 package irspike
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,8 +21,8 @@ import (
 //   - the printed module builds with the derivative without -ergoir, so
 //     Go's own parser and types2 check the IR bodies, independently of the
 //     IR decoder's checks;
-//   - go vet finds nothing in the IR bodies (the source emitter's bodies
-//     of the same module are not this test's);
+//   - go vet finds nothing in the printed module (the IR bodies and the
+//     source emitter's bodies around them);
 //   - each IR function's structure as compiled from the text
 //     (-ergoirshape) equals its structure as compiled from the IR: the
 //     text is what was compiled, not only Go that checks (mutant
@@ -41,6 +39,39 @@ var irText = newSplit(split[exampleTarget]{
 	key:   exampleTarget.key,
 	run:   textCheckOn,
 })
+
+// TestIRTextRepros checks the Go text of the smallest repros of fixed
+// bugs, each with the function it needs an IR body of:
+//   - duplocals (TXT r1): two try temporaries of one scope were both
+//     named v and err, so the text did not compile, or := reused the
+//     first variable (mutant ir-temp-name-reused);
+//   - shadow (IRG3b): a source local kept its Ergo spelling, so a local
+//     named strconv shadowed the package its int's text calls (mutant
+//     ir-local-raw-spelling);
+//   - pollend (IRG3b): a loop body ending in a return or a break was
+//     followed by its back-edge poll, unreachable code to go vet
+//     (mutant ir-loop-poll-after-terminating-body).
+//
+// It builds Go for the reason TestIRTextChecks does.
+func TestIRTextRepros(t *testing.T) {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}} {
+		t.Run(r.name, func(t *testing.T) {
+			dir := filepath.Join("testdata", r.name+".ergo")
+			u, err := Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, rep, err := lower.LowerIRTests(u)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(rep.IR, r.fn) {
+				t.Fatalf("%s: %s has no IR body: %v", r.name, r.fn, rep.Fallback)
+			}
+			textCheckOn(t, exampleTarget{dir: dir, test: true})
+		})
+	}
+}
 
 // textCheckOn checks the Go text of one target's IR bodies.
 func textCheckOn(t *testing.T, target exampleTarget) {
@@ -81,15 +112,8 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 		var out strings.Builder
 		vet.Stdout, vet.Stderr = &out, &out
 		if _, err := Measure(vet); err != nil {
-			// Vet reports the source emitter's bodies too; a finding is
-			// the IR's when it lies in an IR body's .ergo lines.
-			if found, ok := irVetFindings(t, files, out.String()); !ok || len(found) > 0 {
-				t.Errorf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, strings.Join(found, "\n"), replay)
-				if !ok {
-					t.Log(out.String())
-				}
-				return
-			}
+			t.Errorf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, out.String(), replay)
+			return
 		}
 		compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
 		for _, fn := range rep.IR {
@@ -112,43 +136,6 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 	if funcs > 0 {
 		t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
 	}
-}
-
-// irVetFindings are the lines of vet's output at positions inside an IR
-// body (its .ergo file, from its first to its last line); ok is false when
-// vet failed with no finding at an .ergo position at all.
-func irVetFindings(t *testing.T, files []lower.File, out string) (found []string, ok bool) {
-	t.Helper()
-	var ir struct {
-		Files []string `json:"files"`
-		Funcs []struct {
-			Pos [3]int `json:"pos"`
-			End [3]int `json:"end"`
-		} `json:"funcs"`
-	}
-	for _, f := range files {
-		if f.Path == lower.IRFileName {
-			if err := json.Unmarshal(f.Data, &ir); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	at := regexp.MustCompile(`^(.+\.ergo):(\d+):\d+: `)
-	for _, l := range strings.Split(out, "\n") {
-		m := at.FindStringSubmatch(l)
-		if m == nil {
-			continue
-		}
-		ok = true
-		line, _ := strconv.Atoi(m[2])
-		for _, fn := range ir.Funcs {
-			if fn.Pos[0] >= 0 && fn.Pos[0] < len(ir.Files) && ir.Files[fn.Pos[0]] == m[1] && fn.Pos[1] <= line && line <= fn.End[1] {
-				found = append(found, l)
-				break
-			}
-		}
-	}
-	return found, ok
 }
 
 // readShapes reads an -ergoirshape file: function name -> its structure.

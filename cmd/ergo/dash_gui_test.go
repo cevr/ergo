@@ -56,7 +56,7 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		want := corpusOutput(dashReference(bank, script), "", 0)
 		args := []string{"play", "-seed", strconv.Itoa(bank)}
 		for _, bin := range []string{ergoBin, control} {
-			got := runCorpus(t, bin, t.TempDir(), args, script)
+			got := runGUICorpus(t, bin, t.TempDir(), args, script)
 			if got != want {
 				t.Fatalf("seed %d: %s printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
 					seed, filepath.Base(bin), firstDiff(got, want), seed)
@@ -70,7 +70,7 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		if seed%5 == 0 || seeds == 1 {
 			scene := dashScene(r)
 			want := corpusOutput(dashReference(bank, dashSceneAsPlay(scene)), "", 0)
-			got := runCorpus(t, ergoBin, t.TempDir(), []string{"scene", "-seed", strconv.Itoa(bank)}, scene)
+			got := runGUICorpus(t, ergoBin, t.TempDir(), []string{"scene", "-seed", strconv.Itoa(bank)}, scene)
 			if got != want {
 				t.Fatalf("seed %d: the scene printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
 					seed, firstDiff(got, want), seed)

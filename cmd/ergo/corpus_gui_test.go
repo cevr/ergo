@@ -65,9 +65,9 @@ func buildCorpusControl(t *testing.T, work, name string) string {
 	return bin
 }
 
-// runCorpus runs bin in dir with args and stdin, and is its stdout,
+// runGUICorpus runs bin in dir with args and stdin, and is its stdout,
 // stderr and exit status as one text.
-func runCorpus(t *testing.T, bin, dir string, args []string, stdin string) string {
+func runGUICorpus(t *testing.T, bin, dir string, args []string, stdin string) string {
 	t.Helper()
 	command := exec.Command(bin, args...)
 	command.Dir = dir
@@ -86,7 +86,7 @@ func runCorpus(t *testing.T, bin, dir string, args []string, stdin string) strin
 	return corpusOutput(stdout.String(), stderr.String(), code)
 }
 
-// corpusOutput is a run's output as runCorpus writes it.
+// corpusOutput is a run's output as runGUICorpus writes it.
 func corpusOutput(stdout, stderr string, code int) string {
 	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s\nstatus %d\n", stdout, stderr, code)
 }

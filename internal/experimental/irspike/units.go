@@ -20,10 +20,16 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"unnamed parameter", "G1"},
 	{"name that is not a local", "G1"},
 	{"expression *syntax.InterpolatedString", "G1"},
-	{"scalar-form local", "G1"},
-	{"expression statement that is not a call", "G1"},
+	{"interpolated string form", "G1"},
+	// Statement kinds of other units first: the first match wins.
+	{"expression statement *syntax.TryExpr", "G2"},
+	{"expression statement *syntax.CatchExpr", "G2"},
+	{"expression statement *syntax.FuncLit", "G6"},
+	{"expression statement *", "G1"},
 	{"expression *syntax.IfStmt", "G1"},
-	{"trailing block", "G1"},
+	{"break or continue outside a loop", "G1"},
+	{"result statement *syntax.RangeStmt", "G1"},
+	{"assignment form several", "G1"},
 	{"type *check.Tuple", "G1"},
 	{"expression *syntax.TupleExpr", "G1"},
 	{"let without a variable", "G1"},
@@ -74,6 +80,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
+	{"owned local", "G2"},
+	{"owned temporary", "G2"},
+	{"statement that releases owned values", "G2"},
+	{"op-assignment of a value with statements", "G2"},
 	{"untried fallible call", "G2"},
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
@@ -84,7 +94,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
 	{"continue in a polling loop", "G2"},
-	{"return of a value from a function with none", "G2"},
 	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"call of a pointer-receiver method", "G4"},
@@ -93,23 +102,55 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call that passes witnesses", "G4"},
 	{"call with a call site", "G4"},
 	{"call that captures owners", "G4"},
-	{"catch with patterns", "G3"},         // record patterns, case err, case _: the match tree's
 	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},
-	{"result statement *syntax.TypeSwitchStmt", "G3"},
-	{"statement *syntax.TypeSwitchStmt", "G3"},
-	{"expression *syntax.TypeSwitchStmt", "G3"},
-	{"result statement *syntax.SwitchStmt", "G3"},
-	{"statement *syntax.SwitchStmt", "G3"},
-	{"expression *syntax.SwitchStmt", "G3"},
-	{"implicit conversion", "G3"},
+	// A match or an if inside an operand that is not a call's or a
+	// binary operator's at the value's top (IRG3b takes those, in operand
+	// order): deeper, hoisting it would move it before the operands to its
+	// left.
+	{"expression *syntax.TypeSwitchStmt", "G3b"},
+	{"expression *syntax.SwitchStmt", "G3b"},
+	{"implicit conversion", "G3b"}, // a conversion kind the builder does not know
+	{"constant of type *", "G3"},
+	// G3b (IRG3's follow-up): the match tree, scalar-form locals.
+	// A loop-carried union local in tag-and-slots form (scalar.go): a
+	// union representation decision; a read deep in an expression gathers
+	// with statements.
+	{"scalar-form local of a type parameter", "G4"},
+	{"scalar-form local *", "G3b"},
+	{"op-assignment of a scalar-form local", "G3b"},
+	{"match with patterns", "G3b"}, // the flat lowering of a tree (flatPatternMatch)
+	{"match tree *", "G3b"},
+	{"match binding of another type", "G3b"},
+	{"shared arm binding that its first leaf does not make", "G3b"},
+	{"record pattern of an unnamed type", "G3b"},
+	{"interpolated value of type *", "G3b"},
+	{"interpolated named duration", "G3b"},
+	// A machine's value is ergo.Machine, a generic std record: its bodies
+	// stop at G4's generic types first (no census body reaches these).
+	{"machine conversion", "G4"},
+	{"machine value", "G4"},
+	{"type defined over a non-basic type", "G3b"},
+	{"value of a type defined over a flat union", "G3b"},
+	{"value of another type", "G3b"},
+	{"match on a value that is no union", "G3b"},
+	{"match on a value of type *", "G3b"},
+	{"match subject that releases owned values", "G2"},
+	{"match on Get", "G4"}, // a Map read: the comma-ok form (getmatch.go)
+	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"call of a function outside the package", "G4"},
 	{"generic or task call", "G4"},
-	{"deep type", "G4"},
+	// IRG4 calls other packages' functions and std externs with a plain
+	// runtime/v1 body; these call forms remain.
+	{"call without a function", "G4"},
+	{"call of a Go builtin", "G4"},
+	{"call of a user extern", "G4"},
+	{"call of a std intrinsic", "G4"},
+	{"dot call of a std function", "G4"},
+	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Signature", "G4"},
@@ -127,12 +168,25 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"copy for a known record", "G4"},
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
+	{"value copy", "G4"}, // the value rule's copy (values.go)
 	// G5: std bodies.
-	{"library body", "G5"},
-	{"intrinsic body", "G5"},
+	// A library body takes an IR body as a sourced one does (IRG5).
+	// An extern's body is the lowerer's Go text (Append, Get, Put,
+	// Delete, Sleep): Go by plan-tier §1.4 (hand-written Go compiles as
+	// Go), not an Ergo body the IR expresses (IRG5).
+	{"intrinsic body", "Go"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
 	{"expression *syntax.FuncLit", "G6"},
+	{"trailing block", "G6"}, // a call's trailing block that is not a with's
+	{"context value", "G6"},
+	// IRG6 lowers a with of named, inline and local contexts, and the
+	// operations conversion its providers take (IRG4 left both); the
+	// withs and conversions below stay the emitter's.
+	{"with *", "G6"},
+	{"context entry *", "G6"},
+	{"operations conversion *", "G6"},
+	{"generic operations conversion", "G6"},
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed

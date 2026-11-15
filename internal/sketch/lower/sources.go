@@ -167,6 +167,17 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 		_, path, line, column = l.at(n, pos)
 		return path, line, column
 	}
+	sf, ok := l.stdFileOf(n)
+	if !ok {
+		ice(n, "a location of a node that no source file holds")
+	}
+	line, column = sf.file.Position(pos)
+	return sf.path, line, column
+}
+
+// stdFileOf is the embedded std file that holds n, of a std package the
+// program reaches (locate).
+func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	if l.stdSrc == nil {
 		l.stdSrc = map[syntax.Node]stdFile{}
 		for _, p := range l.libraries() {
@@ -188,11 +199,7 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 		}
 	}
 	sf, ok := l.stdSrc[n]
-	if !ok || n == nil {
-		ice(n, "a location of a node that no source file holds")
-	}
-	line, column = sf.file.Position(pos)
-	return sf.path, line, column
+	return sf, ok && n != nil
 }
 
 // eachDecl runs f on each top-level declaration of p's files, in file

@@ -59,7 +59,7 @@ func TestDrawGuiAgreesWithControl(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := runCorpus(t, bin, dir, []string{"play", "pic.svg"}, script)
+			got := runGUICorpus(t, bin, dir, []string{"play", "pic.svg"}, script)
 			if got != want {
 				t.Fatalf("seed %d: %s printed other text than the reference\n%s\nreplay: DRAW_SEED=%d go test -count=1 -run '^TestDrawGuiAgreesWithControl$' ./cmd/ergo",
 					seed, filepath.Base(bin), firstDiff(got, want), seed)
@@ -87,7 +87,7 @@ func TestDrawGuiAgreesWithControl(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := runCorpus(t, ergoBin, dir, []string{"scene", "pic.svg"}, script)
+			got := runGUICorpus(t, ergoBin, dir, []string{"scene", "pic.svg"}, script)
 			if got != want {
 				t.Fatalf("seed %d: the scene printed other text than the reference\n%s\nreplay: DRAW_SEED=%d go test -count=1 -run '^TestDrawGuiAgreesWithControl$' ./cmd/ergo",
 					seed, firstDiff(got, want), seed)

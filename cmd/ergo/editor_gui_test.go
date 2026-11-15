@@ -74,7 +74,7 @@ func TestEditorGuiAgreesWithControl(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := runCorpus(t, bin, dir, []string{l.command, "doc.txt"}, script)
+			got := runGUICorpus(t, bin, dir, []string{l.command, "doc.txt"}, script)
 			if got != want {
 				t.Fatalf("seed %d: %s %s printed other text than the reference\n%s\nreplay: EDITOR_SEED=%d go test -count=1 -run '^TestEditorGuiAgreesWithControl$' ./cmd/ergo",
 					seed, filepath.Base(bin), l.command, firstDiff(got, want), seed)
