@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- A machine's state is a flat union like any other, so an enum state is a byte, and a generic union of the program or the prelude, `Decision[S, O]` included, is one generic Go struct of a tag and shared slots, so a step that is a Go call returns its `Decision` by value with no heap allocation (MSB1, [types](docs/spec/types.md#unions) Unions 6): jsonparse 181.5 → 111.7 instructions and 0.275 → 0.119 allocations per byte (its hand Go control: 101.2), tomlparse 525.7 → 416.4 instructions and 0.267 → 0.215 allocations per byte. The references are `genericLowering=interface` and `stateLowering=interface`.
 - A match on an inlined call returning a flat union sends each constructor the call returns straight to its arm, with no union value and no tag switch (VI2, runtime.md Known constructors): `match dense.Unpack(o)` in vt's `retain` and `release` builds no `Option`; vt 126.1 → 121.1 instructions per byte.
 - Fields of one slice, array or Map type in two variants of a flat union share a slot, as basic and declared types did (VI1, types.md Unions 6): vt's `Event` is 64 bytes, not 88.
 - A fill loop whose value is its type's zero value clears the slice, and `dense.Opt` holds an id plus one with none 0, so a row of blank cells with no style is a clear (VI1, types.md Loop idioms 8, stdlib.md Dense stores 1): vt 135.5 → 127.3 instructions per byte.
