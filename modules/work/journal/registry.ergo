@@ -4,20 +4,27 @@
 // line is a word and tab-separated fields, each Go-quoted (a tab in a
 // field is \t, so a tab only separates):
 //
-//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"	"id"	"deps"
+//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"	"id"	"deps"	"token"	"moving"
 //	drop	"name"
+//	tomb	"name"	1763164800	"id"
+//	buried	"id"	1763164800
 //
 // A put of seven fields (before the base and the latest snapshot were
 // recorded) reads with both empty; one of nine (before the id and the
-// install's digest) reads with those empty.
+// install's digest) reads with those empty; one of eleven (before the
+// token and the intent) reads with those empty. A tomb forgets the record
+// of its name and keeps its id; a buried line is a tomb Compact kept.
 //
 // A reader replays every whole line; the last put of a name is its
 // record, a drop forgets it. Each write is one append of one line, so two
 // writers never interleave within a line, and a crash in a write leaves
-// a line with no newline, which a reader drops.
+// a line with no newline, which a reader drops. Every write is made under
+// the registry's lock (work.Lock). Compact writes the records and the
+// recent tombs to a new file and renames it over the journal: a reader
+// reads the old file or the new one, each whole.
 //
 // Go control: an append-only text log replayed at each read (a
-// write-ahead log with no checkpoint).
+// write-ahead log with a checkpoint by rewrite).
 
 import fs
 import fstest
@@ -44,16 +51,60 @@ func Put(r Registry, w work.Workspace) fails work.Unkept { try appendLine(r, Put
 func Drop(r Registry, name string) fails work.Unkept { try appendLine(r, "drop\t"+strconv.Quote(name)+"\n") }
 
 func All(r Registry) []work.Workspace fails work.Unkept {
-	let text = r.files.ReadFile(r.path) catch {
+	let (records, _) = try read(r)
+	records
+}
+
+func Bury(r Registry, name string, at int64) fails work.Unkept {
+	let (records, _) = try read(r)
+	for w in records {
+		if w.Name == name {
+			try appendLine(r, "tomb\t"+strconv.Quote(name)+"\t"+strconv.FormatInt(at, 10)+"\t"+strconv.Quote(w.Id)+"\n")
+			return
+		}
+	}
+}
+
+func Tombs(r Registry) []work.Tomb fails work.Unkept {
+	let (_, tombs) = try read(r)
+	tombs
+}
+
+func Compact(r Registry, since int64) fails work.Unkept {
+	let (records, tombs) = try read(r)
+	let mut text = ""
+	for w in records {
+		text = text + PutLine(w)
+	}
+	for t in memory.Recent(tombs, since) {
+		text = text + TombLine(t)
+	}
+	r.writes.WriteFile(r.path, text) catch {
 	case fs.NotFound:
-		return []work.Workspace{}
+		return work.Unkept{Reason: "\(r.path): its folder is not there; run work init"}
 	case fs.Denied:
 		return work.Unkept{Reason: "\(r.path): permission denied"}
 	case fs.Failed as f:
 		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
 	}
-	try Replay(text)
 }
+
+// read is the records and tombs of the journal.
+func read(r Registry) ([]work.Workspace, []work.Tomb) fails work.Unkept {
+	let text = r.files.ReadFile(r.path) catch {
+	case fs.NotFound:
+		return ([]work.Workspace{}, []work.Tomb{})
+	case fs.Denied:
+		return work.Unkept{Reason: "\(r.path): permission denied"}
+	case fs.Failed as f:
+		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
+	}
+	try ReplayAll(text)
+}
+
+// TombLine is the line of a compacted tomb: its id and time, with no
+// record to forget.
+func TombLine(t work.Tomb) string { "buried\t" + strconv.Quote(t.Id) + "\t" + strconv.FormatInt(t.Since, 10) + "\n" }
 
 func appendLine(r Registry, line string) fails work.Unkept {
 	r.writes.AppendFile(r.path, line) catch {
@@ -68,14 +119,21 @@ func appendLine(r Registry, line string) fails work.Unkept {
 
 // PutLine is the journal line of a put of w.
 func PutLine(w work.Workspace) string {
-	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}
+	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps), strconv.Quote(w.Token), strconv.Quote(w.Moving)}
 	strings.Join(fields, "\t") + "\n"
 }
 
 // Replay is the records of a journal's text: each whole line in order,
 // the text after the last newline (a write a crash cut short) dropped.
 func Replay(text string) []work.Workspace fails work.Unkept {
+	let (records, _) = try ReplayAll(text)
+	records
+}
+
+// ReplayAll is the records and the tombs of a journal's text.
+func ReplayAll(text string) ([]work.Workspace, []work.Tomb) fails work.Unkept {
 	let mut records = []work.Workspace{}
+	let mut tombs = []work.Tomb{}
 	let lines = strings.Split(text, "\n")
 	for i, line in lines {
 		if i == len(lines)-1 || line == "" {
@@ -83,9 +141,28 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 		}
 		let fields = strings.Split(line, "\t")
 		match fields[0] {
+		case "tomb":
+			if len(fields) != 4 {
+				return bad(i, "a tomb has 3 fields")
+			}
+			let since = strconv.ParseInt(fields[2], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return bad(i, "the time \(fields[2]) is not a number")
+			}
+			records = memory.Dropped(records, try field(i, fields[1]))
+			tombs = tombs.Append(work.Tomb{Id: try field(i, fields[3]), Since: since})
+		case "buried":
+			if len(fields) != 3 {
+				return bad(i, "a buried id has 2 fields")
+			}
+			let since = strconv.ParseInt(fields[2], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return bad(i, "the time \(fields[2]) is not a number")
+			}
+			tombs = tombs.Append(work.Tomb{Id: try field(i, fields[1]), Since: since})
 		case "put":
-			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 {
-				return bad(i, "a put has 7, 9 or 11 fields")
+			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 && len(fields) != 14 {
+				return bad(i, "a put has 7, 9, 11 or 13 fields")
 			}
 			let state = match work.StateNamed(fields[6]) {
 			case Some[work.State] as s:
@@ -97,12 +174,15 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 			case strconv.Malformed, strconv.OutOfRange:
 				return bad(i, "the time \(fields[7]) is not a number")
 			}
-			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: ""}
+			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: "", Token: "", Moving: ""}
 			if len(fields) >= 10 {
 				w = work.Workspace{..w, Base: try field(i, fields[8]), Latest: try field(i, fields[9])}
 			}
-			if len(fields) == 12 {
+			if len(fields) >= 12 {
 				w = work.Workspace{..w, Id: try field(i, fields[10]), Deps: try field(i, fields[11])}
+			}
+			if len(fields) == 14 {
+				w = work.Workspace{..w, Token: try field(i, fields[12]), Moving: try field(i, fields[13])}
 			}
 			records = memory.Kept(records, w)
 		case "drop":
@@ -114,7 +194,7 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 			return bad(i, "unknown word \(fields[0])")
 		}
 	}
-	records
+	(records, tombs)
 }
 
 func field(i int, text string) string fails work.Unkept {

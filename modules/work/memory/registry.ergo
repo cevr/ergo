@@ -2,11 +2,11 @@ import github.com/cevr/ergo/modules/work/work
 import sync
 
 // Registry is a Registry in memory: the records in the order their names
-// were first put.
-type Registry { records sync.Ref[[]work.Workspace] } implements work.Registry
+// were first put, and the tombs.
+type Registry { records sync.Ref[[]work.Workspace], tombs sync.Ref[[]work.Tomb] } implements work.Registry
 
 // NewRegistry is an empty registry.
-func NewRegistry() Registry { Registry{records: sync.NewRef([]work.Workspace{})} }
+func NewRegistry() Registry { Registry{records: sync.NewRef([]work.Workspace{}), tombs: sync.NewRef([]work.Tomb{})} }
 
 func Put(r Registry, w work.Workspace) fails work.Unkept {
 	r.records.Set(Kept(r.records.Get(), w))
@@ -17,6 +17,16 @@ func Drop(r Registry, name string) fails work.Unkept {
 }
 
 func All(r Registry) []work.Workspace fails work.Unkept { r.records.Get() }
+
+func Bury(r Registry, name string, at int64) fails work.Unkept {
+	let (records, tombs) = Buried(r.records.Get(), r.tombs.Get(), name, at)
+	r.records.Set(records)
+	r.tombs.Set(tombs)
+}
+
+func Tombs(r Registry) []work.Tomb fails work.Unkept { r.tombs.Get() }
+
+func Compact(r Registry, since int64) fails work.Unkept { r.tombs.Set(Recent(r.tombs.Get(), since)) }
 
 // Kept is records with w as the record of its name: in the place of the
 // one before, or last.
@@ -43,6 +53,28 @@ func Dropped(records []work.Workspace, name string) []work.Workspace {
 	for r in records {
 		if r.Name != name {
 			out = out.Append(r)
+		}
+	}
+	out
+}
+
+// Buried is records without the record of name, and tombs with its id's
+// tomb made at the second at (unchanged when name has no record).
+func Buried(records []work.Workspace, tombs []work.Tomb, name string, at int64) ([]work.Workspace, []work.Tomb) {
+	for r in records {
+		if r.Name == name {
+			return (Dropped(records, name), tombs.Append(work.Tomb{Id: r.Id, Since: at}))
+		}
+	}
+	(records, tombs)
+}
+
+// Recent is the tombs made at the second since or later.
+func Recent(tombs []work.Tomb, since int64) []work.Tomb {
+	let mut out = []work.Tomb{}
+	for t in tombs {
+		if t.Since >= since {
+			out = out.Append(t)
 		}
 	}
 	out

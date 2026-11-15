@@ -4,6 +4,7 @@ import filepath
 import fs
 import hex
 import sha256
+import slices
 import strconv
 import strings
 import time
@@ -71,8 +72,10 @@ type Dirty { Name string }
 // branch at a revision of the parent (its head when absent); -branch
 // names the branch (the workspace's name when absent); -on clones the
 // workspace it names, which becomes the parent (a stack), in place of the
-// base.
-type NewOptions { Copy bool, From Option[string], Branch Option[string], On Option[string] }
+// base; -token is the caller's token: a second new with it answers the
+// workspace the first made, so a retry after a lost answer makes no
+// second copy.
+type NewOptions { Copy bool, From Option[string], Branch Option[string], On Option[string], Token Option[string] }
 
 // ReadyOptions, SyncOptions and EnvOptions name the workspace (-name);
 // when absent it is the one the working folder is in.
@@ -116,13 +119,36 @@ type FileMerged { Path string, Class string, Regenerate bool }
 type AdoptOptions { Name Option[string] }
 
 // RmOptions are rm's flags: -abandon removes a workspace whose work is not
-// in its parent.
-type RmOptions { Abandon bool }
+// in its parent; -expect is the id the caller holds (new answered it):
+// rm removes the workspace only if it is that one, and a retry after it
+// is removed answers AlreadyRemoved; -tree removes the workspaces made on
+// it first, each a leaf when it goes.
+type RmOptions { Abandon bool, Expect Option[string], Tree bool }
+
+// Removed is one workspace rm moved to the trash (Trash is its folder
+// there), or, with Already, one that was removed before: the retry of a
+// remove that ended.
+type Removed { Name string, Id string, Trash string, Already bool }
+
+// IdMismatch is an rm whose expected id is not the workspace's at the
+// name, and was never removed: another workspace took the name, or the
+// registry never saw the id. Found is the id there ("" for none).
+type IdMismatch { Name string, Expected string, Found string }
+
+// HasDescendants is an rm of a workspace that others are made on (or are
+// being made on): it is not a leaf. Remove them first, or use -tree.
+type HasDescendants { Name string, Paths []string }
 
 // GcOptions are gc's flags: -older is the age a trashed workspace must
-// have to be deleted (0s when absent). A workspace whose clone never ended
-// is deleted at an hour, or at -older when that is longer.
-type GcOptions { Older Option[string] }
+// have to be deleted (0s when absent); -id purges the one entry of that
+// id, whatever its age. A reservation whose maker is gone (its clone
+// never ended) is deleted too.
+type GcOptions { Older Option[string], Id Option[string] }
+
+// TombWindow is how long the registry keeps the tomb of a purged
+// workspace: 30 days. Within it, rm -expect of the id answers
+// AlreadyRemoved; after it, IdMismatch.
+let TombWindow = int64(30 * 24 * 3600)
 
 // Space is the bytes one workspace takes.
 type Space { Name string, Path string, Usage Usage }
@@ -137,26 +163,26 @@ type Api {
 	Init() string fails BadConfig | Unkept | fs.Denied | fs.Failed,
 	// New clones the base into a new workspace named name and prints its
 	// folder.
-	New(name string, o NewOptions) Created fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | HookFailed,
+	New(name string, o NewOptions) Created fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | Busy,
 	// Adopt registers an existing clone (a Rift, a Git clone) as a
 	// workspace; it moves no file.
-	Adopt(dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed,
+	Adopt(dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed | Locked,
 	// List is every workspace of the base.
 	List() []Workspace fails NoBase | Unkept,
 	// Rm moves a workspace to the trash.
-	Rm(name string, o RmOptions) Workspace fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed,
+	Rm(name string, o RmOptions) []Removed fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants,
 	// Gc deletes the trash of this base (never another's) and the
 	// workspaces whose clone never ended, and names each.
-	Gc(o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept,
+	Gc(o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept | Locked,
 	// Du is the bytes each live workspace takes, exclusive and shared.
 	Du() []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept,
 	// Ready snapshots the workspace and hands its branch (fast-forward
 	// only) and the snapshot to the parent's repository; it changes no
 	// file of the parent and never pushes to origin.
-	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed,
+	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked,
 	// Sync merges the parent's branch into the workspace's (Git's merge)
 	// and records the parent's commit as its base; it is that commit.
-	Sync(o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed,
+	Sync(o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked,
 	// Env is the shell lines of work.toml's env for the workspace, for
 	// eval "$(ergo work env)".
 	Env(o EnvOptions) string fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept,
@@ -169,7 +195,7 @@ type Api {
 	// Deps installs the workspace's packages ([deps] of work.toml) when
 	// its lock file changed since its last install, and starts no process
 	// when it did not.
-	Deps(o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed,
+	Deps(o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed | Locked,
 	// Trust allows the commands work.toml runs (its hooks and install):
 	// until then no hook and no install runs.
 	Trust() Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed,
@@ -191,7 +217,7 @@ type Api {
 	// NewIsListedOnce: a workspace new made is listed once, active, at the
 	// folder new printed; a second new of the name is NameTaken.
 	law NewIsListedOnce(name string) {
-		let made = New(name, NewOptions{Copy: true, From: None, Branch: None, On: None}) catch {
+		let made = New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
 		case _:
 			return true
 		}
@@ -202,7 +228,7 @@ type Api {
 		}
 		let mine = named(all, name)
 		let listed = len(mine) == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
-		New(name, NewOptions{Copy: true, From: None, Branch: None, On: None}) catch {
+		New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
 		case NameTaken:
 			return listed
 		case _:
@@ -434,126 +460,6 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 	t.base
 }
 
-func New(t Tool, name string, o NewOptions) Created fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | HookFailed {
-	try initialized(t)
-	try CheckName(name)
-	let branch = match o.Branch {
-	case Some[string] as b:
-		b.Value
-	case None:
-		name
-	}
-	try CheckName(branch)
-	let c = try config(t)
-	if try taken(t, name) {
-		return NameTaken{Name: name}
-	}
-	let parent = match o.On {
-	case Some[string] as on:
-		match try live(t, on.Value) {
-		case Some[Workspace] as p:
-			p.Value.Path
-		case None:
-			return NoWorkspace{Name: on.Value}
-		}
-	case None:
-		t.base
-	}
-	let start = try startOf(t, parent, branch, o.From)
-	let parentId = match o.On {
-	case Some[string] as on:
-		match try live(t, on.Value) {
-		case Some[Workspace] as p:
-			p.Value.Id
-		case None:
-			""
-		}
-	case None:
-		""
-	}
-	let path = filepath.Join([]string{t.home, FolderOf(name)})
-	let id = idOf(t, name, path)
-	let env = hookEnv(parent, path, id, parentId)
-	match runHook(t, c, "precreate", parent, env) {
-	case HookFailed as f:
-		return f
-	case HooksRan, Untrusted:
-	}
-	let creating = Workspace{Name: name, Id: id, Path: path, Parent: parent, Branch: branch, Cloner: "", State: Creating, Since: now(t), Base: start, Latest: "", Deps: ""}
-	// The record comes first: a crash after it leaves Creating, which gc
-	// removes; a crash before it leaves no tree the registry names. The
-	// clone runs with no lock held.
-	try put(t, creating)
-	let by = cloned(t, parent, path, o.Copy || c.Copy) catch {
-	case NotSameVolume as e:
-		try drop(t, name)
-		return e
-	case Unsupported as e:
-		try drop(t, name)
-		return e
-	case CopyRefused as e:
-		try drop(t, name)
-		return e
-	case Exists as e:
-		try drop(t, name)
-		return e
-	case Missing as e:
-		try drop(t, name)
-		return e
-	case NoSpace as e:
-		try drop(t, name)
-		return e
-	case CloneFailed as e:
-		try drop(t, name)
-		return e
-	}
-	for folder in c.LeaveOut {
-		let left = filepath.Join([]string{path, folder})
-		if by.Has(left) {
-			by.Discard(left) catch {
-			case Missing:
-			case CloneFailed as e:
-				return e
-			}
-		}
-	}
-	let marked = mark(t, path, id) catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
-		false
-	}
-	if !marked {
-		by.Discard(path) catch {
-		case Missing:
-		case CloneFailed as gone:
-			return gone
-		}
-		try drop(t, name)
-		return CloneFailed{Cloner: by.Name(), Reason: "\(path): the marker \(MarkerFile) could not be written"}
-	}
-	startIn(t, by, path, branch, start) catch {
-	case VcsFailed as e:
-		by.Discard(path) catch {
-		case Missing:
-		case CloneFailed as gone:
-			return gone
-		}
-		try drop(t, name)
-		return e
-	}
-	// A clone carries its parent's installed packages, which the parent's
-	// lock describes; one that left folders out installs.
-	let installedAs = if len(c.LeaveOut) == 0 { lockDigest(t, path, c) } else { "" }
-	let active = moved(Workspace{..creating, Cloner: by.Name(), Deps: installedAs}, Cloned, now(t)) catch {
-	case Busy:
-		Unreachable("a workspace being created takes Cloned")
-		creating
-	}
-	try put(t, active)
-	let (_, deps) = try install(t, active, c)
-	let hooks = runHook(t, c, "postcreate", path, env)
-	Created{Name: name, Id: id, Path: path, Branch: branch, Deps: deps, Hooks: hooks}
-}
-
 // startIn starts the branch in the clone and, for a clone made file by
 // file, sets Git to compare only sizes and whole-second times: every
 // inode and change time is new, and Git would read each tracked file
@@ -567,14 +473,27 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 }
 
 // idOf is a new workspace's id: a digest of the base, the name, the
-// folder, the time and the number of records, so two workspaces of a
-// registry never share one.
+// folder, the time and a number, the first from the number of records
+// whose digest no record and no tomb holds, so two workspaces of a
+// registry never share one (a purged id is never given again).
 func idOf(t Tool, name string, path string) string {
-	let n = len(t.registry.All() catch {
+	let all = t.registry.All() catch {
 	case Unkept:
 		[]Workspace{}
-	})
-	strings.Slice(hex.Encode(sha256.Sum(t.base+"\n"+name+"\n"+path+"\n"+strconv.FormatInt(now(t), 10)+"\n"+strconv.Itoa(n))), 0, 16)
+	}
+	let tombs = t.registry.Tombs() catch {
+	case Unkept:
+		[]Tomb{}
+	}
+	let mut n = len(all)
+	for {
+		let id = strings.Slice(hex.Encode(sha256.Sum(t.base+"\n"+name+"\n"+path+"\n"+strconv.FormatInt(now(t), 10)+"\n"+strconv.Itoa(n))), 0, 16)
+		let used = slices.IndexFunc(all, func(w Workspace) bool { w.Id == id }) >= 0 || slices.IndexFunc(tombs, func(b Tomb) bool { b.Id == id }) >= 0
+		if !used {
+			return id
+		}
+		n = n + 1
+	}
 }
 
 // register adds the base to the user's list of bases, once.
@@ -671,7 +590,7 @@ func usage(t Tool, w Workspace) Usage fails Unsupported | Missing | CloneFailed 
 	try t.copier.Usage(w.Path)
 }
 
-func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed {
+func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed | Locked {
 	try initialized(t)
 	let folder = if filepath.IsAbs(dir) { filepath.Clean(dir) } else { filepath.Join([]string{t.base, dir}) }
 	let name = match o.Name {
@@ -687,7 +606,7 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	if !t.copier.Has(folder) {
 		return Missing{Path: folder}
 	}
-	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: ""}
+	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: ""}
 	try put(t, w)
 	w
 }
@@ -695,105 +614,6 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 func List(t Tool) []Workspace fails NoBase | Unkept {
 	try initialized(t)
 	try t.registry.All()
-}
-
-func Rm(t Tool, name string, o RmOptions) Workspace fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed {
-	try initialized(t)
-	let c = try config(t)
-	let w = match try live(t, name) {
-	case Some[Workspace] as found:
-		found.Value
-	case None:
-		return NoWorkspace{Name: name}
-	}
-	let env = hookEnv(w.Parent, w.Path, w.Id, "")
-	match runHook(t, c, "preremove", w.Path, env) {
-	case HookFailed as f:
-		return f
-	case HooksRan, Untrusted:
-	}
-	let at = now(t)
-	let ready = match w.State {
-	case Active:
-		if o.Abandon {
-			try moved(w, Abandon, at)
-		} else {
-			let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name)) }
-			if !kept {
-				return NotHeld{Name: name, Path: w.Path}
-			}
-			w
-		}
-	case Creating, Landed, Abandoned:
-		w
-	case Landing, Trashed:
-		return Busy{Name: name, State: StateName(w.State)}
-	}
-	let trash = TrashOf(w.Path, at)
-	let gone = try moved(Workspace{..ready, Path: trash}, Remove, at)
-	try t.lock.Hold()
-	trashed(t, w.Path, trash, gone) catch {
-	case Exists as e:
-		t.lock.Release()
-		return e
-	case Missing as e:
-		t.lock.Release()
-		return e
-	case CloneFailed as e:
-		t.lock.Release()
-		return e
-	case Unkept as e:
-		t.lock.Release()
-		return e
-	}
-	t.lock.Release()
-	let _ = runHook(t, c, "postremove", w.Parent, env)
-	gone
-}
-
-// trashed renames the tree at path to trash and records gone, the one
-// step rm takes under the lock.
-func trashed(t Tool, path string, trash string, gone Workspace) fails Exists | Missing | CloneFailed | Unkept {
-	if t.copier.Has(path) {
-		try t.copier.Move(path, trash)
-	}
-	try t.registry.Put(gone)
-}
-
-func Gc(t Tool, o GcOptions) []string fails NoBase | BadAge | Missing | CloneFailed | Unkept {
-	try initialized(t)
-	let older = match o.Older {
-	case Some[string] as text:
-		time.ParseDuration(text.Value) catch {
-		case time.ParseError:
-			return BadAge{Text: text.Value}
-		}
-	case None:
-		0s
-	}
-	let stale = if older > 1h { older } else { 1h }
-	let at = now(t)
-	let mut gone = []string{}
-	for w in try t.registry.All() {
-		let age = time.Times(1s, int(at-w.Since))
-		let due = match w.State {
-		case Trashed:
-			age >= older && InTrash(w.Path)
-		case Creating:
-			age >= stale && strings.HasPrefix(w.Path, t.home+"/")
-		case Active, Landing, Landed, Abandoned:
-			false
-		}
-		if !due {
-			continue
-		}
-		if t.copier.Has(w.Path) {
-			try t.copier.Discard(w.Path)
-		}
-		try drop(t, w.Name)
-		gone = gone.Append(w.Name)
-	}
-	gone
 }
 
 func Du(t Tool) []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept {
@@ -846,7 +666,7 @@ func active(w Workspace) Workspace fails Busy {
 	}
 }
 
-func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed {
+func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked {
 	try initialized(t)
 	let w = try active(try chosen(t, o.Name))
 	let branch = try t.vcs.Branch(w.Path)
@@ -868,7 +688,7 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 	Handed{Name: w.Name, Branch: branch, Commit: held, Snapshot: tree, Parent: w.Parent}
 }
 
-func Sync(t Tool, o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed {
+func Sync(t Tool, o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked {
 	try initialized(t)
 	let c = try config(t)
 	let w = try active(try chosen(t, o.Name))

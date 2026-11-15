@@ -5,22 +5,56 @@
 import exec
 import fs
 import github.com/cevr/ergo/modules/work/work
+import maps
 import slices
 import strconv
 import strings
 import sync
 
-// Lock counts the holds not yet released.
-type Lock { held sync.Ref[int] } implements work.Lock
+// Lock is the locks of one holder (a process) over a table of holders
+// that other holders share, as the host's file locks are shared by its
+// processes: each key is held by at most one holder.
+type Lock { table sync.Ref[Map[string, int]], owner int } implements work.Lock
 
-// NewLock is a free lock.
-func NewLock() Lock { Lock{held: sync.NewRef(0)} }
+// NewLock is the first holder of a fresh table.
+func NewLock() Lock { Lock{table: sync.NewRef(Map[string, int]{}), owner: 1} }
 
-func Hold(l Lock) fails work.Unkept { l.held.Set(l.held.Get() + 1) }
+// Sharing is another holder of l's table, numbered owner.
+func Sharing(l Lock, owner int) Lock { Lock{table: l.table, owner: owner} }
 
-func Release(l Lock) { l.held.Set(l.held.Get() - 1) }
+func Hold(l Lock, key string) bool fails work.Unkept {
+	let t = l.table.Get()
+	if t.Get(key) != None {
+		return false
+	}
+	let mut next = t
+	next[key] = l.owner
+	l.table.Set(next)
+	true
+}
 
-func Held(l Lock) int { l.held.Get() }
+func Release(l Lock, key string) {
+	if maps.GetOr(l.table.Get(), key, 0) == l.owner {
+		l.table.Set(l.table.Get().Delete(key))
+	}
+}
+
+func Held(l Lock, key string) bool { maps.GetOr(l.table.Get(), key, 0) == l.owner }
+
+// Die gives back every lock l's holder holds, as the host does for a
+// process that ends.
+func Die(l Lock) {
+	let mut next = Map[string, int]{}
+	for k, o in l.table.Get() {
+		if o != l.owner {
+			next[k] = o
+		}
+	}
+	l.table.Set(next)
+}
+
+// Holds is the number of locks any holder holds.
+func Holds(l Lock) int { len(l.table.Get()) }
 
 // HookRun is one command a hook ran: the hook, the command, the folder,
 // and the holds of the lock when it started.
@@ -39,7 +73,7 @@ func NewHooks() Hooks { Recording(NewLock(), "") }
 func Recording(lock Lock, failing string) Hooks { Hooks{runs: sync.NewRef([]HookRun{}), lock: lock, failing: failing} }
 
 func Run(h Hooks, hook string, command string, dir string, env []work.Setting) fails work.HookFailed {
-	h.runs.Set(h.runs.Get().Append(HookRun{Hook: hook, Command: command, Dir: dir, Held: h.lock.Held()}))
+	h.runs.Set(h.runs.Get().Append(HookRun{Hook: hook, Command: command, Dir: dir, Held: if h.lock.Held("") { 1 } else { 0 }}))
 	if command == h.failing {
 		return work.HookFailed{Hook: hook, Command: command, Status: 1, Stderr: "failed\n"}
 	}
@@ -127,7 +161,7 @@ law HooksRunInOrder(n []int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
 	case _:
 		return false
 	}
@@ -148,20 +182,20 @@ law NoHookUnderTheLock(stack bool, failing bool) {
 		return false
 	}
 	if stack {
-		let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}}) catch {
+		let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
 		case _:
 			return false
 		}
-		let _ = w.tool.Rm("b", work.RmOptions{Abandon: true}) catch {
+		let _ = w.tool.Rm("b", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
 		case _:
 			return false
 		}
 	}
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
 	case _:
 		return false
 	}
-	len(w.hooks.Runs()) > 0 && slices.IndexFunc(w.hooks.Runs(), func(r HookRun) bool { r.Held != 0 }) < 0 && w.lock.Held() == 0
+	len(w.hooks.Runs()) > 0 && slices.IndexFunc(w.hooks.Runs(), func(r HookRun) bool { r.Held != 0 }) < 0 && w.lock.Holds() == 0
 }
 
 // UnallowedConfigRunsNothing: a work.toml changed after init (its

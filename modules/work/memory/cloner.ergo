@@ -8,6 +8,7 @@
 
 import github.com/cevr/ergo/modules/work/work
 import maps
+import slices
 import strings
 import sync
 
@@ -124,6 +125,9 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 	trees[to] = tree
 	c.disk.Set(Disk{..d, trees: trees, blocks: blocks, next: next})
 }
+
+// Roots is the root of every tree on the disk, sorted.
+func Roots(c Cloner) []string { slices.Sorted(maps.Keys(c.disk.Get().trees)) }
 
 // Has: a tree is at root, or root is a folder inside a tree (a file
 // of the tree is under it), as leave_out finds one.

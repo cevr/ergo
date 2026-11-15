@@ -1,0 +1,275 @@
+import filepath
+import fs
+
+// Making is a workspace new is making, between its three steps: the
+// reservation (under the lock), the clone (with no lock but its own
+// reservation's) and the activation (under the lock).
+type Making {
+	Name     string,
+	Id       string,
+	Path     string,
+	Parent   string,
+	ParentId string,
+	Branch   string,
+	Start    string,
+	Token    string,
+	Config   Config,
+	Copy     bool,
+	Cloner   string,
+}
+
+// Reserved is what new's first step decided: a workspace to make, or the
+// one an earlier new with the same token made.
+type Reserved = Making | Created
+
+func New(t Tool, name string, o NewOptions) Created fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | Busy {
+	match try Reserve(t, name, o) {
+	case Created as done:
+		done
+	case Making as m:
+		try Activate(t, try Fill(t, m))
+	}
+}
+
+// Reserve is new's first step. It checks the names and the parent, runs
+// the precreate hooks, and then, under the lock, checks again and writes
+// the reservation (a Creating record): from then on the registry knows
+// the folder before a byte of it is copied. The maker takes its
+// reservation's lock in the same step and holds it while it copies.
+func Reserve(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | Unkept | VcsFailed | HookFailed | Locked | Busy {
+	try initialized(t)
+	try CheckName(name)
+	let branch = match o.Branch {
+	case Some[string] as b:
+		b.Value
+	case None:
+		name
+	}
+	try CheckName(branch)
+	let c = try config(t)
+	let token = match o.Token {
+	case Some[string] as k:
+		k.Value
+	case None:
+		""
+	}
+	match try byToken(t, token) {
+	case Some[Workspace] as w:
+		return try answered(w.Value)
+	case None:
+	}
+	if try taken(t, name) {
+		return NameTaken{Name: name}
+	}
+	let (parent, parentId) = match o.On {
+	case Some[string] as on:
+		match try cloneable(t, on.Value) {
+		case Some[Workspace] as p:
+			(p.Value.Path, p.Value.Id)
+		case None:
+			return NoWorkspace{Name: on.Value}
+		}
+	case None:
+		(t.base, "")
+	}
+	let start = try startOf(t, parent, branch, o.From)
+	let path = filepath.Join([]string{t.home, FolderOf(name)})
+	let id = idOf(t, name, path)
+	let m = Making{Name: name, Id: id, Path: path, Parent: parent, ParentId: parentId, Branch: branch, Start: start, Token: token, Config: c, Copy: o.Copy || c.Copy, Cloner: ""}
+	match runHook(t, c, "precreate", parent, hookEnv(parent, path, id, parentId)) {
+	case HookFailed as f:
+		return f
+	case HooksRan, Untrusted:
+	}
+	try hold(t)
+	let r = reserve(t, m, o.On) catch {
+	case NameTaken as e:
+		t.lock.Release("")
+		return e
+	case NoWorkspace as e:
+		t.lock.Release("")
+		return e
+	case Busy as e:
+		t.lock.Release("")
+		return e
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release("")
+	r
+}
+
+// reserve is Reserve's step under the lock: the token, the name and the
+// parent read again, then the reservation and its lock.
+func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept {
+	match try byToken(t, m.Token) {
+	case Some[Workspace] as w:
+		return try answered(w.Value)
+	case None:
+	}
+	if try taken(t, m.Name) {
+		return NameTaken{Name: m.Name}
+	}
+	match on {
+	case Some[string] as p:
+		match try cloneable(t, p.Value) {
+		case Some[Workspace] as w:
+			if w.Value.Path != m.Parent {
+				return NoWorkspace{Name: p.Value}
+			}
+		case None:
+			return NoWorkspace{Name: p.Value}
+		}
+	case None:
+	}
+	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: ""})
+	if !try t.lock.Hold(m.Id) {
+		return Unkept{Reason: "the lock of the reservation \(m.Id) is held by another work"}
+	}
+	m
+}
+
+// Fill is new's second step: the clone, with no lock but the
+// reservation's held, the folders work.toml leaves out, the marker, the
+// branch and the stat settings. A failure deletes what it made and the
+// reservation.
+func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
+	let by = cloned(t, m.Parent, m.Path, m.Copy) catch {
+	case NotSameVolume as e:
+		try unreserve(t, m)
+		return e
+	case Unsupported as e:
+		try unreserve(t, m)
+		return e
+	case CopyRefused as e:
+		try unreserve(t, m)
+		return e
+	case Exists as e:
+		try unreserve(t, m)
+		return e
+	case Missing as e:
+		try unreserve(t, m)
+		return e
+	case NoSpace as e:
+		try unreserve(t, m)
+		return e
+	case CloneFailed as e:
+		try unreserve(t, m)
+		return e
+	}
+	for folder in m.Config.LeaveOut {
+		let left = filepath.Join([]string{m.Path, folder})
+		if by.Has(left) {
+			by.Discard(left) catch {
+			case Missing:
+			case CloneFailed as e:
+				return e
+			}
+		}
+	}
+	let marked = mark(t, m.Path, m.Id) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		false
+	}
+	if !marked {
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return CloneFailed{Cloner: by.Name(), Reason: "\(m.Path): the marker \(MarkerFile) could not be written"}
+	}
+	startIn(t, by, m.Path, m.Branch, m.Start) catch {
+	case VcsFailed as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	}
+	Making{..m, Cloner: by.Name()}
+}
+
+// Activate is new's last step: under the lock the record becomes Active
+// and the reservation's lock is given back; then the install and the
+// postcreate hooks run, with no lock.
+func Activate(t Tool, m Making) Created fails Unkept | Locked {
+	// A clone carries its parent's installed packages, which the parent's
+	// lock describes; one that left folders out installs.
+	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Path, m.Config) } else { "" }
+	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: ""}
+	let active = moved(creating, Cloned, now(t)) catch {
+	case Busy:
+		Unreachable("a workspace being created takes Cloned")
+		creating
+	}
+	try hold(t)
+	t.registry.Put(active) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release(m.Id)
+	t.lock.Release("")
+	let (_, deps) = try install(t, active, m.Config)
+	let hooks = runHook(t, m.Config, "postcreate", m.Path, hookEnv(m.Parent, m.Path, m.Id, m.ParentId))
+	Created{Name: m.Name, Id: m.Id, Path: m.Path, Branch: m.Branch, Deps: deps, Hooks: hooks}
+}
+
+// unreserve forgets the reservation of a new that failed, under the lock,
+// and gives its lock back.
+func unreserve(t Tool, m Making) fails Unkept | Locked {
+	try hold(t)
+	t.registry.Drop(m.Name) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release(m.Id)
+	t.lock.Release("")
+}
+
+// discarded deletes the tree a failed new made.
+func discarded(by Cloner, path string) fails CloneFailed {
+	by.Discard(path) catch {
+	case Missing:
+	case CloneFailed as e:
+		return e
+	}
+}
+
+// byToken is the record a new with token made ("" is no token).
+func byToken(t Tool, token string) Option[Workspace] fails Unkept {
+	if token == "" {
+		return None
+	}
+	for w in try t.registry.All() {
+		if w.Token == token {
+			return Some[Workspace]{Value: w}
+		}
+	}
+	None
+}
+
+// answered is new's answer for the workspace an earlier new with the same
+// token made: the workspace when it is active, Busy while it is made or
+// once it is removed.
+func answered(w Workspace) Created fails Busy {
+	match w.State {
+	case Active:
+		Created{Name: w.Name, Id: w.Id, Path: w.Path, Branch: w.Branch, Deps: NoDeps, Hooks: HooksRan{Count: 0}}
+	case Creating, Landing, Landed, Abandoned, Trashed:
+		Busy{Name: w.Name, State: StateName(w.State)}
+	}
+}
+
+// cloneable is the active workspace named name, which new -on clones.
+func cloneable(t Tool, name string) Option[Workspace] fails Unkept {
+	match try live(t, name) {
+	case Some[Workspace] as w:
+		match w.Value.State {
+		case Active:
+			w
+		case Creating, Landing, Landed, Abandoned, Trashed:
+			None
+		}
+	case None:
+		None
+	}
+}

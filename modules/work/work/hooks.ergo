@@ -30,30 +30,49 @@ type Hooks {
 	},
 }
 
-// Lock is the registry's mutation lock: a step that changes the registry,
-// or renames a workspace's folder, holds it, and nothing else does (no
-// copy, no hook, no install). Held counts the holds not yet released.
+// Lock is the registry's locks, each named by a key. The key "" is the
+// mutation lock: a step that changes the registry, or renames a
+// workspace's folder, holds it, and nothing else does (no copy, no hook,
+// no install). A workspace's id is the lock of its reservation: new holds
+// it while it copies, so gc collects a reservation only when its maker is
+// gone. A holder that dies holds nothing (the host's file lock).
 type Lock {
-	// Hold takes the lock.
-	Hold() fails Unkept,
-	// Release gives it back.
-	Release(),
-	// Held is the number of holds taken and not released.
-	Held() int,
+	// Hold takes the lock of key, or is false when another holder keeps
+	// it: for the provider's wait for the mutation lock, at once for
+	// another key. A second Hold of a held key is false too, as two opens
+	// of one locked file are.
+	Hold(key string) bool fails Unkept,
+	// Release gives the lock of key back.
+	Release(key string),
+	// Held reports whether this holder holds the lock of key.
+	Held(key string) bool,
 
-	// ReleaseUndoesHold: a hold counts once, and its release gives the
-	// count back.
-	law ReleaseUndoesHold() {
-		let before = Held()
-		Hold() catch {
+	// HoldExcludes: a held lock is held, refuses a second hold, and is
+	// free again after its release.
+	law HoldExcludes(key string) {
+		let first = Hold(key) catch {
 		case Unkept:
-			return Held() == before
+			return true
 		}
-		let during = Held()
-		Release()
-		during == before+1 && Held() == before
+		let second = Hold(key) catch {
+		case Unkept:
+			return false
+		}
+		let during = Held(key)
+		Release(key)
+		let after = Held(key)
+		let again = Hold(key) catch {
+		case Unkept:
+			return false
+		}
+		Release(key)
+		first && !second && during && !after && again
 	},
 }
+
+// Locked is a registry whose mutation lock another work held for all of
+// the wait: nothing was changed, and the command can run again.
+type Locked { Path string }
 
 // HooksRan is the hooks of a step, all run: Count commands, each ended
 // with status 0 (0 when work.toml has none).
@@ -129,23 +148,56 @@ func Trust(t Tool) Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.
 }
 
 // put keeps w in the registry under the lock.
-func put(t Tool, w Workspace) fails Unkept {
-	try t.lock.Hold()
+func put(t Tool, w Workspace) fails Unkept | Locked {
+	try hold(t)
 	t.registry.Put(w) catch {
 	case Unkept as e:
-		t.lock.Release()
+		t.lock.Release("")
 		return e
 	}
-	t.lock.Release()
+	t.lock.Release("")
 }
 
 // drop forgets name in the registry under the lock.
-func drop(t Tool, name string) fails Unkept {
-	try t.lock.Hold()
+func drop(t Tool, name string) fails Unkept | Locked {
+	try hold(t)
 	t.registry.Drop(name) catch {
 	case Unkept as e:
-		t.lock.Release()
+		t.lock.Release("")
 		return e
 	}
-	t.lock.Release()
+	t.lock.Release("")
+}
+
+// hold takes the mutation lock and finishes what a process that died in
+// a removal left: every mutation does, so no intent outlives the next.
+func hold(t Tool) fails Unkept | Locked {
+	if !try t.lock.Hold("") {
+		return Locked{Path: RegistryFile(t.home)}
+	}
+	finish(t) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+}
+
+// finish rolls each intent forward, under the lock: the folder moves to
+// the trash if it has not, and the record says it is there.
+func finish(t Tool) fails Unkept {
+	for w in try t.registry.All() {
+		if w.Moving == "" {
+			continue
+		}
+		if t.copier.Has(w.Moving) && !t.copier.Has(w.Path) {
+			t.copier.Move(w.Moving, w.Path) catch {
+			case Missing:
+			case Exists:
+				return Unkept{Reason: "\(w.Path) is taken: the move of \(w.Moving) to the trash did not end"}
+			case CloneFailed as e:
+				return Unkept{Reason: "\(w.Moving): the move to the trash did not end: \(e.Reason)"}
+			}
+		}
+		try t.registry.Put(Workspace{..w, Moving: ""})
+	}
 }

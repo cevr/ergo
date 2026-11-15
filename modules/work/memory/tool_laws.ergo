@@ -45,7 +45,7 @@ let theBase = "/w/base"
 let otherBase = "/w/other"
 
 // World is a Tool over memory providers and the handles the driver uses.
-type World { tool work.Tool, trees Cloner, vcs Vcs, registry Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
+type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
@@ -56,7 +56,10 @@ func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "
 // ignored, with nested folders) and ignored build output (dist), with
 // config as its work.toml ("" for none) and hooks that fail the command
 // failing. A work.toml is allowed (work trust) at init.
-func worldWith(sharing bool, tree Map[string, string], config string, failing string) World {
+func worldWith(sharing bool, tree Map[string, string], config string, failing string) World { worldOn(NewRegistry(), sharing, tree, config, failing) }
+
+// worldOn is worldWith over the registry r (empty).
+func worldOn(r work.Registry, sharing bool, tree Map[string, string], config string, failing string) World {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	let mut files = Map[string, string]{"main.ergo": "func main() {}\n", ".gitignore": "dist\nnode_modules\n"}
@@ -69,7 +72,7 @@ func worldWith(sharing bool, tree Map[string, string], config string, failing st
 	Repo(vcs, theBase, "main", files, "c0")
 	let _ = Write(trees, theBase, "node_modules/left-pad/index.js", "module.exports = 1\n") && Write(trees, theBase, "node_modules/.bin/left-pad", "#!/bin/sh\n") && Write(trees, theBase, "dist/out.js", "built\n")
 	let cloner = if sharing { trees } else { Refusing(trees) }
-	let registry = NewRegistry()
+	let registry = r
 	let disk = fstest.NewMemory()
 	disk.MkdirAll(theBase) catch {
 	case fs.Denied, fs.Failed:
@@ -96,7 +99,7 @@ func worldWith(sharing bool, tree Map[string, string], config string, failing st
 }
 
 // fresh are new's options with only the copy flag.
-func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, Branch: None, On: None} }
+func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, Branch: None, On: None, Token: None} }
 
 // ToolAgreesWithTheReference: after every step, List names the records
 // the reference holds, in its order, states and parents; every live
@@ -128,7 +131,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 		case OnOp as o:
 			let name = pick(o.Name)
 			let on = pick(o.On)
-			let made = (w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}}) catch {
+			let made = (w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}, Token: None}) catch {
 			case _:
 				nothing()
 			}).Path
@@ -148,11 +151,11 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 		case RmOp as o:
 			let name = pick(o.Name)
-			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon}) catch {
+			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon, Expect: None, Tree: false}) catch {
 			case _:
-				work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Active, Since: 0, Base: "", Latest: "", Deps: ""}
+				[]work.Removed{}
 			}
-			want = removed(want, name, o.Abandon, at, out.Name == name)
+			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name)
 		case EditOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
@@ -218,7 +221,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: ""}) catch {
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: ""}) catch {
 				case work.Unkept:
 				}
 				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
@@ -226,7 +229,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 		case GcOp as o:
 			let older = small(o.Older, 7200)
-			let _ = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}}) catch {
+			let _ = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Id: None}) catch {
 			case _:
 				[]string{}
 			}
@@ -252,7 +255,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	case _:
 		return false
 	}
-	let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}}) catch {
+	let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
 	case _:
 		return false
 	}
@@ -337,13 +340,17 @@ func agrees(w World, want []Expected, gone []string) bool {
 	true
 }
 
-// removed is the reference after rm of name at the second at: a creating
-// workspace, or an active one whose work is kept or that is abandoned,
-// goes to the trash; any other stays. Where the reference is not sure of
-// the kept flag, trashed (the Tool's answer) decides.
+// removed is the reference after rm of name at the second at: a leaf (no
+// live workspace is made on it) that is creating, or active with its work
+// kept or abandoned, goes to the trash; any other stays. Where the
+// reference is not sure of the kept flag, trashed (the Tool's answer)
+// decides.
 func removed(want []Expected, name string, abandon bool, at int64, trashed bool) []Expected {
 	match find(want, name) {
 	case Some[Expected] as e:
+		if slices.IndexFunc(want, func(c Expected) bool { c.Parent == e.Value.Path && c.State != "trashed" }) >= 0 {
+			return want
+		}
 		let keptNow = if e.Value.Sure && parentLive(want, e.Value) { e.Value.Kept } else { trashed }
 		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (keptNow || abandon))
 		if goes {
@@ -356,14 +363,14 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool)
 }
 
 // collected is the reference after gc at the second at with the age
-// older: the records that stay, and the paths deleted.
+// older: the records that stay, and the paths deleted. A reservation's
+// maker is gone (the crash), so gc collects it at any age.
 func collected(want []Expected, older int64, at int64) ([]Expected, []string) {
-	let stale = if older > 3600 { older } else { 3600 }
 	let mut kept = []Expected{}
 	let mut dropped = []string{}
 	for e in want {
 		let age = at - e.Since
-		if (e.State == "trashed" && age >= older) || (e.State == "creating" && age >= stale) {
+		if (e.State == "trashed" && age >= older) || e.State == "creating" {
 			dropped = dropped.Append(e.Path)
 		} else {
 			kept = kept.Append(e)

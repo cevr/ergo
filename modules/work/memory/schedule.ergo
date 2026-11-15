@@ -1,0 +1,185 @@
+// The scheduler property of the registry protocol: the callers of
+// protocol.ergo interleaved, stopped and recovered.
+
+import github.com/cevr/ergo/modules/work/work
+import slices
+import strings
+import sync
+
+// callerOf is the Caller of call c by the holder numbered owner of w;
+// first is x's first id, which an rm that expects an id expects.
+func callerOf(w World, c Call, owner int, first string) Caller {
+	let lock = Sharing(w.lock, owner)
+	let t = toolOf(w, lock, []work.Cloner{w.trees})
+	let answers = sync.NewRef([]work.Removed{})
+	let mut expects = false
+	let (steps, parts, decides) = match c {
+	case NewCall as n:
+		let name = if small(n.Name, 2) == 0 { "y" } else { "z" }
+		let base = if n.OnX { on("x") } else { fresh(false) }
+		let o = if n.Token { work.NewOptions{..base, Token: some("t-" + name)} } else { base }
+		(newSteps(t, name, o), []int{0}, []int{0})
+	case RmCall as r:
+		expects = r.Expect
+		(rmSteps(t, "x", if r.Expect { some(first) } else { None }, answers), []int{0}, []int{1})
+	case GcCall:
+		(gcSteps(t), []int{0}, []int{0})
+	case ReplaceCall:
+		(slices.Concat(rmSteps(t, "x", None, answers), newSteps(t, "x", fresh(false))), []int{0, 4}, []int{1, 4})
+	}
+	Caller{steps: steps, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, expects: expects}
+}
+
+// scheduled is a world with x made, and the callers of calls; and x's id.
+func scheduled(calls []Call) (World, string, []Caller) {
+	let w = world(true)
+	let x = w.tool.New("x", fresh(false)) catch {
+	case _:
+		nothing()
+	}
+	let mut callers = []Caller{}
+	for i, c in calls {
+		callers = callers.Append(callerOf(w, c, i+2, x.Id))
+	}
+	(w, x.Id, callers)
+}
+
+// SchedulesKeepTheInvariants: the steps of two or three callers are
+// interleaved by choices: each picks a caller that may step (the one
+// holding the registry's lock if one does), and one choice in six stops
+// that caller instead (a process that dies holds no lock). The callers
+// left run to their end, and a gc of another process recovers. Then no
+// intent and no reservation is left; the trees under the storage are
+// exactly the live records' folders (no orphan, no record without its
+// tree); every live record's parent is the base or a live record (no
+// workspace left the registry under a child); and an rm that expected
+// x's first id trashed only that id. With no caller stopped, the records
+// are those of the same calls run one by one in the order their deciding
+// steps ran.
+law SchedulesKeepTheInvariants(calls []Call, choices []int) {
+	if len(calls) < 2 {
+		return true
+	}
+	let mut mine = []Call{}
+	for c in calls {
+		if len(mine) < 3 {
+			mine = mine.Append(c)
+		}
+	}
+	let (w, first, callers) = scheduled(mine)
+	let mut clock = 0
+	let mut stopped = false
+	for ch in choices {
+		let live = slices.Filter(callers, func(c Caller) bool { running(c) })
+		if len(live) == 0 {
+			break
+		}
+		let holding = slices.Filter(live, func(c Caller) bool { c.lock.Held("") })
+		let c = if len(holding) > 0 { holding[0] } else { live[small(ch, len(live))] }
+		if small(ch/3, 6) == 0 {
+			Die(c.lock)
+			c.dead.Set(true)
+			stopped = true
+			continue
+		}
+		step(c, clock)
+		clock = clock + 1
+		w.clock.Advance(1s)
+	}
+	for c in callers {
+		for running(c) {
+			step(c, clock)
+			clock = clock + 1
+			w.clock.Advance(1s)
+		}
+	}
+	let all = recovered(w) catch {
+	case _:
+		return false
+	}
+	let mut expected = true
+	for c in callers {
+		if c.expects {
+			for r in c.answers.Get() {
+				if !r.Already && r.Id != first {
+					expected = false
+				}
+			}
+		}
+	}
+	let held = expected && invariants(w, all)
+	if stopped || !held {
+		return held
+	}
+	sameRecords(all, serially(mine, callers))
+}
+
+// recovered is the records after a gc of another process.
+func recovered(w World) []work.Workspace fails work.NoBase | work.BadAge | work.Missing | work.CloneFailed | work.Unkept | work.Locked {
+	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
+	let _ = try t.Gc(work.GcOptions{Older: None, Id: None})
+	try t.List()
+}
+
+// invariants are the model's, on the records all of w after recovery.
+func invariants(w World, all []work.Workspace) bool {
+	let home = work.Home(theBase, "") + "/"
+	let mut paths = []string{}
+	for x in all {
+		if x.Moving != "" {
+			return false
+		}
+		match x.State {
+		case work.Creating, work.Trashed:
+			return false
+		case work.Active, work.Landing, work.Landed, work.Abandoned:
+		}
+		if x.Parent != theBase && slices.IndexFunc(all, func(p work.Workspace) bool { p.Path == x.Parent }) < 0 {
+			return false
+		}
+		paths = paths.Append(x.Path)
+	}
+	slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home) }) == slices.Sort(paths) && w.lock.Holds() == 0
+}
+
+// sameRecords reports whether two record lists name the same workspaces, in
+// order, with the same states, folders and parents (ids are made from the
+// time, so they differ).
+func sameRecords(a []work.Workspace, b []work.Workspace) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		let y = b[i]
+		if x.Name != y.Name || work.StateName(x.State) != work.StateName(y.State) || x.Path != y.Path || x.Parent != y.Parent {
+			return false
+		}
+	}
+	true
+}
+
+// serially is the records of the same calls run one by one, each part
+// whole, in the order their deciding steps ran, then the same recovery.
+func serially(calls []Call, ran []Caller) []work.Workspace {
+	let (w, _, callers) = scheduled(calls)
+	let mut order = []Stamp{}
+	for i, c in ran {
+		for j, s in c.stamps.Get() {
+			if s >= 0 {
+				order = order.Append(Stamp{At: s, Caller: i, Part: j})
+			}
+		}
+	}
+	for o in slices.SortFunc(order, func(a Stamp, b Stamp) int { a.At - b.At }) {
+		let c = callers[o.Caller]
+		let end = if o.Part+1 < len(c.parts) { c.parts[o.Part+1] } else { len(c.steps) }
+		for running(c) && c.pc.Get() < end {
+			step(c, 0)
+			w.clock.Advance(1s)
+		}
+	}
+	recovered(w) catch {
+	case _:
+		[]work.Workspace{}
+	}
+}

@@ -17,8 +17,9 @@ The base is `WORK_BASE` when it is set (a relative one stays relative, so the pa
 Each case's `setup.sh` makes a Git base (and, where the command reads them, a registry and workspaces written by hand: the registry is plain text) in the case's folder, and the case runs one command with `WORK_BASE=base` and `WORK_NOW=1000`.
 
 - `new` clones with `-copy`, so it passes on a file system with no reflink too (it is still a reflink on btrfs and a clonefile on APFS). Its `postcreate` hook (allowed: setup.sh writes the digest work trust would keep) runs in the new workspace: it writes to the clone's `a.txt`, checks that `tmp` was left out, prints the base's `a.txt` on stderr and exits 3, so the `HookFailed` in new's answer shows that a write in the clone left the base as it was. The other hook cases print what they see the same way.
-- `rm-held`, `rm-dirty`, `rm-abandon`: a clean workspace whose head the base holds goes to the trash; one with an untracked file is `NotHeld` unless `-abandon`.
-- `gc` deletes the trashed workspace and keeps one whose clone started ten seconds before; another base's trash is beside it and stays.
+- `rm-held`, `rm-dirty`, `rm-abandon`: a clean workspace whose head the base holds goes to the trash; one with an untracked file is `NotHeld` unless `-abandon`. rm answers the list of what it removed.
+- `rm-tree`: `rm -tree` of a workspace with a child that has a child removes the three, the leaves first.
+- `gc` deletes the trashed workspace and keeps a reservation with no id (written before reservations had locks) made ten seconds before; another base's trash is beside it and stays.
 - `list` replays a journal with a re-put, a drop and a line a crash cut short.
 - `new-from`: the branch starts at the tag `v1`; the postcreate hook prints the branch, its commit, the file and the origin's push URL (the guard).
 - `new-on`: a stack: the clone of workspace `a` holds `a`'s commit and its uncommitted edit, on branch `b`.

@@ -35,7 +35,7 @@
     },
     {
       "name": "ws0-rm-unkept-work", "origin": "wf10/semws WS0",
-      "file": "modules/work/work/api.ergo",
+      "file": "modules/work/work/remove.ergo",
       "from": "\t\t\tif !kept {\n",
       "to": "\t\t\tif false {\n",
       "rule": "rm refuses a workspace whose work is not in its parent unless -abandon: memory's ToolAgreesWithTheReference (an edit, then rm), the rm-dirty case.",
@@ -43,18 +43,18 @@
     },
     {
       "name": "ws0-refused-clone-stays-registered", "origin": "wf10/semws WS0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\tcase CopyRefused as e:\n\t\ttry drop(t, name)\n\t\treturn e\n",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n",
       "to": "\tcase CopyRefused as e:\n\t\treturn e\n",
       "rule": "A new that does not clone leaves no registered workspace with no tree: memory's ToolAgreesWithTheReference, CopyRefusedSaysTheBytes.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\t\t\tage >= stale && strings.HasPrefix(w.Path, t.home+\"/\")\n",
-      "to": "\t\t\tfalse\n",
-      "rule": "A crash between the record and the clone leaves Creating, and gc removes it once it is an hour old: memory's ToolAgreesWithTheReference (CrashOp, WaitOp, GcOp).",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\tif taken && strings.HasPrefix(w.Path, t.home+\"/\") {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A crash between the reservation and the clone leaves Creating, and gc removes its record and its tree once its maker is gone: memory's ToolAgreesWithTheReference (CrashOp, GcOp), StoppedWriterIsFinished.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
@@ -67,7 +67,7 @@
     },
     {
       "name": "ws0-leave-out-ignored", "origin": "wf10/semws WS0",
-      "file": "modules/work/work/api.ergo",
+      "file": "modules/work/work/new.ergo",
       "from": "\t\tif by.Has(left) {\n",
       "to": "\t\tif false {\n",
       "rule": "new leaves out the leave_out folders of work.toml: the new case's postcreate hook checks that tmp is not in the clone.",
@@ -147,9 +147,9 @@
     },
     {
       "name": "ws1-on-records-base", "origin": "wf10/semws WS1",
-      "file": "modules/work/work/api.ergo",
-      "from": "Workspace{Name: name, Id: id, Path: path, Parent: parent,",
-      "to": "Workspace{Name: name, Id: id, Path: path, Parent: t.base,",
+      "file": "modules/work/work/new.ergo",
+      "from": "Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner,",
+      "to": "Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: t.base, Branch: m.Branch, Cloner: m.Cloner,",
       "rule": "new -on records the workspace it clones as the parent, not the base (the plan's mutant): memory's StackRecordsItsParent (and ToolAgreesWithTheReference's OnOp, when a seed reaches one).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -212,8 +212,8 @@
     {
       "name": "ws1-journal-drops-base", "origin": "wf10/semws WS1",
       "file": "modules/work/journal/registry.ergo",
-      "from": ", strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}",
-      "to": ", strconv.Quote(\"\"), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps)}",
+      "from": ", strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps),",
+      "to": ", strconv.Quote(\"\"), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps),",
       "rule": "The journal keeps a record's base and latest snapshot: journal's ReplayIsTheMemoryRegistry.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -323,17 +323,17 @@
     },
     {
       "name": "wg0-new-writes-the-source", "origin": "wf10/semws WG0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\tlet marked = mark(t, path, id) catch {",
-      "to": "\tlet marked = mark(t, parent, id) catch {",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet marked = mark(t, m.Path, m.Id) catch {",
+      "to": "\tlet marked = mark(t, m.Parent, m.Id) catch {",
       "rule": "new writes nothing into its source: the new-carries case (the base's status).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "wg0-hook-under-the-lock", "origin": "wf10/semws WG0",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release()\n\t\treturn e\n\t}\n\tt.lock.Release()\n}",
-      "to": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release()\n\t\treturn e\n\t}\n}",
+      "from": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release(\"\")\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n}",
+      "to": "\tt.registry.Put(w) catch {\n\tcase Unkept as e:\n\t\tt.lock.Release(\"\")\n\t\treturn e\n\t}\n}",
       "rule": "No hook runs while the registry's lock is held: NoHookUnderTheLock.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -364,7 +364,7 @@
     {
       "name": "wg0-deps-forgets-the-digest", "origin": "wf10/semws WG0",
       "file": "modules/work/work/deps.ergo",
-      "from": "\tlet done = Workspace{..w, Deps: digest}",
+      "from": "\tlet done = Workspace{..w, Deps: digest, Token: \"\", Moving: \"\"}",
       "to": "\tlet done = w",
       "rule": "An install records the lock's digest, so the next deps of the same lock does nothing: InstallOnlyWhenTheLockDiffers.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -403,17 +403,17 @@
     },
     {
       "name": "wg0-json-without-id", "origin": "wf10/semws WG0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\tCreated{Name: name, Id: id, Path: path,",
-      "to": "\tCreated{Name: name, Id: \"\", Path: path,",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tCreated{Name: m.Name, Id: m.Id, Path: m.Path,",
+      "to": "\tCreated{Name: m.Name, Id: \"\", Path: m.Path,",
       "rule": "new answers {path, id}: the new-carries case (the id equals the marker).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
     {
       "name": "wg0-postcreate-in-the-parent", "origin": "wf10/semws WG0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)",
-      "to": "\tlet hooks = runHook(t, c, \"postcreate\", parent, env)",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet hooks = runHook(t, m.Config, \"postcreate\", m.Path, ",
+      "to": "\tlet hooks = runHook(t, m.Config, \"postcreate\", m.Parent, ",
       "rule": "postcreate runs in the new workspace: HooksRunInOrder.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -427,9 +427,9 @@
     },
     {
       "name": "wg0-failed-postcreate-drops", "origin": "wf10/semws WG0",
-      "file": "modules/work/work/api.ergo",
-      "from": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)\n\tCreated{",
-      "to": "\tlet hooks = runHook(t, c, \"postcreate\", path, env)\n\tmatch hooks {\n\tcase HookFailed:\n\t\ttry drop(t, name)\n\tcase HooksRan, Untrusted:\n\t}\n\tCreated{",
+      "file": "modules/work/work/new.ergo",
+      "from": "m.Parent, m.Path, m.Id, m.ParentId))\n\tCreated{",
+      "to": "m.Parent, m.Path, m.Id, m.ParentId))\n\tmatch hooks {\n\tcase HookFailed:\n\t\ttry drop(t, m.Name)\n\tcase HooksRan, Untrusted:\n\t}\n\tCreated{",
       "rule": "A failed postcreate leaves the workspace active and registered: FailedPostcreateLeavesActive.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -460,10 +460,154 @@
     {
       "name": "wg0-journal-release-keeps-hold", "origin": "wf10/semws WG0",
       "file": "modules/work/journal/lock.ergo",
-      "from": "func Release(l Lock) { l.held.Set(l.held.Get() - 1) }",
-      "to": "func Release(l Lock) {}",
-      "rule": "A release gives the hold back: Lock.ReleaseUndoesHold on the journal's lock.",
+      "from": "\t\tl.held.Set(l.held.Get().Delete(key))\n",
+      "to": "",
+      "rule": "A release forgets the hold, so the same process holds the key again (new holds the mutation lock twice): the examples/work cases.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg1-rm-ignores-expect", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif here != e.Value {\n",
+      "to": "\t\tif false {\n",
+      "rule": "rm -expect removes only the workspace of that id (the model's NoExpect): RemovingIsIdempotent, IdMismatchNamesBothIds.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-rm-takes-the-subtree", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif len(kids) > 0 {\n",
+      "to": "\tif false {\n",
+      "rule": "rm of a workspace with a child is HasDescendants (the model's SubtreeRemove): HasDescendantsNamesThePaths, SchedulesKeepTheInvariants.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-reservation-is-no-child", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tmatch w.State {\n\t\tcase Trashed:\n\t\tcase Creating, Active, Landing, Landed, Abandoned:\n\t\t\tout = out.Append(w.Path)",
+      "to": "\t\tmatch w.State {\n\t\tcase Trashed, Creating:\n\t\tcase Active, Landing, Landed, Abandoned:\n\t\t\tout = out.Append(w.Path)",
+      "rule": "A reservation on a workspace counts as its child: SchedulesKeepTheInvariants (an rm of x between a new -on x's reservation and its activation).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-mismatch-before-the-tomb", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\tif removedBefore(all, try t.registry.Tombs(), e.Value) {",
+      "to": "\t\t\tif here == \"\" && removedBefore(all, try t.registry.Tombs(), e.Value) {",
+      "rule": "rm -expect of a removed id answers already even when a new workspace has the name: RemovingSparesTheReplacement.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-purge-keeps-no-tomb", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\t\tt.registry.Bury(w.Name, at) catch {",
+      "to": "\t\t\t\tt.registry.Drop(w.Name) catch {",
+      "rule": "gc keeps a tomb of each id it purges, so an rm -expect retry answers already: RemovingIsIdempotent, PurgingTouchesOneEntry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-gc-id-takes-all", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\tw.Id == i.Value\n",
+      "to": "\t\t\ti.Value != \"\"\n",
+      "rule": "gc -id purges that entry only: PurgingTouchesOneEntry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-finish-skips-the-move", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif t.copier.Has(w.Moving) && !t.copier.Has(w.Path) {",
+      "to": "\t\tif false {",
+      "rule": "The next mutation finishes an intent a stopped rm left: the folder moves to the trash its record names (the model's NoIntent): SchedulesKeepTheInvariants.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-maker-always-gone", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\ttry t.lock.Hold(w.Id)\n}",
+      "to": "\tlet _ = try t.lock.Hold(w.Id)\n\ttrue\n}",
+      "rule": "gc and rm leave a reservation whose maker still copies: SchedulesKeepTheInvariants (a gc between a new's reservation and its activation).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-copy-under-the-lock", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n",
+      "to": "\ttry hold(t)\n\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n",
+      "rule": "No clone runs under the registry's lock: NoCopyUnderTheLock.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-token-ignored", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tif token == \"\" {\n\t\treturn None",
+      "to": "\tif true {\n\t\treturn None",
+      "rule": "A new with the token of an earlier one answers that workspace and makes no second record: ReservingWithATokenTwiceIsOnce.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-memory-bury-keeps-no-tomb", "origin": "wf10/semws WG1",
+      "file": "modules/work/memory/registry.ergo",
+      "from": "tombs.Append(work.Tomb{Id: r.Id, Since: at})",
+      "to": "tombs",
+      "rule": "A buried record's id is a tomb: Registry.BuryKeepsTheId on memory.Registry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-journal-tomb-unread", "origin": "wf10/semws WG1",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "\t\t\ttombs = tombs.Append(work.Tomb{Id: try field(i, fields[3]), Since: since})",
+      "to": "\t\t\ttombs = tombs.Append(work.Tomb{Id: \"\", Since: since})",
+      "rule": "The journal reads a tomb line's id back: Registry.BuryKeepsTheId on journal.Registry, ReplayIsTheMemoryRegistry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-journal-compact-drops-tombs", "origin": "wf10/semws WG1",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "\tfor t in memory.Recent(tombs, since) {",
+      "to": "\tfor t in memory.Recent(tombs, 9223372036854775807) {",
+      "rule": "Compaction keeps the tombs made at since or later: Registry.CompactKeepsTheRecords on journal.Registry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-journal-buried-unread", "origin": "wf10/semws WG1",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "\t\t\ttombs = tombs.Append(work.Tomb{Id: try field(i, fields[1]), Since: since})",
+      "to": "\t\t\ttombs = tombs.Append(work.Tomb{Id: \"\", Since: since})",
+      "rule": "The journal reads back the tombs a compaction wrote: Registry.CompactKeepsTheRecords on journal.Registry.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-memory-lock-shared", "origin": "wf10/semws WG1",
+      "file": "modules/work/memory/hooks.ergo",
+      "from": "\tif t.Get(key) != None {\n\t\treturn false",
+      "to": "\tif false {\n\t\treturn false",
+      "rule": "A held key is not held again by another holder: Lock.HoldExcludes on memory.Lock.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-trash-is-not-removed", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\tcase Trashed:\n\t\t\t\treturn true\n",
+      "to": "\t\t\tcase Trashed:\n\t\t\t\treturn false\n",
+      "rule": "A retried rm -expect of a workspace in the trash answers already: RemovingIsIdempotent.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg1-rm-no-tree", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif o.Tree {\n",
+      "to": "\tif false {\n",
+      "rule": "rm -tree removes the workspace and every descendant: the rm-tree case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wg1-tree-parent-first", "origin": "wf10/semws WG1",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\t\tout = slices.Concat(out, below(all, w.Path))\n\t\t\tout = out.Append(w)\n",
+      "to": "\t\t\tout = out.Append(w)\n\t\t\tout = slices.Concat(out, below(all, w.Path))\n",
+      "rule": "rm -tree removes the leaves first, so no workspace leaves the registry under a child: the rm-tree case.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     }
   ]
 }

@@ -40,7 +40,7 @@ func lockDigest(t Tool, path string, c Config) string {
 // install runs [deps]'s install in w when its lock's digest is not the
 // one w last installed, and records the new digest; it starts no process
 // when the digests are equal.
-func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept {
+func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept | Locked {
 	if c.Lock == "" {
 		return (w, NoDeps)
 	}
@@ -60,14 +60,14 @@ func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept {
 	if r.Status != 0 {
 		return (w, DepsFailed{Command: c.Install, Status: r.Status, Stderr: r.Stderr})
 	}
-	let done = Workspace{..w, Deps: digest}
+	let done = Workspace{..w, Deps: digest, Token: "", Moving: ""}
 	try put(t, done)
 	(done, Installed{Digest: digest})
 }
 
 // Deps installs the workspace's packages when its lock changed since the
 // last install (workrift deps).
-func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed {
+func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed | Locked {
 	try initialized(t)
 	let w = try chosen(t, o.Name)
 	let c = try config(t)

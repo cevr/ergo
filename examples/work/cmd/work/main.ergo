@@ -9,7 +9,9 @@
 // that share blocks in the order the file system is tried (a btrfs
 // snapshot, a reflink per file, clonefile), the plain copy (made only
 // when asked), the journal registry and its lock in the base's storage,
-// the hooks by sh, git, and the host's files, commands and clock.
+// the hooks by sh, git, and the host's files, commands and clock. The
+// registry's lock waits at most 10 seconds for another work, then the
+// command fails Locked.
 //
 // The base is WORK_BASE when it is set; else, from the working folder
 // up, the base of the workspace it is in (its folder in a .work/REPO/
@@ -107,7 +109,7 @@ func main() fails os.Exit needs Ambient | Console {
 		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
 		Copier:   copy.New(run),
 		Registry: journal.Open(files, files, work.RegistryFile(home)),
-		Lock:     journal.NewLock(),
+		Lock:     journal.NewLock(files, home, 10s),
 		Hooks:    sh.NewHooks(run),
 		Vcs:      git.New(run),
 		Files:    files,

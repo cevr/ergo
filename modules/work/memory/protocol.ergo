@@ -1,0 +1,363 @@
+// The registry protocol of work (SEMWS plan §2.12) on the memory world:
+// the laws of a retried removal, of a removal after the name was taken
+// again, of the token, of a purge by id and of the clone with no lock;
+// and the parts the scheduler property (schedule.ergo) runs: each call
+// in its steps. The property interleaves two or three callers, stops any
+// of them after any step, and holds the model's invariants
+// (models/registry) on what is left; it is the law of every other rule
+// of the protocol (a refused parent, a refused id, a stopped writer).
+
+import github.com/cevr/ergo/modules/work/work
+import slices
+import sync
+
+// toolOf is a Tool over w's trees, registry, Git and disk, for the holder
+// lock (a process of its own) with the Cloners cloners.
+func toolOf(w World, lock Lock, cloners []work.Cloner) work.Tool {
+	let p = work.Providers{Cloners: cloners, Copier: Beside(w.trees, false), Registry: w.registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
+	work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
+}
+
+// expecting are rm's options with the expected id and -abandon.
+func expecting(id Option[string]) work.RmOptions { work.RmOptions{Abandon: true, Expect: id, Tree: false} }
+
+func on(name string) work.NewOptions { work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: name}, Token: None} }
+
+func some(text string) Option[string] { Some[string]{Value: text} }
+
+// RemovingIsIdempotent: rm -expect of a workspace's id trashes it; the
+// retry answers AlreadyRemoved, and so does a retry after gc purged it
+// (its tomb), and the retries change no record.
+law RemovingIsIdempotent(name int) {
+	let w = world(true)
+	let n = pick(name)
+	let a = w.tool.New(n, fresh(false)) catch {
+	case _:
+		return false
+	}
+	let first = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let again = []work.Removed{work.Removed{Name: n, Id: a.Id, Trash: "", Already: true}}
+	let second = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Id: some(a.Id)}) catch {
+	case _:
+		return false
+	}
+	let third = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.List() catch {
+	case _:
+		return false
+	}
+	len(first) == 1 && first[0].Id == a.Id && !first[0].Already && second == again && third == again && len(listed) == 1 && len(purged) == 0
+}
+
+// RemovingSparesTheReplacement: after the workspace at a name was removed
+// and purged (the name is taken until gc) and a new one took the name,
+// rm -expect of the first id answers already and leaves the new one.
+law RemovingSparesTheReplacement() {
+	let w = world(true)
+	let first = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Id: None}) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let answer = w.tool.Rm("a", expecting(some(first.Id))) catch {
+	case _:
+		return false
+	}
+	answer == []work.Removed{work.Removed{Name: "a", Id: first.Id, Trash: "", Already: true}} && w.trees.Has(second.Path) && second.Id != first.Id
+}
+
+// ReservingWithATokenTwiceIsOnce: a second new with the token of the
+// first, under any name, answers the workspace the first made and makes
+// no second record.
+law ReservingWithATokenTwiceIsOnce(token string, again int) {
+	if token == "" {
+		return true
+	}
+	let w = world(true)
+	let o = work.NewOptions{..fresh(false), Token: some(token)}
+	let first = w.tool.New("a", o) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New(pick(again), o) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	second.Id == first.Id && second.Path == first.Path && second.Name == "a" && len(after) == 1
+}
+
+// PurgingTouchesOneEntry: gc -id purges that entry only: its record goes
+// (its tomb stays), and every other record and tree stays.
+law PurgingTouchesOneEntry() {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.New("b", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let gone = w.tool.Rm("b", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let before = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Id: some(a.Id)}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let tombs = w.registry.Tombs() catch {
+	case work.Unkept:
+		return false
+	}
+	purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
+}
+
+// Watching is a Cloner that records whether the registry's lock was held
+// at any clone: the copy runs with no lock but its reservation's.
+type Watching { c Cloner, lock Lock, locked sync.Ref[bool] } implements work.Cloner
+
+func Name(w Watching) string { w.c.Name() }
+
+func Shares(w Watching) bool { w.c.Shares() }
+
+func KeepsInodes(w Watching) bool { w.c.KeepsInodes() }
+
+func Clone(w Watching, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	if w.lock.table.Get().Get("") != None {
+		w.locked.Set(true)
+	}
+	try w.c.Clone(from, to)
+}
+
+func Has(w Watching, root string) bool { w.c.Has(root) }
+
+func Move(w Watching, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try w.c.Move(from, to) }
+
+func Discard(w Watching, root string) fails work.Missing | work.CloneFailed { try w.c.Discard(root) }
+
+func Usage(w Watching, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Usage(root) }
+
+// NoCopyUnderTheLock: new clones with the registry's lock free, for a
+// workspace of the base and one made on it.
+law NoCopyUnderTheLock(stack bool) {
+	let w = world(true)
+	let watch = Watching{c: w.trees, lock: w.lock, locked: sync.NewRef(false)}
+	let t = toolOf(w, w.lock, []work.Cloner{watch})
+	let _ = t.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	if stack {
+		let _ = t.New("b", on("a")) catch {
+		case _:
+			return false
+		}
+	}
+	!watch.locked.Get() && w.lock.Holds() == 0
+}
+
+// Call is one caller of the scheduler property: a new (of y or z, on the
+// base or on x, with a token or not), an rm of x (expecting x's first id
+// or not), a gc, or a replace of x (rm, then a new of the name).
+type Call =
+	| NewCall{Name int, OnX bool, Token bool}
+	| RmCall{Expect bool}
+	| GcCall{}
+	| ReplaceCall{}
+
+// Caller is a call's steps as the scheduler runs them: each returns
+// whether the call goes on. A call has one part (a replace has two: its
+// rm and its new); parts are where each starts, and decides the step of
+// each whose lock orders it (its linear point). stamps are the times its
+// deciding steps ran (-1 for one it never reached), answers the Removed
+// its rm answered, and expects whether that rm expected x's first id.
+type Caller {
+	steps   []func() bool,
+	parts   []int,
+	decides []int,
+	lock    Lock,
+	pc      sync.Ref[int],
+	dead    sync.Ref[bool],
+	stamps  sync.Ref[[]int],
+	answers sync.Ref[[]work.Removed],
+	expects bool,
+}
+
+// Stamp is when part Part of caller Caller decided.
+type Stamp { At int, Caller int, Part int }
+
+// running is whether c has steps left and is not stopped.
+func running(c Caller) bool { !c.dead.Get() && c.pc.Get() < len(c.steps) }
+
+// step runs c's next step at the time stamp.
+func step(c Caller, stamp int) {
+	let i = c.pc.Get()
+	if slices.Contains(c.decides, i) {
+		c.stamps.Set(c.stamps.Get().Append(stamp))
+	}
+	let goes = c.steps[i]()
+	c.pc.Set(if goes { i + 1 } else { len(c.steps) })
+	if !goes {
+		// A call that ended early decides nothing later.
+		let mut left = []int{}
+		for d in c.decides {
+			if d > i {
+				left = left.Append(d)
+			}
+		}
+		for _ in left {
+			c.stamps.Set(c.stamps.Get().Append(-1))
+		}
+	}
+}
+
+// newSteps are the steps of a new by t: the reservation, the clone, the
+// activation.
+func newSteps(t work.Tool, name string, o work.NewOptions) []func() bool {
+	let made = sync.NewRef(work.Making{Name: "", Id: "", Path: "", Parent: "", ParentId: "", Branch: "", Start: "", Token: "", Config: work.EmptyConfig(), Copy: false, Cloner: ""})
+	[]func() bool{
+		func() bool {
+			match (t.Reserve(name, o) catch {
+			case _:
+				return false
+			}) {
+			case work.Making as m:
+				made.Set(m)
+				true
+			case work.Created:
+				false
+			}
+		},
+		func() bool {
+			made.Set(t.Fill(made.Get()) catch {
+			case _:
+				return false
+			})
+			true
+		},
+		func() bool {
+			let _ = t.Activate(made.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+	}
+}
+
+// rmSteps are the steps of an rm by t: the check, then, under one hold of
+// the lock, the intent, the move and the settle. answers keeps each
+// Removed it answered.
+func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) []func() bool {
+	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: ""})
+	[]func() bool{
+		func() bool {
+			let _ = t.Check(work.EmptyConfig(), name, expect, true) catch {
+			case _:
+				return false
+			}
+			true
+		},
+		func() bool {
+			match (t.Intend(name, expect, true) catch {
+			case _:
+				return false
+			}) {
+			case work.Workspace as i:
+				intent.Set(i)
+				true
+			case work.Removed as r:
+				answers.Set(answers.Get().Append(r))
+				false
+			}
+		},
+		func() bool {
+			t.MoveOut(intent.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+		func() bool {
+			let r = t.Settle(intent.Get()) catch {
+			case _:
+				return false
+			}
+			answers.Set(answers.Get().Append(r))
+			true
+		},
+	}
+}
+
+// gcSteps are the steps of a gc by t: the collect (under the lock), the
+// discards (with none), the purge (under the lock).
+func gcSteps(t work.Tool) []func() bool {
+	let due = sync.NewRef([]work.Workspace{})
+	[]func() bool{
+		func() bool {
+			due.Set(t.Collect(None, 0s) catch {
+			case _:
+				return false
+			})
+			true
+		},
+		func() bool {
+			for x in due.Get() {
+				t.DiscardOf(x) catch {
+				case _:
+					return false
+				}
+			}
+			true
+		},
+		func() bool {
+			let _ = t.Purge(due.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+	}
+}

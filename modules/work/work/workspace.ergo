@@ -146,7 +146,10 @@ func States() []State { []State{Creating, Active, Landing, Landed, Abandoned, Tr
 // second it entered that state, its base (the parent's commit it started
 // at or last synced with) and its latest snapshot (the tree ready last
 // handed to the parent, "" before the first ready), and the digest of
-// the lock file of its last install ("" before one).
+// the lock file of its last install ("" before one), the token of the new
+// that made it ("" for none: a retry of new with the token answers this
+// workspace), and, for a trashed one whose move is not confirmed, the
+// folder it moves from (an intent: "" once the folder is in the trash).
 type Workspace {
 	Name   string,
 	Id     string,
@@ -159,7 +162,14 @@ type Workspace {
 	Base   string,
 	Latest string,
 	Deps   string,
+	Token  string,
+	Moving string,
 }
+
+// Tomb is the record of a purged workspace: its id and the Unix second
+// it was purged. A retry of rm with that id answers AlreadyRemoved while
+// the registry keeps the tomb (TombWindow).
+type Tomb { Id string, Since int64 }
 
 // Usage is the bytes a tree takes: Exclusive only it holds, Shared it
 // holds with another tree (a clone and its parent share the blocks
