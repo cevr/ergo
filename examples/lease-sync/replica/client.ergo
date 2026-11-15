@@ -89,7 +89,7 @@ func Peek[S, C, F](st State[S, C, F]) Inner[S] {
 // Step is the replica's pure step for the source src. A program declares
 // its machine with a step that calls it (a generic function cannot start a
 // machine from a record of functions yet).
-func Step[S, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Signal[S, C, E, F]) Decision[State[S, C, F], None] {
+func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Signal[S, C, E, F]) Decision[State[S, C, F], None] {
 	match sig {
 	case Hello as h:
 		if st.id != ClientID("") {
@@ -149,7 +149,7 @@ func stay[S, C, F](st State[S, C, F]) Decision[State[S, C, F], None] { Stay[Stat
 // delta is st after the records of d past its cursor: each Did event
 // moves the base, each Refused of a pending command of the client joins
 // Refused, and the commands the records confirm leave Pending.
-func delta[S, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], d Delta[E, F]) State[S, C, F] {
+func delta[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], d Delta[E, F]) State[S, C, F] {
 	let mut base = st.base
 	let mut cursor = st.cursor
 	let mut known = 0
@@ -206,7 +206,7 @@ func above[C](pending []domain.Envelope[C], seq int, id ClientID) []domain.Envel
 
 // settle is st with its status: Ready with the view, the base plus a rerun
 // of Pending, once the cursor is at the floor; else Loading.
-func settle[S, C, E, F, R](src Source[S, C, E, R], st State[S, C, F]) State[S, C, F] {
+func settle[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F]) State[S, C, F] {
 	if st.cursor < st.floor {
 		return State[S, C, F]{..st, Status: Loading}
 	}
@@ -215,7 +215,7 @@ func settle[S, C, E, F, R](src Source[S, C, E, R], st State[S, C, F]) State[S, C
 
 // Rerun is s after the commands, each decided on the state the one before
 // it left; a refused prediction changes nothing (the authority decides).
-func Rerun[S, C, E, R](src Source[S, C, E, R], s S, cs []domain.Envelope[C]) S {
+func Rerun[S wire, C, E, R](src Source[S, C, E, R], s S, cs []domain.Envelope[C]) S {
 	let mut out = s
 	for c in cs {
 		let events = src.Decide(out, c) catch {

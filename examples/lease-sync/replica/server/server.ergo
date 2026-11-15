@@ -34,7 +34,7 @@ type Book[S, C, E, F] {
 // Server is one source's authority. Tail is how many of the last records
 // a pull is answered from by a delta; a pull from before them gets a
 // snapshot. Its values are copies of one authority.
-type Server[S any, C comparable, E comparable, F comparable, R] {
+type Server[S wire, C comparable, E comparable, F comparable, R] {
 	src    replica.Source[S, C, E, R],
 	decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F],
 	book   sync.Ref[Book[S, C, E, F]],
@@ -54,7 +54,7 @@ type Bells { Next int, Waiting Map[int, queue.Queue[int]] }
 // TODO(lane CK, the unit for types.md Generics 1's Exit[int, Bad]): once a
 // one-type row's value type is that type in a generic argument, Start
 // catches src.Decide's R itself and Facts goes.
-func Start[S any, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide escaping func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
+func Start[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide escaping func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
 	let empty = memory.Book[replica.Fact[E, F]]{Streams: Map[string, []domain.Recorded[replica.Fact[E, F]]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
 	Server[S, C, E, F, R]{src: src, decide: decide, book: sync.NewRef(Book[S, C, E, F]{Log: empty, State: src.Initial, Commands: Map[domain.CommandID, C]{}}), bells: sync.NewRef(Bells{Next: 0, Waiting: Map[int, queue.Queue[int]]{}}), Tail: tail}
 }
@@ -93,7 +93,7 @@ func LastSeq[E](records []domain.Recorded[E], origin replica.ClientID) int {
 // Decide is the authority's step for m on b: the resend rule, the order
 // rule, Decide on the current state, Evolve, and the append. A refusal is
 // appended as the fact Refused and changes no state.
-func Decide[S any, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F], b Book[S, C, E, F], m domain.Envelope[C]) (Answer, Book[S, C, E, F]) {
+func Decide[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F], b Book[S, C, E, F], m domain.Envelope[C]) (Answer, Book[S, C, E, F]) {
 	match b.Commands.Get(m.ID) {
 	case Some[C] as c:
 		if c.Value != m.Command {
@@ -135,7 +135,7 @@ func Decide[S any, C comparable, E comparable, F comparable, R](src replica.Sour
 
 // Push is the authority's answer to m, stamped with the time at (the
 // authority's clock): the client's At is a prediction, the record's wins.
-func Push[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], m domain.Envelope[C], at time.Time) domain.Receipt fails replica.OutOfOrder | replica.IDConflict {
+func Push[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], m domain.Envelope[C], at time.Time) domain.Receipt fails replica.OutOfOrder | replica.IDConflict {
 	let stamped = domain.Envelope[C]{..m, At: at}
 	let a = sync.Modify(s.book, func(b Book[S, C, E, F]) (Answer, Book[S, C, E, F]) { Decide(s.src, s.decide, b, stamped) })
 	match a {
@@ -155,7 +155,7 @@ func Push[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, 
 // records after from while from is within the last Tail records, else a
 // snapshot of the state with by's last number and by's refusals in the
 // range it skips.
-func Pull[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int) replica.Frame[S, E, F] {
+func Pull[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int) replica.Frame[S, E, F] {
 	Frame(s.book.Get(), by, from, s.Tail)
 }
 
@@ -164,7 +164,7 @@ func Pull[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, 
 // It registers its bell before it reads the log, and a push rings after
 // it keeps its record, so a record kept while Await starts is never
 // missed. A pull from anywhere else is answered at once.
-func Await[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs Scheduler {
+func Await[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs Scheduler {
 	let bell = queue.New[int](1)
 	let id = sync.Modify(s.bells, func(b Bells) (int, Bells) { (b.Next, Bells{Next: b.Next + 1, Waiting: b.Waiting.Put(b.Next, bell)}) })
 	if len(Records(s)) == from {
@@ -212,16 +212,16 @@ func Frame[S, C, E, F](b Book[S, C, E, F], by replica.ClientID, from int, tail i
 }
 
 // Records is the source's log.
-func Records[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) []domain.Recorded[replica.Fact[E, F]] {
+func Records[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) []domain.Recorded[replica.Fact[E, F]] {
 	memory.RecordsOf(s.book.Get().Log, stream)
 }
 
 // State is the authority's state.
-func State[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) S { s.book.Get().State }
+func State[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) S { s.book.Get().State }
 
 // Replay is the state Evolve folds from initial over the Did facts of
 // records: what a restarted authority starts from.
-func Replay[S, C, E, R, F](src replica.Source[S, C, E, R], records []domain.Recorded[replica.Fact[E, F]]) S {
+func Replay[S wire, C, E, R, F](src replica.Source[S, C, E, R], records []domain.Recorded[replica.Fact[E, F]]) S {
 	let mut s = src.Initial
 	for r in records {
 		for f in r.Events {

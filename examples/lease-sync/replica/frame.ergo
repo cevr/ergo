@@ -22,7 +22,13 @@ type ClientID string
 // rebase; the authority runs it to decide), its total Evolve, and the
 // name of the version of Evolve and of the codecs. A frame of another
 // schema is never applied: the program drops the cache (DropCache).
-type Source[S, C, E, R] {
+//
+// A client holds the state, so the state must have a codec (`S wire`):
+// a state with a part that has none (a server handle such as a sync.Ref,
+// a function) is refused at the Source with a diagnostic that names the
+// part, so nothing private can be synced to a client (wf10 RPX1; the case
+// cmd/ergo/testdata/diagnostics/source-not-wire).
+type Source[S wire, C, E, R] {
 	Initial S,
 	Decide  func(s S, c domain.Envelope[C]) []E fails R,
 	Evolve  func(s S, e E) S,
