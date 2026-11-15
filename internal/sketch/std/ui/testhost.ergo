@@ -70,10 +70,17 @@ func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails ac
 	}
 	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
-	try Apply(&h.mirror, ops)
+	try show(h, ops)
 	if h.session.frame.passes != passes {
 		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 	}
+}
+
+// show applies a pass's patch to the screen, and says the text of each
+// live region it writes: every patch the host shows goes through it, so
+// Announced misses none (FK11-g5).
+func show[S, E, D, F](h *TestHost[S, E, D, F], ops []Op[E]) fails BadPatch {
+	try Apply(&h.mirror, ops)
 	for op in ops {
 		match op {
 		case Insert[E] as x:
@@ -173,7 +180,7 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 		// loop as Committed, on the watcher's task, at no time a test can
 		// wait for; so Settle ends with a pass, which shows nothing new when
 		// nothing changed, and settles the loads that pass started.
-		try Apply(&h.mirror, runPass(&h.session))
+		try show(h, runPass(&h.session))
 		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 		if InFlight(&h.session) == 0 {
 			return

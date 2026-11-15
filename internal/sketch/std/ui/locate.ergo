@@ -106,7 +106,10 @@ type Access { Role Role, Name string, Disabled bool, Description string, Checked
 // key (H5g). Names match exactly. First{At} finds the first node At
 // finds, in tree order, or none: an act on a locator that finds more than
 // one node fails Ambiguous (NS7), and First says which one is meant.
-type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator}
+// Within{In, At} finds the nodes At finds that are under a node In finds,
+// in tree order (FK11-g6): a scene names a column by its heading's
+// region, then a card within it.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator} | Within{In Locator, At Locator}
 
 // Matcher is what a scene expects of a locator's nodes, after
 // Playwright's and Testing Library's matchers: that some node matches,
@@ -161,6 +164,18 @@ func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
 			return all
 		}
 		return []Id[E]{all[0]}
+	case Within as x:
+		let mut outer = Map[Id[E], bool]{}
+		for o in LocateIn[E](m, x.In) {
+			outer[o] = true
+		}
+		let mut out = []Id[E]{}
+		for id in LocateIn[E](m, x.At) {
+			if under(m, id, outer) {
+				out = out.Append(id)
+			}
+		}
+		return out
 	case _:
 	}
 	match entryOf(m, m.root) {
@@ -169,6 +184,18 @@ func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
 	case None:
 		[]Id[E]{}
 	}
+}
+
+// under is whether a node above id, below the root, is in outer.
+func under[E](m *Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
+	let mut at = entry(m, refOf(m, id)).parent
+	for at != m.root {
+		if outer.Get(at) != None {
+			return true
+		}
+		at = entry(m, refOf(m, at)).parent
+	}
+	false
 }
 
 // locateFrom walks the siblings from at and their subtrees, in tree
@@ -342,6 +369,9 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 	case First as x:
 		// LocateIn takes the first; a node it finds is one At finds.
 		finds[E](x.At, n, a)
+	case Within as x:
+		// LocateIn keeps those under In; a node it finds is one At finds.
+		finds[E](x.At, n, a)
 	}
 }
 
@@ -455,6 +485,8 @@ func locatorText(loc Locator) string {
 		"zone \(keyText(x.Key))"
 	case First as x:
 		"first \(locatorText(x.At))"
+	case Within as x:
+		"\(locatorText(x.At)) within \(locatorText(x.In))"
 	}
 }
 
@@ -694,5 +726,102 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 			}
 		}
 		true
+	}
+}
+
+// withinLabel is the card label of slot j: two of the four labels, so
+// cards of one column and of two columns share them. (a law's helper)
+func withinLabel(j int) string { "card \(j % 2)" }
+
+// WithinFindsUnder (FK11-g6): over drawn boards of 1 to 4 columns, each a
+// Region named "col i" holding a Heading and 0 to 4 cards (half of them in
+// a Box, a level below), whose labels repeat within and across columns,
+// Within{In: the column, At: a button} finds exactly that column's cards
+// in tree order, Within a name no column has finds none, no column is
+// within a column, a nested Within
+// finds what the inner one does, and a ClickOn of First within a column
+// presses that column's first card of that label.
+law WithinFindsUnder(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut board = [][]int{}
+		for _ in 0..draw(&r, 4)+1 {
+			let mut col = []int{}
+			for _ in 0..draw(&r, 5) {
+				col = col.Append(draw(&r, 8))
+			}
+			board = board.Append(col)
+		}
+		let none Option[int] = None
+		let decl = func(role Role, name string, level Option[int]) Access {
+			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+		}
+		let view = func(f *Frame[int], s int) {
+			Column(f, Plain()) {
+				for i, col in board {
+					Semantic(f, decl(Region, "col \(i)", None), none, Plain()) {
+						Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) {
+							Text(f, "col \(i)")
+						}
+						for j, c in col {
+							if c%2 == 0 {
+								Pressable(f, withinLabel(c/2), 100*i+j) {
+									Text(f, "x")
+								}
+							} else {
+								Box(f, Plain()) {
+									Pressable(f, withinLabel(c/2), 100*i+j) {
+										Text(f, "x")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i, col in board {
+			let column = WithRole{Role: Region, Name: "col \(i)"}
+			let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}})
+			if len(found) != len(col) {
+				return false
+			}
+			for j, c in col {
+				if AccessAt(&h, found[j]).Name != withinLabel(c/2) {
+					return false
+				}
+			}
+			let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}})
+			if nested != found {
+				return false
+			}
+			for j, c in col {
+				let label = withinLabel(c / 2)
+				let mut first = j
+				for k in 0..j {
+					if withinLabel(col[k]/2) == label && first == j {
+						first = k
+					}
+				}
+				if first == j {
+					Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch {
+					case _:
+						return false
+					}
+					if StateOf(&h) != 100*i+j {
+						return false
+					}
+				}
+			}
+		}
+		// A column is not within itself, nor within another: none nests.
+		let regions = WithRole{Role: Region, Name: ""}
+		len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0
 	}
 }

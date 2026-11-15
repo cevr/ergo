@@ -713,6 +713,9 @@ func wants(loc ui.Locator, x seen) bool {
 	case ui.First as l:
 		// ui.LocateIn takes the first of what l.At finds.
 		wants(l.At, x)
+	case ui.Within:
+		// The generated programs write no ui.Within.
+		false
 	}
 }
 
@@ -2859,9 +2862,20 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut prev Option[string] = Some{Value: texts[0]}
 	for _ in 0..(steps%12+12)%12+1 {
 		let s = draw(&r, 6)
-		ui.PressKey(&h, ui.KeyPress{Name: "\(s)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
-		case _:
-			return false
+		if draw(&r, 2) == 0 {
+			ui.PressKey(&h, ui.KeyPress{Name: "\(s)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+		} else {
+			a.Send(s) catch {
+			case _:
+				return false
+			}
+			ui.Settle(&h) catch {
+			case _:
+				return false
+			}
 		}
 		// prev is the region's text, None while there is no region.
 		if s == 5 {
@@ -3578,6 +3592,91 @@ func lawAccessIsWhatWasDeclared(seed int, count int) bool {
 	}
 }
 
+func lawWithinFindsUnder(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut board = [][]int{}
+		for _ in 0..draw(&r, 4)+1 {
+			let mut col = []int{}
+			for _ in 0..draw(&r, 5) {
+				col = col.Append(draw(&r, 8))
+			}
+			board = board.Append(col)
+		}
+		let none Option[int] = None
+		let decl = func(role ui.Role, name string, level Option[int]) ui.Access {
+			ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+		}
+		let view = func(f *ui.Frame[int], s int) {
+			ui.Column(f, ui.Plain()) {
+				for i, col in board {
+					ui.Semantic(f, decl(ui.Region, "col \(i)", None), none, ui.Plain()) {
+						ui.Semantic(f, decl(ui.Heading, "col \(i)", Some{Value: 2}), none, ui.Plain()) {
+							ui.Text(f, "col \(i)")
+						}
+						for j, c in col {
+							if c%2 == 0 {
+								ui.Pressable(f, withinLabel(c/2), 100*i+j) {
+									ui.Text(f, "x")
+								}
+							} else {
+								ui.Box(f, ui.Plain()) {
+									ui.Pressable(f, withinLabel(c/2), 100*i+j) {
+										ui.Text(f, "x")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for i, col in board {
+			let column = ui.WithRole{Role: ui.Region, Name: "col \(i)"}
+			let found = ui.Locate(&h, ui.Within{In: column, At: ui.WithRole{Role: ui.Button, Name: ""}})
+			if len(found) != len(col) {
+				return false
+			}
+			for j, c in col {
+				if ui.AccessAt(&h, found[j]).Name != withinLabel(c/2) {
+					return false
+				}
+			}
+			let nested = ui.Locate(&h, ui.Within{In: ui.WithRole{Role: ui.Region, Name: ""}, At: ui.Within{In: column, At: ui.WithRole{Role: ui.Button, Name: ""}}})
+			if nested != found {
+				return false
+			}
+			for j, c in col {
+				let label = withinLabel(c / 2)
+				let mut first = j
+				for k in 0..j {
+					if withinLabel(col[k]/2) == label && first == j {
+						first = k
+					}
+				}
+				if first == j {
+					ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.First{At: ui.Within{In: column, At: ui.WithLabel{Label: label}}}}, ui.SettleAll}) catch {
+					case _:
+						return false
+					}
+					if ui.StateOf(&h) != 100*i+j {
+						return false
+					}
+				}
+			}
+		}
+		// A column is not within itself, nor within another: none nests.
+		let regions = ui.WithRole{Role: ui.Region, Name: ""}
+		len(ui.Locate(&h, ui.Within{In: ui.WithRole{Role: ui.Region, Name: "col 9"}, At: ui.WithRole{Role: ui.Button, Name: ""}})) == 0 && len(ui.Locate(&h, ui.Within{In: regions, At: regions})) == 0
+	}
+}
+
 func semRoles() []ui.Role {
 	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell}
 }
@@ -3630,6 +3729,93 @@ func semTimer(s int) Option[Timeout[int]] {
 
 func semWork(s int) Option[func(send func(e int))] {
 	None
+}
+
+func withinLabel(j int) string { "card \(j % 2)" }
+
+func lawWithinFindsUnder(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut board = [][]int{}
+		for _ in 0..draw(&r, 4)+1 {
+			let mut col = []int{}
+			for _ in 0..draw(&r, 5) {
+				col = col.Append(draw(&r, 8))
+			}
+			board = board.Append(col)
+		}
+		let none Option[int] = None
+		let decl = func(role ui.Role, name string, level Option[int]) ui.Access {
+			ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+		}
+		let view = func(f *ui.Frame[int], s int) {
+			ui.Column(f, ui.Plain()) {
+				for i, col in board {
+					ui.Semantic(f, decl(ui.Region, "col \(i)", None), none, ui.Plain()) {
+						ui.Semantic(f, decl(ui.Heading, "col \(i)", Some{Value: 2}), none, ui.Plain()) {
+							ui.Text(f, "col \(i)")
+						}
+						for j, c in col {
+							if c%2 == 0 {
+								ui.Pressable(f, withinLabel(c/2), 100*i+j) {
+									ui.Text(f, "x")
+								}
+							} else {
+								ui.Box(f, ui.Plain()) {
+									ui.Pressable(f, withinLabel(c/2), 100*i+j) {
+										ui.Text(f, "x")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for i, col in board {
+			let column = ui.WithRole{Role: ui.Region, Name: "col \(i)"}
+			let found = ui.Locate(&h, ui.Within{In: column, At: ui.WithRole{Role: ui.Button, Name: ""}})
+			if len(found) != len(col) {
+				return false
+			}
+			for j, c in col {
+				if ui.AccessAt(&h, found[j]).Name != withinLabel(c/2) {
+					return false
+				}
+			}
+			let nested = ui.Locate(&h, ui.Within{In: ui.WithRole{Role: ui.Region, Name: ""}, At: ui.Within{In: column, At: ui.WithRole{Role: ui.Button, Name: ""}}})
+			if nested != found {
+				return false
+			}
+			for j, c in col {
+				let label = withinLabel(c / 2)
+				let mut first = j
+				for k in 0..j {
+					if withinLabel(col[k]/2) == label && first == j {
+						first = k
+					}
+				}
+				if first == j {
+					ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.First{At: ui.Within{In: column, At: ui.WithLabel{Label: label}}}}, ui.SettleAll}) catch {
+					case _:
+						return false
+					}
+					if ui.StateOf(&h) != 100*i+j {
+						return false
+					}
+				}
+			}
+		}
+		// A column is not within itself, nor within another: none nests.
+		let regions = ui.WithRole{Role: ui.Region, Name: ""}
+		len(ui.Locate(&h, ui.Within{In: ui.WithRole{Role: ui.Region, Name: "col 9"}, At: ui.WithRole{Role: ui.Button, Name: ""}})) == 0 && len(ui.Locate(&h, ui.Within{In: regions, At: regions})) == 0
+	}
 }
 
 test UiScriptShowsTheView(seed int, steps int) {
@@ -3760,6 +3946,14 @@ test UiAccessIsWhatWasDeclared(seed int, count int) {
 	assert lawAccessIsWhatWasDeclared(seed, count)
 }
 
+test UiWithinFindsUnder(seed int) {
+	assert lawWithinFindsUnder(seed)
+}
+
+test UiWithinFindsUnder(seed int) {
+	assert lawWithinFindsUnder(seed)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -3829,6 +4023,8 @@ var stdUIHostStatements = map[string]string{
 	"ui CountsAreTheStep":              `CountsAreTheStep(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork}, 1, func(o int) {}) let mut h = NewTestHost(a, chainView, m, 4) catch { case BadPatch: return false } let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} PressKey(&h, KeyPress{Name: "go", Mods: mods}) catch { case _: return false } let pressed = Counts(&h) Settle(&h) catch { case _: return false } // Each Settle after the first, with nothing posted, adds its one // pass of one node. for _ in 0..(n%3+3)%3+1 { let ran = Counts(&h).Ran Settle(&h) catch { case _: return false } if Counts(&h).Ran != ran+1 { return false } } let settled = Counts(&h) PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch { case _: return false } if Counts(&h) != NoCounts() { return false } // PlayTrace prints that step as its line. let trace = PlayTrace(&h, []Act{KeyIn{Press: KeyPress{Name: "noop", Mods: mods}}}) catch { case _: return false } let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0" pressed.Set == 1 && pressed.Ran == 1 && settled.Set == 1 && settled.Ran > pressed.Ran && trace == []string{line} } }`,
 	"ui AmbiguousActFails":             `AmbiguousActFails(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (seed%4+4)%4 + 2 let view = func(f *Frame[int], s int) { Column(f, Plain()) { Text(f, "at \(s)") for i in 0..k { Pressable(f, "dup", i+1) { Text(f, "x") } Pressable(f, "one\(i)", 50+i) { Text(f, "y") } Input(f, "", "dupi", func(t string) int { 100 + i }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}} for act in acts { let mut count = -1 Play(&h, []Act{act}) catch { case Ambiguous as e: count = e.Count case _: return false } Settle(&h) catch { case _: return false } if count != k || StateOf(&h) != 0 { return false } } // A unique label acts, and First names the first match. Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch { case _: return false } if StateOf(&h) != 51 { return false } Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 1 { return false } Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch { case _: return false } let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}}) StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]}) } }`,
 	"ui AccessIsWhatWasDeclared":       `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
+	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
+	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

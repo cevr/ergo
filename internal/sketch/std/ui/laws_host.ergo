@@ -2284,7 +2284,9 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // text of the state (none at one state), over drawn states: the host says
 // the text of each pass after the first that changed it or wrote the
 // region anew, unless it is empty, and nothing for a pass that left it as
-// it was. The region is a Status to a locator.
+// it was. The region is a Status to a locator. Half the states come by a
+// key, and half by a signal sent to the actor, which Settle's last pass
+// shows (FK11-g5).
 law AnnounceSaysEachNewText(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2323,9 +2325,20 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut prev Option[string] = Some{Value: texts[0]}
 	for _ in 0..(steps%12+12)%12+1 {
 		let s = draw(&r, 6)
-		PressKey(&h, KeyPress{Name: "\(s)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
-		case _:
-			return false
+		if draw(&r, 2) == 0 {
+			PressKey(&h, KeyPress{Name: "\(s)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+		} else {
+			a.Send(s) catch {
+			case _:
+				return false
+			}
+			Settle(&h) catch {
+			case _:
+				return false
+			}
 		}
 		// prev is the region's text, None while there is no region.
 		if s == 5 {

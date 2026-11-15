@@ -704,6 +704,9 @@ func wants(loc ui.Locator, x seen) bool {
 	case ui.First as l:
 		// ui.LocateIn takes the first of what l.At finds.
 		wants(l.At, x)
+	case ui.Within:
+		// The generated programs write no ui.Within.
+		false
 	}
 }
 
