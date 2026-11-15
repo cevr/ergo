@@ -30,7 +30,7 @@ type stdBinding struct {
 }
 
 // TestStdBindsNoForeignBody: no runtime/v1 body is bound by externs of two
-// std packages, and no std source states the stale import rule. The
+// std packages (a Go builtin is no such body), and no std source states the stale import rule. The
 // externs come from the checked packages (std.Packages() and the prelude),
 // never from a written list.
 func TestStdBindsNoForeignBody(t *testing.T) {
@@ -42,6 +42,11 @@ func TestStdBindsNoForeignBody(t *testing.T) {
 				continue
 			}
 			target, body := f.Decl.Extern.Split()
+			if target == "" {
+				// A Go builtin (append, cap) is no runtime/v1 body: any
+				// module declares it at its own shape (check/builtin.go).
+				continue
+			}
 			bindings = append(bindings, stdBinding{pkg: p.path, name: f.Name, body: target + "." + body})
 		}
 		files := std.Prelude()
