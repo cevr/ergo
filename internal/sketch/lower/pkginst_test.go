@@ -20,7 +20,8 @@ import (
 // the split's own reading of the syntax:
 //
 //   - each package's shared list is exactly the instances it names outside
-//     a generic declaration that the instance package can name (every type
+//     a generic declaration that another package names too and that the
+//     instance package can name (every type
 //     argument a predeclared type, a non-alias type of a package other than
 //     the root, or a pointer, slice or map of such), each spelled as Go's
 //     compiler spells it (types.LinkString), so the patched compile meets
@@ -76,12 +77,26 @@ func checkSharedLists(t *testing.T, where string, files []File) int {
 		}
 		lists[path.Dir(f.Path)] = ir.Shared
 	}
-	union := map[string]bool{}
+	named := map[string]map[string]bool{}
+	users := map[string]int{}
 	for dir, p := range pkgs {
 		if dir == instDir {
 			continue
 		}
-		want := slices.Sorted(maps.Keys(namedInstances(p, programModule)))
+		named[dir] = namedInstances(p, programModule)
+		for k := range named[dir] {
+			users[k]++
+		}
+	}
+	union := map[string]bool{}
+	for dir := range named {
+		var want []string
+		for k := range named[dir] {
+			if users[k] >= 2 {
+				want = append(want, k)
+			}
+		}
+		slices.Sort(want)
 		got := slices.Clone(lists[dir])
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: package %s lists the shared instances\n%v\nand names\n%v", where, dir, got, want)

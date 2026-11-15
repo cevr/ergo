@@ -76,6 +76,8 @@ func Wrap[T](v T) Box[T] { Box[T]{V: v} }
 
 func Unwrap[T](b Box[T]) T { b.V }
 
+func Count[T](xs []T) Box[int] { Box[int]{V: len(xs)} }
+
 func Label(xs []string) string { strings.Join(xs, "-") }
 
 type S = A{N int}
@@ -115,6 +117,15 @@ func Name() string { strings.Join([]string{"%s", "\(N)"}, ":") + base.Label([]st
 
 func Item() base.Item { base.NewItem(N, "%s") }
 
+func Nest(b base.Box[base.Box[string]]) int { len(b.V.V) }
+
+func Bytes(b byte) int {
+	if (base.Box[byte]{V: b}).V == b {
+		return 0
+	}
+	1
+}
+
 type T = One{N int} | Two{}
 
 func Pick(n int) T {
@@ -135,7 +146,7 @@ func Show(t T) int {
 
 func boxed(n int) base.Box[int] { base.Wrap(n + N) }
 
-func Boxed(n int) int { base.Unwrap(boxed(n)) }
+func Boxed(n int) int { base.Unwrap(boxed(n)) + Nest(base.Wrap(base.Wrap(""))) + Bytes(1) + base.Count([]int{}).V }
 
 func Same(n int) bool { base.Bag{Xs: []int{n}} == base.Bag{Xs: []int{n, N}} }
 
