@@ -74,12 +74,12 @@ func Samples(seed int) []Value {
 	}
 }
 
-// Wire are the bytes the generator draws noise from: RESP's type bytes,
+// Alphabet is the bytes the generator draws noise from: RESP's type bytes,
 // digits, signs, CR and LF, a letter, and a byte that is no type.
-let Wire = "+-:$*_#%~0123456789\r\n-tfa!"
+let Alphabet = "+-:$*_#%~0123456789\r\n-tfa!"
 
 // Noise is twenty byte strings from seed that are mostly not RESP: bytes
-// drawn from Wire, and encodings of samples with a byte changed, a byte
+// drawn from Alphabet, and encodings of samples with a byte changed, a byte
 // dropped or the end cut.
 func Noise(seed int) []string {
 	with context { Random: rand.Seeded(uint64(seed)) } {
@@ -87,7 +87,7 @@ func Noise(seed int) []string {
 		for _ in 0..10 {
 			let mut bs = []byte{}
 			for _ in 0..Random.IntN(24) {
-				bs = bs.Append(Wire[Random.IntN(len(Wire))])
+				bs = bs.Append(Alphabet[Random.IntN(len(Alphabet))])
 			}
 			out = out.Append(strings.FromBytes(bs))
 		}
@@ -96,7 +96,7 @@ func Noise(seed int) []string {
 			let i = Random.IntN(len(enc))
 			let cut = match Random.IntN(3) {
 			case 0:
-				enc[:i] + strings.FromBytes([]byte{Wire[Random.IntN(len(Wire))]}) + enc[i+1:]
+				enc[:i] + strings.FromBytes([]byte{Alphabet[Random.IntN(len(Alphabet))]}) + enc[i+1:]
 			case 1:
 				enc[:i] + enc[i+1:]
 			case _:

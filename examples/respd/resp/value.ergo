@@ -1,4 +1,4 @@
-// Package resp is the RESP wire format of a key-value server: RESP2, and
+// Package resp is the RESP protocol of a key-value server: RESP2, and
 // the RESP3 types a server answers with (null, boolean, map, set). A
 // Reader frames values out of the bytes a connection gives it, in chunks
 // of any size; Append writes a value in the protocol a connection speaks.

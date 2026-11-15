@@ -1,6 +1,6 @@
 # respd
 
-A key-value server that speaks RESP, the wire protocol of Redis, with leases as commands of their own. This first build (RS1) answers the RESP requests it reads on standard input, one after another, on standard output, as one connection would; the server over sockets (`respd -addr 127.0.0.1:0`) comes with std `net` (RS2). The keys live in memory for one run. `-at SECOND` stops the clock at a Unix second, so expiries and lease ends read the same on every run.
+A key-value server that speaks RESP, the protocol of Redis, with leases as commands of their own. This first build (RS1) answers the RESP requests it reads on standard input, one after another, on standard output, as one connection would; the server over sockets (`respd -addr 127.0.0.1:0`) comes with std `net` (RS2). The keys live in memory for one run. `-at SECOND` stops the clock at a Unix second, so expiries and lease ends read the same on every run.
 
 ```sh
 printf '*1\r\n$4\r\nPING\r\n' | respd          # +PONG
@@ -15,7 +15,7 @@ The program is a module of packages (`ergo.mod`: `module respd`), in the Go layo
 
 | folder | what it holds |
 | --- | --- |
-| `resp/` | The wire format. `value.ergo` (the `Value` union of RESP2 and RESP3: `Simple`, `Fault`, `Integer`, `Bulk`, `Null`, `Array`, `Boolean`, `Dict`, `Set`; `Down`, the RESP2 form; `Equal`), `read.ergo` (`Parse`, `ParseAt`, the `Reader` that frames values out of chunks of any size, in place on one buffer; `Incomplete` and `Malformed`), `write.ergo` (`Append` to the caller's buffer, in a `Protocol`), `gen.ergo` (values and noise from a seed), `laws.ergo`, `tests.ergo`. Pure. |
+| `resp/` | The protocol format. `value.ergo` (the `Value` union of RESP2 and RESP3: `Simple`, `Fault`, `Integer`, `Bulk`, `Null`, `Array`, `Boolean`, `Dict`, `Set`; `Down`, the RESP2 form; `Equal`), `read.ergo` (`Parse`, `ParseAt`, the `Reader` that frames values out of chunks of any size, in place on one buffer; `Incomplete` and `Malformed`), `write.ergo` (`Append` to the caller's buffer, in a `Protocol`), `gen.ergo` (values and noise from a seed), `laws.ergo`, `tests.ergo`. Pure. |
 | `store/` | The domain. `engine.ergo` (the operation type `Engine`: `Get`, `Set` with a `When` and an expiry, `Del`, `Expire`, `TTL`, `Incr`, each given the time; its laws), `lease.ergo` (the operation type `Leases`: `Acquire`, `Renew`, `Release` with fencing tokens; its laws; `Slot`, `Ask`, `Step` and the `Lock` machine that decides one name's lease), `decimal.ergo` (the integer text `Incr` reads). Pure. |
 | `memory/` | `Engine`, the provider of both contracts: sixteen shards of a `Map` behind a `sync.Ref` each, picked by FNV-1a of the key; an expiry is a time stored beside the value and compared with the time each operation is given, so there is no timer per key. One operation on a key is one `sync.Modify` of its shard. Leases are a `Map` of `Slot`s behind one `Ref`, each changed by `store.Step`. |
 | `command/` | `Command`, the union of the requests respd knows, `Parse` from a RESP frame, and `Run`, which answers one on the `Engine`, the `Leases` and the `time.Clock` in its context, reading the clock once per command. |

@@ -2,7 +2,7 @@ import strconv
 import strings
 
 // Append is out with v written in the protocol p. RESP2 writes Down(v).
-// A simple string and an error are one line on the wire, so a CR or an LF
+// A simple string and an error are one line as sent, so a CR or an LF
 // in their text is written as a space: Append writes Clean(v).
 func Append(out []byte, v Value, p Protocol) []byte {
 	match p {
