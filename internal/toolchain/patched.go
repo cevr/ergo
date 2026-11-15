@@ -77,6 +77,10 @@ type PatchConfig struct {
 	waiting func()
 }
 
+// BuildNote begins the line Patch writes to PatchConfig.Log when it builds
+// the compile: the first build in a cache, once per release and patch.
+const BuildNote = "ergo: building the IR compiler for "
+
 // patchedSchema versions the artifact's key.
 const patchedSchema = "ergo-ir-patched-1"
 
@@ -144,7 +148,7 @@ func Patch(c PatchConfig) (Patched, error) {
 	if from, ok := c.toolsSet(release, port.digest); ok {
 		build = func(_, _, out string) error { return copyExecutable(from, out) }
 	} else if c.Log != nil {
-		fmt.Fprintf(c.Log, "ergo: building the IR compiler for %s (once per Go release and patch)\n", release)
+		fmt.Fprintf(c.Log, "%s%s (once per Go release and patch)\n", BuildNote, release)
 	}
 	tmp, err := os.MkdirTemp(dir, "tmp-")
 	if err != nil {
