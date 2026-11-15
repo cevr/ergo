@@ -74,6 +74,9 @@ func Doctor(t Tool) Report fails NoBase | BadConfig | Unkept | VcsFailed {
 	if kind == "btrfs" && !oneCall {
 		notes = notes.Append("a purge deletes each file: mount \(kind) with user_subvol_rm_allowed to make it one call")
 	}
+	if kind == "btrfs" && last != "" && last != "btrfs" {
+		notes = notes.Append("the base is not a btrfs subvolume, so each new clones file by file (\(last)): make it a subvolume to clone it in one call")
+	}
 	if stale > 0 {
 		notes = notes.Append("\(stale) tracked files have a stale stat in the index: run work refresh")
 	}

@@ -150,7 +150,7 @@
       "file": "modules/work/work/api.ergo",
       "from": "Workspace{Name: name, Id: id, Path: path, Parent: parent,",
       "to": "Workspace{Name: name, Id: id, Path: path, Parent: t.base,",
-      "rule": "new -on records the workspace it clones as the parent, not the base (the plan's mutant): memory's ToolAgreesWithTheReference (OnOp).",
+      "rule": "new -on records the workspace it clones as the parent, not the base (the plan's mutant): memory's StackRecordsItsParent (and ToolAgreesWithTheReference's OnOp, when a seed reaches one).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {

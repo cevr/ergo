@@ -243,6 +243,26 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 	w.trees.Has("/w/.work/other/.work-trash/x.1")
 }
 
+// StackRecordsItsParent: a workspace made -on another records that
+// workspace's folder as its parent, on any tree (the model property
+// reaches a stack only now and then; this law always does).
+law StackRecordsItsParent(tree Map[string, string]) {
+	let w = worldWith(true, tree, "", "")
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}}) catch {
+	case _:
+		return false
+	}
+	let all = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		return false
+	}
+	slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "b" && r.Parent == a.Path }) >= 0
+}
+
 // nothing is the answer of a new that failed.
 func nothing() work.Created { work.Created{Name: "", Id: "", Path: "", Branch: "", Deps: work.NoDeps, Hooks: work.HooksRan{Count: 0}} }
 
