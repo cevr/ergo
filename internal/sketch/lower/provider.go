@@ -71,7 +71,7 @@ func (l *lowerer) providerOf(c check.Conversion) *knownProv {
 		return nil
 	}
 	from, _, ok := opsSource(c.From)
-	if !ok || l.runtimeType(from, nil) != "" || hostSourced(c.From) {
+	if !ok || l.runtimeNamed(from, nil) || hostSourced(c.From) {
 		return nil
 	}
 	key, base, ok := l.adapterName(c)
@@ -84,7 +84,7 @@ func (l *lowerer) providerOf(c check.Conversion) *knownProv {
 // provType reports an operation type of the program (a Go interface the
 // lowering emits) with no type arguments.
 func (l *lowerer) provType(n *check.Named) bool {
-	return n.Obj.Pkg != nil && !n.Obj.Pkg.Host() && len(n.TArgs) == 0 && isOps(n) && l.runtimeType(n, nil) == ""
+	return n.Obj.Pkg != nil && !n.Obj.Pkg.Host() && len(n.TArgs) == 0 && isOps(n) && !l.runtimeNamed(n, nil)
 }
 
 // provParam is the index of f's operation-type parameter a copy of f is

@@ -1427,7 +1427,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
-	if from, ok := conv.From.(*check.Named); ok && l.runtimeType(from, site) != "" {
+	if from, ok := conv.From.(*check.Named); ok && l.runtimeNamed(from, site) {
 		return fc.sealedOperations(conv, from, val, site) // a sealed std value (sealedops.go)
 	}
 	if from, ok := conv.From.(*check.Named); ok && from.Underlying() != nil {

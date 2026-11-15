@@ -413,7 +413,7 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 			if v == nil {
 				irNo("try without a value")
 			}
-			return pre, v
+			return pre, b.implicit(x, v) // as value converts (ir_expr.go)
 		}
 	}
 	return b.value(x) // an if or match too, the implicit conversion too (ir_union.go)
@@ -450,7 +450,13 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 		}
 		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
 			p := vals[i].Pos
-			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
+			// The temporary has the operand's type after its implicit
+			// conversion, which operand applied.
+			at := b.l.info.Types[a]
+			if conv, ok := b.l.info.Implicit[a]; ok && conv.Kind != 0 && conv.To != nil {
+				at = conv.To
+			}
+			t := b.temp("arg", b.goType(at, a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
 			vals[i] = &irExpr{K: "local", Pos: p, I: t}
 		}
