@@ -29,14 +29,14 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if b.l.info.OwnedVars[v] != nil {
 		irNo("owned local")
 	}
-	i := b.temp(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
+	i := b.declare(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
 }
 
-// temp declares a local of the IR body that no Ergo variable names: an
-// if expression's result.
-func (b *irBuilder) temp(name, typ string, p irPos) int {
+// declare declares a local of the IR body named name; a local no Ergo
+// variable names is a temp (ir_fail.go), whose name is made unique.
+func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})

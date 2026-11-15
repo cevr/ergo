@@ -58,7 +58,11 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 		return fc.stmts(list)
 	}
 	defer fc.enterList(list)() // one account with its prefix (growth.go)
-	fc.stmts(list[:len(list)-1])
+	if fc.stmts(list[:len(list)-1]) {
+		// The tail never runs (a `for {}` that only leaves by return ends
+		// the list), and go vet reports it unreachable: it is not written.
+		return true
+	}
 	last := list[len(list)-1]
 	t := fc.yieldStmt(last, d)
 	if !t {

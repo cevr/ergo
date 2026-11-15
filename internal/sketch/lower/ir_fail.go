@@ -34,6 +34,29 @@ type irCase struct {
 	Def  bool      `json:"def,omitempty"`
 }
 
+// temp declares a temporary local of the Go type t (an if expression's
+// result, a try's pair, a spilled operand), named after name but unique in
+// the function (tempNames): two temporaries never share a name, so the Go
+// text view (TXT) and DWARF tell them apart.
+func (b *irBuilder) temp(name, t string, p irPos) int {
+	return b.declare(b.names.alloc(name), t, p)
+}
+
+// tempNames is the namer of a body's temporaries: below the function's Go
+// scope (its parameters, the package, Go's reserved names), with every
+// identifier the body spells taken, so a temporary captures no source
+// local, whatever the order they are declared in.
+func (b *irBuilder) tempNames(body *syntax.BlockStmt) *namer {
+	n := newNamer(b.fc.scope)
+	syntax.Inspect(body, func(x syntax.Node) bool {
+		if id, ok := x.(*syntax.Ident); ok {
+			n.used[id.Name] = true
+		}
+		return true
+	})
+	return n
+}
+
 // fallibleCall is x, unparenthesized, when it is a call that can fail at
 // its site.
 func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {

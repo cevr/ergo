@@ -2,8 +2,9 @@
 // q128, 2026-11-11): it builds an Ergo program through the source path
 // (lower.Lower, stock go1.27.0) and through the typed-IR path
 // (lower.LowerIR, the go1.27.0 derivative's -ergoir entry) with the same
-// flags, and measures both. Nothing in the default build reads it; source
-// emission stays the reference.
+// flags, and measures both. Source emission stays the reference. The
+// default build reads it only for `ergo build -go-text DIR` (GoText), until
+// unit IRT0b moves the IR build into ergo's own build.
 package irspike
 
 import (
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -31,11 +33,17 @@ const (
 	Source Path = iota
 	// IR is typed IR bodies for the subset, the derivative compiler.
 	IR
+	// Text is the Go text the derivative printed of the IR bodies
+	// (GoText), built by the derivative without -ergoir.
+	Text
 )
 
 func (p Path) String() string {
-	if p == IR {
+	switch p {
+	case IR:
 		return "ir"
+	case Text:
+		return "text"
 	}
 	return "source"
 }
@@ -127,7 +135,7 @@ func writeModule(dir string, files []lower.File) error {
 // action IDs cannot tell it from the stock compiler or from its own
 // earlier builds; its cache is therefore keyed by this hash.
 func compileID(goroot string) (string, error) {
-	f, err := os.Open(filepath.Join(goroot, "pkg", "tool", "linux_amd64", "compile"))
+	f, err := os.Open(filepath.Join(goroot, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "compile"))
 	if err != nil {
 		return "", err
 	}
@@ -172,17 +180,20 @@ type BuildOptions struct {
 
 // Command is the go build of the module in dir to out by path p: the
 // flags of ergo's own build action (receipt.GoBuildFlags), and for IR the
-// -ergoir flag on the program's root package.
+// -ergoir flag on the program's root package. IR and Text build with the
+// derivative, whose cache is keyed by its content.
 func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, error) {
 	cache := tc.GOCACHE
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	gcflags := o.GCFlags
-	if p == IR {
+	if p != Source {
 		id, err := compileID(tc.GOROOT)
 		if err != nil {
 			return nil, err
 		}
 		cache += "-" + id
+	}
+	if p == IR {
 		irFile, err := stableIR(cache, filepath.Join(dir, lower.IRFileName))
 		if err != nil {
 			return nil, err
@@ -201,6 +212,14 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 	args = append(args, "-o", out, ".")
 	cmd := exec.Command(filepath.Join(tc.GOROOT, "bin", "go"), args...)
 	cmd.Dir = dir
+	cmd.Env = goEnv(tc.GOROOT, cache)
+	cmd.Stdout, cmd.Stderr = o.Stderr, o.Stderr
+	return cmd, nil
+}
+
+// goEnv is this process's environment for a go command of goroot with the
+// build cache cache, outside a workspace, for the host, without cgo.
+func goEnv(goroot, cache string) []string {
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		for _, k := range []string{"GOROOT=", "GOCACHE=", "GOWORK=", "CGO_ENABLED=", "GOFLAGS=", "GOTOOLCHAIN=", "GOOS=", "GOARCH="} {
 			if strings.HasPrefix(kv, k) {
@@ -209,9 +228,7 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 		}
 		return false
 	})
-	cmd.Env = append(env, "GOROOT="+tc.GOROOT, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	cmd.Stdout, cmd.Stderr = o.Stderr, o.Stderr
-	return cmd, nil
+	return append(env, "GOROOT="+goroot, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
 }
 
 // Build builds the module in dir to out and measures the go command's
