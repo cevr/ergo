@@ -8,7 +8,7 @@
 // on the clipboard, and a paste is the driver typing the clipboard's
 // text. Goto puts the caret where a pointer pressed.
 
-import editor/piece
+import ergo.local/prototype/examples/editorgui/piece
 import strings
 import utf8
 

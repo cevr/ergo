@@ -13,9 +13,9 @@
 // files for the documents, a seeded generator for gen.
 
 import actor
-import editor/edit
-import editor/files
-import editor/script
+import ergo.local/prototype/examples/editorgui/edit
+import ergo.local/prototype/examples/editorgui/files
+import ergo.local/prototype/examples/editorgui/script
 import flag
 import fs
 import io
