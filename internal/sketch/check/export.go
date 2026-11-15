@@ -88,15 +88,17 @@ func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	s, err := stdSnapshotNow()
+	s, err := stdSnapshotNow(pkgs, keys)
 	if err != nil {
 		return nil, err
 	}
 	return encodeSnapshot(s)
 }
 
-// stdSnapshotNow is the export of std as this process holds it, checked.
-func stdSnapshotNow() (*stdSnapshot, error) {
+// stdSnapshotNow is the export of std as this process holds it, checked,
+// with the module packages pkgs after it, pkgs[i] the segment keys[i]
+// (ExportSnapshot).
+func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
 	imp := Std.(*stdImporter)
 	s := &stdSnapshot{base: &stdBase{
 		universe:  universeOnce.scope,

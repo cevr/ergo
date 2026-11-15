@@ -37,7 +37,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 			return nil, err
 		}
 	}
-	s, err := stdSnapshotNow()
+	s, err := stdSnapshotNow(nil, nil)
 	if err != nil {
 		return nil, err
 	}
