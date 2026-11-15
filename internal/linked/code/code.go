@@ -26,7 +26,7 @@ type Env struct {
 	Reader Reader
 }
 
-func ergoEncodeDecl(env *Env, w Writer, v Decl) {
+func ergoEncodeDecl(env *Env, w Writer_1, v Decl) {
 	w.BeginObject(env.task, 8)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
@@ -47,7 +47,7 @@ func ergoEncodeDecl(env *Env, w Writer, v Decl) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice(env *Env, w Writer, v []Decl) {
+func ergoEncodeSlice(env *Env, w Writer_1, v []Decl) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeDecl(env, w, e)
@@ -55,7 +55,7 @@ func ergoEncodeSlice(env *Env, w Writer, v []Decl) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeSite(env *Env, w Writer, v Site) {
+func ergoEncodeSite(env *Env, w Writer_1, v Site) {
 	w.BeginObject(env.task, 7)
 	w.Key(env.task, "symbol")
 	w.String(env.task, string(v.Symbol))
@@ -74,7 +74,7 @@ func ergoEncodeSite(env *Env, w Writer, v Site) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_2(env *Env, w Writer, v []Site) {
+func ergoEncodeSlice_2(env *Env, w Writer_1, v []Site) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodeSite(env, w, e)
@@ -82,7 +82,7 @@ func ergoEncodeSlice_2(env *Env, w Writer, v []Site) {
 	w.EndList(env.task)
 }
 
-func ergoEncodePackage(env *Env, w Writer, v Package) {
+func ergoEncodePackage(env *Env, w Writer_1, v Package) {
 	w.BeginObject(env.task, 5)
 	w.Key(env.task, "path")
 	w.String(env.task, string(v.Path))
@@ -97,7 +97,7 @@ func ergoEncodePackage(env *Env, w Writer, v Package) {
 	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_1(env *Env, w Writer, v []Package) {
+func ergoEncodeSlice_1(env *Env, w Writer_1, v []Package) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergoEncodePackage(env, w, e)
@@ -105,7 +105,7 @@ func ergoEncodeSlice_1(env *Env, w Writer, v []Package) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeTables(env *Env, w Writer, v Tables) {
+func ergoEncodeTables(env *Env, w Writer_1, v Tables) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -886,11 +886,11 @@ func (a *opsReaderAsReader) End(t *rt.Task) {
 }
 
 func Decode_1[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
+	Enc     func(*Env, Writer_1, T) (struct{}, error)
 	Dec     func(*Env, Reader_2) (T, error)
 	Direct0 func(*Env, text_1, T) text_1
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
+		Enc     func(*Env, Writer_1, T) (struct{}, error)
 		Dec     func(*Env, Reader_2) (T, error)
 		Direct0 func(*Env, text_1, T) text_1
 		Absent  func(T) bool
@@ -898,7 +898,7 @@ func Decode_1[T any](env *Env, wT struct {
 	}
 }, c_1 Codec[T], text_2 string) (T, error) {
 	env.task.Check()
-	v, err := Open(env, text_2, c_1.MaxBytes, c_1.MaxDepth)
+	v, err := Open_1(env, text_2, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(T), err
 	}
@@ -915,7 +915,7 @@ type Codec[T any] struct {
 	MaxDepth int
 }
 
-type Writer interface {
+type Writer_1 interface {
 	Null(*rt.Task)
 	Number(*rt.Task, string)
 	Bool(*rt.Task, bool)
@@ -1304,7 +1304,7 @@ type SitePage struct {
 	Next     int
 }
 
-func ergoEncodeSlice_5(env *Env, w Writer, v []string) {
+func ergoEncodeSlice_5(env *Env, w Writer_1, v []string) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.String(env.task, string(e))
@@ -1312,7 +1312,7 @@ func ergoEncodeSlice_5(env *Env, w Writer, v []string) {
 	w.EndList(env.task)
 }
 
-func ergoEncodeSummary(env *Env, w Writer, v Summary) {
+func ergoEncodeSummary(env *Env, w Writer_1, v Summary) {
 	w.BeginObject(env.task, 6)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -1480,7 +1480,7 @@ func ergoWriteSummary(env *Env, wv text_1, v Summary) text_1 {
 	return wv
 }
 
-func ergoEncodeSymbolPage(env *Env, w Writer, v SymbolPage) {
+func ergoEncodeSymbolPage(env *Env, w Writer_1, v SymbolPage) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -1570,7 +1570,7 @@ func ergoWriteSymbolPage(env *Env, wv text_1, v SymbolPage) text_1 {
 	return wv
 }
 
-func ergoEncodeNoSymbol(env *Env, w Writer, v NoSymbol) {
+func ergoEncodeNoSymbol(env *Env, w Writer_1, v NoSymbol) {
 	w.BeginObject(env.task, 1)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
@@ -1614,7 +1614,7 @@ func ergoWriteNoSymbol(env *Env, wv text_1, v NoSymbol) text_1 {
 	return wv
 }
 
-func ergoEncodeAmbiguous(env *Env, w Writer, v Ambiguous) {
+func ergoEncodeAmbiguous(env *Env, w Writer_1, v Ambiguous) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
@@ -1673,7 +1673,7 @@ func ergoWriteAmbiguous(env *Env, wv text_1, v Ambiguous) text_1 {
 	return wv
 }
 
-func ergoEncodeSitePage(env *Env, w Writer, v SitePage) {
+func ergoEncodeSitePage(env *Env, w Writer_1, v SitePage) {
 	w.BeginObject(env.task, 5)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -1782,7 +1782,7 @@ type Reader_1 struct {
 	c *ergo.Cursor
 }
 
-func Open(env *Env, text_2 string, maxBytes int, maxDepth int) (Reader_1, error) {
+func Open_1(env *Env, text_2 string, maxBytes int, maxDepth int) (Reader_1, error) {
 	env.task.Check()
 	v, err := ergo.JSONOpen(text_2, maxBytes, maxDepth)
 	if err != nil {
@@ -2172,7 +2172,7 @@ func Describe_2(f Failure) string {
 			v_1 := ergo.StrconvQuote(i.Text)
 			return ((((("invalid value " + v_1) + " for flag -") + i.Name) + ": ") + i.Reason)
 		}
-	case Missing:
+	case Missing_1:
 		m := v
 		return ("missing required flag or argument: " + m.Name)
 	case Extra:
@@ -2240,15 +2240,15 @@ func (e Invalid) Error() string {
 
 func (Invalid) isFailure() {}
 
-type Missing struct {
+type Missing_1 struct {
 	Name string
 }
 
-func (e Missing) Error() string {
-	return "Missing" + textMissing(e)
+func (e Missing_1) Error() string {
+	return "Missing" + textMissing_1(e)
 }
 
-func (Missing) isFailure() {}
+func (Missing_1) isFailure() {}
 
 type Extra struct {
 	Text string
@@ -2273,11 +2273,11 @@ func (e UnknownCommand) Error() string {
 func (UnknownCommand) isFailure() {}
 
 func Encode_2[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
+	Enc     func(*Env, Writer_1, T) (struct{}, error)
 	Dec     func(*Env, Reader_2) (T, error)
 	Direct0 func(*Env, text_1, T) text_1
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
+		Enc     func(*Env, Writer_1, T) (struct{}, error)
 		Dec     func(*Env, Reader_2) (T, error)
 		Direct0 func(*Env, text_1, T) text_1
 		Absent  func(T) bool
@@ -2346,10 +2346,10 @@ func textNoSymbol(v NoSymbol) string {
 }
 
 func textAmbiguous(v Ambiguous) string {
-	return "{" + "Address:" + v.Address + " Candidates:" + textList(v.Candidates) + "}"
+	return "{" + "Address:" + v.Address + " Candidates:" + textList_1(v.Candidates) + "}"
 }
 
-func textList(v []string) string {
+func textList_1(v []string) string {
 	texts := make([]string, len(v))
 	for i, e := range v {
 		texts[i] = e
@@ -2390,7 +2390,7 @@ func textInvalid(v Invalid) string {
 	return "{" + "Name:" + v.Name + " Text:" + v.Text + " Reason:" + v.Reason + "}"
 }
 
-func textMissing(v Missing) string {
+func textMissing_1(v Missing_1) string {
 	return "{" + "Name:" + v.Name + "}"
 }
 
@@ -2399,7 +2399,7 @@ func textExtra(v Extra) string {
 }
 
 func textUnknownCommand(v UnknownCommand) string {
-	return "{" + "Name:" + v.Name + " Known:" + textList(v.Known) + " Group:" + textList(v.Group) + "}"
+	return "{" + "Name:" + v.Name + " Known:" + textList_1(v.Known) + " Group:" + textList_1(v.Group) + "}"
 }
 
 // opstextAsText provides json.Text through the functions of json.text (an operations conversion).
@@ -2522,11 +2522,11 @@ func (a *opstextAsText) finish(t *rt.Task) string {
 }
 
 func Encode_1[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
+	Enc     func(*Env, Writer_1, T) (struct{}, error)
 	Dec     func(*Env, Reader_2) (T, error)
 	Direct0 func(*Env, text_1, T) text_1
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
+		Enc     func(*Env, Writer_1, T) (struct{}, error)
 		Dec     func(*Env, Reader_2) (T, error)
 		Direct0 func(*Env, text_1, T) text_1
 		Absent  func(T) bool
@@ -3893,7 +3893,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 			if ok_3 {
 			} else {
 				v_61 := nameOf(f_1)
-				return *new(Values), Missing{Name: v_61}
+				return *new(Values), Missing_1{Name: v_61}
 			}
 		}
 	}
@@ -3905,7 +3905,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 		switch a.arity.(type) {
 		case one:
 			if next >= len(positional) {
-				return *new(Values), Missing{Name: a.name}
+				return *new(Values), Missing_1{Name: a.name}
 			}
 			named_1[a.name] = positional[next]
 			next += int(1)
@@ -7032,11 +7032,11 @@ func Run_1(env *Env, args []string, tables string) []string {
 //line /linked/tool.ergo:16:2
 //line /linked/tool.ergo:16:10
 	v_2, err_1 := Decode_1[Tables](env, struct {
-		/*line /linked/tool.ergo:16:10*/ Enc func(*Env, Writer, Tables) (struct{}, error)
+		/*line /linked/tool.ergo:16:10*/ Enc func(*Env, Writer_1, Tables) (struct{}, error)
 		/*line /linked/tool.ergo:16:10*/ Dec func(*Env, Reader_2) (Tables, error)
 		/*line /linked/tool.ergo:16:10*/ Direct0 func(*Env, text_1, Tables) text_1
 		/*line /linked/tool.ergo:16:10*/ Field *struct {
-			/*line /linked/tool.ergo:16:10*/ Enc func(*Env, Writer, Tables) (struct{}, error)
+			/*line /linked/tool.ergo:16:10*/ Enc func(*Env, Writer_1, Tables) (struct{}, error)
 			/*line /linked/tool.ergo:16:10*/ Dec func(*Env, Reader_2) (Tables, error)
 			/*line /linked/tool.ergo:16:10*/ Direct0 func(*Env, text_1, Tables) text_1
 			/*line /linked/tool.ergo:16:10*/ Absent func(Tables) bool
@@ -7044,7 +7044,7 @@ func Run_1(env *Env, args []string, tables string) []string {
 			/*line /linked/tool.ergo:16:10*/
 		}
 		/*line /linked/tool.ergo:16:10*/
-	}{Enc: func(e *Env, w Writer, v Tables) (struct{}, error) {
+	}{Enc: func(e *Env, w Writer_1, v Tables) (struct{}, error) {
 		/*line /linked/tool.ergo:16:10*/ ergoEncodeTables(e, w, v)
 		/*line /linked/tool.ergo:16:10*/ return struct{}{}, nil
 		/*line /linked/tool.ergo:16:10*/
@@ -7174,11 +7174,11 @@ func Run_2(env *Env, args []string) Output {
 //line /linked/codecli/cli.ergo:201:3
 //line /linked/codecli/cli.ergo:201:17
 		v_9 := Encode_2[Summary](env, struct {
-			/*line /linked/codecli/cli.ergo:201:17*/ Enc func(*Env, Writer, Summary) (struct{}, error)
+			/*line /linked/codecli/cli.ergo:201:17*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
 			/*line /linked/codecli/cli.ergo:201:17*/ Dec func(*Env, Reader_2) (Summary, error)
 			/*line /linked/codecli/cli.ergo:201:17*/ Direct0 func(*Env, text_1, Summary) text_1
 			/*line /linked/codecli/cli.ergo:201:17*/ Field *struct {
-				/*line /linked/codecli/cli.ergo:201:17*/ Enc func(*Env, Writer, Summary) (struct{}, error)
+				/*line /linked/codecli/cli.ergo:201:17*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
 				/*line /linked/codecli/cli.ergo:201:17*/ Dec func(*Env, Reader_2) (Summary, error)
 				/*line /linked/codecli/cli.ergo:201:17*/ Direct0 func(*Env, text_1, Summary) text_1
 				/*line /linked/codecli/cli.ergo:201:17*/ Absent func(Summary) bool
@@ -7186,7 +7186,7 @@ func Run_2(env *Env, args []string) Output {
 				/*line /linked/codecli/cli.ergo:201:17*/
 			}
 			/*line /linked/codecli/cli.ergo:201:17*/
-		}{Enc: func(e *Env, w Writer, v_7 Summary) (struct{}, error) {
+		}{Enc: func(e *Env, w Writer_1, v_7 Summary) (struct{}, error) {
 			/*line /linked/codecli/cli.ergo:201:17*/ ergoEncodeSummary(e, w, v_7)
 			/*line /linked/codecli/cli.ergo:201:17*/ return struct{}{}, nil
 			/*line /linked/codecli/cli.ergo:201:17*/
@@ -7214,11 +7214,11 @@ func Run_2(env *Env, args []string) Output {
 //line /linked/codecli/cli.ergo:205:3
 //line /linked/codecli/cli.ergo:205:17
 		v_14 := Encode_2[SymbolPage](env, struct {
-			/*line /linked/codecli/cli.ergo:205:17*/ Enc func(*Env, Writer, SymbolPage) (struct{}, error)
+			/*line /linked/codecli/cli.ergo:205:17*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
 			/*line /linked/codecli/cli.ergo:205:17*/ Dec func(*Env, Reader_2) (SymbolPage, error)
 			/*line /linked/codecli/cli.ergo:205:17*/ Direct0 func(*Env, text_1, SymbolPage) text_1
 			/*line /linked/codecli/cli.ergo:205:17*/ Field *struct {
-				/*line /linked/codecli/cli.ergo:205:17*/ Enc func(*Env, Writer, SymbolPage) (struct{}, error)
+				/*line /linked/codecli/cli.ergo:205:17*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
 				/*line /linked/codecli/cli.ergo:205:17*/ Dec func(*Env, Reader_2) (SymbolPage, error)
 				/*line /linked/codecli/cli.ergo:205:17*/ Direct0 func(*Env, text_1, SymbolPage) text_1
 				/*line /linked/codecli/cli.ergo:205:17*/ Absent func(SymbolPage) bool
@@ -7226,7 +7226,7 @@ func Run_2(env *Env, args []string) Output {
 				/*line /linked/codecli/cli.ergo:205:17*/
 			}
 			/*line /linked/codecli/cli.ergo:205:17*/
-		}{Enc: func(e_3 *Env, w_1 Writer, v_12 SymbolPage) (struct{}, error) {
+		}{Enc: func(e_3 *Env, w_1 Writer_1, v_12 SymbolPage) (struct{}, error) {
 			/*line /linked/codecli/cli.ergo:205:17*/ ergoEncodeSymbolPage(e_3, w_1, v_12)
 			/*line /linked/codecli/cli.ergo:205:17*/ return struct{}{}, nil
 			/*line /linked/codecli/cli.ergo:205:17*/
@@ -7259,11 +7259,11 @@ func Run_2(env *Env, args []string) Output {
 				t := asJSON
 //line /linked/codecli/cli.ergo:210:49
 				v_19 := Encode_2[NoSymbol](env, struct {
-					/*line /linked/codecli/cli.ergo:210:49*/ Enc func(*Env, Writer, NoSymbol) (struct{}, error)
+					/*line /linked/codecli/cli.ergo:210:49*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
 					/*line /linked/codecli/cli.ergo:210:49*/ Dec func(*Env, Reader_2) (NoSymbol, error)
 					/*line /linked/codecli/cli.ergo:210:49*/ Direct0 func(*Env, text_1, NoSymbol) text_1
 					/*line /linked/codecli/cli.ergo:210:49*/ Field *struct {
-						/*line /linked/codecli/cli.ergo:210:49*/ Enc func(*Env, Writer, NoSymbol) (struct{}, error)
+						/*line /linked/codecli/cli.ergo:210:49*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
 						/*line /linked/codecli/cli.ergo:210:49*/ Dec func(*Env, Reader_2) (NoSymbol, error)
 						/*line /linked/codecli/cli.ergo:210:49*/ Direct0 func(*Env, text_1, NoSymbol) text_1
 						/*line /linked/codecli/cli.ergo:210:49*/ Absent func(NoSymbol) bool
@@ -7271,7 +7271,7 @@ func Run_2(env *Env, args []string) Output {
 						/*line /linked/codecli/cli.ergo:210:49*/
 					}
 					/*line /linked/codecli/cli.ergo:210:49*/
-				}{Enc: func(e_7 *Env, w_2 Writer, v_17 NoSymbol) (struct{}, error) {
+				}{Enc: func(e_7 *Env, w_2 Writer_1, v_17 NoSymbol) (struct{}, error) {
 					/*line /linked/codecli/cli.ergo:210:49*/ ergoEncodeNoSymbol(e_7, w_2, v_17)
 					/*line /linked/codecli/cli.ergo:210:49*/ return struct{}{}, nil
 					/*line /linked/codecli/cli.ergo:210:49*/
@@ -7299,11 +7299,11 @@ func Run_2(env *Env, args []string) Output {
 				t_1 := asJSON
 //line /linked/codecli/cli.ergo:212:50
 				v_24 := Encode_2[Ambiguous](env, struct {
-					/*line /linked/codecli/cli.ergo:212:50*/ Enc func(*Env, Writer, Ambiguous) (struct{}, error)
+					/*line /linked/codecli/cli.ergo:212:50*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
 					/*line /linked/codecli/cli.ergo:212:50*/ Dec func(*Env, Reader_2) (Ambiguous, error)
 					/*line /linked/codecli/cli.ergo:212:50*/ Direct0 func(*Env, text_1, Ambiguous) text_1
 					/*line /linked/codecli/cli.ergo:212:50*/ Field *struct {
-						/*line /linked/codecli/cli.ergo:212:50*/ Enc func(*Env, Writer, Ambiguous) (struct{}, error)
+						/*line /linked/codecli/cli.ergo:212:50*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
 						/*line /linked/codecli/cli.ergo:212:50*/ Dec func(*Env, Reader_2) (Ambiguous, error)
 						/*line /linked/codecli/cli.ergo:212:50*/ Direct0 func(*Env, text_1, Ambiguous) text_1
 						/*line /linked/codecli/cli.ergo:212:50*/ Absent func(Ambiguous) bool
@@ -7311,7 +7311,7 @@ func Run_2(env *Env, args []string) Output {
 						/*line /linked/codecli/cli.ergo:212:50*/
 					}
 					/*line /linked/codecli/cli.ergo:212:50*/
-				}{Enc: func(e_11 *Env, w_3 Writer, v_22 Ambiguous) (struct{}, error) {
+				}{Enc: func(e_11 *Env, w_3 Writer_1, v_22 Ambiguous) (struct{}, error) {
 					/*line /linked/codecli/cli.ergo:212:50*/ ergoEncodeAmbiguous(e_11, w_3, v_22)
 					/*line /linked/codecli/cli.ergo:212:50*/ return struct{}{}, nil
 					/*line /linked/codecli/cli.ergo:212:50*/
@@ -7343,11 +7343,11 @@ func Run_2(env *Env, args []string) Output {
 //line /linked/codecli/cli.ergo:214:3
 //line /linked/codecli/cli.ergo:214:17
 		v_29 := Encode_2[Decl](env, struct {
-			/*line /linked/codecli/cli.ergo:214:17*/ Enc func(*Env, Writer, Decl) (struct{}, error)
+			/*line /linked/codecli/cli.ergo:214:17*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
 			/*line /linked/codecli/cli.ergo:214:17*/ Dec func(*Env, Reader_2) (Decl, error)
 			/*line /linked/codecli/cli.ergo:214:17*/ Direct0 func(*Env, text_1, Decl) text_1
 			/*line /linked/codecli/cli.ergo:214:17*/ Field *struct {
-				/*line /linked/codecli/cli.ergo:214:17*/ Enc func(*Env, Writer, Decl) (struct{}, error)
+				/*line /linked/codecli/cli.ergo:214:17*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
 				/*line /linked/codecli/cli.ergo:214:17*/ Dec func(*Env, Reader_2) (Decl, error)
 				/*line /linked/codecli/cli.ergo:214:17*/ Direct0 func(*Env, text_1, Decl) text_1
 				/*line /linked/codecli/cli.ergo:214:17*/ Absent func(Decl) bool
@@ -7355,7 +7355,7 @@ func Run_2(env *Env, args []string) Output {
 				/*line /linked/codecli/cli.ergo:214:17*/
 			}
 			/*line /linked/codecli/cli.ergo:214:17*/
-		}{Enc: func(e_14 *Env, w_4 Writer, v_27 Decl) (struct{}, error) {
+		}{Enc: func(e_14 *Env, w_4 Writer_1, v_27 Decl) (struct{}, error) {
 			/*line /linked/codecli/cli.ergo:214:17*/ ergoEncodeDecl(e_14, w_4, v_27)
 			/*line /linked/codecli/cli.ergo:214:17*/ return struct{}{}, nil
 			/*line /linked/codecli/cli.ergo:214:17*/
@@ -7388,11 +7388,11 @@ func Run_2(env *Env, args []string) Output {
 				t_2 := asJSON
 //line /linked/codecli/cli.ergo:219:49
 				v_34 := Encode_2[NoSymbol](env, struct {
-					/*line /linked/codecli/cli.ergo:219:49*/ Enc func(*Env, Writer, NoSymbol) (struct{}, error)
+					/*line /linked/codecli/cli.ergo:219:49*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
 					/*line /linked/codecli/cli.ergo:219:49*/ Dec func(*Env, Reader_2) (NoSymbol, error)
 					/*line /linked/codecli/cli.ergo:219:49*/ Direct0 func(*Env, text_1, NoSymbol) text_1
 					/*line /linked/codecli/cli.ergo:219:49*/ Field *struct {
-						/*line /linked/codecli/cli.ergo:219:49*/ Enc func(*Env, Writer, NoSymbol) (struct{}, error)
+						/*line /linked/codecli/cli.ergo:219:49*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
 						/*line /linked/codecli/cli.ergo:219:49*/ Dec func(*Env, Reader_2) (NoSymbol, error)
 						/*line /linked/codecli/cli.ergo:219:49*/ Direct0 func(*Env, text_1, NoSymbol) text_1
 						/*line /linked/codecli/cli.ergo:219:49*/ Absent func(NoSymbol) bool
@@ -7400,7 +7400,7 @@ func Run_2(env *Env, args []string) Output {
 						/*line /linked/codecli/cli.ergo:219:49*/
 					}
 					/*line /linked/codecli/cli.ergo:219:49*/
-				}{Enc: func(e_18 *Env, w_5 Writer, v_32 NoSymbol) (struct{}, error) {
+				}{Enc: func(e_18 *Env, w_5 Writer_1, v_32 NoSymbol) (struct{}, error) {
 					/*line /linked/codecli/cli.ergo:219:49*/ ergoEncodeNoSymbol(e_18, w_5, v_32)
 					/*line /linked/codecli/cli.ergo:219:49*/ return struct{}{}, nil
 					/*line /linked/codecli/cli.ergo:219:49*/
@@ -7428,11 +7428,11 @@ func Run_2(env *Env, args []string) Output {
 				t_3 := asJSON
 //line /linked/codecli/cli.ergo:221:50
 				v_39 := Encode_2[Ambiguous](env, struct {
-					/*line /linked/codecli/cli.ergo:221:50*/ Enc func(*Env, Writer, Ambiguous) (struct{}, error)
+					/*line /linked/codecli/cli.ergo:221:50*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
 					/*line /linked/codecli/cli.ergo:221:50*/ Dec func(*Env, Reader_2) (Ambiguous, error)
 					/*line /linked/codecli/cli.ergo:221:50*/ Direct0 func(*Env, text_1, Ambiguous) text_1
 					/*line /linked/codecli/cli.ergo:221:50*/ Field *struct {
-						/*line /linked/codecli/cli.ergo:221:50*/ Enc func(*Env, Writer, Ambiguous) (struct{}, error)
+						/*line /linked/codecli/cli.ergo:221:50*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
 						/*line /linked/codecli/cli.ergo:221:50*/ Dec func(*Env, Reader_2) (Ambiguous, error)
 						/*line /linked/codecli/cli.ergo:221:50*/ Direct0 func(*Env, text_1, Ambiguous) text_1
 						/*line /linked/codecli/cli.ergo:221:50*/ Absent func(Ambiguous) bool
@@ -7440,7 +7440,7 @@ func Run_2(env *Env, args []string) Output {
 						/*line /linked/codecli/cli.ergo:221:50*/
 					}
 					/*line /linked/codecli/cli.ergo:221:50*/
-				}{Enc: func(e_22 *Env, w_6 Writer, v_37 Ambiguous) (struct{}, error) {
+				}{Enc: func(e_22 *Env, w_6 Writer_1, v_37 Ambiguous) (struct{}, error) {
 					/*line /linked/codecli/cli.ergo:221:50*/ ergoEncodeAmbiguous(e_22, w_6, v_37)
 					/*line /linked/codecli/cli.ergo:221:50*/ return struct{}{}, nil
 					/*line /linked/codecli/cli.ergo:221:50*/
@@ -7472,11 +7472,11 @@ func Run_2(env *Env, args []string) Output {
 //line /linked/codecli/cli.ergo:223:3
 //line /linked/codecli/cli.ergo:223:17
 		v_44 := Encode_2[SitePage](env, struct {
-			/*line /linked/codecli/cli.ergo:223:17*/ Enc func(*Env, Writer, SitePage) (struct{}, error)
+			/*line /linked/codecli/cli.ergo:223:17*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
 			/*line /linked/codecli/cli.ergo:223:17*/ Dec func(*Env, Reader_2) (SitePage, error)
 			/*line /linked/codecli/cli.ergo:223:17*/ Direct0 func(*Env, text_1, SitePage) text_1
 			/*line /linked/codecli/cli.ergo:223:17*/ Field *struct {
-				/*line /linked/codecli/cli.ergo:223:17*/ Enc func(*Env, Writer, SitePage) (struct{}, error)
+				/*line /linked/codecli/cli.ergo:223:17*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
 				/*line /linked/codecli/cli.ergo:223:17*/ Dec func(*Env, Reader_2) (SitePage, error)
 				/*line /linked/codecli/cli.ergo:223:17*/ Direct0 func(*Env, text_1, SitePage) text_1
 				/*line /linked/codecli/cli.ergo:223:17*/ Absent func(SitePage) bool
@@ -7484,7 +7484,7 @@ func Run_2(env *Env, args []string) Output {
 				/*line /linked/codecli/cli.ergo:223:17*/
 			}
 			/*line /linked/codecli/cli.ergo:223:17*/
-		}{Enc: func(e_25 *Env, w_7 Writer, v_42 SitePage) (struct{}, error) {
+		}{Enc: func(e_25 *Env, w_7 Writer_1, v_42 SitePage) (struct{}, error) {
 			/*line /linked/codecli/cli.ergo:223:17*/ ergoEncodeSitePage(e_25, w_7, v_42)
 			/*line /linked/codecli/cli.ergo:223:17*/ return struct{}{}, nil
 			/*line /linked/codecli/cli.ergo:223:17*/
