@@ -142,7 +142,7 @@ func evaluated(t *testing.T, src string, store *lawcache.Store) map[string]eval.
 	t.Helper()
 	a := checked(t, src)
 	b := eval.DefaultBudget()
-	b.Verdicts = a.EvalVerdicts(store, b.Seed, b.States)
+	b.Verdicts = a.EvalVerdicts(store, b.Seed, b.States, "")
 	rep, err := a.Evaluate(b)
 	if err != nil {
 		t.Fatal(err)

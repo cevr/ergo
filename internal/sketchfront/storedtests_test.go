@@ -72,8 +72,8 @@ func TestStoredVerdictsAgree(t *testing.T) {
 			if len(a.Diagnostics) > 0 {
 				t.Fatalf("seed %d: %v\n%s", seed, a.Diagnostics, src)
 			}
-			want, wantOK := a.EvaluateTests(p.seed, 0, "/work/main.ergo", "main.ergo", nil)
-			got, gotOK := a.EvaluateTests(p.seed, 0, "/work/main.ergo", "main.ergo", store)
+			want, wantOK := a.EvaluateTests(p.seed, 0, "/work/main.ergo", "main.ergo", nil, "")
+			got, gotOK := a.EvaluateTests(p.seed, 0, "/work/main.ergo", "main.ergo", store, "")
 			cut := func(s string) string {
 				return strings.ReplaceAll(strings.ReplaceAll(s, EvaluatedMark+"\n", "\n"), StoredMark+"\n", "\n")
 			}
@@ -157,7 +157,7 @@ func TestRouteNoteSkipsEvaluation(t *testing.T) {
 			t.Fatal(a.Diagnostics)
 		}
 		s0, r0 := stage.Get(stage.EvalSteps), stage.Get(stage.PackagesRouted)
-		_, ok = a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", store)
+		_, ok = a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", store, "")
 		return stage.Get(stage.EvalSteps) - s0, stage.Get(stage.PackagesRouted) - r0, ok
 	}
 	if steps, routed, ok := answer(spin(2000000)); ok || steps == 0 || routed != 0 {
@@ -172,26 +172,40 @@ func TestRouteNoteSkipsEvaluation(t *testing.T) {
 }
 
 // TestNativeVerdictsKeyTheToolchain is the bug the orchestrator asked
-// about (FT2 r1): a law verdict the test binary wrote depends on the Go
-// toolchain that linked it, so the build of another toolchain, and the
-// evaluator, must not read it; the same toolchain does.
+// about (FT2 r1, r3): a law verdict the test binary wrote depends on the
+// Go toolchain that linked it, so the build of another toolchain, and the
+// evaluator under another pin or none, must not read it; the same
+// toolchain does, and so does the evaluator under that pin.
 //
-// Mutant only it kills (testdata/mutants.json):
-// ft-native-key-omits-toolchain.
+// Mutants only it kills (testdata/mutants.json):
+// ft-native-key-omits-toolchain and ft-check-ignores-pinned.
 func TestNativeVerdictsKeyTheToolchain(t *testing.T) {
 	a := Check("func base(n int) int { n + 1 }\n\nlaw Shifts(n int) { base(n) - n == base(0) }\n")
 	if len(a.Diagnostics) > 0 {
 		t.Fatal(a.Diagnostics)
 	}
-	store := lawcache.Memory("process:toolchain-test")
-	a.TestVerdicts(store, 1, 0, "go A").Record("ok law Shifts (100 cases)\nPASS (1 tests)\n")
+	// withA is a store that holds only the verdict go A's binary wrote.
+	withA := func() *lawcache.Store {
+		s := lawcache.Memory("process:toolchain-test")
+		a.TestVerdicts(s, 1, 0, "go A").Record("ok law Shifts (100 cases)\nPASS (1 tests)\n")
+		return s
+	}
+	store := withA()
 	if a.TestVerdicts(store, 1, 0, "go A").CachedFile() == "" {
 		t.Fatal("the toolchain that stored the verdict does not read it")
 	}
 	if text := a.TestVerdicts(store, 1, 0, "go B").CachedFile(); text != "" {
 		t.Fatalf("another toolchain read the verdict: %q", text)
 	}
-	if got, ok := a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", store); !ok || got.Stored != 0 {
+	if got, ok := a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", withA(), ""); !ok || got.Stored != 0 {
 		t.Fatalf("the evaluator read a verdict the test binary wrote (ok %v, stored %d):\n%s", ok, got.Stored, got.Stdout)
+	}
+	if got, ok := a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", withA(), "go B"); !ok || got.Stored != 0 {
+		t.Fatalf("the evaluator under the pin go B read go A's verdict (ok %v, stored %d):\n%s", ok, got.Stored, got.Stdout)
+	}
+	// Under the pin that linked the binary, the evaluator (ergo check,
+	// tier 1) reads its verdict and does not run the law again (FT2 r3).
+	if got, ok := a.EvaluateTests(1, 0, "/work/main.ergo", "main.ergo", withA(), "go A"); !ok || got.Stored != 1 {
+		t.Fatalf("the evaluator under the pin go A did not read go A's verdict (ok %v, stored %d):\n%s", ok, got.Stored, got.Stdout)
 	}
 }

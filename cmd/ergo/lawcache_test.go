@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,9 +76,9 @@ func main() {
 // TestLawVerdictsCLI drives ergo test as a process over one store
 // (lawcache; v1 audit 3, F7): a second ergo test prints each law run that
 // held "(cached)" and does not run it, a refuted law runs and fails every
-// time, and ERGO_LAWCACHE=off runs every law. ergo check does not read a
-// verdict the test binary wrote, since that verdict is keyed by the Go
-// toolchain (TestNativeVerdictsKeyTheToolchain, FT2).
+// time, and ERGO_LAWCACHE=off runs every law. ergo check reads a verdict
+// the test binary wrote only when the pinned release linked it; under
+// the system Go it reads none (FT2 r3).
 //
 // It builds Go because the test build's runner, which reads --cached and
 // skips the runs it lists, is generated Go that only a built test binary
@@ -131,6 +132,30 @@ func TestLawVerdictsCLI(t *testing.T) {
 		if _, was := verdictAt(first, line); rest != was {
 			t.Fatalf("a second ergo test prints after %q\n%q\nwant the first run's\n%q", line, rest, was)
 		}
+	}
+	// ergo check reads a law verdict the test binary wrote only when the
+	// binary was linked by the pinned release (pinnedToolchain). These
+	// runs use the system Go (main_test.go), which is not the pin, so it
+	// reads none, and evaluates each law itself. The pinned case is
+	// TestNativeVerdictsKeyTheToolchain's, in process.
+	stdout, stderr, _ := testRunCLI(t, binary, root, xdg, tmp, "check", source)
+	var envelope struct {
+		Evaluation struct {
+			Obligations []struct {
+				Name   string `json:"name"`
+				Cached bool   `json:"cached"`
+			} `json:"obligations"`
+		} `json:"evaluation"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("ergo check: %v\n%s\n%s", err, stdout, stderr)
+	}
+	cached := map[string]bool{}
+	for _, o := range envelope.Evaluation.Obligations {
+		cached[o.Name] = o.Cached
+	}
+	if len(cached) == 0 || cached["law Doubles"] || cached["law Halves"] || cached["law Wrong"] {
+		t.Fatalf("ergo check after ergo test under the system Go: cached %v, want none (not the pinned toolchain)\n%s", cached, stdout)
 	}
 }
 

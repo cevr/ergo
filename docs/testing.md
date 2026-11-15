@@ -97,7 +97,9 @@ with no evaluation. Every key holds the compiler's identity, the digest
 of the `ergo` executable (its lowering, rewrite ledger, evaluator,
 standard library and runtime), so another compiler replays nothing. A law
 verdict the test binary wrote is also keyed by the Go toolchain that
-linked it, so the evaluator and another toolchain do not read it.
+linked it, so another toolchain does not read it, and the evaluator
+(`ergo check`, tier 1) reads it only when that toolchain is the pinned
+release `ergo` would build with now (not under `ERGO_GO=system` or a path).
 `ergo test --native`, which the gate and CI run, reads no stored verdict:
 every test and law runs in the binary (it still stores what held, for
 the next default run). `TestStoredVerdictsAgree` (internal/sketchfront)
