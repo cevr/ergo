@@ -267,10 +267,13 @@ type gate struct {
 	// recordCPU: -record-durations -cpu (writeTestCPU).
 	recordCPU bool
 	steps     []*Step
-	files     []string
-	digests   map[string]string
-	tools     map[string]*toolFact
-	toolsMu   sync.Mutex
+	// dropped are the fast tier's lines for the packages whose every fast
+	// test the selection skipped, which have no step (fastStepsSelected).
+	dropped []string
+	files   []string
+	digests map[string]string
+	tools   map[string]*toolFact
+	toolsMu sync.Mutex
 
 	// roots are the paths the tool fingerprints cover (installationRoots).
 	roots []string
@@ -541,7 +544,7 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	if tier == fastTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
-		g.steps, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
+		g.steps, g.dropped, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
 		})
 	} else {
@@ -842,6 +845,9 @@ func (g *gate) run(out io.Writer) int {
 		if step.Note != "" {
 			fmt.Fprintf(out, "gate: %s: %s\n", step.Name, step.Note)
 		}
+	}
+	for _, line := range g.dropped {
+		fmt.Fprintf(out, "gate: %s\n", line)
 	}
 	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
 		fmt.Fprintln(out, "gate:", err)

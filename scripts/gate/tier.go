@@ -327,7 +327,8 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages'.
 func fastSteps(root string) ([]*Step, error) {
-	return fastStepsSelected(root, nil)
+	steps, _, err := fastStepsSelected(root, nil)
+	return steps, err
 }
 
 // selector judges which fast tests of a selectPackages package an edit
@@ -338,10 +339,12 @@ type selector func(p testPackage, env, names []string) selection
 // selectPackages narrowed by choose when it is not nil: a skipped test
 // joins the large ones that every shard skips, so a test the record does
 // not know still runs.
-func fastStepsSelected(root string, choose selector) ([]*Step, error) {
+// A package whose every fast test the selection skips has no step; dropped
+// says so, one line per package, for the gate to print.
+func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []string, err error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var importPaths []string
 	for _, p := range packages {
@@ -349,19 +352,19 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 	}
 	full, err := declareSteps(root, importPaths)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	durations, err := readDurations(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	module := modulePath(root)
-	steps, err := classFastSteps(full)
+	steps, err = classFastSteps(full)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := fastExamples(root, steps); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var tests []*Step
 	for _, p := range packages {
@@ -384,20 +387,29 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 		}
 		names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
 		note := ""
+		pkg := "./" + p.dir
+		name := "go test " + pkg + " (fast)"
 		if choose != nil && slices.Contains(selectPackages, relative) {
 			chosen := choose(p, append(stepEnvironment(), env...), fast)
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
 			large = append(large, chosen.skip...)
 			note = chosen.note
+			// The record skipped every fast test: the step would link
+			// the test binary to run none (bindc and syntax, 14 CPU-s of
+			// a std edit, gate-speed GS24). go vet type-checks the
+			// package and its tests, and the edit reaches no test, so
+			// there is no step.
+			if len(fast) == 0 && len(chosen.skip) > 0 {
+				dropped = append(dropped, fmt.Sprintf("%s: %s; no step: no test to run, and go vet type-checks the package and its tests", name, note))
+				continue
+			}
 		}
-		pkg := "./" + p.dir
 		base := []string{"go", "test", fastFlag}
-		name := "go test " + pkg + " (fast)"
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
 			total := 0.0
@@ -417,7 +429,7 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 		}
 	}
 	// The tests after the steps they need, in package order.
-	return append(steps, tests...), nil
+	return append(steps, tests...), dropped, nil
 }
 
 // fastCPUFile holds, per test package, the CPU seconds (user and system,
