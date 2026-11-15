@@ -10,7 +10,7 @@ The program is a module of packages (`ergo.mod`: `module cron`), in the Go layou
 
 | folder | what it holds |
 | --- | --- |
-| `schedule/` | The domain. `civil.ergo` (`Instant`, and `Civil`, its reading through std `time.Calendar` and `time.Date`), `expr.ergo` (`Field`, `Expr`, `Parse` with five typed failures, `Format`), `next.ergo` (`Matches`, `Next`, `Upcoming`), `table.ergo` (`ParseTable`), `run.ergo` (`Job`, `Firing`, `Run`, which needs `time.Clock` and `Scheduler`), `laws.ergo` (the laws and the brute-force reference) and `tests.ergo`. |
+| `schedule/` | The domain. `civil.ergo` (`Instant`, and `Civil`, its reading through std `civil`: a `civil.Date` and the minute of the day; the next month is `civil.AddMonths(civil.StartOf(d, civil.Months), 1)`), `expr.ergo` (`Field`, `Expr`, `Parse` with five typed failures, `Format`), `next.ergo` (`Matches`, `Next`, `Upcoming`), `table.ergo` (`ParseTable`), `run.ergo` (`Job`, `Firing`, `Run`, which needs `time.Clock` and `Scheduler`), `laws.ergo` (the laws and the brute-force reference) and `tests.ergo`. |
 | `cmd/cron/` | The binary. `main.ergo` reads the two commands with `flag.ParseCommand` into the program's own `Cmd` union, binds the host's clock, `Scheduler`, file system and standard output, and chooses std `testing.NewVirtualClock` for a run that is not `-live`: the clock jumps to each firing, which is what the run simulates. |
 | `testdata/jobs` | A table of six jobs. |
 

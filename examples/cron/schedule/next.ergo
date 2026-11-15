@@ -30,11 +30,11 @@ func Next(e Expr, t Instant) Option[Instant] {
 			return None
 		}
 		if !Has(e.Month, c.Month) {
-			at = InstantOf(Civil{Year: c.Year + c.Month/12, Month: c.Month%12 + 1, Day: 1, Hour: 0, Minute: 0, Weekday: 0})
+			at = NextMonth(c)
 		} else if !dayMatches(e, c) {
-			at = InstantOf(Civil{..c, Hour: 0, Minute: 0}) + 1440
+			at = NextDay(c)
 		} else if !Has(e.Hour, c.Hour) {
-			at = InstantOf(Civil{..c, Minute: 0}) + 60
+			at = at - Instant(c.Minute) + 60
 		} else if !Has(e.Minute, c.Minute) {
 			at = at + 1
 		} else {
