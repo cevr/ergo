@@ -89,7 +89,7 @@ func conv[S Sink](s S, k int) int { viaOps(s, k) + s.Total() }
 
 type Tag { n int }
 
-func pair[S Sink, T](s S, t T, k int) int {
+func pair[S lent Sink, T](s S, t T, k int) int {
 	s.Put(k)
 	s.Total()
 }
@@ -124,7 +124,7 @@ func (g *witGen) copyOf(j int, p string) {
 // t), and calls of pair, which has no copy and takes the witness.
 func (g *witGen) function(j int) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "func g%d[S Sink](t Tag, s S, k int) int fails Empty {\n\tlet mut acc = %d + t.n\n", j, j)
+	fmt.Fprintf(&b, "func g%d[S lent Sink](t Tag, s S, k int) int fails Empty {\n\tlet mut acc = %d + t.n\n", j, j)
 	var passes []int
 	for n := range 2 + g.r.IntN(4) {
 		c := g.r.IntN(5)
@@ -196,7 +196,7 @@ func witProgram(seed uint64, reached map[string]bool) (src string, copies int, d
 	if defect {
 		j := g.r.IntN(nf)
 		g.copyOf(j, "Counter")
-		g.funcs.WriteString("func boom[S Sink](s S, k int) int fails Empty {\n\ts.Put(k)\n\ttry s.Take(77)\n}\n\n")
+		g.funcs.WriteString("func boom[S lent Sink](s S, k int) int fails Empty {\n\ts.Put(k)\n\ttry s.Take(77)\n}\n\n")
 		fmt.Fprintf(&calls, "\tlet rd = g%d(Tag{n: 1}, &c, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tlet re = boom(&c, rd) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"boom \\(re)\")\n", j)
 		reached["defect"] = true
 	}
@@ -244,7 +244,7 @@ func sameDefect(on, off string) bool {
 
 // TestKnownWitnessesAgree is the seeded property of the copies for known
 // witnesses (witspec.go): each seed writes a program of generic functions
-// over an operation type Sink, [S Sink], that call its operations, loop,
+// over an operation type Sink, [S lent Sink], that call its operations, loop,
 // fail, pass s on to an earlier function (plain or as a dot call), and use
 // the witness itself (a conversion of s to Sink at a call, a
 // call of a function of two type parameters, which has no copy); main
