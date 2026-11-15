@@ -1,5 +1,6 @@
 import actor
 import queue
+import testing
 import time
 
 // TestHost runs a view over an actor in process, for a test or an agent:
@@ -194,6 +195,9 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 		if fetchesAsleep(h) {
 			return
 		}
+		// Settle waits here for what a fetch posts (RT-HOOK: the point a law
+		// releases an off-clock answer at, OffClockAnswerIsWaitedFor).
+		testing.Point("ui.settle.waits")
 		let ev = h.posted.Pop() catch {
 		case queue.Closed:
 			return

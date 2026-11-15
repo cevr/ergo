@@ -574,7 +574,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	// on the caller's task (their function values take it), with the
 	// task's host binding set; it never waits by itself.
 	"ActorRecovering": {task: true},
-	"Host.Get":        {wait: callerWait},
+	// RT-HOOK: a named point runs the functions a test armed there on the
+	// caller's task (their function values take it) and never waits by
+	// itself; At only records its function. Neither reaches a run build
+	// (hook.go).
+	"HookPoint": {task: true},
+	"HookAt":    {},
+	"Host.Get":  {wait: callerWait},
 	// std ui's trace (NS3's `ergo test --trace`): traced reads whether the
 	// running task's tree records a trace, and traceStep records a step
 	// event in it; neither waits nor releases.

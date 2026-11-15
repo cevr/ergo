@@ -1045,6 +1045,7 @@ func lawOffClockAnswerIsWaitedFor(steps int) bool {
 func offClock(steps int, m time.Manual) bool needs Scheduler {
 	let asks = queue.New[int](8)
 	let answers = queue.New[int](8)
+	let release = queue.New[int](8)
 	let hops = (steps%32+32)%32 + 32
 	let server = task.Go() {
 		let c = testing.NewVirtualClock(0)
@@ -1053,6 +1054,12 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 			let k = asks.Pop() catch {
 			case queue.Closed:
 				-1
+			}
+			if k >= 0 {
+				let _ = release.Pop() catch {
+				case queue.Closed:
+					-1
+				}
 			}
 			if k < 0 {
 				open = false
@@ -1096,6 +1103,11 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 	let mut held = true
 	for i in 0..(steps%4+4)%4+1 {
 		let script = if i == 0 { []ui.Act{ui.SettleAll} } else { []ui.Act{ui.TapOn{Label: "next"}, ui.SettleAll} }
+		testing.At("ui.settle.waits", func() {
+			release.Push(i) catch {
+			case queue.Closed:
+			}
+		})
 		ui.Play(&h, script) catch {
 		case _:
 			return false
@@ -1104,9 +1116,49 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 		held = held && s.ready == valueOf(s.key) && ui.Fetching(&h) == 0 && time.Sleepers(m) == 1
 	}
 	asks.End()
+	release.End()
 	timer.Stop()
 	server.Stop()
 	held
+}
+
+func lawVersionedNeverRunsAhead(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		versionedHolds(n, m)
+	}
+}
+
+func versionedHolds(n int, m time.Manual) bool needs Scheduler {
+	let landed = 1000 + (n%1000+1000)%1000
+	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Text(f, "n \(s)")
+		ui.Pressable(f, "set", s+1) {
+			ui.Text(f, "set")
+		}
+	}
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	testing.At("ui.versioned", func() {
+		a.Send(landed) catch {
+		case actor.Stopped:
+			return
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == landed }) catch {
+		case actor.Stopped:
+			return
+		}
+	})
+	ui.Play(&h, []ui.Act{ui.TapOn{Label: "set"}, ui.SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = ui.StateOf(&h)
+	a.Stop()
+	s == landed && ui.SameShapes(ui.Screen(&h), freshShape(view, s))
 }
 
 type spin { left int, at int }
@@ -4050,6 +4102,10 @@ test UiOffClockAnswerIsWaitedFor(steps int) {
 	assert lawOffClockAnswerIsWaitedFor(steps)
 }
 
+test UiVersionedNeverRunsAhead(n int) {
+	assert lawVersionedNeverRunsAhead(n)
+}
+
 test UiNoTickWhenSettled(seed int, steps int) {
 	assert lawNoTickWhenSettled(seed, steps)
 }
@@ -4230,6 +4286,7 @@ var stdUIHostStatements = map[string]string{
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui OffClockAnswerIsWaitedFor":     `OffClockAnswerIsWaitedFor(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { offClock(steps, m) } }`,
+	"ui VersionedNeverRunsAhead":       `VersionedNeverRunsAhead(n int) { let m = time.NewManual(0) with context { Scheduler: m } { versionedHolds(n, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
 	"ui AdvanceTakesThePosted":         `AdvanceTakesThePosted(n int) { let m = time.NewManual(0) with context { Scheduler: m } { advanceTakes(n, m) } }`,
 	"ui InputGivesSignal":              `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
