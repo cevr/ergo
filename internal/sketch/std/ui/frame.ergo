@@ -391,6 +391,14 @@ func Pressable[E, F, R](f *Frame[E], label string, on E, body func() fails F nee
 	try open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
 }
 
+// Semantic is a container that declares what it is to a locator and an
+// assistive technology (NS4): its Access, as the kit's controls give it
+// (a tab's role and selected state, a heading's level). A press on it
+// sends on, when it has one and is not disabled, as a Pressable's does.
+func Semantic[E, F, R](f *Frame[E], a Access, on Option[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, SemanticNode{Access: a, On: on, Style: style}, body, at)
+}
+
 // Text shows a string.
 func Text[E](f *Frame[E], value string, at CallSite) {
 	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
@@ -792,6 +800,8 @@ func kindOf[E](n Node[E]) int {
 		14
 	case TransitionNode:
 		15
+	case SemanticNode[E]:
+		16
 	}
 }
 

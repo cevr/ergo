@@ -452,6 +452,10 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			}
 		case CheckNode[E] as x:
 			out.Signal = Some{Value: x.On}
+		case SemanticNode[E] as x:
+			if !x.Access.Disabled {
+				out.Signal = x.On
+			}
 		case ToggleNode as x:
 			match n.binds {
 			case Some[bound[E]] as d:

@@ -794,26 +794,26 @@ func accessModel(shapes []Shape[int], off bool, desc string) []seen {
 }
 
 func readAs(n Node[int], off bool, desc string) Access {
-	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	match n {
 	case PressableNode[int] as x:
-		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None}
+		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case CheckNode[int] as x:
-		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None}
+		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case ToggleNode as x:
-		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None}
+		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case InputNode as x:
-		Access{Role: TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}}
+		Access{Role: TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case TextNode as x:
-		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None}
+		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case FieldsetNode:
-		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case AreaNode as x:
-		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case CanvasNode as x:
-		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case RowsNode as x:
-		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case _:
 		base
 	}
