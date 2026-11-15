@@ -18,8 +18,12 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 	switch u := t.(type) {
 	case *check.Signature:
 		return b.sigType(u, site) // ir_closure.go
+	case *check.Tuple:
+		if len(u.Types) >= 2 {
+			return b.tupleType(u, site) // ir_tuple.go
+		}
 	case *check.Slice:
-		if hasSig(u) {
+		if hasSig(u) || isTuple(u.Elem) {
 			return "[]" + b.goType(u.Elem, site)
 		}
 	}
@@ -37,6 +41,15 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		return
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
+		return
+	case *check.Tuple:
+		// A tuple value: the emitter's struct{F0 T0; F1 T1} (ir_tuple.go).
+		if len(t.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		for _, e := range t.Types {
+			b.admit(e, depth+1)
+		}
 		return
 	case *check.Signature:
 		// A function value's type (ir_closure.go, sigType).
