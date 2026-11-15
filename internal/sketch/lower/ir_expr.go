@@ -14,6 +14,31 @@ import (
 // irString is the string constant s as the IR file holds it: JSON text,
 // which carries only UTF-8 (encoding/json writes U+FFFD for any other
 // byte), so a constant that is not stays the emitter's.
+// fieldType is the type of record s's field name, or nil.
+func fieldType(s *check.Struct, name string) check.Type {
+	for _, f := range s.Fields {
+		if f.Name == name {
+			return f.Type
+		}
+	}
+	return nil
+}
+
+// intoRow is e, the value of x, as a value of want: a variant that goes
+// into a row type (a Go error, as a generic record's row field holds it)
+// takes an explicit conversion, as Go assigns it implicitly. The checker
+// records no conversion there (the emitter leaves it to Go).
+func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
+	if _, ok := want.(*check.Union); !ok || e == nil {
+		return e
+	}
+	gt := b.goType(want, x)
+	if gt != "error" || b.goType(b.operandType(x), x) == gt {
+		return e
+	}
+	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+}
+
 func irString(s string) string {
 	if !utf8.ValidString(s) {
 		irNo("string constant that is not UTF-8")
@@ -223,7 +248,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("record key")
 				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				lit.Elems = append(lit.Elems, b.expr(kv.Value))
+				lit.Elems = append(lit.Elems, b.intoRow(fieldType(s, k.Name), kv.Value, b.expr(kv.Value)))
 			}
 		default:
 			irNo("literal of %T", t)
