@@ -92,6 +92,9 @@ type knownStats struct {
 	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
+	// RepeatFills is the slices.Repeat calls of a constant length made in
+	// the caller (repeat.go).
+	RepeatFills int
 	// BorrowCopies is the generic results through a borrow copied at the
 	// caller (alias.go, borrowResult).
 	BorrowCopies int

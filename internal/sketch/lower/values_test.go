@@ -242,10 +242,16 @@ func shelveArms(r sync.Ref[Map[int, Box]], k int, deny bool) int {
 	})
 }
 
+func bottoms(bottom int, k int) int {
+	let mut a = slices.Repeat([]int{bottom}, 12)
+	a[k % 12] = k
+	a[0] + a[k % 12]
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5))")
 }
 `
 
@@ -325,6 +331,12 @@ func TestValueRuleElides(t *testing.T) {
 	// in the other arm never follows, so each arm moves it (exclusive).
 	if body := goFunc(t, code, "shelveArms"); strings.Count(body, "ergoCloneMap") != 1 {
 		t.Errorf("shelveArms copies the whole Map in an arm, as if the other arm's use followed:\n%s", body)
+	}
+	// bottoms is mdhtml's openersBottom (PA3): a Repeat of a literal and a
+	// constant count makes its result in the caller with a make of
+	// constant length, which Go keeps on the stack (repeat.go).
+	if body := goFunc(t, code, "bottoms"); !strings.Contains(body, ".SlicesFill[int](make([]int, 12), ") {
+		t.Errorf("bottoms does not make its Repeat with a constant length:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls

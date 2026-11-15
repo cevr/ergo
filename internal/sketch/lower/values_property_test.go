@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -156,6 +157,7 @@ type valueGen struct {
 	pending []func() // prints of closures and tasks, run at the end
 	turn    int      // the moves written so far, which pick the next one's form (no draw)
 	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
+	rturn   int      // repeatStmt's calls so far, which pick its turns (no draw)
 	aturn   int      // armsStmt's calls so far, which pick its turns (no draw)
 	oturn   int      // the kMaps writes written so far, every third a move over a kept part (moveOver)
 	refs    []*vref
@@ -893,6 +895,7 @@ func (g *valueGen) stmt() {
 		g.hand()
 		g.sortStmt()
 		g.armsStmt()
+		g.repeatStmt()
 	case 5:
 		b := g.pick(func(b *vbind) bool { return true })
 		if b == nil {
@@ -1377,6 +1380,42 @@ func (g *valueGen) armsStmt() {
 	}
 }
 
+// repeatStmt writes, every third call, a slices.Repeat of a literal and a
+// constant count (repeat.go, PA3's filled form), bound to a let mut that a
+// write changes, then printed; and Repeat of a binding (the call form). It
+// counts its calls instead of drawing, so the seeds keep their paths.
+func (g *valueGen) repeatStmt() {
+	if g.rturn++; g.rturn%3 != 0 {
+		return
+	}
+	t := g.rturn / 3
+	m, n, k := 1+t%3, t%5, t%9
+	lit, elts := make([]string, m), make([]int, m)
+	for i := range m {
+		elts[i] = k + i
+		lit[i] = strconv.Itoa(k + i)
+	}
+	r := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = slices.Repeat([]int{%s}, %d)", r, strings.Join(lit, ", "), n))
+	want := slices.Repeat(elts, n)
+	if len(want) > 0 {
+		g.line(fmt.Sprintf("%s[%d] = 77", r, len(want)-1))
+		want[len(want)-1] = 77
+	} else {
+		g.line(fmt.Sprintf("%s = %s.Append(77)", r, r))
+		want = append(want, 77)
+	}
+	g.print(r, kSlice, mval{s: want}.digest(kSlice))
+	g.reached["repeat literal"] = true
+	for _, b := range g.binds {
+		if b.kind == kSlice {
+			g.printInt(fmt.Sprintf("ds(slices.Repeat(%s, %d))", b.name, n), dsModel(slices.Repeat(b.val.s, n)))
+			g.reached["repeat binding"] = true
+			break
+		}
+	}
+}
+
 // printInt prints the int expression x, which the model says is d.
 func (g *valueGen) printInt(x string, d int) {
 	g.line(fmt.Sprintf("Console.Println(\"\\(%s)\")", x))
@@ -1663,7 +1702,7 @@ var valuePaths = []string{
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
-	"move over a kept part", "arms loop", "arms subject", "arms condition", "arms loop return", "arms move",
+	"move over a kept part", "arms loop", "arms subject", "arms condition", "arms loop return", "arms move", "repeat literal", "repeat binding",
 	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }

@@ -387,6 +387,7 @@ var bodyTable = map[string]bodyFact{
 	"SlicesConcatPoison":        {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}}},
 	"SlicesContains":            {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"bool"}, Pure: true}},
 	"SlicesEqual":               {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"bool"}, Pure: true}},
+	"SlicesFill":                {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}, Pure: true}},
 	"SlicesIndex":               {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"int"}, Pure: true}},
 	"SlicesMax":                 {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "ordered"}}, Params: []Param{{Type: "[]T"}}, Results: []string{"T"}, Pure: true}},
 	"SlicesMin":                 {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "ordered"}}, Params: []Param{{Type: "[]T"}}, Results: []string{"T"}, Pure: true}},
