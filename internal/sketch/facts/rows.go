@@ -100,7 +100,7 @@ func (b *builder) noteCall(x *syntax.CallExpr) {
 }
 
 // needs writes an edge from each function of the package to each
-// capability of its needs row, in the package's function order.
+// capability the checker derived for it, in the package's function order.
 func (b *builder) needs() {
 	for _, f := range b.pkg.Funcs {
 		if f.Sig == nil || f.Sig.Uses.Empty() {
