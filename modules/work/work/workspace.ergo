@@ -2,7 +2,7 @@
 // one base checkout. A workspace is a folder that holds a full clone of
 // its parent (the tracked files, the Git folder and every untracked build
 // product), with a name, a branch and a lifecycle. The package declares
-// the contracts it needs (Cloner, Registry, Vcs) with their laws; the
+// the contracts it calls (Cloner, Registry, Vcs) with their laws; the
 // providers live in packages named after what they use (btrfs, reflink,
 // clonefile, copy, journal, git, memory), and the binary chooses them.
 

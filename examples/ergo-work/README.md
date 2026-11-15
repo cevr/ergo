@@ -14,7 +14,7 @@ The base is `ERGO_WORK_BASE` when it is set (a relative one stays relative, so t
 
 ## Cases
 
-Each case's `setup.sh` makes a Git base (and, where the command needs one, a registry and workspaces written by hand: the registry is plain text) in the case's folder, and the case runs one command with `ERGO_WORK_BASE=base` and `ERGO_WORK_NOW=1000`.
+Each case's `setup.sh` makes a Git base (and, where the command reads them, a registry and workspaces written by hand: the registry is plain text) in the case's folder, and the case runs one command with `ERGO_WORK_BASE=base` and `ERGO_WORK_NOW=1000`.
 
 - `new` clones with `-copy`, so it passes on a file system with no reflink too (it is still a reflink on btrfs and a clonefile on APFS). Its `warm` command runs in the new workspace: it writes to the clone's `a.txt`, checks that `tmp` was left out, prints the base's `a.txt` on stderr and exits 3, so its `WarmFailed` shows that a write in the clone left the base as it was.
 - `rm-held`, `rm-dirty`, `rm-abandon`: a clean workspace whose head the base holds goes to the trash; one with an untracked file is `NotHeld` unless `-abandon`.
