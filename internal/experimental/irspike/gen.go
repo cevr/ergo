@@ -191,7 +191,9 @@ func (g *gen) function(i int) {
 					g.scope = append(g.scope, gvar{name: "flv", t: tInt})
 					f.impure = true
 				case reasonRange:
-					fmt.Fprintf(&g.b, "\tfor k in 0..%d {\n\t\tif k == 7 {\n\t\t\treturn %s\n\t\t}\n\t}\n", 1+g.n(3), g.expr(f.result, 1))
+					// The operator outside a loop's header: the header's
+					// a..b is a counting loop (IRG4b r2).
+					fmt.Fprintf(&g.b, "\tlet rg = 0..%d\n\tfor k in rg {\n\t\tif k == 7 {\n\t\t\treturn %s\n\t\t}\n\t}\n", 1+g.n(3), g.expr(f.result, 1))
 				}
 				g.planted[f.name] = append(g.planted[f.name], p.reason)
 			}

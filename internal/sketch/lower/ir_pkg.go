@@ -110,6 +110,11 @@ func (b *irBuilder) qualifiedName(s, n string) string {
 // put in, so they are admitted as any record's or union's.
 func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 	for _, a := range typeArgs(t) {
+		if a == check.NoValue {
+			// A type parameter bound by a block with no value (the
+			// emitter's struct{}): the decoder has no struct{} type.
+			irNo("type argument with no value")
+		}
 		b.admit(a, depth+1)
 	}
 }
