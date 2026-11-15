@@ -36,7 +36,7 @@ type reserveShape struct{ domain, init, body string }
 // a body that appends once per iteration.
 func (s reserveShape) reserves() bool {
 	switch s.domain {
-	case "slice", "field", "pkg", "map", "lenrange", "offrange", "constrange":
+	case "slice", "field", "pkg", "map", "lenrange", "offrange", "constrange", "call":
 	default:
 		return false
 	}
@@ -161,7 +161,8 @@ func digest(xs []int, inOrder bool) string {
 // value rule copies), which go/types cannot answer; each program runs
 // under the kit's memory limit (runProgram).
 //
-// Mutants it kills (testdata/mutants.json): gx6-range-any-bound,
+// Mutants it kills (testdata/mutants.json): gx8-call-twice,
+// gx8-call-refused, gx6-range-any-bound,
 // gx6-range-wide, gx6-range-no-floor, gx2-reserve-any-domain,
 // gx2-reserve-escapes, gx2-reserve-twice, gx2-reserve-other-assign,
 // gx2-reserve-self-domain, gx2-reserve-call-domain, gx2-reserve-never.
@@ -214,6 +215,11 @@ func TestReserveAgrees(t *testing.T) {
 			name := fmt.Sprintf("f%d", i)
 			if got := strings.Contains(reserveBody(t, on.mainGo(), name), ".Reserve("); got != s.reserves() {
 				t.Errorf("seed %d, %s (%+v): reserves %v, want %v:\n%s", seed, name, s, got, s.reserves(), reserveBody(t, on.mainGo(), name))
+			}
+			// A reserved call domain runs once: its value is held for
+			// the length and the range (the promised form).
+			if body := reserveBody(t, on.mainGo(), name); s.domain == "call" && s.reserves() && strings.Count(body, "twice") != 1 {
+				t.Errorf("seed %d, %s (%+v): the domain call is written %d times, want once:\n%s", seed, name, s, strings.Count(body, "twice"), body)
 			}
 			if strings.Contains(reserveBody(t, off.mainGo(), name), ".Reserve(") {
 				t.Errorf("seed %d, %s: the reference reserves", seed, name)
