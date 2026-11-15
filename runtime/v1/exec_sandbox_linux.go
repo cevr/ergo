@@ -343,13 +343,13 @@ const execHelperFD = 3
 // returns.
 func execHelperMain(root string) {
 	syscall.CloseOnExec(execHelperFD) // no program inherits it
-	report := func(text string) {
+	tell := func(text string) {
 		var n [4]byte
 		binary.LittleEndian.PutUint32(n[:], uint32(len(text)))
 		_ = sbWriteAll(append(n[:], text...))
 	}
 	fail := func(err error) {
-		report(err.Error())
+		tell(err.Error())
 		os.Exit(127)
 	}
 	// No process of the namespace makes another user namespace, in which
@@ -385,7 +385,7 @@ func execHelperMain(root string) {
 	if err := sbDropPrivileges(); err != nil {
 		fail(err)
 	}
-	report("")
+	tell("")
 	for {
 		path, dir, argv, env, files, err := execHelperRead()
 		if err != nil {
