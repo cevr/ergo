@@ -95,6 +95,9 @@ type SplitReport struct {
 	// Shards counts the Go packages that declaration shards made below
 	// the packages of the program (pkgshard.go).
 	Shards int
+	// Instances counts the instances the instance package compiles for
+	// the others (pkginst.go), 0 when there is none.
+	Instances int
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -693,6 +696,24 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			cross[name] = true
 		}
 	}
+	// Shared instances (pkginst.go): on the IR path, the instance package
+	// names each instance the packages name, so every name in one crosses.
+	var insts []splitInst
+	var finder *splitInsts
+	instPkg := -1
+	if irs != nil && instShared {
+		finder = newSplitInsts(f, groups, groupOf)
+		var names map[string]bool
+		insts, names = finder.collect(f, declGroup)
+		if len(insts) > 0 {
+			instPkg = len(plan.pkgs)
+			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})
+			used[instPkg] = true
+			for name := range names {
+				cross[name] = true
+			}
+		}
+	}
 	rename := map[string]string{}
 	taken := maps.Clone(all)
 	for _, name := range slices.Sorted(maps.Keys(cross)) {
@@ -798,6 +819,18 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			return nil, SplitReport{Reason: reason}
 		}
 	}
+	var shared map[int][]string
+	instances := 0
+	if instPkg >= 0 {
+		w := &instWriter{s: finder, plan: plan, base: base, rename: rename}
+		uses := map[int]bool{}
+		var body string
+		shared, body, instances = w.lists(insts, uses)
+		for k := range uses {
+			needs[instPkg][k] = true
+		}
+		extra[instPkg].WriteString(body)
+	}
 
 	header := src[:off(f.Package)]
 	var outFiles []File
@@ -848,6 +881,10 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		for _, to := range slices.Sorted(maps.Keys(needs[k])) {
 			specs = append(specs, plan.pkgs[to].alias+" "+strconv.Quote(base+"/"+plan.pkgs[to].dir))
 		}
+		if k == 1 && instPkg >= 0 {
+			// The root links the instance package; nothing else imports it.
+			specs = append(specs, "_ "+strconv.Quote(base+"/"+instDir))
+		}
 		if len(specs) > 0 {
 			b.WriteString("import (\n\t" + strings.Join(specs, "\n\t") + "\n)\n")
 		}
@@ -859,8 +896,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		outFiles = append(outFiles, File{Path: file, Data: b.Bytes()})
 	}
 	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
+	rep.Instances = instances
 	if irs != nil {
-		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
+		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan, shared)
 		if err != nil {
 			return nil, SplitReport{Reason: err.Error()}
 		}

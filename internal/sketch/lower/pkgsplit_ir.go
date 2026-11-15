@@ -157,8 +157,11 @@ func freshName(taken map[string]bool, prefix string) string {
 // files are the IR files of the split module: each package's bodies,
 // renamed as the split renames, in the package's folder. The root always
 // has one, so a module built through IR names its root's file.
-func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
+func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan, shared map[int][]string) ([]File, int, error) {
 	byPkg := map[int][]irFunc{1: nil}
+	for p := range shared {
+		byPkg[p] = nil // a package with shared instances gets an IR file for its list (pkginst.go)
+	}
 	for i := range s.ir.Funcs {
 		// A copy: the split may still fall back to the one-package IR.
 		data, err := json.Marshal(&s.ir.Funcs[i])
@@ -201,7 +204,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			withIR++
 		}
 		sort.Slice(funcs, func(a, b int) bool { return funcs[a].Name < funcs[b].Name })
-		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs})
+		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs, Shared: shared[p]})
 		if err != nil {
 			return nil, 0, err
 		}

@@ -216,6 +216,8 @@ type irFile struct {
 	V     int      `json:"v"`
 	Files []string `json:"files"`
 	Funcs []irFunc `json:"funcs"`
+	// Shared are the instances another package compiles (pkginst.go).
+	Shared []string `json:"shared,omitempty"`
 }
 
 type irFunc struct {
