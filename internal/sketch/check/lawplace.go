@@ -21,26 +21,36 @@ import (
 //     holds for it by construction and only a top-level law is judged. A
 //     law the parser derived (a refinement's or a codec pair's) is stated
 //     at its declaration and is not judged either.
-//  2. A law helper is not a subject: a function that is not an operation
-//     of a type (no receiver, and no x.f(…) reaches it), a package let or
-//     a context, other than main, every one of whose users
-//     is a law, a test or another helper. The subjects a helper names are
-//     the law's subjects, at any depth, after the ones the law names itself.
-//     So a helper never pins a law to a file of helpers (a laws file).
+//  2. A law helper is not a subject: an unexported declaration every one
+//     of whose users is a law, a test or another helper. It is a function
+//     other than main with no receiver, a package let or a context, or a
+//     type with no extern, origin or derive, with the functions dot-called
+//     on it; an exported function dot-called on a package type is surface,
+//     never a helper. The subjects a helper names are the law's subjects,
+//     at any depth, after the ones the law names itself. So a helper never
+//     pins a law to a file of helpers (a laws file).
 //  3. A top-level law sits in a file that declares one of its subjects;
 //     else S115 at its name names each subject's file. A law with no
 //     subject in its package (it names only the prelude, std or imports)
-//     is S115 too: it belongs to the package it is about.
+//     is S115 too: it belongs to the package it is about. A package with
+//     another diagnostic gets no S115 (reportLawPlacements).
 //
-// Law.Subjects and Law.Helpers carry the verdict to ergo fix (lawfix),
-// which moves a misplaced law into its first subject's file, and each
-// helper only laws use beside the first law that uses it.
+// Law.Subjects, Law.FixSubjects and Package.LawHelpers carry the verdict
+// to ergo fix (lawfix), which moves a misplaced law beside its main
+// subject (the one its name names, else the first), and each helper beside
+// the first law or test that uses it.
 //
 // Prior art: Go keeps a package's examples and tests in _test files of the
 // package, Rust keeps unit tests in a `mod tests` of the file they test,
 // and Zig keeps a `test` block beside the function it tests; none checks
 // the placement. Ergo checks it, since a law is part of its subject's
 // contract (types.md, Laws 12), not a test of it.
+
+// lawPlacementReported turns S115 on in Check. It is off until the
+// repository's laws stand with their subjects: the integrator merges the
+// rule and ergo fix, runs scripts/lawloc-check migrate, then turns it on
+// (LAWLOC).
+const lawPlacementReported = false
 
 // LawSubject is one subject of a top-level law (Law.Subjects): the name the
 // law (or one of its helpers) uses, and the declaration and file of it.
@@ -57,10 +67,6 @@ func (l *Law) File() *syntax.File {
 	}
 	return l.file.syntax
 }
-
-// lawPlacementReported turns S115 on once the repository's laws sit with
-// their subjects (LAWLOC: the rule and ergo fix land first, the move next).
-const lawPlacementReported = false
 
 // ImportLocalName is the name an import binds: its alias, else its path's
 // default name (its last element, or a Go package's name).
@@ -324,7 +330,7 @@ func (c *checker) checkLawPlacement() {
 			top = append(top, law)
 		}
 	}
-	if len(top) == 0 {
+	if len(top) == 0 && len(c.pkg.LawRuns) == 0 {
 		return
 	}
 	g := c.lawDeclGraph()
@@ -381,6 +387,36 @@ func (c *checker) checkLawPlacement() {
 		}
 		visit(u.decl)
 	}
+	// A provider a member law runs against (LawRun.Bindings) that only the
+	// laws need, declared in a file of laws, is written for them: it goes
+	// beside the operation type that declares the laws, with its
+	// functions. Nothing names it, so no law or test reaches it above.
+	for _, run := range c.pkg.LawRuns {
+		owner := run.Law.Owner
+		if owner == nil || owner.Decl == nil {
+			continue
+		}
+		at, ok := g.top[owner.Decl]
+		if !ok {
+			continue
+		}
+		for _, b := range run.Bindings {
+			for _, p := range b {
+				if p.Type == nil || p.Type.origin().Obj == nil {
+					continue
+				}
+				d, ok := g.declOf(p.Type.origin().Obj)
+				if !ok || !lawsFile[g.file[d]] || !fixHelper[d] {
+					continue
+				}
+				for _, x := range append([]syntax.Decl{d}, g.methods[d]...) {
+					if _, ok := first[x]; !ok && fixHelper[x] {
+						first[x] = at
+					}
+				}
+			}
+		}
+	}
 	for _, d := range g.order {
 		if u, ok := first[d]; ok {
 			c.pkg.LawHelpers = append(c.pkg.LawHelpers, LawHelper{Decl: d, User: u})
@@ -389,7 +425,19 @@ func (c *checker) checkLawPlacement() {
 	for _, law := range top {
 		law.Subjects = g.subjects(law.Decl, helper)
 		law.FixSubjects = g.subjects(law.Decl, fixHelper)
-		if lawPlacementReported {
+	}
+}
+
+// reportLawPlacements applies rule 3, after every other pass. A package
+// with another diagnostic gets no S115: an unresolved name is no subject,
+// so where its laws belong is not known yet, and the other diagnostic is
+// the one to fix first.
+func (c *checker) reportLawPlacements() {
+	if !c.placeLaws || len(c.diags) > 0 {
+		return
+	}
+	for _, law := range c.pkg.Laws {
+		if law.Owner == nil && law.Machine == nil && law.Decl.Derived == nil && law.Decl.Pair == nil {
 			c.reportLawPlacement(law)
 		}
 	}

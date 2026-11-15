@@ -2789,6 +2789,10 @@
       "killers": [
         "check:TestImportGoUses"
       ]
-    }
+    },
+    {"name":"lawloc-subject-drops-call","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"if call := c.pkg.Info.Calls[n]; call != nil {","to":"if call := c.pkg.Info.Calls[n]; false && call != nil {","rule":"A law's subjects include what it calls through a dot (a method, a dot-called function, an operation), which has no Uses entry (types.md, Laws 15).","killers":["check:TestLawPlacement"]},
+    {"name":"lawloc-any-file","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"\t\tif s.File == law.File() {","to":"\t\tif s.File != nil {","rule":"A top-level law stands in a file that declares one of its subjects, not in any file of its package (S115).","killers":["check:TestLawPlacement"]},
+    {"name":"lawloc-helper-is-subject","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"\t\t\tif helper[r.decl] {\n\t\t\t\tqueue = append(queue, r.decl)","to":"\t\t\tif false && helper[r.decl] {\n\t\t\t\tqueue = append(queue, r.decl)","rule":"A law helper is no subject, so a helper beside a law never places it; what the helper names is the law's subject.","killers":["check:TestLawPlacement"]},
+    {"name":"lawloc-reports-over-errors","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"if !c.placeLaws || len(c.diags) > 0 {","to":"if !c.placeLaws {","rule":"A package with another diagnostic gets no S115: an unresolved name is no subject (diagnostics.md, S115).","killers":["check:TestLawPlacement"]}
   ]
 }

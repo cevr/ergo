@@ -12,9 +12,11 @@ import (
 const fixHelp = "usage: ergo fix [--dry-run] [--std DIR] PATH...\n\n" +
 	"Rewrites source that an older rule accepted into the form the language\n" +
 	"now requires. It moves each top-level law that does not sit in a file of\n" +
-	"its subjects (S115; types.md, Laws 15) into its first subject's file,\n" +
-	"after that declaration, with the law helpers only laws use beside the\n" +
-	"first law that uses them (internal/sketch/lawfix). A PATH is a package\n" +
+	"its subjects (S115; types.md, Laws 15) beside its main subject, with\n" +
+	"each law helper beside the first law or test that uses it and each\n" +
+	"provider the laws run against beside their operation type; a file of\n" +
+	"laws left holding other declarations is named by its concept\n" +
+	"(internal/sketch/lawfix). A PATH is a package\n" +
 	"folder, or DIR/... for every package of its module below DIR. --std DIR\n" +
 	"also checks each package of the standard library from its source in\n" +
 	"DIR and edits it there. It prints each move, each file it deleted (no\n" +

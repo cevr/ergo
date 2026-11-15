@@ -8,7 +8,7 @@
       "from": "\t\tput(h.User, h.Decl)\n",
       "to": "\t\t_ = h\n",
       "rule": "ergo fix moves each helper that only laws use beside the first law that uses it.",
-      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+      "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
     {
       "name": "lawloc-fix-first-subject",
@@ -17,7 +17,7 @@
       "from": "main := mainSubject(law.Name, subjects)",
       "to": "main := subjects[0]",
       "rule": "A law named for one of its subjects (SortPermutes for Sort) goes beside that subject, not beside the first one it names.",
-      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+      "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
     {
       "name": "lawloc-fix-no-import",
@@ -26,16 +26,34 @@
       "from": "add = append(add, \"import \"+t)",
       "to": "_ = t",
       "rule": "A moved law or helper takes the imports it names to its new file.",
-      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+      "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
     {
       "name": "lawloc-fix-keeps-dead-import",
       "origin": "wf10 LAWLOC",
       "file": "internal/sketch/lawfix/lawfix.go",
-      "from": "\t\tcase cut == len(id.Specs):\n",
-      "to": "\t\tcase false:\n",
+      "from": "\t\t\te.cuts = append(e.cuts, lineSpan(f.Src, declSpan(f, d)))\n\t\t}\n\t}\n\treturn nil",
+      "to": "\t\t}\n\t}\n\treturn nil",
       "rule": "An import that only moved declarations named leaves the file with them (else S110).",
-      "killers": ["lawfix:TestPlanPlacesEveryLaw"]
+      "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
+    },
+    {
+      "name": "lawloc-fix-keeps-laws-file",
+      "origin": "wf10 LAWLOC round 2",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\trenameLawsFiles(&res, files, edits)\n",
+      "to": "",
+      "rule": "A file of laws left holding other declarations is named by its concept, so no file of laws is left.",
+      "killers": ["internal/sketch/lawfix:TestPlanKeepsProvidersAndNamesFiles"]
+    },
+    {
+      "name": "lawloc-fix-drops-provider",
+      "origin": "wf10 LAWLOC round 2",
+      "file": "internal/sketch/check/lawplace.go",
+      "from": "\t\t\t\t\t\tfirst[x] = at\n",
+      "to": "\t\t\t\t\t\t_ = at\n",
+      "rule": "A provider the member laws run against, written in a file of laws for them, goes beside their operation type (examples/shards refusing).",
+      "killers": ["internal/sketch/lawfix:TestPlanKeepsProvidersAndNamesFiles"]
     }
   ]
 }

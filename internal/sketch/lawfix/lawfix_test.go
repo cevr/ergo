@@ -298,3 +298,47 @@ func TestPlanPlacesEveryLaw(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanKeepsProvidersAndNamesFiles is the smallest repro of two hand
+// steps the first LAWLOC migration needed (examples/shards, idle-timer):
+// a provider the member laws of an operation type run against, written in
+// a file of laws, goes beside the operation type, and a file of laws left
+// holding other declarations is named by its concept. Mutants (check and
+// lawfix mutants.json): lawloc-fix-drops-provider (nothing names the
+// provider, so it stayed behind) and lawloc-fix-keeps-laws-file (the file
+// keeps its name).
+func TestPlanKeepsProvidersAndNamesFiles(t *testing.T) {
+	srcs := map[string]string{
+		"targets.ergo":    "type Targets {\n\tSize(n int) int,\n\n\tlaw SizeIsPositive(n int) {\n\t\tSize(n) >= 0\n\t},\n}\n\nfunc F(n int) int { n + 1 }\n",
+		"laws.ergo":       "type refusing {}\n\nfunc Size(_ refusing, n int) int { 0 }\n\nlaw FKeepsOrder(a int, b int) {\n\t(a <= b) == (F(a) <= F(b))\n}\n",
+		"clock_laws.ergo": "type Clock { N int }\n\nlaw ClockKeepsN(n int) {\n\tClock{N: n}.N == n\n}\n",
+	}
+	pkg, files, ds := checkSources(t, srcs)
+	if len(ds) > 0 {
+		t.Fatalf("the package does not check: %v\n%s", ds, dump(srcs))
+	}
+	res, err := Plan(pkg, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for n, s := range srcs {
+		out[n] = s
+	}
+	for _, n := range res.Deleted {
+		delete(out, n)
+	}
+	for n, s := range res.Files {
+		out[n] = s
+	}
+	_, after, ds := checkSources(t, out)
+	if len(ds) > 0 {
+		t.Fatalf("the fixed package has diagnostics: %v\n%s", ds, dump(out))
+	}
+	now := declsByFile(after)
+	for name, want := range map[string]string{"refusing": "targets.ergo", "FKeepsOrder": "targets.ergo", "Clock": "clock.ergo", "ClockKeepsN": "clock.ergo"} {
+		if now[name] != want {
+			t.Errorf("%s is in %q, want %s\n%s", name, now[name], want, dump(out))
+		}
+	}
+}

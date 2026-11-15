@@ -45,6 +45,12 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return checkWith(path, files, imp, lawPlacementReported)
+}
+
+// checkWith is Check, with S115 reported when placeLaws is set
+// (lawplace.go, lawPlacementReported).
+func checkWith(path string, files []*syntax.File, imp Importer, placeLaws bool) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -58,6 +64,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
+	c.placeLaws = placeLaws
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -93,6 +100,8 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 
 type checker struct {
 	derive *derive.Package // the package's derive record (derive.go)
+	// placeLaws reports S115 (lawplace.go, lawPlacementReported).
+	placeLaws bool
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -468,6 +477,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
+		placeLaws:      lawPlacementReported,
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},

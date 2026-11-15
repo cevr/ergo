@@ -261,6 +261,9 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	for _, h := range res.Helpers {
 		r.Moves = append(r.Moves, fmt.Sprintf("moved %s (%s)", h, dir))
 	}
+	for _, rn := range res.Renamed {
+		r.Moves = append(r.Moves, fmt.Sprintf("renamed %s (%s)", rn, dir))
+	}
 	for _, u := range res.Unplaced {
 		r.Unplaced = append(r.Unplaced, fmt.Sprintf("law %s in %s names nothing in its package; state it in the package it is about", u, dir))
 	}

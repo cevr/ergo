@@ -17,6 +17,7 @@ package lawfix
 import (
 	"fmt"
 	"math"
+	"path"
 	"sort"
 	"strings"
 	"unicode"
@@ -43,6 +44,9 @@ type Result struct {
 	Moves    []Move
 	Helpers  []string // helpers moved beside a test or a type
 	Unplaced []string
+	// Renamed are the files of laws left holding other declarations, each
+	// "old -> new": a file is named by its concept (renameLawsFiles).
+	Renamed []string
 }
 
 type span struct{ from, to int }
@@ -175,9 +179,6 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 		edit(to).inserts = append(edit(to).inserts, insert{at: lineEnd(to.Src, int(anchor.End())), text: text.String(), seq: seq})
 		seq++
 	}
-	if len(edits) == 0 {
-		return res, nil
-	}
 	for _, f := range files {
 		e := edits[f]
 		if e == nil {
@@ -206,9 +207,89 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 		}
 		res.Files[f.Name] = out
 	}
+	renameLawsFiles(&res, files, edits)
 	sort.Strings(res.Deleted)
 	return res, nil
 }
+
+// lawsFileName reports a file named for laws: laws.ergo, tree_laws.ergo.
+func lawsFileName(name string) bool {
+	return strings.Contains(strings.ToLower(path.Base(name)), "law")
+}
+
+// renameLawsFiles names each file of laws that is left after the moves,
+// holding declarations the laws are about (or that nothing names), by
+// its concept: its first machine, else its first exported type, else its
+// first type, else its first exported function, else its first
+// declaration, in lower case. A name another file has keeps the file.
+func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*fileEdit) {
+	taken := map[string]bool{}
+	for _, f := range files {
+		taken[f.Name] = true
+	}
+	gone := map[string]bool{}
+	for _, n := range res.Deleted {
+		gone[n] = true
+	}
+	for _, f := range files {
+		if !lawsFileName(f.Name) || gone[f.Name] {
+			continue
+		}
+		var left []syntax.Decl
+		for _, d := range f.Decls {
+			if _, imp := d.(*syntax.ImportDecl); imp {
+				continue
+			}
+			if e := edits[f]; e != nil && e.moved[d] {
+				continue
+			}
+			left = append(left, d)
+		}
+		concept := ""
+		for rank := 0; rank < 5 && concept == ""; rank++ {
+			for _, d := range left {
+				name, ok := "", false
+				switch d := d.(type) {
+				case *syntax.TypeDecl:
+					_, machine := d.Spec.(*syntax.MachineType)
+					name = d.Name.Name
+					ok = rank == 0 && machine || rank == 1 && isUpper(name) || rank == 2
+				case *syntax.FuncDecl:
+					name = d.Name.Name
+					ok = rank == 3 && isUpper(name) || rank == 4
+				case *syntax.LawDecl:
+				default:
+					name, ok = declName(d), rank == 4
+				}
+				if ok && name != "" {
+					concept = strings.ToLower(name)
+					break
+				}
+			}
+		}
+		if concept == "" {
+			continue
+		}
+		to := path.Join(path.Dir(f.Name), concept+".ergo")
+		if path.Dir(f.Name) == "." {
+			to = concept + ".ergo"
+		}
+		if taken[to] {
+			continue
+		}
+		taken[to] = true
+		text, ok := res.Files[f.Name]
+		if !ok {
+			text = f.Src
+		}
+		delete(res.Files, f.Name)
+		res.Files[to] = text
+		res.Deleted = append(res.Deleted, f.Name)
+		res.Renamed = append(res.Renamed, f.Name+" -> "+to)
+	}
+}
+
+func isUpper(name string) bool { return name != "" && name[0] >= 'A' && name[0] <= 'Z' }
 
 // mainSubject is the subject a law is named for: of the subjects whose
 // name occurs in the law's name, the one that occurs first (the longer at
@@ -330,22 +411,10 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 		if !ok {
 			continue
 		}
-		cut := 0
-		for _, s := range id.Specs {
-			if gone[s] {
-				cut++
-			}
-		}
-		switch {
-		case cut == 0:
-		case cut == len(id.Specs):
+		// The decided parser builds one spec per import (#196): the
+		// declaration goes, with its doc comment.
+		if gone[id.Specs[0]] {
 			e.cuts = append(e.cuts, lineSpan(f.Src, declSpan(f, d)))
-		default:
-			for _, s := range id.Specs {
-				if gone[s] {
-					e.cuts = append(e.cuts, lineSpan(f.Src, span{int(s.Pos()), int(s.End())}))
-				}
-			}
 		}
 	}
 	return nil
