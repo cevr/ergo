@@ -47,6 +47,8 @@ var formPaths = []string{
 	"soft-missing", "later", "consts", "loop", "map", "end-normal", "end-fail", "end-unreachable", "end-zero", "end-gone", "pick2", "dropped",
 	"scan-scanClasses-edge", "scan-scanClasses-bare", "scan-scanMask-edge", "scan-scanMask-bare", "scan-scanWide-edge", "scan-scanWide-bare",
 	"scan-scanRoom-edge", "scan-scanRoom-bare", "scan-scanZero-edge", "scan-scanZero-bare",
+	"local-lClasses-edge", "local-lClasses-bare", "local-lMask-edge", "local-lMask-bare", "local-lWide-edge", "local-lWide-bare",
+	"local-lRoom-edge", "local-lRoom-bare", "local-lZero-edge", "local-lZero-bare",
 }
 
 // scanLets are the lets of S2b's scanner places (constFold's place
@@ -527,11 +529,39 @@ func (g *formGen) scanConsts(seed uint64) map[string]bool {
 		g.line(e.src)
 		g.out("%s", e.out)
 	}
+	// The same lets as locals of main (localConst), read in the same safe
+	// places by variable operands, with the edge use of the other half.
+	g.line("let lClasses = \"\\x00\\x09\\x0a\\x04\\x00\\x10\"\n\tlet lMask uint64 = 0xff00\n\tlet lWide = 300\n\tlet lRoom = 64\n\tlet lZero = 0\n\tlet lShift = 70")
+	g.line(fmt.Sprintf("let mut li = %d\n\tlet mut lk = uint64(%d)\n\tlet mut ln = %d\n\tli = li + 0\n\tlk = lk + 0\n\tln = ln + 0", i, k, n))
+	g.line("Console.Println(\"\\(lClasses[li]) \\((lMask >> lk) & uint64(1)) \\(int64(ln) < int64(lWide)) \\(ln % lRoom) \\(ln + lZero) \\(ln < lShift)\")")
+	g.out("%d %d %v %d %d %v", classes[i], (uint64(0xff00)>>k)&1, n < 300, n%64, n, n < 70)
+	for j, name := range localLets {
+		if (seed+uint64(j)+1)%2 != 0 {
+			g.reached["local-"+name+"-bare"] = true
+			continue
+		}
+		g.reached["local-"+name+"-edge"] = true
+		edges[name] = true
+		e := scanEdges[localOf[name]]
+		src := strings.NewReplacer("scanClasses", "lClasses", "scanMask", "lMask", "scanShift", "lShift", "scanWide", "lWide", "scanRoom", "lRoom", "scanZero", "lZero", "eClasses", "leClasses", "eWide", "leWide", "eRoom", "leRoom", "eZero", "leZero").Replace(e.src)
+		if e.never {
+			never = append(never, src)
+			continue
+		}
+		g.line(src)
+		g.out("%s", e.out)
+	}
 	if len(never) > 0 {
 		g.line("if b.n > 1000000 {\n\t\t" + strings.Join(never, "\n\t\t") + "\n\t}")
 	}
 	return edges
 }
+
+// localLets are scanLets' twins as locals of main (localConst), by the
+// package let whose edge use each borrows.
+var localLets = []string{"lClasses", "lMask", "lWide", "lRoom", "lZero"}
+
+var localOf = map[string]string{"lClasses": "scanClasses", "lMask": "scanMask", "lWide": "scanWide", "lRoom": "scanRoom", "lZero": "scanZero"}
 
 // formProgram is the program and the model's stdout.
 func formProgram(seed uint64, reached map[string]bool) (src, want string) {
@@ -715,6 +745,11 @@ func TestConstFoldPlaces(t *testing.T) {
 		for _, name := range append([]string{"scanLow"}, scanLets...) {
 			if read := regexp.MustCompile(`\.Let\(` + name + `\)`).MatchString(code); read != edges[name] {
 				t.Errorf("seed %d: %s read through v1.Let: %v, with an edge use: %v\nReplay: go test -run '^TestConstFoldPlaces$' ./internal/sketch/lower -args -forms.seed=%d", seed, name, read, edges[name], seed)
+			}
+		}
+		for _, name := range localLets {
+			if isConst := regexp.MustCompile(`(?m)^\s*const ` + name + ` `).MatchString(code); isConst == edges[name] {
+				t.Errorf("seed %d: local %s a Go const: %v, with an edge use: %v\nReplay: go test -run '^TestConstFoldPlaces$' ./internal/sketch/lower -args -forms.seed=%d", seed, name, isConst, edges[name], seed)
 			}
 		}
 		programs = append(programs, p)
