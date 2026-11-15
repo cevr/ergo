@@ -261,6 +261,7 @@ var bodyTable = []bodyRow{
 	{"MathAbs", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
 	{"MathCeil", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
 	{"MathExp", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
+	{"MathFMA", bodyFact{body: Body{Params: []Param{{Type: "float64"}, {Type: "float64"}, {Type: "float64"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
 	{"MathFloor", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
 	{"MathInf", bodyFact{body: Body{Params: []Param{{Type: "int"}}, Results: []string{"float64"}, Pure: true, Wait: "none", Package: Path}}},
 	{"MathIsInf", bodyFact{body: Body{Params: []Param{{Type: "float64"}, {Type: "int"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},

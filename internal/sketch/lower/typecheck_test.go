@@ -74,8 +74,13 @@ func typecheckPrograms(t *testing.T, programs []*lowered) (map[string][]string, 
 // arch, filling infos[name] (when infos is not nil) with each program's
 // types and uses.
 func typecheckArch(t *testing.T, programs []*lowered, arch string, infos map[string]*types.Info) (map[string][]string, error) {
+	return typecheckFiles(t, programs, arch, infos, map[string]*ast.File{})
+}
+
+// typecheckFiles is typecheckArch that also fills files[name] with each
+// program's parsed main.go, the syntax infos[name] describes.
+func typecheckFiles(t *testing.T, programs []*lowered, arch string, infos map[string]*types.Info, files map[string]*ast.File) (map[string][]string, error) {
 	fset := token.NewFileSet()
-	files := map[string]*ast.File{}
 	var imports []string
 	for _, p := range programs {
 		f, err := parser.ParseFile(fset, "p/"+p.name+"/main.go", p.mainGo(), parser.SkipObjectResolution)

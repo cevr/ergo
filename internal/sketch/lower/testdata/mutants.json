@@ -4735,6 +4735,83 @@
         "lower:TestValueRuleElides"
       ]
     },
+    {
+      "name": "array-in-place-pointer-param",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\t\t\tif _, ptr := p.Type.(*check.Pointer); ptr {\n\t\t\t\t\t\tok = false\n",
+      "to": "\t\t\t\t\tif _, ptr := p.Type.(*check.Pointer); ptr {\n\t\t\t\t\t\tok = ok && true\n",
+      "rule": "Ergo reads a before i in a[i]: a call in i that writes a through a pointer parameter (its receiver included) is not seen by the read.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
+    },
+    {
+      "name": "array-in-place-function-value",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\tcase c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:\n\t\t\t\tok = false\n",
+      "to": "\t\t\tcase c == nil:\n\t\t\t\tok = false\n\t\t\tcase c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:\n",
+      "rule": "Ergo reads a before i in a[i]: a call of a function value in i may write a let mut it captures, which the read does not see.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
+    },
+    {
+      "name": "array-in-place-literal-argument",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tcase *syntax.FuncLit:\n\t\t\tok = false\n\t\tcase *syntax.CallExpr:\n\t\t\tc := fc.l.info.Calls[n]\n",
+      "to": "\t\tcase *syntax.FuncLit:\n\t\t\treturn false\n\t\tcase *syntax.CallExpr:\n\t\t\tc := fc.l.info.Calls[n]\n",
+      "rule": "Ergo reads a before i in a[i]: a function literal in i, passed to a named function, may write a let mut it captures.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
+    },
+    {
+      "name": "float-product-bare",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\tif x.Op == syntax.MUL && fc.roundsProduct(x) {\n",
+      "to": "\tif x.Op == syntax.MUL && fc.roundsProduct(x) && false {\n",
+      "rule": "A product of floats is under an explicit conversion to its type, so no host fuses it into a sum (types.md, Numeric types).",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float-mul-assign-bare",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "product := op == \"*\" && floatLowering != \"fuse\" && isFloatType(",
+      "to": "product := op == \"*\" && floatLowering == \"never\" && isFloatType(",
+      "rule": "x *= y of floats lowers to x = T(x * y): Go's *= would leave the product to fuse with a later sum.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float-defined-type-unseen",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\tb, ok := underOf(t).(*check.Basic)\n\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "to": "\tb, ok := t.(*check.Basic)\n\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "rule": "A product of a type defined over a float rounds as the float does.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float32-unseen",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "to": "\treturn ok && b.Kind == check.Float64\n",
+      "rule": "A product of float32s rounds to float32, as a product of float64s rounds to float64.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
     {"name":"own-concat-live-first-operand","origin":"wf10 OWN1","file":"internal/sketch/lower/handover.go","from":"call.Trailing != nil || !w.vf.inPlace[call] || !appenderExtern(c.Func)","to":"call.Trailing != nil || !appenderExtern(c.Func)","rule":"An appender takes its owned form only where V3 proved its source writable: slices.Concat(x, y) on a live x makes a new array.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-update-field-of-live-record","origin":"wf10 OWN1","file":"internal/sketch/lower/handover.go","from":"\treturn w.fresh(recv)\n","to":"\treturn true\n","rule":"An Append on a field path writes its source only when the record is dead after the call and unshared.","killers":["lower:TestHandoverAgrees"]},
     {"name":"mapcopy-get-receiver-copied","origin":"wf10 MAPCOPY","file":"internal/sketch/lower/values.go","from":"case !w.l.holdsValue(elemOf(t)) || entryRule() && (!w.l.entryWritten(t) || w.keepsNothing(p)):","to":"case !w.l.holdsValue(elemOf(t)):","rule":"A Get keeps nothing a write through its root can change (V8): its receiver is not copied.","killers":["lower:TestCopyCountsMatchModel"]},

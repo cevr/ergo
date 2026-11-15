@@ -1,0 +1,106 @@
+// kmeans clusters points of eight integer coordinates by Lloyd's
+// algorithm with k-means++ seeding, and writes the seeded inputs its
+// receipts read.
+//
+//	kmeans run FILE K ROUNDS WORKERS SEED   cluster the points of FILE
+//	                                        into K, at most ROUNDS rounds,
+//	                                        WORKERS chunks at once
+//	kmeans gen N SEED                       write N seeded points
+//
+// This binary is the only place that chooses the providers: the host's
+// files, mapped read-only, and the host's standard output.
+
+import fs
+import io
+import kmeans/cluster
+import kmeans/corpus
+import kmeans/mapped
+import os
+import strconv
+import strings
+
+// Usage is the text of a usage failure.
+let Usage = "usage: kmeans run FILE K ROUNDS WORKERS SEED | kmeans gen N SEED"
+
+// Command is what the arguments ask for.
+type Command = Cluster{Path string, K int, Rounds int, Workers int, Seed uint64} | GenPoints{Size int, Seed uint64}
+
+// usage is the exit of arguments that ask for nothing kmeans does.
+func usage(why string) os.Exit {
+	if why == "" {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	os.Exit{Code: 2, Message: "kmeans: \(why)\n\(Usage)"}
+}
+
+// count is the positive count arg names, or the usage exit naming it.
+func count(arg string, name string, least int) int fails os.Exit {
+	let n = strconv.Atoi(arg) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage("\(name) must be a count")
+	}
+	if n < least {
+		return usage("\(name) must be a count")
+	}
+	n
+}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 6 && args[0] == "run" {
+		return Cluster{Path: args[1], K: try count(args[2], "K", 1), Rounds: try count(args[3], "ROUNDS", 1), Workers: try count(args[4], "WORKERS", 1), Seed: uint64(try count(args[5], "SEED", 0))}
+	}
+	if len(args) == 3 && args[0] == "gen" {
+		return GenPoints{Size: try count(args[1], "N", 0), Seed: uint64(try count(args[2], "SEED", 0))}
+	}
+	usage("")
+}
+
+// Run is the text the command writes, or the exit that says why there is
+// none.
+func Run(c Command) string fails os.Exit needs cluster.Source {
+	match c {
+	case Cluster as k:
+		let text = cluster.Source.Text(k.Path) catch {
+		case cluster.Unreadable as u:
+			return os.Exit{Code: 1, Message: "kmeans: \(u.Path): \(u.Reason)"}
+		}
+		let points = cluster.Parse(text) catch {
+		case cluster.Malformed as m:
+			return os.Exit{Code: 1, Message: "kmeans: \(k.Path): line \(m.Line): \(cluster.Explain(m.Reason))"}
+		}
+		if len(points) < k.K {
+			return os.Exit{Code: 1, Message: "kmeans: \(k.Path): \(len(points)) points, fewer than K"}
+		}
+		Report(cluster.Run(points, k.K, k.Rounds, k.Workers, k.Seed))
+	case GenPoints as g:
+		corpus.Generate(g.Size, g.Seed)
+	}
+}
+
+// Report is the text of a run: each round's inertia, how it ended, and
+// the centroids.
+func Report(r cluster.Result) string {
+	let mut b = strings.NewBuilder()
+	for i, x in r.Inertias {
+		b.WriteString("round \(i + 1): inertia \(x)\n")
+	}
+	match r.End {
+	case cluster.Converged as c:
+		b.WriteString("converged in \(c.Rounds) rounds\n")
+	case cluster.Stopped as s:
+		b.WriteString("stopped after \(s.Rounds) rounds\n")
+	}
+	for j, c in r.Centroids {
+		b.WriteString("centroid \(j): \(cluster.Text(c))\n")
+	}
+	b.String()
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	let c = try Parse(host.Args())
+	let source = mapped.New(fs.NewHost())
+	let out = try with context { cluster.Source: source } { Run(c) }
+	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+}

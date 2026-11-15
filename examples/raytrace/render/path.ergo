@@ -1,0 +1,196 @@
+// A path of light, traced back from the camera: each bounce meets the sky,
+// a light, or a surface that absorbs or scatters it. The machine Bounces
+// says when a path ends.
+
+import machines
+import math
+import raytrace/geom
+
+// Material is how a surface turns light: a diffuse surface scatters it
+// anywhere, a metal mirrors it with some blur, glass reflects or bends it,
+// and a light gives its own.
+type Material = Diffuse{Albedo geom.Vec} | Metal{Albedo geom.Vec, Fuzz float64} | Glass{Index float64} | Light{Emit geom.Vec}
+
+// MaxBounces is the most surfaces a path meets.
+let MaxBounces = 8
+
+// Path is how far a path has gone: Bounce surfaces met so far.
+type Path = Bouncing{Bounce int}
+
+// Event is what a bounce met: the sky (with its color), a light (with its
+// color), a surface that absorbed the light, or one that scattered it on.
+type Event = Escaped{Sky geom.Vec} | Emitted{Glow geom.Vec} | Absorbed{} | Scattered{}
+
+// Ended is a finished path: how many bounces it took.
+type Ended = Over{Bounces int}
+
+// PathStep is the transition: the sky, a light or an absorbing surface
+// ends the path; a scattering surface goes on, up to MaxBounces.
+func PathStep(p Path, e Event) Decision[Path, Ended] {
+	match (p, e) {
+	case (Bouncing as b, Scattered):
+		if b.Bounce+1 >= MaxBounces {
+			Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
+		} else {
+			Stay[Path]{Next: Bouncing{Bounce: b.Bounce + 1}}
+		}
+	case (Bouncing as b, Escaped), (Bouncing as b, Emitted), (Bouncing as b, Absorbed):
+		Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
+	}
+}
+
+// Start is a path at the camera.
+func Start() Path { Bouncing{Bounce: 0} }
+
+// Bounces is a path as a machine.
+type Bounces machine[Path, Event] {
+	initial: Start(),
+	step:    PathStep,
+
+	// EndsByMaxBounces: a path that keeps scattering ends after exactly
+	// MaxBounces surfaces.
+	law EndsByMaxBounces() {
+		let mut events = []Event{}
+		for _ in 0..MaxBounces {
+			events = events.Append(Scattered)
+		}
+		let o = machines.Run(Bounces{}, events) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Finished[Path, Ended] as f:
+			f.Output == Over{Bounces: MaxBounces}
+		case machines.Running[Path, Ended]:
+			false
+		}
+	},
+
+	// LightEndsThePath: the first light met ends the path, at that bounce.
+	law LightEndsThePath(n int) {
+		let k = (n%MaxBounces + MaxBounces) % MaxBounces
+		let mut events = []Event{}
+		for _ in 0..k {
+			events = events.Append(Scattered)
+		}
+		events = events.Append(Emitted{Glow: geom.V(1.0, 1.0, 1.0)})
+		let o = machines.Run(Bounces{}, events) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Finished[Path, Ended] as f:
+			f.Output == Over{Bounces: k + 1}
+		case machines.Running[Path, Ended]:
+			false
+		}
+	},
+}
+
+// Scene is what a camera sees: the shapes in their tree, the materials
+// the shapes name, and the camera.
+type Scene { Tree geom.Tree, Materials []Material, Camera Camera }
+
+// Far is farther than any shape.
+let Far = 1e300
+
+// Near is how far from a surface a bounced ray starts, so it does not
+// meet the surface it leaves.
+let Near = 0.001
+
+// Trace is the light that comes back along r, its bounces drawn from s.
+func Trace(sc Scene, r geom.Ray, s *Stream) geom.Vec {
+	let mut color = geom.V(0.0, 0.0, 0.0)
+	let mut through = geom.V(1.0, 1.0, 1.0)
+	let mut ray = r
+	let mut p = Start()
+	for {
+		let e = bounce(sc, &ray, &through, s)
+		match e {
+		case Escaped as x:
+			color = geom.Add(color, geom.Mul(through, x.Sky))
+		case Emitted as x:
+			color = geom.Add(color, geom.Mul(through, x.Glow))
+		case Absorbed, Scattered:
+		}
+		match PathStep(p, e) {
+		case Stay[Path] as st:
+			p = st.Next
+		case Done[Ended], Enter[Path], Emit[Path, Ended], Ignore, Reject:
+			return color
+		}
+	}
+}
+
+// bounce follows ray to what it meets: for a surface that scatters, ray
+// becomes the scattered ray and through takes the surface's color.
+func bounce(sc Scene, ray *geom.Ray, through *geom.Vec, s *Stream) Event {
+	let r = *ray
+	match geom.Nearest(sc.Tree, r, Near, Far) {
+	case None:
+		let t = 0.5 * (geom.Unit(r.Dir).Y + 1.0)
+		Escaped{Sky: geom.Add(geom.Scale(geom.V(1.0, 1.0, 1.0), 1.0-t), geom.Scale(geom.V(0.5, 0.7, 1.0), t))}
+	case Some[geom.Hit] as h:
+		let shape = sc.Tree.Shapes[h.Value.Shape]
+		let at = geom.At(r, h.Value.T)
+		let outward = geom.Normal(shape, at)
+		let front = geom.Dot(r.Dir, outward) < 0.0
+		let mut n = outward
+		if !front {
+			n = geom.Neg(outward)
+		}
+		match sc.Materials[geom.MaterialOf(shape)] {
+		case Light as l:
+			Emitted{Glow: l.Emit}
+		case Diffuse as d:
+			let mut dir = geom.Add(n, s.OnSphere())
+			if geom.Dot(dir, dir) < 1e-16 {
+				dir = n
+			}
+			*ray = geom.Ray{Origin: at, Dir: dir}
+			*through = geom.Mul(*through, d.Albedo)
+			Scattered
+		case Metal as m:
+			let dir = geom.Add(reflect(geom.Unit(r.Dir), n), geom.Scale(s.InBall(), m.Fuzz))
+			if geom.Dot(dir, n) <= 0.0 {
+				return Absorbed
+			}
+			*ray = geom.Ray{Origin: at, Dir: dir}
+			*through = geom.Mul(*through, m.Albedo)
+			Scattered
+		case Glass as g:
+			let mut ratio = g.Index
+			if front {
+				ratio = 1.0 / g.Index
+			}
+			let u = geom.Unit(r.Dir)
+			let mut cos = -geom.Dot(u, n)
+			if cos > 1.0 {
+				cos = 1.0
+			}
+			let mut k = 1.0 - cos*cos
+			if k < 0.0 {
+				k = 0.0
+			}
+			let sin = math.Sqrt(k)
+			let mut dir = reflect(u, n)
+			if ratio*sin <= 1.0 && schlick(cos, ratio) <= s.Float() {
+				let perp = geom.Scale(geom.Add(u, geom.Scale(n, cos)), ratio)
+				let along = geom.Scale(n, -math.Sqrt(math.Abs(1.0-geom.Dot(perp, perp))))
+				dir = geom.Add(perp, along)
+			}
+			*ray = geom.Ray{Origin: at, Dir: dir}
+			Scattered
+		}
+	}
+}
+
+// reflect is v mirrored about the surface of normal n.
+func reflect(v geom.Vec, n geom.Vec) geom.Vec { geom.Sub(v, geom.Scale(n, 2.0*geom.Dot(v, n))) }
+
+// schlick is the share of light glass reflects at the angle of cosine cos.
+func schlick(cos float64, ratio float64) float64 {
+	let mut r0 = (1.0 - ratio) / (1.0 + ratio)
+	r0 = r0 * r0
+	r0 + (1.0-r0)*math.Pow(1.0-cos, 5.0)
+}

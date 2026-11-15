@@ -1,0 +1,124 @@
+// Lloyd's iteration as a machine: each step is an assignment and an
+// update, and the machine says when to stop: when no centroid moved, or
+// after the most rounds asked for.
+
+import machines
+
+// Lloyd is where a run is: in round Round of at most Max.
+type Lloyd = Iterating{Round int, Max int}
+
+// Round is what a round did: the inertia of its assignment, and whether
+// its update moved a centroid.
+type Round = Stepped{Inertia int, Moved bool}
+
+// Ending is how a run ended: no centroid moved in round Rounds, or it
+// stopped after Rounds rounds with centroids still moving.
+type Ending = Converged{Rounds int} | Stopped{Rounds int}
+
+// LloydStep is the transition: a round that moved nothing ends the run,
+// and so does the last round.
+func LloydStep(l Lloyd, r Round) Decision[Lloyd, Ending] {
+	match (l, r) {
+	case (Iterating as it, Stepped as s):
+		if !s.Moved {
+			Done[Ending]{Output: Converged{Rounds: it.Round}}
+		} else if it.Round >= it.Max {
+			Done[Ending]{Output: Stopped{Rounds: it.Round}}
+		} else {
+			Stay[Lloyd]{Next: Iterating{Round: it.Round + 1, Max: it.Max}}
+		}
+	}
+}
+
+// Start is the machine's first state for at most max rounds.
+func Start(max int) Lloyd { Iterating{Round: 1, Max: max} }
+
+// Iteration is the run as a machine. Its input is the most rounds.
+type Iteration machine[Lloyd, Round] {
+	initial: Start,
+	step:    LloydStep,
+
+	// StopsAtMax: rounds that keep moving end after exactly max rounds.
+	law StopsAtMax(max int) {
+		let n = 1 + (max%20+20)%20
+		let mut rounds = []Round{}
+		for _ in 0..n {
+			rounds = rounds.Append(Stepped{Inertia: 0, Moved: true})
+		}
+		let o = machines.Run(machines.Start(Iteration{}, n), rounds) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Finished[Lloyd, Ending] as f:
+			f.Output == Stopped{Rounds: n}
+		case machines.Running[Lloyd, Ending]:
+			false
+		}
+	},
+
+	// StillEndsTheRun: the first round that moves nothing ends the run,
+	// converged, in that round.
+	law StillEndsTheRun(moving int, max int) {
+		let m = (moving%10 + 10) % 10
+		let n = m + 1 + (max%10+10)%10
+		let mut rounds = []Round{}
+		for _ in 0..m {
+			rounds = rounds.Append(Stepped{Inertia: 0, Moved: true})
+		}
+		rounds = rounds.Append(Stepped{Inertia: 0, Moved: false})
+		let o = machines.Run(machines.Start(Iteration{}, n), rounds) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Finished[Lloyd, Ending] as f:
+			f.Output == Converged{Rounds: m + 1}
+		case machines.Running[Lloyd, Ending]:
+			false
+		}
+	},
+}
+
+// Result is a finished run: the inertia of each round, how it ended, and
+// the centroids.
+type Result { Inertias []int, End Ending, Centroids []Point }
+
+// Run is k-means of points with k centroids seeded from seed, at most max
+// rounds, each round's assignment on workers tasks. points is not empty
+// and k >= 1, max >= 1.
+func Run(points []Point, k int, max int, workers int, seed uint64) Result {
+	let mut cents = SeedCentroids(points, k, seed)
+	let mut l = Start(max)
+	let mut inertias = []int{}
+	for {
+		let s = Assign(points, cents, workers)
+		inertias = inertias.Append(s.Inertia)
+		let next = Update(cents, s)
+		let d = LloydStep(l, Stepped{Inertia: s.Inertia, Moved: next != cents})
+		cents = next
+		match d {
+		case Done[Ending] as e:
+			return Result{Inertias: inertias, End: e.Output, Centroids: cents}
+		case Enter[Lloyd], Stay[Lloyd], Emit[Lloyd, Ending], Ignore, Reject:
+		}
+		l = machines.Next(l, d)
+	}
+}
+
+// InertiaNeverRises: each round's inertia is at most the one before. It
+// holds exactly because the means round to the nearest integer point and
+// every sum is an integer.
+law InertiaNeverRises(xs []int, k int, seed uint64) {
+	let points = pointsOfWindows(xs)
+	if len(points) == 0 {
+		return true
+	}
+	let r = Run(points, 1+(k%6+6)%6, 8, 2, seed)
+	for i in 1..len(r.Inertias) {
+		if r.Inertias[i] > r.Inertias[i-1] {
+			return false
+		}
+	}
+	true
+}

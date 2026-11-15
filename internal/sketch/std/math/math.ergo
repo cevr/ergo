@@ -27,6 +27,13 @@ extern go ergo.local/prototype/runtime/v1.MathSqrt func Sqrt(f float64) float64
 // Pow is x to the power y, with Go's special cases.
 extern go ergo.local/prototype/runtime/v1.MathPow func Pow(x float64, y float64) float64
 
+// FMA is x*y + z rounded once, as Go's math.FMA: the fused multiply-add,
+// for a program that asks for it by name. Ergo's own x*y + z rounds the
+// product and then the sum, on every host (docs/spec/types.md, Operators
+// 5); FMA is the same on every host too, Go's exact software form where
+// the host has no fused instruction.
+extern go ergo.local/prototype/runtime/v1.MathFMA func FMA(x float64, y float64, z float64) float64
+
 // Mod is the remainder of x / y, with the sign of x, as Go's math.Mod.
 extern go ergo.local/prototype/runtime/v1.MathMod func Mod(x float64, y float64) float64
 
@@ -123,6 +130,31 @@ law TruncTowardZero(f float64) {
 		return true
 	}
 	Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f)
+}
+
+// FMAWithinTheUnfusedError: FMA and the unfused x*y + z are each within
+// one rounding of the exact x*y + z, so they differ by at most the two
+// roundings of the unfused form and the one of FMA: 2^-53 of |x*y|, of
+// the unfused sum and of FMA's result, doubled for the slack of bounding
+// exact values by rounded ones. The values are finite and normal (built
+// from integers), with z near -x*y so the sum cancels.
+law FMAWithinTheUnfusedError(a int, b int, c int) {
+	let x = float64(a%1000003) / 3.0
+	let y = float64(b%1000033) / 7.0
+	let p = x * y
+	let z = float64(c%1009)/11.0 - p
+	let unfused = p + z
+	let fused = FMA(x, y, z)
+	let eps = 1.1102230246251565e-16
+	Abs(fused-unfused) <= 2.0*eps*(Abs(p)+Abs(unfused)+Abs(fused))
+}
+
+// FMARoundsOnce: with d = k·2^-30, (1+d)(1-d) - 1 is exactly -d², which a
+// float64 holds, so FMA, which rounds once, gives it; the unfused form
+// rounds 1 - d² first and loses it for most k.
+law FMARoundsOnce(k int) {
+	let d = float64((k%1000+1000)%1000+1) * 9.313225746154785e-10
+	FMA(1.0+d, 1.0-d, -1.0) == -(d * d)
 }
 
 // AbsIsNonNegative: Abs is never below zero.

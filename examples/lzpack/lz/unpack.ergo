@@ -1,0 +1,165 @@
+// Unpack: the decoder keeps a window of the last Window bytes it wrote,
+// as a ring, and copies a match from it, so it reads no byte of its
+// output but the ring's. Every length and offset is checked against the
+// block and the bytes so far before a byte moves.
+
+import machines
+import strings
+
+// Decoder is an unpack in progress: the ring of the last Window bytes
+// written, the output, the bytes written, and the next byte to read.
+type Decoder { win [65536]byte, out strings.Builder, total int, at int }
+
+// Unpack is the text packed holds, or why packed is not a stream Pack
+// could write.
+func Unpack(packed string) string fails Corrupt {
+	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: 0}
+	d.out.Grow(3 * len(packed))
+	let mut f Frame = Header
+	let ok = len(packed) >= len(Magic) && strings.Slice(packed, 0, len(Magic)) == Magic
+	f = try advance(f, Opened{Ok: ok}, 0)
+	d.at = len(Magic)
+	for {
+		let h = d.at
+		let n = try d.uvarint(packed)
+		if n == 0 {
+			f = try advance(f, EndMark, h)
+			break
+		}
+		f = try advance(f, Block{Raw: n}, h)
+		try d.block(packed, n)
+	}
+	if d.at < len(packed) {
+		f = try advance(f, Extra, d.at)
+	}
+	d.out.String()
+}
+
+// advance is the frame after the part p read at offset at, or the
+// Corrupt that ends the frame there.
+func advance(f Frame, p Part, at int) Frame fails Corrupt {
+	let d = FrameStep(f, p)
+	match d {
+	case Done[Reason] as r:
+		return Corrupt{Offset: at, Reason: r.Output}
+	case Reject:
+		Unreachable("the decoder reads the parts of a frame in order")
+	case Enter[Frame], Stay[Frame], Emit[Frame, Reason], Ignore:
+	}
+	machines.Next(f, d)
+}
+
+// truncated is the failure of a read past the end of packed.
+func truncated(packed string) Corrupt { Corrupt{Offset: len(packed), Reason: Truncated} }
+
+// uvarint reads a block header: at most three bytes of seven bits each,
+// low first. A third byte with its high bit set is BlockTooLong.
+func uvarint(d *Decoder, packed string) int fails Corrupt {
+	let h = d.at
+	let mut v = 0
+	let mut shift = 0
+	for {
+		if d.at >= len(packed) {
+			return truncated(packed)
+		}
+		let b = int(packed[d.at])
+		d.at += 1
+		v |= (b & 127) << shift
+		if b < 128 {
+			return v
+		}
+		shift += 7
+		if shift >= 21 {
+			return Corrupt{Offset: h, Reason: BlockTooLong}
+		}
+	}
+}
+
+// ext reads the rest of a length whose nibble is 15: base plus every byte
+// up to and with the first that is not 255.
+func ext(d *Decoder, packed string, base int) int fails Corrupt {
+	let mut v = base
+	for {
+		if d.at >= len(packed) {
+			return truncated(packed)
+		}
+		let b = int(packed[d.at])
+		d.at += 1
+		v += b
+		if b != 255 {
+			return v
+		}
+	}
+}
+
+// block reads the sequences of a block of n raw bytes.
+func block(d *Decoder, packed string, n int) fails Corrupt {
+	let mut pos = 0
+	for pos < n {
+		let t = d.at
+		if t >= len(packed) {
+			return truncated(packed)
+		}
+		let tok = int(packed[t])
+		d.at += 1
+		let mut l = tok >> 4
+		if l == 15 {
+			l = try d.ext(packed, 15)
+		}
+		if l > n-pos {
+			return Corrupt{Offset: t, Reason: Overrun}
+		}
+		if l > len(packed)-d.at {
+			return truncated(packed)
+		}
+		d.literals(packed, l)
+		pos += l
+		if pos == n {
+			if tok&15 != 0 {
+				return Corrupt{Offset: t, Reason: StrayMatch}
+			}
+			return
+		}
+		if 2 > len(packed)-d.at {
+			return truncated(packed)
+		}
+		let off = int(packed[d.at]) | int(packed[d.at+1])<<8
+		d.at += 2
+		if off == 0 || off > d.total {
+			return Corrupt{Offset: t, Reason: BadOffset}
+		}
+		let mut m = tok & 15
+		if m == 15 {
+			m = try d.ext(packed, 15)
+		}
+		m += MinMatch
+		if m > n-pos {
+			return Corrupt{Offset: t, Reason: Overrun}
+		}
+		d.copy(off, m)
+		pos += m
+	}
+}
+
+// literals writes the l bytes of packed at d.at, which are there.
+func literals(d *Decoder, packed string, l int) {
+	let from = d.at
+	d.out.WriteString(strings.Slice(packed, from, from+l))
+	for k in 0..l {
+		d.win[(d.total+k)&WindowMask] = packed[from+k]
+	}
+	d.total += l
+	d.at += l
+}
+
+// copy writes m bytes from off back, one at a time, so a copy that
+// overlaps what it writes repeats it. 1 <= off <= d.total and off <
+// Window, so every byte it reads is in the ring.
+func copy(d *Decoder, off int, m int) {
+	for k in 0..m {
+		let c = d.win[(d.total+k-off)&WindowMask]
+		d.win[(d.total+k)&WindowMask] = c
+		d.out.WriteByte(c)
+	}
+	d.total += m
+}

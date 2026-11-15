@@ -621,7 +621,36 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 			return fc.equalOp(x, parts) // structural equality (equal.go)
 		}
 	}
+	if x.Op == syntax.MUL && fc.roundsProduct(x) {
+		return fc.goType(fc.typeOf(x)) + "(" + parts[0] + " * " + parts[1] + ")"
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
+}
+
+// floatLowering selects how a float product lowers. "" (the default) puts
+// every product of floats that is not a constant under an explicit
+// conversion to its type, T(a * b): Go may fuse a product and a sum into
+// one fused multiply-add, rounding once (arm64, ppc64, s390x, riscv64;
+// across statements too), and an explicit conversion rounds to the type's
+// precision and stops that (the Go spec, Arithmetic operators: "An
+// explicit floating-point type conversion rounds to the precision of the
+// target type, preventing fusion"). So a program's float results are the
+// same on every host (types.md, Numeric types; corpus-wave Q5). "fuse" is
+// the reference, Go's own form, which a host may fuse: set it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.floatLowering=fuse
+// to count what the rounding costs.
+var floatLowering string
+
+// roundsProduct reports a product x of floats that floatLowering puts
+// under a conversion: it is not a constant (Go folds a constant exactly).
+func (fc *funcCtx) roundsProduct(x syntax.Expr) bool {
+	return floatLowering != "fuse" && !fc.isConst(x) && isFloatType(fc.typeOf(x))
+}
+
+// isFloatType reports float32, float64 or a type defined over one.
+func isFloatType(t check.Type) bool {
+	b, ok := underOf(t).(*check.Basic)
+	return ok && (b.Kind == check.Float32 || b.Kind == check.Float64)
 }
 
 // rangeValue lowers a..b, which the checker types as the prelude's
@@ -954,7 +983,14 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 		fc.indexFact(x) // facts.go
 		unchecked = fc.uncheckedOK()
 	}
-	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	var parts []string
+	if fc.arrayReadInPlace(x) {
+		// The index writes no storage, so the array is read where it is,
+		// after the index's statements: no copy of the whole array.
+		parts = []string{fc.value(x.X), fc.value(x.Indices[0])}
+	} else {
+		parts = fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	}
 	if unchecked {
 		fc.l.took("bounds-unchecked")
 		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
@@ -963,6 +999,69 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 		return fc.l.rt() + ".ByteAt(" + parts[0] + ", " + parts[1] + ")"
 	}
 	return parts[0] + "[" + parts[1] + "]"
+}
+
+// arrayLowering "spill" selects the reference lowering of an array index
+// whose index writes statements: the array is bound to a temporary first,
+// a copy of all its elements (the test hook of arrayReadInPlace).
+var arrayLowering string
+
+// arrayReadInPlace reports an index a[i] of an array whose index i can
+// write no array: Ergo reads a before i, and when i calls a function,
+// operands binds a's value to a temporary first, a copy of the whole array
+// per read (the HP lane's hash table: 128 KB a probe). When nothing in i
+// can write a, a read after i's statements reads the same value, so a is
+// read where it is. A hand-off or a part hand-over in either operand keeps
+// operands' order for its frame rule.
+func (fc *funcCtx) arrayReadInPlace(x *syntax.IndexExpr) bool {
+	if arrayLowering == "spill" {
+		return false
+	}
+	if _, ok := fc.typeOf(x.X).(*check.Array); !ok {
+		return false
+	}
+	list := []syntax.Expr{x.X, x.Indices[0]}
+	if fc.partsFrom(list) != len(list) || fc.handsOff(x.X) || fc.handsOff(x.Indices[0]) {
+		return false
+	}
+	return fc.writesNothing(x.Indices[0])
+}
+
+// writesNothing reports that x can write no array another operand reads
+// (arrayReadInPlace). Only a call writes, and a call of a named function
+// writes another frame's array only through a pointer it is passed (a
+// named function captures nothing; an escaping literal cannot capture a
+// let mut that is written after, types.md Bindings): so x writes nothing
+// when each call in it is a conversion, len, or a call of a named function
+// with no pointer parameter, its receiver included, and x holds no function
+// literal, which may write a let mut it captures. A call of a function
+// value, an operation or a builtin that writes is refused.
+func (fc *funcCtx) writesNothing(x syntax.Expr) bool {
+	ok := true
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if !ok {
+			return false
+		}
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			ok = false
+		case *syntax.CallExpr:
+			c := fc.l.info.Calls[n]
+			switch {
+			case c != nil && (c.Kind == check.CallConversion || c.Kind == check.CallLen):
+			case c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:
+				ok = false
+			default:
+				for _, p := range c.Func.Sig.Params {
+					if _, ptr := p.Type.(*check.Pointer); ptr {
+						ok = false
+					}
+				}
+			}
+		}
+		return ok
+	})
+	return ok
 }
 
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
