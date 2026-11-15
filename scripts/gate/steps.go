@@ -392,6 +392,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(examplesRun)
+	add(examplesFullTierStep(examplesRun))
 	add(&Step{Name: "model baton", Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "test", "models/baton"}, Class: classHeavy})
 
 	examples, err := authoredExamples(root)
@@ -561,6 +562,23 @@ func examplesStep(root string) (*Step, error) {
 
 // examplesStepName names the examples step.
 const examplesStepName = "examples (default)"
+
+// examplesFullTierStep runs the module package folders the examples step
+// leaves out: those each module's full-tier file names (laws run against
+// the host in every case), in the full and merge tiers only. Its inputs
+// are the examples step's. Its -timeout is the runner's hang guard, not a
+// bound: such a package prints nothing until its laws end (git/checkout
+// took 27 s at load 52, over the default 30 s's margin).
+func examplesFullTierStep(examples *Step) *Step {
+	inputs := *examples.Inputs
+	return &Step{
+		Name:   "examples (full tier)",
+		Class:  classHeavy,
+		Needs:  slices.Clone(examples.Needs),
+		Argv:   []string{"go", "run", examplesRunner, "-full-tier", "-timeout", "10m"},
+		Inputs: &inputs,
+	}
+}
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"

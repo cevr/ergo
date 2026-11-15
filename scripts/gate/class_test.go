@@ -10,7 +10,8 @@ import (
 // is: a closure sweep, a go test without -short (the full tier's test
 // steps, the build of every test binary, the provenance analyzer's
 // controls, the sketch9 kernel tests), a build of another module (-C),
-// the tests of a host package, or gc over the lowered corpus. It reads the
+// the tests of a host package, gc over the lowered corpus, or the modules'
+// full-tier package folders (scripts/examples -full-tier). It reads the
 // command as the gate runs it, scripts included, so a new step is judged
 // by what it runs and not by its name.
 func heavyWork(module string, step *Step) string {
@@ -24,6 +25,8 @@ func heavyWork(module string, step *Step) string {
 		return "it builds another module"
 	case strings.Contains(command, "go test") && !strings.Contains(command, fastFlag):
 		return "it runs go test without " + fastFlag
+	case slices.Contains(step.Argv, "-full-tier"):
+		return "it runs the modules' full-tier package folders"
 	}
 	for _, host := range hostTestPackages {
 		if runsGoTest(step) && (slices.Contains(step.Argv, "./"+host) || slices.Contains(step.Argv, module+"/"+host)) {
@@ -81,6 +84,9 @@ func TestFastTierHoldsNoHeavyStep(t *testing.T) {
 	}
 	if len(light) < 5 {
 		t.Errorf("%d classFast steps in the full tier (%v); want the checks and the examples step", len(light), light)
+	}
+	if !slices.ContainsFunc(full, func(s *Step) bool { return slices.Contains(s.Argv, "-full-tier") }) {
+		t.Errorf("no step of the full tier runs the modules' full-tier package folders (go run ./scripts/examples -full-tier)")
 	}
 }
 

@@ -67,7 +67,11 @@ type config struct {
 	// modules runs only the modules of modules/ (MK0), the names being
 	// modules; without it a run with no names runs every module too.
 	modules bool
-	names   []string
+	// fullTier runs only the package folders the modules' full-tier
+	// files name (modules.go): the gate's full tier runs them, and every
+	// other run leaves them out.
+	fullTier bool
+	names    []string
 	// jobs is how many programs run at once (runAll).
 	jobs int
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
@@ -95,6 +99,9 @@ type program struct {
 	// library marks a module of modules/ (MK0, modules.go): no binary,
 	// no cases; the fmt, gen and test legs run.
 	library bool
+	// heavy are the package folders of a library's full-tier file, which
+	// only a -full-tier run tests; tests holds none of them.
+	heavy []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -142,6 +149,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if !cfg.modules && len(cfg.names) > 0 && !slices.ContainsFunc(cfg.names, func(n string) bool { return !strings.HasPrefix(n, modulesDir+"/") }) {
 		// Names that are all modules/NAME select those modules, as
 		// -modules does: a ledger's killer examples:modules/NAME runs here.
+		cfg.modules = true
+	}
+	if cfg.fullTier {
 		cfg.modules = true
 	}
 	if cfg.modules {
@@ -271,6 +281,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
+	flags.BoolVar(&cfg.fullTier, "full-tier", false, "run only the module package folders each module's full-tier file names (the gate's full tier); other runs leave them out")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
