@@ -82,13 +82,7 @@ func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box f
 	case None:
 		return ui.NoNode{Label: label}
 	}
-	try reveal(d, id)
-	match d.boxes.Get(id) {
-	case Some[layout.Box] as b:
-		b.Value
-	case None:
-		ui.NoNode{Label: label}
-	}
+	try boxAt(d, id, label)
 }
 
 // reveal wheels each Scroll that holds id, outermost first, until the
@@ -225,12 +219,12 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			try Settle(d)
 		case ui.AdvanceBy:
 		case ui.ClickOn as x:
-			let b = try boxAt(d, try located(d, x.At))
+			let b = try boxAt(d, try located(d, x.At), "a located node")
 			tap(d, b)
 			try Drain(d)
 		case ui.FillIn as x:
 			let id = try located(d, x.At)
-			let b = try boxAt(d, id)
+			let b = try boxAt(d, id, "a located node")
 			tap(d, b)
 			try Drain(d)
 			let old = match d.nodes.Get(id) {
@@ -274,14 +268,14 @@ func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id
 }
 
 // boxAt is where id shows, after the lists around it scrolled it into
-// view.
-func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+// view; NoNode names it by label when it shows nowhere.
+func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	try reveal(d, id)
 	match d.boxes.Get(id) {
 	case Some[layout.Box] as b:
 		b.Value
 	case None:
-		ui.NoNode{Label: "a located node"}
+		ui.NoNode{Label: label}
 	}
 }
 
