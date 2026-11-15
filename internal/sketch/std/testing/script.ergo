@@ -31,7 +31,7 @@ type NoArgs {}
 // for each operation of S, named like it; testing.Script[S]{} makes one
 // with no answers and no calls. S is a capability with written type
 // arguments, whose operations return no Task and take no function.
-type Script[S] {}
+type Script[S] derive Provider(Of[S](), Of[Op](), Of[NoArgs]())
 
 // newOp is the Op of one field of a new Script; the lowering calls its body,
 // v1.NewOp, for each field of a Script literal, and its result makes Op the

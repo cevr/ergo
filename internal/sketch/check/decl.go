@@ -69,6 +69,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 				c.resolveNamed(tn.Type.(*Named))
 			}
 		},
+		c.resolveProviders,
 		c.expandIncludes,
 		c.checkUnitContextNames,
 		// Expanding type instantiations are rejected before any walk
