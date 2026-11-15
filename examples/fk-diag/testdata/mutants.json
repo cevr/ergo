@@ -114,11 +114,11 @@
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
     {
-      "name": "fk13-one-dependency", "origin": "wf10/fk13a",
+      "name": "fk13-half-the-dependencies", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/view.ergo",
-      "from": "ui.Load(f, ui.ByInt(i), func() Signal { Derived })",
-      "to": "ui.Load(f, ui.ByInt(i%2), func() Signal { Derived })",
-      "rule": "Each dependency is a fetch of its own key (law EachWorkloadWarnsItsPhase, case lab).",
+      "from": "for i in 0..DependencyFetches {",
+      "to": "for i in 0..DependencyFetches/2 {",
+      "rule": "The dependency work starts more fetches in one pass than the subscriptions' bound (law EachWorkloadWarnsItsPhase, case lab).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
     {
