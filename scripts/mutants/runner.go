@@ -797,7 +797,25 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 		// A nested module's suite is built without coverage (Suite.Module).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
+	testLog := ""
+	if s.Package != "" {
+		// The files the test opens (reads.go).
+		testLog = testLogName(dir)
+		argv = append(argv, "-test.testlogfile="+testLog)
+		defer os.Remove(testLog)
+	}
 	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir)...), e.cfg.CoverDeadline)
+	if testLog != "" {
+		if f, err := os.Open(testLog); err == nil {
+			mu.Lock()
+			err = k.reads(i, f, cwd, root)
+			mu.Unlock()
+			f.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
 	t.Seconds = o.seconds
 	if o.reason != "" {
 		t.Failed = true

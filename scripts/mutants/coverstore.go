@@ -30,7 +30,7 @@ import (
 // measures every suite and stores nothing (the reference).
 
 // coverVersion names the coverage store's format and key.
-const coverVersion = "ergo-mutants-coverage-v1"
+const coverVersion = "ergo-mutants-coverage-v2"
 
 // segmentKey is the key of a suite's coverage: the suite's identity, the
 // covered packages, the toolchain, and the content of every file the

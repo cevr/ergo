@@ -27,8 +27,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // unmutated tree. Its ledger holds one value mutant per function (known
 // killers drawn at random, some wrong), a mutant that does not build, one
 // that no longer applies, a string-literal mutant with an anchor and one
-// without, the same mutant named with a killer in two that reads one's
-// source (no coverage of one records it: fu-mutants-xpkg), and on Linux one
+// without (no block of one runs it, but two:TestReadsOne reads one/f.go:
+// its test log selects it for every mutant of that file, and it kills this
+// one, GT8), the same mutant named with that killer (fu-mutants-xpkg), and
+// on Linux one
 // that allocates past the memory limit. A named killer runs whether or not
 // it covers the lines. TestGreet
 // also reads the repository with git ls-files, as internal/residue's rules
@@ -256,6 +258,19 @@ func (m fakeModule) named(e expect, killers []string) expect {
 	return e
 }
 
+// read adds a test that reads the mutated file and does not kill the
+// mutant to e: it covers the mutant, so an uncovered one survives.
+func (m fakeModule) read(e expect, reader string) expect {
+	if slices.Contains(e.covering, reader) {
+		return e
+	}
+	e.covering = append(e.covering, reader)
+	if e.status == Uncovered {
+		e.status = Survived
+	}
+	return e
+}
+
 func checkModel(t *testing.T, seed uint64, all bool) {
 	r := rand.New(rand.NewPCG(seed, 0x6d75))
 	m := generate(r)
@@ -298,9 +313,12 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "does-not-build", File: "one/f.go", From: "return greeting + farewell }", To: "return 1 }"}, m.model("one.Greet", true)},
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
-		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`}, expect{status: Uncovered}},
-		// No coverage of one records two:TestReadsOne; the ledger names it
-		// (with a note for the reader), so it runs and kills.
+		// No block of one's runs in two:TestReadsOne, but it reads one/f.go
+		// (its test log, reads.go), so it covers the file and kills.
+		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`},
+			expect{status: Killed, killers: []string{"two:TestReadsOne"}, covering: []string{"two:TestReadsOne"}}},
+		// The ledger names two:TestReadsOne too (with a note for the
+		// reader): it runs and kills.
 		{&Mutant{Name: "literal-named", File: "one/f.go", From: `"bye"`, To: `"by"`, Killers: []string{"two:TestReadsOne (reads one's source)"}},
 			expect{status: Killed, killers: []string{"two:TestReadsOne"}, covering: []string{"two:TestReadsOne"}}},
 	}
@@ -320,6 +338,14 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		x.mu.Rule = "a fixed case"
 		mutants = append(mutants, x.mu)
 		want[x.mu.Name] = x.want
+	}
+	// two:TestReadsOne reads one/f.go, so it covers every mutant of that
+	// file; it kills only a change of one's farewell (literal-bare and
+	// literal-named, modeled above).
+	for _, mu := range mutants {
+		if w := want[mu.Name]; mu.File == "one/f.go" && w.status != Stale {
+			want[mu.Name] = m.read(w, "two:TestReadsOne")
+		}
 	}
 
 	// Seed 1 runs twice over one coverage store, each pass in a fresh work

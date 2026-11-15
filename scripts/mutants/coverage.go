@@ -64,7 +64,8 @@ func (c *coverage) test(id string) *covTest {
 }
 
 // covering returns the tests that run a block of file between lines lo and
-// hi, and the extra tests that exist, without the tests that fail on the
+// hi, the tests that read the file (reads.go), and the extra tests that
+// exist, without the tests that fail on the
 // unmutated tree. A header line (headerLine: a case or an else if) that is
 // in no block takes the tests of the block that ends last before it.
 func (c *coverage) covering(file string, lo, hi int, header bool, extra []string) map[string]bool {
@@ -72,6 +73,13 @@ func (c *coverage) covering(file string, lo, hi int, header bool, extra []string
 	var before *covBlock
 	inBlock := false
 	for k, b := range c.Files[file] {
+		if b.Start == readBlock {
+			// The tests that read the file (reads.go) cover every line.
+			for _, i := range b.Tests {
+				out[c.Tests[i].ID] = true
+			}
+			continue
+		}
 		if b.Start <= hi && b.End >= lo {
 			inBlock = true
 			for _, i := range b.Tests {
