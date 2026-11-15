@@ -133,6 +133,9 @@ type Step struct {
 	// Env sets variables ("NAME=value") for the step, over the environment
 	// the gate gives it; a hermetic Go test step sets CGO_ENABLED=0.
 	Env []string
+	// GoStore gives the step's test processes the run's test Go store
+	// (goStore, testGoStoreVariable).
+	GoStore bool
 	// Hermetic marks the go test step of the hermetic gate packages (below
 	// hermeticTestRoot), the one exception to the gate's default: every other
 	// step runs with -count=1 added to GOFLAGS (stepEnvironment), so no go
@@ -252,6 +255,12 @@ type gate struct {
 	// spoolDir holds the steps' output spools (outputSpoolDir).
 	spoolDir string
 	noCache  bool
+	// goStore* are the run's test Go store (goStore): its path, the
+	// fresh one to remove, and why there is none.
+	goStoreOnce    sync.Once
+	goStorePath    string
+	goStoreFresh   string
+	goStoreProblem error
 	// recordCPU: -record-durations -cpu (writeTestCPU).
 	recordCPU bool
 	steps     []*Step
@@ -763,6 +772,7 @@ func (g *gate) run(out io.Writer) int {
 		}
 		defer g.limit.close()
 	}
+	defer g.closeGoStores(out)
 	// Start every tool fingerprint while files load; each is computed once
 	// per run, so a step that names a tool finds it ready or waits for it.
 	// The prefetches are joined before run returns, so no fingerprint work
@@ -1306,6 +1316,11 @@ func (g *gate) commandEnvironment(step *Step) []string {
 	if len(step.ToolEnv) > 0 {
 		environment = append(environment, testenv.ToolDigest+"="+g.toolDigest(step))
 	}
+	if step.GoStore {
+		if store := g.goStore(); store != "" {
+			environment = setEnvironmentVariable(environment, testGoStoreVariable, store)
+		}
+	}
 	return environment
 }
 
@@ -1500,6 +1515,9 @@ func (g *gate) key(step *Step) (string, error) {
 	fmt.Fprintf(hash, "cpu budget\x00%d\x00", stepCPUs())
 	if len(step.Env) > 0 {
 		fmt.Fprintf(hash, "step env\x00%q\x00", step.Env)
+	}
+	if step.GoStore {
+		fmt.Fprintf(hash, "go store\x00")
 	}
 	files := 0
 	for _, name := range g.files {
