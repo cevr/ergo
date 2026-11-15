@@ -213,14 +213,10 @@ func (c *checker) contextValue(x *syntax.Ident) operand {
 // context w that the with builds: each capability its providers need, which
 // a with around this one provides or the function's written row declares
 // (S102 here otherwise; P4), and each failure they let escape (rows.md,
-// Context 9). A need widens no inferred row: the reader of the with sees
-// what it builds only in a written row, so a function whose row is
-// inferred declares nothing, and its with gets the S102.
+// Context 9). It is the charge of the inline literal at that with (law 9):
+// a function literal with no expected type takes the need into its row, as
+// it takes the literal's.
 func (c *checker) chargeLocal(at syntax.Node, w *Context) {
-	if t := c.fn.t; t.declUses == nil && !t.context {
-		t.declUses = newRow()
-		defer func() { t.declUses = nil }()
-	}
 	c.chargeRow(at, w.needs)
 	c.escape(at, w.fails)
 }

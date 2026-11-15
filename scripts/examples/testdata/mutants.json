@@ -342,6 +342,7 @@
       "to": "r.cfg.root, os.Environ(), \"\", timeout, 0)",
       "rule": "Every compiler call of the runner builds in the run's own emission cache, which the run removes, never the caller's or the user's.",
       "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
-    }
+    },
+    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] }
   ]
 }

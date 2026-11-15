@@ -11,6 +11,11 @@ import (
 // step, more declarations helpers, and run's body call, which starts the
 // machine with a durable runner.
 func durableSource(step, helpers, call string) string {
+	// run writes the failure a machine of the helpers' Loud can give (q137).
+	runFails := ""
+	if strings.Contains(helpers, "type Loud {}") {
+		runFails = " fails Loud"
+	}
 	return `import actor
 import journal
 import journal/memory
@@ -31,7 +36,7 @@ type Counted machine[State, Signal] { initial: pick, step: step }
 // uses names each import, so no row reports one unused.
 func uses(_ actor.Stopped, _ machines.Rejected, _ journal.Failed, _ tasks.Restart) {}
 ` + helpers + `
-func run() needs Console | Scheduler {
+func run()` + runFails + ` needs Console | Scheduler {
 	let j = memory.New[State, Signal]()
 	let a = ` + call + ` catch {
 	case _:

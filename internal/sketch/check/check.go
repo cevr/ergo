@@ -29,7 +29,7 @@ type Diagnostic struct {
 	Length  int
 	Line    int
 	Column  int
-	// Fix is the clause edit of an S101 or S102 under Options.Explicit
+	// Fix is the clause edit of an S101 or S102 (clausefix.go)
 	// (clausefix.go), or nil.
 	Fix *ClauseFix
 }
@@ -84,11 +84,11 @@ func check(path string, files []*syntax.File, imp Importer, opts Options, under 
 	}
 	if pkg != nil {
 		pkg.Derive = derived
-	}
-	if opts.Clauses {
-		pkg.Clauses = c.inferredClauses()
-		for i := range pkg.Clauses {
-			pkg.Clauses[i].File = order[pkg.Clauses[i].File]
+		if opts.Infer {
+			pkg.Clauses = c.inferredClauses()
+			for i := range pkg.Clauses {
+				pkg.Clauses[i].File = order[pkg.Clauses[i].File]
+			}
 		}
 	}
 	// Every report has a current file (owner.go), so File is the index of
@@ -148,6 +148,13 @@ type checker struct {
 	// inferred needs row that its decodes reach; a second check orders
 	// the bodies by them (wireEdges; wirecall.go).
 	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
+	// withNeeds are the with operands whose providers' release needs a
+	// capability that no outer with provides and no written row holds,
+	// found by the first check; withSeeds are the same, read by the
+	// second check, which charges each where the with is typed, and
+	// withHit records the charged ones (releaseneeds.go).
+	withNeeds, withSeeds map[withOperand][]relCap
+	withHit              map[withNeedKey]bool
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).

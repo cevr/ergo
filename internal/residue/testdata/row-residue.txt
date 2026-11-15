@@ -23,7 +23,6 @@ internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host
 CHANGELOG.md	a module function that provides it, or
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
-docs/spec/resources.md	binds it provides it, else
 docs/spec/rows.md	the entry that provides it, and
 docs/specs/actors.md	No guarantee needs syntax, so
 internal/sketch/check/context.go	written needs row, the

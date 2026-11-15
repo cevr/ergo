@@ -604,14 +604,14 @@ var scaleShapes = []scaleShape{
 			g.line("type Store { Get() string }")
 			g.line("type Mem {}")
 			g.line("func Get(_ Mem) string { return \"m\" }")
-			g.line("func f%d(k int64) string {", n)
+			g.line("func f%d(k int64) string fails Fault needs Store {", n)
 			g.line("\tif k == 0 {")
 			g.line("\t\treturn Fault")
 			g.line("\t}")
 			g.line("\treturn Store.Get()")
 			g.line("}")
 			for i := n - 1; i >= 0; i-- {
-				g.line("func f%d(k int64) string { return try f%d(k - 1) }", i, i+1)
+				g.line("func f%d(k int64) string fails Fault needs Store { return try f%d(k - 1) }", i, i+1)
 			}
 			g.line("func Run(k int64) string fails Fault needs Store { return try f0(k) }")
 			g.line("func main() {")

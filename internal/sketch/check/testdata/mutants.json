@@ -698,8 +698,7 @@
       "from": "\t\tif f == nil || !f.inferErrors && !f.inferUses {",
       "to": "\t\tif f == nil || !f.inferErrors || !f.inferUses {",
       "rule": "refuseRows: refuseRows reports the functions of a component whose inferred rows did not reach a fixpoint within the bound (S108: soundness by refusal).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConvergeRefusalNamesItsFile"]
     },
     {
       "name": "t6-3-negate-if-extern.go:64",
@@ -724,24 +723,13 @@
       ]
     },
     {
-      "name": "t6-5-false-true-rows.go:806",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/rows.go",
-      "from": "\t\t\treturn false",
-      "to": "\t\t\treturn true",
-      "rule": "converge: converge joins the inferred rows of a cyclic component to their fixpoint, silently, with the worklist settling shares (worklist.go: callees first on demand, the smallest body first among the roots; round 8 review M1 and O1): a body is checked again only when a body it references grew.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-6-and-or-decl.go:1909",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
       "file": "internal/sketch/check/decl.go",
       "from": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil && free[tp] {",
       "to": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil || free[tp] {",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-7-negate-if-variantindex.go:155",
@@ -762,6 +750,7 @@
       "to": "\t\t\t\tif !(rs == nil) {",
       "rule": "widenUnknown: widenUnknown returns dst, the type an inferred receiver holds (the first branch of a join, the binding of a type parameter), with the known part of src's rows joined into each of dst's unknown rows, in dst and in its results.",
       "killers": [
+        "check:TestWidenUnknownNestedResult",
         "lower:TestCheckCorpusBuildsPart4"
       ]
     },
@@ -775,16 +764,6 @@
       "killers": [
         "check:TestContextOwnershipReleaseNeeds"
       ]
-    },
-    {
-      "name": "t6-10-drop-continue-tests.go:191",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
-      "file": "internal/sketch/check/tests.go",
-      "from": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\tcontinue\n\t\t\t\t}",
-      "to": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\t_ = 0\n\t\t\t\t}",
-      "rule": "checkTest: ",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
     },
     {
       "name": "t6-11-negate-if-variantindex.go:151",
@@ -815,8 +794,7 @@
       "from": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif len(m.rows.rows) > before {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "to": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif !(len(m.rows.rows) > before) {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-14-drop-continue-decl.go:688",
@@ -830,24 +808,13 @@
       ]
     },
     {
-      "name": "t6-15-lt-le-context.go:615",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/context.go",
-      "from": "\t\t\treturn contexts[i].file.index < contexts[j].file.index",
-      "to": "\t\t\treturn contexts[i].file.index <= contexts[j].file.index",
-      "rule": "checkContexts: checkContexts checks the named contexts: their entries, in a closed build context (README Gap 6: a named context requires nothing from the with site and lets no failure escape).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-16-false-true-unify.go:356",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/unify.go",
       "from": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn false\n\t\t\t}",
       "to": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "nifySig: nifySig unifies two signatures: parameters and results in mode, and rows by the row rule.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestInferVariantThenUnion"]
     },
     {
       "name": "t6-17-ne-eq-authority.go:598",
@@ -922,8 +889,7 @@
       "from": "\t\t}\n\t\treturn false\n\t}",
       "to": "\t\t}\n\t\treturn true\n\t}",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-24-negate-if-match.go:479",
@@ -1053,8 +1019,7 @@
       "from": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn false\n}\n",
       "to": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn true\n}\n",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-36-false-true-operators.go:334",
@@ -1074,8 +1039,7 @@
       "from": "\t\t\tif c.identical(v, want) || isOrigin(v, want) {",
       "to": "\t\t\tif !(c.identical(v, want) || isOrigin(v, want)) {",
       "rule": "updateBaseText: updateBaseText is the diagnostic for a base of type got in an update of the type want.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestRecordUpdateRules"]
     },
     {
       "name": "t6-38-negate-if-variantindex.go:246",
@@ -2658,7 +2622,7 @@
       "rule": "resources R43 (the mHold rule): a nested form that made the value on some paths and lent a name on others decides the statement's ownership per path.",
       "killers": ["lower:TestOwnershipGrammarRun"]
     },
-    {"name":"rel-needs-no-second-check","origin":"wf10 REL-needs","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 {","to":"if true || len(seeds) == 0 && len(edges) == 0 {","rule":"A release's needs are charged to the frame that owns the value (the base gap: a release reached a nil service).","killers":["check:TestReleaseNeedsModel","lower:TestReleaseNeedsRun"]},
+    {"name":"rel-needs-no-second-check","origin":"wf10 REL-needs","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","to":"if true || len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","rule":"A release's needs are charged to the frame that owns the value (the base gap: a release reached a nil service).","killers":["check:TestReleaseNeedsModel","lower:TestReleaseNeedsRun"]},
     {"name":"b18-rel-needs-own-not-walked","origin":"batch-18 integration (REL-needs x OWGEN FU2)","file":"internal/sketch/check/releaseneeds.go","from":"\t\twalk(d.Own)\n","to":"","rule":"The release of a record with a written Close charges its parts' Closes, which the Close's function runs after its body (Drop.Own, R3).","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-fields-not-walked","origin":"wf10 REL-needs","file":"internal/sketch/check/releaseneeds.go","from":"for _, f := range d.Fields {","to":"for _, f := range d.Fields[:0] {","rule":"The release of a record charges the Closes of its fields.","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-elem-not-walked","origin":"wf10 REL-needs","file":"internal/sketch/check/releaseneeds.go","from":"\t\twalk(d.Elem)","to":"\t\twalk(nil)","rule":"The release of a slice charges the Close of its elements.","killers":["check:TestReleaseNeedsModel"]},
@@ -2834,14 +2798,31 @@
     {"name":"lawctx-covers-runnable","origin":"wf10 EX-entry r2","file":"internal/sketch/check/lawcontexts.go","from":"\tif p.Unrun == \"\" {\n\t\treturn false\n\t}","to":"\tif false {\n\t\treturn false\n\t}","rule":"A provider that runs keeps its own run beside the run under a context that builds it.","killers":["lower:TestLawRunSkips"]},
     {"name":"lawfix-context-everywhere","origin":"wf10 EX-entry r2","file":"internal/sketch/check/laws.go","from":"\tif law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {","to":"\tif true {","rule":"A law whose slot is a parameter runs under no context, so its skip names the constructor, not the context form.","killers":["lower:TestLawRunOtherPackage"]},
     {"name":"lawfix-constructor-everywhere","origin":"wf10 EX-entry r2","file":"internal/sketch/check/laws.go","from":"\tif law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {","to":"\tif false {","rule":"A member law's skip for a provider with no generator names the explicit context form, not a row-free constructor that would pick providers away from the entry.","killers":["lower:TestLawRunSkips","lower:TestLawRunState"]},
-    {"name":"lawrel-needs-ignored","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if needs := c.acquisitionNeeds(a); len(needs) > 0 {","to":"if needs := c.acquisitionNeeds(a); false && len(needs) > 0 {","rule":"A law case has no capability outside its context, so a context whose provider's Close needs one does not run.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawrel-needs-ignored","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if needs := c.providerNeeds(a); len(needs) > 0 {","to":"if needs := c.providerNeeds(a); false && len(needs) > 0 {","rule":"A law case has no capability outside its context, so a context whose provider's Close needs one does not run.","killers":["lower:TestLawRunSkips"]},
     {"name":"lawrel-package-let","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if name := packageRoot(info, a.Entry.Provider); name != \"\" {","to":"if name := packageRoot(info, a.Entry.Provider); false && name != \"\" {","rule":"A context whose resource provider names a package let does not run: a case's release would close it for every later case.","killers":["lower:TestLawRunSkips"]},
-    {"name":"relneeds-drop-as-close","origin":"wf10 EX-entry r5","file":"internal/sketch/check/withown.go","from":"\tif a.Drop == nil {\n\t\treturn c.releaseNeeds(a.Close)\n\t}","to":"\tif true {\n\t\treturn c.releaseNeeds(a.Close)\n\t}","rule":"A provider released through its generated release, with or without a Close of its own, needs what every Close of that release needs; a nil Close needs nothing.","killers":["lower:TestLawRunSkips"]},
-    {"name":"relneeds-parts-ignored","origin":"wf10 EX-entry r5","file":"internal/sketch/check/withown.go","from":"\t\tfor _, f := range d.Fields {\n\t\t\twalk(f.Drop)\n\t\t}","to":"\t\tfor _, f := range d.Fields[:0] {\n\t\t\twalk(f.Drop)\n\t\t}","rule":"A part's Close's needs are the provider's release needs.","killers":["lower:TestLawRunSkips"]},
     {"name":"lawrel-witnessed","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if closeWitnessed(a.Close) != \"\" {","to":"if false {","rule":"A context whose provider's generic Close takes witnesses does not run: a case has no instance to pass (#197).","killers":["lower:TestLawRunSkips"]},
     {"name":"escidx-dot-call-no-shift","origin":"wf10 ESC-idx","file":"internal/sketch/check/escaping.go","from":"\tif k.RecvIsParam() {","to":"\tif false {","rule":"types.md Function values 2 (196m): a dot call x.f(a) of a function binds x to its first parameter, so a is its second.","killers":["check:TestCloseRefusals","check:TestFootprintsPureTaskBody","check:TestRowVariableWitnesses"]},
     {"name":"escidx-borrows-first-param","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/borrows.go","from":"\tif k := w.info.Calls[call]; recvBorrow(w.info, k) {","to":"\tif k := w.info.Calls[call]; k != nil && k.Kind == CallFunc && k.Recv != nil && k.Func != nil && k.Func.Sig != nil && len(k.Func.Sig.Params) > 0 && isPointer(k.Func.Sig.Params[0].Type) {","rule":"types.md Borrows 2: a call's receiver is a borrow it takes when it binds a borrow parameter (check.argParam): a binding method's first written argument is not its receiver.","killers":["lower:TestGoMethodReceiverBorrows"]},
     {"name":"escidx-implicit-borrow-first-param","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/escaping.go","from":"\tif !recvBorrow(info, k) || isPointer(info.Types[k.Recv]) {","to":"\tif k == nil || k.Kind != CallFunc || k.Recv == nil || k.Func == nil || k.Func.Sig == nil || len(k.Func.Sig.Params) == 0 || !isPointer(k.Func.Sig.Params[0].Type) || isPointer(info.Types[k.Recv]) {","rule":"types.md Function values 3: a binding method borrows no receiver, so t.In(loc) on a captured let mut t writes nothing.","killers":["lower:TestEveryGoBoundFunctionLowers"]},
-    {"name":"escidx-recv-borrow-binding","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/escaping.go","from":"\treturn h != nil && h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","to":"\treturn h != nil && !h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","rule":"types.md Borrows 2: a borrow passed to a binding method's pointer receiver is a borrow the call takes; a value receiver takes a copy.","killers":["lower:TestGoMethodReceiverBorrows"]}
+    {"name":"escidx-recv-borrow-binding","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/escaping.go","from":"\treturn h != nil && h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","to":"\treturn h != nil && !h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","rule":"types.md Borrows 2: a borrow passed to a binding method's pointer receiver is a borrow the call takes; a value receiver takes a copy.","killers":["lower:TestGoMethodReceiverBorrows"]},
+    {"name":"ex2-selfcalls-twice","origin":"wf10 EX2 r1","file":"internal/sketch/check/selfcalls.go","from":"\tif len(pending) == 0 || !c.opts.Infer {","to":"\tif len(pending) == 0 {","rule":"With every row written, a body with a waiting x.f() call is typed once, by the reporting pass (EXPLICIT EX2).","killers":["check:TestCheckOnePass"]},
+    {"name":"ex2-init-twice","origin":"wf10 EX2 r1","file":"internal/sketch/check/rows.go","from":"\tif !c.opts.Infer {\n\t\t// Without inference no row restarts","to":"\tif false {\n\t\t// Without inference no row restarts","rule":"With every row written, a function a package var's initializer reaches is checked once (EXPLICIT EX2).","killers":["check:TestCheckOnePass"]},
+    {"name":"rel2-with-hit-not-skipped","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif keyed && c.withHit[withNeedKey{op, k}] {","to":"\tif false && keyed && c.withHit[withNeedKey{op, k}] {","rule":"A with release need the second check charged where the with is typed is reported once, not again by the ownership pass (resources.md, Context ownership 6).","killers":["check:TestContextOwnershipReleaseNeeds","check:TestReleaseNeedRows"]},
+    {"name":"rel2-with-first-check-reports","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif keyed && c.withHit == nil {","to":"\tif false && keyed && c.withHit == nil {","rule":"A with's provider release need is charged where the with is typed, so a literal's or an inferred row takes it (one rule, q137; Context ownership 6).","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-with-no-second-check","origin":"wf10 REL-needs r2","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","to":"if len(seeds) == 0 && len(edges) == 0 {","rule":"A package whose only release need is a with provider's is checked a second time, which charges it.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-seedcap-imported","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif !c.namesLocal(t) {\n\t\treturn t\n\t}\n","to":"\tif !c.namesLocal(t) {\n\t\treturn nil\n\t}\n","rule":"Another package's capability (Console) that a with release needs is charged by the second check.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-seedcap-local","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"!ok || len(t.TArgs) == 0 {\n\t\t\t\treturn tn.Type\n","to":"!ok || len(t.TArgs) == 0 {\n\t\t\t\treturn nil\n","rule":"This package's capability that a with release needs is named again by the second check and charged.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel5-same-named","origin":"wf10 REL-needs r5","file":"internal/sketch/check/withown.go","from":"\t\tif oa.Name != ob.Name ||","to":"\t\tif false && oa.Name != ob.Name ||","rule":"The second check charges a rebuilt capability only when it is the type the first check found, by declaration name and package.","killers":["check:TestSameAcrossTellsCapabilitiesApart"]},
+    {"name":"rel5-same-row","origin":"wf10 REL-needs r5","file":"internal/sketch/check/withown.go","from":"\t\tif !ok || len(ra.Row.Elems()) != len(rb.Row.Elems()) {","to":"\t\tif !ok {","rule":"A rebuilt row argument is the first check's only with the same elements, not a subset of another's.","killers":["check:TestSameAcrossTellsCapabilitiesApart"]},
+    {"name":"rel3-seedtype-generic","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\treturn c.instantiate(n, args)\n","to":"\t\t_ = n\n\t\treturn nil\n","rule":"A with release that needs an instance of this package's generic capability is charged by the second check, so its S102 carries the clause ergo fix writes (q137).","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-slice","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Slice{Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is a slice of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-array","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Array{Len: t.Len, Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is an array of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-map","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Map{Key: k, Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is a map of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-names-local","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\tif n, ok := t.(*Named); ok && c.local(n) {\n\t\t\treturn true","to":"\t\tif n, ok := t.(*Named); ok && c.local(n) {\n\t\t\treturn false","rule":"A capability of this package is named again in the second check, not carried over as the first check's type.","killers":["check:TestReleaseNeedsModel","check:TestReleaseNeedRows"]},
+    {"name":"rel2-provider-parts","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif a.Drop != nil {\n\t\treturn c.dropNeeds(a.Drop)","to":"\tif false && a.Drop != nil {\n\t\treturn c.dropNeeds(a.Drop)","rule":"A with provider's release charges the Close of each of its parts (R3, R5), not only its own.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-with-what-part","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\t\tof = a.Drop.Type\n","to":"\t\tof = need.close.Receiver\n","rule":"A with release's S102 names the provider's type, whose release reaches the Close.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-pending-what-lost","origin":"wf10 REL-needs r2 (merge of EX2 and REL-needs r1)","file":"internal/sketch/check/clausefix.go","from":"\t\t\twhat := p.what\n","to":"\t\t\twhat := \"\"\n","rule":"A release's S102 with the clause to write still names the Close and the released type.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-local-context-law-nine","origin":"wf10 REL-needs r2 (rows.md law 9)","file":"internal/sketch/check/context_local.go","from":"func (c *checker) chargeLocal(at syntax.Node, w *Context) {\n","to":"func (c *checker) chargeLocal(at syntax.Node, w *Context) {\n\tif t := c.fn.t; t.declUses == nil && !t.context {\n\t\tt.declUses = newRow()\n\t\tdefer func() { t.declUses = nil }()\n\t}\n","rule":"A local context's needs are charged as its literal's at the with, in a function literal with no expected type too (law 9).","killers":["check:TestLocalContextLawNine"]},
+    {"name":"rel2-second-check-mode","origin":"wf10 REL-needs r2 (merge of EX2 and REL-needs r1)","file":"internal/sketch/check/decl.go","from":"\tn.opts, n.derive = c.opts, c.derive\n","to":"\tn.derive = c.derive\n","rule":"The second check runs in the first's mode: under the clause writer's inference, rows stay inferred.","killers":["check:TestReleaseNeedsModel"]}
   ]
 }

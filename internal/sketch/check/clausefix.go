@@ -2,24 +2,25 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Options select checker modes that are off by default.
+// Options select checker modes that are off by default. Every check,
+// build and test path checks with none: each function declaration is
+// checked against its written signature (q137), an unwritten fails or
+// needs clause is the empty clause, and a body that exceeds a clause is
+// S101 or S102 with the clause to write and a ClauseFix. Literals and
+// blocks take their rows from context.
 type Options struct {
-	// Explicit checks every function declaration against its written
-	// signature (q137): an unwritten fails or needs clause is the empty
-	// clause, never inferred. A body that exceeds a clause is S101 or S102
-	// with the clause to write and a ClauseFix. Literals and blocks keep
-	// their rows from context.
-	Explicit bool
-	// Clauses records, after a check with inference, the inferred rows of
-	// each function as the clauses that write them (Package.Clauses): the
-	// inference engine is ergo fix's clause writer (EXPLICIT F9).
-	Clauses bool
+	// Infer is ergo fix's clause writer (EXPLICIT F9): the checker infers
+	// the unwritten rows of unexported functions with a body, as before
+	// q137, and records them as the clauses that write them
+	// (Package.Clauses). No check, build or test path sets it.
+	Infer bool
 }
 
 // CheckOptions checks like Check, in the modes opts selects.
@@ -39,33 +40,43 @@ type ClauseFix struct {
 	Row      []string
 	InsertAt int
 	Text     string
-	Imports  []string
+	// Open, when not zero, is where "(" goes, with ")" at InsertAt before
+	// Text: a lone result of function type would otherwise take the
+	// clause as its own row (`func m() (func()) needs C`).
+	Open    int
+	Imports []string
 	// Signature is the function's header with the clause written, as the
 	// formatter prints it (the diagnostic's "write:" text).
 	Signature string
+	// hidden are the prelude type names a type of the package hides that
+	// the clause must name (spell): it cannot be written there.
+	hidden []string
 }
 
 // pendingClause is one site where a function's body exceeds a written
-// clause under Explicit: reported when the body ends, with the whole
-// clause (clauseReport).
+// clause: reported when the body ends, with the whole clause
+// (clauseReport).
 type pendingClause struct {
 	n     syntax.Node
 	kind  Kind
 	extra *Row // the site's elements outside the written clause
+	// what is the subject of a capability site's S102 ("" for
+	// describeCharge(n)): a release names its Close (chargeAs).
+	what string
 }
 
 // pend records that the body of the function declaration being checked
-// exceeds its clause of kind at n, when Explicit holds. It reports false
-// when the target is not a declaration's under Explicit, so the caller
-// reports as before.
-func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row) bool {
-	if !c.opts.Explicit || t.decl == nil {
+// exceeds its clause of kind at n (what, as for chargeAs). It reports
+// false when the target is not a declaration's or Options.Infer holds,
+// so the caller reports as before.
+func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row, what string) bool {
+	if c.opts.Infer || t.decl == nil {
 		return false
 	}
 	if c.silent > 0 {
 		return true
 	}
-	t.pending = append(t.pending, pendingClause{n: n, kind: kind, extra: extra})
+	t.pending = append(t.pending, pendingClause{n: n, kind: kind, extra: extra, what: what})
 	if kind == KindErrors {
 		t.missErrors = t.missErrors.union(c.types, extra)
 	} else {
@@ -97,21 +108,31 @@ func (c *checker) clauseReport(t *target) {
 		for _, path := range fix.Imports {
 			write += fmt.Sprintf(" (import %s to write it)", path)
 		}
+		attach := true
+		if len(fix.hidden) > 0 {
+			// No clause the package can write names it (spell): the
+			// checker asks for the rename instead, and ergo fix writes
+			// nothing.
+			slices.Sort(fix.hidden)
+			write = fmt.Sprintf("the clause cannot be written here, since this package's type %s hides the prelude's (types.md, Scope 2); rename the package's type", strings.Join(fix.hidden, ", "))
+			attach = false
+		}
 		var msg, code string
 		if p.kind == KindErrors {
 			code = CodeUndeclared
-			if t.declErrors.Empty() {
-				msg = fmt.Sprintf("%s escapes %s, whose signature has no fails clause; %s", rowText(p.extra), t.name, write)
-			} else {
-				msg = fmt.Sprintf("%s escapes %s, whose fails clause %s does not list it; %s", rowText(p.extra), t.name, strings.Join(writtenRow(f.file.syntax.Src, f.Decl, KindErrors), " | "), write)
-			}
+			// The text before "; write:" is the message every S101 has.
+			msg = fmt.Sprintf("%s escapes %s, whose error row %s does not list it; %s", rowText(p.extra), t.name, rowText(t.declErrors), write)
 		} else {
 			code = CodeMissingCap
-			msg = fmt.Sprintf("%s requires %s, which is not in the needs clause of %s and no with provides it; %s", describeCharge(p.n), p.extra.String(), t.name, write)
+			what := p.what
+			if what == "" {
+				what = describeCharge(p.n)
+			}
+			msg = fmt.Sprintf("%s requires %s, which is not in the capability row of %s and no with provides it; %s", what, p.extra.String(), t.name, write)
 		}
 		before := len(c.diags)
 		c.errorf(p.n, code, "%s", msg)
-		if len(c.diags) > before {
+		if attach && len(c.diags) > before {
 			copied := *fix
 			c.diags[len(c.diags)-1].Fix = &copied
 		}
@@ -151,15 +172,26 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	var add []string
 	spellable := true
 	for _, e := range missing.Elems() {
-		text, imp, ok := c.spell(f.file, e)
+		text, imps, hidden, ok := c.spell(f.file, e)
 		if !ok {
 			spellable = false
 		}
+		for _, h := range hidden {
+			if !containsString(fix.hidden, h) {
+				fix.hidden = append(fix.hidden, h)
+			}
+		}
 		add = append(add, text)
-		if imp != "" && !containsString(fix.Imports, imp) {
-			fix.Imports = append(fix.Imports, imp)
+		for _, imp := range imps {
+			if !containsString(fix.Imports, imp) {
+				fix.Imports = append(fix.Imports, imp)
+			}
 		}
 	}
+	// By spelling: the identity order of a row follows the declarations, and
+	// the text must not depend on their order (FuzzCheck).
+	slices.Sort(add)
+	slices.Sort(fix.Imports)
 	fix.Row = append(append([]string(nil), written...), add...)
 	joined := strings.Join(add, " | ")
 	switch {
@@ -173,10 +205,15 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	default:
 		fix.InsertAt = int(clauseAt(ft))
 		fix.Text = " " + fix.Clause + " " + joined
+		if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
+			if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
+				fix.Open = int(r.List[0].Type.Pos())
+			}
+		}
 	}
-	fix.Signature = signatureText(f.file.syntax.Src, d, fix.InsertAt, fix.Text)
+	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {
-		fix.Text = ""
+		fix.Text, fix.Open = "", 0
 	}
 	return fix
 }
@@ -223,11 +260,14 @@ func writtenRow(src string, d *syntax.FuncDecl, kind Kind) []string {
 	return out
 }
 
-// signatureText is the header of d with text inserted at offset at, as
-// the formatter prints it.
-func signatureText(src string, d *syntax.FuncDecl, at int, text string) string {
-	start, end := int(d.Func), int(d.Body.Lbrace)
-	header := src[start:at] + text + src[at:end]
+// signatureText is the header of d with fix applied, as the formatter
+// prints it.
+func signatureText(src string, d *syntax.FuncDecl, fix *ClauseFix) string {
+	start, end, at := int(d.Func), int(d.Body.Lbrace), fix.InsertAt
+	header := src[start:at] + fix.Text + src[at:end]
+	if fix.Open > 0 {
+		header = src[start:fix.Open] + "(" + src[fix.Open:at] + ")" + fix.Text + src[at:end]
+	}
 	out, err := format.Source(header + "{}\n")
 	if err == nil {
 		if h, ok := strings.CutSuffix(strings.TrimSuffix(out, "\n"), " {}"); ok && !strings.Contains(h, "\n") {
@@ -240,37 +280,154 @@ func signatureText(src string, d *syntax.FuncDecl, at int, text string) string {
 // spell is how the file fi writes t: a type of its package or of the
 // prelude by name, an imported type through the file's import name. A
 // type of a package the file does not import is qualified by the
-// package's name and returns its path to import. ok is false for a type
-// with no source spelling.
-func (c *checker) spell(fi *fileInfo, t Type) (text, imp string, ok bool) {
+// package's name and returns its path to import (imps, each once). ok is
+// false for a type with no source spelling. It writes every form a
+// capability's argument takes (types.md, Capabilities 7: typExpr resolves
+// these and no other): a named type and its instance, a slice, an array,
+// a map, a tuple, a function type with its rows and takes clause, and an
+// error row argument. A record, an operation type or a union is written
+// only as a declaration, so it is a named type here.
+//
+// A prelude or universe type that a type of the package hides (types.md,
+// Scope 2; L6, owner q30) has no spelling in the package: its name means
+// the package's type there. hidden lists those names, and the clause is
+// then not written (clauseReport says to rename the package's type).
+func (c *checker) spell(fi *fileInfo, t Type) (text string, imps, hidden []string, ok bool) {
+	s := &speller{c: c, fi: fi, ok: true}
+	text = s.typ(t)
+	return text, s.imps, s.hidden, s.ok
+}
+
+// speller spells types for spell, gathering the imports they need and the
+// prelude names the package hides.
+type speller struct {
+	c      *checker
+	fi     *fileInfo
+	imps   []string
+	hidden []string
+	ok     bool
+}
+
+// hide marks name, a prelude or universe type's, as hidden when a type of
+// the package takes it.
+func (s *speller) hide(name string) {
+	if _, ok := s.c.pkg.Scope.names[name].(*TypeName); ok {
+		s.ok = false
+		if !containsString(s.hidden, name) {
+			s.hidden = append(s.hidden, name)
+		}
+	}
+}
+
+func (s *speller) typ(t Type) string {
 	switch t := t.(type) {
 	case *TypeParam:
-		return t.Name, "", true
+		return t.Name
 	case *Named:
-		name, imp, ok := c.spellName(fi, t.Obj)
-		if len(t.TArgs) > 0 {
-			parts := make([]string, len(t.TArgs))
-			for i, a := range t.TArgs {
-				s, aimp, aok := c.spell(fi, a)
-				parts[i] = s
-				ok = ok && aok
-				if imp == "" {
-					imp = aimp
-				}
-			}
-			name += "[" + strings.Join(parts, ", ") + "]"
+		if p := t.Obj.Pkg; p == nil || p != s.c.pkg && !p.qualify {
+			s.hide(t.Obj.Name)
 		}
-		return name, imp, ok
+		name, imp, ok := s.c.spellName(s.fi, t.Obj)
+		s.ok = s.ok && ok
+		if imp != "" && !containsString(s.imps, imp) {
+			s.imps = append(s.imps, imp)
+		}
+		if len(t.TArgs) > 0 {
+			name += "[" + s.list(t.TArgs) + "]"
+		}
+		return name
 	case *Basic:
-		return t.String(), "", true
+		s.hide(t.String())
+		return t.String()
+	case *Slice:
+		return "[]" + s.typ(t.Elem)
+	case *Array:
+		return fmt.Sprintf("[%d]%s", t.Len, s.typ(t.Elem))
+	case *Map:
+		s.hide("Map") // the syntax's Map[K, V] (grammar.md, Parser 8)
+		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
+	case *Pointer:
+		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
+	case *Tuple:
+		return "(" + s.list(t.Types) + ")"
+	case *RowArg:
+		return s.row(t.Row)
+	case *Signature:
+		return s.sig(t)
 	}
-	return t.String(), "", false
+	s.ok = false
+	return t.String()
+}
+
+func (s *speller) list(ts []Type) string {
+	parts := make([]string, len(ts))
+	for i, t := range ts {
+		parts[i] = s.typ(t)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// row spells a row's elements as a row is written, A | B, in an order of
+// their texts.
+func (s *speller) row(r *Row) string {
+	var parts []string
+	for _, e := range r.Elems() {
+		parts = append(parts, s.typ(e))
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, " | ")
+}
+
+// sig spells a function type as signature writes it: escaping on a
+// parameter of a function type that may escape, the results, the fails
+// row and the needs row; then a takes clause by the names of its parameters (a
+// written takes names them all). A function type written in source has
+// no bare takes and no empty fails.
+func (s *speller) sig(t *Signature) string {
+	var b strings.Builder
+	b.WriteString("func(")
+	named := len(t.Takes) > 0
+	for i, p := range t.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if named {
+			b.WriteString(p.Name + " ")
+		}
+		if ps, ok := p.Type.(*Signature); ok && !ps.NonEscaping {
+			b.WriteString("escaping ")
+		}
+		b.WriteString(s.typ(p.Type))
+	}
+	b.WriteString(")")
+	// A written function type has at most one result: several are a
+	// tuple, (A, B).
+	for _, r := range t.Results {
+		b.WriteString(" " + s.typ(r))
+	}
+	if !t.Errors.Empty() {
+		b.WriteString(" fails " + s.row(t.Errors))
+	}
+	if !t.Uses.Empty() {
+		b.WriteString(" " + requirementKeyword + " " + s.row(t.Uses))
+	}
+	if named {
+		names := make([]string, len(t.Takes))
+		for i, ix := range t.Takes {
+			names[i] = t.Params[ix].Name
+		}
+		b.WriteString(" takes " + strings.Join(names, ", "))
+	}
+	return b.String()
 }
 
 func (c *checker) spellName(fi *fileInfo, o *TypeName) (string, string, bool) {
 	p := o.Pkg
 	if p == nil || p == c.pkg || !p.qualify {
 		return o.Name, "", true
+	}
+	if p.Path == "go" {
+		return "go." + o.Name, "", true // go.Foreign: the universe's go package
 	}
 	for _, pn := range fi.imports {
 		if pn.Pkg == p && !pn.broken {

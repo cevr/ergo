@@ -700,7 +700,7 @@ type M machine[St, Sig] {
 	step:    step,
 }
 
-func run(xs []Sig) int {
+func run(xs []Sig) int fails Boom needs Probe {
 	let _ = try machines.Run(M{}, xs) catch {
 	case machines.Rejected:
 		return 0
@@ -717,7 +717,7 @@ func main() {
 		got = append(got, d.String())
 	}
 	want := []string{
-		"29:10: S102 this call requires Probe, which is not in the capability row of function main and no with provides it",
+		"29:10: S102 this call requires Probe, which is not in the capability row of function main and no with provides it; write: func main() needs Probe",
 		"29:10: S105 the failure {Boom} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)",
 	}
 	if !slices.Equal(got, want) {
@@ -741,7 +741,7 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	for _, c := range []struct{ name, timer, want string }{
 		{"signal", "func timer(e Sig) Option[Timeout[Sig]] { None }\n\n",
 			"S108 the after timer of machine M must have the type func(St) Option[Timeout[Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
-		{"row", "func timer(s St) Option[Timeout[Sig]] {\n\tConsole.Println(\"x\")\n\tNone\n}\n\n",
+		{"row", "func timer(s St) Option[Timeout[Sig]] needs Console {\n\tConsole.Println(\"x\")\n\tNone\n}\n\n",
 			"S108 cannot use func(St) Option[Timeout[Sig]] needs Console as func(St) Option[Timeout[Sig]] in machine M's after: its capability row {Console} is wider than {}"},
 		{"unknown", "", "S104 unknown function timer"},
 	} {

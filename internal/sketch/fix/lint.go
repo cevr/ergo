@@ -59,13 +59,13 @@ func RunLint(texts map[string]string, chk Checker, lintr Linter) (Result, error)
 		if err != nil {
 			return Result{}, err
 		}
-		out, err := chk(next, check.Options{Explicit: true})
+		out, err := chk(next, check.Options{})
 		if err != nil {
 			return Result{}, err
 		}
 		if dropped, ok := dropUnused(next, out.Diagnostics, unused); ok {
 			next = dropped
-			if out, err = chk(next, check.Options{Explicit: true}); err != nil {
+			if out, err = chk(next, check.Options{}); err != nil {
 				return Result{}, err
 			}
 		}

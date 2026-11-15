@@ -3,7 +3,7 @@
 //
 // The inference engine is the clause writer (EXPLICIT F9): one check with
 // inference writes the inferred rows of the unexported functions. Then
-// the loop checks under check.Options.Explicit, applies the fix of every
+// the loop checks under the default checker mode, applies the fix of every
 // clause diagnostic, and checks again until no clause diagnostic is left:
 // writing a callee's clause can make its callers exceed theirs. Rows only
 // grow and are finite, so the loop ends; Bound stops it past (functions +
@@ -32,7 +32,7 @@ type Diagnostic struct {
 }
 
 // Outcome is one check of the program: its diagnostics and, under
-// check.Options.Clauses, the inferred clauses.
+// check.Options.Infer, the inferred clauses.
 type Outcome struct {
 	Diagnostics []Diagnostic
 	Clauses     []Diagnostic // Fix set, Code and Message empty
@@ -81,7 +81,7 @@ func run(texts map[string]string, chk Checker, loop bool) (Result, error) {
 		cur[k] = v
 	}
 	changes := map[[3]string]Change{}
-	out, err := chk(cur, check.Options{Clauses: true})
+	out, err := chk(cur, check.Options{Infer: true})
 	if err != nil {
 		return Result{}, err
 	}
@@ -97,7 +97,7 @@ func run(texts map[string]string, chk Checker, loop bool) (Result, error) {
 	res := Result{}
 	for {
 		res.Rounds++
-		out, err := chk(cur, check.Options{Explicit: true})
+		out, err := chk(cur, check.Options{})
 		if err != nil {
 			return Result{}, err
 		}
@@ -167,6 +167,14 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 			return nil, fmt.Errorf("fix: a clause of %s is in %q, which is not a file of the program", f.Function, d.File)
 		}
 		edits[d.File] = append(edits[d.File], edit{at: f.InsertAt, text: f.Text, clause: f.Clause})
+		if f.Open > 0 {
+			// Both clauses of one function may open the result: once.
+			open := fmt.Sprintf("%s\x00%d\x00(", d.File, f.Open)
+			if !seen[open] {
+				seen[open] = true
+				edits[d.File] = append(edits[d.File], edit{at: f.Open, text: "("}, edit{at: f.InsertAt, text: ")"})
+			}
+		}
 		for _, p := range f.Imports {
 			if !slices.Contains(imports[d.File], p) {
 				imports[d.File] = append(imports[d.File], p)

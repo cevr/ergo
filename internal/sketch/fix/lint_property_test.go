@@ -129,7 +129,7 @@ func TestFixLintProperty(t *testing.T) {
 			fail("fix --lint fixed %d races, want %d; remaining %v\nfixed:\n%s", len(res.Linted), want, res.Remaining, fixed)
 		}
 		// 1. the fixed program checks.
-		if out, err := chk(res.Texts, check.Options{Explicit: true}); err != nil || len(out.Diagnostics) > 0 {
+		if out, err := chk(res.Texts, check.Options{}); err != nil || len(out.Diagnostics) > 0 {
 			fail("the fixed program does not check (%v): %v\n%s", err, out.Diagnostics, fixed)
 		}
 		// 2. fix then lint: no fixable finding is left, and the fix adds no

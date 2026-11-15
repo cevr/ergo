@@ -42,7 +42,7 @@ type target struct {
 	tries int
 	tried bool
 	// decl is the function declaration whose body this is, under
-	// Options.Explicit; pending, missErrors and missUses collect the sites
+	// the default mode (not Options.Infer); pending, missErrors and missUses collect the sites
 	// that exceed its clauses (clausefix.go).
 	decl                 *Func
 	pending              []pendingClause
@@ -104,7 +104,7 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 		// An unknown written row (a refused entry, rowExpr) may hold cap.
 		return
 	}
-	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap)) {
+	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap), what) {
 		return
 	}
 	switch {
@@ -152,7 +152,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	if extra.Empty() {
 		return
 	}
-	if !t.context && c.pend(t, n, KindErrors, extra) {
+	if !t.context && c.pend(t, n, KindErrors, extra, "") {
 		return
 	}
 	switch {
@@ -310,6 +310,15 @@ func (c *checker) discoverInit() {
 			m[o] = true
 		}
 	}
+	if !c.opts.Infer {
+		// Without inference no row restarts, so typing need not run ahead:
+		// the lexical cycles are known now, and a cycle through a method
+		// call is met where the reporting pass checks the var on demand
+		// (checkPkgVar) and by checkInitCycles after it (EXPLICIT EX2: one
+		// pass per body).
+		c.checkInitCycles()
+		return
+	}
 	c.silent++
 	c.init.tentative = true
 	visited := map[*Func]bool{}
@@ -368,6 +377,9 @@ func (c *checker) checkComponent(scc []*bodyNode) {
 			inferred = true
 		}
 	}
+	// Without inference (Options.Infer is ergo fix's) a body has no edge to
+	// a function (linkBodies), so only vars on an initialization cycle form
+	// a cyclic component: every body is checked once (EXPLICIT EX2).
 	if cyclic {
 		// One silent pass records the component's instantiations, so an
 		// expanding cycle is rejected before the rows iterate (round-2 M1).
@@ -829,10 +841,10 @@ func (c *checker) converge(scc []*bodyNode) bool {
 	c.silent++
 	checks := 0
 	settled := true
-	w.run(func(n *bodyNode) bool {
+	w.run(func(n *bodyNode) {
 		if checks >= budget() {
 			settled = false
-			return false
+			return
 		}
 		checks++
 		changed := check(n)
@@ -842,7 +854,6 @@ func (c *checker) converge(scc []*bodyNode) bool {
 				w.push(p)
 			}
 		}
-		return true
 	})
 	c.silent--
 	c.convergeChecks += checks
@@ -1033,7 +1044,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	c.closeParts(f)
 	name := "function " + f.Name
 	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main"}
-	if c.opts.Explicit {
+	if !c.opts.Infer {
 		t.decl = f
 	}
 	if f.inferErrors {

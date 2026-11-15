@@ -318,9 +318,9 @@ func told(o machines.Outcome[St, int]) string {
 `)
 	fmt.Fprintf(&b, "func run(signals []Sig) string%s {\n\tlet o = machines.Run(M{}, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
 	fmt.Fprintf(&b, "func from(s St, signals []Sig) string%s {\n\tlet o = machines.From(M{}, s, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
-	timedRows := runRows
-	if timedRows != "" {
-		timedRows += " | time.Clock | Scheduler"
+	timedRows := " needs time.Clock | Scheduler"
+	if runRows != "" {
+		timedRows = runRows + " | time.Clock | Scheduler"
 	}
 	fmt.Fprintf(&b, "func timed(signals []Sig) string%s {\n\tlet mut trace = []machines.Timed[Sig]{}\n\tfor e in signals {\n\t\ttrace = trace.Append(machines.Timed[Sig]{At: 0s, Signal: e})\n\t}\n\tlet o = machines.RunTimed(M{}, trace, 0s) catch {\n%s\t}\n\ttold(o)\n}\n\n", timedRows, catch)
 	// == of two signals, and of a signal and a variant (flatVariantValue).

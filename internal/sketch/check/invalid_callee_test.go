@@ -191,8 +191,8 @@ func TestInvalidCalleeDomain(t *testing.T) {
 						local = r.local + "\n\t"
 					}
 					src := "import go task\n" + r.decls +
-						"func a(" + r.params + ") {\n\t" + local + strings.ReplaceAll(cb.cb, "@", r.callee) + "\n\treturn Bang\n}\n" +
-						"func b() { return a(" + r.args + ") }\n" +
+						"func a(" + r.params + ") fails Bang {\n\t" + local + strings.ReplaceAll(cb.cb, "@", r.callee) + "\n\treturn Bang\n}\n" +
+						"func b() fails Bang { return a(" + r.args + ") }\n" +
 						"type Bang {}\nfunc F() fails Bang { return b() }\nfunc main() {}\n"
 					_, diags := check.CheckSource(src)
 					var got []string

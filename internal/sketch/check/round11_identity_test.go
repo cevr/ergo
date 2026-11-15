@@ -265,7 +265,7 @@ func TestIdentityGenericInferred(t *testing.T) {
 	pairs := 0
 	for seed := range uint64(40) {
 		src := genericInferred(seed)
-		c, diags := checkFor(src)
+		c, diags := checkForInfer(src)
 		if c == nil || len(diags) > 0 {
 			t.Fatalf("seed %d: %v\n%s", seed, diags, src)
 		}

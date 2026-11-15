@@ -241,6 +241,7 @@ func checkSettling(src string, settleOnly bool) (*checker, []Diagnostic) {
 		return nil, []Diagnostic{{Code: CodeSyntax, Message: err.Error()}}
 	}
 	c := newChecker("main", Std, prelude().scope)
+	c.opts.Infer = true
 	c.settleOnly = settleOnly
 	c.run([]*syntax.File{file})
 	return c, c.sorted()
