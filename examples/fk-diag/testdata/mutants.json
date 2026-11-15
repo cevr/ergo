@@ -76,16 +76,16 @@
     {
       "name": "fk13-view-bound-high", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/view.ergo",
-      "from": "\tcase ViewPhase:\n\t\t500\n",
-      "to": "\tcase ViewPhase:\n\t\t700\n",
+      "from": "\tcase ViewPhase:\n\t\t200\n",
+      "to": "\tcase ViewPhase:\n\t\t300\n",
       "rule": "The view work is over the view's bound (law EachWorkloadWarnsItsPhase, case lab).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
     {
       "name": "fk13-patch-bound-high", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/view.ergo",
-      "from": "\tcase PatchPhase:\n\t\t300\n",
-      "to": "\tcase PatchPhase:\n\t\t500\n",
+      "from": "\tcase PatchPhase:\n\t\t100\n",
+      "to": "\tcase PatchPhase:\n\t\t200\n",
       "rule": "The patch work's mount is over the patch's bound (law EachWorkloadWarnsItsPhase, case lab).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },

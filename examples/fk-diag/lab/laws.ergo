@@ -142,7 +142,7 @@ func hostFollows(a actor.Actor[Lab, Signal, Decision[Lab, Never]], seed int, ste
 	let mut log = []noted{}
 	let mut next = 1
 	let mut mounted = false
-	for _ in 0..(steps%6+6)%6+1 {
+	for _ in 0..(steps%4+4)%4+1 {
 		let k = draw(&r, 5)
 		let mut script = []ui.Act{}
 		if k == 4 {

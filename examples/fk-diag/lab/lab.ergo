@@ -36,7 +36,7 @@ type Signal = Run{Phase Phase} | Clear{} | Recorded{Slow ui.Slow} | Burn{} | Der
 let MaxWarnings = 8
 
 // PatchRowCount is how many keyed rows the patch work mounts.
-let PatchRowCount = 400
+let PatchRowCount = 120
 
 // Initial is the lab before any press.
 func Initial() Lab { Lab{Active: Idle, NextID: 1, Warnings: []Warning{}, PatchRows: 0, PatchRun: 0} }

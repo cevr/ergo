@@ -16,9 +16,9 @@ func Bound(p Phase) int {
 	case UpdatePhase:
 		4
 	case ViewPhase:
-		500
+		200
 	case PatchPhase:
-		300
+		100
 	case DependencyPhase:
 		4
 	}
@@ -28,7 +28,7 @@ func Bound(p Phase) int {
 let BurstSignals = 8
 
 // ViewNodes is how many nodes the view work writes.
-let ViewNodes = 600
+let ViewNodes = 250
 
 // DependencyFetches is how many fetches the dependency work starts.
 let DependencyFetches = 8

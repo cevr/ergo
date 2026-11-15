@@ -25,15 +25,15 @@ Upstream's workloads burn CPU for some milliseconds, and the runtime times each 
 | Workload | Its work | Counter, bound | Count |
 | --- | --- | --- | --- |
 | Run update work | 8 animations, so one frame steps a burst of 8 signals | `Signals`, 4 | 8 |
-| Run view work | 600 nodes in a group that then stops (`ui.Boundary`), so they reach no patch | `Written`, 500 | 627 |
-| Run patch work | mounts 400 keyed rows, kept from pass to pass by a `ui.Same` keyed by the mount (upstream's lazy rows) | `Ops`, 300 | 402 |
+| Run view work | 250 nodes in a group that then stops (`ui.Boundary`), so they reach no patch | `Written`, 200 | 277 |
+| Run patch work | mounts 120 keyed rows, kept from pass to pass by a `ui.Same` keyed by the mount (upstream's lazy rows) | `Ops`, 100 | 122 |
 | Run dependency extraction | 8 loads, one per dependency | `Fetches`, 4 | 8 |
 
 Each workload is over one bound only. The patch's rows fit the view's bound, and the view work's nodes make no ops.
 
 Differences from upstream:
 
-- **Fewer rows.** Upstream mounts 4,000 rows. On the test host, mounting n keyed rows under one parent costs more than linear time: 1,000 rows took 0.23 s, 2,000 took 0.91 s and 4,000 took 6 s (ledger row FK13-g2). The port mounts 400 rows, and the bounds are set to match.
+- **Fewer rows.** Upstream mounts 4,000 rows. On the test host, mounting n keyed rows under one parent costs more than linear time: 1,000 rows took 0.23 s, 2,000 took 0.91 s and 4,000 took 6 s (ledger row FK13-g2). The port mounts 120 rows, so that its laws run 100 cases in seconds, and the bounds are set to match.
 - **The update work needs a frame.** A step cannot report its own work, so the update work is a burst of signals in one frame.
 - **The crash view cannot show the defect's message.** A defect gives the crash view no message (`ui.DefectCrash` has no field), so the crash view names the kind of crash. Upstream shows the thrown error's message (ledger row FK13-g1).
 - **No browser report.** Upstream's report logs to the console. Here it adds a line to a log that the script prints.
