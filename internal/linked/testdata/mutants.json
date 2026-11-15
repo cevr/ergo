@@ -1,0 +1,6 @@
+{
+  "about": "The mutant ledger of internal/linked (SEMTOOLS SEM1, wf10 lane SM, 2026-11-15): edits of the generator of the Go the ergo binary links that the staleness test must notice. Each mutant names the rule it breaks and the test that kills it, as SUITE:NAME in the shared ledger format.",
+  "mutants": [
+    {"name":"linked-cli-not-written","origin":"wf10 SM SEM1","file":"internal/linked/linked.go","from":"\t\t\tout[path.Join(p.Dir(), \"ergo\", c.Dir, name)] = []byte(text)","to":"\t\t\t_ = path.Join(p.Dir(), \"ergo\", c.Dir, name)","rule":"The checked-in files of a linked package are exactly what its generation writes: the generated command lines too, byte for byte.","killers":["internal/linked:TestLinkedGoIsFresh"],"anchor":{"tests":["internal/linked:TestLinkedGoIsFresh"]}}
+  ]
+}

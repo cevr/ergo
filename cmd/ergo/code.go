@@ -147,9 +147,6 @@ func codeTablesOf(a sketchfront.Analysis) codeTables {
 				files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
 			}
 		}
-		if cp.Diagnostics > 0 {
-			cp.Complete = false
-		}
 		if pkg := p.Partial; pkg != nil && pkg.Info != nil {
 			t, _ := facts.Build(pkg, files)
 			addCodeRows(&cp, t, p.Path, syn)
