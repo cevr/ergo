@@ -9,6 +9,7 @@
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
 //	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
+//	irspike gentuple SEED                 the tuple program of SEED (TestIRTuplesMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -90,6 +91,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateStd(seed))
+		}
+	case "gentuple":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gentuple SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateTuple(seed))
 		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
