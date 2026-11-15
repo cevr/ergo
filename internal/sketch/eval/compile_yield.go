@@ -28,7 +28,7 @@ func (in *interp) yieldForm(fr *frame, s syntax.Stmt, ret bool) fastYield {
 
 // compileYield is the form of yieldStmt(s, ret), or nil when s has none.
 func (in *interp) compileYield(fr *frame, s syntax.Stmt, ret bool) fastYield {
-	if fr.env != nil {
+	if !fr.forms() {
 		return nil
 	}
 	var at syntax.Node = s

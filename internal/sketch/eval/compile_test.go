@@ -80,7 +80,7 @@ func TestPreparedEvalAgrees(t *testing.T) {
 		return
 	}
 	made := eval.FormsMade()
-	for _, form := range []string{"*syntax.BasicLit", "*syntax.Ident", "*syntax.ParenExpr", "*syntax.BinaryExpr", "*syntax.CallExpr", "*syntax.SelectorExpr", "*syntax.ExprStmt", "*syntax.AssignStmt", "*syntax.DeclStmt", "*syntax.IfStmt", "*syntax.ForStmt", "*syntax.RangeStmt", "*syntax.CompositeLit", "*syntax.ReturnStmt", "*syntax.SwitchStmt", "*syntax.TypeSwitchStmt"} {
+	for _, form := range []string{"*syntax.BasicLit", "*syntax.Ident", "*syntax.ParenExpr", "*syntax.BinaryExpr", "*syntax.CallExpr", "*syntax.SelectorExpr", "*syntax.ExprStmt", "*syntax.AssignStmt", "*syntax.DeclStmt", "*syntax.IfStmt", "*syntax.ForStmt", "*syntax.RangeStmt", "*syntax.CompositeLit", "*syntax.ReturnStmt", "*syntax.SwitchStmt", "*syntax.TypeSwitchStmt", "instance body"} {
 		if made[form] == before[form] {
 			t.Errorf("no seed compiled a form of %s (made %v)", form, made)
 		}

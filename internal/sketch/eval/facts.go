@@ -89,6 +89,11 @@ type nodeTable struct {
 	vals  []*facts
 	n     int
 	shift uint
+	// instance marks the table of one instance of a generic function
+	// (plan.go, instanceOf): every frame that reads it has the same type
+	// arguments, so its facts may keep what the types decide, forms
+	// included.
+	instance bool
 }
 
 func newNodeTable() *nodeTable {

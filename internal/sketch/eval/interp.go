@@ -173,6 +173,13 @@ func (fr *frame) bind(v *check.Var, val Value) {
 	}
 }
 
+// forms reports whether the frame runs compiled forms (compile.go): it has
+// no substitution, or it reads the facts of one instance (ORACLE O38), so
+// what a form reads of the types is the same at every evaluation.
+func (fr *frame) forms() bool {
+	return fr.env == nil || fr.tab != nil && fr.tab.instance
+}
+
 // rt is t read in the frame's substitution.
 func (fr *frame) rt(t check.Type) rtype { return fr.env.resolve(t) }
 
@@ -361,6 +368,18 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		n := len(targs)
 		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
 	}
+	// A generic callee reads the facts of its instance (ORACLE O38): its
+	// forms are compiled for its type arguments.
+	bodyForm, bodyFast := &p.bodyForm, &p.body
+	if callee.env != nil {
+		bodyForm, bodyFast = nil, nil
+		if !in.walk {
+			if inst := in.instanceOf(p, targs); inst != nil {
+				callee.tab = inst.tab
+				bodyForm, bodyFast = &inst.bodyForm, &inst.body
+			}
+		}
+	}
 	params := p.params
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
@@ -372,15 +391,15 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		in.ownVar(callee, params[i], fn.Decl) // a taken parameter (R8)
 	}
 	var body fastBody
-	if callee.env == nil && !in.walk {
-		switch p.bodyForm {
+	if bodyForm != nil && !in.walk {
+		switch *bodyForm {
 		case formUnseen:
-			p.bodyForm = formSeen
+			*bodyForm = formSeen
 		case formSeen:
-			p.bodyForm = formDone
-			p.body = in.compileBody(callee, fn.Decl.Body.List)
+			*bodyForm = formDone
+			*bodyFast = in.compileBody(callee, fn.Decl.Body.List)
 		}
-		body = p.body
+		body = *bodyFast
 	}
 	v, ab := in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
 	in.freeFrame(callee)
@@ -551,7 +570,7 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 // x's facts keep it (ORACLE O34): the checker's IsErrorType ranges over a
 // map of sets.
 func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
-	if fr.env != nil || fr.tab == nil {
+	if !fr.forms() || fr.tab == nil {
 		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
 	}
 	f := in.fx(fr, x)

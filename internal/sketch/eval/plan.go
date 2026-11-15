@@ -1,6 +1,10 @@
 package eval
 
-import "ergo.local/prototype/internal/sketch/check"
+import (
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/check"
+)
 
 // funcPlan is what every call of a declared function reads about the
 // function, resolved once at its first call (ORACLE O34): how it runs (an
@@ -31,6 +35,79 @@ type funcPlan struct {
 	// call outside a generic body; bodyForm is its state.
 	body     fastBody
 	bodyForm uint8
+	// instances are a generic function's instances by the key of their
+	// type arguments (instanceOf).
+	instances map[string]*planInstance
+}
+
+// planInstance is one instance of a generic function (ORACLE O38): its own
+// fact table, so the forms compiled in it read its type arguments, and
+// its body's form.
+type planInstance struct {
+	tab      factTable
+	body     fastBody
+	bodyForm uint8
+}
+
+// instanceOf is the instance of p's function for targs, or nil when a type
+// argument has no exact key (instanceKey): such a call is walked.
+func (in *interp) instanceOf(p *funcPlan, targs []rtype) *planInstance {
+	var b strings.Builder
+	for i, t := range targs {
+		if !keyable(t) {
+			return nil
+		}
+		if i > 0 {
+			b.WriteByte(';')
+		}
+		writeKey(&b, t)
+	}
+	k := b.String()
+	if inst := p.instances[k]; inst != nil {
+		return inst
+	}
+	if p.instances == nil {
+		p.instances = map[string]*planInstance{}
+	}
+	tab := newNodeTable()
+	tab.instance = true
+	inst := &planInstance{tab: tab}
+	p.instances[k] = inst
+	return inst
+}
+
+// keyable reports whether writeKey names t exactly: built of basic and
+// named types, slices, arrays, maps and tuples. A function type's key
+// leaves out its rows, a union's leaves out whether it has a row (an
+// error value's test reads it), and any other type is its unresolved
+// text.
+func keyable(t rtype) bool {
+	t = t.env.resolve(t.t)
+	switch tt := t.t.(type) {
+	case *check.Basic:
+		return true
+	case *check.Named:
+		for _, a := range tt.TArgs {
+			if !keyable(rtype{a, t.env}) {
+				return false
+			}
+		}
+		return true
+	case *check.Slice:
+		return keyable(rtype{tt.Elem, t.env})
+	case *check.Array:
+		return keyable(rtype{tt.Elem, t.env})
+	case *check.Map:
+		return keyable(rtype{tt.Key, t.env}) && keyable(rtype{tt.Elem, t.env})
+	case *check.Tuple:
+		for _, e := range tt.Types {
+			if !keyable(rtype{e, t.env}) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // planOf is fn's plan, made at its first call.

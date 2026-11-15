@@ -1653,6 +1653,33 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-o38-instances-share-forms",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/plan.go",
+      "from": "\tk := b.String()\n",
+      "to": "\tk := \"\"\n",
+      "rule": "A generic function's forms belong to one instance: two calls with different type arguments read different facts.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-record-key-unsubstituted",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tkey := argsKey(n, t.env)\n",
+      "to": "\tkey := argsKey(n, nil)\n",
+      "rule": "A compiled record literal in an instance keys its type with the instance's type arguments, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-forms-in-any-generic-frame",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\treturn fr.env == nil || fr.tab != nil && fr.tab.instance\n",
+      "to": "\treturn true\n",
+      "rule": "Only a frame that reads one instance's facts compiles forms: a generic frame on its package's table shares facts across type arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",

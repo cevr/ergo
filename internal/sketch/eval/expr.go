@@ -41,7 +41,7 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // tailK is tailExpr with x's facts, f.
 func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
-	if f.plain && fr.env == nil {
+	if f.plain && fr.forms() {
 		if f.fast != nil {
 			return f.fast(in, fr) // compile.go
 		}
@@ -113,7 +113,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	switch f.op {
 	case opConst:
-		if f.cval != nil && fr.env == nil {
+		if f.cval != nil && fr.forms() {
 			return f.cval, nil
 		}
 		t := fr.rt(f.typ)
@@ -121,8 +121,8 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
 		}
-		if fr.env == nil {
-			f.cval = v // a constant's value, made once outside a generic body
+		if fr.forms() {
+			f.cval = v // a constant's value, made once per instance (O38)
 		}
 		return v, nil
 	case opBare:
@@ -285,7 +285,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		}
 	case *syntax.SelectorExpr:
 		xf := in.fx(fr, x)
-		if xf.field.t != nil && fr.env == nil {
+		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).
 			base, root, ab := in.peekBase(fr, x.X, path)
 			if ab != nil {
@@ -340,7 +340,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if path != nil {
 			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
-		if fr.env == nil {
+		if fr.forms() {
 			xf.field.t = n
 		}
 		return r.fields[xf.fieldOf(r.t, x.Sel.Name)], root, nil

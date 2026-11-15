@@ -99,8 +99,10 @@ func (in *interp) operand(fr *frame, e syntax.Expr, k *facts) fastExpr {
 // the agreement test's reach check.
 var formsMade sync.Map // string -> *atomic.Int64
 
-func madeForm(n syntax.Node) {
-	c, _ := formsMade.LoadOrStore(fmt.Sprintf("%T", n), new(atomic.Int64))
+func madeForm(n syntax.Node) { madeKind(fmt.Sprintf("%T", n)) }
+
+func madeKind(k string) {
+	c, _ := formsMade.LoadOrStore(k, new(atomic.Int64))
 	c.(*atomic.Int64).Add(1)
 }
 
@@ -115,7 +117,7 @@ func (in *interp) compileExpr(fr *frame, x syntax.Expr, f *facts) fastExpr {
 }
 
 func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
-	if !f.plain || fr.env != nil {
+	if !f.plain || !fr.forms() {
 		return nil
 	}
 	var at syntax.Node = x
@@ -524,7 +526,7 @@ func (in *interp) releasesOf(fr *frame, key syntax.Node) fastStmt {
 // compileStmt is the form of s in a list, with its releases after it, or
 // nil when s has none.
 func (in *interp) compileStmt(fr *frame, s syntax.Stmt, sf *facts) fastStmt {
-	if fr.env != nil {
+	if !fr.forms() {
 		return nil
 	}
 	core := in.compileStmtCore(fr, s)
@@ -932,7 +934,7 @@ func (in *interp) compileRecord(fr *frame, x *syntax.CompositeLit) fastExpr {
 	}
 	st := structOf(n)
 	nf := len(st.Fields)
-	key := argsKey(n, nil)
+	key := argsKey(n, t.env)
 	idx := make([]int, len(x.Elts))
 	vals := make([]fastExpr, len(x.Elts))
 	set := make([]bool, nf)
@@ -985,8 +987,11 @@ type fastBody func(in *interp, fr *frame) (Value, *abrupt)
 // but the last as compiled forms, then the last, which yields the result,
 // and its releases (compile_yield.go).
 func (in *interp) compileBody(fr *frame, list []syntax.Stmt) fastBody {
-	if len(list) == 0 || fr.env != nil {
+	if len(list) == 0 || !fr.forms() {
 		return nil
+	}
+	if fr.env != nil {
+		madeKind("instance body") // the agreement test's reach check
 	}
 	return fastBody(in.compileList(fr, list, true))
 }

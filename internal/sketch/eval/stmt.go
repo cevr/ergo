@@ -8,7 +8,7 @@ import (
 func (in *interp) stmts(fr *frame, list []syntax.Stmt) *abrupt {
 	for _, s := range list {
 		sf := in.sx(fr, s)
-		if fr.env == nil {
+		if fr.forms() {
 			if sf.sfast != nil || sf.sform != formDone && in.visitStmt(fr, s, sf) {
 				if ab := sf.sfast(in, fr); ab != nil { // compile.go
 					return ab
