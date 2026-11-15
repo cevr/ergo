@@ -1,0 +1,5 @@
+# The packages examples carry as copies of an installable module's package,
+# until modules can require each other (MD1; then each row becomes a require
+# line and the copy goes). TestVendoredCopiesMatch keeps each copy byte for
+# byte the module's. A row is `copy<TAB>module package`.
+examples/catalog/xml	modules/xml/xml

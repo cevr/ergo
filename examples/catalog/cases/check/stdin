@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A feed written by hand: indented, with comments, a CDATA section,
+     character references and an empty element. -->
+<catalog>
+  <shop>Corner Shop &#x2014; Knowlton</shop>
+  <products>
+    <item>
+      <sku>SKU-1</sku>
+      <title><![CDATA[Mug & saucer <set of 2>]]></title>
+      <cents> 1250 </cents>
+      <status><_tag>Listed</_tag></status>
+      <stock>7</stock>
+      <tags><item>kitchen</item><item>gift</item></tags>
+    </item>
+    <item>
+      <sku>SKU-2</sku>
+      <title>Notebook &amp; pencil</title>
+      <cents>499</cents>
+      <!-- sold out since Monday -->
+      <status><_tag>SoldOut</_tag></status>
+      <stock>0</stock>
+      <tags/>
+    </item>
+    <item>
+      <sku>SKU-3</sku>
+      <title>Tea towel</title>
+      <cents>650</cents>
+      <status><_tag>Draft</_tag></status>
+      <stock>0</stock>
+      <tags><item>kitchen</item></tags>
+      <note>a field the catalog does not have is passed over</note>
+    </item>
+  </products>
+</catalog>

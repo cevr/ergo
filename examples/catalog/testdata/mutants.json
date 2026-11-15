@@ -1,0 +1,125 @@
+{
+  "about": "The XML codec's mutants, applied to the example's copy of modules/xml/xml (TestVendoredCopiesMatch keeps it the module's). Killers are the examples suite (examples:catalog: the xml package's laws and tests, and the cases); each rule names the law or test that kills it and no other law of the package does.",
+  "mutants": [
+    {
+      "name": "xml-item-element-renamed",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/text.ergo",
+      "from": "\t\tt.raw(\"<item>\")\n\t\tt.push(\"item\")",
+      "to": "\t\tt.raw(\"<i>\")\n\t\tt.push(\"i\")",
+      "rule": "EncodeWritesTheForm (and the feed case): a list's values are <item> elements. The reader takes any element as a list's value, so the laws still hold.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-cdata-keeps-bracket",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\t\tp.data = strings.Slice(p.text, start+9, end)",
+      "to": "\t\tp.data = strings.Slice(p.text, start+8, end)",
+      "rule": "ParserGivesEachToken: a CDATA section's token is its text as written, without <![CDATA[. Encode writes no CDATA section, so the laws still hold.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-repeated-attribute-passes",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\t\t\tif p.attrs[k].Name == a.Name {",
+      "to": "\t\t\tif false && p.attrs[k].Name == a.Name {",
+      "rule": "MalformedIsPlaced: a start tag names each attribute once (XML 1.0, 3.1). Encode writes at most one attribute, so the laws still hold.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-doctype-not-named",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\tif has(p, \"<!DOCTYPE\") {",
+      "to": "\tif has(p, \"<!DOCTYPEZ\") {",
+      "rule": "DocumentTypeIsRefused: a document type declaration is refused by name, so its failure says why (no entity it declares is expanded).",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-depth-limit-off-by-one",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\tif p.maxDepth > 0 && p.depth >= p.maxDepth {",
+      "to": "\tif p.maxDepth > 0 && p.depth > p.maxDepth {",
+      "rule": "DepthIsLimited: MaxDepth 2 reads two nested elements and fails the third, at its start tag.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-path-index-from-one",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/reader.ergo",
+      "from": "\t\t\tnames = names.Append(p.name + \"[\" + strconv.Itoa(counts[last]-1) + \"]\")",
+      "to": "\t\t\tnames = names.Append(p.name + \"[\" + strconv.Itoa(counts[last]) + \"]\")",
+      "rule": "DecodeNamesTheShape (and the shape case): a path's index counts a parent's elements from 0. No law reads a path.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-float-read-as-float32",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/reader.ergo",
+      "from": "\tstrconv.ParseFloat(strings.TrimSpace(s), 64)",
+      "to": "\tstrconv.ParseFloat(strings.TrimSpace(s), 32)",
+      "rule": "RoundTrips: a float64 reads back as itself. Every text still reads, and NumbersAtTheirEdges' 0.5 is a float32, so only the round trip sees it.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-control-character-written",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/text.ergo",
+      "from": "\t\t\t} else if c < 0x20 && c != '\\t' && c != '\\n' {\n\t\t\t\trep = \"\\uFFFD\"",
+      "to": "\t\t\t} else if false {\n\t\t\t\trep = \"\\uFFFD\"",
+      "rule": "OutputIsWellFormed: a control character XML cannot hold is written as U+FFFD. RoundTrips draws only texts XML holds, so it still holds.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-control-character-read",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\t\t\tif c < 0x20 && c != '\\t' && c != '\\n' && c != '\\r' {\n\t\t\t\treturn At(text, i, \"a control character\")",
+      "to": "\t\t\tif c < 0x01 && c != '\\t' && c != '\\n' && c != '\\r' {\n\t\t\t\treturn At(text, i, \"a control character\")",
+      "rule": "ControlCharacterIsRejectedWhereItIs: XML holds no control character but tab, line feed and carriage return. Encode never writes one.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "xml-unended-tag-past-the-text",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/parser.ergo",
+      "from": "\tAt(p.text, len(p.text), \"the start tag <\"+name+\" does not end\")",
+      "to": "\tAt(p.text, len(p.text)+1, \"the start tag <\"+name+\" does not end\")",
+      "rule": "TruncationIsRejectedInsideTheText: a document cut inside a start tag fails at an offset inside the text it was given.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "catalog-draft-not-retirable",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/catalog/catalog.ergo",
+      "from": "\tcase (Draft, Retire), (Listed, Retire), (SoldOut, Retire):\n\t\tEnter[Status]{Next: Retired}\n",
+      "to": "\tcase (Listed, Retire), (SoldOut, Retire):\n\t\tEnter[Status]{Next: Retired}\n\tcase (Draft, Retire):\n\t\tReject\n",
+      "rule": "Listing.AlwaysRetirable: every listing the shop can reach, a draft too, can be retired.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    },
+    {
+      "name": "catalog-feed-too-shallow",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xmlfeed/feed.ergo",
+      "from": "MaxBytes: 64 << 20, MaxDepth: 64}",
+      "to": "MaxBytes: 64 << 20, MaxDepth: 3}",
+      "rule": "Feed.ReadsBack: the feed reads every catalog it publishes, whose items' tags nest five elements deep.",
+      "anchor": {"tests": ["examples:catalog"]},
+      "killers": ["examples:catalog"]
+    }
+  ]
+}

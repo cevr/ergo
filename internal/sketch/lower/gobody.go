@@ -108,7 +108,7 @@ func madeValue(x ast.Expr) bool {
 		// taken for has ended (the body that puts it back says so), so no
 		// binding reaches it. The form is read, not the method's name: in
 		// runtime/v1 (reviewed code) only a sync.Pool's Get takes it
-		// (JSONTake).
+		// (StringsBorrow).
 		lit, ok := x.High.(*ast.BasicLit)
 		if x.Low != nil || x.Max != nil || !ok || lit.Value != "0" {
 			return false

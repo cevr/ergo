@@ -12,7 +12,9 @@ import (
 // function whose body is a straight line of calls of the provider's
 // functions on the same receiver is the same as that line: the call is
 // replaced by it, and no law is needed for that. Each call of the line
-// passes a parameter of the function or a constant. An `if` whose
+// passes a parameter of the function, a constant, or an expression the
+// check-time evaluator folds from the call's constant arguments (a pure
+// function of them, computed once at build time). An `if` whose
 // condition the check-time evaluator folds to a constant from the call's
 // constant arguments is its taken arm; any other `if` (one that reads the
 // provider's state, or an argument that is not constant), and any other
@@ -113,7 +115,15 @@ func straightLine(f *check.Func, binds map[*check.Var]rwArg, consts map[*check.V
 				}
 				aid, ok := unparen(a).(*syntax.Ident)
 				if !ok {
-					return false
+					// A computed argument is its value when the evaluator
+					// folds it from the call's constants, as a condition
+					// is: `head(3, uint64(len(s)))` at s = "id" passes 2.
+					v, why := eval.Fold(f.Pkg, f.Decl, a, consts, rewriteFoldBudget)
+					if why != "" || v == nil {
+						return false
+					}
+					next.args = append(next.args, rwArg{c: v})
+					continue
 				}
 				p, ok := info.Uses[aid].(*check.Var)
 				if !ok {

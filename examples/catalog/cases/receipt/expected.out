@@ -1,0 +1,2 @@
+xml  428 bytes, 2 allocations per encode, 11 per decode (2 products)
+json 275 bytes, 1 allocations per encode, 37 per decode (2 products)

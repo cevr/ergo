@@ -20,8 +20,8 @@ import (
 //     "NaN", "Infinity" and "-Infinity"; a string with '"', '\' and the
 //     control bytes escaped (\n, \r and \t by name, the others \u00XX),
 //     U+2028 and U+2029 as escapes, each byte of invalid UTF-8 as \udcXX,
-//     and when html <, > and & as \u003c, \u003e and \u0026; take is an
-//     empty buffer and recycle gives its buffer back unchanged;
+//     and when html <, > and & as \u003c, \u003e and \u0026; the text is
+//     bytesText (std strings' Borrow, Give and Hint keep no pool here);
 //   - open checks the whole text (phase 1) and fails Malformed at the
 //     first byte that breaks a rule; it parses the text into a tree once,
 //     and a Cursor walks the tree.
@@ -31,26 +31,20 @@ func init() {
 	natives["json.appendUint"] = jsonAppend(func(args []Value) string { return strconv.FormatUint(args[0].(uint64), 10) })
 	natives["json.appendBool"] = jsonAppend(func(args []Value) string { return strconv.FormatBool(args[0].(bool)) })
 	natives["json.appendFloat"] = jsonAppend(func(args []Value) string { return jsonFloat(args[0].(float64)) })
-	natives["json.take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	natives["json.bytesText"] = bytesText
+	// std strings' borrowed buffer (NOPRIV-JSON): the evaluator keeps no
+	// pool, so Hint is no hint, Borrow an empty buffer and Give its buffer
+	// unchanged; builderText is FromBytes' copy.
+	natives["strings.Hint"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return int64(0), in.charge(fr, at, 1)
+	}
+	natives["strings.Borrow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return newSlice(nil), in.charge(fr, at, 1)
 	}
-	natives["json.recycle"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	natives["strings.Give"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return args[0], in.charge(fr, at, 1)
 	}
-	natives["json.bytesText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		sl, ok := args[0].(sliceV)
-		out, known := "", ok
-		if ok {
-			out, known = byteString(sl)
-		}
-		if !known {
-			return nil, fr.unsupported(at, "%s of bytes the evaluator does not hold", fn.Name)
-		}
-		if ab := in.charge(fr, at, 1+int64(len(out))); ab != nil {
-			return nil, ab
-		}
-		return out, in.allocate(fr, at, int64(len(out)))
-	}
+	natives["strings.builderText"] = bytesText
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
@@ -65,6 +59,22 @@ func init() {
 		}
 		return &jsonCursor{root: root}, nil
 	}
+}
+
+// bytesText is the text of a buffer of bytes the evaluator holds.
+func bytesText(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	sl, ok := args[0].(sliceV)
+	out, known := "", ok
+	if ok {
+		out, known = byteString(sl)
+	}
+	if !known {
+		return nil, fr.unsupported(at, "%s of bytes the evaluator does not hold", fn.Name)
+	}
+	if ab := in.charge(fr, at, 1+int64(len(out))); ab != nil {
+		return nil, ab
+	}
+	return out, in.allocate(fr, at, int64(len(out)))
 }
 
 // jsonAppend is the native of an appender of std json's Text: its buffer,

@@ -1,0 +1,192 @@
+// Package catalog is a shop's product catalog and the feed it publishes:
+// the products, each listing's status as a machine, and Feed, the
+// contract a feed's format keeps. It is pure, and names no format: the
+// binary chooses one (cmd/catalog binds xmlfeed's).
+
+import machines
+import strconv
+
+// Catalog is a shop's products, in the order the shop lists them.
+type Catalog { Shop string, Products []Product }
+
+// Product is one product: its price in cents, its listing's status, the
+// units in stock and its tags.
+type Product { Sku string, Title string, Cents int64, Status Status, Stock int, Tags []string }
+
+// Status is where a product's listing is.
+type Status = Draft{} | Listed{} | SoldOut{} | Retired{}
+
+// Event is what the shop does to a listing.
+type Event = Publish{} | SellOut{} | Restock{} | Retire{}
+
+// Step is the listing: a draft is published; a listed product sells out
+// and is restocked; any listing is retired, after which it takes no
+// event. A repeated event is ignored. The match names every pair, so a
+// new status or event stops the build until its row is written.
+func Step(s Status, e Event) Decision[Status, Status] {
+	match (s, e) {
+	case (Draft, Publish):
+		Enter[Status]{Next: Listed}
+	case (Draft, SellOut), (Draft, Restock):
+		Reject
+	case (Listed, Publish), (Listed, Restock):
+		Ignore
+	case (Listed, SellOut):
+		Enter[Status]{Next: SoldOut}
+	case (SoldOut, Restock):
+		Enter[Status]{Next: Listed}
+	case (SoldOut, SellOut):
+		Ignore
+	case (SoldOut, Publish):
+		Reject
+	case (Draft, Retire), (Listed, Retire), (SoldOut, Retire):
+		Enter[Status]{Next: Retired}
+	case (Retired, Publish), (Retired, SellOut), (Retired, Restock), (Retired, Retire):
+		Reject
+	}
+}
+
+// Listing is a listing's life as a machine. Its states and events can be
+// listed, so ergo test decides its laws on the whole graph.
+type Listing machine[Status, Event] {
+	initial: Draft,
+	step:    Step,
+
+	// AlwaysRetirable: every listing the shop can reach can be retired.
+	law AlwaysRetirable always retirable,
+
+	// Ends: some run of events retires a listing.
+	law Ends sometimes Final,
+}
+
+// Final reports whether s takes no event.
+func Final(s Status) bool {
+	match s {
+	case Retired:
+		true
+	case Draft, Listed, SoldOut:
+		false
+	}
+}
+
+// retirable reports whether s is final, or Retire moves it to Retired.
+func retirable(s Status) bool {
+	if Final(s) {
+		return true
+	}
+	match machines.Next(s, Step(s, Retire)) {
+	case Retired:
+		true
+	case Draft, Listed, SoldOut:
+		false
+	}
+}
+
+// Run is the status a listing reaches from a draft by events, each one
+// the machine rejects left out.
+func Run(events []Event) Status {
+	let mut s Status = Draft
+	for e in events {
+		s = machines.Next(s, Step(s, e))
+	}
+	s
+}
+
+// Name is the external name of s.
+func Name(s Status) string {
+	match s {
+	case Draft:
+		"draft"
+	case Listed:
+		"listed"
+	case SoldOut:
+		"sold out"
+	case Retired:
+		"retired"
+	}
+}
+
+// Sample is a catalog of n products, each listing taken through a few
+// events, so every status and both kinds of title text appear.
+func Sample(n int) Catalog {
+	let mut products = []Product{}
+	for i in 0..n {
+		let events = match i % 4 {
+		case 0:
+			[]Event{Publish}
+		case 1:
+			[]Event{Publish, SellOut}
+		case 2:
+			[]Event{Publish, SellOut, Restock}
+		case _:
+			[]Event{Retire}
+		}
+		let status = Run(events)
+		let stock = match status {
+		case Listed:
+			10 + i%7
+		case Draft, SoldOut, Retired:
+			0
+		}
+		products = products.Append(Product{
+			Sku:    "SKU-" + strconv.Itoa(1000+i),
+			Title:  if i%3 == 0 { "Mug & saucer <set of " + strconv.Itoa(2+i%4) + ">" } else { "Notebook no. " + strconv.Itoa(i) },
+			Cents:  int64(250 + i*37%9000),
+			Status: status,
+			Stock:  stock,
+			Tags:   if i%2 == 0 { []string{"kitchen", "gift"} } else { []string{"paper"} },
+		})
+	}
+	Catalog{Shop: "Corner Shop", Products: products}
+}
+
+// Unreadable is a feed the format cannot read: where (its line and
+// column, from 1, or 0 when it is not a place in the text), the value's
+// path when the text is well formed but not a catalog, and why.
+type Unreadable { Line int, Column int, Path string, Reason string }
+
+// Feed is a catalog's published form.
+type Feed {
+	// Publish is c's feed.
+	Publish(c Catalog) string,
+	// Read is the catalog a feed holds.
+	Read(text string) Catalog fails Unreadable,
+
+	// ReadsBack: a published catalog reads back, and the catalog read
+	// back publishes as a feed that reads back as itself. (A format may
+	// replace a character it cannot hold, so the first read back is the
+	// catalog as the format holds it.)
+	law ReadsBack(c Catalog) {
+		let back = Read(Publish(c)) catch {
+		case Unreadable:
+			return false
+		}
+		let again = Read(Publish(back)) catch {
+		case Unreadable:
+			return false
+		}
+		again == back
+	},
+}
+
+// Counts is how many of a catalog's products are in each status.
+type Counts { Draft int, Listed int, SoldOut int, Retired int, Units int }
+
+// Count is c's counts, and the units of its listed products.
+func Count(c Catalog) Counts {
+	let mut n = Counts{Draft: 0, Listed: 0, SoldOut: 0, Retired: 0, Units: 0}
+	for p in c.Products {
+		match p.Status {
+		case Draft:
+			n.Draft = n.Draft + 1
+		case Listed:
+			n.Listed = n.Listed + 1
+			n.Units = n.Units + p.Stock
+		case SoldOut:
+			n.SoldOut = n.SoldOut + 1
+		case Retired:
+			n.Retired = n.Retired + 1
+		}
+	}
+	n
+}

@@ -202,11 +202,7 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
-        ]
-      }
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-adopt-unseen",
@@ -218,11 +214,7 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
-        ]
-      }
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-law-drops-child-output",
@@ -233,12 +225,9 @@
       "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-open-unchecked",
@@ -265,12 +254,9 @@
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-start-unchecked",
@@ -281,12 +267,9 @@
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-sibling-unchecked",
@@ -297,12 +280,9 @@
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-orphan-unchecked",
@@ -329,12 +309,9 @@
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
         "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
-        ]
-      }
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x8-name-unregistered",
@@ -605,6 +582,12 @@
     {"name": "stdsh-owned-text", "origin": "wf10/STD-sh r2", "file": "runtime/v1/owned.go", "from": "unsafe.SliceData(buf), len(buf))", "to": "unsafe.SliceData(buf), len(buf)/2)", "rule": "types.md Bindings 2 (consumed arguments): the owned form gives the text StringsBuilderText gives.", "killers": ["runtime/v1:TestStdRunesMatchGo"]},
     {"name": "stdsh-owned-shape", "origin": "wf10/STD-sh r2", "file": "runtime/v1/files.go", "from": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) || len(a.Params) != len(b.Params) {\n", "to": "\tif !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) {\n", "rule": "runtime/v1 Body.Owned: an owned form has the body's shape.", "killers": ["runtime/v1:TestBodyOwnedForm"]},
     {"name": "stdsh-owned-directive", "origin": "wf10/STD-sh r2", "file": "runtime/v1/files.go", "from": "\t\t*f.to = form\n", "to": "\t\t_ = form\n", "rule": "runtime/v1 Body.Owned: the directive names the owned form the lowering calls.", "killers": ["runtime/v1:TestBodyOwnedForm", "lower:TestValueRuleElides"]},
+    {"name": "npj-give-drops-buffer", "origin": "wf10 REF NOPRIV-JSON", "file": "runtime/v1/buffer.go", "from": "\tswitch c := cap(b); {\n\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tswitch c := cap(b); {\n\tcase true:\n", "rule": "Give puts the borrowed array back, so the next writer's Borrow allocates no buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
+    {"name": "hint-give-drops-grown", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tcase c < 1<<10 || c >= 8<<20:\n", "to": "\tcase c < 1<<10 || c >= 8<<10:\n", "rule": "Give keeps an array of any class up to the largest, so a text over the least class reuses its buffer.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "examples:cborpack"]},
+    {"name": "hint-not-recorded", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\t\tp.Store(int64(len(b)))\n", "to": "\t\t_ = p\n", "rule": "Give records its text's length as the hint, so the next Borrow, after a GC too, takes a buffer that holds it.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint", "examples:cborpack"]},
+    {"name": "hint-ignored-by-borrow", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\t\tn = p.Load()\n", "to": "\t\t_ = p\n", "rule": "Borrow takes the least class that holds the hint, not the least class.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint", "examples:cborpack"]},
+    {"name": "hint-shared-across-types", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tk := any(bufferHint[W, T]{})\n", "to": "\tk := any(bufferHint[W, W]{})\n", "rule": "Each pair of a writer type and a value type has its own hint: a small text of one type does not shrink another's buffer.", "killers": ["runtime/v1:TestBorrowAfterGCTakesItsHint"]},
+    {"name": "hint-class-too-small", "origin": "wf10 REF NOPRIV-HINT", "file": "runtime/v1/buffer.go", "from": "\tcase n <= 64<<10:\n\t\treturn buffers64K.Get().(*[64 << 10]byte)[:0]\n", "to": "\tcase n <= 64<<10:\n\t\treturn buffers32K.Get().(*[32 << 10]byte)[:0]\n", "rule": "Borrow's array holds the hint: one of a smaller class regrows by append.", "killers": ["runtime/v1:TestBorrowedBufferIsReused", "runtime/v1:TestBorrowAfterGCTakesItsHint"]},
     {"name": "sb2-appendfrom-bytewise", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\t\tk := min(n, len(buf)-start)\n", "to": "\t\tk := min(n, 1)\n", "rule": "stdlib.md strings 11: an overlapping WriteFrom copies whole runs, doubling, not byte by byte.", "killers": ["runtime/v1:TestBuilderAppendFromCounts"]},
     {"name": "sb2-appendfrom-held-loop", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\tif end := start + n; end <= len(buf) {\n", "to": "\tif end := start + n; false && end <= len(buf) {\n", "rule": "stdlib.md strings 11: a run the text holds already is one compare and one append, as hand Go.", "killers": ["runtime/v1:TestBuilderAppendFromCounts"]},
     {"name": "sb2-appendfrom-unchecked", "origin": "wf10 SB2", "file": "runtime/v1/text.go", "from": "\t_ = buf[start]\n\tfor n > 0 && start < len(buf) {\n", "to": "\tfor n > 0 && start < len(buf) {\n", "rule": "stdlib.md strings 11: a start at or past the text's end with a count above 0 is a defect, not a silent no-op.", "killers": ["runtime/v1:TestBuilderAppendFromIsADefect"]},
