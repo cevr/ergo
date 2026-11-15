@@ -129,7 +129,89 @@ func (fc *funcCtx) leaves(list []syntax.Stmt) bool {
 // rename when the body has a function literal, which could keep X past
 // the body, or a key or label spelled X, and it renames no field or
 // method spelled X.
+//
+// renameTail first reads the body's last line alone (tailMayAssign), and
+// scans the whole body only when the last statement can be "res = X":
+// most inlined bodies end otherwise, and the scan of each was 10 % of
+// the lowering's bytes (SL9b, LW1).
 func renameTail(body, res, resType string, iface bool) (string, bool) {
+	if !tailMayAssign(body, res) {
+		return body, false
+	}
+	return renameTailScan(body, res, resType, iface)
+}
+
+// tailMayAssign reports false only when body's last statement is not
+// "res = X" by renameTailScan's test: its last four tokens are not res, =,
+// an identifier and a semicolon. Without a raw string or a block comment
+// no token spans two lines, so each line scans alone as it does in the
+// whole body, and its last token decides its implied semicolon. The last
+// line with a token is read: four or more tokens hold the last four; two
+// (X;) can follow a line "res ="; three (A X;) cannot complete "res = X",
+// since a line that ends with res ends its statement there. A body with
+// a block comment is not judged here, nor one whose last line does not
+// scan alone: the line that closes a raw string is such a line.
+func tailMayAssign(body, res string) bool {
+	if strings.Contains(body, "/*") {
+		return true
+	}
+	rest := strings.TrimRight(body, "\n")
+	for rest != "" {
+		line := rest
+		if i := strings.LastIndexByte(rest, '\n'); i >= 0 {
+			line, rest = rest[i+1:], rest[:i]
+		} else {
+			rest = ""
+		}
+		toks, ok := lineTokens(line)
+		if !ok {
+			return true
+		}
+		if len(toks) == 0 {
+			continue
+		}
+		n := len(toks)
+		switch {
+		case n == 2:
+			return toks[0].tok == token.IDENT && toks[1].tok == token.SEMICOLON
+		case n >= 4:
+			return toks[n-1].tok == token.SEMICOLON && toks[n-2].tok == token.IDENT && toks[n-3].tok == token.ASSIGN && toks[n-4].tok == token.IDENT && toks[n-4].lit == res
+		}
+		return false
+	}
+	return false
+}
+
+type lineTok struct {
+	tok token.Token
+	lit string
+}
+
+// lineTokens are the tokens of one line of Go, comments left out, and
+// whether it scanned with no error.
+func lineTokens(line string) ([]lineTok, bool) {
+	fset := token.NewFileSet()
+	src := []byte(line)
+	file := fset.AddFile("", fset.Base(), len(src))
+	ok := true
+	var s scanner.Scanner
+	s.Init(file, src, func(token.Position, string) { ok = false }, 0)
+	var out []lineTok
+	for {
+		_, t, lit := s.Scan()
+		if t == token.EOF {
+			break
+		}
+		if t == token.ILLEGAL {
+			ok = false
+		}
+		out = append(out, lineTok{t, lit})
+	}
+	return out, ok
+}
+
+// renameTailScan is renameTail's scan of the whole body.
+func renameTailScan(body, res, resType string, iface bool) (string, bool) {
 	fset := token.NewFileSet()
 	src := []byte(body)
 	file := fset.AddFile("", fset.Base(), len(src))
