@@ -1,0 +1,93 @@
+// The long poll's tests call Handle directly on a VirtualClock: through
+// rpc.Loopback the call is a wait no test clock sees.
+
+import lease-sync/domain
+import lease-sync/lease
+import lease-sync/replica
+import rpc
+import tasks
+import testing
+import time
+
+type LeaseServer = Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
+type LeaseFrame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
+
+// codec is the lease pool's wire form, as replica/rpc's Codec writes it.
+func codec() Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
+	Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{
+		WritePush:  func(p Pushed[lease.Cmd]) string { rpc.Encode(p) },
+		ReadPush:   func(text string) Pushed[lease.Cmd] fails rpc.Transport { try rpc.Decode[Pushed[lease.Cmd]]("command", text) },
+		WriteFrame: func(f LeaseFrame) string { rpc.Encode(f) },
+		ReadFrame:  func(text string) LeaseFrame fails rpc.Transport { try rpc.Decode[LeaseFrame]("frame", text) },
+	}
+}
+
+func anyone(_ replica.ClientID) bool { true }
+
+// pull is a Pull call of std rpc on s, read back as a frame; a failure is
+// None.
+func pull(s LeaseServer, by string, from int, wait bool) Option[LeaseFrame] needs Scheduler | time.Clock {
+	let text = Handle(s, codec(), anyone, 30s, "Pull", rpc.Encode(Pulling{By: replica.ClientID(by), From: from, Wait: wait})) catch {
+	case rpc.Failed:
+		return None
+	}
+	let f = rpc.Decode[LeaseFrame]("frame", text) catch {
+	case rpc.Transport:
+		return None
+	}
+	Some[LeaseFrame]{Value: f}
+}
+
+func push(s LeaseServer, origin string, seq int, name string) bool needs Scheduler | time.Clock {
+	let p = Pushed[lease.Cmd]{ID: replica.IDOf(replica.ClientID(origin), seq), By: origin, Command: lease.Take{Name: name}}
+	let _ = Handle(s, codec(), anyone, 30s, "Push", rpc.Encode(p)) catch {
+	case rpc.Failed:
+		return false
+	}
+	true
+}
+
+let nothing = replica.Delta[lease.Event, lease.Refusal]{From: 0, Records: []domain.Recorded[replica.Fact[lease.Event, lease.Refusal]]{}}
+
+// LongPollHolds: a pull that asks to wait, with nothing new, is held until
+// the wait passes and is then an empty delta; a push during the hold
+// answers it at once, with the record; a pull that does not ask to wait,
+// or that has something new, is answered at once.
+test LongPollHolds {
+	let c = testing.NewVirtualClock(0)
+	let s = Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](leases, Facts, 8)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = c.Now()
+		assert pull(s, "a", 0, false) == Some[LeaseFrame]{Value: nothing}
+		assert c.Now() == start
+		assert pull(s, "a", 0, true) == Some[LeaseFrame]{Value: nothing}
+		assert c.Now().Sub(start) == 30s
+		let held = c.Now()
+		let got = tasks.Transform([]int{0, 1}, 2, func(i int) Option[LeaseFrame] {
+			if i == 1 {
+				Scheduler.Sleep(5s)
+				if push(s, "a", 1, "build") {
+					return None
+				}
+				return Some[LeaseFrame]{Value: nothing}
+			}
+			pull(s, "b", 0, true)
+		})
+		assert c.Now().Sub(held) == 5s
+		assert got[1] == None
+		match got[0] {
+		case Some[LeaseFrame] as f:
+			match f.Value {
+			case replica.Delta[lease.Event, lease.Refusal] as d:
+				assert len(d.Records) == 1
+			case replica.Snapshot[lease.Pool, lease.Refusal]:
+				assert false
+			}
+		case None:
+			assert false
+		}
+		let before = c.Now()
+		assert pull(s, "a", 0, true) != Some[LeaseFrame]{Value: nothing}
+		assert c.Now() == before
+	}
+}

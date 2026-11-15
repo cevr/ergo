@@ -13,8 +13,10 @@ import lease-sync/domain
 import lease-sync/domain/memory
 import lease-sync/lease
 import lease-sync/replica
+import queue
 import sync
 import time
+import timeout
 
 // stream is the name of the source's stream in its log.
 let stream = "source"
@@ -36,8 +38,13 @@ type Server[S any, C comparable, E comparable, F comparable, R] {
 	src    replica.Source[S, C, E, R],
 	decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F],
 	book   sync.Ref[Book[S, C, E, F]],
+	bells  sync.Ref[Bells],
 	Tail   int,
 }
+
+// Bells is the long polls that wait for the log to grow: one queue each,
+// which the next push that keeps a record rings once.
+type Bells { Next int, Waiting Map[int, queue.Queue[int]] }
 
 // Start is the authority of src with an empty log. decide is src's
 // Decide with its failure as the fact Refused (Facts, written where the
@@ -46,7 +53,7 @@ type Server[S any, C comparable, E comparable, F comparable, R] {
 // function cannot make the fact itself (a gap of RP1).
 func Start[S any, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide escaping func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
 	let empty = memory.Book[replica.Fact[E, F]]{Streams: Map[string, []domain.Recorded[replica.Fact[E, F]]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
-	Server[S, C, E, F, R]{src: src, decide: decide, book: sync.NewRef(Book[S, C, E, F]{Log: empty, State: src.Initial, Commands: Map[domain.CommandID, C]{}}), Tail: tail}
+	Server[S, C, E, F, R]{src: src, decide: decide, book: sync.NewRef(Book[S, C, E, F]{Log: empty, State: src.Initial, Commands: Map[domain.CommandID, C]{}}), bells: sync.NewRef(Bells{Next: 0, Waiting: Map[int, queue.Queue[int]]{}}), Tail: tail}
 }
 
 // Answer is what a push did: kept the command's record, answered a
@@ -130,6 +137,7 @@ func Push[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, 
 	let a = sync.Modify(s.book, func(b Book[S, C, E, F]) (Answer, Book[S, C, E, F]) { Decide(s.src, s.decide, b, stamped) })
 	match a {
 	case Kept as k:
+		ring(s.bells)
 		k.Receipt
 	case Again as g:
 		g.Receipt
@@ -146,6 +154,36 @@ func Push[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, 
 // range it skips.
 func Pull[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int) replica.Frame[S, E, F] {
 	Frame(s.book.Get(), by, from, s.Tail)
+}
+
+// Await is Pull, but while the log holds nothing after from it waits
+// until a push keeps a record or the time limit passes: the long poll.
+// It registers its bell before it reads the log, and a push rings after
+// it keeps its record, so a record kept while Await starts is never
+// missed. A pull from anywhere else is answered at once.
+func Await[S any, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs Scheduler {
+	let bell = queue.New[int](1)
+	let id = sync.Modify(s.bells, func(b Bells) (int, Bells) { (b.Next, Bells{Next: b.Next + 1, Waiting: b.Waiting.Put(b.Next, bell)}) })
+	if len(Records(s)) == from {
+		let _ = timeout.After(limit, func() int fails queue.Closed { bell.Pop() }) catch {
+		case timeout.Expired, queue.Closed:
+			0
+		}
+	}
+	s.bells.Update(func(b Bells) Bells { Bells{..b, Waiting: b.Waiting.Delete(id)} })
+	Pull(s, by, from)
+}
+
+// ring wakes every waiting long poll once: each bell leaves the set as it
+// is rung, so a full bell is never pushed again.
+func ring(bells sync.Ref[Bells]) {
+	let waiting = sync.Modify(bells, func(b Bells) (Map[int, queue.Queue[int]], Bells) { (b.Waiting, Bells{..b, Waiting: Map[int, queue.Queue[int]]{}}) })
+	for bell in waiting {
+		bell.Push(1) catch {
+		case queue.Closed:
+			continue
+		}
+	}
 }
 
 // Frame is the pull of by from from on b, with a delta tail of tail.
