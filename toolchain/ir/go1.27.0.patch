@@ -558,10 +558,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..8611127
+index 0000000..08717af
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,406 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -571,6 +571,8 @@ index 0000000..8611127
 +package noder
 +
 +import (
++	"go/constant"
++
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
@@ -828,7 +830,13 @@ index 0000000..8611127
 +		fun.SetTypeInfo(tv)
 +		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{xs}}
 +		call.SetPos(pos)
-+		ergoValue(call, types2.Typ[types2.Int], nil)
++		// Go's len of a constant string is a constant (its bytes), as the
++		// printed text compiles it.
++		var n constant.Value
++		if v := ergoConstOf(xs); v != nil && v.Kind() == constant.String {
++			n = constant.MakeInt64(int64(len(constant.StringVal(v))))
++		}
++		ergoValue(call, types2.Typ[types2.Int], n)
 +		return call, types2.Typ[types2.Int]
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
