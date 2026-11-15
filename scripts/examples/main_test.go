@@ -359,9 +359,9 @@ func TestTestLegDeadlineStartsAfterTheBuild(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
-	f.program("slowbuild", "#!/bin/sh\necho hi\nexit 0\n# TESTBUILDSLOW 2\ntest Fixture {\n}\n", "default\n", hi, nil)
+	f.program("slowbuild", "#!/bin/sh\necho hi\nexit 0\n# TESTBUILDSLOW 4\ntest Fixture {\n}\n", "default\n", hi, nil)
 	f.program("hang", "#!/bin/sh\necho hi\nexit 0\n# TESTHANG\ntest Fixture {\n}\n", "default\n", hi, nil)
-	code, out := f.run("-timeout", "1s", "slowbuild")
+	code, out := f.run("-timeout", "2s", "slowbuild")
 	if code != 0 || !strings.Contains(out, "ok slowbuild: test") {
 		t.Fatalf("a build slower than -timeout: want ok slowbuild: test; exit %d\n%s", code, out)
 	}

@@ -34,6 +34,7 @@ internal/closure/sandbox_linux_test.go	collectChildren	the poll interval of the 
 
 # the timeout under test: the runner's -timeout is the subject, and the case
 # sleeps caseLife, so load cannot end it first
+scripts/examples/main_test.go	TestTestLegDeadlineStartsAfterTheBuild	-timeout is the deadline under test: a fake build twice as long as it passes (the leg after the build is one grep and one echo), and a leg that sleeps caseLife after its build is stopped by -timeout 1s
 scripts/examples/main_test.go	TestCaseProcessGroupIsStopped	-timeout 1s is the timeout under test; the case sleeps caseLife
 scripts/examples/stop_test.go	TestEveryExitPathStopsTheGroup	-timeout 2s is the timeout row's subject; the case sleeps caseLife
 
