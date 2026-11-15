@@ -1,0 +1,46 @@
+// Package synth is a Sensors provider: a bank of synthetic sensors whose
+// every sample is a hash of the seed, the source, the frame and the
+// sample's place. A source sends a few samples most frames, a burst past
+// its queue's capacity now and then, and nothing at all for stretches of
+// a second and a half, so panels go stale and queues drop.
+
+import dash/feed
+
+// Bank is the sensors of one seed.
+type Bank { Seed int }
+
+// Burst is how many samples a source sends in a burst: more than its
+// queue holds.
+let Burst = feed.Capacity + 8
+
+// Span is the length in frames of a stretch that is silent or not.
+let Span = 180
+
+// Count is how many samples source sends at frame.
+func Count(b Bank, source int, frame int) int {
+	if hash(b.Seed, source, frame/Span, 1)%4 == 0 {
+		return 0
+	}
+	let h = hash(b.Seed, source, frame, 2) % 100
+	if h < 2 {
+		return Burst
+	}
+	int(h % 3)
+}
+
+// Read is the k-th sample of source at frame: a slow wave and noise,
+// from 0 to 999.
+func Read(b Bank, source int, frame int, k int) int {
+	let wave = ((frame+source*37)%200 + 200) % 200
+	let base = if wave < 100 { wave * 6 } else { (200 - wave) * 6 }
+	let noise = int(hash(b.Seed, source, frame, 3+k) % 400)
+	base + noise
+}
+
+// hash is SplitMix64's finalizer over the four numbers.
+func hash(seed int, a int, b int, c int) uint64 {
+	let mut x = uint64(seed)*0x9E3779B97F4A7C15 ^ uint64(a)*0xBF58476D1CE4E5B9 ^ uint64(b)*0x94D049BB133111EB ^ uint64(c)*0xD6E8FEB86659FD93
+	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9
+	x = (x ^ (x >> 27)) * 0x94D049BB133111EB
+	x ^ (x >> 31)
+}

@@ -1,0 +1,17 @@
+// Package memory is a Shelf provider over catalogue texts held in memory,
+// for tests: a catalogue is named by a key.
+
+import stars/catalog
+
+// Texts holds the catalogues by name.
+type Texts { Catalogues Map[string, string] }
+
+// Text is the catalogue named name.
+func Text(t Texts, name string) string fails catalog.Unreadable {
+	match t.Catalogues.Get(name) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return catalog.Unreadable{Name: name, Reason: "no such catalogue"}
+	}
+}

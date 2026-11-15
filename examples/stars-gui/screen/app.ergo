@@ -1,0 +1,94 @@
+// Package screen is the table's window: the app machine that holds the
+// table, and the view a window shows of it, written once for every ui
+// host (ui.TestHost here; the desktop host at stage c). The rows are a
+// virtual list (ui.Rows), so a pass writes the rows the viewport shows
+// and not the 100,000 rows of the catalogue.
+
+import stars/catalog
+import strings
+
+// Signal is what the view sends the app: a signal of the table (a key, a
+// button), or the new text of the window's text field. A field reports
+// its whole text, and the table takes letters and backspaces, so Retext
+// becomes those (Retyped).
+type Signal = Do{Signal catalog.Signal} | Retext{Text string}
+
+// Opening is what the app starts on: the catalogue and the window's
+// height in rows.
+type Opening { Rows []catalog.Star, Height int }
+
+// Begin is the table over o: the machine's input.
+func Begin(o Opening) catalog.State { catalog.Open(o.Rows, o.Height) }
+
+// Step is the app's transition. A refused edit is not a failure of the
+// app: it is its output, and the table stays as it was, draft and all.
+func Step(s catalog.State, e Signal) Decision[catalog.State, catalog.Refused] {
+	match e {
+	case Do as d:
+		let next = catalog.Step(s, d.Signal) catch {
+		case catalog.Refused as r:
+			return Emit[catalog.State, catalog.Refused]{Next: s, Output: r}
+		}
+		next
+	case Retext as r:
+		match s {
+		case catalog.Browsing:
+			Reject
+		case catalog.Filtering, catalog.Editing:
+			Stay[catalog.State]{Next: Retyped(s, r.Text)}
+		}
+	}
+}
+
+// Typed is the text s is typing: the filter while filtering, the draft
+// while editing, nothing while browsing. It is the window's field.
+func Typed(s catalog.State) string {
+	match s {
+	case catalog.Browsing:
+		""
+	case catalog.Filtering as f:
+		f.G.Filter
+	case catalog.Editing as e:
+		e.Draft
+	}
+}
+
+// Retyped is s after the field's text became text: backspaces until what
+// s typed is a prefix of text, then the rest as one Type. A field that
+// grew by a letter is that letter; one that lost a letter is a backspace.
+func Retyped(s catalog.State, text string) catalog.State {
+	let mut at = s
+	for !strings.HasPrefix(text, Typed(at)) {
+		at = catalog.After(at, catalog.Backspace)
+	}
+	catalog.After(at, catalog.Type{Text: strings.Slice(text, len(Typed(at)), len(text))})
+}
+
+// App is the table as a machine: an actor runs it under the view.
+type App machine[catalog.State, Signal] {
+	initial: Begin,
+	step:    Step,
+}
+
+// RetextIsTyping: a field that grew by text is the table typing text.
+law RetextIsTyping(rows []catalog.Star, signals []catalog.Signal, text string) {
+	let mut s = catalog.Open(rows, 5)
+	for sig in signals {
+		s = catalog.After(s, sig)
+	}
+	Retyped(s, Typed(s)+text) == catalog.After(s, catalog.Type{Text: text})
+}
+
+// RetextIsBackspace: a field that lost its last letter is the table's
+// backspace, while there is a letter to lose.
+law RetextIsBackspace(rows []catalog.Star, signals []catalog.Signal) {
+	let mut s = catalog.Open(rows, 5)
+	for sig in signals {
+		s = catalog.After(s, sig)
+	}
+	if Typed(s) == "" {
+		return true
+	}
+	let back = catalog.After(s, catalog.Backspace)
+	Retyped(s, Typed(back)) == back
+}

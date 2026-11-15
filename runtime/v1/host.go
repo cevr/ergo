@@ -255,7 +255,7 @@ func (m *Mapped) Close() {
 	rt.MapUnregister(m.id)
 	data := m.data
 	m.data, m.text = nil, ""
-	_ = syscall.Munmap(data)
+	fsUnmap(data)
 }
 
 // FSMapFile is the body of fs.MapFile: the Mapped of the whole file at
@@ -292,7 +292,7 @@ func FSMapFile(path string) (*Mapped, error) {
 	if int64(int(size)) != size {
 		return nil, Failed{Path: path, Reason: "file too large"}
 	}
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := fsMap(f, int(size))
 	if err != nil {
 		return nil, Failed{Path: path, Reason: err.Error()}
 	}

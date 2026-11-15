@@ -224,8 +224,8 @@
       "name": "pace-not-started",
       "origin": "wf10/ir-guarantees/PACE1",
       "file": "runtime/v1/exit.go",
-      "from": "\tstartPace()\n\treturn report(",
-      "to": "\treturn report(",
+      "from": "\tstartPace()\n\tstatus := report(",
+      "to": "\tstatus := report(",
       "rule": "Emitted main paces the program's heap",
       "killers": ["runtime/v1:TestMainPacesTheHeap"]
     }

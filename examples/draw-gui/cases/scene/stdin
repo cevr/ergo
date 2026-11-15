@@ -1,0 +1,32 @@
+# the window on ui.TestHost over a saved picture: pointer events on the
+# picture, toolbar presses, the Escape key, a label on no button, and a
+# screenshot with the canvas's paint list
+show
+tool rect
+layer 2
+down 100 400
+move 160 440
+up 160 440
+tool ellipse
+down 300 450
+move 340 470
+shot
+up 340 470
+tool select
+down 10 308
+move 40 320
+escape
+up 40 320
+down 0 0
+move 800 600
+up 800 600
+show
+shot
+zoom 200
+shot
+pan 100 0
+zoom 133
+layer 7
+delete
+show
+shot
