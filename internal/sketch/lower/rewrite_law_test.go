@@ -82,6 +82,12 @@ type rwType struct {
 	name, prov string
 	c, d       int64
 	laws       []rwLaw
+	// ctx is a named context that binds the type to the provider of the
+	// type at index under (types.md Laws 10): each law of the type runs
+	// under it too, on that provider. entry is the entry's form
+	// (entryText).
+	ctx          string
+	under, entry int
 }
 
 func (o rwOp) text() string {
@@ -409,7 +415,21 @@ func genRwTypes(rng *rand.Rand) []rwType {
 			t.laws = append(t.laws, randomLaw(rng, rwName(rng, "R")))
 		}
 	}
+	for i := range out {
+		out[i].ctx, out[i].under, out[i].entry = rwName(rng, "X"), rng.Intn(len(out)), i%2
+	}
 	return out
+}
+
+// entryText is the context's entry for t: a call of the provider's
+// constructor, or a package let that holds one provider for every build.
+// The second does not run: its two sides would share the provider
+// (rw-context-shared-runs).
+func (t rwType) entryText(types []rwType) string {
+	if t.entry == 1 {
+		return "shared" + t.ctx
+	}
+	return "New" + types[t.under].prov + "()"
 }
 
 func rwProgram(types []rwType) string {
@@ -417,6 +437,12 @@ func rwProgram(types []rwType) string {
 	b.WriteString("import sync\n\nfunc spot(k int) int {\n\tif k == " + strconv.Itoa(rwSpot) + " {\n\t\treturn 1\n\t}\n\t0\n}\n\n")
 	for _, t := range types {
 		b.WriteString(t.source())
+	}
+	for _, t := range types {
+		if t.entry == 1 {
+			fmt.Fprintf(&b, "let shared%s = New%s()\n\n", t.ctx, types[t.under].prov)
+		}
+		fmt.Fprintf(&b, "let %s = context { %s: %s }\n\n", t.ctx, t.name, t.entryText(types))
 	}
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
@@ -427,8 +453,15 @@ func rwProgram(types []rwType) string {
 // every state the guard admits, refuted otherwise, and refuted by an
 // injected site instance at the one constant where it is false. The anchor
 // laws of each type pin the continuation, the drawn prefix, the guard and
-// the site instances; the random laws reach the rest. ERGO_REWRITE_SEED
-// replays a seed.
+// the site instances; the random laws reach the rest. Each type has a
+// named context that binds it to a drawn provider, so each law also runs
+// under the context, and its verdict there is that provider's
+// (mutant rw-context-calls-law-func: a rewrite law under a context calls
+// a law function that does not exist, and the build fails), unless the
+// context's entry is a let that holds one provider for both sides, which
+// is a skip (rw-context-shared-runs: the sides share it, and a true law is
+// refuted).
+// ERGO_REWRITE_SEED replays a seed.
 //
 // It builds Go because a rewrite law runs only in the built test binary:
 // its providers keep their state in a sync.Ref, a Go body that check-time
@@ -478,21 +511,40 @@ func TestRewriteLawVerdicts(t *testing.T) {
 	for _, line := range verdicts(stdout) {
 		for _, kind := range []struct{ prefix, verdict string }{{"ok law ", "tested"}, {"FAIL law ", "refuted"}, {"skip law ", "skipped"}} {
 			if rest, ok := strings.CutPrefix(line, kind.prefix); ok {
-				title, prov, _ := strings.Cut(rest, " for ")
+				sep := " for "
+				if !strings.Contains(strings.SplitN(rest, " (", 2)[0], sep) {
+					sep = " under "
+				}
+				title, prov, _ := strings.Cut(rest, sep)
 				prov, _, _ = strings.Cut(prov, " ")
 				prov, _, _ = strings.Cut(prov, ":")
-				got[title+" for "+prov] = kind.verdict
+				got[title+sep+prov] = kind.verdict
 			}
 		}
 	}
 	// Every provider implements every type, so each law runs against
 	// each: the provider's constants decide the reference verdict.
+	// Each law also runs under its type's named context, on the provider
+	// the context binds: the run's verdict is that provider's.
 	for _, ty := range types {
 		for _, l := range ty.laws {
+			type run struct {
+				title string
+				p     rwType
+			}
+			var runs []run
 			for _, p := range types {
+				runs = append(runs, run{ty.name + "." + l.name + " for " + p.prov, p})
+			}
+			runs = append(runs, run{ty.name + "." + l.name + " under " + ty.ctx, types[ty.under]})
+			for _, run := range runs {
+				p := run.p
 				prov := rwType{c: p.c, d: p.d}
 				want, _ := prov.verdict(l)
-				title := ty.name + "." + l.name + " for " + p.prov
+				title := run.title
+				if strings.Contains(title, " under ") && ty.entry == 1 {
+					want = "skipped"
+				}
 				// A false law the runner's cases tell apart too rarely
 				// (detects) may be tested; a guard its cases rarely admit
 				// may be a skip. Never may a true law be refuted.

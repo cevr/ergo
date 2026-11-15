@@ -229,6 +229,9 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 // The packages' own checks are the reference. It runs in process: check
 // builds no Go. A failing seed prints the program and the replay command.
 func TestModuleCheckMatchesEachPackage(t *testing.T) {
+	// Both runs evaluate every law: with the verdict store on, the shared
+	// check would report as cached what each package's check stored.
+	t.Setenv("ERGO_LAWCACHE", "off")
 	reached := map[string]bool{}
 	for _, seed := range []uint64{3, 11, 42, 7, 23, 58} {
 		m := writeOneModule(t, seed)

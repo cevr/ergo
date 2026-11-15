@@ -114,7 +114,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	names := ledgerNames(a)
 	var fresh []lower.LedgerEntry
 	if lower.NewLedgerEvidence(unit.Package, names, nil).HasRules() {
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
 		if err != nil {
 			return 0, err
 		}
@@ -281,7 +281,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		test := req
 		test.Mode = build.ModeTest
 		input := func() (build.Input, error) { return unitInput(unit, stdDependencies(), test) }
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}

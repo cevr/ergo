@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -122,6 +125,34 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) e
 	if opts.law != "" {
 		childArgs = append(childArgs, "--law", opts.law)
 	}
+	// The law runs whose verdict the store holds at this seed and budget
+	// print it "(cached)" and do not run (lawcache); an explored run
+	// takes none, since it runs under another scheduler.
+	var verdicts *sketchfront.TestVerdicts
+	if !opts.explore && opts.search.mode == "" && opts.receipt == "" {
+		seed, states := uint64(1), 0
+		if opts.seed != "" {
+			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
+		}
+		if opts.states != "" {
+			states, _ = strconv.Atoi(opts.states)
+		}
+		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states)
+		if text := verdicts.CachedFile(); text != "" {
+			// A file of this run's own: a module's one test binary runs
+			// once per package (sharedTestCommand).
+			dir, err := os.MkdirTemp("", "ergo-cached-")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(dir)
+			path := filepath.Join(dir, "cached")
+			if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+				return err
+			}
+			childArgs = append(childArgs, "--cached", path)
+		}
+	}
 	if opts.skipLaw != "" {
 		childArgs = append(childArgs, "--skip-law", opts.skipLaw)
 	}
@@ -147,8 +178,18 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) e
 		}
 		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
+	// The verdicts this run and its ledger write are bounded by the
+	// emission cache's trim (lawtrim.go).
+	defer boundLaws(lawStore())
 	child := testProgramCommand(binary, childArgs, limit)
-	if err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {
+	var out bytes.Buffer
+	if verdicts != nil {
+		child.Stdout = io.MultiWriter(os.Stdout, &out)
+	}
+	err = runEntryProcess(child, limit, proclimit.Watch(child))
+	// Each run that printed its ok line held, whatever later runs did.
+	verdicts.Record(out.String())
+	if err != nil {
 		return err
 	}
 	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
@@ -174,6 +215,7 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) e
 		Toolchain: tc, // no explore tag: an explored run returned above
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
+		Laws:      lawStore(),
 	})
 	if err != nil {
 		return err
@@ -182,6 +224,39 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) e
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
 	}
 	return nil
+}
+
+// lawStore is the store of law verdicts under the emission cache's root
+// (lawcache.Open); nil, which stores nothing, when there is no
+// root or ERGO_LAWCACHE is off: then every law runs, as go test -count=1
+// runs every test (the examples runner's check leg, whose evaluation it
+// compares with a native run).
+func lawStore() *lawcache.Store {
+	compiler, err := build.CompilerIdentity()
+	if err != nil {
+		return nil
+	}
+	return lawStoreOf(compiler)
+}
+
+// boundLaws runs the emission cache's trim of the law verdicts when this
+// process wrote any to store (build.Cache.LawsWritten).
+func boundLaws(store *lawcache.Store) {
+	if root, err := build.DefaultRoot(); err == nil {
+		build.Cache{Root: root}.LawsWritten(store.Wrote())
+	}
+}
+
+// lawStoreOf is lawStore for the compiler identity compiler.
+func lawStoreOf(compiler string) *lawcache.Store {
+	if os.Getenv("ERGO_LAWCACHE") == "off" {
+		return nil
+	}
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return nil
+	}
+	return lawcache.Open(root, compiler)
 }
 
 // testProgramCommand keeps the test program's collector inside its hard

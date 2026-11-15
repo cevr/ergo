@@ -32,6 +32,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -255,6 +256,9 @@ type BuildRequest struct {
 	// Report, when set, receives how the toolchain built the executable
 	// (build.Report: the direct path, or go build and why).
 	Report *build.Report
+	// Laws is the store of law verdicts (lawcache) the ledger's check
+	// runs read and write; nil runs every law.
+	Laws *lawcache.Store
 }
 
 // compilerIdentity is the compiler's producer identity for the emission

@@ -55,8 +55,8 @@
       "name": "cache-bound-cap-not-counted",
       "origin": "wf10 CACHE-bound",
       "file": "internal/sketch/build/trim.go",
-      "from": "over := leasesSupported && published && c.overCap()",
-      "to": "over := false",
+      "from": "modulesOver := leasesSupported && published && c.overCap()",
+      "to": "modulesOver := false",
       "rule": "A build that published an entry past the cap runs the cap pass, due or not, so publication cannot grow the cache past entryCap.",
       "killers": ["internal/sketch/build:TestEntryCapHoldsAfterBuilds"]
     },
@@ -160,6 +160,9 @@
       "killers": ["internal/sketch/build:TestTestBinaryIsNamedOrFlagged"]
     },
     {"name":"fu-sweep-no-names-bound","origin":"wf10 FU-sweep-order (batch 18)","file":"internal/sketch/build/trim.go","from":"\t\t\t\tif p.examined == sweepEntries || p.removed == sweepRemovals {","to":"\t\t\t\tif p.removed == sweepRemovals {","rule":"A sweep pass examines at most sweepEntries names, whatever the directory's listing order.","killers":["internal/sketch/build:TestSweepCatchesUpWithABacklog"]},
-    {"name":"fu-sweep-no-removals-bound","origin":"wf10 FU-sweep-order (batch 18)","file":"internal/sketch/build/trim.go","from":"\t\t\t\tif p.examined == sweepEntries || p.removed == sweepRemovals {","to":"\t\t\t\tif p.examined == sweepEntries {","rule":"A sweep pass removes at most sweepRemovals entries, whatever the directory's listing order.","killers":["internal/sketch/build:TestSweepCatchesUpWithABacklog"]}
+    {"name":"fu-sweep-no-removals-bound","origin":"wf10 FU-sweep-order (batch 18)","file":"internal/sketch/build/trim.go","from":"\t\t\t\tif p.examined == sweepEntries || p.removed == sweepRemovals {","to":"\t\t\t\tif p.examined == sweepEntries {","rule":"A sweep pass removes at most sweepRemovals entries, whatever the directory's listing order.","killers":["internal/sketch/build:TestSweepCatchesUpWithABacklog"]},
+    {"name":"lc-trim-laws-not-counted","origin":"wf10 LAWCACHE r2","file":"internal/sketch/build/trim.go","from":"lawsOver := leasesSupported && laws && c.lawsOverCap()","to":"lawsOver := false && laws && c.lawsOverCap()","rule":"A command that wrote law verdicts counts the store, and past lawCap the cap pass removes the least recently used.","killers":["internal/sketch/build:TestLawVerdictsCapped"]},
+    {"name":"lc-trim-skips-laws","origin":"wf10 LAWCACHE r2","file":"internal/sketch/build/trim.go","from":"\tc.trimLaws(now, true)\n","to":"\n","rule":"A due trim visits the law verdict store: it removes the verdicts unused for unusedLimit and a crashed writer's temporary file.","killers":["internal/sketch/build:TestDueTrimVisitsLaws"]},
+    {"name":"lc-get-no-mark","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lawcache/lawcache.go","from":"\tmarkUsed(path, time.Now())\n","to":"\n","rule":"A verdict a command reads is marked used, so the cap pass keeps it over one used before the read.","killers":["internal/sketch/build:TestReadVerdictIsKeptByTheCap"]}
   ]
 }

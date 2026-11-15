@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +16,14 @@ import (
 
 // checkTarget uses the same package and default seed as the native test
 // leg. A skipped or bounded obligation is visible, never called agreement.
+// It evaluates with the law-verdict store off (ERGO_LAWCACHE=off), so
+// every law it reports was evaluated here and none is stored: the native
+// leg then runs each law (or prints a native run's cached verdict), and
+// the comparison is of two runners, never of one verdict with itself.
 func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation {
-	o, err := r.tool(r.cfg.testTimeout, "check", target)
+	// The run's own emission cache, as every compiler call (toolEnv).
+	env := append(slices.Clip(r.toolEnv), "ERGO_LAWCACHE=off")
+	o, err := r.live.execute([]string{r.cfg.ergo, "check", target}, r.cfg.root, env, "", r.cfg.testTimeout, 0)
 	if err != nil || !o.passed() {
 		r.toolFailed(p, leg, o, err)
 		return nil

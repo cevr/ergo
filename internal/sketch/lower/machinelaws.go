@@ -228,7 +228,9 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 		needs = "\t// needs: import machines\n"
 	}
 
-	b.WriteString("\t{\n")
+	// A search whose verdict ergo test found in its store (--cached;
+	// lawcache) prints it, marked, and does not run.
+	b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
 	b.WriteString("\t\t" + g + " := " + l.helper("Graph") + "[" + state + ", " + signal + "]{\n")
 	b.WriteString("\t\t\tstarts: " + starts + ",\n")
 	b.WriteString("\t\t\tstart: " + start + ",\n")

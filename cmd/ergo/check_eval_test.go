@@ -44,6 +44,9 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", xdg)
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("GOFLAGS", "")
+	// Every run evaluates: the law verdict store, which writes under the
+	// cache root, is TestLawVerdictsCLI's.
+	t.Setenv("ERGO_LAWCACHE", "off")
 	work := t.TempDir()
 	file := filepath.Join(work, "p.ergo")
 	folder := filepath.Join(work, "pkg")
