@@ -75,13 +75,15 @@ func Animate[E](f *Frame[E], on escaping func(at duration) E) {
 	f.nanims = f.nanims + 1
 }
 
-// Animating is whether the last pass made an Animate: whether the host
-// should send frames.
-func Animating[E](f *Frame[E]) bool { f.nanims > 0 }
+// Animating is whether the last pass made an Animate or has a Presence
+// row in motion: whether the host should send frames.
+func Animating[E](f *Frame[E]) bool { f.nanims > 0 || f.moving }
 
 // ticked is the signals of a frame at time at: one per Animate of the last
 // pass, in pass order.
 func ticked[E](f *Frame[E], at duration) []E {
+	f.now = at
+	f.tickAt = Some{Value: at}
 	let mut out = []E{}
 	for i in 0..f.nanims {
 		out = out.Append(f.anims[i](at))
