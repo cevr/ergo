@@ -967,11 +967,23 @@ func (r *runner) testModule(p *program) bool {
 		return false
 	}
 	sections, order := splitPackages(o.stdout)
-	var want []string
+	var want, inside []string
+	var outside []string // a local module's packages (localModules): DIR/... does not run them
 	for _, target := range p.tests {
 		rel, _ := filepath.Rel(p.dir, target)
+		if rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			outside = append(outside, target)
+			continue
+		}
+		inside = append(inside, target)
 		want = append(want, path.Join(module, filepath.ToSlash(rel)))
 	}
+	defer func() {
+		for _, target := range outside {
+			rel, _ := filepath.Rel(p.dir, target)
+			r.testTarget(p, target, "test "+filepath.ToSlash(rel))
+		}
+	}()
 	if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 		fmt.Fprintf(r.out, "FAIL %s: test: ergo test ran the packages %s; the program's packages are %s\n", p.name, strings.Join(got, " "), strings.Join(want, " "))
 		r.fail(p.name + ": test")
@@ -980,7 +992,7 @@ func (r *runner) testModule(p *program) bool {
 	// The check legs: one `ergo check DIR/...` too, or each package alone
 	// when that run is not one valid envelope per package.
 	evaluations := r.checkModule(p, order)
-	for i, target := range p.tests {
+	for i, target := range inside {
 		rel, _ := filepath.Rel(p.dir, target)
 		leg := "test " + filepath.ToSlash(rel)
 		section := sections[want[i]]
