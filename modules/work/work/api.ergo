@@ -1,4 +1,5 @@
 import exec
+import github.com/cevr/ergo/modules/work/classes
 import filepath
 import fs
 import strconv
@@ -81,6 +82,23 @@ let LatestRef = "refs/work/latest"
 // SnapshotRef is the ref of a workspace's latest snapshot in its parent.
 func SnapshotRef(name string) string { "refs/work/snapshots/" + name }
 
+// MergeFileOptions are merge-file's flags: -path is the file's path in
+// the tree, which Git passes as %P, for the answer and the conflict.
+type MergeFileOptions { Path Option[string] }
+
+// BadClass is a merge class merge-file does not know.
+type BadClass { Name string, Known []string }
+
+// MergeConflict is a merge-file whose units both sides changed apart (or,
+// with no units, whose sides do not read as the class): the ours file
+// holds the merge, with Git's markers at each conflict.
+type MergeConflict { Path string, Class string, Units []string, Why string }
+
+// FileMerged is a clean merge-file: the ours file holds the merge. With
+// Regenerate the file is to be made again (derived) or measured again
+// (measured) after the merge; the merge kept ours there.
+type FileMerged { Path string, Class string, Regenerate bool }
+
 // AdoptOptions are adopt's flags: -name names the workspace (its folder's
 // name when absent).
 type AdoptOptions { Name Option[string] }
@@ -128,6 +146,12 @@ type Api {
 	// Env is the shell lines of ergo.work's env for the workspace, for
 	// eval "$(ergo work env)".
 	Env(o EnvOptions) string fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept,
+	// MergeFile is a Git merge driver (merge.<name>.driver = ergo work
+	// merge-file CLASS %O %A %B -path %P): it merges the files ours and
+	// theirs against base by the units of the class (rows, measured,
+	// lines, derived) and writes the merge into ours. A conflict fails,
+	// so the driver ends with status 1 and Git keeps the file conflicted.
+	MergeFile(class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | MergeConflict | fs.NotFound | fs.Denied | fs.Failed,
 
 	// NewIsListedOnce: a workspace new made is listed once, active, at the
 	// folder new printed; a second new of the name is NameTaken.
@@ -675,4 +699,33 @@ func Env(t Tool, o EnvOptions) string fails NoBase | NotHere | NoWorkspace | Bad
 		lines = lines.Append(strings.ReplaceAll(line, "{workspace}", w.Path))
 	}
 	strings.Join(lines, "\n")
+}
+
+// MergeFile merges the three files by class and writes ours.
+func MergeFile(t Tool, class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	let path = match o.Path {
+	case Some[string] as p:
+		p.Value
+	case None:
+		ours
+	}
+	let c = match classes.ClassNamed(class) {
+	case Some[classes.Class] as k:
+		k.Value
+	case None:
+		return BadClass{Name: class, Known: []string{"rows", "measured", "lines", "derived"}}
+	}
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let merged = classes.Merge(c, b, a, other) catch {
+	case classes.Unreadable as u:
+		try t.writes.WriteFile(ours, classes.Text(classes.MergeText(b, a, other)))
+		return MergeConflict{Path: path, Class: class, Units: []string{}, Why: "the \(u.Side) side does not read as \(class) at byte \(u.At): \(u.Why)"}
+	}
+	try t.writes.WriteFile(ours, merged.Text)
+	if len(merged.Conflicts) > 0 {
+		return MergeConflict{Path: path, Class: class, Units: merged.Conflicts, Why: "both sides changed these units apart"}
+	}
+	FileMerged{Path: path, Class: class, Regenerate: merged.Regenerate}
 }

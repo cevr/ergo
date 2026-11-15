@@ -1,0 +1,176 @@
+import strings
+
+// Unreadable is a side whose text the class cannot read: Side is "base",
+// "ours" or "theirs", At the byte where reading stopped.
+type Unreadable { Side string, At int, Why string }
+
+// Entry is one member of a JSON object as its text has it: the key, the
+// value's raw text, and where the value starts and ends in the object's
+// text.
+type Entry { Key string, Raw string, Start int, End int }
+
+// Span is a JSON value's raw text and where it is in the text it was read
+// from.
+type Span { Raw string, Start int, End int }
+
+// space is the index of the first byte at or after i that is not JSON
+// white space.
+func space(s string, i int) int {
+	let mut at = i
+	for at < len(s) && (s[at] == ' ' || s[at] == '\t' || s[at] == '\n' || s[at] == '\r') {
+		at = at + 1
+	}
+	at
+}
+
+// stringEnd is the index after the JSON string that starts at i.
+func stringEnd(s string, i int, side string) int fails Unreadable {
+	let mut at = i + 1
+	for at < len(s) {
+		if s[at] == '\\' {
+			at = at + 2
+			continue
+		}
+		if s[at] == '"' {
+			return at + 1
+		}
+		at = at + 1
+	}
+	Unreadable{Side: side, At: i, Why: "a string does not end"}
+}
+
+// valueEnd is the index after the JSON value that starts at i.
+func valueEnd(s string, i int, side string) int fails Unreadable {
+	if i >= len(s) {
+		return Unreadable{Side: side, At: i, Why: "a value is missing"}
+	}
+	let c = s[i]
+	if c == '"' {
+		return try stringEnd(s, i, side)
+	}
+	if c == '{' || c == '[' {
+		let mut depth = 0
+		let mut at = i
+		for at < len(s) {
+			let d = s[at]
+			if d == '"' {
+				at = try stringEnd(s, at, side)
+				continue
+			}
+			if d == '{' || d == '[' {
+				depth = depth + 1
+			} else if d == '}' || d == ']' {
+				depth = depth - 1
+				if depth == 0 {
+					return at + 1
+				}
+			}
+			at = at + 1
+		}
+		return Unreadable{Side: side, At: i, Why: "an object or a list does not end"}
+	}
+	let mut at = i
+	for at < len(s) && s[at] != ',' && s[at] != '}' && s[at] != ']' && s[at] != ' ' && s[at] != '\n' && s[at] != '\t' && s[at] != '\r' {
+		at = at + 1
+	}
+	if at == i {
+		return Unreadable{Side: side, At: i, Why: "a value is missing"}
+	}
+	at
+}
+
+// unquote is the text of a JSON string's raw form (its escapes kept but
+// for \" and \\, which is enough for a key).
+func unquote(raw string) string {
+	strings.ReplaceAll(strings.ReplaceAll(strings.Slice(raw, 1, len(raw)-1), "\\\"", "\""), "\\\\", "\\")
+}
+
+// Members is each member of the JSON object at the start of s (after
+// white space), in order, with offsets into s.
+func Members(s string, side string) []Entry fails Unreadable {
+	let mut at = space(s, 0)
+	if at >= len(s) || s[at] != '{' {
+		return Unreadable{Side: side, At: at, Why: "the text is not a JSON object"}
+	}
+	at = space(s, at+1)
+	let mut out = []Entry{}
+	if at < len(s) && s[at] == '}' {
+		return out
+	}
+	for at < len(s) {
+		if s[at] != '"' {
+			return Unreadable{Side: side, At: at, Why: "a key is not a string"}
+		}
+		let keyEnd = try stringEnd(s, at, side)
+		let key = unquote(strings.Slice(s, at, keyEnd))
+		at = space(s, keyEnd)
+		if at >= len(s) || s[at] != ':' {
+			return Unreadable{Side: side, At: at, Why: "a key has no colon"}
+		}
+		let start = space(s, at+1)
+		let end = try valueEnd(s, start, side)
+		out = out.Append(Entry{Key: key, Raw: strings.Slice(s, start, end), Start: start, End: end})
+		at = space(s, end)
+		if at < len(s) && s[at] == ',' {
+			at = space(s, at+1)
+			continue
+		}
+		if at < len(s) && s[at] == '}' {
+			return out
+		}
+		return Unreadable{Side: side, At: at, Why: "a member is not followed by a comma or a brace"}
+	}
+	Unreadable{Side: side, At: at, Why: "the object does not end"}
+}
+
+// Elements is each element of the JSON list s, in order, with offsets
+// into s.
+func Elements(s string, side string) []Span fails Unreadable {
+	let mut at = space(s, 0)
+	if at >= len(s) || s[at] != '[' {
+		return Unreadable{Side: side, At: at, Why: "the value is not a JSON list"}
+	}
+	at = space(s, at+1)
+	let mut out = []Span{}
+	if at < len(s) && s[at] == ']' {
+		return out
+	}
+	for at < len(s) {
+		let end = try valueEnd(s, at, side)
+		out = out.Append(Span{Raw: strings.Slice(s, at, end), Start: at, End: end})
+		at = space(s, end)
+		if at < len(s) && s[at] == ',' {
+			at = space(s, at+1)
+			continue
+		}
+		if at < len(s) && s[at] == ']' {
+			return out
+		}
+		return Unreadable{Side: side, At: at, Why: "an element is not followed by a comma or a bracket"}
+	}
+	Unreadable{Side: side, At: at, Why: "the list does not end"}
+}
+
+// Bare is raw without the white space outside its strings: two texts of
+// one JSON value are equal bare when they differ only in layout.
+func Bare(raw string) string {
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < len(raw) {
+		let c = raw[i]
+		if c == '"' {
+			let end = stringEnd(raw, i, "") catch {
+			case Unreadable:
+				len(raw)
+			}
+			b.WriteString(strings.Slice(raw, i, end))
+			i = end
+			continue
+		}
+		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
+			b.WriteByte(c)
+		}
+		i = i + 1
+	}
+	b.String()
+}

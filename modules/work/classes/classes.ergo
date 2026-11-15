@@ -1,0 +1,336 @@
+// Package classes merges the files whose conflicts need no person, by the
+// unit of their class (SEMWS §2.6, WS5a-early). Every class first merges
+// the three texts by lines, as Git does; only a clash goes on to the
+// units: a file of keyed rows (a mutant ledger: rows by name), a file of
+// measured numbers (gate durations: by key path; a number both sides
+// measured apart is ours, and the file is to be measured again), a file
+// of lines (an allowlist: each side's added and removed lines), and a
+// derived file (generated: kept as ours, to be generated again, never
+// merged). Git runs it as a merge driver: `ergo work merge-file CLASS %O
+// %A %B %P`.
+//
+// Prior art: Git's merge drivers (gitattributes, merge.<name>.driver) and
+// its union driver, which keeps both sides' lines in no stated order;
+// Mergiraf, which merges by syntax only after a line merge fails.
+
+import strings
+
+// Class is how a file merges.
+type Class = Rows{} | Measured{} | Lines{} | Derived{}
+
+// ClassNamed is the class of a driver's name (rows, measured, lines,
+// derived).
+func ClassNamed(name string) Option[Class] {
+	match name {
+	case "rows":
+		Some[Class]{Value: Rows}
+	case "measured":
+		Some[Class]{Value: Measured}
+	case "lines":
+		Some[Class]{Value: Lines}
+	case "derived":
+		Some[Class]{Value: Derived}
+	case _:
+		None
+	}
+}
+
+// Merged is a merge's text, the units both sides changed apart (each named
+// in Conflicts, the text holding conflict markers there), and whether the
+// file must be generated again.
+type Merged { Text string, Conflicts []string, Regenerate bool }
+
+// Merge is the merge of ours and theirs against base: by lines, and when
+// that clashes by the unit of c.
+func Merge(c Class, base string, ours string, theirs string) Merged fails Unreadable {
+	if c == Derived {
+		return ByUnits(c, base, ours, theirs)
+	}
+	let lines = MergeText(base, ours, theirs)
+	if lines.Clashes == 0 {
+		return Merged{Text: Text(lines), Conflicts: []string{}, Regenerate: false}
+	}
+	ByUnits(c, base, ours, theirs)
+}
+
+// DerivedIsNeverMerged: a derived file merges to one side whole: theirs
+// when ours is the base, else ours, which is to be made again when
+// theirs changed too.
+law DerivedIsNeverMerged(base string, ours string, theirs string) {
+	let m = Merge(Derived, base, ours, theirs) catch {
+	case Unreadable:
+		return false
+	}
+	let apart = ours != base && theirs != base && ours != theirs
+	let want = if ours == base { theirs } else { ours }
+	m.Text == want && m.Regenerate == apart && len(m.Conflicts) == 0
+}
+
+// ByUnits is the merge of ours and theirs against base by the unit of c
+// alone.
+func ByUnits(c Class, base string, ours string, theirs string) Merged fails Unreadable {
+	match c {
+	case Rows:
+		try MergeRows(base, ours, theirs)
+	case Measured:
+		try MergeMeasured(base, ours, theirs)
+	case Lines:
+		MergeLines(base, ours, theirs)
+	case Derived:
+		// A derived file is never merged: a side the other did not change
+		// is taken whole, and two changed sides keep ours, to be made
+		// again from the merged inputs.
+		match Choose(Some[string]{Value: base}, Some[string]{Value: ours}, Some[string]{Value: theirs}, func(a string, b string) bool { a == b }) {
+		case Take as k:
+			Merged{Text: textOf(k.Value), Conflicts: []string{}, Regenerate: false}
+		case Clash:
+			Merged{Text: ours, Conflicts: []string{}, Regenerate: true}
+		}
+	}
+}
+
+// Pick is the three-way choice of one unit, each side's value or None
+// when the side has no such unit: the side that changed it from the base
+// wins, two equal changes agree, and two different changes conflict.
+type Pick = Take{Value Option[string]} | Clash{}
+
+// Choose picks a unit's value; same says when two values are equal.
+func Choose(base Option[string], ours Option[string], theirs Option[string], same func(a string, b string) bool) Pick {
+	if equal(ours, base, same) {
+		return Take{Value: theirs}
+	}
+	if equal(theirs, base, same) || equal(ours, theirs, same) {
+		return Take{Value: ours}
+	}
+	Clash
+}
+
+func equal(a Option[string], b Option[string], same func(x string, y string) bool) bool {
+	match (a, b) {
+	case (Some[string] as x, Some[string] as y):
+		same(x.Value, y.Value)
+	case (None, None):
+		true
+	case _:
+		false
+	}
+}
+
+// Marked is a conflict's text: ours, then theirs, between Git's markers.
+func Marked(ours string, theirs string) string {
+	"<<<<<<< ours\n" + ours + "\n=======\n" + theirs + "\n>>>>>>> theirs"
+}
+
+// MergeLines merges two files of lines as sets: the result is ours' lines
+// without those theirs removed, with the lines theirs added, each after
+// the line before it in theirs (at the start when it has none). A line
+// both sides hold stays once. Lines never conflict.
+func MergeLines(base string, ours string, theirs string) Merged {
+	let b = strings.Split(base, "\n")
+	let o = strings.Split(ours, "\n")
+	let t = strings.Split(theirs, "\n")
+	let mut out = []string{}
+	for line in o {
+		if line != "" && has(b, line) && !has(t, line) {
+			continue
+		}
+		out = out.Append(line)
+	}
+	let mut after Option[string] = None
+	for line in t {
+		if line != "" && !has(b, line) && !has(out, line) {
+			out = inserted(out, after, line)
+		}
+		if has(out, line) {
+			after = Some[string]{Value: line}
+		}
+	}
+	Merged{Text: strings.Join(out, "\n"), Conflicts: []string{}, Regenerate: false}
+}
+
+func has(lines []string, line string) bool {
+	for l in lines {
+		if l == line {
+			return true
+		}
+	}
+	false
+}
+
+// inserted is lines with line after the first line equal to after (at
+// the start when there is none).
+func inserted(lines []string, after Option[string], line string) []string {
+	let mut out = []string{}
+	let mut done = false
+	if after == None {
+		out = out.Append(line)
+		done = true
+	}
+	for l in lines {
+		out = out.Append(l)
+		if !done && after == (Some[string]{Value: l}) {
+			out = out.Append(line)
+			done = true
+		}
+	}
+	if !done {
+		out = out.Append(line)
+	}
+	out
+}
+
+// Edit is one step of a side's edit script on a keyed file: set the unit
+// keyed Key to Value (a change or an addition), or drop it.
+type Edit = Set{Key int, Value int} | Drop{Key int}
+
+// keyOf folds a generated key into a few keys, so that the two scripts
+// meet on some.
+func keyOf(k int) int { if k < 0 { (0 - k) % 6 } else { k % 6 } }
+
+// applied is units with the script applied.
+func applied(units Map[int, int], script []Edit) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in units {
+		out[keyOf(k)] = v
+	}
+	for e in script {
+		match e {
+		case Set as s:
+			out[keyOf(s.Key)] = s.Value
+		case Drop as d:
+			out = out.Delete(keyOf(d.Key))
+		}
+	}
+	out
+}
+
+func valueAt(units Map[int, int], key int) Option[string] {
+	match units.Get(key) {
+	case Some[int] as v:
+		Some[string]{Value: "\(v.Value)"}
+	case None:
+		None
+	}
+}
+
+func same(a string, b string) bool { a == b }
+
+// Reference is the reference merge of three versions of keyed units: the
+// merged units, and the keys both sides changed apart.
+type Reference { Units Map[int, int], Clashes []int }
+
+func reference(base Map[int, int], ours Map[int, int], theirs Map[int, int]) Reference {
+	let mut units = Map[int, int]{}
+	let mut clashes = []int{}
+	// Written apart from Choose, so a fault of Choose is not the
+	// reference's too.
+	for key in 0..6 {
+		let (b, o, t) = (base.Get(key), ours.Get(key), theirs.Get(key))
+		let picked = if o == b {
+			t
+		} else if t == b || o == t {
+			o
+		} else {
+			clashes = clashes.Append(key)
+			None
+		}
+		match picked {
+		case Some[int] as v:
+			units[key] = v.Value
+		case None:
+		}
+	}
+	Reference{Units: units, Clashes: clashes}
+}
+
+// MergeOfEqualIsOne and MergeWithBaseIsOther, for every class: two equal
+// sides merge to that side, and a side equal to the base merges to the
+// other side.
+law MergeOfEqualIsOne(units Map[int, int], edits []Edit) {
+	let base = ledger(applied(units, []Edit{}))
+	let side = ledger(applied(applied(units, []Edit{}), edits))
+	let mut ok = true
+	for c in []Class{Rows, Measured, Lines, Derived} {
+		let text = if c == Measured { durations(applied(units, []Edit{})) } else { base }
+		let other = if c == Measured { durations(applied(applied(units, []Edit{}), edits)) } else { side }
+		let equal = Merge(c, text, other, other) catch {
+		case Unreadable:
+			return false
+		}
+		let theirs = Merge(c, text, text, other) catch {
+		case Unreadable:
+			return false
+		}
+		let mine = Merge(c, text, other, text) catch {
+		case Unreadable:
+			return false
+		}
+		ok = ok && equal.Text == other && theirs.Text == other && mine.Text == other && len(equal.Conflicts) == 0
+	}
+	ok
+}
+
+// lineSet is the units as a file of lines, one "l<key>" a line, in key
+// order.
+func lineSet(units Map[int, int]) string {
+	let mut lines = []string{}
+	for key in 0..6 {
+		if units.Get(key) != None {
+			lines = lines.Append("l\(key)")
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// LinesAreTheReference: two scripts on a file of lines (an addition or a
+// removal of a line) merge to the base's lines with both scripts'
+// additions and removals.
+law LinesAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let got = ByUnits(Lines, lineSet(base), lineSet(ours), lineSet(theirs)) catch {
+	case Unreadable:
+		return false
+	}
+	let mut want = []string{}
+	for key in 0..6 {
+		let inB = base.Get(key) != None
+		let inO = ours.Get(key) != None
+		let inT = theirs.Get(key) != None
+		if (inO && !(inB && !inT)) || (inT && !inB) {
+			want = want.Append("l\(key)")
+		}
+	}
+	let mut have = []string{}
+	for line in strings.Split(got.Text, "\n") {
+		if line != "" {
+			have = have.Append(line)
+		}
+	}
+	len(got.Conflicts) == 0 && sameStrings(have, want)
+}
+
+func sameStrings(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for x in a {
+		let mut n = 0
+		for y in a {
+			if y == x {
+				n = n + 1
+			}
+		}
+		let mut m = 0
+		for y in b {
+			if y == x {
+				m = m + 1
+			}
+		}
+		if n != m {
+			return false
+		}
+	}
+	true
+}

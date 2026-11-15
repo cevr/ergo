@@ -1,5 +1,9 @@
+import exec
 import fs
+import fstest
+import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
+import time
 
 // Workspaces is work.Api over a fresh memory world (a base committed and
 // initialized, one sharing Cloner): the value the Api's laws run on.
@@ -37,3 +41,49 @@ func Sync(w Workspaces, o work.SyncOptions) string fails work.NoBase | work.NotH
 }
 
 func Env(w Workspaces, o work.EnvOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept { try w.tool.Env(o) }
+
+func MergeFile(w Workspaces, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadClass | work.MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	try w.tool.MergeFile(class, base, ours, theirs, o)
+}
+
+// MergeFileWritesTheMerge: merge-file leaves in ours the merge of
+// classes.Merge, and answers clean exactly when that merge is; a side
+// that does not read as the class leaves the merge by lines and fails.
+law MergeFileWritesTheMerge(base string, ours string, theirs string, rows bool) {
+	let disk = fstest.NewMemory()
+	let written = put(disk, "/m/o", base) && put(disk, "/m/a", ours) && put(disk, "/m/b", theirs)
+	let tool = work.NewTool("/base", []work.Cloner{}, NewCloner(), NewRegistry(), NewVcs(), disk, disk, exec.Script{Results: Map[string, exec.Result]{}}, time.NewManual(0), "/")
+	let class = if rows { "rows" } else { "lines" }
+	let c = if rows { classes.Rows } else { classes.Lines }
+	let merged = classes.Merge(c, base, ours, theirs) catch {
+	case classes.Unreadable:
+		classes.Merged{Text: classes.Text(classes.MergeText(base, ours, theirs)), Conflicts: []string{"unreadable"}, Regenerate: false}
+	}
+	let clean = len(merged.Conflicts) == 0
+	let mut failed = false
+	let mut named = true
+	tool.MergeFile(class, "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: Some[string]{Value: "f"}}) catch {
+	case work.MergeConflict as m:
+		failed = true
+		named = m.Path == "f"
+	case work.BadClass, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile("/m/a") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	written && named && failed == !clean && got == merged.Text
+}
+
+func put(disk fstest.Memory, path string, text string) bool {
+	disk.MkdirAll("/m") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	disk.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
