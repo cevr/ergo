@@ -397,6 +397,7 @@ var declaredSources = map[string]string{
 	"scopeProbe command":                                      "systemd-run, as exec.LookPath resolved it",
 	"enterScope command":                                      "systemd-run, as exec.LookPath resolved it",
 	"execute argv[0]":                                         "a step's program, or the nsenter the sandbox wraps it in: TestHostProgramsDeclared checks every step",
+	"writeSweepCosts argv[0]":                                 "a closure sweep step's program, recorded alone: TestHostProgramsDeclared checks every step",
 	"startSandbox hold":                                       "cat, as exec.LookPath resolved it",
 	"startSandbox bwrap":                                      "bwrap, as exec.LookPath resolved it",
 	"TestSandboxPlanOfThisHost argv[0]":                       "a probe script wrapped by the sandbox: its nsenter",
