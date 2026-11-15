@@ -578,12 +578,12 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 		if len(s.Results) != 1 {
 			return nil
 		}
-		x, pos := s.Results[0], s.Pos()
+		r, pos := in.compileRet(fr, s.Results[0]), s.Pos()
 		return func(in *interp, fr *frame) *abrupt {
 			if ab := in.charge(fr, at, 1); ab != nil {
 				return ab
 			}
-			v, ab := in.retValue(fr, x)
+			v, ab := r(in, fr)
 			if ab != nil {
 				return ab
 			}

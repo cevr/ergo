@@ -36,19 +36,21 @@ func (in *interp) compileYield(fr *frame, s syntax.Stmt, ret bool) fastYield {
 	case *syntax.ExprStmt:
 		x := s.X
 		if ret {
+			r := in.compileRet(fr, x)
 			return func(in *interp, fr *frame) (Value, *abrupt) {
 				if ab := in.charge(fr, at, 1); ab != nil {
 					return nil, ab
 				}
-				return in.retValue(fr, x)
+				return r(in, fr)
 			}
 		}
 		if _, tail := fr.info.Tails[s]; tail {
+			r := in.compileResult(fr, x)
 			return func(in *interp, fr *frame) (Value, *abrupt) {
 				if ab := in.charge(fr, at, 1); ab != nil {
 					return nil, ab
 				}
-				return in.resultExpr(fr, x)
+				return r(in, fr)
 			}
 		}
 		e := in.operand(fr, x, in.fx(fr, x))
@@ -90,6 +92,63 @@ func (in *interp) compileYield(fr *frame, s syntax.Stmt, ret bool) fastYield {
 		return nil
 	}
 	return func(in *interp, fr *frame) (Value, *abrupt) { return nil, core(in, fr) }
+}
+
+// compileResult is the form of resultExpr(x): x's position read once, its
+// operand form bound.
+func (in *interp) compileResult(fr *frame, x syntax.Expr) fastExpr {
+	origin := unparen(x)
+	for {
+		t, ok := origin.(*syntax.TryExpr)
+		if !ok {
+			break
+		}
+		origin = unparen(t.X)
+	}
+	pos := origin.Pos()
+	reset := true
+	switch origin.(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.CatchExpr:
+		reset = false
+	}
+	e := in.operand(fr, x, in.fx(fr, x))
+	return func(in *interp, fr *frame) (Value, *abrupt) {
+		fr.resultPos = pos
+		v, ab := e(in, fr)
+		if reset {
+			fr.resultPos = pos
+		}
+		return v, ab
+	}
+}
+
+// compileRet is the form of retValue(x): the returned local named once,
+// the result's form, and whether its value is a failure read from x's
+// facts with no lookup.
+func (in *interp) compileRet(fr *frame, x syntax.Expr) fastExpr {
+	id, _ := unparen(x).(*syntax.Ident)
+	res := in.compileResult(fr, x)
+	xf := in.fx(fr, x)
+	return func(in *interp, fr *frame) (Value, *abrupt) {
+		if id != nil {
+			fr.returned = id // a returned owned local stays the frame's (own.go, keep)
+		}
+		v, ab := res(in, fr)
+		fr.returned = nil
+		if ab != nil {
+			return nil, escape(ab)
+		}
+		if !xf.errSeen {
+			xf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+			xf.errSeen = true
+		}
+		if xf.errIs {
+			if _, isRecord := v.(*record); isRecord {
+				return nil, fr.abrupt(ctlEscape, x, v, "")
+			}
+		}
+		return v, nil
+	}
 }
 
 // compileIfYield is yieldStmt's if: its branches yield.

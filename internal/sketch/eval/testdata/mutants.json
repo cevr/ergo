@@ -1644,6 +1644,15 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-o37-compiled-error-is-value",
+      "origin": "wf10 ORACLE O37",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\txf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\t\txf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "rule": "A compiled return of a value of an error type is a failure (types.md, Error types 2).",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",
