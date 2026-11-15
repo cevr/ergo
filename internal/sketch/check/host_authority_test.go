@@ -38,8 +38,8 @@ func readWith(h fs.Host) string {
 `
 
 const (
-	fsAuthority = "fs.Host has an unexported field, so only package fs builds it; use fs.NewHost"
-	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewHost"
+	fsAuthority = "fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost"
+	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewTestHost or os.NewHost"
 	// The prelude's constructor is in scope with no package name.
 	liveAuthority = "prelude.LiveScheduler has an unexported field, so only package prelude builds it; use NewLiveScheduler"
 	// ambientEntryText is the S106 of a context entry for Ambient
@@ -157,13 +157,13 @@ func Zero() string {
 	readWith(h)
 }
 
-func Update(h fs.Host) fs.Host { fs.Host{..h, live: h} } // want S114 S104
+func Update(h fs.Host) fs.Host { fs.Host{..h, root: h} } // want S114 S104
 
 func Lit() fs.Host { fs.Host{} } // want S114
 `, []string{
 			"let h of type fs.Host needs a value: its zero value builds a new value of fs.Host, and " + fsAuthority + " (types.md, Zero values 6)",
 			"a record update of fs.Host builds a new value: " + fsAuthority,
-			"live is not an exported field of fs.Host (grammar.md, Visibility 2)",
+			"root is not an exported field of fs.Host (grammar.md, Visibility 2)",
 			"a literal of fs.Host builds a new value: " + fsAuthority,
 		}},
 		{"N11 an unexported helper reaches a main without Ambient", `
@@ -395,7 +395,7 @@ var hostMakings = []hostMaking{
 	}},
 	{"update", func(p hostProvider, judge func(string) hostLine) ([]hostLine, string, []string) {
 		// A record update names a field; the only one is unexported.
-		return []hostLine{judge("let h = " + p.pkg + ".NewHost()")}, p.pkg + ".Host{..h, live: h}", []string{"S114", "S104"}
+		return []hostLine{judge("let h = " + p.pkg + ".NewHost()")}, p.pkg + ".Host{..h, root: h}", []string{"S114", "S104"}
 	}},
 	{"fnvalue", func(p hostProvider, _ func(string) hostLine) ([]hostLine, string, []string) {
 		return []hostLine{{"let mk = " + p.pkg + ".NewHost", nil}}, "mk()", []string{"judge"}

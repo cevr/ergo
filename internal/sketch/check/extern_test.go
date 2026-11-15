@@ -981,6 +981,37 @@ func main() {
 	use(Mine)
 }
 `,
+	// The test's ambient (TH1): sealed by its unexported operation, as
+	// the prelude's Ambient is.
+	"testing.Ambient": `import testing
+
+type Mine {}
+
+func folder(_ Mine) string { "/" }
+
+func use(_ testing.Ambient) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// fstest.Confined (TH1): open, an ordinary operation type with laws.
+	"fstest.Confined": `import fs
+import fstest
+
+type Mine {} implements fstest.Confined
+
+func Folder(_ Mine) string { "/" }
+func ReadFile(_ Mine, path string) string fails fs.Denied { fs.Denied{Path: path} }
+func ReadDir(_ Mine, path string) []string fails fs.Denied { fs.Denied{Path: path} }
+func WriteFile(_ Mine, path string, text string) fails fs.Denied { fs.Denied{Path: path} }
+
+func use(_ fstest.Confined) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std fs Root (G1f): open; fstest.Tree is a program-side provider.
 	"fs.Root": `import fs
 
@@ -1022,6 +1053,7 @@ func main() {
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"testing.Ambient": "folder is an unexported operation of testing.Ambient, so only a type of package testing implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
@@ -1045,6 +1077,7 @@ var openStd = map[string]bool{
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,
+	"fstest.Confined":   true,
 	"io.Stdout":         true,
 	"io.Stderr":         true,
 	"io.Stdin":          true,
