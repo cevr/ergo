@@ -448,6 +448,7 @@ func Main(body func(*rt.Task) error) {
 
 // runMain runs body as the root task and returns its canonical exit.
 func runMain(body func(*rt.Task) error) error {
+	heapFloor(os.Getenv) // heap.go
 	if rt.Exploring {
 		return exploreMain(body)
 	}

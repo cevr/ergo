@@ -779,6 +779,50 @@
     {"name":"local-key-kept","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/http_local.go","from":"\tr.Header.Del(httpLocalKey)\n","to":"","rule":"stdlib.md http 11, In memory: a fetch answered in memory gives the caller what the same fetch gives through Serve on a loopback socket (header budget and the retry of a refused status included), and the handler the same request and its origin.","killers":["runtime/v1:TestHTTPLocalMatchesLoopback"]},
     {"name":"query-space-percent","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/http_query.go","from":"\t\t\tcase c == ' ':\n","to":"\t\t\tcase false:\n","rule":"stdlib.md http 11: EncodeQuery escapes as Go's url.QueryEscape: a space is \"+\".","killers":["runtime/v1:TestHTTPEncodeQueryIsGos"]},
     {"name":"query-escape-tilde","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/http_query.go","from":"c == '.' || c == '~':","to":"c == '.':","rule":"stdlib.md http 11: EncodeQuery escapes as Go's url.QueryEscape: \"~\" is unreserved.","killers":["runtime/v1:TestHTTPEncodeQueryIsGos"]},
-    {"name":"encode-query-unescaped","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/http_query.go","from":"\t\tescape(f.Name)\n","to":"\t\tb.WriteString(f.Name)\n","rule":"stdlib.md http 11: EncodeQuery is the raw query of fields, which ParseQuery reads back as the same fields in key order.","killers":["runtime/v1:TestHTTPEncodeQueryIsGos","runtime/v1:TestHTTPLocalMatchesLoopback"]}
+    {"name":"encode-query-unescaped","origin":"wf10 STD-NOPRIV FK3-g3-gaps","file":"runtime/v1/http_query.go","from":"\t\tescape(f.Name)\n","to":"\t\tb.WriteString(f.Name)\n","rule":"stdlib.md http 11: EncodeQuery is the raw query of fields, which ParseQuery reads back as the same fields in key order.","killers":["runtime/v1:TestHTTPEncodeQueryIsGos","runtime/v1:TestHTTPLocalMatchesLoopback"]},
+    {
+      "name": "gx7-main-no-floor",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/exit.go",
+      "from": "\theapFloor(os.Getenv) // heap.go\n",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program's main installs the heap floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-dropped",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "\tballast = make([]byte, heapFloorBytes)\n",
+      "to": "\t_ = make([]byte, heapFloorBytes)\n",
+      "rule": "runtime.md Entry (GX7): the ballast stays live, so the collector's goal keeps the floor.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-gogc",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOGC\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOGC gets Go's policy as written.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    },
+    {
+      "name": "gx7-floor-ignores-memlimit",
+      "origin": "wf10 GX7",
+      "file": "runtime/v1/heap.go",
+      "from": "getenv(\"GOMEMLIMIT\") != \"\" || ",
+      "to": "",
+      "rule": "runtime.md Entry (GX7): a program that sets GOMEMLIMIT spends none of it on a ballast.",
+      "killers": [
+        "runtime/v1:TestHeapFloorRaisesTheGoal"
+      ]
+    }
   ]
 }
