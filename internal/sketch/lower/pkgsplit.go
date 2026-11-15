@@ -718,6 +718,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	// The IR's foreign declarations and files (pkgsplit_ir.go).
 	extra := make([]bytes.Buffer, len(plan.pkgs))
 	extraImports := make([]map[string]bool, len(plan.pkgs))
+	var irImports map[int]map[string]bool
 	if irs != nil {
 		// text is a range of a declaration as package k spells it.
 		text := func(k, decl int, n ast.Node) string {
@@ -764,6 +765,18 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		if reason := irs.foreignDecls(defOf, taken, text, qualified, extra); reason != "" {
 			return nil, SplitReport{Reason: reason}
 		}
+		// A Go package an IR body names (strconv, the runtime) is imported
+		// by the body's own package, blank when the package's Go text does
+		// not name it: the patched compile resolves the body's qualified
+		// names in its package's imports, and Go refuses an unused named
+		// import (G6 x CS10; main.go keeps its imports used instead,
+		// keepImport).
+		local := map[string]string{}
+		for name, spec := range imports {
+			p, _ := strconv.Unquote(spec.Path.Value)
+			local[p] = name
+		}
+		irImports = irs.importPaths(func(i int) int { return groups[irs.owner[i]].pkg }, local)
 	}
 
 	header := src[:off(f.Package)]
@@ -814,6 +827,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		for _, to := range slices.Sorted(maps.Keys(needs[k])) {
 			specs = append(specs, plan.pkgs[to].alias+" "+strconv.Quote(base+"/"+plan.pkgs[to].dir))
+		}
+		for _, p := range slices.Sorted(maps.Keys(irImports[k])) {
+			specs = append(specs, "_ "+strconv.Quote(p))
 		}
 		if len(specs) > 0 {
 			b.WriteString("import (\n\t" + strings.Join(specs, "\n\t") + "\n)\n")
