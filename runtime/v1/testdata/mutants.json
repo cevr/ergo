@@ -698,6 +698,7 @@
     {"name":"actor-changes-overflow-uncounted","origin":"wf10 F-GP4c-1","file":"runtime/v1/actor.go","from":"\t\t\tc.missed += len(c.buf)\n","to":"\t\t\t_ = c.missed\n","rule":"An overflow tells the reader how many states it dropped (Overflowed.Missed).","killers":["runtime/v1:TestActorObserveAgreesWithFold"]},
     {"name":"actor-changes-missed-sticks","origin":"wf10 F-GP4c-1","file":"runtime/v1/actor.go","from":"\t\t\tc.missed = 0\n","to":"\t\t\t_ = 0\n","rule":"Overflowed comes once, before the state that found the subscription full.","killers":["runtime/v1:TestActorObserveAgreesWithFold"]},
     {"name":"actor-changes-gap-dropped","origin":"wf10 F-GP4c-1","file":"runtime/v1/actor.go","from":"\t\t\tif missed > 0 && !yield(overflowed(missed)) {","to":"\t\t\tif false && missed > 0 && !yield(overflowed(missed)) {","rule":"std actor's Changes loop reads Overflowed before the state after a gap.","killers":["lower:TestStdActorLawsRun"]},
-    {"name":"actor-held-zero","origin":"wf10 F-GP4c-1","file":"runtime/v1/actor.go","from":"\t\tn += len(c.buf)\n","to":"\t\t_ = c\n","rule":"Held is the number of states the actor's loops hold unread (F-GP4c-1).","killers":["runtime/v1:TestActorObserveAgreesWithFold"]}
+    {"name":"actor-held-zero","origin":"wf10 F-GP4c-1","file":"runtime/v1/actor.go","from":"\t\tn += len(c.buf)\n","to":"\t\t_ = c\n","rule":"Held is the number of states the actor's loops hold unread (F-GP4c-1).","killers":["runtime/v1:TestActorObserveAgreesWithFold"]},
+    {"name":"actor-version-still","origin":"wf10 FK2-g2","file":"runtime/v1/actor.go","from":"\ta.state = s\n\ta.version++\n","to":"\ta.state = s\n","rule":"Version counts the states the runner committed (FK2-g2).","killers":["runtime/v1:TestActorObserveAgreesWithFold"]}
   ]
 }

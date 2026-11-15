@@ -177,7 +177,9 @@ type Actor[S, E, D any] struct {
 
 	mu    sync.Mutex
 	state S // the last committed state
-	ended bool
+	// version counts the states committed after the first (FK2-g2).
+	version int
+	ended   bool
 	// doneWait are the waitDone callers parked in a clock's domain.
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
@@ -1156,6 +1158,7 @@ func (a *Actor[S, E, D]) publish(s S) {
 // publishLocked is publish with a.mu held.
 func (a *Actor[S, E, D]) publishLocked(s S) {
 	a.state = s
+	a.version++
 	if len(a.subs) == 0 {
 		return
 	}
@@ -1692,6 +1695,15 @@ func defectsOnly(err error) error {
 // Dropped is a.Dropped(): how many timer signals and work signals of ended
 // entries the runner dropped (rule 6; decision MQ6).
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
+
+// Version is a.Version(): how many states the runner committed after its
+// first, so a reader that rendered the state at Version v knows a later
+// commit by a larger one (FK2-g2: ui's session draws a state once).
+func (a *Actor[S, E, D]) Version() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.version
+}
 
 // Held is a.Held(): how many committed states the actor's Changes and
 // LatestChanges loops hold and have not given yet, summed over its loops;

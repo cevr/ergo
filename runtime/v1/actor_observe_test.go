@@ -367,6 +367,10 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 			seen["a stop overtook unread states"] = true
 		}
 	}
+	// Version counts the commits: each one appended one signal (FK2-g2).
+	if v := a.Version(); v != len(final) {
+		return fmt.Sprintf("Version %d after %d commits", v, len(final))
+	}
 	if got := a.State(root); !slices.Equal(got, final) {
 		return fmt.Sprintf("final state %v, want %v (stepped %v)", got, final, stepped)
 	}

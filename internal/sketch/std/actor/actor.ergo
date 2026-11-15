@@ -59,6 +59,10 @@ type Actor[S, E, D, F] {
 	// it at its room, never one per commit (the counter a growth guard
 	// reads).
 	Held() int,
+	// Version is how many states it committed after its first: a reader
+	// that read Version and then State knows the state it holds is at
+	// least that recent, and that a later commit raised it (FK2-g2).
+	Version() int,
 	// Drain closes admission, so later Sends and Asks fail Stopped, and
 	// waits until the actor has stepped every signal queued before it, in
 	// order, its Asks answered, and then ended. A Done, a failure or a

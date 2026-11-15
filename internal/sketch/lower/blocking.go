@@ -535,6 +535,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// F-GP4c-1: the conflated subscription waits as Changes does.
 	"Actor.LatestChanges": {wait: callerWait},
 	"Actor.Held":          {},
+	"Actor.Version":       {},
 	// F-GP4c-1: std actor's Changes(a, room) loop waits as Changes does.
 	"ActorChanges":  {wait: callerWait},
 	"Actor.Stop":    {wait: endWait},
