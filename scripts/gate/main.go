@@ -1004,6 +1004,18 @@ func (g *gate) execute(step *Step) *result {
 		_ = unlockStepTemp(lock)
 		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: prepare step temp dir: %v\n", step.Name, err))}
 	}
+	// A step that would start on a nearly full disk is not started: it
+	// fails here, naming the disk, not partway with ENOSPC.
+	floor, err := diskFloor()
+	if err == nil {
+		if reason := belowDiskFloor(floor, tmpDir, g.cacheDir); reason != "" {
+			err = errors.New(reason)
+		}
+	}
+	if err != nil {
+		_ = unlockStepTemp(lock)
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: not started: %v\n", step.Name, err))}
+	}
 	started := time.Now()
 	argv := step.Argv
 	if g.enclosure != nil {
