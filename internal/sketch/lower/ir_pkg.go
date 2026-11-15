@@ -17,6 +17,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // admitOnce reports whether the record or union named by tn was admitted
@@ -126,8 +127,14 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("std call with a converted result")
 	}
 	pre, args := b.operands(x.Args)
-	b.keepImport("var _ = " + b.l.rt() + "." + name)
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: args}, !body.Pure
+	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
+	// leaf's import path, which rtRef imports.
+	b.keepImport("var _ = " + b.l.rtRef(name))
+	pkg := v1.PackageOf(name)
+	if pkg == "" {
+		pkg = runtimeImport
+	}
+	return pre, &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, Args: args}, !body.Pure
 }
 
 // sameGo reports whether the Ergo type t lowers to the Go type a

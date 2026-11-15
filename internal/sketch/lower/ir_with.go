@@ -153,7 +153,7 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion of a script")
 	}
 	from, _ := conv.From.(*check.Named)
-	sealed := from != nil && l.runtimeType(from, x) != ""
+	sealed := from != nil && l.runtimeNamed(from, x)
 	if !sealed && from != nil && from.Underlying() != nil {
 		if _, ops := from.Underlying().(*check.Interface); ops {
 			return e

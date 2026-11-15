@@ -147,7 +147,7 @@ func held(name string, stage string, h Held) Output {
 
 // deploy runs d's stack at stage in pass as holder: None when it ended,
 // else the Output of its failure.
-func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] {
+func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] needs wired[O] {
 	let b = d.Bind(stage, pass)
 	let path = d.Outputs(stage)
 	let _ = Deploy(pass, d.Lock(stage), holder, b.Engines, d.Writes, path, b.Stack) catch {
@@ -169,7 +169,7 @@ func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Opt
 
 // Exec reads args as a command of d's stack, runs it, and is what to
 // print.
-func Exec[O wire](d Deployment[O], args []string) Output {
+func Exec[O wire](d Deployment[O], args []string) Output needs wired[O] {
 	let order = flag.ParseCommand(d.Name, "\(d.Name) plans, applies and destroys its stack", Commands(d.Holder), args) catch {
 	case flag.Help as h:
 		return Output{Out: h.Text, Err: "", Code: 0}
@@ -276,7 +276,7 @@ func shown[O wire](d Deployment[O], s StateOrder) Output {
 // Run is a stack's command line: it runs Exec on args (the arguments
 // after the program's name), prints its output, and fails os.Exit with
 // its status.
-func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console {
+func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console | wired[O] {
 	let o = Exec(d, args)
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))

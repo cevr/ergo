@@ -79,7 +79,10 @@ func TestStreamValuesKeepNoWindow(t *testing.T) {
 		w.CloseWithError(err)
 	}()
 	run := exec.Command(bin)
-	run.Env = append(os.Environ(), "GOMAXPROCS=1")
+	// GOGC set turns the program's heap pacing off (rt.Pace floors the
+	// heap goal at 64 MiB): the bound measures what the kept values hold,
+	// not the pacer's floor.
+	run.Env = append(os.Environ(), "GOMAXPROCS=1", "GOGC=100")
 	run.Stdin = in
 	out.Reset()
 	run.Stdout, run.Stderr = &out, &out

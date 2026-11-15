@@ -329,7 +329,7 @@ type Text string
 // text, a borrow of the Mapped. Only the runtime makes one.
 // law-exempt: only MapFile and MapText make one; MapTextIsText and the
 // runtime's TestFSMappedKeepsItsInvariant check their texts.
-type Mapped {
+extern go ergo.local/prototype/runtime/v1.Mapped type Mapped {
 	..Closer,
 	runtimeOnly(),
 	Text() Text,

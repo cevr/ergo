@@ -561,7 +561,7 @@ func TestHandoverAgrees(t *testing.T) {
 	}
 	// The rule takes every shortcut somewhere: else the property proves
 	// nothing about it.
-	for _, form := range []string{"ergo.LineageAppend(", "ergo.SlicesConcatOwned[", "ringOwned(", "mkOwned(", "ergo.AppendPoison(", "ergo.LineageAppendCheck("} {
+	for _, form := range []string{"ergo.LineageAppend[", "ergo.SlicesConcatOwned[", "ringOwned(", "mkOwned(", "ergo.AppendPoison[", "ergo.LineageAppendCheck["} {
 		found := false
 		for _, p := range programs {
 			if strings.Contains(p.mainGo(), form) {
