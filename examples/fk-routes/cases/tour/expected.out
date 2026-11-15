@@ -1,0 +1,103 @@
+> start /people?searchText=dev
+  address: /people?searchText=dev (0 behind)
+  screen: People
+  field: "dev"
+  history: [dev]
+  results: loading "dev"
+> wait 299
+> wait 1
+  results for "dev": Bob Smith, David Wilson
+> key GH
+  address: / (1 behind)
+  screen: Welcome Home
+> key GP
+  address: /people (2 behind)
+  screen: People
+  field: ""
+  results: loading ""
+> wait 300
+  results for "": Alice Johnson, Bob Smith, Carol Davis, David Wilson, Eva Brown
+> key GF
+  address: /files (3 behind)
+  screen: files: documents/ photos/ notes.txt
+> key GN
+  address: /nested/route/is/very/nested (4 behind)
+  screen: a very nested route
+> visit /people/3
+  address: /people/3 (5 behind)
+  screen: person 3: Carol Davis, Manager
+> visit /people/9
+  address: /people/9 (6 behind)
+  screen: person 9: not found
+> visit /people/x
+  address: /people/x (7 behind)
+  screen: not found: /people/x
+> visit /files/photos/vacation
+  address: /files/photos/vacation (8 behind)
+  screen: files/photos/vacation: beach.jpg sunset.jpg
+> visit /files/notes.txt
+  address: /files/notes.txt (9 behind)
+  screen: files/notes.txt: a file of 1.2 KB
+> visit /files/documents/taxes/2025.pdf
+  address: /files/documents/taxes/2025.pdf (10 behind)
+  screen: files/documents/taxes/2025.pdf: a file of 192.2 KB
+> visit /files/nope
+  address: /files/nope (11 behind)
+  screen: files/nope: missing
+> visit /nowhere?searchText=dev
+  address: /nowhere?searchText=dev (12 behind)
+  screen: not found: /nowhere?searchText=dev
+> visit /people?searchText=bob+smith
+  address: /people?searchText=bob+smith (13 behind)
+  screen: People
+  field: "bob smith"
+  history: [bob smith, dev]
+  results: loading "bob smith"
+> wait 300
+  results for "bob smith": Bob Smith
+> visit /people
+  address: /people (14 behind)
+  field: ""
+  results: loading ""
+> type Data Smith
+  field: "Data Smith"
+> type a b
+  field: "a b"
+> search
+  address: /people?searchText=a%20b (15 behind)
+  history: [a b, bob smith, dev]
+  results: loading "a b"
+> key GH
+  address: / (16 behind)
+  screen: Welcome Home
+> wait 300
+  results for "a b": Eva Brown
+> key GP
+  address: /people (17 behind)
+  screen: People
+  field: ""
+  results: loading ""
+> type Developer
+  field: "Developer"
+> search
+  address: /people?searchText=Developer (18 behind)
+  history: [Developer, a b, bob smith, dev]
+  results: loading "Developer"
+> wait 300
+  results for "Developer": Bob Smith, David Wilson
+> back
+  address: /people (17 behind)
+  field: ""
+  results: loading ""
+> wait 300
+  results for "": Alice Johnson, Bob Smith, Carol Davis, David Wilson, Eva Brown
+> back
+  address: / (16 behind)
+  screen: Welcome Home
+> back
+  address: /people?searchText=a%20b (15 behind)
+  screen: People
+  field: "a b"
+  history: [a b, Developer, bob smith, dev]
+  results: loading "a b"
+> stop
