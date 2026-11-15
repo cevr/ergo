@@ -94,10 +94,11 @@ type Window struct {
 
 	// The strokes of the list being made and of the shown one (a stroke's
 	// op is a placeholder that draw turns into its mask), the one
-	// StrokeBegin opened, and how many masks draw rasterized.
+	// StrokeBegin opened, how many masks draw rasterized, and how many
+	// strokes it drew as Lines since the atlas left their mask out.
 	strokes, shownStrokes, refStrokes []stroke
 	drawing                           *stroke
-	masks                             int
+	masks, lined                      int
 	z                                 vec.Rasterizer
 	frames                            bool
 	start                             time.Time
@@ -743,12 +744,31 @@ func (w *Window) draw() {
 	if scale <= 0 {
 		scale = 1
 	}
+	w.sys.BeginFrame()
+	w.mu.Lock()
+	lined := w.lined
+	w.build(width, height, scale)
+	for try := 0; try < 2 && w.sys.Full(); try++ {
+		w.sys.MakeRoom()
+		w.lined = lined
+		w.build(width, height, scale)
+	}
+	w.mu.Unlock()
+	w.r.Render(&w.sc)
+	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	w.sys.EndFrame()
+}
+
+// build makes the scene of the shown list in w.sc; w.mu is held. The text
+// system's frame has begun (BeginFrame): a mask or glyph an atlas leaves
+// out, it makes room for (MakeRoom), and draw builds the scene again,
+// since what the atlas kept moved.
+func (w *Window) build(width, height, scale float64) {
 	s := &w.sc
 	s.Reset(int(width*scale), int(height*scale), scene.Color{R: 255, G: 255, B: 255, A: 255})
 	s.Scale, s.Zoom = float32(scale), 1
 	s.MaskAtlas, s.ColorAtlas = w.sys.MaskAtlas, w.sys.ColorAtlas
 	s.Text = w.sys.TextParams()
-	w.mu.Lock()
 	ops := w.shown
 	texts := w.texts
 	strokes := w.shownStrokes
@@ -767,10 +787,6 @@ func (w *Window) draw() {
 	for ; k < len(texts); k++ {
 		w.glyphLine(s, texts[k], float32(scale))
 	}
-	w.mu.Unlock()
-	w.r.Render(s)
-	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
-	w.sys.EndFrame()
 }
 
 // strokeMask adds stroke t to s as one glyph of the mask atlas, as MyGo's
@@ -830,6 +846,7 @@ const maskMax = 2048
 
 // strokeLines adds t to s as a Line a segment (a point, a dot).
 func (w *Window) strokeLines(s *scene.Scene, t stroke) {
+	w.lined++
 	n := len(t.pts) / 2
 	if n == 1 {
 		s.Ops = append(s.Ops, lineOp(float64(t.pts[0]), float64(t.pts[1]), float64(t.pts[0]), float64(t.pts[1]), float64(t.width), t.color))

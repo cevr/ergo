@@ -59,6 +59,35 @@ func TestStrokeMaskIsKept(t *testing.T) {
 	}
 }
 
+// TestStrokesOutlastAFullAtlas: a stroke that moves every frame, as a
+// chart's line does, takes a new mask each frame, and the atlas fills;
+// draw makes room and builds the frame again, so no stroke falls back to
+// Lines. It kills GPs-no-room (hosts/mygo/testdata/mutants.json): without
+// MakeRoom, every stroke after the atlas fills is drawn a Line a segment.
+func TestStrokesOutlastAFullAtlas(t *testing.T) {
+	w, err := Headless(600, 600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each shape shows for two frames, so the atlas keeps its mask (the
+	// second frame) and fills with masks of most of the window.
+	for i := range 40 {
+		w.Begin()
+		w.StrokeBegin(6, 0x203080ff)
+		w.StrokeTo(10, 590)
+		w.StrokeTo(300, float64(10+i/2))
+		w.StrokeTo(590, 590)
+		w.StrokeEnd()
+		w.Present()
+		if !w.Render() {
+			t.Fatal("the window drew no frame")
+		}
+	}
+	if w.lined != 0 {
+		t.Fatalf("%d strokes of 40 frames were drawn as Lines", w.lined)
+	}
+}
+
 // TestStrokePaintsWhatLinesPaint: a stroke covers the pixels its Lines
 // cover, a segment's rounded rectangle each: at every pixel the two
 // frames are within one antialiasing step, and few pixels differ at all.

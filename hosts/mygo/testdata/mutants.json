@@ -506,6 +506,15 @@
       "killers": ["mygo/screen:TestStrokePaintsWhatLinesPaint"]
     },
     {
+      "name": "GPs-no-room",
+      "origin": "GPs (path-stroke op)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "for try := 0; try < 2 && w.sys.Full(); try++ {",
+      "to": "for try := 0; try < 0 && w.sys.Full(); try++ {",
+      "rule": "when an atlas fills during a frame, draw makes room (MakeRoom) and builds the scene again, so a stroke's mask is not left out",
+      "killers": ["mygo/screen:TestStrokesOutlastAFullAtlas"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",
