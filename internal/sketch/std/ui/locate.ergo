@@ -731,7 +731,9 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 
 // withinLabel is the card label of slot j: two of the four labels, so
 // cards of one column and of two columns share them. (a law's helper)
-func withinLabel(j int) string { "card \(j % 2)" }
+func withinLabel(j int) string {
+	"card \(j % 2)"
+}
 
 // WithinFindsUnder (FK11-g6): over drawn boards of 1 to 4 columns, each a
 // Region named "col i" holding a Heading and 0 to 4 cards (half of them in
