@@ -780,7 +780,7 @@ func (w *valueWalk) decide() {
 		chain := w.chainOf(call)
 		recv := w.recvOf(chain[len(chain)-1])
 		id := pathRoot(s.Lhs[0])
-		if id == nil || !samePlace(s.Lhs[0], recv) {
+		if id == nil || !samePlace(s.Lhs[0], recv) && !w.sameElem(s.Lhs[0], recv) {
 			continue
 		}
 		if v, ok := w.info.Uses[id].(*check.Var); ok && w.varOf(v).root() {
@@ -894,7 +894,11 @@ func (w *valueWalk) decide() {
 		if vf.inPlace[call] {
 			continue
 		}
-		if id, ok := unparen(w.recvOf(call)).(*syntax.Ident); ok {
+		if recv := w.recvOf(call); recv != nil && vf.moveOut[recv] {
+			// The entry a move-out's arm form takes (moveout.go, V9).
+			vf.inPlace[call] = true
+			delete(vf.lineage, call)
+		} else if id, ok := unparen(w.recvOf(call)).(*syntax.Ident); ok {
 			if v, ok := w.info.Uses[id].(*check.Var); ok && w.freshIdent(w.varOf(v), id, false) {
 				vf.inPlace[call] = true
 			}
@@ -1711,6 +1715,49 @@ func samePlace(a, b syntax.Expr) bool {
 	return false
 }
 
+// sameElem reports a and b as one element place of a slice, p[k] (or a
+// field path under one, p[k].f), whose index is the same value at both:
+// a literal, or a path of fields from an immutable variable
+// (LWR-ELEM-APPEND, REUSE RU8). An element holds its array alone, as a
+// root does (V1: what enters a root is fresh or copied), so
+// gs[j] = gs[j].Append(x) extends it in place.
+func (w *valueWalk) sameElem(a, b syntax.Expr) bool {
+	if !entryRule() {
+		return false
+	}
+	a, b = unparen(a), unparen(b)
+	switch x := a.(type) {
+	case *syntax.SelectorExpr:
+		y, ok := b.(*syntax.SelectorExpr)
+		return ok && x.Sel.Name == y.Sel.Name && (samePlace(x.X, y.X) || w.sameElem(x.X, y.X))
+	case *syntax.IndexExpr:
+		y, ok := b.(*syntax.IndexExpr)
+		if !ok || len(x.Indices) != 1 || len(y.Indices) != 1 || !w.stableKey(x.Indices[0]) || !sameKey(w.info, x.Indices[0], y.Indices[0]) {
+			return false
+		}
+		switch underEqual(w.typeOf(x.X)).(type) {
+		case *check.Slice, *check.Array:
+		default:
+			return false
+		}
+		return samePlace(x.X, y.X) || w.sameElem(x.X, y.X)
+	}
+	return false
+}
+
+// stableKey reports a key that names the same value wherever the body
+// reads it: a literal, or a path of fields from an immutable variable.
+func (w *valueWalk) stableKey(k syntax.Expr) bool {
+	switch k := unparen(k).(type) {
+	case *syntax.BasicLit:
+		return true
+	case *syntax.Ident, *syntax.SelectorExpr:
+		kv, ok := w.info.Uses[pathRoot(k)].(*check.Var)
+		return ok && fieldPath(k) && !w.varOf(kv).mut && !w.varOf(kv).ptr
+	}
+	return false
+}
+
 // slicesOf reports x = x[a:b] (any depth of slicing), which keeps x's own
 // array: the old value is overwritten, so nothing else shares it.
 func (w *valueWalk) slicesOf(e syntax.Expr, root *vvar) bool {
@@ -2316,7 +2363,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	if e == nil {
 		return true
 	}
-	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] {
+	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] || w.vf.moveOut[e] {
 		return true
 	}
 	if call, ok := e.(*syntax.CallExpr); ok && w.handed[call] {
