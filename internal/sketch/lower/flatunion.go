@@ -1236,6 +1236,17 @@ func (fu *flatUnion) flatValue(tc *typeCtx, goType string, k int, val string) st
 	// The literal is parenthesized: the value may stand in an if or a
 	// switch header, where Go parses a bare T{} as the block.
 	v := "(" + own + "{})." + ofName(k) + "(" + val + ")"
+	if val == tc.goType(fu.variants[k])+"{}" && len(fu.variants[k].Underlying().(*check.Struct).Fields) == 0 {
+		// A field-less variant written as its literal is the tag alone,
+		// a constant Go keeps whole: std time's months() is twelve of
+		// them, and twelve of calls put it past Go's inlining budget, so
+		// its slice escaped and each call allocated it (MSB3).
+		tag := k
+		if unionMutant == "sig-tag" {
+			tag = (k + 1) % len(fu.variants)
+		}
+		v = "(" + own + "{tag: " + strconv.Itoa(tag) + "})"
+	}
 	if goType != own {
 		v = goType + "(" + v + ")"
 	}
