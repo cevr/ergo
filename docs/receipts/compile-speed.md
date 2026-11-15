@@ -227,6 +227,29 @@ std at run time, so it cannot be the default of a self-contained build.
 Script: the wf10 run's `compile-speed/CS7` receipt script (`receipt.sh`,
 pstat from the v1 audit's speed tools); the run directory is not tracked.
 
+## Warm `ergo test ./...`
+
+CS8b: an unchanged `ergo test ./...` whose every package passed answers
+from the warm store. Before CS8b, each package replayed its test result
+cache only after discovery had parsed and checked every package. Measured
+with pstat: the user-mode instructions of the whole process tree, 3 warm
+runs after one cold run, GOMAXPROCS=4. The base binary is wf10/cs8
+9029811e9 and the head binary is wf10/cs8b. Host load was 47 to 72 (the
+instruction counts hold under load; the wall times do not):
+
+| Example | Base M instr | Head M instr | Base: files parsed, packages checked | Head: files parsed, packages checked | Head bytes hashed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| kvstore | 529 to 537 | 5.5 to 5.6 | 65, 10 | 0, 0 | 38,228 |
+| deps | 857 to 948 | 5.5 to 5.7 | 84, 19 | 0, 0 | 58,909 |
+| adventure | 238 to 246 | 4.6 to 4.8 | 36, 6 | 0, 0 | 21,932 |
+
+Neither side starts a process or does a Go action. Base and head print
+the same output (stdout and stderr), apart from the replay notes. The
+head's 4.6 to 5.7 M instructions include the `ergo` process start (2.1 to
+3.1 M, section Thin client). That leaves about 2.5 M instructions after
+the start, inside the 3.3 M warm budget (plan §3.2; inferred, by
+subtraction).
+
 ## Reproduce
 
 ```

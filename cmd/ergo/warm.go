@@ -50,10 +50,17 @@ func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
 func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm, func(sketchfront.WarmAnswer) bool) {
 	building := opts.command == "build" || opts.command == "run"
 	linking := opts.command != "check"
-	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || !isPackageFolder(opts.file) || linking && tc == nil {
+	// A recursive request (`ergo test ./...`, CS8) is the folder it walks.
+	folder, command := opts.file, opts.command
+	if recursivePattern(folder) {
+		folder, command = filepath.Dir(filepath.Clean(folder)), command+" ./..."
+	} else if !isPackageFolder(folder) {
 		return nil, nil
 	}
-	source, err := receipt.LocateSource(opts.file)
+	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || linking && tc == nil {
+		return nil, nil
+	}
+	source, err := receipt.LocateSource(folder)
 	if err != nil {
 		return nil, nil
 	}
@@ -61,7 +68,7 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 	if err != nil {
 		return nil, nil
 	}
-	parts := []string{opts.command, source.Admitted(), warmOptions(opts)}
+	parts := []string{command, source.Admitted(), warmOptions(opts)}
 	if linking {
 		stamp, ok := goStamp(tc.Go)
 		if !ok {

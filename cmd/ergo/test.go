@@ -79,16 +79,28 @@ func testPackage(opts fileOptions) error {
 	if !l.result.Checked {
 		return refuseUnchecked(l, opts)
 	}
-	return testLoadedPackage(opts, l, w)
+	return testLoadedPackage(opts, l, func(result []byte) {
+		if result != nil {
+			w.recordAs(sketchfront.WarmAnswer{Test: result}, ledgerPart(ledgerPath(opts.file)))
+		}
+	})
 }
 
-// testLoadedPackage tests a checked package; w, when not nil, stores a
-// passing result as the request's warm answer.
-func testLoadedPackage(opts fileOptions, l loaded, w *warm) error {
+// testLoadedPackage tests a checked package. keep, when not nil, is given
+// the stored result of a passing run whose build printed nothing (nil for
+// a package with nothing to test), to be kept as a warm answer.
+func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) error {
+	if keep == nil {
+		keep = func([]byte) {}
+	}
 	// A package with nothing to test is neither built nor run, so its
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
-		return emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+		err := emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+		if err == nil {
+			keep(nil)
+		}
+		return err
 	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
@@ -164,7 +176,7 @@ func testLoadedPackage(opts fileOptions, l loaded, w *warm) error {
 	}
 	if hit {
 		if !buildStderr.written {
-			w.recordAs(sketchfront.WarmAnswer{Test: cached}, ledgerPart(ledger))
+			keep(cached)
 		}
 		return replayTestResult(cached, os.Stdout, os.Stderr)
 	}
@@ -210,7 +222,7 @@ func testLoadedPackage(opts fileOptions, l loaded, w *warm) error {
 		// costs only the next run.
 		_ = cache.PutResult(module, testResultKey(opts, tc, childArgs, limit, ledger), result.encode())
 		if !buildStderr.written {
-			w.recordAs(sketchfront.WarmAnswer{Test: result.encode()}, ledgerPart(ledger))
+			keep(result.encode())
 		}
 	}
 	return nil
