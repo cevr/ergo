@@ -123,6 +123,14 @@ extern go ergo.local/prototype/runtime/v1.SlicesClone func Clone[T](xs []T) []T
 // writes the result. Ergo has no variadic parameter, so it takes two.
 extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](a []T, b []T) []T
 
+// AppendAll is xs with the elements of ys added at the end: Go's
+// append(xs, ys...), one bulk copy (Effect's Array.appendAll). Like
+// xs.Append(x), it leaves xs unchanged: the lowering appends in place only
+// for xs = AppendAll(xs, ys) on one place or a dead xs, and appends to a
+// clipped xs elsewhere. An empty ys does no work. It is an extern of Go's
+// builtin, which any module can declare the same way (check/builtin.go).
+extern go append func AppendAll[T](xs []T, ys []T) []T
+
 // Repeat is the elements of xs, n times over, in a new array: Go's
 // slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A
 // negative n, or a length that overflows int, is a defect, as Go's
