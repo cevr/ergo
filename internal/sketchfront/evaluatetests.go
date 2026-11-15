@@ -2,7 +2,6 @@ package sketchfront
 
 import (
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/eval"
@@ -24,9 +23,9 @@ type TestAnswer struct {
 	Stdout string
 	// Stderr is the native runner's error line of a failing run.
 	Stderr string
-	// Failed is the count of failed obligations; the native exit status
-	// is 1 when it is not 0.
-	Failed int
+	// Exit is the native runner's exit status: 1 when an obligation
+	// failed, else 0.
+	Exit int
 	// Obligations and Steps are the evidence: the obligations evaluated
 	// and the evaluator's steps.
 	Obligations int
@@ -68,26 +67,25 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 		return TestAnswer{}, false
 	}
 	stage.Add(stage.EvalSteps, rep.Steps)
+	// The native runner's obligations, in its order: the evaluator's
+	// results must be the same list (eval.Summary relies on its order).
 	if len(rep.Results) != len(plan.Names) {
 		return TestAnswer{}, false
 	}
-	byName := make(map[string]eval.Result, len(rep.Results))
-	for _, r := range rep.Results {
-		byName[r.Name] = r
+	for i, r := range rep.Results {
+		if r.Name != plan.Names[i] {
+			return TestAnswer{}, false
+		}
+	}
+	lines, stderr, exit, ok := eval.Summary(rep.Results, source)
+	if !ok {
+		return TestAnswer{}, false
 	}
 	var out strings.Builder
-	failed := 0
-	for _, name := range plan.Names {
-		r, found := byName[name]
-		if !found || r.Status == eval.Defect {
-			return TestAnswer{}, false
-		}
-		line, ok := eval.VerdictLine(r, source)
-		if !ok {
-			return TestAnswer{}, false
-		}
-		if r.Status != eval.Passed {
-			failed++
+	for i, line := range lines {
+		if i == len(lines)-1 {
+			out.WriteString(line + "\n") // the summary
+			break
 		}
 		first, rest, more := strings.Cut(line, "\n")
 		out.WriteString(first + EvaluatedMark + "\n")
@@ -95,15 +93,10 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 			out.WriteString(rest + "\n")
 		}
 	}
-	n := len(plan.Names)
-	answer := TestAnswer{Failed: failed, Obligations: n, Steps: rep.Steps}
-	if failed > 0 {
-		out.WriteString("FAIL (" + strconv.Itoa(failed) + " of " + strconv.Itoa(n) + " tests)\n")
-		answer.Stderr = "error: " + strconv.Itoa(failed) + " of " + strconv.Itoa(n) + " tests failed\n"
-	} else {
-		out.WriteString("PASS (" + strconv.Itoa(n) + " tests)\n")
+	answer := TestAnswer{Stdout: out.String(), Exit: exit, Obligations: len(rep.Results), Steps: rep.Steps}
+	if stderr != "" {
+		answer.Stderr = stderr + "\n"
 	}
-	answer.Stdout = out.String()
-	stage.Add(stage.ObligationsEvaluated, int64(n))
+	stage.Add(stage.ObligationsEvaluated, int64(answer.Obligations))
 	return answer, true
 }

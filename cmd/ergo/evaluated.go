@@ -35,9 +35,9 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer) (ans
 	if _, err := io.WriteString(stdout, answer.Stdout); err != nil {
 		return true, err
 	}
-	if answer.Failed > 0 {
+	if answer.Exit != 0 {
 		_, _ = io.WriteString(stderr, answer.Stderr)
-		return true, exitStatusError{code: 1, handled: true}
+		return true, exitStatusError{code: answer.Exit, handled: true}
 	}
 	return true, writeTestLedger(opts, l)
 }
