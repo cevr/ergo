@@ -459,6 +459,26 @@
       "killers": [
         "scripts/mutants:TestRunnerMatchesModel"
       ]
+    },
+    {
+      "name": "gt8b-var-unset",
+      "origin": "wf10 GATE2 GT8b",
+      "file": "scripts/mutants/runner.go",
+      "from": ", embedReadsVariable+\"=1\")...)",
+      "to": ")...)",
+      "rule": "The coverage pass's tests note their embedded reads.",
+      "gap": "Only a real coverage pass sees it (GT8b acceptance, gate2/GT8b/accept.ts: check's seal-callback-params on std/http/http.ergo, unnamed, is killed by check:TestSealingIsTheVisibilityRule); TestRunnerMatchesModel's fake module embeds nothing and always covers a package.",
+      "killers": []
+    },
+    {
+      "name": "gt8b-gocoverdir-uncovered",
+      "origin": "wf10 GATE2 GT8b",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif s.Package != \"\" && s.Module == \"\" && len(e.cfg.Cover) > 0 {",
+      "to": "\tif s.Package != \"\" && s.Module == \"\" {",
+      "rule": "A suite built without coverage (a ledger of .ergo rows only) runs without -test.gocoverdir, which would fail every test on the unmutated tree.",
+      "gap": "Only a real coverage pass sees it (GT8b acceptance, gate2/GT8b/accept.ts: check's seal-callback-params on std/http/http.ergo, unnamed, is killed by check:TestSealingIsTheVisibilityRule); TestRunnerMatchesModel's fake module embeds nothing and always covers a package.",
+      "killers": []
     }
   ]
 }

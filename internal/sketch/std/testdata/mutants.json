@@ -17,6 +17,10 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
-    }
+    },
+    {"name":"gt8b-note-off","origin":"wf10 GATE2 GT8b","file":"internal/embedread/embedread.go","from":"\tif !on || dir == \"\" {","to":"\tif true || !on || dir == \"\" {","rule":"In the coverage pass a read of an embedded source opens its checkout file, so the test log names it.","killers":["std:TestEmbeddedReadsAreInTheTestLog"]},
+    {"name":"gt8b-prelude-unnoted","origin":"wf10 GATE2 GT8b","file":"internal/sketch/std/std.go","from":"\tembedread.Note(sourceDir, \"prelude.ergo\")\n","to":"\n","rule":"A read of the embedded prelude is noted.","killers":["std:TestEmbeddedReadsAreInTheTestLog"]},
+    {"name":"gt8b-package-unnoted","origin":"wf10 GATE2 GT8b","file":"internal/sketch/std/std.go","from":"\t\tembedread.Note(sourceDir, name)\n","to":"\n","rule":"A read of an embedded std package's file is noted.","killers":["std:TestEmbeddedReadsAreInTheTestLog"]},
+    {"name":"gt8b-binding-unnoted","origin":"wf10 GATE2 GT8b","file":"internal/sketch/std/gostd/gostd.go","from":"\tembedread.Note(sourceDir, name)\n","to":"\n","rule":"A read of an embedded Go binding is noted.","killers":["std:TestEmbeddedReadsAreInTheTestLog"]}
   ]
 }
