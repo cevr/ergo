@@ -59,14 +59,46 @@ func r3(n int) int {
 	len(s.xs)
 }
 
+type Edit = Ins{At int} | Del{At int}
+
+func apply(s Raw, e Edit) Raw {
+	match e {
+	case Ins as i:
+		updRaw(s, i.At)
+	case Del as d:
+		updRaw(s, d.At + 1)
+	}
+}
+
+func arms(n int) int {
+	let mut s = Raw{xs: []int{}, n: 0}
+	for i in 0..n { s = apply(s, Ins{At: i}) }
+	len(s.xs)
+}
+
+func fill(into []int, x int) []int {
+	let mut out = into
+	for k in 0..2 { out = out.Append(x + k) }
+	out
+}
+
+func refill(n int) int {
+	let mut buf = []int{}
+	for i in 0..n { buf = fill(buf[:0], i) }
+	len(buf)
+}
+
 func main() needs Console {
-	Console.Println("\(g4(3)) \(r1(3)) \(r2(3)) \(r3(3))")
+	Console.Println("\(g4(3)) \(r1(3)) \(r2(3)) \(r3(3)) \(arms(3)) \(refill(3))")
 }
 `
 
 // TestPartsCopyNothing is the promised form of consume by parts (REUSE
 // RU1; parts.go): the shapes g4, r1, r2 and r3 copy nothing and take no
-// one-extender site, in the bodies and at their callers. The one copy
+// one-extender site, in the bodies and at their callers, nor do arms (a
+// parameter passed on once in each arm of a match, GP2b's apply: RU1b,
+// consumedUse) and refill (buf = fill(buf[:0], i): a reslice of the
+// rebound place handed over, LWR-INLINE-OWNED, consumable). The one copy
 // left is each owned function's wrapper, which only a caller that cannot
 // hand its argument over reaches (V5). The counted rows in
 // cmd/ergo/own_growth_linux_test.go show the same at n and 2n; this check
@@ -74,7 +106,8 @@ func main() needs Console {
 //
 // Mutants it alone catches in process: reuse-return-off (g4's whole
 // return refuses the bind), reuse-move-off (r2's update copies its base's
-// part).
+// part), reuse-consume-one-arm (apply copies s at each call),
+// reuse-consume-reslice-off (refill copies buf[:0]).
 func TestPartsCopyNothing(t *testing.T) {
 	mainGo, _, sites, _ := copiesOf(t, partsSource)
 	var bad []string

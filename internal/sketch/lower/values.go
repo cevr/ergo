@@ -1166,7 +1166,18 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 		return false
 	}
 	lid, aid := pathRoot(s.Lhs[0]), pathRoot(arg)
-	if lid == nil || aid == nil || !samePlace(s.Lhs[0], arg) {
+	// A reslice of the place, p = f(…, p[a:b], …), hands over the array p
+	// alone holds, as p = p[a:b] keeps it (moves.go): p's old value is dead
+	// from the call on (LWR-INLINE-OWNED: buf = AppendX(…, buf[:0])).
+	place := arg
+	for w.l.takes("own-reslice") {
+		x, ok := unparen(place).(*syntax.SliceExpr)
+		if !ok {
+			break
+		}
+		place = x.X
+	}
+	if lid == nil || aid == nil || !samePlace(s.Lhs[0], place) {
 		return false
 	}
 	v, ok := w.info.Uses[aid].(*check.Var)
@@ -1193,6 +1204,9 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
 			return false
 		}
+	}
+	if place != arg {
+		w.l.took("own-reslice")
 	}
 	return true
 }
@@ -1409,18 +1423,40 @@ func (w *valueWalk) consumes() {
 	}
 }
 
-// consumedUse is the one use of the parameter vv of f that a call
-// consumes (types.md, Bindings 2, consumed arguments), or nil: vv is read
-// once, in the body's own frame and outside any loop, as an operand of a
-// call, itself or a field path of it, at a position the call consumes
+// consumedUse is the use of the parameter vv of f that a call consumes
+// (types.md, Bindings 2, consumed arguments), or nil: vv is read once, or
+// once in each arm of a match or an if (exclusive: one run of the
+// statement runs one of them; GP2b's apply passes b on in each arm), in
+// the body's own frame and outside any loop, as an operand of a call,
+// itself or a field path of it, at a position the call consumes
 // (consumedAt); and f cannot fail after that read. Such a parameter is
 // owned (V5): its callers pass it unshared, so the call it reaches takes
-// it over.
+// it over. The use given is the first.
 func (w *valueWalk) consumedUse(f *check.Func, vv *vvar) syntax.Expr {
-	if vv.ptr || vv.local || len(vv.occs) != 1 {
+	if vv.ptr || vv.local || len(vv.occs) == 0 {
 		return nil
 	}
-	o := vv.occs[0]
+	var first syntax.Expr
+	for i, o := range vv.occs {
+		for _, prev := range vv.occs[:i] {
+			if !w.exclusive(prev.id, o.id) {
+				return nil
+			}
+		}
+		use := w.consumedOcc(f, o)
+		if use == nil {
+			return nil
+		}
+		if first == nil {
+			first = use
+		}
+	}
+	return first
+}
+
+// consumedOcc is the operand a call consumes at the use o of a parameter
+// of f (consumedUse), or nil.
+func (w *valueWalk) consumedOcc(f *check.Func, o *vocc) syntax.Expr {
 	if o.frame != w.root || len(o.loops) > 0 {
 		return nil
 	}

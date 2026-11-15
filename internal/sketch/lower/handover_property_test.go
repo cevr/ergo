@@ -78,6 +78,8 @@ type handoverGen struct {
 	store   []hbag          // the root st's bags
 	reads   int             // the lets r1, r2, … of the store's reads
 	reached map[string]bool
+	rturn   int // the parts functions rebinding the root so far, which pick the next (no draw)
+	lturn   int // the parts functions on a live let so far
 }
 
 func (g *handoverGen) line(s string) { g.b.WriteString("\t" + s + "\n") }
@@ -172,7 +174,8 @@ func (g *handoverGen) stmt() {
 	switch k := g.r.IntN(39); k {
 	case 28, 29:
 		// A parts function rebinding the root, then a write through it.
-		f := partNames[g.r.IntN(len(partNames))]
+		f := partNames[g.rturn%len(partNames)]
+		g.rturn++
 		g.reached["root "+f] = true
 		g.line(fmt.Sprintf("m = %s(m, %d)", f, v))
 		g.m = parts[f](g.m, v)
@@ -182,7 +185,8 @@ func (g *handoverGen) stmt() {
 		}
 	case 30, 32, 33:
 		// A parts function on a live let, which stays readable.
-		f := partNames[g.r.IntN(len(partNames))]
+		f := partNames[g.lturn%len(partNames)]
+		g.lturn++
 		g.reached[f+" on a live let"] = true
 		g.bind(fmt.Sprintf("%s(b%d, %d)", f, i, v), parts[f](src, v))
 	case 31:
