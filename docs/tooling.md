@@ -167,6 +167,56 @@ The gate needs Go and Git. Its steps build Ergo programs with that Go (`ERGO_GO=
 - The action cache takes the same rules: its entries are marked used and locked as modules are, and the trim reads its directories as further parts of the one bounded pass, behind the same `trim.txt` claim, with an age limit and a cap of their own. Until then the trim reads only `modules`, `staging` and `private`, and the action cache has no bound (follow-up).
 - The toolchain release is one directory per Go version, written once and verified. The cap does not count it, and the trim does not read it. A private root per test process would download a release for each process, so tests run with `ERGO_GO=system`, as the gate's steps do, or read the release from the user's root without writing it; never a release per test process.
 
+## Bootstrap and release
+
+The v1 capstone writes the compiler in Ergo, so an `ergo` is built by an earlier `ergo`, the **seed** (owner, 2026-11-12; prior art in [PRIOR_ART.md](../PRIOR_ART.md#bootstrapping-a-self-hosted-compiler-2026-11-12)). `scripts/bootstrap` is the driver. Until stage S1 of the capstone, every package of the compiler is Go, so the seed lowers nothing yet; the driver already fetches or rebuilds the seed, checks it and runs it, so the chain is in place before the first Ergo package.
+
+**Commands** (run from the repository; each needs Go and Git):
+
+| Command | What it does |
+| --- | --- |
+| `go run ./scripts/bootstrap [-o DIR] [-stages N] [-from-source]` | Takes the seed that `toolchain/seed.lock` names (stage 0), from the cache, from its GitHub release, or rebuilt from its source (`-from-source`: never downloaded), and builds stage 1 to stage N (default 2) of `./cmd/ergo` from the working tree. Stage i is built with stage i-1 as its compiler. Writes `DIR/stage<i>/ergo` (default `.bootstrap/`, which git ignores) and prints the sha256 of each stage. The last two stages must be byte-identical, else exit 1. |
+| `go run ./scripts/bootstrap verify-seed [-work DIR] [-fresh-cache=false]` | Builds the lock's source commit twice for each platform of the lock, from two clean exports (`git archive`) at different paths, each with an empty Go build cache. Both builds must be byte-identical and equal to the lock's sha256, else exit 1. |
+| `go run ./scripts/bootstrap seed-lock [-seed NAME] [-source COMMIT] [-go RELEASE] [-platforms LIST]` | Makes the same two builds and prints the lock that names them. A seed bump commits this output; nobody types a hash. |
+| `go run ./scripts/bootstrap capstone` | Prints the 15 rows of the capstone probe, each with the stage that makes it hold (S0 to S6), and exits 1 while a row is red. The test `TestCapstoneRowsOfLandedStages` fails only on a red row of a stage at or before `landedStage` in `scripts/bootstrap/capstone.go`; each stage's swap unit raises that constant. |
+
+**The seed lock.** `toolchain/seed.lock` has one key and value per line (`#` starts a comment):
+
+- `seed NAME`: the seed's name, which is also the git tag of its source (`seed-0` first);
+- `source HASH`: the full commit that the seed is built from;
+- `go RELEASE`: the Go release that builds it (the release that `ergo` pins);
+- `package ./cmd/ergo`: the main package;
+- `url TEMPLATE` (optional): where the seed is downloaded. The template is https only, and the driver replaces `{seed}`, `{goos}` and `{goarch}` in it. Seeds are published as assets of a GitHub release named after the seed (owner, 2026-11-12): `https://github.com/cevr/ergo/releases/download/{seed}/ergo-{goos}-{goarch}`;
+- `sha256 GOOS/GOARCH HEX`: the seed's digest, one line for each platform (linux/amd64 and darwin/arm64).
+
+The seed is never a trusted blob. When `ergo`'s cache (`<ergo cache>/seed/<seed>.<os>-<arch>/ergo`) has no seed with the lock's digest, the driver does two things in order:
+
+1. It downloads the lock's `url` for the platform (at most 512 MiB) and keeps the download only when its digest is the lock's. A download with another digest is refused with both digests named. It is not replaced by a rebuild, because a published binary that differs from its source is a finding.
+2. When the release has no such asset (any status other than 200), when the host cannot be reached, when the lock has no `url`, or with `-from-source`, it exports the source commit, builds it, and refuses the result unless its digest is the lock's.
+
+Until a seed's release is published, step 2 runs. Until S1, a seed's source is all Go, so the driver builds it with Go alone; S1 makes `verify-seed` and `seed-lock` build a source that has Ergo compiler packages through its own stages. A tag of the seed's name must name the lock's source commit, else the driver refuses.
+
+**What a build depends on.** Every build of the driver is `go build -trimpath -buildvcs=false` with `CGO_ENABLED=0`. Its environment keeps only the variables that find programs, caches and the module proxy (`PATH`, `HOME`, `TMPDIR`, `GOTMPDIR`, `XDG_CACHE_HOME`, `GOCACHE`, `GOMODCACHE`, `GOPATH`, `GOPROXY`, `GOMAXPROCS`, `GOMEMLIMIT`, `GOGC`). It sets `GOENV=off`, `GOWORK=off`, an empty `GOFLAGS`, `GOOS`, `GOARCH` and `GOTOOLCHAIN`. So the user's go env file, a `go.work` above the tree, `GOAMD64` and the like, a C compiler, the checkout's path and its git state do not reach the binary. A build is a function of the source and the Go release only (`TestBuildIsAFunctionOfSourceAndGo`). `ERGO_GO` selects the Go release as for `ergo`: unset or `managed` is the lock's `go` release, which the go command on `PATH` fetches through `GOTOOLCHAIN` (from the module proxy, checked against the checksum database); `system` is the go on `PATH`; an absolute path is that go command. A seed built by another Go release than the lock's is refused.
+
+**The compiler is written in the seed's language.** `compiler/` and the std packages it imports use only what the seed accepts. Stage 1 is built by the seed, so a violation fails the first step of the bootstrap.
+
+- A new construct lands in the compiler but the compiler does not use it. After the next seed bump, the compiler may use it.
+- A construct is removed or changed in three commits: stop using it; bump the seed; remove it.
+- A change of `runtime/v1` that seed-lowered code cannot link with follows the same three commits.
+
+**Seed bump.** Before 1.0, any gated commit of main may become the seed. After 1.0, the seed is the previous release.
+
+1. Choose the commit `C` (a gated commit of main, or the release tag).
+2. Run `go run ./scripts/bootstrap seed-lock -seed seed-<n> -source C > toolchain/seed.lock`. It builds each platform twice from clean exports and fails if the two builds differ.
+3. Commit the lock alone (`chore(toolchain): bump the seed to seed-<n>`). The batch integrator owns the lock: before the batch lands, it runs `go run ./scripts/bootstrap verify-seed` and `go run ./scripts/bootstrap`, then creates the tag `seed-<n>` on `C` and pushes it with main. Publishing the seed needs an owner request. To publish it, rename the binaries that `seed-lock` built to `ergo-<os>-<arch>` and attach them to a GitHub release of the tag: `gh release create seed-<n> ergo-linux-amd64 ergo-darwin-arm64 --verify-tag`. Then run `go run ./scripts/bootstrap` with an empty `ergo` cache: it must download the seed and not rebuild it.
+4. Keep every seed tag. The chain can then be replayed from Go source: Go builds `seed-0`, and each seed's `scripts/bootstrap` builds the next.
+
+**Release.** A release needs an explicit owner request (publishing).
+
+1. At the release commit, run `go run ./scripts/bootstrap -stages 3` (from S6 on, `TestFixpoint`: stage 2 and stage 3 are byte-identical).
+2. Run `go run ./scripts/bootstrap seed-lock -seed vX.Y.Z -source <commit> -platforms linux/amd64,darwin/arm64,linux/arm64,darwin/amd64`. The binaries it builds are the release binaries, and their digests are the release's checksums. Run `verify-seed` with that lock on a second host (the Mac check host): the digests must be equal.
+3. Tag `vX.Y.Z`, publish the binaries as `ergo-<os>-<arch>` assets of the GitHub release `vX.Y.Z` with the printed digests, and commit the lock as the next seed bump. The lock's `url` template names the release through `{seed}`.
+
 ## Test memory
 
 A test or a runner that starts a program gives the program a memory limit of its own, and makes it the first process that the kernel's out-of-memory killer stops. `GOMEMLIMIT` does not do this: it is a soft goal of one Go runtime, and it does not bound a child process.
