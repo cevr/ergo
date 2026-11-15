@@ -358,7 +358,7 @@ func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, l
 	}
 	goT := fc.goType(s.elem)
 	v := fc.scope.alloc("v")
-	clone := "func(" + v + " " + goT + ") " + goT + " { return " + fc.cloneValue(s.elem, v, x) + " }"
+	clone := "func(" + v + " " + goT + ") " + goT + " { return " + fc.reportCopy(x, fc.cloneValue(s.elem, v, x), whyRefCell) + " }"
 	vals = append(vals, clone, strconv.FormatBool(s.fresh))
 	return fc.runtimeCall(name, body, typeArgs, "", vals, fc.envExpr(x), x, c, x), result, false
 }

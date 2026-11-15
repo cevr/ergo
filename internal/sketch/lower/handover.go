@@ -64,19 +64,25 @@ import (
 // alias analysis it keeps conservative. Ergo has no count: the static rows
 // read the value rule's liveness, and the run-time row compares one token.
 
-// CopySite is one Append, Concat or other owned-form site of a lowering and
-// the form it takes (ergo build -report copies).
+// CopySite is one site of a lowering that copies a value or writes in place
+// instead: an Append, Concat or other owned-form site and the form it takes,
+// and every copy the value rule inserts (copyreport.go; ergo build -report
+// copies).
 type CopySite struct {
 	File   string `json:"file"`
 	Line   int    `json:"line"`
 	Column int    `json:"column"`
 	// Form is "in place", "one extender" (own-lineage) or "copy".
 	Form string `json:"form"`
+	// Kind is a copy's kind (copyreport.go, copyKind): "slice", "Map"
+	// or "deep"; "" for a site that copies nothing.
+	Kind string `json:"kind,omitempty"`
 	Why  string `json:"why"`
 }
 
 // CopyReport receives the CopySites of a lowering (Unit.Copies), sorted by
-// position, one per source site.
+// position, each once: a site lowered twice (a function and its owned
+// form) reports each form it takes.
 type CopyReport struct {
 	Sites []CopySite
 }
@@ -589,7 +595,7 @@ func (fc *funcCtx) handoverAppend(x *syntax.CallExpr, c *check.Call, vals []stri
 	case vf.inPlace[x] && valueRule():
 		fc.copySite(x, "in place", "a rebinding p = p.Append(x) of a let mut or a borrow root, or a dead unshared local (V3)")
 	default:
-		fc.copySite(x, "copy", "the source may be read again and is no field path that one site extends")
+		fc.copySiteKind(x, "copy", "slice", "the source may be read again and is no field path that one site extends")
 	}
 	return ""
 }
@@ -622,16 +628,21 @@ func (l *lowerer) lineageDecl() string {
 
 // copySite records the form of the site x in the copy report.
 func (fc *funcCtx) copySite(x *syntax.CallExpr, form, why string) {
+	fc.copySiteKind(x, form, "", why)
+}
+
+// copySiteKind records the site x with a copy's kind.
+func (fc *funcCtx) copySiteKind(x *syntax.CallExpr, form, kind, why string) {
 	file, line, col := fc.l.locate(x, x.Pos())
-	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Why: why})
+	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Kind: kind, Why: why})
 }
 
 // copyReport is the copy report of stats: one site per position, sorted.
 func copyReport(sites []CopySite) []CopySite {
-	seen := map[[3]any]bool{}
+	seen := map[CopySite]bool{}
 	var out []CopySite
 	for _, s := range sites {
-		k := [3]any{s.File, s.Line, s.Column}
+		k := s
 		if seen[k] {
 			continue
 		}

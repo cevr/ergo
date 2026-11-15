@@ -281,9 +281,9 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
 		// The value rule's copy (values.go), deep for Go (V8).
 		if fc.l.vals.deep[x] {
-			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
+			o.val = fc.reportCopy(x, fc.cloneDeep(fc.typeOf(x), o.val, x), fc.valueWhy(x))
 		} else {
-			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+			o.val = fc.reportCopy(x, fc.cloneValue(fc.typeOf(x), o.val, x), fc.valueWhy(x))
 		}
 	}
 	o.val = fc.guardHeader(o.val)

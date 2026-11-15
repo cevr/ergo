@@ -179,6 +179,7 @@ func entryRule() bool { return copyLowering != "whole" }
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
 	clone    map[syntax.Expr]bool       // values copied where they are lowered
+	why      map[syntax.Expr]string     // the reason of each clone, for the copy report (copyAt)
 	inPlace  map[*syntax.CallExpr]bool  // Append, Delete and Put calls that write their source
 	roots    map[syntax.Node]*valueWalk // analyzed bodies
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
@@ -220,6 +221,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 	if l.vals == nil {
 		l.vals = &valueFacts{
 			clone:    map[syntax.Expr]bool{},
+			why:      map[syntax.Expr]string{},
 			inPlace:  map[*syntax.CallExpr]bool{},
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
@@ -829,7 +831,7 @@ func (w *valueWalk) decide() {
 				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
 					// The callee would see a write a later operand makes.
 					if w.l.holdsValue(w.typeOf(o.path)) {
-						vf.clone[o.path] = true
+						w.copyAt(o.path, whyInFlight)
 					}
 				case o.kind == occRead && o.deps:
 					if w.needsCopy(vv, o) {
@@ -842,7 +844,7 @@ func (w *valueWalk) decide() {
 					if o.entry && !w.inFlight(vv, o) {
 						// The entry the matched Get gives (V9), which
 						// its arm's bindings then hold unshared.
-						vf.clone[o.call] = true
+						w.copyAt(o.call, whyEntry)
 						for _, v := range w.matchBinds(o.call) {
 							vf.copied[v] = true
 						}
@@ -851,12 +853,12 @@ func (w *valueWalk) decide() {
 					if o.result && !w.inFlight(vv, o) && w.l.copyCovers(w.typeOf(o.call)) {
 						// A pure call's result, not its argument, is
 						// copied (alias.go).
-						vf.clone[o.call] = true
+						w.copyAt(o.call, whyResult)
 						w.l.stats.ArgsShared++
 						w.l.stats.ResultCopies++
 						break
 					}
-					vf.clone[o.path] = true
+					w.copyAt(o.path, whyEscape)
 				}
 			}
 		}
@@ -865,7 +867,7 @@ func (w *valueWalk) decide() {
 	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
 		for _, call := range w.ergo {
 			if w.borrowResult(call) && !w.readOnlyUse(call) {
-				vf.clone[call] = true
+				w.copyAt(call, whyBorrow)
 				w.l.stats.BorrowCopies++
 			}
 		}
@@ -918,7 +920,7 @@ func (w *valueWalk) decide() {
 				// are shared, freshened as a whole.
 				for _, call := range w.chainOf(call) {
 					if !vf.inPlace[call] {
-						w.freshen(call)
+						w.freshen(call, whyChain)
 						break
 					}
 					if c := w.info.Calls[call]; c != nil && preludeAppend(c.Func) {
@@ -932,7 +934,7 @@ func (w *valueWalk) decide() {
 								// hold no Map or slice (handover.go).
 								continue
 							}
-							w.freshen(a)
+							w.freshen(a, whyElement)
 						}
 					}
 				}
@@ -941,21 +943,21 @@ func (w *valueWalk) decide() {
 			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
 				continue
 			}
-			w.freshen(o.value)
+			w.freshen(o.value, whyEnters)
 		}
 		// A value Put stores in a Map whose entries are written in place
 		// is unshared, as Append's element is (V9).
 		for _, call := range w.calls {
 			c := w.info.Calls[call]
 			if ops := callOperands(call, c); preludeMapWrite(c.Func) && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
-				w.freshen(ops[2])
+				w.freshen(ops[2], whyPut)
 			}
 		}
 		// An argument of an owned parameter enters the callee's root: it
 		// is copied unless fresh, or handed over by a rebinding (V5).
 		for _, arg := range w.args {
 			if !vf.consumed[arg] && valueMutant != "consume-live" {
-				w.freshen(arg)
+				w.freshen(arg, whyOwnedArg)
 			}
 		}
 	}
@@ -991,11 +993,12 @@ func (w *valueWalk) decide() {
 		case w.l.entryShared(w.typeOf(a)):
 			// Two Maps may share an entry, which Go may write (V8): Go
 			// is given a deep copy, fresh or not.
-			vf.clone[a], vf.deep[a] = true, true
+			w.copyAt(a, whyGoDeep)
+			vf.deep[a] = true
 		case hostCopyAlways:
-			vf.clone[a] = true
+			w.copyAt(a, whyGoArg)
 		default:
-			w.freshen(a)
+			w.freshen(a, whyGoArg)
 		}
 	}
 	// A value that moves into a provider cell (cells.go).
@@ -1605,14 +1608,14 @@ func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body strin
 	if recv != "" {
 		first = 1
 		if owned[0] {
-			recv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)
+			recv = fc.reportCopy(site, fc.cloneValue(f.Sig.Params[0].Type, recv, site), whyWrapper)
 		}
 	}
 	lead := len(args) - (len(f.Sig.Params) - first)
 	var ops []string
 	for i, a := range args {
 		if j := i - lead + first; i >= lead && owned[j] {
-			a = fc.cloneValue(f.Sig.Params[j].Type, a, site)
+			a = fc.reportCopy(site, fc.cloneValue(f.Sig.Params[j].Type, a, site), whyWrapper)
 		}
 		ops = append(ops, a)
 	}
@@ -2110,33 +2113,33 @@ func (w *valueWalk) snapshotted(vv *vvar, f *vframe) bool {
 
 // freshen makes the value e, which enters a root, unshared: nothing when
 // it is fresh, its parts when it is a literal, else a copy.
-func (w *valueWalk) freshen(e syntax.Expr) {
+func (w *valueWalk) freshen(e syntax.Expr, why string) {
 	if e == nil || !w.l.holdsValue(w.typeOf(e)) || w.fresh(e) {
 		return
 	}
 	switch x := e.(type) {
 	case *syntax.ParenExpr:
-		w.freshen(x.X)
+		w.freshen(x.X, why)
 		return
 	case *syntax.CompositeLit:
 		if x.Base != nil {
-			w.freshen(x.Base)
+			w.freshen(x.Base, why)
 		}
 		for _, el := range x.Elts {
 			if kv, ok := el.(*syntax.KeyValueExpr); ok {
-				w.freshen(kv.Value)
+				w.freshen(kv.Value, why)
 			} else {
-				w.freshen(el)
+				w.freshen(el, why)
 			}
 		}
 		return
 	case *syntax.TupleExpr:
 		for _, el := range x.Elts {
-			w.freshen(el)
+			w.freshen(el, why)
 		}
 		return
 	}
-	w.vf.clone[e] = true
+	w.copyAt(e, why)
 }
 
 // fresh reports whether no other live binding reaches a Map or slice of
@@ -2658,7 +2661,7 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 	case preludeAppend(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
 	case preludeMapWrite(c.Func):
-		vals[0] = fc.l.goPkg("maps") + ".Clone(" + vals[0] + ")"
+		vals[0] = fc.reportCopy(x, fc.l.goPkg("maps")+".Clone("+vals[0]+")", whyMapWrite)
 	}
 	return vals
 }
