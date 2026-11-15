@@ -217,6 +217,25 @@ MyGo's `Painter`. `TestDrawGuiOnTheDesktop` holds both to the example's
 `draw-gui scene` on 40 seeded pictures and scripts, output and saved file
 (`-draw.seed=N` replays one).
 
+## The dashboard's window: `cmd/dash-gui` (GP4c)
+
+`examples/dash-gui` (module `ergo.local/prototype/examples/dashgui`) is
+required the same way. `cmd/dash-gui [-headless [-check] [-frames N]]
+[-seed S]` shows its app and view on the desktop driver over the seeded
+synthetic sensors. The view animates, so the window's display gives it a
+frame at each of its frames, each a tick of the session and a `Next` of
+the app. Headless, the display is the script's: `frames N` draws N
+frames of the window (`Window.Render`, one Frame input each), and the
+notes each frame makes are printed after it; `tap LABEL` clicks a
+panel's button; `show` prints the window's texts.
+
+`controls/dash-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/dash-gui/control`, copied, with the window on MyGo's
+widgets and each panel's plot painted with MyGo's `Painter` and its chart
+package (`chart.MinMax`, `chart.LineInto`). `TestDashGuiOnTheDesktop`
+holds both to the example's `dash-gui scene` on 24 seeded sensors, frame
+counts and scene scripts (`-dash.seed=N` replays one).
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
