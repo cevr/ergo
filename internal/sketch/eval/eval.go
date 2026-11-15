@@ -134,10 +134,23 @@ type Result struct {
 	// are then the smaller case's, as the native runner's FAIL line shows
 	// them before "shrunk from:" (TESTSPEED FT1).
 	Drawn []Argument
+	// Message is a refuted or defective result's report as the native
+	// runner prints it after "): " on its FAIL line: "assert failed at
+	// main.ergo:9:2: x < 3: left 4, right 3", "law refuted at …: the law is
+	// false" with its declaration's line, "a defect, which stops the run".
+	// It is empty when the evaluator cannot write the native text (a typed
+	// failure that escaped, an assert under a try whose operands the native
+	// runner shows): that verdict's line is the native runner's to write
+	// (TESTSPEED FT1).
+	Message string
 	// escaped says a refutation is a typed failure that escaped the body,
 	// not a failed assert or a false law: a shrink keeps a candidate only
 	// when it fails the same way.
 	escaped bool
+	// form is how its cases are made (verdict.go).
+	form caseForm
+	// title is a law's name in its replay command (--law), check.Law.Title.
+	title string
 }
 
 type Argument struct{ Name, Value string }
@@ -267,7 +280,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
-			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
+			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos()), title: run.Law.Title(pkg)}
 			if stopped != "" || initFail != nil {
 				add(res)
 				continue
@@ -380,9 +393,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	res.Steps = in.steps - start
 	if ab == nil {
 		if law && val != nil && !truth(val) {
-			res.Status, res.Reason = Refuted, "the law is false"
-			res.Site = in.site(pkg, decl, fr.resultPos)
-			return res
+			return in.lawFalse(res, pkg, decl, fr.resultPos)
 		}
 		res.Status = Passed
 		return res
@@ -391,20 +402,21 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	switch ab.kind {
 	case ctlReturn:
 		if law && !truth(ab.val) {
-			res.Status, res.Reason = Refuted, "the law is false"
-			res.Site = in.site(pkg, decl, fr.resultPos)
-			return res
+			return in.lawFalse(res, pkg, decl, fr.resultPos)
 		}
 		res.Status = Passed
 		res.Site = in.site(pkg, decl, decl.Pos())
 	case ctlAssert:
 		res.Status, res.Reason = Refuted, "assert failed"
+		if a, ok := ab.val.(*shownAssert); ok && !a.unshown {
+			res.Message = in.assertMessage(fr, res.Site, a)
+		}
 	case ctlFail, ctlEscape:
 		res.Status, res.Reason = Refuted, "a failure escaped: "+describe(ab.val)
 		res.Site = in.site(pkg, decl, decl.Pos())
 		res.escaped = true
 	case ctlDefect:
-		res.Status, res.Reason = Defect, ab.msg
+		res.Status, res.Reason, res.Message = Defect, ab.msg, defectMessage
 	case ctlExhausted:
 		res.Status, res.Reason = Incomplete, ab.msg
 	case ctlUnsupported:
@@ -412,7 +424,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	case ctlInterrupt:
 		// Nothing stops the root task; an interruption that reaches it
 		// came from a task it waited for.
-		res.Status, res.Reason = Defect, "interrupted"
+		res.Status, res.Reason, res.Message = Defect, "interrupted", defectMessage
 	default:
 		ice("the control %d left the body", ab.kind)
 	}

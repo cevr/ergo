@@ -205,12 +205,12 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			return
 		}
 	}
-	out.Evidence, out.Seed = "tested", in.budget.Seed
+	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	if p.Listed {
-		out.Evidence = "proved"
+		out.Evidence, out.form = "proved", formListed
 	}
 	if !law && len(params) == 0 {
-		out.Evidence = "evaluated"
+		out.Evidence, out.form = "evaluated", formSingle
 	}
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
@@ -287,7 +287,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
 			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
 		}
-		out.Status, out.Reason, out.Site, out.escaped = result.Status, result.Reason, result.Site, result.escaped
+		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}
@@ -386,6 +386,10 @@ func intShape(u *check.Basic) (width uint, signed, ok bool) {
 func (in *interp) abruptResult(res Result, ab *abrupt) Result {
 	res.Status, res.Reason, res.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
 	res.escaped = ab.kind == ctlFail || ab.kind == ctlEscape
+	res.Message = ""
+	if res.Status == Defect {
+		res.Message = defectMessage
+	}
 	return res
 }
 

@@ -72,14 +72,7 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 	case *syntax.RangeStmt:
 		return in.rangeStmt(fr, s)
 	case *syntax.AssertStmt:
-		v, ab := in.expr(fr, s.X)
-		if ab != nil {
-			return ab
-		}
-		if !truth(v) {
-			return fr.abrupt(ctlAssert, s, nil, "")
-		}
-		return nil
+		return in.assertStmt(fr, s)
 	}
 	ice("a statement of the kind %T", s)
 	return nil

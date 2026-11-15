@@ -58,7 +58,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			return
 		}
 	}
-	out.Evidence, out.Seed = "tested", in.budget.Seed
+	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
 	// run draws a case's arguments from r, as it stands, builds the
@@ -105,7 +105,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		if result.Status == Refuted && len(law.Params) > 0 {
 			result, shows = in.shrinkCase(r, result, shows, run)
 		}
-		out.Status, out.Reason, out.Site, out.escaped = result.Status, result.Reason, result.Site, result.escaped
+		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}

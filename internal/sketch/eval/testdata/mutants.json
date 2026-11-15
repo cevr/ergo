@@ -1743,6 +1743,42 @@
       "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
     },
     {
+      "name": "oracle-ft1-law-replay-seedless",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\t\tif r.form == formDrawn {\n",
+      "to": "\t\tif r.form == formNone {\n",
+      "rule": "A drawn law's replay line names its seed, as the native runner's does; a listed law's names none.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-message-site-unnamed",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\treturn \"assert failed at \" + nativeSite(site) + \": \" + text\n",
+      "to": "\treturn \"assert failed: \" + text\n",
+      "rule": "A failed assert's report names its site, file:line:column, as the native runner's does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-shown-operands-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\tif a.shown {\n",
+      "to": "\tif false && a.shown {\n",
+      "rule": "A failed comparison whose operand types are printable shows its left and right values, as the native runner's report does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-string-diff-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\t\t\t\ttext += assertDiff(ls, rs)\n",
+      "to": "\t\t\t\t_, _ = ls, rs\n",
+      "rule": "A failed comparison of strings over more than one line adds the native runner's line diff.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",

@@ -54,6 +54,11 @@ type facts struct {
 	// call is the prelude's Unreachable (ORACLE O34).
 	plan        *funcPlan
 	unreachable bool
+	// assertShown is an assert's comparison when its report shows the
+	// operands, read once (assertSeen) from the checked types, which no
+	// substitution changes (assert.go; TESTSPEED FT1).
+	assertShown *assertOperands
+	assertSeen  bool
 	// errSeen and errIs hold whether a returned value of the expression's
 	// type is an error value (retValue), read outside a generic body
 	// (ORACLE O34). Every frame that returns the expression has the fact
