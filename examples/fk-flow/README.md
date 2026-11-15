@@ -54,7 +54,7 @@ Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.
 fk-flow makes the one perf claim of the Foldkit ports (plan §18.3 FK12): per frame at 600 paths, its allocations and instructions against a hand Go control.
 
 - `testdata/control` is that control: the same model, paint and script host in Go, with no ui package. It prints what `fk-flow` prints.
-- `workload` has `scripts/opcount` play `fk-flow -gen N` with `-last` at two sizes, so the cost of a frame of about 600 trails is the slope between them, on both sides.
+- The workload (the run's `receipts/fk-flow.workload`, until the examples layout takes a `workload` file with scripts/opcount) has `scripts/opcount` play `fk-flow -gen N` with `-last` at two sizes, so the cost of a frame of about 600 trails is the slope between them, on both sides.
 - `hosts/mygo/controls/fk-flow` is the same model (copied) on MyGo's widgets, its canvas painted with MyGo's `Painter`. `TestFkFlowControlAgrees` (hosts/mygo) holds it to `fk-flow` on seeded scripts, and holds the two copies of the model to one file.
 
 ## Laws
