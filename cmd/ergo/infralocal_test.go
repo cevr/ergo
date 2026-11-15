@@ -43,7 +43,7 @@ func TestInfraLocalStartsARealProgram(t *testing.T) {
 		"go.mod": "module app\n\ngo 1.27\n\nrequire (\n\tgithub.com/cevr/ergo/modules/infra v0.0.0\n\tgithub.com/cevr/ergo/modules/infra-local v0.0.0\n)\n\n" +
 			"replace github.com/cevr/ergo/modules/infra => " + filepath.Join(repo, "modules/infra") + "\n\n" +
 			"replace github.com/cevr/ergo/modules/infra-local => " + filepath.Join(repo, "modules/infra-local") + "\n",
-		"go.sum": "",
+		"go.sum":     "",
 		"work/.keep": "",
 		"cmd/app/main.ergo": `import github.com/cevr/ergo/modules/infra
 import github.com/cevr/ergo/modules/infra-local/local
