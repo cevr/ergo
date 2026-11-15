@@ -576,7 +576,7 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 //
 //   - comments, and so the //line and /*line*/ directives (a std body has
 //     none);
-//   - the call table: the declarations that name ergoDecls, ergoCalls or
+//   - the call table: the declarations that name ergoDecls, ergoCalls, ergoCallNames or
 //     ergoInlines, and the types ergoDecl and ergoCall (a std body has no
 //     entry);
 //   - the context namespace: a string "std:P" and the copy's "copy/P";
@@ -732,7 +732,7 @@ func callTableDecl(d ast.Decl, text string) bool {
 			}
 		}
 	}
-	for _, name := range []string{"ergoDecls", "ergoCalls", "ergoInlines"} {
+	for _, name := range []string{"ergoDecls", "ergoCalls", "ergoCallNames", "ergoInlines"} {
 		if strings.Contains(text, name) {
 			return true
 		}
