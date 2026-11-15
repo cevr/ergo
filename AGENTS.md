@@ -12,8 +12,8 @@ For language architecture, runtime/interop contracts, or terminology changes, re
 - Public effect contracts are explicit. Do not silently admit missing services or undeclared errors.
 - Keep unsupported syntax a diagnostic, never an unchecked passthrough to the host.
 - Build a small Go compiler. Go is the only target (owner, 2026-10-26); any other target is a diagnostic. Effect is prior art for the guarantees, not a runtime. Preserve the shared conformance corpus.
-- Use Rift for isolated repository changes. Implementers never push; the orchestrator integrates accepted, reviewed, gated heads into local `main` and may fast-forward `origin/main` to them (owner, 2026-10-07). Other publishing requires an explicit owner request.
-- On the exe workbox, transferred `.rift` markers may be unregistered and the transferred source is on ext4. If `workrift` cannot resolve it, use an isolated Git worktree as the loop skill permits. Verify registry membership before workspace cleanup.
+- Make isolated repository changes in a lane: a copy-on-write workspace of `work` (`ergo work`), made and handed back with `scripts/lanework/lanework.sh`. Implementers never push; the orchestrator integrates accepted, reviewed, gated heads into local `main` and may fast-forward `origin/main` to them (owner, 2026-10-07). Other publishing requires an explicit owner request.
+- A lane's source is a base `work init` made (on the exe workbox, `/workspaces/ergo`). Check that `work list` names a workspace before cleanup; `work gc -idle 48h` collects the idle ones whose work is held.
 - Run `./scripts/gate.sh` (the fast tier) before handoff. The full tier (`./scripts/gate.sh --full`), `--merge` and the macOS check run on every batch head before main. Performance claims require measured evidence.
 - Wayfinder execution is explicitly authorized for this effort; do not close HITL tickets without user feedback.
 
