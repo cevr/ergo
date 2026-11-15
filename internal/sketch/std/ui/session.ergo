@@ -238,7 +238,7 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
-		let over = slows(SessionStats(s), w.Value.budget)
+		let over = SlowsOf(SessionStats(s), w.Value.budget)
 		for x in over {
 			s.actor.Send(w.Value.on(x)) catch {
 			case actor.Stopped:

@@ -97,9 +97,33 @@ func StatsOf[S, E, D, F](h *TestHost[S, E, D, F]) Stats { SessionStats(&h.sessio
 // no bound.
 type Budget { Signals int, Written int, Committed int, Ops int, Painted int, Fetches int }
 
-// Slow is a pass that did more than its budget: the counter (by its Stats
-// field name, "Ops" for the patch's ops), its count and its bound.
-type Slow { Counter string, Count int, Bound int }
+// Slow is a pass that did more than its budget: the counter, its count
+// and its bound.
+type Slow { Counter Counter, Count int, Bound int }
+
+// Counter is a counter of Budget: a program matches on it, so a new
+// counter is a case each match must name (FK13-g4). OpsCounter is the
+// patch's ops, of every kind.
+type Counter = SignalsCounter{} | WrittenCounter{} | CommittedCounter{} | OpsCounter{} | PaintedCounter{} | FetchesCounter{}
+
+// CounterText is c as Budget's field name: "Signals", "Written",
+// "Committed", "Ops", "Painted" or "Fetches".
+func CounterText(c Counter) string {
+	match c {
+	case SignalsCounter:
+		"Signals"
+	case WrittenCounter:
+		"Written"
+	case CommittedCounter:
+		"Committed"
+	case OpsCounter:
+		"Ops"
+	case PaintedCounter:
+		"Painted"
+	case FetchesCounter:
+		"Fetches"
+	}
+}
 
 // OnSlow asks for the signal of each counter over b after a pass (H6b, a
 // program's slow warnings): the session sends on(Slow{…}) to the actor,
@@ -115,15 +139,16 @@ func OnSlow[E](f *Frame[E], b Budget, on escaping func(s Slow) E) {
 // slowWatch is a pass's OnSlow.
 type slowWatch[E] { budget Budget, on func(s Slow) E }
 
-// slows is the Slow of each counter of s over b.
-func slows(s Stats, b Budget) []Slow {
+// SlowsOf is the Slow of each counter of s over its bound in b (0 is no
+// bound), in the order of Budget's fields: what OnSlow sends after a pass.
+func SlowsOf(s Stats, b Budget) []Slow {
 	let mut out = []Slow{}
 	let ops = s.Inserted + s.Moved + s.Removed + s.Set
-	let pairs = [](string, int, int){("Signals", s.Signals, b.Signals), ("Written", s.Written, b.Written), ("Committed", s.Committed, b.Committed), ("Ops", ops, b.Ops), ("Painted", s.Painted, b.Painted), ("Fetches", s.Fetches, b.Fetches)}
+	let pairs = [](Counter, int, int){(SignalsCounter, s.Signals, b.Signals), (WrittenCounter, s.Written, b.Written), (CommittedCounter, s.Committed, b.Committed), (OpsCounter, ops, b.Ops), (PaintedCounter, s.Painted, b.Painted), (FetchesCounter, s.Fetches, b.Fetches)}
 	for p in pairs {
-		let (name, count, bound) = p
+		let (counter, count, bound) = p
 		if bound > 0 && count > bound {
-			out = out.Append(Slow{Counter: name, Count: count, Bound: bound})
+			out = out.Append(Slow{Counter: counter, Count: count, Bound: bound})
 		}
 	}
 	out
@@ -267,4 +292,66 @@ test CountsLineText {
 	let d = StepCounts{Inserted: 2, Moved: 0, Removed: 1, Set: 0, Ran: 2, Kept: 0, GroupsRan: 1, GroupsKept: 0, Visits: 4}
 	assert CountsLine(d) == "2 insert, 1 remove; ran 2 nodes, kept 0; groups ran 1, kept 0; visits 4"
 	assert CountsLine(NoCounts()) == "no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+}
+
+// slowBound is the bound b gives c, by an exhaustive match. (a law's helper)
+func slowBound(c Counter, b Budget) int {
+	match c {
+	case SignalsCounter:
+		b.Signals
+	case WrittenCounter:
+		b.Written
+	case CommittedCounter:
+		b.Committed
+	case OpsCounter:
+		b.Ops
+	case PaintedCounter:
+		b.Painted
+	case FetchesCounter:
+		b.Fetches
+	}
+}
+
+// slowCount is what s counts for c, by an exhaustive match. (a law's helper)
+func slowCount(c Counter, s Stats) int {
+	match c {
+	case SignalsCounter:
+		s.Signals
+	case WrittenCounter:
+		s.Written
+	case CommittedCounter:
+		s.Committed
+	case OpsCounter:
+		s.Inserted + s.Moved + s.Removed + s.Set
+	case PaintedCounter:
+		s.Painted
+	case FetchesCounter:
+		s.Fetches
+	}
+}
+
+// SlowNamesItsCounter (FK13-g4): over drawn stats and budgets, SlowsOf
+// gives one Slow for each counter whose bound is set and passed, in
+// Budget's order, none for the others, each with that counter's count and
+// bound, and CounterText names each counter by its Budget field, each
+// name once.
+law SlowNamesItsCounter(seed int) {
+	let mut r = seeded(seed)
+	let n = func() int { draw(&r, 9) }
+	let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()}
+	let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()}
+	let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter}
+	let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"}
+	let mut want = []Slow{}
+	for i, c in all {
+		if CounterText(c) != names[i] {
+			return false
+		}
+		let bound = slowBound(c, b)
+		let count = slowCount(c, s)
+		if bound > 0 && count > bound {
+			want = want.Append(Slow{Counter: c, Count: count, Bound: bound})
+		}
+	}
+	SlowsOf(s, b) == want
 }

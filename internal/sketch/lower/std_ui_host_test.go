@@ -2534,7 +2534,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		// The pass wrote the log's line and the texts.
 		let texts = a.State().texts
 		if texts%3 != 0 && texts+1 > bound {
-			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			want = want.Append(ui.Slow{Counter: ui.WrittenCounter, Count: texts + 1, Bound: bound})
 			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
 			// the law takes the posted events until it shows it.
 			// A ui.Slow is one commit, so it shows within a few posted
