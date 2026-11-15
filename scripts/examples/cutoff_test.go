@@ -111,9 +111,13 @@ func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
 }
 
 // checkKeyCallsRunOnce counts the fmt and check calls of the first step: a
-// missed program's key runs them and its legs take the key's results
-// (runner.keyed, GS20), so the cached run makes each call once, as the
-// fresh run does: twice in all. It catches gs20-key-results-dropped.
+// missed program's key runs them and its fmt leg takes the key's result
+// (runner.keyed, GS20), so the cached run makes that call once, as the
+// fresh run does: twice in all. Its check leg runs its own check with the
+// law-verdict store off (checkTarget, LAWCACHE), so the native leg is
+// compared with a check that evaluated every law, never with the key's:
+// three in all (GS29, the batch 19+20+21 combination). It catches
+// gs20-key-results-dropped.
 func checkKeyCallsRunOnce(t *testing.T, calls []string) {
 	t.Helper()
 	counts := map[string]int{}
@@ -126,8 +130,12 @@ func checkKeyCallsRunOnce(t *testing.T, calls []string) {
 		t.Fatalf("no fmt or check call in %q", calls)
 	}
 	for c, n := range counts {
-		if n != 2 {
-			t.Errorf("ergo %s ran %d times in a cached and a fresh run of a miss; want 2 (the legs take the key's result)", c, n)
+		want := 2
+		if strings.HasPrefix(c, "check ") {
+			want = 3
+		}
+		if n != want {
+			t.Errorf("ergo %s ran %d times in a cached and a fresh run of a miss; want %d (the fmt leg takes the key's result; the check leg runs its own)", c, n, want)
 		}
 	}
 }
