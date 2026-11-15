@@ -580,7 +580,8 @@ func StrconvUnquote(s string) (string, error) {
 // out of line and its result escaped. This one costs 78, so it inlines
 // into its caller, and a quote whose buffer is 32 bytes or less and that
 // does not leave the caller is built on the caller's stack, as Go's
-// inlined Quote is.
+// inlined Quote is. Source: Go's strconv/quote.go (quoteWith), BSD-style
+// licence, Copyright The Go Authors.
 //
 //ergo:pure
 //ergo:wait none
