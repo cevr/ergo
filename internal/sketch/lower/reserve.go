@@ -30,8 +30,10 @@ import (
 //   - nothing else in the body assigns x, and the body has no break,
 //     continue or return, so each iteration appends once;
 //   - the domain is a variable or a field path, through no pointer and
-//     no call, that does not mention x: a range over x's array sees x's
-//     element writes until an append moves the array (Bindings 3), so a
+//     no call, or a call (reserveCall: its value is held in a temporary,
+//     so the call runs once and len reads what the loop ranges over),
+//     and it does not mention x: a range over x's array sees x's element
+//     writes until an append moves the array (Bindings 3), so a
 //     reservation would change what the loop reads.
 //
 // Capacity is not otherwise visible: the value rule (V3) clips or copies
@@ -79,7 +81,7 @@ func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) s
 			break
 		}
 	}
-	if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || fc.mentions(s.X, target) {
+	if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) && !reserveCall(s.X) || fc.mentions(s.X, target) {
 		return ""
 	}
 	name, ok := fc.locals[target]
@@ -102,6 +104,18 @@ func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) s
 		return ""
 	}
 	return name
+}
+
+// reserveCall reports a slice or Map domain that is a call, such as a
+// store's All() or a function that builds the list: the lowering holds a
+// call's value in a temporary (a call is a statement of its own, value),
+// so the call runs once and the reservation reads the length of the value
+// the loop ranges over. The body appends to x and writes
+// none of its elements, so the loop reads the same elements whether or
+// not the reservation moved x's array.
+func reserveCall(x syntax.Expr) bool {
+	_, ok := unparen(x).(*syntax.CallExpr)
+	return ok
 }
 
 // reserveRange reports a Range domain whose count a loop may reserve: a

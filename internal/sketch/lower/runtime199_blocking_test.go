@@ -257,6 +257,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
 		// compare-and-swap or atomic store; no wait.
 		"Claim": true, "Done": true,
+		// GX2: an append loop's room (reserve.go), Go's slices.Grow; no
+		// wait, no release.
+		"Reserve": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -593,8 +593,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if conn != nil {
 			conn.enter(phaseBody)
 		}
-		var body strings.Builder
-		_, err := io.Copy(&body, http.MaxBytesReader(w, r.Body, int64(s.limits.MaxBodyBytes)))
+		body, err := readBody(w, r, s.limits.MaxBodyBytes)
 		if conn != nil {
 			conn.enter(phaseFree)
 		}
@@ -606,7 +605,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				in.ReadError = err.Error()
 			}
 		} else {
-			in.Body = body.String()
+			in.Body = body
 		}
 	}
 	// net/http cancels the request context on an input EOF, even when the
@@ -663,6 +662,25 @@ func httpWriteAnswer(w http.ResponseWriter, r HTTPResponse) {
 	if r.Body != "" {
 		_, _ = io.WriteString(w, r.Body)
 	}
+}
+
+// bodyChunks holds the read buffers of readBody.
+var bodyChunks = sync.Pool{New: func() any { return new([2048]byte) }}
+
+// readBody is r's body, at most max bytes (a longer one is
+// *http.MaxBytesError). The text is one allocation of its own size: a
+// declared length sizes it first, and the reads go through a pooled
+// chunk, not io.Copy's 32 KB buffer per request (neither a
+// MaxBytesReader nor a strings.Builder takes io.Copy's shortcuts).
+func readBody(w http.ResponseWriter, r *http.Request, max int) (string, error) {
+	var body strings.Builder
+	if n := r.ContentLength; n > 0 && n <= int64(max) {
+		body.Grow(int(n))
+	}
+	chunk := bodyChunks.Get().(*[2048]byte)
+	defer bodyChunks.Put(chunk)
+	_, err := io.CopyBuffer(&body, http.MaxBytesReader(w, r.Body, int64(max)), chunk[:])
+	return body.String(), err
 }
 
 // fail keeps a request's or a sleep's defect for the serving task, and wakes it to

@@ -4296,8 +4296,8 @@
       "name": "gx2-reserve-self-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "!fc.plainPath(s.X) || fc.mentions(s.X, target) {",
-      "to": "!fc.plainPath(s.X) {",
+      "from": "!fc.plainPath(s.X) && !reserveCall(s.X) || fc.mentions(s.X, target) {",
+      "to": "!fc.plainPath(s.X) && !reserveCall(s.X) {",
       "rule": "types.md, Loops and len 8 (GX2): a range over the target's own array sees its element writes, so it is not reserved.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4307,9 +4307,9 @@
       "name": "gx2-reserve-call-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || ",
+      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) && !reserveCall(s.X) || ",
       "to": "if target == nil || ",
-      "rule": "types.md, Loops and len 8 (GX2): a domain reached through a call could return the target's array, so it is not reserved.",
+      "rule": "types.md, Loops and len 8 (GX2; GX8 reserves a call's value, held once): a domain reached through a pointer could reach the target's array, so it is not reserved.",
       "killers": [
         "lower:TestReserveAgrees"
       ]
@@ -4716,6 +4716,50 @@
       "rule": "types.md Loops and len 8 (GX6): an empty Range (2..len(xs) of a short xs) reserves zero, never a negative count.",
       "killers": [
         "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx8-call-refused",
+      "origin": "wf10 GX8",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\t_, ok := unparen(x).(*syntax.CallExpr)\n\treturn ok\n",
+      "to": "\t_, ok := unparen(x).(*syntax.CallExpr)\n\treturn ok && false\n",
+      "rule": "types.md Loops and len 8 (GX8): a loop over a call's slice that appends once per element reserves room first.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx8-call-twice",
+      "origin": "wf10 GX8",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tcount := \"len(\" + x + \")\"\n",
+      "to": "\t\tcount := \"len(\" + fc.value(s.X) + \")\"\n",
+      "rule": "types.md Loops and len 8 (GX8): a reserved call domain runs once; the length and the range read its one value.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx8-segments-name-literal",
+      "origin": "wf10 GX8",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "\t\tif strings.HasPrefix(w, \":\") && len(w) > 1 {",
+      "to": "\t\tif strings.HasPrefix(w, \":\") && len(w) > 2 {",
+      "rule": "stdlib.md std http Match (GX8): the segment check before the split takes a :name segment as a capture, as the split does.",
+      "killers": [
+        "internal/sketch/lower:TestStdHTTPLawsRun"
+      ]
+    },
+    {
+      "name": "gx8-segments-skip",
+      "origin": "wf10 GX8",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "\t\twant = strings.Slice(want, wi+1, len(want))",
+      "to": "\t\twant = strings.Slice(want, min(wi+2, len(want)), len(want))",
+      "rule": "stdlib.md std http Match (GX8): the segment check walks each segment of the route's path once.",
+      "killers": [
+        "internal/sketch/lower:TestStdHTTPLawsRun"
       ]
     },
     {
