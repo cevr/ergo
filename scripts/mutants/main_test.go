@@ -16,16 +16,22 @@ func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 // TestUnjudgedFailsTheRun is the smallest repro of FT11b's cmd/ergo run,
 // where 7 tests failed on the unmutated tree and the run judged their rows
 // uncovered: a row a red test would judge gets no verdict, and the run
-// fails and lists it. Mutant: gt8b-unjudged-exit.
+// fails and lists it. So does an invalid row (GT-COMPILE: rows "killed"
+// only by a compile error). Mutants: gt8b-unjudged-exit, gtc-invalid-exit.
 func TestUnjudgedFailsTheRun(t *testing.T) {
-	m := &Mutant{Name: "row", File: "f.go", Killers: []string{"s:TestRed"}}
-	jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}
-	results := []Result{{Ledger: "l.json", Name: "row", Status: Unjudged, Detail: "s:TestRed fails on the unmutated tree"}}
-	cov := &coverage{Tests: []*covTest{{ID: "s:TestRed", Failed: true, Detail: "fail"}}}
-	cov.reindex()
-	var out strings.Builder
-	if code := report(&out, jobs, results, cov); code != 1 || !strings.Contains(out.String(), "NOT JUDGED") {
-		t.Errorf("an unjudged row: exit %d, want 1, and a NOT JUDGED list:\n%s", code, out.String())
+	for _, c := range []struct{ status, detail, list string }{
+		{Unjudged, "s:TestRed fails on the unmutated tree", "NOT JUDGED"},
+		{Invalid, "does not compile: f.go:3:1: x", "row (invalid, origin o): does not compile"},
+	} {
+		m := &Mutant{Name: "row", Origin: "o", File: "f.go", Killers: []string{"s:TestRed"}}
+		jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}
+		results := []Result{{Ledger: "l.json", Name: "row", Status: c.status, Detail: c.detail}}
+		cov := &coverage{Tests: []*covTest{{ID: "s:TestRed", Failed: c.status == Unjudged, Detail: "fail"}}}
+		cov.reindex()
+		var out strings.Builder
+		if code := report(&out, jobs, results, cov); code != 1 || !strings.Contains(out.String(), c.list) {
+			t.Errorf("a row %s: exit %d, want 1, and %q listed:\n%s", c.status, code, c.list, out.String())
+		}
 	}
 }
 

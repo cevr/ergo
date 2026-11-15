@@ -506,12 +506,64 @@
       "name": "gt8b-unjudged-exit",
       "origin": "wf10 GATE2 GT8b (FT11b)",
       "file": "scripts/mutants/main.go",
-      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 {",
-      "to": "\tif len(newSurvivors) > 0 {",
+      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {",
+      "to": "\tif len(newSurvivors) > 0 || invalid > 0 {",
       "rule": "An unjudged row fails the run.",
       "killers": [
         "scripts/mutants:TestUnjudgedFailsTheRun"
       ]
+    },
+    {
+      "name": "gtc-compile-counted",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif detail := w.compiles(ctx, m, path, original); detail != \"\" {\n\t\tr.Status, r.Detail = Invalid, detail\n\t\treturn r\n\t}\n\tbuilt := map[string]bool{}",
+      "to": "\tbuilt := map[string]bool{}",
+      "rule": "A mutant whose file does not compile is invalid, never killed by a test that fails on the compile error.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gtc-invalid-exit",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/main.go",
+      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {",
+      "to": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 {",
+      "rule": "An invalid row fails the run.",
+      "killers": [
+        "scripts/mutants:TestUnjudgedFailsTheRun"
+      ]
+    },
+    {
+      "name": "gtc-std-unchecked",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/compiles.go",
+      "from": "\t\treturn w.compileStd(ctx)\n",
+      "to": "\t\treturn \"\"\n",
+      "rule": "A std .ergo row is compiled by checking the copy's std.",
+      "gap": "Only a real pass over a std or Ergo-module row sees it (GT-COMPILE sweep, gate2/GT-COMPILE/sweep.sh: -compiles over every ledger); TestRunnerMatchesModel's fake module has no .ergo file.",
+      "killers": []
+    },
+    {
+      "name": "gtc-ergo-unchecked",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/compiles.go",
+      "from": "\t\treturn w.compileErgo(ctx, file)\n",
+      "to": "\t\treturn \"\"\n",
+      "rule": "A row of an Ergo module's .ergo file is compiled by the copy's ergo check of its directory.",
+      "gap": "Only a real pass over a std or Ergo-module row sees it (GT-COMPILE sweep, gate2/GT-COMPILE/sweep.sh: -compiles over every ledger); TestRunnerMatchesModel's fake module has no .ergo file.",
+      "killers": []
+    },
+    {
+      "name": "gtc-baseline-ignored",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/compiles.go",
+      "from": "\tif base != \"\" {\n",
+      "to": "\tif false {\n",
+      "rule": "A file that fails to compile unmutated (a fixture) makes no row of it invalid.",
+      "gap": "No fixture of the fake module fails to compile unmutated; the sweep over every ledger would list such rows invalid.",
+      "killers": []
     }
   ]
 }
