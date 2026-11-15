@@ -4030,6 +4030,52 @@
       ]
     },
     {
+      "name": "fkg2-empty-match-ice",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\tif len(clauses) == 0 {\n\t\t// A match of no arm",
+      "to": "\tif false && len(clauses) == 0 {\n\t\t// A match of no arm",
+      "rule": "types.md, Never (FKG2): a match of no arm lowers to Unreachable's panic in every lowering.",
+      "killers": [
+        "lower:TestNeverLowers"
+      ]
+    },
+    {
+      "name": "fkg2-never-record-body",
+      "origin": "wf10 FKG2",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\t\tif check.IsNever(named) {\n\t\t\t// The prelude's Never",
+      "to": "\t\tif false && check.IsNever(named) {\n\t\t\t// The prelude's Never",
+      "rule": "types.md, Never (FKG2): Never lowers to Go's struct{}.",
+      "killers": [
+        "lower:TestNeverLowers"
+      ]
+    },
+    {
+      "name": "fkg1-every-zero-reading",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "ind + \"\\tif \" + fc.l.rt() + \".MachineFiringNow(\"",
+      "to": "ind + \"\\tif false && \" + fc.l.rt() + \".MachineFiringNow(\"",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): a firing Every timer's signal carries time.Clock's reading, never the zero time.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun",
+        "lower:TestStdActorLawsRun"
+      ]
+    },
+    {
+      "name": "fkg1-every-as-timeout",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if r := after.Sig.Results; len(r) == 1 && everyOption(r[0]) {",
+      "to": "if false {",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): an Every after converts through its own wrapper.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun",
+        "lower:TestStdActorLawsRun"
+      ]
+    },
+    {
       "name": "goos-kill-unsplit",
       "origin": "wf10/fu-runtime-goos",
       "file": "runtime/v1/exec.go",

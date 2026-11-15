@@ -556,8 +556,23 @@ func (c *checker) checkMachineAfter(tn *TypeName, x syntax.Expr, state, signal T
 		return nil
 	}
 	if !c.machineAfterShape(f.Sig, state, signal) {
-		c.errorf(id, CodeType, "the after %s of machine %s must have the type %s, with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)", id.Name, tn.Name, want)
+		c.errorf(id, CodeType, "the after %s of machine %s must have the type %s, or Option[machines.Every[%s]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)", id.Name, tn.Name, want, signal)
 		return nil
+	}
+	if c.machineAfterEvery(f.Sig, signal) {
+		// An Every timer's after is not the Machine's After, which the
+		// conversion wraps (lower, machineAfter); its own rows are empty.
+		wantSig := &Signature{Params: f.Sig.Params, Results: f.Sig.Results, Errors: newRow(), Uses: newRow()}
+		t := &target{name: "the after of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
+		prev := c.fn
+		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
+		op := c.valueExpr(x, wantSig)
+		ok = c.assign(&op, wantSig, "machine "+tn.Name+"'s after")
+		c.fn = prev
+		if !ok {
+			return nil
+		}
+		return f
 	}
 	// Its rows: the value must be assignable to the Machine's After, whose
 	// rows are empty; an inferred row is solved later, so assignment
@@ -587,15 +602,81 @@ func (c *checker) checkMachineAfter(tn *TypeName, x syntax.Expr, state, signal T
 	return f
 }
 
-// machineAfterShape reports whether sig is func(S) Option[Timeout[E]] with
-// no type parameters; its rows are checked where it is assigned.
+// machineAfterShape reports whether sig is func(S) Option[Timeout[E]] or
+// func(S) Option[machines.Every[E]] (FKG1) with no type parameters; its
+// rows are checked where it is assigned.
 func (c *checker) machineAfterShape(sig *Signature, state, signal Type) bool {
 	option, timeout := preludeType("Option"), preludeType("Timeout")
 	if option == nil || timeout == nil || len(sig.TParams) > 0 || len(sig.Params) != 1 || len(sig.Results) != 1 {
 		return false
 	}
+	if !c.identical(sig.Params[0].Type, state) {
+		return false
+	}
 	want := c.instantiate(option, []Type{c.instantiate(timeout, []Type{signal})})
-	return c.identical(sig.Params[0].Type, state) && c.identical(sig.Results[0], want)
+	return c.identical(sig.Results[0], want) || c.machineAfterEvery(sig, signal)
+}
+
+// machineAfterEvery reports whether the after function's sig gives
+// Option[machines.Every[E]] for the signal type E (FKG1): a timer whose
+// signal is made from the clock's reading when it fires.
+func (c *checker) machineAfterEvery(sig *Signature, signal Type) bool {
+	option := preludeType("Option")
+	if option == nil || len(sig.Results) != 1 {
+		return false
+	}
+	o, ok := sig.Results[0].(*Named)
+	if !ok || o.origin() != option || len(o.TArgs) != 1 {
+		return false
+	}
+	ev, ok := o.TArgs[0].(*Named)
+	return ok && IsStdEvery(ev) && len(ev.TArgs) == 1 && c.identical(ev.TArgs[0], signal)
+}
+
+// IsStdEvery reports whether t is an instance of std machines.Every
+// (FKG1), which lives beside machines.Work.
+func IsStdEvery(t Type) bool {
+	n, ok := t.(*Named)
+	if !ok || n.origin() == nil {
+		return false
+	}
+	tn := n.origin().Obj
+	return tn != nil && tn.Name == "Every" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == workPath
+}
+
+// EveryClock is std time.Clock, the capability that an Every timer's
+// runner reads (FKG1), found from the type of the timer's Signal
+// parameter, time.Time; nil when it cannot be found.
+func EveryClock(sig *Signature) Type {
+	o, ok := sig.Results[0].(*Named)
+	if !ok || len(o.TArgs) != 1 {
+		return nil
+	}
+	ev, ok := o.TArgs[0].(*Named)
+	if !ok {
+		return nil
+	}
+	st, ok := ev.Underlying().(*Struct)
+	if !ok {
+		return nil
+	}
+	field, _ := st.field("Signal")
+	if field == nil {
+		return nil
+	}
+	fn, ok := field.Type.(*Signature)
+	if !ok || len(fn.Params) != 1 {
+		return nil
+	}
+	at, ok := fn.Params[0].Type.(*Named)
+	if !ok || at.Obj == nil || at.Obj.Pkg == nil {
+		return nil
+	}
+	clock, ok := at.Obj.Pkg.Scope.names["Clock"].(*TypeName)
+	if !ok {
+		return nil
+	}
+	return clock.Type
 }
 
 // machineAfter is the after function of the machine declaration t, or nil
@@ -679,6 +760,14 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	works := newRow()
 	if _, wr := c.machineWork(t); wr != nil {
 		works = wr
+	}
+	if after := c.machineAfter(t); after != nil && c.machineAfterEvery(after.Sig, m.Signal) {
+		// An Every timer's runner reads time.Clock when it fires (FKG1):
+		// the runner's row W carries it, and a fold, which fires no
+		// timer, needs no clock.
+		if clock := EveryClock(after.Sig); clock != nil {
+			works = works.with(c.types, clock)
+		}
 	}
 	if start := machineStart(n.Obj.Pkg, spec); start != nil {
 		// A machine with an input is an InputMachine (V4); a start of the

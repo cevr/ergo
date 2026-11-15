@@ -19,6 +19,28 @@
       "killers": ["internal/sketch/std:TestExternArgumentClauses"]
     },
     {
+      "name": "fkg1-runtimed-fires-plain",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/std/machines/machines.ergo",
+      "from": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {\n\tfiringOn()",
+      "to": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {\n\tfiringOff()",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): RunTimed makes a timer's signal under the firing mark, so an Every timer reads the clock.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun"
+      ]
+    },
+    {
+      "name": "fkg1-actor-fires-plain",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/std/actor/actor.ergo",
+      "from": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {\n\tfiringOn()",
+      "to": "func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {\n\tfiringOff()",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): the actor's runner makes a timer's signal under the firing mark.",
+      "killers": [
+        "lower:TestStdActorLawsRun"
+      ]
+    },
+    {
       "name": "strengths-bench-dir-undeclared", "origin": "wf10 fu-std-closure",
       "file": "internal/sketch/std/strengths_test.go",
       "from": "\t\tif !slices.Contains(benchmarkPackages, dir) {\n",

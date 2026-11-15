@@ -1,0 +1,27 @@
+[] -
+> type 90210
+[90210] -
+> submit
+[90210] Fetching weather for 90210...
+[90210] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+> type 1
+[1] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+> type 10001
+[10001] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+> submit
+[10001] Fetching weather for 10001...
+[10001] 10001 New York, New York: 41°F, Rain; humidity 88%, wind 14 mph
+> type
+[] 10001 New York, New York: 41°F, Rain; humidity 88%, wind 14 mph
+> submit
+[] Zip code required
+> type 00000
+[00000] Zip code required
+> submit
+[00000] Fetching weather for 00000...
+[00000] Location not found
+> type 99999
+[99999] Location not found
+> submit
+[99999] Fetching weather for 99999...
+[99999] Failed to fetch weather data (the station at 99999 is down)

@@ -177,6 +177,44 @@ test ActorRejectKeepsState(signals []int, n int) { assert RejectKeepsState(signa
 
 test ActorDoneIsFinal(signals []int, e int) { assert DoneIsFinal(signals, e) }
 
+type Paces { Opened time.Time, Count int, Wrong int }
+
+let Pace = 5ms
+
+func paceAt(at time.Time) Paces { Paces{Opened: at, Count: 0, Wrong: 0} }
+
+func paceStep(p Paces, at time.Time) Decision[Paces, Never] {
+	let wrong = if at.Equal(p.Opened.Add(Pace)) { p.Wrong } else { p.Wrong + 1 }
+	Enter[Paces]{Next: Paces{Opened: at, Count: p.Count + 1, Wrong: wrong}}
+}
+
+func paceEvery(p Paces) Option[machines.Every[time.Time]] { Some{machines.Every[time.Time]{In: Pace, Signal: paceSignal}} }
+
+func paceSignal(at time.Time) time.Time { at }
+
+type Pacer machine[Paces, time.Time] { initial: paceAt, step: paceStep, after: paceEvery }
+
+func pacedOn(m time.Manual, n int) bool needs time.Clock | Scheduler {
+	let beats = 1 + ((n % 4) + 4) % 4
+	let a = actor.StartMachine(machines.Start(Pacer{}, time.Clock.Now()), 1, func(o Never) {})
+	for _ in 0..beats {
+		time.Advance(m, Pace)
+	}
+	let s = actor.WaitFor(a, func(p Paces) bool { p.Count >= beats }) catch {
+	case actor.Stopped:
+		return false
+	}
+	a.Stop()
+	s.Wrong == 0
+}
+
+func EveryFiresWithTheReading(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m, time.Clock: m } { pacedOn(m, n) }
+}
+
+test ActorEveryFiresWithTheReading(n int) { assert EveryFiresWithTheReading(n) }
+
 func exitParts[F](x actor.Exit[int, int, F]) (int, int, int) {
 	match x {
 	case actor.Finished[int, int] as f:
@@ -610,6 +648,7 @@ var actorLawStatements = map[string]string{
 	"actor Actor.ChangesStops":         `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
 	"actor Actor.StopIsFinal":          `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
 	"actor CanIsTheStep":               `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
+	"actor EveryFiresWithTheReading":   `EveryFiresWithTheReading(n int) { let m = time.NewManual(0) with context { Scheduler: m, time.Clock: m } { pacedOn(m, n) } }`,
 	"actor FeedStepsInOrder":           `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
 	"actor DoneIsFinal":                `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
 	"actor ExitIsShared":               `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,

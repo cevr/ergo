@@ -45,7 +45,7 @@ type Intrinsic { Max float32, Min float32 }
 // and whose lines are 1.25 em apart, that breaks lines at spaces: MyGo's
 // stub engine's measure, for tests. Runs of spaces count as one, and a
 // text with no rune but spaces measures nothing.
-type Monospace {}
+type Monospace {} implements Measure
 
 // advance and leading are Monospace's rune width and line height, in em.
 let advance = float32(0.5)
