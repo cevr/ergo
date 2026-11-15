@@ -257,6 +257,45 @@ func listed(n int, changed int) []Item {
 
 type Counter { N int }
 
+// Wide is a record with a slice: a component that reads no slice of it
+// compares the fields it reads (NS2b).
+type Wide { It Item, Tags []int, N int, M int }
+
+func label(w Wide) string {
+	"n\(w.N)"
+}
+
+// wideA reads It and, through label, N: never Tags or M.
+func wideA(f *ui.Frame[int], w Wide) {
+	ui.Text(f, "wide \(w.It.Text) \(label(w))")
+}
+
+// wideB reads Tags, a slice: no group.
+func wideB(f *ui.Frame[int], w Wide) {
+	ui.Text(f, "tags \(len(w.Tags))")
+}
+
+func wideView(f *ui.Frame[int], w Wide) {
+	wideA(f, w)
+}
+
+// subset renders wideA as only Tags changes, then M (read by no one),
+// then N (read through label): the components run and the groups kept
+// after each of the last three passes.
+func subset() needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 1, Text: "x", Done: false}
+	for k in 0..3 {
+		let _ = ui.Render(&f, wideView, Wide{It: it, Tags: rows(k+1), N: 1, M: 0})
+	}
+	Console.Println("subset \(ui.GroupRuns(&f)) \(ui.GroupsKept(&f))")
+	let _ = ui.Render(&f, wideView, Wide{It: it, Tags: []int{}, N: 1, M: 5})
+	Console.Println("subset \(ui.GroupRuns(&f)) \(ui.GroupsKept(&f))")
+	let _ = ui.Render(&f, wideView, Wide{It: it, Tags: []int{}, N: 2, M: 5})
+	Console.Println("subset \(ui.GroupRuns(&f)) \(ui.GroupsKept(&f))")
+	Console.Println(shot(ui.FrameShape(&f), "wide "))
+}
+
 func counted(f *ui.Frame[int], c *Counter) {
 	ui.Text(f, "n \(c.N)")
 }
@@ -381,11 +420,16 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		g.stmts(i, depth+1, indent+"\t")
 		w("}")
 	}
-	kind := g.r.IntN(15)
-	if depth >= 2 && (kind >= 3 && kind <= 5 || kind >= 12) {
+	kind := g.r.IntN(16)
+	if depth >= 2 && (kind >= 3 && kind <= 5 || kind >= 12 && kind != 15) {
 		kind = 0
 	}
 	switch kind {
+	case 15:
+		// A record with a slice (NS2b): wideA reads no slice of it, so it
+		// is kept on equal It.Text and N; wideB reads the slice, so runs.
+		w("wideA(f, Wide{It: it, Tags: rows(a), N: a%%3, M: a})")
+		w("wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})")
 	case 0:
 		w(`ui.Text(f, "c%d \(a) \(it.Text)")`, i)
 	case 1:
@@ -543,7 +587,12 @@ func (g *uiSkipGen) states(n int) []string {
 // argument that calls a function counting its calls is evaluated once a
 // pass (tallied), and rows whose label is computed are kept when it is
 // equal and run once when every label changes, comparing the nodes the
-// reference compares (allChange, at 50 and 200).
+// reference compares (allChange, at 50 and 200). A component whose
+// record argument holds a slice it does not read compares the fields it
+// reads, through a nested call too (NS2b): generated components read
+// subsets of their Item, and subset counts a record kept while its slice
+// and an unread field change, and run when a field read through label
+// changes.
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
@@ -554,7 +603,8 @@ func (g *uiSkipGen) states(n int) []string {
 // ui-group-off-unchecked, ui-group-same-skip-pure, ui-group-cut-kept,
 // ui-group-again-skips, ui-group-fresh-impure-leak, ui-group-cut-slot-leak,
 // ui-group-inner-unstamped, ui-group-inner-unlisted, ui-ns2a-arg-twice,
-// ui-ns2a-arg-unvalued, ui-ns2a-computed-refused.
+// ui-ns2a-arg-unvalued, ui-ns2a-computed-refused, ui-ns2b-nested-unjoined,
+// ui-ns2b-whole-record, ui-ns2b-slice-field, ui-ns2b-field-unread.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
@@ -581,7 +631,7 @@ func TestUISkipAgrees(t *testing.T) {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -603,7 +653,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") && !strings.HasPrefix(l, "allcount ") && !strings.HasPrefix(l, "subset ") {
 				keep = append(keep, l)
 			}
 		}
@@ -644,7 +694,7 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
-		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "):
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "), strings.HasPrefix(l, "allcount "), strings.HasPrefix(l, "subset "):
 			elsewhere = append(elsewhere, l)
 		}
 	}
@@ -662,7 +712,10 @@ func TestUISkipAgrees(t *testing.T) {
 	// Commit compares what the reference compares (allchange, a behaviour
 	// line, equal under both builds); a later pass that changes the header
 	// alone runs none of them (allcount, NS1 and NS2a).
-	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
-		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change)", elsewhere, want)
+	// NS2b: a record argument with a slice is a group of the fields its
+	// component reads: kept while only the slice or an unread field
+	// changes, run when a field read through a nested call changes.
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change; components run and groups kept in subset)", elsewhere, want)
 	}
 }

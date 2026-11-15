@@ -27,6 +27,10 @@ import (
 // both read (fc.preset), as an ordinary call evaluates it once; one with
 // a row (a failure, a capability, a try or catch) is no group, as Compose
 // takes any argument expression and compares its value in the callee.
+// A record argument the component does not read all of is compared by
+// the fields it reads (check.Info.Reads; NS2b) when each of them compares
+// with == and holds no pointer, so a record holding a slice the component
+// never reads is a group too (readFields).
 //
 // SetUISkipForTest(false) selects the reference: every call runs
 // (TestUISkipAgrees); so does a compiler built with
@@ -68,12 +72,73 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 	if g == nil {
 		return nil
 	}
-	for _, a := range x.Args[1:] {
-		if !(plainOperand(a) || fc.rowFree(a)) || !groupArg(fc.typeOf(a)) {
+	for k, a := range x.Args {
+		if k == 0 {
+			continue
+		}
+		if !(plainOperand(a) || fc.rowFree(a)) {
+			return nil
+		}
+		if _, ok := fc.readFields(fn, k, x); !ok && !groupArg(fc.typeOf(a)) {
 			return nil
 		}
 	}
 	return g
+}
+
+// uiReadsOff selects the lowering without read sets (NS2a's): a record
+// argument is compared whole, and one that does not compare is no group.
+var uiReadsOff bool
+
+// SetUIReadsForTest selects comparing only the fields a component reads
+// of a record argument (true, the default) or the whole argument (false),
+// and returns a function that restores the previous choice.
+func SetUIReadsForTest(on bool) func() {
+	old := uiReadsOff
+	uiReadsOff = !on
+	return func() { uiReadsOff = old }
+}
+
+// readFields is the fields of the record argument k of the component call
+// x of fn that fn reads (check.Info.Reads; NS2b), when the group may
+// compare those alone: the argument has the parameter's record type, with
+// no conversion and no type arguments, fn's body does not read all of it,
+// and each field it reads compares with Go's == and holds no pointer
+// (groupArg), so that the comparison is constant time. A record that
+// holds a slice is then a group when the component reads no slice of it.
+func (fc *funcCtx) readFields(fn *check.Func, k int, x *syntax.CallExpr) ([]*check.Field, bool) {
+	if uiReadsOff || fn.Pkg.Info == nil || len(x.Args) != len(fn.Sig.Params) {
+		return nil, false
+	}
+	sets, ok := fn.Pkg.Info.Reads[fn.Decl]
+	if !ok || k >= len(sets) || sets[k].All {
+		return nil, false
+	}
+	a := x.Args[k]
+	t := fn.Sig.Params[k].Type
+	n, ok := t.(*check.Named)
+	if _, conv := fc.l.info.Implicit[a]; conv || !ok || fc.typeOf(a) != t || len(n.TArgs) != 0 {
+		return nil, false
+	}
+	s, ok := n.Underlying().(*check.Struct)
+	if !ok {
+		return nil, false
+	}
+	var out []*check.Field
+	for _, name := range sets[k].Fields {
+		var field *check.Field
+		for _, f := range s.Fields {
+			if f.Name == name {
+				field = f
+				break
+			}
+		}
+		if field == nil || !groupArg(field.Type) {
+			return nil, false
+		}
+		out = append(out, field)
+	}
+	return out, true
 }
 
 // rowFree reports an expression whose evaluation can neither fail nor use
@@ -225,8 +290,24 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 	frame, _ := groupFrame(fc.typeOf(x.Args[0]))
 	var types, vals []string
 	preset := map[syntax.Expr]string{}
-	for _, a := range x.Args[1:] {
+	for k, a := range x.Args {
+		if k == 0 {
+			continue
+		}
 		t := fc.goType(fc.typeOf(a))
+		if fields, ok := fc.readFields(c.Func, k, x); ok {
+			// The fields the component reads, of the argument evaluated
+			// once into a local the call reads (NS2b).
+			loc := fc.temp("arg")
+			fc.line("var " + loc + " " + t + " = " + fc.value(a))
+			preset[a] = loc
+			td := fc.l.typeDecl(fc.typeOf(a).(*check.Named).Obj, a)
+			for _, f := range fields {
+				types = append(types, fc.goType(f.Type))
+				vals = append(vals, loc+"."+td.fieldName[f.Name])
+			}
+			continue
+		}
 		types = append(types, t)
 		v := fc.value(a)
 		if _, constant := fc.l.info.Values[a]; !constant && !plainOperand(a) {

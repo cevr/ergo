@@ -128,6 +128,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
+		// After every body: what each function reads of its parameters.
+		c.readSets,
 		// After the footprints: a durable machine's step is pure (MU9).
 		c.checkDurableSteps,
 		// After the footprints: an invariant law's predicate is pure (X2).
