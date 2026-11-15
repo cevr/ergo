@@ -206,7 +206,10 @@ func Work(l Ledger) Option[machines.Work[Signal, Runner]] {
 	match l.State {
 	case Busy as b:
 		let j = b.Job
-		Some{machines.Attempt[bool, Signal, Offline, Runner](func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, func(ok bool) Signal { Ran{OK: ok} }, func(u Offline) Signal { Ran{OK: false} })}
+		Some{machines.Attempt(func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, func(ok bool) Signal { Ran{OK: ok} }, func(failure) {
+			let offline Signal = Ran{OK: false}
+			offline
+		})}
 	case Idle, Waiting:
 		None
 	}
