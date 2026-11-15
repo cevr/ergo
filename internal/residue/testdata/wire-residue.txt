@@ -456,3 +456,5 @@ internal/sketch/lower/std_time_test.go	"time TimeRoundTrips":            `TimeRo
 internal/sketch/lower/testdata/mutants.json	{"name":"gx10-time-parse-layout","origin":"wf10 GX10","file":"internal/sketch/std/time/wire.ergo","from":"{ try Parse(RFC3339, utf8.String(b)) }","to":"{ try Parse(DateTime, utf8.String(b)) }","rule":"stdlib.md, time (GX10): ParseTime reads back the instant Wire writes (the pair's derived law TimeRoundTrips, GX11).","killers":["internal/sketch/lower:TestStdTimeLawsRun"]},
 internal/sketch/std/laws_test.go	// Wire's position, not a source slice of their own. It states the form
 internal/sketch/std/laws_test.go	held := fmt.Sprintf("%s(x.Wire(%s)) == x", syntax.ParseName(x), into)
+internal/sketch/check/pairlaw_test.go	b.WriteString("func Wire(x X, into []byte) []byte { into }\n")
+internal/sketch/check/pairlaw_test.go	b.WriteString("func Wire(x X) string { \"\" }\n")
