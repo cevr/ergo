@@ -71,7 +71,7 @@ func (p ledgerProgram) source() string {
 	if p.pad {
 		fmt.Fprintf(&b, "func pad() string { \"%s\" }\n\n", strings.Repeat("x", p.padLen))
 	}
-	fmt.Fprintf(&b, "type Tally { s sync.Ref[int]%s }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)%s} }\n\n", field, init)
+	fmt.Fprintf(&b, "type Tally { s sync.Ref[int]%s } implements Counter\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)%s} }\n\n", field, init)
 	if p.addSwap {
 		b.WriteString("func Add(t Tally, n int) { t.s.Set(h1(n, t.s.Get())) }\n\n")
 	} else {
@@ -473,7 +473,7 @@ func moduleBinary(swap bool, sites [][2]int) string {
 	if swap {
 		sum = "n + t.s.Get()"
 	}
-	fmt.Fprintf(&b, "import sync\nimport m/count\n\ntype Tally { s sync.Ref[int] }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)} }\n\nfunc Add(t Tally, n int) { t.s.Set(%s + count.Base) }\n\nfunc Read(t Tally) int { t.s.Get() }\n\nfunc main() {\n\tlet t = NewTally()\n", sum)
+	fmt.Fprintf(&b, "import sync\nimport m/count\n\ntype Tally { s sync.Ref[int] } implements count.Counter\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)} }\n\nfunc Add(t Tally, n int) { t.s.Set(%s + count.Base) }\n\nfunc Read(t Tally) int { t.s.Get() }\n\nfunc main() {\n\tlet t = NewTally()\n", sum)
 	for _, s := range sites {
 		fmt.Fprintf(&b, "\tt.Add(%d)\n\tt.Add(%d)\n\tlet _ = t.Read()\n", s[0], s[1])
 	}

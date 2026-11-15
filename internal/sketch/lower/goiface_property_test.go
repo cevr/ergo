@@ -101,6 +101,11 @@ func goIfaceSource(k goIfaceKind, g goIfaceTarget) string {
 	// A program's operation type writes no capability row (README Gap 17).
 	ops := strings.ReplaceAll(strings.Join(g.members, ",\n")+",", " needs go.Foreign", "")
 	src = strings.ReplaceAll(src, "OPS", ops)
+	if k.rule == goIfaceAdapted && g.goInterface {
+		// The type states the relation (types.md, Interface
+		// assignability 1); import_go_test holds the undeclared case.
+		src = regexp.MustCompile(`(?m)^(type (?:R|N|G\[E\]) .*)$`).ReplaceAllString(src, "$1 implements T")
+	}
 	src = regexp.MustCompile(`\bT\b`).ReplaceAllString(src, g.ty)
 	return g.imp + "\n" + src + "\nfunc main() {}\n"
 }

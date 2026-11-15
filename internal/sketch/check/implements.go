@@ -437,7 +437,14 @@ func (c *checker) checkImplementsClauses() {
 				}
 				continue
 			}
-			if why := c.implements(&Pointer{Elem: self}, it, true); why != "" {
+			// A Go interface's method may keep the value it is called on
+			// (resources R19), so a value that may hold a resource meets it
+			// only by taking it. A generic type's parameters hold a resource
+			// in some instances and not in others: the clause leaves the
+			// receiver to each conversion, which checks it at the instance
+			// (assignableTo, implementsCapturing).
+			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
+			if why := c.implements(&Pointer{Elem: self}, it, checkReceiver); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}

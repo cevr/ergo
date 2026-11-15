@@ -17,7 +17,7 @@ func TestCatchWiredRowLowers(t *testing.T) {
 
 type Bad { Reason string }
 
-func read[T wire](text string) T fails Bad {
+func read[T wire](text string) T fails Bad needs wired[T] {
 	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case json.Malformed as m:
 		return Bad{Reason: m.Reason}

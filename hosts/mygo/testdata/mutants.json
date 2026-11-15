@@ -35,7 +35,7 @@
       "from": "type Rect = impl.Rect",
       "to": "type Rect = impl.Color",
       "rule": "the drawing packages are what drawgen writes from the pinned MyGo",
-      "killers": ["hosts/mygo/drawing:TestFilesCurrent", "hosts/mygo/drawing:TestMirrorsInternal"]
+      "killers": ["hosts/mygo/drawing/internal/drawgen:TestFilesCurrent", "hosts/mygo/drawing:TestMirrorsInternal"]
     },
     {
       "name": "H2L-gap-after-last",

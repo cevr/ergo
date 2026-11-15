@@ -85,7 +85,7 @@ func (p verdictProgram) source() string {
 		"law Wrong(x int) { x + 1 == x }",
 		fmt.Sprintf("func other() int { %d }", p.other),
 		"type Counter {\n\tAdd(n int) int,\n\tlaw AddsSome(n int) { Add(n) - n == 0 },\n}",
-		"type Tally { base int }",
+		"type Tally { base int } implements Counter",
 		"func NewTally() Tally { " + tally + " }",
 		"func MakeTally() Tally { NewTally() }",
 		"func Add(t Tally, n int) int { " + add + " }",
