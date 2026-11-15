@@ -718,10 +718,10 @@ func acquireNative(t *testing.T, o *lowered, cases []acqCase) {
 // only by rt.Acquire and v1's WithAcquire, and the with's one release list
 // is written only by WithAcquire: no second list and no second mask.
 func TestRuntime199AcquireOwner(t *testing.T) {
-	if _, ok := runtimeBindings["Scope.WithClose"]; ok {
+	if _, ok := runtimeBindings()["Scope.WithClose"]; ok {
 		t.Error("the runtime catalog binds a bare with registration")
 	}
-	if _, ok := runtimeBindings["Scope.WithAcquire"]; !ok {
+	if _, ok := runtimeBindings()["Scope.WithAcquire"]; !ok {
 		t.Error("the runtime catalog has no acquisition step")
 	}
 	emits := 0

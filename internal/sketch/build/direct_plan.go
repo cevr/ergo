@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"ergo.local/prototype/internal/stage"
 )
 
 // planFile is what the direct path learns from the go command once per
@@ -178,6 +180,8 @@ func (d *direct) goCommand(env []string, args ...string) ([]byte, error) {
 	cmd.Env = env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	stage.Add(stage.GoCommands, 1)
+	stage.Add(stage.Processes, 1)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("go %s: %v: %s", args[0], err, firstLine(stderr.Bytes()))

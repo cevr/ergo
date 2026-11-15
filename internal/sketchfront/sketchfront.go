@@ -35,6 +35,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
 )
 
 // Analysis is the 2026 front-end's outcome for one source text (Check) or
@@ -58,12 +59,16 @@ type Analysis struct {
 // A syntax error is the only diagnostic of a source that does not parse.
 func Check(source string) Analysis {
 	file, err := syntax.Parse(source)
+	stage.Add(stage.FilesParsed, 1)
+	stage.Add(stage.BytesParsed, int64(len(source)))
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
 	prepareStd()
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
+	stage.Add(stage.PackagesChecked, 1)
+	stage.Add(stage.DeclsChecked, int64(len(file.Decls)))
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
@@ -234,6 +239,11 @@ type BuildRequest struct {
 	Source string
 	// Output is the executable to write.
 	Output string
+	// Reuse, when set, is asked with the module before its link; when it
+	// reports true (the caller has what the link would serve, such as a
+	// cached test result), Build returns the module unlinked, and runs no
+	// go command.
+	Reuse func(build.Module) bool
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
@@ -246,6 +256,9 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// Inputs, when set, is the file system the build reads the ledger
+	// through (a warm request's Recorder); nil reads the host.
+	Inputs FS
 	// Report, when set, receives how the toolchain built the executable
 	// (build.Report: the direct path, or go build and why).
 	Report *build.Report
@@ -320,6 +333,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		files, err := lowered, error(nil)
 		if files == nil {
 			files, err = lowering(unit)
+			countLowered(files)
 		}
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
@@ -337,9 +351,15 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	if module.Reused {
+		stage.Add(stage.ModulesReused, 1)
+	}
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
+	if req.Reuse != nil && req.Reuse(module) {
+		return module, nil
+	}
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
 		return module, err
@@ -423,7 +443,7 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
 func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
-	text, err := ledgerText(req.Ledger)
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -439,6 +459,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 	if err != nil {
 		return nil, nil, err
 	}
+	countLowered(files)
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
 		return nil, nil, &LedgerError{Lines: notes}
@@ -464,6 +485,14 @@ func stdDependencies() []build.Dependency {
 	return deps
 }
 
+// countLowered counts one lowered module and its Go bytes (stage).
+func countLowered(files []lower.File) {
+	stage.Add(stage.ModulesLowered, 1)
+	for _, f := range files {
+		stage.Add(stage.GoBytesLowered, int64(len(f.Data)))
+	}
+}
+
 // sourceDependency summarises a source package by the digest of its file
 // names and bytes, each length-prefixed so no two packages encode alike.
 func sourceDependency(name string, files map[string]string) build.Dependency {
@@ -476,6 +505,7 @@ func sourceDependency(name string, files map[string]string) build.Dependency {
 	for _, file := range names {
 		fmt.Fprintf(hash, "%d:%s%d:", len(file), file, len(files[file]))
 		hash.Write([]byte(files[file]))
+		stage.Add(stage.BytesHashed, int64(len(files[file])))
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	return build.Dependency{Name: name, Interface: digest, Implementation: digest}
