@@ -988,6 +988,22 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.GroupArgs": `import ui
+type Mine {}
+func use(g ui.GroupArgs) { _ = g }
+func main() {
+	use(Mine)
+}
+`,
+	"ui/layout.Measure": `import ui/layout
+type Mine {}
+func Widths(_ Mine, text string, size float32) layout.Intrinsic { layout.Intrinsic{Max: 0.0, Min: 0.0} }
+func Height(_ Mine, text string, size float32, width float32) float32 { size }
+func use(m layout.Measure) { _ = m.Height("x", 12.0, 100.0) }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1033,6 +1049,8 @@ var openStd = map[string]bool{
 	"ui.Measure":   true,
 	"ui.Clipboard": true,
 	"ui.Location":  true,
+	// The layout's text measure, which a host provides with its fonts.
+	"ui/layout.Measure": true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

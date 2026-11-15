@@ -279,6 +279,18 @@
     { "name": "gw-format", "file": "internal/sketch/format/nodes.go", "from": "if f.Key != nil {", "to": "if f.Key != nil && false {", "rule": "Formatting preserves field keys.", "killers": ["check:TestWireKeysDeclared"], "anchor": {"tests": ["check:TestWireKeysDeclared"]} },
     { "name": "gw-tag", "file": "internal/sketch/check/wire.go", "from": "if tagged && k == \"_tag\" {", "to": "if tagged && k == \"_tag\" && false {", "rule": "A variant field cannot replace its union's discriminator key.", "killers": ["check:TestWireKeyDiagnostics"] },
     {
+      "name": "seal-ui-group-args",
+      "origin": "wf10 corpus NS2b",
+      "file": "internal/sketch/std/ui/group.ergo",
+      "from": "type GroupArgs {\n\truntimeOnly(),",
+      "to": "type GroupArgs {",
+      "rule": "std ui's GroupArgs, the runtime's memo of kept groups' arguments, declares a private operation, so no program value stands in for it.",
+      "killers": [
+        "check:TestSealingIsTheVisibilityRule"
+      ],
+      "anchor": {"tests":["check:TestSealingIsTheVisibilityRule"]}
+    },
+    {
       "name": "seal-callback-params",
       "origin": "wf10 Rm",
       "file": "internal/sketch/std/http/http.ergo",
