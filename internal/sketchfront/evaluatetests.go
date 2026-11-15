@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -52,6 +53,13 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	plan := lower.TestLinesOf(unit)
 	if !plan.Plain || len(plan.Names) == 0 {
 		return TestAnswer{}, false
+	}
+	// A source of one file is parsed with no name; the native runner
+	// names its sites by the file's base name, so the evaluator does too
+	// while it runs.
+	if a.program == nil && a.file != nil && a.file.Name == "" {
+		a.file.Name = filepath.Base(admitted)
+		defer func() { a.file.Name = "" }()
 	}
 	b := eval.DefaultBudget()
 	b.Seed, b.States = seed, states

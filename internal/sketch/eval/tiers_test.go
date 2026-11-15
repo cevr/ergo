@@ -55,6 +55,7 @@ func TestTiersAgree(t *testing.T) {
 		for _, prog := range []struct{ name, src string }{
 			{"cases", casegen.Generate(seed).Source},
 			{"asserts", assertGen(seed)},
+			{"budget", budgetGen(seed)},
 		} {
 			dir := filepath.Join(t.TempDir(), fmt.Sprintf("%s%d", prog.name, seed))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -79,7 +80,10 @@ func TestTiersAgree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			native := runNativeTests(t, ergo, file, seed)
+			native, nativeErr, nativeCode := runErgoTest(t, ergo, file, seed, "--native")
+			if runDefaultTests(t, ergo, file, seed, prog.src, native, nativeErr, nativeCode) {
+				reached["evaluated"] = true
+			}
 			for _, r := range rep.Results {
 				line, ok := eval.VerdictLine(r, file)
 				if !ok {
@@ -108,7 +112,7 @@ func TestTiersAgree(t *testing.T) {
 	if first == last {
 		return
 	}
-	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown"} {
+	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown", "evaluated"} {
 		if !reached[k] {
 			t.Fatalf("the seeds never reached a %s verdict (reached %v)", k, reached)
 		}
@@ -134,19 +138,83 @@ func nativeHas(native, line string) bool {
 	}
 }
 
-// runNativeTests runs `ergo test file --seed seed` under the memory bound
-// and returns its standard output.
-func runNativeTests(t *testing.T, ergo, file string, seed uint64) string {
+// runDefaultTests is the CLI half of the agreement (TESTSPEED FT1, CS's
+// side): `ergo test file --seed seed`, which the evaluator answers when it
+// decides the whole package, prints what the native run (`--native`,
+// given as native, nativeErr and nativeCode) prints, each verdict line
+// ending " (evaluated)", and exits with its status; the native run prints
+// no such line. It reports whether the evaluator answered.
+//
+// Mutants only it kills (cmd/ergo/testdata/mutants.json):
+// ft-incomplete-reads-as-pass, ft-undecided-dropped, ft-seed-not-shared,
+// ft-evidence-says-native and ft1-native-flag-ignored.
+func runDefaultTests(t *testing.T, ergo, file string, seed uint64, src, native, nativeErr string, nativeCode int) bool {
+	t.Helper()
+	out, errText, code := runErgoTest(t, ergo, file, seed)
+	evaluated := strings.Contains(out, " (evaluated)\n")
+	// The native run left its law verdicts in the store, so this run may
+	// print one " (cached)" (lawcache).
+	stripped := strings.ReplaceAll(strings.ReplaceAll(out, " (evaluated)\n", "\n"), " (cached)\n", "\n")
+	if strings.Contains(native, " (evaluated)") || stripped != native || code != nativeCode || errorLines(errText) != errorLines(nativeErr) {
+		t.Fatalf("seed %d: ergo test and ergo test --native disagree (evaluated: %v)\nsource:\n%s\nergo test (exit %d):\n%s%s\nergo test --native (exit %d):\n%s%s\nreplay: ERGO_TIERS_SEED=%d go test -run '^TestTiersAgree$' ./internal/sketch/eval", seed, evaluated, src, code, out, errText, nativeCode, native, nativeErr, seed)
+	}
+	return evaluated
+}
+
+// errorLines are the "error: " lines of a run's standard error, the test
+// binary's, without the CLI's notes (a toolchain build).
+func errorLines(stderr string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(stderr, "\n") {
+		if strings.HasPrefix(line, "error: ") {
+			b.WriteString(line)
+		}
+	}
+	return b.String()
+}
+
+// runErgoTest runs `ergo test file --seed seed` with extra flags under
+// the memory bound and returns its standard output, standard error and
+// exit status.
+func runErgoTest(t *testing.T, ergo, file string, seed uint64, extra ...string) (string, string, int) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(ergo, "test", file, "--seed", strconv.FormatUint(seed, 10))
+	args := append([]string{"test", file, "--seed", strconv.FormatUint(seed, 10)}, extra...)
+	cmd := exec.Command(ergo, args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = filepath.Dir(file), &stdout, &stderr
 	err := proclimit.Run(cmd, proclimit.DefaultLimit)
 	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
-		t.Fatalf("ergo test %s: %v\n%s", file, err, stderr.String())
+	code := 0
+	if err != nil {
+		if !errors.As(err, &exit) {
+			t.Fatalf("ergo test %s: %v\n%s", file, err, stderr.String())
+		}
+		code = exit.ExitCode()
 	}
-	return stdout.String()
+	return stdout.String(), stderr.String(), code
+}
+
+// budgetGen is a program whose one failing test the evaluator leaves
+// incomplete (its loop outruns the default budget of steps) beside a test
+// it decides: the native binary must answer the whole package, so the
+// failure is reported, not dropped or read as a pass.
+func budgetGen(seed uint64) string {
+	return fmt.Sprintf(`func spin(k int) int {
+	let mut n = 0
+	for n < k {
+		n = n + 1
+	}
+	n
+}
+
+test Quick() {
+	assert spin(%d) == %d
+}
+
+test Spins() {
+	assert spin(2000000) == 1
+}
+`, seed, seed)
 }
 
 // assertGen is a program of asserts, tests and laws with seeded bounds: a
