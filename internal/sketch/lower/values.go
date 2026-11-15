@@ -757,6 +757,13 @@ func (w *valueWalk) decide() {
 						args = args[1:]
 					}
 					for _, a := range args {
+						if check.AppendSpreads(c.Func) {
+							// A bulk append copies ys's elements, not ys:
+							// only elements that hold a Map or slice are
+							// copied (SL2).
+							w.freshenElems(a)
+							continue
+						}
 						w.freshen(a)
 					}
 				}
@@ -1288,7 +1295,9 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.kind = occRead
 			}
 		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)):
-			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
+			// A bulk append's ys is read like its source: its elements
+			// are copied into the result (SL2).
+			if (w.recvOf(p) == child || check.AppendSpreads(c.Func)) && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
 		case c.Kind == check.CallFunc && c.Func != nil && basicResult(w.typeOf(p)) && w.l.isPure(c.Func):
@@ -1519,6 +1528,16 @@ func (w *valueWalk) freshen(e syntax.Expr) {
 		return
 	}
 	w.vf.clone[e] = true
+}
+
+// freshenElems is freshen for a slice whose elements, not the slice
+// itself, enter a value: a bulk append's ys (SL2). Elements that hold no
+// Map or slice are copied by the append itself.
+func (w *valueWalk) freshenElems(e syntax.Expr) {
+	if s, ok := underEqual(w.typeOf(e)).(*check.Slice); ok && !w.l.holdsValue(s.Elem) {
+		return
+	}
+	w.freshen(e)
 }
 
 // fresh reports whether no other live binding reaches a Map or slice of
