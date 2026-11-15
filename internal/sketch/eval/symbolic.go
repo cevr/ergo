@@ -528,7 +528,7 @@ func ProveSymbolic(law *check.Law, p check.LawProvider) (out SymbolicProof) {
 	if st == nil {
 		return no("the provider is no record")
 	}
-	in := &interp{budget: symbolicBudget, root: law.Pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, sym: newSymRun()}
+	in := &interp{budget: symbolicBudget, root: law.Pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, sym: newSymRun(), walk: true}
 	defer func() {
 		if r := recover(); r != nil {
 			out = no("the evaluator stopped: %v", r)

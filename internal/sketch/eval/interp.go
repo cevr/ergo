@@ -19,6 +19,9 @@ type interp struct {
 	// obligation has the whole budget, so one that runs no longer leaves
 	// less to the obligations after it.
 	stepsAt, bytesAt int64
+	// stepsEnd caches stepsAt + budget.Steps for charge; it is never past
+	// the true end (steps only grow), so a stale one only takes chargeSlow.
+	stepsEnd int64
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
@@ -30,7 +33,10 @@ type interp struct {
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var
 	owners map[unsafe.Pointer]check.FactOwner
-	files  map[syntax.Decl]*syntax.File
+	plans  map[*check.Func]*funcPlan // plan.go
+	// walk turns compiled forms off for this request (compile.go).
+	walk  bool
+	files map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
 	// it when another task runs.
@@ -116,6 +122,9 @@ type frame struct {
 	// actor it started (ORACLE O33). A call's frame that did not escape
 	// goes back to the pool (freeFrame).
 	escaped bool
+	// ret is the completion a compiled return gives (compile.go): one per
+	// frame, as a return ends the frame.
+	ret abrupt
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -126,6 +135,22 @@ func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
 		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, in.ownerOf(pkg, decl), in.table(pkg.Info)
 	} else {
 		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	}
+	fr.vars = &fr.ownVars
+	return fr
+}
+
+// framePlanned is newFrame for a call of p's function, with the owner
+// and the table its plan read once.
+func (in *interp) framePlanned(p *funcPlan) *frame {
+	var fr *frame
+	pkg, decl := p.fn.Pkg, p.fn.Decl
+	if n := len(in.framePool); n > 0 {
+		fr = in.framePool[n-1]
+		in.framePool = in.framePool[:n-1]
+		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, p.owner, p.tab
+	} else {
+		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: p.owner, tab: p.tab}
 	}
 	fr.vars = &fr.ownVars
 	return fr
@@ -155,6 +180,13 @@ func (fr *frame) bind(v *check.Var, val Value) {
 	if v != nil {
 		fr.vars.bind(v, val)
 	}
+}
+
+// forms reports whether the frame runs compiled forms (compile.go): it has
+// no substitution, or it reads the facts of one instance (ORACLE O38), so
+// what a form reads of the types is the same at every evaluation.
+func (fr *frame) forms() bool {
+	return fr.env == nil || fr.tab != nil && fr.tab.instance
 }
 
 // rt is t read in the frame's substitution.
@@ -218,12 +250,26 @@ func (fr *frame) unsupported(at syntax.Node, format string, args ...any) *abrupt
 // charge spends n steps before the work they pay for; it returns the
 // exhaustion when the obligation's budget cannot pay.
 func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || n > in.stepsLeft() {
-		in.steps = in.stepsAt + in.budget.Steps
-		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
+	// One unsigned compare against the cached end: a negative n is past
+	// every budget. A stale end (a new obligation, a fresh interp) takes
+	// chargeSlow, which reads the budget itself.
+	if uint64(n) <= uint64(in.stepsEnd-in.steps) {
+		in.steps += n
+		return nil
 	}
-	in.steps += n
-	return nil
+	return in.chargeSlow(fr, at, n)
+}
+
+// chargeSlow is charge out of line, so that charge inlines: it renews the
+// cached end of the budget, then charges or stops the obligation.
+func (in *interp) chargeSlow(fr *frame, at syntax.Node, n int64) *abrupt {
+	in.stepsEnd = in.stepsAt + in.budget.Steps
+	if n >= 0 && n <= in.stepsEnd-in.steps {
+		in.steps += n
+		return nil
+	}
+	in.steps = in.stepsEnd
+	return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 }
 
 // allocate spends n bytes of the byte budget before the allocation they
@@ -242,7 +288,10 @@ func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
 func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
 
 // begin gives the obligation that starts now the whole budget.
-func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }
+func (in *interp) begin() {
+	in.stepsAt, in.bytesAt = in.steps, in.bytes
+	in.stepsEnd = in.stepsAt + in.budget.Steps
+}
 
 // build charges both budgets of an allocation of slots collection slots
 // and raw bytes: steps for the work, bytes for the values.
@@ -303,13 +352,19 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 // one (natives.go); any other Go function is skipped. The callee sees
 // the caller's capabilities.
 func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
-	switch {
-	case check.AppendsString(fn):
+	return in.callPlanned(fr, at, in.planOf(fn), targs, args)
+}
+
+// callPlanned is callResolved with the callee's plan (plan.go).
+func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs []rtype, args []Value) (Value, *abrupt) {
+	fn := p.fn
+	if p.appendsString {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
 		}
 		return appendString(fn, args[0], args[1]), nil
-	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
+	}
+	if !p.ergo {
 		if in.sym != nil {
 			v, why := externTerm(fn, args)
 			if why != "" {
@@ -317,23 +372,14 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			}
 			return v, nil
 		}
-		if nat := nativeOf(fn); nat != nil && !fn.Pkg.Host() {
+		if p.nat != nil {
 			var site syntax.Node = fr.decl
 			if at != nil {
 				site = at
 			}
-			return nat(in, fr, site, fn, args)
-		}
-		if nat := goNativeOf(fn); nat != nil {
-			var site syntax.Node = fr.decl
-			if at != nil {
-				site = at
-			}
-			return nat(in, fr, site, fn, args)
+			return p.nat(in, fr, site, fn, args)
 		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-	case fn.Pkg.Info == nil:
-		ice("the package of %s has no Info", fn.Name)
 	}
 	if in.sym != nil {
 		if !rowless(fn) {
@@ -341,7 +387,7 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		}
 		in.sym.mark(fn.Pkg.Info, fn.Decl.Body)
 	}
-	callee := in.newFrame(fn.Pkg, fn.Decl)
+	callee := in.framePlanned(p)
 	callee.caps = fr.caps
 	if len(fn.Sig.TParams) > 0 {
 		if len(targs) != len(fn.Sig.TParams) {
@@ -350,17 +396,40 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		n := len(targs)
 		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
 	}
-	params := in.paramsOf(fn)
+	// A generic callee reads the facts of its instance (ORACLE O38): its
+	// forms are compiled for its type arguments.
+	bodyForm, bodyFast := &p.bodyForm, &p.body
+	if callee.env != nil {
+		bodyForm, bodyFast = nil, nil
+		if !in.walk {
+			if inst := in.instanceOf(p, targs); inst != nil {
+				callee.tab = inst.tab
+				bodyForm, bodyFast = &inst.bodyForm, &inst.body
+			}
+		}
+	}
+	params := p.params
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}
-	for i, p := range params {
-		callee.bind(p, args[i])
+	for i, v := range params {
+		callee.bind(v, args[i])
 	}
-	for _, p := range params {
-		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
+	for _, i := range p.owned {
+		in.ownVar(callee, params[i], fn.Decl) // a taken parameter (R8)
 	}
-	v, ab := in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	var body fastBody
+	if bodyForm != nil && !in.walk {
+		switch *bodyForm {
+		case formUnseen:
+			*bodyForm = formSeen
+		case formSeen:
+			*bodyForm = formDone
+			*bodyFast = in.compileBody(callee, fn.Decl.Body.List)
+		}
+		body = *bodyFast
+	}
+	v, ab := in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
 	in.freeFrame(callee)
 	return v, ab
 }
@@ -368,6 +437,11 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 // runFrame runs the body of a called frame one call deeper, and turns its
 // completion into the call's: a return's value, or the callee's failure.
 func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt) (Value, *abrupt) {
+	return in.runFrameBody(fr, at, callee, name, body, nil)
+}
+
+// runFrameBody is runFrame with the body's compiled form, when it has one.
+func (in *interp) runFrameBody(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt, fast fastBody) (Value, *abrupt) {
 	if in.depth >= in.budget.Depth {
 		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
 	}
@@ -376,7 +450,11 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 	var val Value
 	ab := in.entryPoll(callee)
 	if ab == nil {
-		val, ab = in.bodyValue(callee, body)
+		if fast != nil {
+			val, ab = fast(in, callee)
+		} else {
+			val, ab = in.bodyValue(callee, body)
+		}
 	}
 	// The frame ends: it releases what it still owns, on every exit.
 	ab = in.endFrame(callee, ab)
@@ -505,12 +583,30 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return nil, ab
 	}
-	if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
+	if in.returnsError(fr, x) {
 		if _, isRecord := v.(*record); isRecord {
 			return nil, fr.abrupt(ctlEscape, x, v, "")
 		}
 	}
 	return v, nil
+}
+
+// returnsError reports that x, a returned expression, gives a value of an
+// error type the declared result does not make the success value. Outside
+// a generic body the answer is the same at every return of x: the frame
+// that returns x runs the body that holds x, whose fact owner is x's, so
+// x's facts keep it (ORACLE O34): the checker's IsErrorType ranges over a
+// map of sets.
+func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
+	if !fr.forms() || fr.tab == nil {
+		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+	}
+	f := in.fx(fr, x)
+	if !f.errSeen {
+		f.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+		f.errSeen = true
+	}
+	return f.errIs
 }
 
 // resultExpr retains the chosen tail of a result-position control

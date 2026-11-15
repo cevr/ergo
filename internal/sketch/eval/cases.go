@@ -4,6 +4,8 @@ import (
 	"go/constant"
 	gotoken "go/token"
 	"math/big"
+	"slices"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -224,19 +226,17 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			return
 		}
 	}
-	out.Evidence, out.Seed = "tested", in.budget.Seed
+	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	if p.Listed {
-		out.Evidence = "proved"
+		out.Evidence, out.form = "proved", formListed
 	}
 	if !law && len(params) == 0 {
-		out.Evidence = "evaluated"
+		out.Evidence, out.form = "evaluated", formSingle
 	}
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
-	for k := 0; k < p.Count; k++ {
-		out.Case = k + 1
-		mustCharge(in, fr, 1)
-		r.Start(k + 1)
+	// run draws case k's arguments from r, as it stands, and runs the body.
+	run := func(k int) (Result, []func() Argument) {
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
 		var listed []testplan.Value
@@ -296,19 +296,81 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 				cf.bind(params[input.Param], v)
 			}
 		}
-		result := in.runBodyFrame(cf, body, law, res)
+		return in.runBodyFrame(cf, body, law, res), shows
+	}
+	for k := 0; k < p.Count; k++ {
+		out.Case = k + 1
+		mustCharge(in, fr, 1)
+		r.Start(k + 1)
+		r.Record()
+		result, shows := run(k)
 		out.Cases = k + 1
-		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
+			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+		}
+		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, shown(shows)
+			out.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn
 			return
 		}
 	}
 	out.Case = 0
 	return
+}
+
+// shrinkCase shrinks a refuted drawn case as the native runner does
+// ($Prop; TESTSPEED FT1): the case's tape is replayed from smaller tapes
+// (shrinkTape) while it is refuted the same way, and the smallest one's
+// result and arguments are the case's, its Drawn the drawn arguments when
+// they differ. A smallest tape that no longer fails the same way (the body
+// is not a function of its draws) leaves the drawn case. A replay the
+// evaluator cannot finish (a skipped form, the budget spent) is the
+// result: tier 1 cannot give the native runner's counterexample, so it
+// does not decide the obligation.
+func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func() Argument, run func() (Result, []func() Argument)) (Result, []func() Argument) {
+	tape := r.Tape()
+	var stop *Result
+	replay := func(c []uint64) (Result, []func() Argument) {
+		r.Replay(c)
+		return run()
+	}
+	best, _ := shrinkTape(tape, func(c []uint64) bool {
+		if stop != nil {
+			return false
+		}
+		got, _ := replay(c)
+		switch got.Status {
+		case Skipped, Incomplete:
+			stop = &got
+			return false
+		}
+		return got.Status == Refuted && got.escaped == drawn.escaped
+	}, shrinkBudget)
+	defer r.EndReplay()
+	if stop != nil {
+		return *stop, nil
+	}
+	if slices.Equal(best, tape) {
+		return drawn, drawnShows
+	}
+	got, shows := replay(best)
+	if got.Status != Refuted || got.escaped != drawn.escaped {
+		return drawn, drawnShows // not deterministic: the drawn case
+	}
+	small, large := shown(shows), shown(drawnShows)
+	if !slices.Equal(small, large) {
+		got.Drawn = large
+	}
+	return got, func() []func() Argument {
+		out := make([]func() Argument, len(small))
+		for i, a := range small {
+			out[i] = func() Argument { return a }
+		}
+		return out
+	}()
 }
 
 // shown is the arguments of a reported case, written now.
@@ -318,6 +380,38 @@ func shown(shows []func() Argument) []Argument {
 		args[i] = show()
 	}
 	return args
+}
+
+// intShape is the width (0: the target's int) and sign an integer type is
+// drawn with, by the native generator's rule (lower's genExpr): the width
+// its name ends in, else the int's; signed unless its name begins with u;
+// a Duration as a signed 64-bit integer. byte and rune are drawn as a
+// signed int and converted, as the native runner draws them.
+func intShape(u *check.Basic) (width uint, signed, ok bool) {
+	switch {
+	case u.Kind == check.Duration:
+		return 64, true, true
+	case u.Kind < check.Int || u.Kind > check.Uintptr:
+		return 0, false, false
+	}
+	for _, w := range []uint{8, 16, 32, 64} {
+		if strings.HasSuffix(u.Name, strconv.FormatUint(uint64(w), 10)) {
+			width = w
+		}
+	}
+	return width, !strings.HasPrefix(u.Name, "u"), true
+}
+
+// abruptResult is res ended by ab outside a body (a context's build or
+// release): its status, reason and site.
+func (in *interp) abruptResult(res Result, ab *abrupt) Result {
+	res.Status, res.Reason, res.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
+	res.escaped = ab.kind == ctlFail || ab.kind == ctlEscape
+	res.Message = ""
+	if res.Status == Defect {
+		res.Message = defectMessage
+	}
+	return res
 }
 
 func statusOf(ab *abrupt) Status {
@@ -401,8 +495,11 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		case check.Complex128:
 			return complex(r.F64(), r.F64())
 		default:
-			v, ok := fromInt64(u.Kind, r.I64())
-			if ok {
+			// An integer is drawn as the native runner draws it
+			// (testgen.Stream.Integer): its width and sign decide what
+			// the tape records, and so what a shrink can lower.
+			if width, signed, ok := intShape(u); ok {
+				v, _ := fromInt64(u.Kind, int64(r.Integer(width, signed)))
 				return v
 			}
 		}

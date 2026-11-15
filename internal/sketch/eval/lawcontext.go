@@ -58,13 +58,12 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			return
 		}
 	}
-	out.Evidence, out.Seed = "tested", in.budget.Seed
+	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
-	for k := 0; k < testplan.Cases; k++ {
-		out.Case = k + 1
-		mustCharge(in, fr, 1)
-		r.Start(k + 1)
+	// run draws a case's arguments from r, as it stands, builds the
+	// context and runs the law.
+	run := func() (Result, []func() Argument) {
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
 		shows := make([]func() Argument, 0, len(law.Params))
@@ -75,9 +74,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		}
 		caps, built, ab := in.acquire(cf, law.Decl, lc.With)
 		if ab != nil {
-			out.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
-			out.Case, out.Arguments = k+1, shown(shows)
-			return
+			return in.abruptResult(res, ab), shows
 		}
 		key := typeKey(cf.rt(cap))
 		own, found := caps.lookup(key)
@@ -93,16 +90,27 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		// Laws 10, Under a context).
 		if result.Status == Passed || result.Status == Refuted || result.Status == Defect {
 			if rel := in.releaseAll(cf, law.Decl, built, outer, nil); rel != nil && (result.Status != Defect || rel.kind != ctlDefect) {
-				result.Status, result.Reason, result.Site = statusOf(rel), rel.msg, in.site(rel.pkg, rel.decl, rel.at)
+				result = in.abruptResult(result, rel)
 			}
 		}
+		return result, shows
+	}
+	for k := 0; k < testplan.Cases; k++ {
+		out.Case = k + 1
+		mustCharge(in, fr, 1)
+		r.Start(k + 1)
+		r.Record()
+		result, shows := run()
 		out.Cases = k + 1
-		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Status == Refuted && len(law.Params) > 0 {
+			result, shows = in.shrinkCase(r, result, shows, run)
+		}
+		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, shown(shows)
+			out.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn
 			return
 		}
 	}

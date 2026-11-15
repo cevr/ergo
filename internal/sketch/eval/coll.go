@@ -259,6 +259,44 @@ func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *t
 	return sliceV{b: &backing{data: data, owner: own}, n: xs.n + 1}, nil
 }
 
+// appendAll is xs with ys's elements added (slices.AppendAll): appendTo's
+// rules for one bulk append. xs's store grows in place only when no value
+// sees past xs's end; else the result has a store of its own.
+func (in *interp) appendAll(fr *frame, at syntax.Node, xs, ys sliceV) (Value, *abrupt) {
+	for _, r := range in.ranges {
+		if r.view.b == xs.b {
+			return nil, fr.unsupported(at, "an Append of an active slice range, whose backing capacity the Go target decides")
+		}
+	}
+	if ab := in.charge(fr, at, 1); ab != nil {
+		return nil, ab
+	}
+	if ys.n == 0 {
+		return xs, nil
+	}
+	add := ys.elems()
+	n := int64(xs.n) + int64(ys.n)
+	if xs.off+xs.n == len(xs.b.data) {
+		if len(xs.b.data)+ys.n > cap(xs.b.data) {
+			if ab := in.build(fr, at, int64(ys.n), n+n/2, 0); ab != nil {
+				return nil, ab
+			}
+		} else if ab := in.charge(fr, at, int64(ys.n)); ab != nil {
+			return nil, ab
+		}
+		xs.b.owner = nil // another value may share the store now
+		xs.b.data = append(xs.b.data, add...)
+		return sliceV{b: xs.b, off: xs.off, n: int(n)}, nil
+	}
+	if ab := in.build(fr, at, n, n+n/2, 0); ab != nil {
+		return nil, ab
+	}
+	data := make([]Value, xs.n, int(n+n/2))
+	copy(data, xs.elems())
+	data = append(data, add...)
+	return sliceV{b: &backing{data: data}, n: int(n)}, nil
+}
+
 // putIn is m with k set to v (Put, and an index write's last step).
 func (in *interp) putIn(fr *frame, at syntax.Node, m mapV, k, v Value, own *token) (Value, *abrupt) {
 	m, ab := in.ownMap(fr, at, m, own)

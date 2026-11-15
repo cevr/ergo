@@ -8,9 +8,7 @@
       "from": "\tif in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
       "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
       "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-concat-commutes",
@@ -19,9 +17,7 @@
       "from": "\t\t\tif n := len(parts); n > 0 {\n\t\t\t\tif prev, ok := parts[n-1].(string); ok {\n\t\t\t\t\tparts[n-1] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
       "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
       "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-extern-args-ignored",
@@ -30,9 +26,7 @@
       "from": "\t\treturn ok && a.fn == bv.fn && symEqualAll(a.args, bv.args)",
       "to": "\t\treturn ok && a.fn == bv.fn",
       "rule": "Two uninterpreted calls are one term only when their arguments are.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-read-of-written-field-stale",
@@ -41,9 +35,7 @@
       "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
       "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
       "rule": "A write through a provider's cell is what every later read and the end state see.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-stop-proved",
@@ -52,9 +44,7 @@
       "from": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\treturn no(\"%s\", why)\n\t\t}",
       "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
       "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "short-circuit-rhs",
@@ -63,9 +53,7 @@
       "from": "\t\tif truth(a) == (x.Op == syntax.LOR) {",
       "to": "\t\tif _, ab := in.expr(fr, x.Y); ab != nil {\n\t\t\treturn nil, ab\n\t\t} else if truth(a) == (x.Op == syntax.LOR) {",
       "rule": "&& and || evaluate their right operand only when the left one does not decide (lower/expr.go binary).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "int8-constant-widened",
@@ -74,9 +62,7 @@
       "from": "\tcase check.Int8:\n\t\treturn int8(i), true",
       "to": "\tcase check.Int8:\n\t\treturn i, true",
       "rule": "An int8 value wraps at 8 bits: non-constant arithmetic wraps at its type's width (types.md, Basic types 2).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "int8-op-widened",
@@ -85,9 +71,7 @@
       "from": "\t\treturn intOp(op, a, b.(int8))",
       "to": "\t\treturn intOp(op, int64(a), int64(b.(int8)))",
       "rule": "An int8 operation wraps at 8 bits and gives an int8 (types.md, Basic types 2).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "defect-caught",
@@ -96,9 +80,7 @@
       "from": "\tif failed.kind != ctlFail {",
       "to": "\tif failed.kind != ctlFail && failed.kind != ctlDefect {",
       "rule": "A catch handles typed failures only; a defect is never caught (rows.md, Catch 6).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "divide-by-zero-ok",
@@ -107,9 +89,7 @@
       "from": "\tcase syntax.QUO:\n\t\tif b == 0 {",
       "to": "\tcase syntax.QUO:\n\t\tif b == 0 && false {",
       "rule": "An integer division by zero is a defect, as Go panics on it.",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "negative-shift-ok",
@@ -118,9 +98,7 @@
       "from": "\t\tif negative {",
       "to": "\t\tif false && negative {",
       "rule": "A shift by a negative count is a defect, as Go panics on it.",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "variant-test-true",
@@ -129,20 +107,16 @@
       "from": "\t\treturn r.t.Obj == tt.Obj && r.key == argsKey(tt, t.env)",
       "to": "\t\treturn r != nil",
       "rule": "A type pattern matches a union value only of that variant (rows.md, Totality; a Go type switch).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "returned-error-is-value",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
-      "to": "\tif false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "from": "\t\tf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\tf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
       "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "absent-fact-pure",
@@ -151,9 +125,7 @@
       "from": "\tif _, ok := fr.info.Footprints[key]; !ok {\n\t\tice(\"no footprint",
       "to": "\tif _, ok := fr.info.Footprints[key]; !ok && false {\n\t\tice(\"no footprint",
       "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
-      "killers": [
-        "internal/sketch/eval:TestRunRefusesAnAbsentFootprint"
-      ]
+      "killers": ["internal/sketch/eval:TestRunRefusesAnAbsentFootprint"]
     },
     {
       "name": "defect-continues",
@@ -162,31 +134,25 @@
       "from": "\t\t\tstopped = \"a defect stopped the run\"",
       "to": "\t\t\tstopped = \"\"",
       "rule": "A defect stops the run (runtime.md, Tests 3).",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "budget-shared",
       "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
       "file": "internal/sketch/eval/interp.go",
-      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }",
-      "to": "func (in *interp) begin() {}",
+      "from": "\tin.stepsAt, in.bytesAt = in.steps, in.bytes\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
+      "to": "\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
       "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "fuel-ignored",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif n < 0 || n > in.stepsLeft() {",
-      "to": "\tif n < 0 {",
+      "from": "\tif n >= 0 && n <= in.stepsEnd-in.steps {",
+      "to": "\tif n >= 0 {",
       "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "skip-as-pass",
@@ -195,9 +161,7 @@
       "from": "\t\tres.Status, res.Reason = Skipped, why",
       "to": "\t\tres.Status, res.Reason = Passed, why",
       "rule": "A skipped law is never a pass (runtime.md, Tests 7; L7 plan, section 5).",
-      "killers": [
-        "internal/sketch/eval:TestCasePlansRun"
-      ]
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
     },
     {
       "name": "reseed-per-case",
@@ -450,7 +414,7 @@
       "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
       "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is in the lowering's suite, which the runner judges it with: TestMachineLawRuns runs the law through ergo check, a built CLI the coverage pass does not instrument, so the anchor names it as covering.",
       "killers": ["internal/sketch/lower:TestMachineLawRuns"],
-      "anchor": {"tests": ["internal/sketch/lower:TestMachineLawRuns"]}
+      "anchor": {"tests":["internal/sketch/lower:TestMachineLawRuns"]}
     },
     {
       "name": "b16d-eval-float-int-wraps",
@@ -459,7 +423,7 @@
       "from": "\t\treturn int8(sat(math.MinInt8, math.MaxInt8)), true\n",
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
-      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel","internal/sketch/lower:TestEvalAgreesWithGo"]
     },
     {
       "name": "try1-eval-cover-ignored",
@@ -668,7 +632,15 @@
       "rule": "ListenFailed's Reason is Go's net.Listen error text.",
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {
+      "name": "oracle-o23-preflight-codec",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:",
+      "to": "\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed:",
+      "rule": "An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).",
+      "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
+    },
     {
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",
@@ -930,7 +902,15 @@
       "rule": "rows.md Catch 5: a caught match's failing subject is not the caught expression's own failure; under a try it leaves the frame, as the lowering propagates it.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     },
-    {"name": "i20-op-borrow-uncelled", "origin": "wf10 I20 (ORACLE x LR3)", "file": "internal/sketch/eval/cases.go", "from": "\t\tif r.cell == nil {\n\t\t\tr.cell = &slot{v: r.value}\n\t\t}\n\t\treturn &ptrV{root: r.cell}\n", "to": "\t\treturn &ptrV{root: &slot{v: r.value}}\n", "rule": "An operation value whose operation borrows its receiver holds one copy of its provider, as the Go target's pointer does: a write through one call is seen by the next (std json's Text, LR3).", "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {
+      "name": "i20-op-borrow-uncelled",
+      "origin": "wf10 I20 (ORACLE x LR3)",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tif r.cell == nil {\n\t\t\tr.cell = &slot{v: r.value}\n\t\t}\n\t\treturn &ptrV{root: r.cell}\n",
+      "to": "\t\treturn &ptrV{root: &slot{v: r.value}}\n",
+      "rule": "An operation value whose operation borrows its receiver holds one copy of its provider, as the Go target's pointer does: a write through one call is seen by the next (std json's Text, LR3).",
+      "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
+    },
     {
       "name": "oracle-o1-skips-effect",
       "origin": "wf10 ORACLE O1",
@@ -1209,7 +1189,7 @@
       "to": "\tif got.Stdout != got.Stdout {\n",
       "rule": "The agreement harness compares the evaluator's run with the recorded (or built) run, never a run with itself.",
       "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
-      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+      "anchor": {"tests":["internal/sketch/eval:TestHarnessFlagsEachStream"]}
     },
     {
       "name": "oracle-o5-range-follows-other-place",
@@ -1227,7 +1207,7 @@
       "from": "\treturn m[name]\n",
       "to": "\treturn nil\n",
       "rule": "A qualified name pkg.X reads the imported package's own let or function (its initializer's value), though the checker records no Uses entry for it.",
-      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering", "internal/sketch/eval:TestEvalAgreesOnExamples"]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering","internal/sketch/eval:TestEvalAgreesOnExamples"]
     },
     {
       "name": "oracle-o6-func-value-refused",
@@ -1498,7 +1478,7 @@
       "to": "\tif false && got.Stderr != g.errs {\n",
       "rule": "The agreement harness compares standard error.",
       "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
-      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+      "anchor": {"tests":["internal/sketch/eval:TestHarnessFlagsEachStream"]}
     },
     {
       "name": "oracle-o4-harness-ignores-exit",
@@ -1508,7 +1488,7 @@
       "to": "\tif false && got.Status != g.status {\n",
       "rule": "The agreement harness compares the exit status.",
       "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
-      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+      "anchor": {"tests":["internal/sketch/eval:TestHarnessFlagsEachStream"]}
     },
     {
       "name": "oracle-o4-exit-code-ignored",
@@ -1541,11 +1521,11 @@
       "name": "oracle-o4-imports-lowering",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/value.go",
-      "from": "\t\"math\"\n\t\"strconv\"\n",
-      "to": "\t\"math\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
+      "from": "\t\"slices\"\n\t\"strconv\"\n",
+      "to": "\t\"slices\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
       "rule": "The evaluator is the reference every build agrees with: it shares no code with the lowering (ORACLE, import guard).",
       "killers": ["internal/sketch/eval:TestEvalSharesNoLowering"],
-      "anchor": {"tests": ["internal/sketch/eval:TestEvalSharesNoLowering"]}
+      "anchor": {"tests":["internal/sketch/eval:TestEvalSharesNoLowering"]}
     },
     {
       "name": "det-argument-order",
@@ -1573,6 +1553,339 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "ft-step-not-counted-in-fast-path",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tv := f.cval\n\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n\t\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "\t\tv := f.cval\n\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n",
+      "rule": "A compiled form charges the steps the walk charges for its node: a constant costs a step.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-local-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\t\ts.lend()\n\t\t\t\treturn s.v, nil",
+      "to": "\t\t\t\treturn s.v, nil",
+      "rule": "Reading a local lends its slot in a compiled form as in the walk: a store read out may be shared, so a later write copies it.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-field-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\t\troot.lend() // a part that holds a store leaves the slot",
+      "to": "\t\t\t\t_ = root",
+      "rule": "A field that holds a store, read out of a local record, lends the local's slot.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-range-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\troot.lend() // the iteration binding holds its own element value",
+      "to": "\t\t\t_ = root",
+      "rule": "A for-in binding that holds an element with a store lends the ranged local's slot.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-for-no-back-edge",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\tif ab := in.backEdge(fr, at); ab != nil {\n\t\t\t\treturn ab\n\t\t\t}\n\t\t}\n\t}\n}",
+      "to": "\t\t}\n\t}\n}",
+      "rule": "Each iteration of a compiled for ends at its interruption point and the schedule's turn, as the walk's does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-map-argument-order-unfixed",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tslices.SortFunc(keys, compareKeys)\n",
+      "to": "\t\tslices.SortFunc(keys[:0], compareKeys)\n",
+      "rule": "The steps an obligation costs are the same on every run: rendering a Map argument sorts from one fixed order, not Go's map order.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-body-prefix-skipped",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tif ab := prefix(in, fr); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n",
+      "to": "\t\t_ = prefix\n",
+      "rule": "A compiled body runs every statement before the one that yields its result.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-record-fields-free",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tif ab := in.charge(fr, at, int64(nf)); ab != nil {",
+      "to": "\t\tif ab := in.charge(fr, at, 0); ab != nil {",
+      "rule": "A compiled record literal costs a step per field, as the walk's does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-taken-parameter-unowned",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tfor _, i := range p.owned {",
+      "to": "\tfor _, i := range p.owned[:0] {",
+      "rule": "A parameter the callee's package owns is registered at the call, read from the callee's plan (R8).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-arm-pattern-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, a.items[i], 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "\t\t\t_ = a.items[i]\n",
+      "rule": "A compiled match charges a step for each pattern it tries, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-value-case-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, c.at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "",
+      "rule": "A compiled value match charges a step for each constant it compares, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-if-yield-else-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\treturn els(in, fr)\n",
+      "to": "\t\t\treturn nil, nil\n",
+      "rule": "An if that yields a value yields its else branch's when its condition is false.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-arm-owners-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\tin.patternOwners(fr, a.cl)\n",
+      "to": "",
+      "rule": "A compiled arm moves its pattern's sources into its bindings before its body (Info.PatternOwners).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-receiver-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tif recv == nil {\n\t\treturn nil\n\t}\n",
+      "to": "\tif recv == nil || true {\n\t\treturn nil\n\t}\n",
+      "rule": "A compiled dot call evaluates its receiver, with its step, before its arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-append-all-grows-shared",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif xs.off+xs.n == len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "to": "\tif xs.off+xs.n <= len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "rule": "AppendAll grows xs's store in place only when no value sees past xs's end: a slice made before it keeps its elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-xs",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tcopy(data, xs.elems())\n\tdata = append(data, add...)",
+      "to": "\tdata = append(data, add...)",
+      "rule": "AppendAll's result in a store of its own starts with xs's elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-ys",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif ys.n == 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "to": "\tif ys.n >= 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "rule": "AppendAll adds ys's elements after xs's.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-native-call-uncharged",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n\t\tvals := make([]Value, 0, n)",
+      "to": "\t\t_ = at\n\t\tvals := make([]Value, 0, n)",
+      "rule": "A compiled call of a native charges the call's step, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-native-args-reused",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tvals := make([]Value, 0, n)",
+      "to": "\t\tvals := in.argStack[len(in.argStack):]",
+      "rule": "A native's arguments are a slice of its own: a native that keeps them (a record, a closure) sees them unchanged by a later call.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-frame-return-valueless",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\tfr.ret = abrupt{kind: ctlReturn, val: v, pkg: fr.pkg, decl: fr.decl, at: pos}\n",
+      "to": "\t\t\t_ = v\n\t\t\tfr.ret = abrupt{kind: ctlReturn, val: nil, pkg: fr.pkg, decl: fr.decl, at: pos}\n",
+      "rule": "A compiled return gives its value to the call.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o37-compiled-error-is-value",
+      "origin": "wf10 ORACLE O37",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\txf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\t\txf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "rule": "A compiled return of a value of an error type is a failure (types.md, Error types 2).",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-instances-share-forms",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/plan.go",
+      "from": "\tk := b.String()\n",
+      "to": "\tk := \"\"\n",
+      "rule": "A generic function's forms belong to one instance: two calls with different type arguments read different facts.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-record-key-unsubstituted",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tkey := argsKey(n, t.env)\n",
+      "to": "\tkey := argsKey(n, nil)\n",
+      "rule": "A compiled record literal in an instance keys its type with the instance's type arguments, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-forms-in-any-generic-frame",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\treturn fr.env == nil || fr.tab != nil && fr.tab.instance\n",
+      "to": "\treturn true\n",
+      "rule": "Only a frame that reads one instance's facts compiles forms: a generic frame on its package's table shares facts across type arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-get-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\treturn t.at(i), true\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\treturn t.at(i), true\n",
+      "rule": "A compiled read of a local reads that local's slot: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-bind-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\t*t.at(i) = slot{v: val}\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\t*t.at(i) = slot{v: val}\n",
+      "rule": "A compiled let binds its own local: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-ft1-shrink-no-zero-pass",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\t\t\tif !zero && try(c) {\n",
+      "to": "\t\t\t\tif !zero && len(c) < 0 && try(c) {\n",
+      "rule": "The evaluator shrinks a refuted case as the native runner does: the same passes, so the same candidates and the same smallest tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-shrink-budget-ignored",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\tif tries >= budget {\n\t\t\treturn false\n",
+      "to": "\t\tif tries >= budget+1000 {\n\t\t\treturn false\n",
+      "rule": "A shrink stops at the native runner's budget of replays, so both tiers stop at the same tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-no-shrink",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tif result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "to": "\t\tif false && result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "rule": "A refuted drawn case reports its shrunk arguments, the native runner's counterexample (TESTSPEED FT1).",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-int-drawn-unrecorded",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tv, _ := fromInt64(u.Kind, int64(r.Integer(width, signed)))\n",
+      "to": "\t\t\t\tv, _ := fromInt64(u.Kind, r.I64())\n\t\t\t\t_, _ = width, signed\n",
+      "rule": "An integer is drawn as the native runner draws it, sign and magnitude on the tape, so a shrink lowers it to the same value.",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-drawn-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tgot.Drawn = large\n",
+      "to": "\t\t_ = large\n",
+      "rule": "A shrunk case keeps its drawn arguments, which the native FAIL line shows after \"shrunk from:\".",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-law-replay-seedless",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\t\tif r.form == formDrawn {\n",
+      "to": "\t\tif r.form == formNone {\n",
+      "rule": "A drawn law's replay line names its seed, as the native runner's does; a listed law's names none.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-message-site-unnamed",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\treturn \"assert failed at \" + nativeSite(site) + \": \" + text\n",
+      "to": "\treturn \"assert failed: \" + text\n",
+      "rule": "A failed assert's report names its site, file:line:column, as the native runner's does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-shown-operands-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\tif a.shown {\n",
+      "to": "\tif false && a.shown {\n",
+      "rule": "A failed comparison whose operand types are printable shows its left and right values, as the native runner's report does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-string-diff-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\t\t\t\ttext += assertDiff(ls, rs)\n",
+      "to": "\t\t\t\t_, _ = ls, rs\n",
+      "rule": "A failed comparison of strings over more than one line adds the native runner's line diff.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-o35-last-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := last(in, fr)\n\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := last(in, fr)\n\t\t_ = rel\n",
+      "rule": "A compiled list releases its yielding statement's temporaries after it (R43).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-scope-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := y(in, fr)\n\t\tif ab == nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := y(in, fr)\n",
+      "rule": "A compiled scope releases what it owns at its normal end (R6).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     }
   ]
 }
