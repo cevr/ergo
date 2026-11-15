@@ -263,9 +263,9 @@ Not S114: a value an exported function returns, a conversion between a defined t
 
 A top-level law stands in a file that declares one of its subjects: the declarations of its own package that it names, through its helpers ([types](types.md#laws) Laws 15; owner, 2026-11-15). Reported at the law's name (`TestLawPlacement`):
 
-- A law in a file that declares none of its subjects: "law Fresh is about Add (shelf.ergo); state it in that file", each subject's file named once, at the first subject it declares ("… about Add (shelf.ergo) and Len (count.ergo); state it in one of those files"). `ergo fix` moves it into its first subject's file.
+- A law in a file that declares none of its subjects: "law Fresh is about Add (shelf.ergo); state it in that file", each subject's file named once, at the first subject it declares ("… about Add (shelf.ergo) and Len (count.ergo); state it in one of those files"). `ergo fix` moves it beside its main subject.
 - A law that names nothing in its package, only the prelude, std or imports: "law L names nothing in package P; state it in the package it is about".
 
-Not S115: a member law of an operation type, a machine's law, and a law the parser derives; each stands in the declaration it is about.
+Not S115: a member law of an operation type, a machine's law, and a law the parser derives, each of which stands in the declaration it is about. A package with any other diagnostic gets no S115 either: an unresolved name is no subject, so where its laws belong is not known yet.
 
 *Prior art:* Rust's `mod tests`, Zig's `test` blocks and Go's `_test.go` files sit with the code they test by convention only; no compiler checks it.
