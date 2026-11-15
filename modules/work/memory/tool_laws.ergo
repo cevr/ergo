@@ -261,6 +261,37 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 	w.trees.Has("/w/.work/other/.work-trash/x.1")
 }
 
+// UseKeepsAWorkspace: a ready (or a sync) is a use, so gc -idle after it
+// leaves that workspace and removes one made at the same time and unused
+// (the model property reaches a ready followed by an idle gc only now and
+// then; this law always does).
+law UseKeepsAWorkspace(sync bool) {
+	let w = world(true)
+	for name in []string{"a", "b"} {
+		let _ = w.tool.New(name, fresh(false)) catch {
+		case _:
+			return false
+		}
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	if sync {
+		let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "a"}}) catch {
+		case _:
+			return false
+		}
+	} else {
+		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None}) catch {
+	case _:
+		return false
+	}
+	len(out.Idle) == 1 && out.Idle[0].Name == "b" && out.Idle[0].Removed
+}
+
 // StackRecordsItsParent: a workspace made -on another records that
 // workspace's folder as its parent, on any tree (the model property
 // reaches a stack only now and then; this law always does).

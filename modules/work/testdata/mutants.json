@@ -1,5 +1,5 @@
 {
-  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
+  "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
       "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
@@ -687,6 +687,46 @@
       "from": "\t\tl.host.UnlockFile(k.Value)\n",
       "to": "\t\tlet _ = k.Value\n",
       "rule": "A release gives the kernel lock back, so the key is held again: Lock.HoldExcludes under journal's onHost (fs.LockFile for real).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws9a-idle-age-ignored", "origin": "wf10/semws WS9a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif time.Times(1s, int(at-w.Since)) < idle {\n",
+      "to": "\t\tif false {\n",
+      "rule": "gc -idle finds only the workspaces unused for the age: memory's ToolAgreesWithTheReference (the reported names are the reference's idled).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws9a-idle-abandons", "origin": "wf10/semws WS9a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, false) catch {\n",
+      "to": "\tlet _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, true) catch {\n",
+      "rule": "gc -idle never abandons work: an idle workspace whose work is not held stays (memory's ToolAgreesWithTheReference: removed with no abandon).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws9a-idle-parents-first", "origin": "wf10/semws WS9a",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tlet w = all[len(all)-1-i]\n",
+      "to": "\t\tlet w = all[i]\n",
+      "rule": "gc -idle takes the last made first, so a stack's children go before the workspace they are made on (memory's ToolAgreesWithTheReference, the idled order).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws9a-ready-keeps-since", "origin": "wf10/semws WS9a",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry put(t, Workspace{..w, Branch: branch, Latest: tree, Since: now(t)})",
+      "to": "\ttry put(t, Workspace{..w, Branch: branch, Latest: tree})",
+      "rule": "A ready is a use: a just-readied workspace is not idle (memory's UseKeepsAWorkspace(false)).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ws9a-sync-keeps-since", "origin": "wf10/semws WS9a",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet synced = Workspace{..w, Base: theirs, Since: now(t)}",
+      "to": "\tlet synced = Workspace{..w, Base: theirs}",
+      "rule": "A sync is a use: a just-synced workspace is not idle (memory's UseKeepsAWorkspace(true)).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
