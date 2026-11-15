@@ -77,14 +77,17 @@ type Tree {
 
 // Empty is a tree over src that holds no value yet.
 func Empty(src string) Tree {
+	// About one value per 6 bytes of a typical document, as the control
+	// sizes its columns; a column grows past it as a slice does.
+	let n = len(src)/6 + 8
 	Tree{
 		src:     src,
 		ids:     dense.New[Node](),
-		kind:    dense.NewCol[Node, uint8](),
-		a:       dense.NewCol[Node, uint32](),
-		b:       dense.NewCol[Node, uint32](),
-		items:   dense.NewPool[dense.ID[Node]](),
-		members: dense.NewPool[Member](),
+		kind:    dense.ColWithCap[Node, uint8](n),
+		a:       dense.ColWithCap[Node, uint32](n),
+		b:       dense.ColWithCap[Node, uint32](n),
+		items:   dense.PoolWithCap[dense.ID[Node]](n / 2),
+		members: dense.PoolWithCap[Member](n / 2),
 		arrays:  dense.New[dense.Run[dense.ID[Node]]](),
 		objects: dense.New[dense.Run[Member]](),
 		keys:    Keys{ids: Map[string, dense.ID[Key]]{}, texts: dense.New[Key]()},
