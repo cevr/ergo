@@ -140,6 +140,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
+	case check.CallConversion:
+		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallProviderOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

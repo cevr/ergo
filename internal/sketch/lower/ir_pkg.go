@@ -302,6 +302,37 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	return []*irStmt{{K: "def", Pos: p, Local: r, X: x}, loop}
 }
 
+// conversion is the conversion x, T(v), as the emitter writes it: a Go
+// conversion between scalar types (the decoder's "conv" takes numeric,
+// string and bool kinds), or for a float to an integer the runtime's
+// checked helper (floatconv.go), which a float32 reaches through float64.
+// An integer to a string is a rune conversion in Go, which "conv" does not
+// take: it keeps the source body.
+func (b *irBuilder) conversion(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	if len(x.Args) != 1 {
+		irNo("conversion form")
+	}
+	from, to := b.scalarBasic(b.l.info.Types[x.Args[0]]), b.scalarBasic(c.Type)
+	if from == nil || to == nil {
+		irNo("conversion of a non-scalar")
+	}
+	if to.Kind == check.String && isInteger(from) {
+		irNo("conversion of an integer to a string")
+	}
+	pre, v := b.value(x.Args[0])
+	if helper := floatToInteger(from, to); helper != "" {
+		if from.Kind == check.Float32 {
+			v = &irExpr{K: "conv", Pos: p, T: "float64", X: v}
+		}
+		b.keepImport("var _ = " + b.l.rt() + "." + helper)
+		if b.goType(c.Type, x) != b.fc.goType(to) {
+			irNo("conversion of a float to a named integer")
+		}
+		return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: helper, Args: []*irExpr{v}}, false
+	}
+	return pre, &irExpr{K: "conv", Pos: p, T: b.goType(c.Type, x), X: v}, false
+}
+
 // passesPointer reports whether the call x of a *T function passes its
 // receiver as a pointer value. A dot call on an addressable T takes the
 // receiver's address where it is evaluated (the emitter's callArgsAddr,

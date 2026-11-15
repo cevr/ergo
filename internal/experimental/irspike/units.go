@@ -161,7 +161,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},
 	{"call of a pointer-receiver method on a value", "G1"}, // &x of a place
-	{"for-in over a Range *", "G4"}, // an anonymous union as a type argument (IRG4b instances)
+	{"for-in over a Range *", "G4"},
+	{"conversion *", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Signature", "G4"},
 	{"type *check.Pointer", "G4"},
