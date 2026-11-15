@@ -267,6 +267,9 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	child := testProgramCommand(binary, childArgs, limit)
 	var out bytes.Buffer
 	var result testResult
+	// The binary decides the selected obligations natively (FT0's counter).
+	result.obligations = nativeObligations(l.analysis.Root().Package, opts)
+	stage.Add(stage.ObligationsNative, int64(result.obligations))
 	stdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr}
 	if verdicts != nil {
 		stdout = append(stdout, &out)

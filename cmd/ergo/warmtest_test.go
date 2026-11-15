@@ -99,6 +99,8 @@ func TestWarmTestRunsNothing(t *testing.T) {
 				want = 3
 			case "bytes_read", "bytes_hashed":
 				want = inputs
+			case "obligations_stored":
+				want = 1 // app's one test, answered by the stored verdict
 			}
 			if v != want {
 				t.Errorf("warm %v: %s = %d, want %d", w.args(), k, v, want)

@@ -260,11 +260,17 @@ func buildAction(opts fileOptions) (build.Toolchain, error) {
 // (compile-speed CS7: about half of a link's work; a traceback and a
 // defect report are the same). The emitted module is the same for every
 // platform and either link; the link key holds both (build/direct.go).
+// run and test build with the dev profile (build.Dev, test-speed FT5:
+// inlining off, no DWARF, no go/format) unless --debug is given; build
+// keeps the release profile, so a release binary never trades run speed.
 func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	tc.Strip = !opts.debug
+	if !opts.debug && (opts.command == "run" || opts.command == "test") {
+		tc.Profile = build.Dev
+	}
 	return tc
 }
 

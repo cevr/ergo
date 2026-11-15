@@ -79,6 +79,12 @@ type Unit struct {
 	// Copies, when set, receives the form of each Append and owned-form
 	// site the lowering decides (handover.go; ergo build -report copies).
 	Copies *CopyReport
+	// Raw writes the emitted Go as the lowerer lays it out, without
+	// go/format, for the dev and test profile (test-speed FT5): go/format
+	// is the largest part of a lowering (LW1), and its output is the
+	// input's tokens laid out again. The //line mapping is the same
+	// (anchorLines runs on either).
+	Raw bool
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
