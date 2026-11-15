@@ -770,6 +770,13 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		a.open(at, s)
 	}
 	a.cur = nil
+	if k == decideDone {
+		// Admission closes before the answer (rule 8): a caller that has
+		// the Done can no longer have a Send admitted and then dropped
+		// unstepped (DoneIsFinal; TestDoneIsFinalExplored). finish closes
+		// it again, a no-op.
+		a.inbox.Close()
+	}
 	if env.kind == askSignal {
 		env.reply.give(answer[S, D]{d: d})
 	}
