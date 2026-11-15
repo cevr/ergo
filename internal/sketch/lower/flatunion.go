@@ -39,10 +39,10 @@ import (
 // G, steps 1, 2 and 6):
 //
 //  1. The union is declared in a package of the program's own source, it
-//     is not generic, no machine takes it as its state (a run of a machine
-//     keeps its state as a scalar local, scalar.go, measured by OPT6b
-//     with the state an interface), and no Go extern's signature names
-//     it.
+//     is not generic (genericunion.go has the rule of a generic union),
+//     and no Go extern's signature names it. A machine's state and signal
+//     are unions like any other (MSB1): an enum state is a tag, a byte,
+//     and a state with fields a struct a step returns by value.
 //  2. Its variants are records that are neither generic nor error types:
 //     a row value is a Go error, which ConvRow and catch test by type. A
 //     union that is a failure has its variants as failures, so this keeps
@@ -74,8 +74,9 @@ import (
 // is a value, never a box. Go spells one generic type for every instance,
 // so the rule has no size bound for Option; the instances of a large T pay
 // a copy where form A pays a box (union-repr.md §10, round 2). Option
-// stays an interface where a machine takes it as its state or its signal,
-// or a record holds itself through it. An Option of a go.Ref[S], which no
+// stays an interface where a record holds itself through it (and, under
+// the reference stateLowering "interface", where a machine takes it as
+// its state or its signal). An Option of a go.Ref[S], which no
 // Ergo value makes nil (interop.md), is the Go pointer *S itself: nil is
 // None (the pointer niche, as Rust's Option<&T> and ReScript's option),
 // wherever no generic declaration but Option and Some takes a go.Ref
