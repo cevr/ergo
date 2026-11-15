@@ -133,8 +133,15 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 		// A program is a directory of examples with its ergo.mod; a
 		// package or a case inside one is not (r3b-local-exit named
 		// examples:limiter/loopback, which the examples runner refuses).
+		// A module of modules/ is one too, named modules/NAME, as the
+		// examples runner selects it.
+		if name, ok := strings.CutPrefix(test, "modules/"); ok && !strings.Contains(name, "/") {
+			if _, err := os.Stat(filepath.Join(root, "modules", name, "ergo.mod")); err == nil {
+				return ""
+			}
+		}
 		if _, err := os.Stat(filepath.Join(root, "examples", test, "ergo.mod")); err != nil || strings.Contains(test, "/") {
-			return "no example program " + test + " (want examples:PROGRAM, a directory of examples with an ergo.mod)"
+			return "no example program " + test + " (want examples:PROGRAM or examples:modules/NAME, a directory with an ergo.mod)"
 		}
 		return ""
 	}

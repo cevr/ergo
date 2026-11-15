@@ -126,7 +126,6 @@ debt	internal/sketch/lower/std.go:opBody	a std operation's runtime body by name	
 debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go types, by name	NP4c
 debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
 debt	internal/sketch/lower/values.go:lowerer.ownedForm	a runtime body's owned form by name	NP4d
-debt	internal/sketch/lower/wirefields.go:jsonWrapper	the wire form of json's Optional, Nullable, Value and Num by name	CF1
 debt	internal/sketchfront/inspect.go:InspectGo	inspect skips std	NP5
 debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5

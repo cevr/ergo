@@ -284,7 +284,7 @@
       "to": "",
       "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {

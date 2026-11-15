@@ -139,6 +139,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var selected []*program
+	if !cfg.modules && len(cfg.names) > 0 && !slices.ContainsFunc(cfg.names, func(n string) bool { return !strings.HasPrefix(n, modulesDir+"/") }) {
+		// Names that are all modules/NAME select those modules, as
+		// -modules does: a ledger's killer examples:modules/NAME runs here.
+		cfg.modules = true
+	}
 	if cfg.modules {
 		selected, err = selectModules(cfg.names, modules)
 	} else if selected, err = selectPrograms(cfg, programs); err == nil && len(cfg.names) == 0 && !cfg.record {
