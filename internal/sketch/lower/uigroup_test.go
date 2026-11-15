@@ -303,17 +303,17 @@ func bagged(f *ui.Frame[int], g Bag) {
 
 // cardsGuard renders n cards under a header, then the header alone
 // changed, then one card's text: the components run and the nodes
-// compared after each of the last two, and the parents whose children
-// a pass indexed (none: the children come back in order). Mutants
+// compared after each of the last two, and the nodes a pass looked up
+// by index (none: the children come back in order). Mutants
 // ui-prior-place-uncounted and ui-cut-nkids-kept.
 func cardsGuard(n int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let it = Item{Id: 0, Text: "", Done: false}
 	let _ = ui.Render(&f, cardsView, St{A: 0, It: it, Items: listed(n, -1)})
 	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, -1)})
-	Console.Println("cards \(n) tick \(ui.GroupRuns(&f)) \(ui.Compared(&f)) \(ui.Indexed(&f))")
+	Console.Println("cards \(n) tick \(ui.GroupRuns(&f)) \(ui.Compared(&f)) \(ui.Unplaced(&f))")
 	let _ = ui.Render(&f, cardsView, St{A: 1, It: it, Items: listed(n, n/2)})
-	Console.Println("cards \(n) edit \(ui.GroupRuns(&f)) \(ui.Indexed(&f))")
+	Console.Println("cards \(n) edit \(ui.GroupRuns(&f)) \(ui.Unplaced(&f))")
 }
 
 // looped writes n texts at one site: tops that share a site and row.
@@ -353,13 +353,14 @@ func cutView(f *ui.Frame[int], s St) {
 }
 
 // cutTwice renders cutView twice: the second pass finds every old child
-// at its place, the arm's and the one after it too, and indexes none.
+// at its place, the arm's and the one after it too: only the text the
+// body wrote before it stopped, never an old child, is looked up by index.
 func cutTwice() needs Console {
 	let mut f = ui.NewFrame[int]()
 	let it = Item{Id: 0, Text: "", Done: false}
 	let _ = ui.Render(&f, cutView, St{A: 0, It: it, Items: []Item{}})
 	let _ = ui.Render(&f, cutView, St{A: 1, It: it, Items: []Item{}})
-	Console.Println("cut \(ui.Indexed(&f))")
+	Console.Println("cut \(ui.Unplaced(&f))")
 }
 
 // marks shows its first card, then writes it through a let mut of its
@@ -855,7 +856,7 @@ func TestUISkipAgrees(t *testing.T) {
 	// NS2b: a record argument with a slice is a group of the fields its
 	// component reads: kept while only the slice or an unread field
 	// changes, run when a field read through a nested call changes.
-	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1", "cards 50 tick 0 1 0", "cards 50 edit 1 0", "cards 200 tick 0 1 0", "cards 200 edit 1 0", "looped 0", "cut 0"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1", "allcount 50 50 50", "allcount 50 header 0 2", "allcount 200 200 200", "allcount 200 header 0 2", "subset 0 1", "subset 0 1", "subset 1 1", "cards 50 tick 0 1 0", "cards 50 edit 1 0", "cards 200 tick 0 1 0", "cards 200 edit 1 0", "looped 0", "cut 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
 		t.Errorf("counted work: %q, want %q (n, components run, nodes compared; components run in nested; components run and groups kept when every row changed, then after a header change; components run and groups kept in subset)", elsewhere, want)
 	}
 }
