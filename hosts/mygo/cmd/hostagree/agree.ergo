@@ -14,7 +14,7 @@ type result = Done{} | Missing{Label string} | Broke{Why string}
 
 // agree plays steps on both hosts and prints whether they agree after
 // each.
-func agree[E comparable, S](m Machine[S, E, int], view escaping func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
 	let w = screen.Headless(480, 640) catch {
 	case go.Error as e:
 		Console.Println("differ 0: no window: \(e.Text)")

@@ -58,7 +58,7 @@ type spot[E] { id ui.Id[E], node ui.Node[E], box layout.Box, clip layout.Box }
 
 // New shows view of a's state in w. room is how many fetch results may
 // wait for the driver to take them.
-func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S), room int) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S), room int) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
 	let posted = queue.New[ui.Event[E]](room)
 	try start(w, a, view, posted, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -69,7 +69,7 @@ func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, 
 
 // start shows view of a's state in w; post gets each fetch's result, and
 // Pump and Settle take them from posted.
-func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S), posted queue.Queue[ui.Event[E]], post escaping func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S), posted queue.Queue[ui.Event[E]], post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
 	let (s, first) = ui.Start(a, view, post)
 	let mut session = s
 	let root = ui.SessionRoot(&session)
@@ -644,7 +644,7 @@ func Focus[S, E, D, F](d *Driver[S, E, D, F]) Option[string] {
 // which must be the main thread: call it from main, whose task runs on
 // it. The view and the window's events run on a task of their own; a
 // fetch's result reaches that task through the window, which it wakes.
-func Run[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view escaping func(f *ui.Frame[E], s S)) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Run[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S)) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
 	let fetched = queue.New[ui.Event[E]](64)
 	let posted = queue.New[ui.Event[E]](64)
 	let forward = task.Go() {

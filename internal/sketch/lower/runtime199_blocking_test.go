@@ -260,6 +260,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// GX2: an append loop's room (reserve.go), Go's slices.Grow; no
 		// wait, no release.
 		"Reserve": true,
+		// CK-rowarg part 3: a held context's install checks that its
+		// owning with has not ended (a panic value, no wait), then calls
+		// the generated copier of its row, a method of the program's own.
+		"HeldLive": true, "copyEnv": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

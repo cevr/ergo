@@ -1047,6 +1047,17 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.Location": `import ui
+type Mine {} implements ui.Location
+func Current(_ Mine) ui.URL { ui.ParseURL("/") }
+func Push(_ Mine, u ui.URL) {}
+func Replace(_ Mine, u ui.URL) {}
+func Back(_ Mine) bool { false }
+func use(l ui.Location) { l.Push(ui.ParseURL("/a")) }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1093,6 +1104,9 @@ var openStd = map[string]bool{
 	"http.Network":      true,
 	"config.Config":     true,
 	"term.Terminal":     true,
+	// Declared after the migration with no private operation: a program
+	// provides it, and cmd/<name>/main.ergo binds it.
+	"ui.Location": true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

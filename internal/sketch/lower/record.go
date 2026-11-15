@@ -268,7 +268,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 		}
 	}
 	fd := fc.l.funcDecl(f)
-	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 {
+	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 || fc.l.hasGoRow(f.Sig) {
 		return nil
 	}
 	var key specKey
