@@ -213,6 +213,11 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		w.push(withMods(Input{Kind: Scroll, X: ev.X, Y: ev.Y, DX: ev.DX, DY: ev.DY}, ev.Mods))
 	case platform.KeyPressed:
 		name := keyName(ev.Key)
+		if name == "" && ev.Mods&(platform.ModCtrl|platform.ModAlt|platform.ModSuper) != 0 {
+			// A letter or a digit with Ctrl, Alt or the system key is a
+			// shortcut, which types nothing: the program gets the key.
+			name = chordName(ev.Key)
+		}
 		if name == "" {
 			return false
 		}
@@ -281,6 +286,18 @@ func keyName(k platform.Key) string {
 		return "ArrowUp"
 	case platform.KeyDown:
 		return "ArrowDown"
+	}
+	return ""
+}
+
+// chordName is the name of a letter or digit key in a shortcut, its
+// character in lower case ("z", "5"); "" for the other keys.
+func chordName(k platform.Key) string {
+	switch {
+	case k >= platform.KeyA && k <= platform.KeyZ:
+		return string(rune('a' + int(k-platform.KeyA)))
+	case k >= platform.Key0 && k <= platform.Key9:
+		return string(rune('0' + int(k-platform.Key0)))
 	}
 	return ""
 }
@@ -611,12 +628,23 @@ func (w *Window) Type(s string) { w.send(platform.SurfaceEvent{Kind: platform.Te
 // PressKey presses the key named name ("Enter", "Tab", "Backspace",
 // "ArrowUp", " " and the others Input names), with Shift when shift.
 func (w *Window) PressKey(name string, shift bool) {
+	w.Chord(name, shift, false, false, false)
+}
+
+// Chord presses the key named name with the modifiers given: a key
+// PressKey names, or a letter or digit ("z", "5") as a shortcut takes it.
+func (w *Window) Chord(name string, shift, ctrl, alt, meta bool) {
+	var m platform.Modifiers
+	for _, on := range []struct {
+		set bool
+		mod platform.Modifiers
+	}{{shift, platform.ModShift}, {ctrl, platform.ModCtrl}, {alt, platform.ModAlt}, {meta, platform.ModSuper}} {
+		if on.set {
+			m |= on.mod
+		}
+	}
 	for k := platform.KeyUnknown; k <= platform.KeyForward; k++ {
-		if keyName(k) == name {
-			var m platform.Modifiers
-			if shift {
-				m = platform.ModShift
-			}
+		if keyName(k) == name || chordName(k) == name {
 			w.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: m})
 			return
 		}

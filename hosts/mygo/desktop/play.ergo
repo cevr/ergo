@@ -176,11 +176,15 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.KeyIn as x:
 			// A character is typed, as a keyboard types it: into the
 			// focused field, else to OnKey (ui.TestHost has no focus and
-			// gives it to OnKey).
-			if utf8.RuneCount(x.Press.Name) == 1 && x.Press.Name != " " {
+			// gives it to OnKey). With Ctrl, Alt or Meta it is a shortcut,
+			// which types nothing: the key is pressed with its modifiers.
+			let m = x.Press.Mods
+			if m.Ctrl || m.Alt || m.Meta {
+				d.w.Chord(x.Press.Name, m.Shift, m.Ctrl, m.Alt, m.Meta)
+			} else if utf8.RuneCount(x.Press.Name) == 1 && x.Press.Name != " " {
 				d.w.Type(x.Press.Name)
 			} else {
-				d.w.PressKey(x.Press.Name, x.Press.Mods.Shift)
+				d.w.PressKey(x.Press.Name, m.Shift)
 			}
 			try Drain(d)
 		case ui.PointOn as x:
