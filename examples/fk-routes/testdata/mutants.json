@@ -178,19 +178,51 @@
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     },
     {
-      "name": "fk8-push-keeps-forward", "origin": "wf10/fk8a",
-      "file": "examples/fk-routes/memory/history.ergo",
-      "from": "h.entries.Set(h.entries.Get()[0 : at+1].Append(path))",
-      "to": "h.entries.Set(h.entries.Get().Append(path))",
-      "rule": "A push drops the addresses ahead (law app.Location.BackRestoresRoute for History).",
+      "name": "fk8b-link-goes-home", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "Some[app.Signal]{Value: app.Followed{Path: path}}",
+      "to": "Some[app.Signal]{Value: app.Followed{Path: path[0:1]}}",
+      "rule": "A link follows its own path (law BackRestoresRoute, case scenes).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     },
     {
-      "name": "fk8-back-past-the-start", "origin": "wf10/fk8a",
-      "file": "examples/fk-routes/memory/history.ergo",
-      "from": "\tif at == 0 {\n",
-      "to": "\tif at < 0 {\n",
-      "rule": "Back at the start fails AtStart (law app.Location.BackStopsAtTheStart for History).",
+      "name": "fk8b-address-drops-query", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "app.Navigated{Path: ui.Href(u)}",
+      "to": "app.Navigated{Path: u.Path}",
+      "rule": "The address change gives the program the whole address, its query too (cases: a Back to a search).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8b-person-role-is-name", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "\"Role: \\(q.Value.Role)\"",
+      "to": "\"Role: \\(q.Value.Name)\"",
+      "rule": "A person's page shows the role, as upstream's scene 5 (case scenes).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8b-count-off-by-one", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "let n = len(l.Found)",
+      "to": "let n = len(l.Found) + 1",
+      "rule": "The status counts the results, as upstream's people scene 2 (case scenes).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8b-last-crumb-linked", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "if i == len(path)-1 {",
+      "to": "if i == len(path) {",
+      "rule": "The breadcrumb's last segment is the page, not a link (cases).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8b-home-link-nested", "origin": "wf10/fk8b",
+      "file": "examples/fk-routes/screen/screen.ergo",
+      "from": "link(f, \"Home\", route.Print(route.Home))",
+      "to": "link(f, \"Home\", route.Print(route.Nested))",
+      "rule": "The navigation's Home link goes home (law BackRestoresRoute; no case clicks it).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     }
   ]
