@@ -302,9 +302,9 @@ func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 }
 
 // Feed takes one input of the window. A press and a release on the same
-// node press it; the node a press went down on takes its release (an
-// Area's pointer is captured), and a release with no press goes to the
-// node under it; Tab moves the focus, Enter and space press the focused
+// node press it; the node a press went down on takes the pointer's moves
+// and its release (an Area's pointer is captured), and a move or a
+// release with no press goes to the node under it; Tab moves the focus, Enter and space press the focused
 // node; typing goes to the focused Input; other keys go to the view's
 // OnKey. It fails ui.Closed when the window closed.
 func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
@@ -350,10 +350,23 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			}
 		}
 	} else if input.Kind == screen.Move {
-		match hitAt(d, x, y) {
+		// A pressed pointer's moves go to the node it went down on, over
+		// any other node or none; a free pointer's to the node under it.
+		let held = match d.pressed {
+		case Some[ui.Id[E]] as p:
+			spotOf(d, p.Value)
+		case None:
+			None
+		}
+		match held {
 		case Some[spot[E]] as s:
 			try pointed(d, s.Value, ui.Moved, x, y)
 		case None:
+			match hitAt(d, x, y) {
+			case Some[spot[E]] as s:
+				try pointed(d, s.Value, ui.Moved, x, y)
+			case None:
+			}
 		}
 	} else if input.Kind == screen.Scroll {
 		try scroll(d, x, y, float32(input.DX), float32(input.DY))
