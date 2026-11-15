@@ -40,6 +40,7 @@ runtime/rt/trace.go identOf | invariant: reads the two words of its own paramete
 
 # Tooling: system calls and reads of kernel structures.
 scripts/gate/cpus_linux.go affinityCPUs | invariant: mask is a live Go array whose length in bytes is the size passed, converted in the call expression (unsafe.Pointer rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+scripts/workcost/cnt/main.go main | invariant: attr is a live local of perf_event_attr's version-5 layout whose Size field is unsafe.Sizeof(attr), converted in the perf_event_open call expression (rule 4); a receipt tool no emitted program links | review: SEMWS WG0 implementor, 2026-11-15; verifier to confirm
 internal/source/fdpath_darwin.go descriptorPath | invariant: buffer is a live 1024-byte (MAXPATHLEN) Go array, converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
 internal/producer/image_darwin.go openImage | invariant: cdhash is a live Go array of the size passed to csops, converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
 internal/testinputs/identity_linux.go pollPriority | invariant: pfd has struct pollfd's layout (int32, int16, int16) and timeout is a syscall.Timespec; both are live locals converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
