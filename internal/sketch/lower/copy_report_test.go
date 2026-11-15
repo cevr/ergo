@@ -134,8 +134,8 @@ func TestOwnedCallsSayHandedOver(t *testing.T) {
 		"func kept(s Set) int {\n\tlet u = Insert(s, 1)\n\tlen(u.xs) + len(s.xs)\n}\n\n" +
 		"func main() needs Console {\n\tlet mut a = Set{xs: []int{}}\n\tfor i in 0..3 { a = Insert(a, i) }\n\tConsole.Println(\"\\(len(a.xs)) \\(kept(a))\")\n}\n"
 	_, _, sites, owned := copiesOf(t, src)
-	if len(owned) != 1 || owned[0].Func != "Insert" || !slices.Equal(owned[0].Params, []string{"s"}) || owned[0].Line != 3 {
-		t.Errorf("the owned functions are %+v, want Insert at line 3 owning s", owned)
+	if len(owned) != 1 || owned[0].Func != "Set.Insert" || !slices.Equal(owned[0].Params, []string{"s"}) || owned[0].Line != 3 {
+		t.Errorf("the owned functions are %+v, want Set.Insert at line 3 owning s", owned)
 	}
 	saw := map[string]string{}
 	for _, s := range sites {
