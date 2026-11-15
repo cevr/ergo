@@ -19,8 +19,9 @@ type RiftCopy { Id string "id", Parent string "parent_id", Path string "path" }
 // base is no Rift root.
 type RiftUnread { Registry string, Why string }
 
-// RiftOptions name Rift's registry (-registry; Rift's own,
-// $XDG_DATA_HOME/rift/rift.sqlite, when absent).
+// RiftOptions name Rift's registry (-registry; Rift's own when absent:
+// $XDG_DATA_HOME/rift/rift.sqlite, or on macOS ~/Library/Application
+// Support/rift/rift.sqlite).
 type RiftOptions { Registry Option[string] }
 
 // RiftSkip is a Rift copy adopt-rift left, and why.
@@ -30,16 +31,25 @@ type RiftSkip { Path string, Why string }
 // parent before its children, and the copies it left.
 type RiftAdopted { Adopted []Workspace, Skipped []RiftSkip }
 
-// RiftRegistry is the registry the options name, or Rift's own beside
-// work's data folder.
+// RiftRegistry is the registry the options name, or Rift's own: beside
+// work's data folder, or, when that file is not there and the data
+// folder is the default under the home folder (~/.local/share/work),
+// where Rift keeps it on macOS (~/Library/Application Support/rift).
 func RiftRegistry(t Tool, o RiftOptions) string {
 	match o.Registry {
 	case Some[string] as r:
-		r.Value
+		return r.Value
 	case None:
-		filepath.Join([]string{filepath.Dir(t.data), "rift", "rift.sqlite"})
 	}
+	let own = filepath.Join([]string{filepath.Dir(t.data), "rift", "rift.sqlite"})
+	let suffix = "/.local/share/work"
+	if !strings.HasSuffix(t.data, suffix) || exists(t, own) {
+		return own
+	}
+	let mac = filepath.Join([]string{strings.TrimSuffix(t.data, suffix), "Library", "Application Support", "rift", "rift.sqlite"})
+	if exists(t, mac) { mac } else { own }
 }
+
 
 // RiftQuery is the one query work runs on Rift's registry.
 let RiftQuery = "select id, coalesce(parent_id, '') as parent_id, path from rift order by created_at, id"
