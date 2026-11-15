@@ -16,9 +16,10 @@ import (
 // (Provided), the rest Brings. A call raises the failures of its callee's
 // error row at the site (check.Call.Fails); those a catch around it
 // handles (the catch's expression holds the call, and the catch is total
-// or an arm catches every value of the failure's type) are Caught, the rest Raises. A call in a function literal is
-// charged to the declaration that holds the literal, and a with or a catch
-// around the literal discharges it.
+// or an arm tests the failure's type or matches a record pattern of it)
+// are Caught, the rest Raises. A call in a function literal is charged to
+// the declaration that holds the literal, and a with or a catch around
+// the literal discharges it.
 
 // charge is what the call whose name is at (file, off) charges, by
 // symbol id: capabilities and failures.
@@ -40,7 +41,7 @@ type withBlock struct {
 }
 
 // catchBlock is a catch's expression, by file and offsets, with the
-// failure ids its arms catch whole, or all for a total catch.
+// failure ids its arms catch, or all for a total catch.
 type catchBlock struct {
 	file     uint16
 	from, to uint32
@@ -94,9 +95,38 @@ func (b *builder) capabilities(r *check.Row) []uint32 {
 	return out
 }
 
-// provider is the symbol a context entry's provider expression names: the
-// function it calls, the type it builds, or the name it is.
-func (b *builder) provider(e syntax.Expr) (uint32, bool) {
+// entryProvider is the symbol entry's provider expression names, read
+// with the Info of the package that declares the entry's context (pkg's
+// own for an inline or a local context, an import's for its named one).
+func (b *builder) entryProvider(entry *check.ContextEntry) (uint32, bool) {
+	info := b.info
+	if p := b.entryPkg[entry]; p != nil && p.Info != nil {
+		info = p.Info
+	}
+	return b.provider(entry.Provider, info)
+}
+
+// noteContexts records the package of each entry of c and of the
+// contexts it embeds.
+func (b *builder) noteContexts(c *check.Context) {
+	if c == nil || c.Package() == nil {
+		return
+	}
+	if b.entryPkg == nil {
+		b.entryPkg = map[*check.ContextEntry]*check.Package{}
+	}
+	for _, e := range c.Entries {
+		if _, done := b.entryPkg[e]; done {
+			continue
+		}
+		b.entryPkg[e] = c.Package()
+		b.noteContexts(e.Embedded)
+	}
+}
+
+// provider is the symbol a context entry's provider expression names, by
+// info: the function it calls, the type it builds, or the name it is.
+func (b *builder) provider(e syntax.Expr, info *check.Info) (uint32, bool) {
 	switch x := e.(type) {
 	case *syntax.CallExpr:
 		e = x.Fun
@@ -107,10 +137,10 @@ func (b *builder) provider(e syntax.Expr) (uint32, bool) {
 	if name == nil {
 		return 0, false
 	}
-	o := b.info.Uses[name]
+	o := info.Uses[name]
 	if sel, ok := e.(*syntax.SelectorExpr); ok && o == nil {
 		if q, ok := sel.X.(*syntax.Ident); ok {
-			if pn, ok := b.info.Uses[q].(*check.PkgName); ok && pn.Pkg != nil {
+			if pn, ok := info.Uses[q].(*check.PkgName); ok && pn.Pkg != nil {
 				o = b.exportedOf(pn.Pkg)[name.Name]
 			}
 		}
@@ -135,6 +165,9 @@ func (b *builder) noteCall(x *syntax.CallExpr) {
 	if w := b.info.Withs[x]; w != nil && x.Trailing != nil {
 		wb := withBlock{file: b.file, from: uint32(x.Trailing.Lbrace), to: uint32(x.Trailing.Rbrace)}
 		for ; w != nil; w = w.Next {
+			for _, c := range w.Contexts {
+				b.noteContexts(c)
+			}
 			for i, t := range w.Discharged {
 				id, ok := b.capability(t)
 				if !ok {
@@ -147,7 +180,7 @@ func (b *builder) noteCall(x *syntax.CallExpr) {
 					wb.providers = append(wb.providers, nil)
 				}
 				if i < len(w.Entries) && w.Entries[i] != nil && w.Entries[i].Provider != nil {
-					if p, ok := b.provider(w.Entries[i].Provider); ok && !slices.Contains(wb.providers[k], p) {
+					if p, ok := b.entryProvider(w.Entries[i]); ok && !slices.Contains(wb.providers[k], p) {
 						wb.providers[k] = append(wb.providers[k], p)
 					}
 				}
@@ -176,10 +209,10 @@ func (b *builder) noteCatch(x *syntax.CatchExpr) {
 				continue
 			}
 			// An arm that catches the rest makes the catch total (all
-			// above); an arm that tests a type catches that failure, or
-			// each of a union's.
+			// above); an arm that tests a type, or matches a record
+			// pattern of it, catches that failure, or each of a union's.
 			switch p.Kind {
-			case check.PatTypeTest:
+			case check.PatTypeTest, check.PatRecord:
 				if id, ok := b.capability(p.Type); ok {
 					cb.fails = append(cb.fails, id)
 				}

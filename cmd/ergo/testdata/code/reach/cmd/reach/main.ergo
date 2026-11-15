@@ -1,0 +1,20 @@
+import reachfix/memory
+import reachfix/store
+
+// lookup is the value at key, or "none" for the key "b": the arm matches
+// a record pattern of Missing, so other keys' Missing escapes.
+func lookup(key string) string fails store.Missing needs store.Store {
+	try store.Fetch(key) catch {
+	case store.Missing{Key: "b"}:
+		"none"
+	}
+}
+
+func main() needs Console {
+	with memory.Serving {
+		Console.Println(lookup("a") catch {
+		case _:
+			"missing"
+		})
+	}
+}

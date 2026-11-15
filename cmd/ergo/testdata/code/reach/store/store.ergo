@@ -1,0 +1,15 @@
+// Package store is the smallest repro of SEMTOOLS SEM2c's two reach gaps
+// (cmd/ergo TestCodeAnswersAgreeWithTheTables): a context declared in
+// another package than the with that names it, and a catch arm that
+// matches a record pattern of a failure.
+
+// Missing is the failure of a key the store does not hold.
+type Missing { Key string }
+
+// Store reads values by key.
+type Store {
+	Get(key string) string fails Missing,
+}
+
+// Fetch is the value at key.
+func Fetch(key string) string fails Missing needs Store { try Store.Get(key) }

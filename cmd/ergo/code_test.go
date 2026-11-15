@@ -91,6 +91,9 @@ func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The smallest repro of SEM2c's reach gaps: a context of another
+	// package, a catch arm of a record pattern (testdata/code/reach).
+	programs = append(programs, "testdata/code/reach/cmd/reach")
 	slices.Sort(programs)
 	r.Shuffle(len(programs), func(i, j int) { programs[i], programs[j] = programs[j], programs[i] })
 	perPackage := 2
@@ -434,16 +437,19 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 //     site (Info.Calls) holds a capability the with discharges, the calls
 //     in a catch's expression whose error row at the site holds a failure
 //     the catch handles (it is total, an arm catches the rest, or an arm
-//     tests the failure's type or a union that holds it), and for a
-//     provider the calls whose capability the innermost with that
-//     discharges it binds to the provider; all found by walking each
+//     tests the failure's type or a union that holds it, or matches a
+//     record pattern of it), and for a provider the calls whose
+//     capability the innermost with that discharges it binds to the
+//     provider, read in the package that declares the with's context;
+//     all found by walking each
 //     with's block and each catch's expression (the tables find them by
 //     offsets);
 //   - each call of a chain charges it and is not one of them, and a
 //     function whose own call charges it and is not one of them has a
 //     chain.
 //
-// Mutants reach-with-ignored, reach-catch-ignored, reach-provider-dropped
+// Mutants reach-with-ignored, reach-catch-ignored, reach-provider-dropped,
+// reach-catch-record-ignored, reach-provider-other-package
 // (cmd/ergo/testdata/mutants.json).
 func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand, fail func(string, ...any)) {
 	t.Helper()
@@ -517,12 +523,30 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 		}
 		return ""
 	}
+	// declaredIn is the Info of the package whose named context holds
+	// each entry: a with of one package may bind another's context.
+	declaredIn := map[*check.ContextEntry]*check.Info{}
+	for _, p := range a.Packages() {
+		if p.Package == nil {
+			continue
+		}
+		for _, c := range p.Package.Contexts {
+			for _, e := range c.Entries {
+				declaredIn[e] = p.Package.Info
+			}
+		}
+	}
 	for _, p := range a.Packages() {
 		if p.Package == nil {
 			continue
 		}
 		info := p.Package.Info
-		providerOf := func(e syntax.Expr) string {
+		providerOf := func(entry *check.ContextEntry) string {
+			info := info
+			if in := declaredIn[entry]; in != nil {
+				info = in
+			}
+			e := entry.Provider
 			switch x := e.(type) {
 			case *syntax.CallExpr:
 				e = x.Fun
@@ -601,7 +625,7 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 							case pt == nil:
 							case pt.Kind == check.PatWildcard || pt.Kind == check.PatBind:
 								all = true
-							case pt.Kind == check.PatTypeTest:
+							case pt.Kind == check.PatTypeTest || pt.Kind == check.PatRecord:
 								handled = append(handled, capOf(pt.Type))
 								if n, ok := pt.Type.(*check.Named); ok {
 									if u, ok := n.Underlying().(*check.Union); ok {
@@ -661,7 +685,7 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 						if k := capOf(ty); k != "" {
 							caps = append(caps, k)
 							if i < len(w.Entries) && w.Entries[i] != nil && w.Entries[i].Provider != nil {
-								if h := providerOf(w.Entries[i].Provider); h != "" {
+								if h := providerOf(w.Entries[i]); h != "" {
 									providers[k] = h
 								}
 							}

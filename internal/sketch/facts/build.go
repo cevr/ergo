@@ -74,6 +74,9 @@ type builder struct {
 	charges []charge
 	withs   []withBlock
 	catches []catchBlock
+	// entryPkg is the package that declares each context entry a with
+	// of pkg binds, by its context (rows.go).
+	entryPkg map[*check.ContextEntry]*check.Package
 }
 
 // Build writes the fact tables of pkg from the checker's result, in one
