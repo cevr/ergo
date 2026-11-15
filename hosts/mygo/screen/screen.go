@@ -755,7 +755,11 @@ func (w *Window) draw() {
 	}
 	w.mu.Unlock()
 	w.r.Render(&w.sc)
-	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	// A Headless window's frame stays in the renderer's image, which Pixel
+	// reads: the fake surface would copy it into a new buffer a frame.
+	if w.fake == nil {
+		w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	}
 	w.sys.EndFrame()
 }
 
@@ -1017,7 +1021,11 @@ func (w *Window) Pixel(x, y int) uint32 {
 	if w.fake == nil {
 		return 0
 	}
-	p := w.fake.Pixel(x, y) // BGRA
+	m := &w.r.Image
+	if x < 0 || y < 0 || x >= m.W || y >= m.H {
+		return 0
+	}
+	p := m.Pix[y*m.Stride+x*4:] // BGRA
 	return uint32(p[2])<<24 | uint32(p[1])<<16 | uint32(p[0])<<8 | uint32(p[3])
 }
 

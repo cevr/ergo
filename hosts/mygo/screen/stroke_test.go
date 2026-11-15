@@ -1,6 +1,9 @@
 package screen
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 // polyline is a zigzag with a sharp turn, its points x then y in DIPs.
 var polyline = []float64{20, 80, 60, 20, 100, 70, 140, 25, 180, 75}
@@ -85,6 +88,29 @@ func TestStrokesOutlastAFullAtlas(t *testing.T) {
 	}
 	if w.lined != 0 {
 		t.Fatalf("%d strokes of 40 frames were drawn as Lines", w.lined)
+	}
+}
+
+// TestHeadlessFrameKeepsOneBuffer: a Headless window's frames allocate
+// far less than a frame buffer each (the bytes the runtime counts as
+// allocated), since the frame stays in the renderer's image. It kills
+// GPm-present-headless (hosts/mygo/testdata/mutants.json), which copies
+// each frame into the fake surface, a new buffer a frame: in dash-gui,
+// 3.8 GB over 800 frames and a peak RSS of 65 MiB, not 38.
+func TestHeadlessFrameKeepsOneBuffer(t *testing.T) {
+	w, err := Headless(900, 700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame(t, w, 0, false)
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	for i := range 8 {
+		frame(t, w, float64(i), false)
+	}
+	runtime.ReadMemStats(&b)
+	if per := (b.TotalAlloc - a.TotalAlloc) / 8; per > 900*700*4/4 {
+		t.Fatalf("a frame allocated %d bytes, a quarter of a frame buffer is %d", per, 900*700)
 	}
 }
 
