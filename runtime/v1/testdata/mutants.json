@@ -210,6 +210,15 @@
       "killers": ["runtime/v1:TestRPCLoopbackWaitIsSeen", "examples:lease-sync"]
     },
     {
+      "name": "rpc-end-unwoken",
+      "origin": "wf10/sync RPC-CLOCK",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\trt.Wake(s.t, s, func() { s.ended <- c })\n",
+      "to": "\t\ts.ended <- c\n",
+      "rule": "A call's end unparks the request's task before the end is visible: under the controlled scheduler a request left parked is never enabled, and the run deadlocks.",
+      "killers": ["runtime/v1[ergoexplore]:TestRPCCallEndWakesTheRequest"]
+    },
+    {
       "name": "rpc-calls-join",
       "origin": "wf10 Rm",
       "file": "runtime/v1/rpc.go",
