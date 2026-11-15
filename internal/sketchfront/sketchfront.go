@@ -228,13 +228,33 @@ const LanguageRevision = "ergo-v1-2026-10-28"
 const emitterRevision = "lower/2"
 
 // LowerSingleEnv selects the reference lowering, one Go package for the
-// whole program, when it is "single" (compile-speed CS4): the default
-// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
-// The choice is part of the emission key.
+// whole program, when it is "single" (compile-speed CS4), and the package
+// split without shards when it is "split", and shards in every build when
+// it is "shards": the default splits the program
+// into one Go package per Ergo package and per std package
+// (lower.LowerSplit), and in a test build also cuts each big package into
+// declaration shards (lower.LowerShards, test-speed FT9). The choice is
+// part of the emission key.
 const LowerSingleEnv = "ERGO_LOWER"
 
-// splitLowering reports whether builds split the lowered program.
-func splitLowering() bool { return os.Getenv(LowerSingleEnv) != "single" }
+// The lowerings LowerSingleEnv selects.
+const (
+	lowerSingle = "single"
+	lowerSplit  = "split"
+	lowerShards = "shards"
+)
+
+// loweringOf is the lowering a build of mode uses.
+func loweringOf(mode build.Mode) string {
+	switch v := os.Getenv(LowerSingleEnv); v {
+	case lowerSingle, lowerSplit, lowerShards:
+		return v
+	}
+	if mode == build.ModeTest {
+		return lowerShards
+	}
+	return lowerSplit
+}
 
 // BuildRequest is one build of a checked analysis.
 type BuildRequest struct {
@@ -352,19 +372,34 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	// The package split (CS4, and CS10 for IR bodies); a build whose
 	// rewrite ledger lowered it stays one package.
-	split := splitLowering() && lowered == nil
-	if !split {
+	// Declaration shards (FT9) cut the split further in a test build.
+	how := loweringOf(req.Mode)
+	if lowered != nil {
+		how = lowerSingle
+	}
+	split, shards := how != lowerSingle, how == lowerShards
+	switch how {
+	case lowerSingle:
 		input.Emitter += "+single"
+	case lowerShards:
+		input.Emitter += "+shards"
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
 		files, err := lowered, error(nil)
+		tests := req.Mode == build.ModeTest
 		switch {
 		case files != nil:
+		case shards && req.IR:
+			files, _, _, err = lower.LowerIRShards(unit, tests)
+			countLowered(files)
+		case shards:
+			files, _, err = lower.LowerShards(unit, tests)
+			countLowered(files)
 		case split && req.IR:
-			files, _, _, err = lower.LowerIRSplit(unit, req.Mode == build.ModeTest)
+			files, _, _, err = lower.LowerIRSplit(unit, tests)
 			countLowered(files)
 		case split:
-			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+			files, _, err = lower.LowerSplit(unit, tests)
 			countLowered(files)
 		default:
 			files, err = lowering(unit)
