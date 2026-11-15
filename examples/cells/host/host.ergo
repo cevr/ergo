@@ -61,8 +61,8 @@ type spot[E] { id ui.Id[E], node ui.Node[E], box layout.Box, clip Rect }
 
 // drawnAt is where a node was drawn: its cells, the part of them visible,
 // and the cell its name begins in with the text drawn there (C < 0 when
-// its name was not drawn).
-type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string }
+// its name was not drawn), and the row a Semantic node's marks are on.
+type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string, markR int }
 
 // New shows view of a's state on a terminal of cols by rows cells. room is
 // how many fetch results may wait for the host to take them.
@@ -430,7 +430,7 @@ func write(g *grid.Grid, text string, c int, r int, vis Rect, pen grid.Pen) int 
 func named(g *grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) drawnAt {
 	let _ = write(g, name, c, r, d.vis, pen)
 	if name != "" && holds(d.vis, c, r) {
-		return drawnAt{at: d.at, vis: d.vis, nameC: c, nameR: r, name: name}
+		return drawnAt{..d, nameC: c, nameR: r, name: name}
 	}
 	d
 }
@@ -453,7 +453,7 @@ func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids
 	let b = layout.Box{X: laid.X, Y: laid.Y - float32(dy)*CellH, W: laid.W, H: laid.H}
 	let at = Span(b)
 	let vis = cut(clip, at)
-	let mut d = drawnAt{at: at, vis: vis, nameC: -1, nameR: -1, name: ""}
+	let mut d = drawnAt{at: at, vis: vis, nameC: -1, nameR: -1, name: "", markR: at.R}
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	let off = ui.AccessOf(&h.mirror, id).Disabled
 	let pen = if off { grid.Faint } else { grid.Normal }
@@ -525,10 +525,34 @@ func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids
 		let _ = write(g, m.Close, at.C+at.W-1, at.R, vis, pen)
 		let inner = cut(vis, Rect{C: at.C + 1, R: at.R, W: at.W - 2, H: 1})
 		if x.Value == "" {
-			d = named(g, x.Placeholder, at.C+1, at.R, drawnAt{at: d.at, vis: inner, nameC: -1, nameR: -1, name: ""}, grid.Faint)
-			d = drawnAt{at: d.at, vis: vis, nameC: d.nameC, nameR: d.nameR, name: d.name}
+			d = named(g, x.Placeholder, at.C+1, at.R, drawnAt{..d, vis: inner, nameC: -1, nameR: -1, name: ""}, grid.Faint)
+			d = drawnAt{..d, vis: vis}
 		} else {
 			let _ = write(g, x.Value, at.C+1, at.R, inner, pen)
+		}
+	case ui.ZoneNode:
+		// a spot the hit test does not target: the Area's Point.Over
+		h.spots = h.spots.Append(s)
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.TransitionNode:
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.LiveNode as x:
+		d = named(g, x.Text, at.C, at.R, d, pen)
+	case ui.SemanticNode[E] as x:
+		if focusable(n) {
+			h.spots = h.spots.Append(s)
+		}
+		let mid = at.R + (at.H-1)/2
+		let spen = semanticPen(x.Access, off)
+		let pre = Before(x.Access)
+		let post = After(x.Access)
+		let _ = write(g, pre, at.C, mid, vis, spen)
+		let _ = write(g, post, at.C+at.W-cellsOf(post), mid, vis, spen)
+		d.markR = mid
+		if holdsText(h, id) {
+			drawKids(h, g, t, ids, id, dy, clip)
+		} else {
+			d = named(g, x.Access.Name, at.C+cellsOf(pre), mid, d, spen)
 		}
 	}
 	if h.focus == (Some{Value: id}) {
@@ -570,12 +594,8 @@ func scrolledBy[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) int {
 func HitAt[S, E, D, F](h *Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
 	let mut hit Option[ui.Id[E]] = None
 	for s in h.spots {
-		match s.node {
-		case ui.ScrollNode, ui.RowsNode:
-		case _:
-			if holds(Span(s.box), c, r) && holds(s.clip, c, r) {
-				hit = Some{Value: s.id}
-			}
+		if targeted(s.node) && holds(Span(s.box), c, r) && holds(s.clip, c, r) {
+			hit = Some{Value: s.id}
 		}
 	}
 	hit
@@ -583,7 +603,8 @@ func HitAt[S, E, D, F](h *Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
 
 // HitMatchesDraw: on a generated view, with gaps and padding that put
 // edges anywhere between grid lines, the cell a control is drawn in is
-// the cell that hits it, before and after rows are added.
+// the cell that hits it, before and after rows are added; and a tap on a
+// zone's cell reaches its Area with that zone under the pointer.
 law HitMatchesDraw(seed int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -610,6 +631,30 @@ func hitsWhereDrawn(seed int) bool needs Scheduler {
 				}
 			}
 		}
+		// a tap on a zone's cell reaches its Area with the zone under it
+		// (Point.Over): the generated Area sends 2 for a Down over a zone;
+		// a tap on a Semantic node that declares a press sends it (2),
+		// unless the node is disabled
+		for z in sendersIn(h.spots) {
+			match CellOf(&h, z) {
+			case Some[(int, int)] as at:
+				let (c, r) = at.Value
+				let taps = StateOf(&h).Taps
+				let sends = !ui.AccessOf(&h.mirror, z).Disabled
+				Tap(&h, c, r) catch {
+				case _:
+					return false
+				}
+				Settle(&h) catch {
+				case _:
+					return false
+				}
+				if StateOf(&h).Taps != if sends { taps + 1 } else { taps } {
+					return false
+				}
+			case None:
+			}
+		}
 		if round < 2 {
 			Play(&h, []ui.Act{ui.TapOn{Label: "more"}}) catch {
 			case _:
@@ -618,6 +663,20 @@ func hitsWhereDrawn(seed int) bool needs Scheduler {
 		}
 	}
 	true
+}
+
+// sendersIn is the zones and the Semantic nodes among spots, in paint
+// order: in the generated view, each sends 2 when tapped.
+func sendersIn[E](spots []spot[E]) []ui.Id[E] {
+	let mut out = []ui.Id[E]{}
+	for s in spots {
+		match s.node {
+		case ui.ZoneNode, ui.SemanticNode[E]:
+			out = out.Append(s.id)
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode:
+		}
+	}
+	out
 }
 
 // spotOf is id's spot, when it takes input.

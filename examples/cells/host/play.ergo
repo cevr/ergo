@@ -99,7 +99,13 @@ func Play[E comparable, S, D, F](h *Host[S, E, D, F], script []ui.Act) fails ui.
 		case ui.PointOn as x:
 			let id = try found(h, x.Label)
 			reveal(h, id)
-			try step(h, ui.Point[E]{Id: id, Pointer: x.Pointer})
+			let over = match spotOf(h, id) {
+			case Some[spot[E]] as s:
+				zoneOver(h, s.Value, x.Pointer.X, x.Pointer.Y)
+			case None:
+				None
+			}
+			try step(h, ui.Point[E]{Id: id, Pointer: x.Pointer, Over: over})
 		case ui.ScrollOn as x:
 			let id = try found(h, x.Label)
 			h.scrolled[id] = cellOf(float32(float64(x.Offset)), CellH)
