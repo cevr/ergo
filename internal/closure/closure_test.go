@@ -124,7 +124,16 @@ var declared = map[string][]allowance{
 	// among them, are in the package's closure: TestStdLawLedger's read of
 	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
-		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
+		[]allowance{
+			{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"},
+			// The CLI's compiled closure holds the directories of
+			// internal/sketch/lower and internal/rpcgen, so it covers the
+			// reads that were globs of their test files here:
+			// TestStdLawLedger reads the runner packages' test files
+			// (runnerPackages), and TestStdStrengthsTable reads
+			// internal/rpcgen's for the rpc row's benchmark (benchmarkIndex).
+			{"cmd/ergo", program, "TestDenseAgreesWithModel builds the ergo CLI once per process and builds its model program with it (DN1)"},
+		},
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},

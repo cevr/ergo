@@ -1119,6 +1119,11 @@ type LawRun struct {
 // rule 7). Params are then the law's parameter types at that instance,
 // one per parameter, for the owner's provider of such a law; nil
 // otherwise.
+//
+// Ptr is a borrow provider (types.md, Laws 10): Type's operations take
+// *Type, so *Type provides the slot and Type does not. The case's Type is
+// built as any provider's is (by Ctor, or generated), and the run binds
+// its address; Conv converts from *Type.
 type LawProvider struct {
 	// Value lends the runner's fresh provider record to pointer operations.
 	// It grants no implicit conversion to a user operation-type value.
@@ -1129,6 +1134,7 @@ type LawProvider struct {
 	Unrun  string
 	Slot   *Named
 	Params []Type
+	Ptr    bool
 }
 
 // A law is an Object, so Defs records its declaring name.

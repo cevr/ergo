@@ -136,6 +136,7 @@ func (l *lowerer) nameAll() {
 	}
 	type entry = generatedEntry
 	var generated []entry
+	provs := l.provFuncs(append([]*check.Package{l.pkg}, libs...)) // provider.go
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
 		for x, c := range p.Info.Implicit {
@@ -205,6 +206,11 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if prov := l.providerOf(c); prov != nil {
+				for _, f := range provs[prov.to] {
+					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
+				}
+			}
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)

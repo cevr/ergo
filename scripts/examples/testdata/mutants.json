@@ -133,6 +133,24 @@
       "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
       "rule": "A program of one folder with an origin folder has its tests.txt checked.",
       "killers": ["scripts/examples:TestOriginFolderIsChecked"]
+    },
+    {
+      "name": "examples-workload-unexpected",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile:",
+      "to": "case file == \"no \"+opcount.WorkloadFile:",
+      "rule": "A program of packages may hold a workload file (scripts/opcount).",
+      "killers": ["scripts/examples:TestRepoExamplesHoldTheirLaws", "scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "problem(\"%s: %s\", file, w)",
+      "to": "_ = w",
+      "rule": "A workload file that does not read is a layout error naming its line.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
     }
   ]
 }

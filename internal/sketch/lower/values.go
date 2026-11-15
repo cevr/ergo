@@ -131,12 +131,13 @@ type valueFacts struct {
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
-	from     map[freshParam]int8        // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	from     map[fromKey]int8           // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
 	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
+	moved    map[syntax.Expr]bool          // reads of a place its next write overwrites whole: a take or a reslice (V7, moves.go)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -160,12 +161,13 @@ func (l *lowerer) valueFacts() *valueFacts {
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
-			from:     map[freshParam]int8{},
+			from:     map[fromKey]int8{},
 			consumes: map[*syntax.CallExpr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
 			goShare:  map[syntax.Expr]bool{},
+			moved:    map[syntax.Expr]bool{},
 		}
 	}
 	return l.vals
@@ -270,6 +272,7 @@ type vocc struct {
 	call   *syntax.CallExpr
 	result bool
 	deps   bool // the summary, not the types, decided it
+	unkept bool // the callee's keeps summary decided it (keeps.go)
 }
 
 type owning struct {
@@ -741,6 +744,8 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// Moves (V7, moves.go): reads the escapes and the binds leave alone.
+	w.decideMoves()
 	// Escapes (V2).
 	if valueMutant != "never-copy" {
 		for _, vv := range w.order {
@@ -749,6 +754,13 @@ func (w *valueWalk) decide() {
 			}
 			for _, o := range vv.occs {
 				switch {
+				case vf.moved[o.path]:
+					// Its place is overwritten next (V7).
+				case o.unkept && w.callWrites(vv, o):
+					// The callee could see a write to the root (keeps.go).
+					vf.clone[o.path] = true
+				case o.unkept:
+					w.l.stats.Unkept++
 				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
 					// The callee would see a write a later operand makes.
 					if w.l.holdsValue(w.typeOf(o.path)) {
@@ -1613,6 +1625,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			// and a result that reaches no Map or slice type the argument
 			// reaches shares none of it (V6: find(t, path) is a place).
 			o.kind, o.call = occRead, p
+		case w.unkept(p, c, child) && !w.l.isPure(c.Func):
+			// The callee keeps nothing of it (keeps.go), unless it sees a
+			// write to the root during the call (decide, callWrites).
+			o.kind, o.call, o.unkept = occRead, p, true
 		case aliasLowering != "type" && c.Kind == check.CallFunc && c.Func != nil && w.l.isPure(c.Func):
 			// The result-alias summary (alias.go): a result that does not
 			// depend on the argument keeps nothing of it; one that does
@@ -1620,7 +1636,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			if j := operandIndex(p, c, child); j >= 0 && !w.l.ownedAt(c.Func, j) {
 				o.call, o.deps = p, true
 				if w.l.resultDeps(c.Func)[j] && valueMutant != "deps-blind" {
-					o.result = true
+					// A function or operation value in the result hides
+					// what it captured: a copy of the result copies none of
+					// it, so the argument is copied (`let g = hold(xs)`).
+					o.result = !hidesParts(w.typeOf(p))
 				} else {
 					o.kind = occRead
 				}
@@ -1842,7 +1861,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	if e == nil {
 		return true
 	}
-	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] {
+	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] {
 		return true
 	}
 	if call, ok := e.(*syntax.CallExpr); ok && w.handed[call] {
@@ -2006,8 +2025,8 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	return vv.init != nil && w.fresh(vv.init)
 }
 
-// freshParam names a parameter of a function: freshFrom's question.
-type freshParam struct {
+// fromKey names a parameter of a function: freshFrom's question.
+type fromKey struct {
 	f *check.Func
 	i int
 }
@@ -2021,7 +2040,7 @@ type freshParam struct {
 // is not fresh, as in freshResult.
 func (l *lowerer) freshFrom(f *check.Func, i, n int) bool {
 	vf := l.valueFacts()
-	k := freshParam{f, i}
+	k := fromKey{f, i}
 	switch vf.from[k] {
 	case 1, 3:
 		return false

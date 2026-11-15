@@ -1,0 +1,9 @@
+# scripts/opcount: `vt replay` reads a terminal stream on stdin, parses it,
+# plays it on a 24x80 screen with 1 MiB of history and prints the screen.
+# The input is `vt gen 7 N`, N bytes of shell-like output; the cost of one
+# input byte is the slope between the two sizes (DT4's receipt).
+unit byte
+sizes 2000000 16000000
+input self gen 7 {n}
+args replay
+control cmd/ergo/testdata/vt/control

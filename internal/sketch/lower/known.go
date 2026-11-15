@@ -84,6 +84,12 @@ type knownStats struct {
 	// ArgsShared is the by-value arguments read from a root that the
 	// result-alias rule passes uncopied (values.go, resultDeps).
 	ArgsShared int
+	// Moves is the reads of a place the next write overwrites whole, taken
+	// with no copy (values.go V7, moves.go).
+	Moves int
+	// Unkept is the arguments read from a root that a call keeps nothing
+	// of by the callee's keeps summary, passed with no copy (keeps.go).
+	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
 	// BorrowCopies is the generic results through a borrow copied at the
@@ -103,6 +109,9 @@ type knownStats struct {
 	// union of the program's own, so that it lowered the program again
 	// with that union an interface (lowerAgain).
 	UnionBails int
+	// UsedFlat is the unions past the register bound that are flat
+	// because no call carries a value of them (carry.go, R3b).
+	UsedFlat int
 	// NicheOptions is the Option values of a go.Ref the lowering spells as
 	// the Go pointer itself (flatunion.go, the pointer niche).
 	NicheOptions int
@@ -112,6 +121,8 @@ type knownStats struct {
 	Substituted int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
+	// Providers is the copies for known providers made (provider.go).
+	Providers int
 	// Scalars is the locals in the scalar form (scalar.go), Joins those
 	// whose inlined call writes them, and Aliases the parameters of an
 	// inlined call bound to one.
@@ -132,6 +143,12 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// Loops is the loops written as a fill, a move or a collect
+	// (loops.go).
+	Loops int
+	// Taken is the sites that took each shortcut, by its name in the
+	// registry (shortcuts.go).
+	Taken map[string]int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

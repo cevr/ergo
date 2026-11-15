@@ -2922,6 +2922,7 @@
       "killers": [
         "check:TestNeverTotality"
       ]
-    }
+    },
+    {"name":"law-ptr-no-borrow-provider","origin":"wf10 fu-law-ptr","file":"internal/sketch/check/laws.go","from":"a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)\n\t\tif !a.ok() || a.conv.Kind != ConvOperations {","to":"a, _ = c.providerAssignability(p, slot)\n\t\tif !a.ok() || a.conv.Kind != ConvOperations {","rule":"types.md, Laws 10: a named type whose operations take *P provides the slot by its address, so its laws run (fu-law-ptr). (Merged with PS3's record path: this is the fallback for a provider that is not a record.)","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]}
   ]
 }

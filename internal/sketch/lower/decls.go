@@ -153,9 +153,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 					if v, ok := l.info.Defs[id].(*check.Var); ok {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
 						if l.constLet(spec, v) {
-							// formsOn: the reference lowering (forms.go)
-							// writes every let as a Go variable.
-							l.consts[v] = formsOn()
+							l.consts[v] = true
 							l.constVals[v] = l.info.Values[spec.Values[0]]
 						}
 					}
@@ -1132,6 +1130,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		paramNames[i] = name(i)
 		if s, ok := p.Type.(*check.Signature); ok && known {
 			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
+		} else if sp != nil && sp.prov != nil && i == sp.param {
+			// A copy for a known provider (provider.go): the adapter.
+			parts = append(parts, paramNames[i]+" *"+l.pkgNames[pkgKey{"adapter", sp.prov.key}])
 		} else {
 			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		}
@@ -1139,7 +1140,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
-	if sp != nil && params[sp.param] != nil {
+	if sp != nil && sp.prov != nil && params[sp.param] != nil {
+		fc.provs = map[*check.Var]*knownProv{params[sp.param]: sp.prov}
+	} else if sp != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}
@@ -1428,7 +1431,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		if ok && l.consts[v] {
-			l.stats.Consts++ // forms.go
+			if l.constFold(v) {
+				l.stats.Consts++ // read by its bare name (forms.go)
+			}
 			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
 			return
 		}
@@ -1472,7 +1477,9 @@ func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
 
 // letRead is the Go text of a read of the package let v, Go-named name.
 func (l *lowerer) letRead(v *check.Var, name string) string {
-	if l.consts[v] {
+	if l.consts[v] && !l.constFold(v) {
+		// A let read only where Go's folding cannot fail is read by its
+		// bare name, so Go folds it (forms.go, constFold).
 		return l.rt() + ".Let(" + name + ")"
 	}
 	return name

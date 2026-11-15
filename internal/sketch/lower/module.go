@@ -231,6 +231,9 @@ type lowerer struct {
 	lastDir     string
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constFold).
+	letUses map[*check.Var][2]int
 
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
@@ -238,9 +241,14 @@ type lowerer struct {
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats  knownStats                 // what known.go and alias.go did (tests only)
-	vars   map[*check.Var]string      // package-level lets
-	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
+	kept   map[*check.Func][]bool     // kept-argument summaries (keeps.go)
+	// carrying are the carried-parameter summaries and carried the
+	// unions some call carries (carry.go, R3b).
+	carrying map[*check.Func][]bool
+	carried  map[*check.TypeName]bool
+	stats    knownStats            // what known.go and alias.go did (tests only)
+	vars     map[*check.Var]string // package-level lets
+	consts   map[*check.Var]bool   // the lets lowered as Go constants (constLet)
 	// constVals are those lets' values, which the bounds facts read
 	// (bounds.go).
 	constVals map[*check.Var]constant.Value
@@ -314,6 +322,9 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	// provParams memoizes each function's operation-type parameter a copy
+	// for a known provider is made for (provider.go).
+	provParams map[*check.Func]int
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
