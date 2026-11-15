@@ -9,7 +9,9 @@
 #                        so the next call cannot start;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
 #   gen KIND --check DIR.OPTYPE  fails when a file under DIR holds GENSTALE;
-#   test FILE            prints the reply of a compiler without ergo test on
+#   test FILE -work      prints WORK= on stderr when its build ends (after
+#                        N seconds on a line "# TESTBUILDSLOW N"), then hangs on
+#                        TESTHANG, else the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
 #                        TESTSKIP prints one law's skip line and passes; on
@@ -47,7 +49,17 @@ check)
   fi
   ;;
 test)
-  [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
+  [ $# -eq 3 ] && [ "$3" = "-work" ] || { echo "fake ergo: want test FILE -work, got $*" >&2; exit 64; }
+  set -- "$1" "$2"
+  # The build: on a line "# TESTBUILDSLOW N" it takes N seconds, then, as
+  # ergo test -work does when its build ends, it prints WORK= on stderr.
+  n=$( { if [ -d "$2" ]; then cat "$2"/*.ergo; else cat "$2"; fi; } | sed -n 's/^# TESTBUILDSLOW //p' | head -n 1)
+  [ -z "$n" ] || sleep "$n"
+  # A TESTSIZE file's stderr is its exact byte count (the cap rows): no
+  # WORK= line, so its deadline starts at the stream's end.
+  { if [ -d "$2" ]; then cat "$2"/*.ergo; else cat "$2"; fi; } | grep -q '^# TESTSIZE ' || echo "WORK=$tools/work" >&2
+  # The run: on TESTHANG it never ends (it ends by itself after 60 s).
+  if { if [ -d "$2" ]; then cat "$2"/*.ergo; else cat "$2"; fi; } | grep -q TESTHANG; then sleep 60; exit 0; fi
   if [ -f "$2" ] && grep -q TESTLEDGER "$2"; then echo "law Counter.Joins for Box proved h1:fresh" >> "$(dirname "$2")/ergo.laws"; fi
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/package.ergo" || exit 1

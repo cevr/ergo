@@ -350,6 +350,31 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	}
 }
 
+// The test leg's deadline starts when its build ends (ergo test -work's
+// WORK= line), not at its start: a build slower than -timeout, as a cold
+// build under load is, passes; a run that hangs after its build still
+// fails "timed out" and is stopped. Mutants examples-deadline-at-start and
+// examples-deadline-never (scripts/examples ledger).
+func TestTestLegDeadlineStartsAfterTheBuild(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
+	f.program("slowbuild", "#!/bin/sh\necho hi\nexit 0\n# TESTBUILDSLOW 2\ntest Fixture {\n}\n", "default\n", hi, nil)
+	f.program("hang", "#!/bin/sh\necho hi\nexit 0\n# TESTHANG\ntest Fixture {\n}\n", "default\n", hi, nil)
+	code, out := f.run("-timeout", "1s", "slowbuild")
+	if code != 0 || !strings.Contains(out, "ok slowbuild: test") {
+		t.Fatalf("a build slower than -timeout: want ok slowbuild: test; exit %d\n%s", code, out)
+	}
+	started := time.Now()
+	code, out = f.run("-timeout", "1s", "hang")
+	if took := time.Since(started); took >= caseLife {
+		t.Fatalf("a hung test leg ran %s: the deadline never started", took)
+	}
+	if code != 1 || !strings.Contains(out, "FAIL hang: test") || !strings.Contains(out, "timed out after 1s (hung?") {
+		t.Fatalf("a test leg that hangs after its build: want FAIL hang: test timed out; exit %d\n%s", code, out)
+	}
+}
+
 // A case of a default program over -budget fails naming the budget; a slow
 // program runs only when selected by tag or by name.
 func TestBudgetAndSelection(t *testing.T) {
@@ -717,7 +742,7 @@ func TestTestLeg(t *testing.T) {
 	slices.Sort(tests)
 	var want []string
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
-		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
+		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo")+" -work")
 	}
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
