@@ -238,6 +238,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
+		// GX2: an append loop's room (reserve.go), Go's slices.Grow; no
+		// wait, no release.
+		"Reserve": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

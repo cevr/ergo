@@ -4131,8 +4131,8 @@
       "name": "gx2-reserve-self-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "!fc.plainPath(s.X) || fc.mentions(s.X, target) {",
-      "to": "!fc.plainPath(s.X) {",
+      "from": "!fc.plainPath(s.X) && !reserveCall(s.X) || fc.mentions(s.X, target) {",
+      "to": "!fc.plainPath(s.X) && !reserveCall(s.X) {",
       "rule": "types.md, Loops and len 8 (GX2): a range over the target's own array sees its element writes, so it is not reserved.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4142,9 +4142,9 @@
       "name": "gx2-reserve-call-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || ",
+      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) && !reserveCall(s.X) || ",
       "to": "if target == nil || ",
-      "rule": "types.md, Loops and len 8 (GX2): a domain reached through a call could return the target's array, so it is not reserved.",
+      "rule": "types.md, Loops and len 8 (GX2; GX8 reserves a call's value, held once): a domain reached through a pointer could reach the target's array, so it is not reserved.",
       "killers": [
         "lower:TestReserveAgrees"
       ]
