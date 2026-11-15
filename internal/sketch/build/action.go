@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -42,6 +43,9 @@ type Toolchain struct {
 	// own GOFLAGS replaces it, as a later flag does in the go command.
 	// The direct path passes -s -w to the linker where go build does.
 	Strip bool
+	// Pins are the pin archive sets the direct path may take std's and
+	// the runtime's archives from (pin.go); the zero value is none.
+	Pins Pins
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go
@@ -67,6 +71,13 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
 	}
+	if ir := ergoIR(module); ir != nil {
+		// The pattern "." is the package in the module directory, the
+		// root; the quotes keep a path with a space one word. Go's
+		// action cache keys the compile on the flag and on main.go,
+		// which holds the IR file's digest.
+		args = append(args, "-gcflags=.='"+ir[0]+"="+ir[1]+"'")
+	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
@@ -76,6 +87,21 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	}
 	child.Env = t.env(goflags)
 	return child
+}
+
+// IRFile is the typed IR of a module's root package (lower.IRFileName),
+// beside its go.mod.
+const IRFile = "ergoir.json"
+
+// ergoIR is the root package's compiler flag that reads the module's IR
+// bodies, `-ergoir FILE`, which only ergo's patched compile knows
+// (internal/toolchain, Patch); nil for a module without IR.
+func ergoIR(module Module) []string {
+	file := filepath.Join(module.Dir, IRFile)
+	if _, err := os.Stat(file); err != nil {
+		return nil
+	}
+	return []string{"-ergoir", file}
 }
 
 // env is the environment of the go command for this toolchain: the

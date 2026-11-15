@@ -193,6 +193,12 @@ func sweepStep(selection string, weight float64) *Step {
 // buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
 const buildCLIStep = "build bin/ergo"
 
+// buildCLI is the step buildCLIStep. A whole-gate replay runs it too
+// (rebuildOutputs), so bin/ergo matches the tree after a replay.
+func buildCLI(root string) *Step {
+	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast}
+}
+
 // cliTestPackages are the test packages whose tests run the ergo CLI. A
 // test process built cmd/ergo for itself, so a package in n shards built it
 // n times per run, each build racing the others after an edit of the
@@ -385,8 +391,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	// It writes bin/ (Step.Writes): no closure sweep runs beside it.
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}, Class: classFast})
+	// It writes bin/ (Step.Writes): no closure sweep runs beside it, and
+	// no key holds what it writes there (gateOutputs).
+	add(buildCLI(root))
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err
@@ -746,8 +753,12 @@ func packageSeconds(measured map[string]float64) float64 {
 // wf10, section 1.1, measured). Their shards are processes, so they need no
 // t.Parallel audit; each shard is a step with its own TMPDIR (stepTempDir).
 // The shard count is the measured work over shardTargetSeconds, at most the
-// CPU budget.
-var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
+// CPU budget. The IR tests (internal/experimental/irspike) run in the full
+// tier with ergo's patched compile since IRT0b; their agreement and text
+// checks are split by example target (1046 s and 1261 s whole at
+// GOMAXPROCS=1), so the shards spread them and no step's timeout holds
+// them all.
+var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./internal/sketch/check", "./internal/sketch/lower"}
 
 // testedPackages are the module's packages that have tests, as "./dir".
 func testedPackages(root string) ([]string, error) {

@@ -52,6 +52,11 @@ const (
 	// OutputsPlaced counts the executables placed at an output path (a hard
 	// link or a copy of the store's blob).
 	OutputsPlaced
+	// StdExports counts the standard archives the direct path took from the
+	// go command (go list -export) for a plan: each one a compile, unless
+	// Go's build cache held it. A plan whose archives come from a pin set
+	// (internal/pinset) takes none.
+	StdExports
 	numCounters
 )
 
@@ -62,7 +67,7 @@ var names = [numCounters]string{
 	"modules_lowered", "go_bytes_lowered", "modules_reused",
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
-	"go_commands", "processes", "bytes_written", "outputs_placed",
+	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
 }
 
 var counts [numCounters]atomic.Int64

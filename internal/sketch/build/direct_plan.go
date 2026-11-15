@@ -111,6 +111,9 @@ func (d *direct) fingerprint(tg *target, env []string) (string, error) {
 		k.add("go.mod", string(data))
 	}
 	k.add("tags", strings.Join(d.t.Tags, ","))
+	if d.t.Pins.Produce {
+		k.add("produce", "all of std") // such a plan lists more than tg.std
+	}
 	for _, s := range tg.std {
 		k.add("std", s)
 	}
@@ -240,11 +243,20 @@ func (d *direct) makePlan(tg *target, env []string) (planFile, error) {
 			return p, err
 		}
 	}
+	if pinned, err := d.stdFromSet(&p, tg, env); err != nil || pinned {
+		return p, err
+	}
 	args := []string{"list", "-export", "-deps", "-trimpath", "-mod=readonly", "-buildvcs=false", "-json=ImportPath,Export,Standard,Error"}
 	if len(d.t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(d.t.Tags, ","))
 	}
-	if out, err = d.goCommand(env, append(args, tg.std...)...); err != nil {
+	patterns := tg.std
+	if d.t.Pins.Produce {
+		// A std set holds every package the target builds; -e lists the
+		// rest with their errors instead of failing.
+		patterns = append([]string{"-e"}, append(slices.Clone(tg.std), "std")...)
+	}
+	if out, err = d.goCommand(env, append(args, patterns...)...); err != nil {
 		return p, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(out))
@@ -258,6 +270,10 @@ func (d *direct) makePlan(tg *target, env []string) (planFile, error) {
 			return p, err
 		}
 		switch {
+		case (pkg.Error != nil || pkg.Export == "") && d.t.Pins.Produce:
+			// A std package the target cannot build, such as runtime/cgo
+			// with cgo off, or one of test files only.
+			continue
 		case pkg.Error != nil:
 			return p, fmt.Errorf("go list %s: %s", pkg.ImportPath, pkg.Error.Err)
 		case !pkg.Standard:
@@ -276,6 +292,7 @@ func (d *direct) makePlan(tg *target, env []string) (planFile, error) {
 			return p, err
 		}
 		p.Std[pkg.ImportPath] = archive{Digest: digest, Export: export}
+		stage.Add(stage.StdExports, 1)
 	}
 	return p, nil
 }

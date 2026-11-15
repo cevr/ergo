@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
@@ -21,17 +23,53 @@ const programMemory = 1 << 30
 // needsBuild marks a test that builds Go: the fast tier (-short) skips it.
 // These tests build Go because the question is the derivative compiler's
 // machine code for an IR body, which no in-process check reaches; and they
-// need the two toolchains, which only the spike's receipts configure.
+// need the two toolchains: the spike's receipts configure them
+// (Toolchains), and otherwise they are ergo's own (ErgoToolchains), so
+// the full tier runs these tests with no variable. A toolchain that cannot
+// be had fails the test: the full tier never skips them.
 func needsBuild(t *testing.T) (src, ir Toolchain) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("full tier: builds Go")
 	}
 	src, ir, ok := Toolchains()
-	if !ok {
-		t.Skip(ErrNoToolchains)
+	if ok {
+		return src, ir
 	}
-	return src, ir
+	tcs, err := ergoToolchains()
+	if err != nil {
+		t.Fatalf("the IR tests' toolchains: %v", err)
+	}
+	return tcs[0], tcs[1]
+}
+
+// ergoToolchains is ErgoToolchains once per test process: the parts of a
+// split each ask for them.
+var ergoToolchains = sync.OnceValues(func() ([2]Toolchain, error) {
+	src, ir, err := ErgoToolchains()
+	return [2]Toolchain{src, ir}, err
+})
+
+// TestIRTestsRunInTheFullTier: in the full tier the IR tests get their
+// toolchains, from ergo's cache when no variable names them, and never
+// skip (before IRT0b every gate run skipped them all). Mutant: needsBuild
+// skips without the variables (irt-ir-tests-skip).
+func TestIRTestsRunInTheFullTier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds the patched compile")
+	}
+	ran := false
+	t.Run("needsBuild", func(t *testing.T) {
+		_, ir := needsBuild(t)
+		out, _ := exec.Command(filepath.Join(ir.GOROOT, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "compile"), "-h").CombinedOutput()
+		if !strings.Contains(string(out), "-ergoir") {
+			t.Fatalf("the IR toolchain's compile has no -ergoir:\n%s", out)
+		}
+		ran = true
+	})
+	if !ran {
+		t.Fatal("the IR tests skip in the full tier")
+	}
 }
 
 // outcome is what a program did: its stdout, exit status and the first

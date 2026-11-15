@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/pinset"
 	"ergo.local/prototype/internal/stage"
 )
 
@@ -73,6 +74,10 @@ type Report struct {
 	// reused.
 	Compiled, Reused int
 	Linked           bool
+	// Pinned counts the reused compiles taken from a runtime pin set.
+	Pinned int
+	// Sets are the pin sets a Pins.Produce build makes.
+	Sets []ProducedSet
 	// Executable is the digest of the executable's blob in the store, which
 	// the output links to; empty when go build built it.
 	Executable string
@@ -134,6 +139,10 @@ type direct struct {
 	stage   string             // this build's temporary directory
 	digests map[string]archive // the module's compiled packages
 	now     time.Time
+
+	runtime        *pinset.Set // the runtime pin set (runtimeSet)
+	runtimeOpened  bool
+	runtimeEntries []pinset.Entry // a Produce build's runtime set
 }
 
 // goPackage is one package of the generated module that the direct path
@@ -222,6 +231,12 @@ func (d *direct) build() error {
 		if err := d.compile(p); err != nil {
 			return err
 		}
+		if err := d.produced(p); err != nil {
+			return err
+		}
+	}
+	if d.t.Pins.Produce {
+		d.report.Sets = d.producedSets()
 	}
 	return d.link(tg)
 }
@@ -452,11 +467,19 @@ func buildID(key string, parts int) string {
 }
 
 // compileKey is the action key of a package's compile: every input of the
-// object it writes.
+// object it writes. The root package's IR file (-ergoir) is one, by its
+// content; the patched compile that reads it is one through the tool's
+// digest.
 func (d *direct) compileKey(p *goPackage) (string, error) {
+	return d.packageKey(p, "compile", func(k *keyer) { d.toolchainKey(k, d.plan.Compile) })
+}
+
+// packageKey is the key of p's compile with the tool and target that tool
+// adds: the compile's own, or a pin set's name (pinCompileKey).
+func (d *direct) packageKey(p *goPackage, kind string, tool func(*keyer)) (string, error) {
 	var k keyer
-	k.add("schema", directSchema+" compile")
-	d.toolchainKey(&k, d.plan.Compile)
+	k.add("schema", directSchema+" "+kind)
+	tool(&k)
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
@@ -473,6 +496,16 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 		// input.
 		k.add("file", p.Trim+"/"+filepath.Base(f))
 		k.add("content", hex.EncodeToString(sum[:]))
+	}
+	if p.ImportPath == d.mainPath() {
+		if ir := ergoIR(d.module); ir != nil {
+			data, err := os.ReadFile(ir[1])
+			if err != nil {
+				return "", err
+			}
+			sum := sha256.Sum256(data)
+			k.add("ergoir", hex.EncodeToString(sum[:]))
+		}
 	}
 	for _, imp := range p.Imports {
 		if imp == "unsafe" { // built into the compiler: the tool digest covers it
@@ -555,6 +588,13 @@ func (d *direct) compile(p *goPackage) error {
 		stage.Add(stage.GoCompilesReused, 1)
 		return nil
 	}
+	if a, ok := d.fromRuntimeSet(p); ok {
+		d.digests[p.ImportPath] = a
+		d.report.Reused++
+		d.report.Pinned++
+		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
+		return d.record(key, a.Digest, a.Export)
+	}
 	pkgPath := p.ImportPath
 	if pkgPath == d.mainPath() {
 		pkgPath = "main"
@@ -584,6 +624,11 @@ func (d *direct) compile(p *goPackage) error {
 	}
 	if d.plan.pie() {
 		args = append(args, "-shared")
+	}
+	if p.ImportPath == d.mainPath() {
+		// Where go build puts -gcflags: the IR bodies, for the patched
+		// compile (ergoIR).
+		args = append(args, ergoIR(d.module)...)
 	}
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {
