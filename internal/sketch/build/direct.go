@@ -451,6 +451,25 @@ func buildID(key string, parts int) string {
 	return strings.Join(ids, "/")
 }
 
+// compileFlags are the profile's compile flags for p (Toolchain.CompileFlags)
+// when p's directory is in the module's directory, which is where go build
+// applies the profile's -gcflags=./...=…; none otherwise.
+func (d *direct) compileFlags(p *goPackage) []string {
+	flags := d.t.CompileFlags()
+	if len(flags) == 0 {
+		return nil
+	}
+	root, err := filepath.Abs(d.module.Dir)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(root, p.Dir)
+	if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		return nil
+	}
+	return flags
+}
+
 // compileKey is the action key of a package's compile: every input of the
 // object it writes.
 func (d *direct) compileKey(p *goPackage) (string, error) {
@@ -460,6 +479,7 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
+	k.add("flags", strings.Join(d.compileFlags(p), " "))
 	for _, f := range p.Files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -585,6 +605,7 @@ func (d *direct) compile(p *goPackage) error {
 	if d.plan.pie() {
 		args = append(args, "-shared")
 	}
+	args = append(args, d.compileFlags(p)...)
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {
 		cfg, err := embedConfig(p)
@@ -653,6 +674,9 @@ func (d *direct) modinfo(tg *target) string {
 	set := func(k, v string) { info.Settings = append(info.Settings, debug.BuildSetting{Key: k, Value: v}) }
 	set("-buildmode", "exe")
 	set("-compiler", "gc")
+	if d.t.Profile == Dev {
+		set("-gcflags", devGcflags) // go build records the flag's text
+	}
 	if len(d.t.Tags) > 0 {
 		set("-tags", strings.Join(d.t.Tags, ","))
 	}
