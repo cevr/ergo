@@ -3,12 +3,25 @@
 // GIT_CEILING_DIRECTORIES above it.
 
 import exec
+import os
 import testing
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs testing.Ambient {
 	work.Vcs:    New(exec.NewTestHost()),
 	exec.Runner: exec.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+// A command runs in the case's folder, with HOME and TMPDIR there too, so
+// git's global configuration and its temporary files stay in it.
+test CommandsRunInTheFolder {
+	with onHost {
+		let folder = try os.Process.Getwd()
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", "printf '%s|%s|%s' \"$PWD\" \"$HOME\" \"$TMPDIR\""}))
+		assert r.Stdout == "\(folder)|\(folder)|\(folder)"
+		assert os.Process.Getenv("HOME") == Some[string]{Value: folder}
+	}
 }
 
 // run runs a git command in the folder and gives its status.
