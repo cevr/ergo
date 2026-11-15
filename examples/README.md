@@ -70,7 +70,7 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `input self WORD…`: the input is what the program prints with these arguments (a `gen` subcommand); `input go DIR WORD…`: what the Go main package `DIR` (from the repository root) prints. With an input and no `{input}` in `args`, the input is the program's stdin.
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
 
-`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm` and `onebrc` hold one.
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm` and `toktree` hold one. A package folder named `workload` (`vt`'s) is a package, not this file.
 
 ## TypeScript leg
 
