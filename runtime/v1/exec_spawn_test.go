@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -146,8 +147,8 @@ func TestExecSpawnStopped(t *testing.T) {
 // wait and goes on to SIGKILL, so a group that ignores SIGTERM ends
 // although the grace is an hour (lower TestRuntime199BlockingProperty's
 // host-wait law for Kill). Mutant kill-stop-waits-grace (the stop case
-// dropped from the wait). The test waits on Kill's return; the deadline
-// only names a hung Kill.
+// dropped from the wait). The test waits on Kill's return; the test's
+// deadline only names a hung Kill.
 func TestExecKillStopped(t *testing.T) {
 	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
@@ -167,7 +168,7 @@ func TestExecKillStopped(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Minute):
+	case <-testwait.After(t):
 		t.Fatal("Kill with a stopped caller is hung in its hour of grace")
 	}
 	if ExecAlive(d.Pid, d.Start) {
