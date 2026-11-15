@@ -1590,6 +1590,33 @@
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
     {
+      "name": "oracle-o36-append-all-grows-shared",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif xs.off+xs.n == len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "to": "\tif xs.off+xs.n <= len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "rule": "AppendAll grows xs's store in place only when no value sees past xs's end: a slice made before it keeps its elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-xs",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tcopy(data, xs.elems())\n\tdata = append(data, add...)",
+      "to": "\tdata = append(data, add...)",
+      "rule": "AppendAll's result in a store of its own starts with xs's elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-ys",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif ys.n == 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "to": "\tif ys.n >= 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "rule": "AppendAll adds ys's elements after xs's.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
       "name": "oracle-o35-last-release-skipped",
       "origin": "wf10 ORACLE O35",
       "file": "internal/sketch/eval/compile_yield.go",

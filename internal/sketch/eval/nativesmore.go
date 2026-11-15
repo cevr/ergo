@@ -84,6 +84,12 @@ func init() {
 	natives["arena.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.appendTo(fr, at, args[0].(sliceV), args[1], nil)
 	}
+	// AppendAll is append(xs, ys...) (dense.Pool's PutList, SL2): xs's
+	// elements then ys's, xs itself unchanged, as len(ys) Appends do it
+	// but in one copy. An empty ys does no work.
+	natives["slices.AppendAll"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.appendAll(fr, at, args[0].(sliceV), args[1].(sliceV))
+	}
 	natives["arena.takeValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		p, ok := args[0].(*ptrV)
 		if !ok {
