@@ -725,9 +725,12 @@ func (w *Window) publishAccess() {
 	}
 }
 
-// TextWidth is the width of s set on one line at font size size.
+// TextWidth is the width of s set on one line at font size size. Its
+// layout, as glyphLine's, comes from the text system's cache (Layout, as
+// MyGo's ui lays text out), which keeps what recent frames used, not
+// shaped anew (Shape) each call.
 func (w *Window) TextWidth(s string, size float64) float64 {
-	l := w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: float32(size)}, NoWrap: true, KeepSpaces: true})
+	l := w.sys.Layout(text.Params{Text: s, Style: text.Style{Size: float32(size)}, NoWrap: true, KeepSpaces: true})
 	return float64(l.Width)
 }
 
@@ -1032,7 +1035,7 @@ func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 	style := text.Style{Size: t.size}
 	ascent, _, lineHeight := w.sys.Metrics(style)
-	l := w.sys.Shape(text.Params{Text: t.s, Style: style, NoWrap: true, KeepSpaces: true})
+	l := w.sys.Layout(text.Params{Text: t.s, Style: style, NoWrap: true, KeepSpaces: true})
 	shade := text.ShadeOf(t.color.R, t.color.G, t.color.B)
 	top := t.y + (float32(math.Ceil(float64(lineHeight)))-lineHeight)/2
 	baseline := w.sys.Baseline((top + ascent) * scale)

@@ -551,6 +551,24 @@
       "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
     },
     {
+      "name": "GPa-measure-shapes",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tl := w.sys.Layout(text.Params{Text: s, Style: text.Style{Size: float32(size)}",
+      "to": "\tl := w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: float32(size)}",
+      "rule": "TextWidth takes its layout from the text system's cache, not shaped anew each call",
+      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+    },
+    {
+      "name": "GPa-draw-shapes",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/screen/screen.go",
+      "from": "\tl := w.sys.Layout(text.Params{Text: t.s, Style: style,",
+      "to": "\tl := w.sys.Shape(text.Params{Text: t.s, Style: style,",
+      "rule": "a frame's text takes its layout from the text system's cache, not shaped anew each frame",
+      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",
