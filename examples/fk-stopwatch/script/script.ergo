@@ -1,13 +1,16 @@
-// Package script runs the stopwatch over a script of timed button presses
-// on the time.Clock and Scheduler of its context (main binds a virtual
-// clock), and shows the watch after each press and at the end.
+// Package script plays a script of timed button presses on the
+// stopwatch's screen (stage b), on std ui's test host over the manual
+// clock main binds, and shows the screen after each press and at the end.
 
+import actor
+import fkstopwatch/screen
 import fkstopwatch/watch
 import io
 import machines
 import strconv
 import strings
 import time
+import ui
 
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
@@ -69,10 +72,15 @@ func millis(n int, word string) duration fails BadLine {
 	time.Times(1ms, v)
 }
 
-// Run reads the script from io.Stdin and shows the watch after each press
-// and at the end: `@MS MM:SS.cc running|stopped`. It returns the exit
-// status: 0, or 1 when the script is refused.
-func Run() int needs Console | io.Stdin | time.Clock | Scheduler {
+// Run reads the script from io.Stdin and plays it on the screen, on std
+// ui's test host over clock: for each press it advances the clock to the
+// press's time (each tick due by then fires), presses the button the press
+// names, and shows the screen: `@MS TIME [BUTTON] [BUTTON]`; at the end it
+// advances to the end and shows the screen. A press whose button is not on
+// the screen (Stop while stopped, Start while running) presses nothing and
+// says so, as a click on an absent button does nothing. It returns the
+// exit status: 0, or 1 when the script is refused or the screen fails.
+func Run(clock time.Manual) int needs Console | io.Stdin | time.Clock | Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -82,16 +90,81 @@ func Run() int needs Console | io.Stdin | time.Clock | Scheduler {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let mut part = []machines.Timed[watch.Signal]{}
-	for x in s.Trace {
-		part = part.Append(x)
-		show(x.At, watch.Replay(part, x.At))
+	let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o Never) {})
+	let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+	case ui.BadPatch as p:
+		Console.Println("? the first screen is refused: \(p.Why)")
+		app.Stop()
+		return 1
 	}
-	show(s.End, watch.Replay(s.Trace, s.End))
+	let status = play(&h, s) catch {
+	case actor.Stopped:
+		Console.Println("? the watch stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	app.Stop()
+	status
+}
+
+// Host is the watch on the test host.
+type Host = ui.TestHost[watch.Watch, watch.Signal, Decision[watch.Watch, Never]]
+
+func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console {
+	let mut now = 0s
+	for x in s.Trace {
+		try ui.Advance(h, x.At-now)
+		now = x.At
+		try ui.Settle(h)
+		let label = match x.Signal {
+		case watch.Start:
+			"Start"
+		case watch.Stop:
+			"Stop"
+		case watch.Reset:
+			"Reset"
+		case watch.Ticked:
+			"Ticked"
+		}
+		let ids = ui.Locate(h, ui.WithRole{Role: ui.Button, Name: label})
+		if len(ids) == 0 {
+			Console.Println("@\(time.Count(now, 1ms)) no \(label) button")
+			continue
+		}
+		try ui.Tap(h, ids[0])
+		try ui.Settle(h)
+		Console.Println("@\(time.Count(now, 1ms)) \(Shown(h))")
+	}
+	try ui.Advance(h, s.End-now)
+	try ui.Settle(h)
+	Console.Println("@\(time.Count(s.End, 1ms)) \(Shown(h))")
 	0
 }
 
-func show(t duration, w watch.Watch) needs Console {
-	let mode = if watch.IsRunning(w) { "running" } else { "stopped" }
-	Console.Println("@\(time.Count(t, 1ms)) \(watch.Format(watch.ElapsedOf(w))) \(mode)")
+// Shown is the screen in a line: the time it shows and its buttons, in
+// order, each in brackets.
+func Shown(h *Host) string {
+	let mut out = timeOf(ui.Screen(h))
+	for id in ui.Locate(h, ui.WithRole{Role: ui.Button, Name: ""}) {
+		out = out + " [\(ui.AccessAt(h, id).Name)]"
+	}
+	out
+}
+
+// timeOf is the first text of the shapes, depth first: the time.
+func timeOf(shapes []ui.Shape[watch.Signal]) string {
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			return t.Value
+		case _:
+		}
+		let t = timeOf(s.Kids)
+		if t != "" {
+			return t
+		}
+	}
+	""
 }

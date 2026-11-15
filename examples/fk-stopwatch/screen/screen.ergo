@@ -1,0 +1,28 @@
+// Package screen is the stopwatch's view (stage b): the time as MM:SS.cc,
+// then Reset and one button that is Start while the watch is stopped and
+// Stop while it runs, as upstream's.
+
+import fkstopwatch/watch
+import ui
+
+// Screen is the watch: its time and its two buttons.
+func Screen(f *ui.Frame[watch.Signal], w watch.Watch) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, watch.Format(watch.ElapsedOf(w)))
+		ui.Row(f, ui.Plain()) {
+			button(f, "Reset", watch.Reset)
+			match w {
+			case watch.Stopped:
+				button(f, "Start", watch.Start)
+			case watch.Running:
+				button(f, "Stop", watch.Stop)
+			}
+		}
+	}
+}
+
+func button(f *ui.Frame[watch.Signal], label string, on watch.Signal) {
+	ui.Pressable(f, label, on) {
+		ui.Text(f, label)
+	}
+}
