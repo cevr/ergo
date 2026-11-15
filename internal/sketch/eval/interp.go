@@ -110,6 +110,9 @@ type frame struct {
 	// actor it started (ORACLE O33). A call's frame that did not escape
 	// goes back to the pool (freeFrame).
 	escaped bool
+	// ret is the completion a compiled return gives (compile.go): one per
+	// frame, as a return ends the frame.
+	ret abrupt
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {

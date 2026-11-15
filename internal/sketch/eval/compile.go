@@ -578,7 +578,7 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 		if len(s.Results) != 1 {
 			return nil
 		}
-		x := s.Results[0]
+		x, pos := s.Results[0], s.Pos()
 		return func(in *interp, fr *frame) *abrupt {
 			if ab := in.charge(fr, at, 1); ab != nil {
 				return ab
@@ -587,7 +587,11 @@ func (in *interp) compileStmtCore(fr *frame, s syntax.Stmt) fastStmt {
 			if ab != nil {
 				return ab
 			}
-			return fr.abrupt(ctlReturn, at, v, "")
+			// The frame's own return record, not a new one: a return
+			// ends its frame, and every reader of a return (runFrameBody,
+			// a case's body) takes its value before the frame is reused.
+			fr.ret = abrupt{kind: ctlReturn, val: v, pkg: fr.pkg, decl: fr.decl, at: pos}
+			return &fr.ret
 		}
 	}
 	return nil
