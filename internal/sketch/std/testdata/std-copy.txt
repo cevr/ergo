@@ -1,0 +1,57 @@
+# The copy property of each std package (TestStdCopyAgrees; owner,
+# 2026-11-12: the standard library gets no special treatment). A line is
+# `path<TAB>same`, or `path<TAB>differs<TAB>stage: first reason<TAB>unit`,
+# where stage is check, surface or lower and unit names the change that
+# removes the reason. The file only moves to same: a differs row may not
+# join (stdCopyBaseline).
+
+actor	same
+arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
+atomic	same
+base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+bits	same
+cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+codec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
+config	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+copyfixture	same
+crc32	same
+csv	same
+embed	same
+exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+explore	same
+filepath	same
+flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+hex	same
+http	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+io	same
+journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+journal/file	same
+journal/memory	same
+json	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+log	same
+machines	same
+maps	same
+math	same
+os	same
+prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
+rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+sha256	same
+slices	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+strconv	same
+strings	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+sync	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+term	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+testing	differs	check: S108 a record with no fields is written bare: Script[probe] (script.go derives Script for testing.Script only)	NP3d
+time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+toml	same
+trace	same
+utf8	same

@@ -142,18 +142,52 @@ func TestLoaderModuleFile(t *testing.T) {
 		{"module log\n", "", "starts with the std package log"},
 		{"module strings/x\n", "", "starts with the std package strings"},
 		{"module prelude\n", "", "starts with the std package prelude"},
-		{"module app\nmodule b\n", "", "one line, module NAME, and nothing else"},
-		{"go 1.22\n", "", "one line, module NAME, and nothing else"},
+		{"module app\nmodule b\n", "", "one line, module NAME, then only lines trust MODULE"},
+		{"go 1.22\n", "", "one line, module NAME, then only lines trust MODULE"},
 		{"module 1app\n", "", "is not an import path"},
 		{"module a//b\n", "", "is not an import path"},
 		{"module a/\n", "", "is not an import path"},
+		// Trusted Go (NP4e): trust lines follow the module line.
+		{"module app\ntrust log\n", "", "the toolchain trusts std"},
+		{"module app\ntrust app\ntrust app\n", "", "trusts app twice"},
 	} {
-		module, d := parseModule(c.text)
+		module, _, d := parseModule(c.text)
 		switch {
 		case c.problem == "" && (d != nil || module != c.module):
 			t.Errorf("%q: module %q diagnostic %+v, want %q", c.text, module, d, c.module)
 		case c.problem != "" && (d == nil || d.Code != "S108" || !strings.Contains(d.Message, c.problem)):
 			t.Errorf("%q: diagnostic %+v, want S108 %q", c.text, d, c.problem)
+		}
+	}
+}
+
+// TestTrustLineOpensTheRuntimeDoor (STD-NOPRIV NP4e; docs/spec/interop.md,
+// Trusted Go): a module's package binds runtime/v1 bodies that take hidden
+// arguments (the task and the context package of ContextBound, the frame of
+// OnExit) when the root's ergo.mod trusts the module, and is refused with
+// the line to write when it does not. The same declarations in std check
+// and lower equal to a copy (TestStdCopyAgrees). Mutants:
+// loader-ignores-trust (TrustsGo reports false), door-names-no-line.
+func TestTrustLineOpensTheRuntimeDoor(t *testing.T) {
+	files := map[string]string{
+		"main.ergo": "import app/ctx\n\nfunc main() needs Console {\n\tctx.Finally(func() needs Console { Console.Println(\"bye\") })\n\tConsole.Println(if ctx.Bound(\"k\") { \"bound\" } else { \"free\" })\n}\n",
+		"ctx/ctx.ergo": "extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool\n" +
+			"extern go ergo.local/prototype/runtime/v1.OnExit func onExit[R](body func() needs R) needs R\n\n" +
+			"func Bound(key string) bool { contextBound(key) }\n\n" +
+			"func Finally[R](body func() needs R) needs R { onExit(body) }\n",
+	}
+	for _, c := range []struct{ mod, want string }{
+		{"module app\ntrust app\n", ""},
+		{"module app\n", "ctx/ctx.ergo S108 1:1 extern go ergo.local/prototype/runtime/v1.ContextBound binds the Ergo runtime, which a package binds only when the root module trusts its Go; write the line `trust app` in the root module's ergo.mod"},
+	} {
+		files["ergo.mod"] = c.mod
+		a, err := CheckDir(writeTree(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := diagnosticLines(a)
+		if c.want == "" && got != "" || !strings.Contains(got, c.want) {
+			t.Errorf("ergo.mod %q:\n%s\nwant %q", c.mod, got, c.want)
 		}
 	}
 }

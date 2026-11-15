@@ -221,6 +221,14 @@ type ident struct{ typ, data unsafe.Pointer }
 
 // identOf returns the ident of err. It reads the two words of the interface
 // value; it never dereferences them.
+//
+// Safety invariant (listed in internal/residue/testdata/unsafe.txt, owner
+// q112 and audit 3 G8): ident mirrors the gc layout of an interface value,
+// and the read goes through a pointer to identOf's own live parameter. A
+// layout change gives wrong origins, never a memory error, and
+// TestTraceEqualFailuresNameTheirOwnOccurrence fails. No unsafe-free form
+// keeps a boxed value's identity: reflect gives no address of a value that
+// is not addressable, and == compares equal values as one.
 func identOf(err error) ident { return *(*ident)(unsafe.Pointer(&err)) }
 
 // raise delivers e as an event of task t and gives it the next occurrence ID.

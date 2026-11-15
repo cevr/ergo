@@ -290,6 +290,11 @@ func main() {}
 func f(g escaping func(int) int) int { return g(1) }
 func main() {}
 `, nil},
+	{"escaping", "a pure parameter (STD-NOPRIV NP3a; rows.md, Footprints 6)", `
+func apply(g pure func(int) int) int { g(1) }
+func twice(x int) int { x * 2 }
+func main() { let _ = apply(twice) }
+`, nil},
 	{"tuple type", "a tuple result type", `
 func pair() (int, string) { return pair() }
 func main() {}

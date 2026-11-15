@@ -6,7 +6,7 @@
 
 import fs
 
-type FS {
+extern go ergo.local/prototype/runtime/v1.FS type FS {
 	runtimeOnly(),
 	ReadFile(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
 	ReadDir(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,

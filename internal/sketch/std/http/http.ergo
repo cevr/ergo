@@ -9,8 +9,8 @@
 import strings
 import sync
 
-type ListenFailed { Addr string, Reason string }
-type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
+extern go ergo.local/prototype/runtime/v1.HTTPListenFailed type ListenFailed { Addr string, Reason string }
+extern go ergo.local/prototype/runtime/v1.HTTPInvalidLimits type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
 
 // Limits are shared by the server and client. Every field must be positive.
 // Serve uses all five fields; NewClient and NewNet use only the byte budgets
@@ -19,23 +19,23 @@ type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration,
 // IdleTimeout the wait for the next request on a kept-alive connection,
 // ReadHeaderTimeout the header (from the accept, or from the next
 // request's first byte), and ReadBodyTimeout the body.
-type Limits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
+extern go ergo.local/prototype/runtime/v1.HTTPLimits type Limits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
 
 // Listener is transport-only, shared by server protocols. Close releases a
 // bound listener that the program does not hand to Serve.
 // law-exempt: only Listen creates a bound transport; socket lifetime is checked by the loopback server property.
-type Listener { Addr() string, Close(), bound() }
+extern go ergo.local/prototype/runtime/v1.Listener type Listener { Addr() string, Close(), bound() }
 
 extern go ergo.local/prototype/runtime/v1.HTTPListen func Listen(addr string) Listener fails ListenFailed needs Ambient
 
 // Field is one header or query pair. Repeated names keep all their values.
-type Field { Name string, Value string }
+extern go ergo.local/prototype/runtime/v1.HTTPField type Field { Name string, Value string }
 type Buffered { Text string }
 type BodyTooLarge { Limit int }
 type BodyReadFailed { Reason string }
 type Body = Buffered | BodyTooLarge | BodyReadFailed
 type Request { Method string, Path string, Query []Field, Header []Field, Body Body }
-type Response { Status int, Header []Field, Body string }
+extern go ergo.local/prototype/runtime/v1.HTTPResponse type Response { Status int, Header []Field, Body string }
 
 // Header returns the first value of name, ignoring ASCII case. A missing
 // name is None, distinct from a header with an empty value.
@@ -90,7 +90,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, li
 
 // WriteFailed is a streamed write that did not reach the client: the
 // connection refused it (the client went away), or its stream had ended.
-type WriteFailed { Reason string }
+extern go ergo.local/prototype/runtime/v1.HTTPWriteFailed type WriteFailed { Reason string }
 
 // BodyWriter writes the parts of a streamed body. Only this package makes
 // one; it is valid while the function Stream ran it with is running.
@@ -129,7 +129,7 @@ func Stream[R](status int, header []Field, write func(w BodyWriter) fails WriteF
 // Exchange is the response side of one served request on the host. Only
 // Serve has one.
 // law-exempt: only the transport makes one; the runtime/v1 stream tests hold its writes, its end and its hang-up.
-type Exchange {
+extern go ergo.local/prototype/runtime/v1.Exchange type Exchange {
 	runtimeOnly(),
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,

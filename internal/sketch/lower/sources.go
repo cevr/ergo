@@ -248,6 +248,12 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 	return l.initPkgs
 }
 
+// shippedLedger is the text of the law ledger that ships with the packages
+// the compiler ships (std's ergo.laws), as their sources do: the evidence
+// for the laws of the providers they declare (evidenceFor). A test swaps it
+// for a fixture's ledger.
+var shippedLedger = std.Ledger
+
 // stdLetPkgs are the reached std packages that declare a top-level let,
 // in initialization order (importOrder). A std package imports no user
 // package, so each initializes before every sourced package (wf10 D3).

@@ -5,7 +5,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // A Ref owns its value (V6; owner q46, 2026-11-09; stdlib.md, Sync and
@@ -94,11 +93,11 @@ func (l *lowerer) ownedFormOf(c *check.Call, recv check.Type, site syntax.Node) 
 	default:
 		return ownedForm{}, false
 	}
-	b, err := v1.BodyOf(body)
+	b, err := runtimeBody(body)
 	if err != nil {
 		return ownedForm{}, false
 	}
-	o, err := v1.BodyOf(owned)
+	o, err := runtimeBody(owned)
 	if err != nil || len(o.Params) != len(b.Params)+shift+2 {
 		return ownedForm{}, false
 	}
@@ -335,7 +334,7 @@ func (l *lowerer) reaches(t check.Type, set map[string]bool, seen map[check.Type
 // arguments.
 func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, list []syntax.Expr, typeArgs string, result bool) (string, bool, bool) {
 	name, cb := s.form.name, s.form.cb
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil || len(body.Params) != len(list)+2 || cb >= len(list) || body.Params[cb].Func == nil {
 		ice(x, "the owned body %s is not readable: %v", name, err)
 	}

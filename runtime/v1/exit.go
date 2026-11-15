@@ -535,7 +535,7 @@ func report(w io.Writer, err error) int {
 func reportExit(w io.Writer, x Exit) int {
 	fmt.Fprintln(w, x.Message)
 	if x.Code >= 1 && x.Code <= 125 {
-		return x.Code
+		return int(x.Code)
 	}
 	fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
 	return 1

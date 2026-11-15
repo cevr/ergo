@@ -1,0 +1,24 @@
+// Package mapped is the host's Readings provider: a file of the host's
+// disk, mapped read-only (fs.MapFile), so a 13 GB input is read where the
+// page cache holds it, with no copy.
+
+import fs
+import onebrc/weather
+
+// Files reads the host's files. Only New makes one.
+type Files { host fs.Host }
+
+// New is the provider over the host's files.
+func New(host fs.Host) Files { Files{host: host} }
+
+// Text is the whole text of the file at path.
+func Text(f Files, path string) string fails weather.Unreadable {
+	fs.MapFile(f.host, path) catch {
+	case fs.NotFound:
+		return weather.Unreadable{Path: path, Reason: "no such file"}
+	case fs.Denied:
+		return weather.Unreadable{Path: path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return weather.Unreadable{Path: path, Reason: e.Reason}
+	}
+}

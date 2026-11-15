@@ -810,7 +810,7 @@ type probe struct {
 }
 func (p *probe) add(line string) { p.mu.Lock(); p.lines = append(p.lines, line); p.mu.Unlock() }
 // user reads the user type's key from the Go side: the program has no read
-// for it (only std binds the runtime).
+// for it (an untrusted package binds no runtime body).
 func user(t *rt.Task) string {
  if ergo.ContextBound(t, "example.test/userctx", "u") { return ergo.ContextValue(t, "example.test/userctx", "u") }
  return "-"

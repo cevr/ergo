@@ -121,6 +121,8 @@ func (TasksClosed) Error() string { return "tasks.Closed" }
 // code that makes it; the lowering registers the Set as that code's owned
 // value in the step that receives it (Owning, R8). kind is the policy (FailFast 0, LogFailures 1,
 // Restart 2) and limit Restart's limit; a negative limit is a defect.
+//
+//ergo:wait none
 func TasksNewSet(s *Scope, kind, limit int) *Set {
 	s = s.current()
 	if s.ended {
@@ -141,6 +143,8 @@ func (set *Set) own(t *rt.Task, op string) {
 
 // TasksGo is the body of tasks.Go: it starts body as a member of set
 // (rules 2 and 6). span is the member's site in a defect chain (G2).
+//
+//ergo:wait parent
 func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
 	return tasksGo(span, t, set, nil, body)
 }
@@ -149,6 +153,8 @@ func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
 // prepare runs once, even under Restart, and returns the scope that owns
 // the captures. Each run of body only lends them (resources R12, R30).
 // On failed admission prepare never runs; the sender releases the values.
+//
+//ergo:wait parent
 func TasksGoOwned(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, body func(*rt.Task) error) error {
 	return tasksGo(span, t, set, prepare, body)
 }
@@ -289,6 +295,8 @@ func (set *Set) join(m *member) {
 }
 
 // Len is how many members run now (rule 2).
+//
+//ergo:wait none
 func (set *Set) Len() int {
 	set.reap()
 	set.mu.Lock()
@@ -297,6 +305,8 @@ func (set *Set) Len() int {
 }
 
 // Wait waits until no member runs (rule 4).
+//
+//ergo:wait child
 func (set *Set) Wait(t *rt.Task) error {
 	set.own(t, "Wait")
 	if set.released {
@@ -345,6 +355,8 @@ func (set *Set) Wait(t *rt.Task) error {
 }
 
 // Stop ends the Set (rule 5).
+//
+//ergo:wait child
 func (set *Set) Stop(t *rt.Task) {
 	set.own(t, "Stop")
 	if err := set.stop(); err != nil {
@@ -356,6 +368,9 @@ func (set *Set) Stop(t *rt.Task) {
 // (#197 L8 B3t): masked on t, the owner task, it is Stop: admission closes,
 // every member is stopped and joined, typed failures are dropped and the
 // defects not raised yet are raised for the releasing scope.
+//
+//ergo:wait none
+//ergo:release caller
 func (set *Set) Close(t *rt.Task) {
 	set.own(t, "Close")
 	if set.released {

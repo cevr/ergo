@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Takes inference and copy sites (#197 L8 A3; plan 1.1, 1.3; resources
@@ -154,7 +153,7 @@ func copiesOf(f *Func) []CopySite {
 		return nil
 	}
 	if f.Decl != nil && f.Decl.Extern != nil {
-		if path, name := f.Decl.Extern.Split(); path == runtimeModule+"/v1" && v1.MovesOnly(name) {
+		if BodyOf(f).MovesOnly {
 			return nil
 		}
 	}

@@ -1,14 +1,10 @@
 // Rendering: the cells of each column block are aligned and the lines
 // joined, after the output's size is known.
 
+import cmp
+import math
 import strings
 import utf8
-
-// Go's math.Log and math.Exp: std math has neither (gaps.md), and math is
-// on the pure allowlist, so the column sections compute go/printer's
-// geometric mean with the same float operations as the Go formatter.
-extern go math.Log func logOf(x float64) float64
-extern go math.Exp func expOf(x float64) float64
 
 // OutputLimit is the refusal of an output larger than the caller's bound.
 // Built is the bytes of text built before the refusal: none, since the
@@ -79,33 +75,39 @@ func sizeOver(lines []Line, w Widths, first int, limit int) bool {
 }
 
 // build is the text of lines from first: the indentation, and each cell
-// but the last padded to its width.
+// but the last padded to its width. The builder is grown to the output's
+// size first, as go/printer's is, so the text is written once.
 func build(lines []Line, w Widths, first int) string {
-	let mut out = []string{}
+	let mut size = 0
+	for i in first..len(lines) {
+		size += lineLen(lines, w, i) + 1
+	}
+	let mut out = strings.NewBuilder()
+	out.Grow(size)
 	for i in first..len(lines) {
 		let row = lines[i]
-		if row.Indent > 0 {
-			out = out.Append(strings.Repeat("\t", row.Indent))
+		for _ in 0..row.Indent {
+			out.WriteByte('\t')
 		}
 		for j, c in row.Cells {
-			out = out.Append(c)
+			out.WriteString(c)
 			if j < len(row.Cells)-1 {
 				let width = w.Of[i][j]
-				if width > 0 {
-					out = out.Append(strings.Repeat(" ", width-utf8.RuneCount(c)))
+				for _ in 0..width-utf8.RuneCount(c) {
+					out.WriteByte(' ')
 				}
 			}
 		}
-		out = out.Append("\n")
+		out.WriteByte('\n')
 	}
-	strings.Join(out, "")
+	out.String()
 }
 
 // lineLen is the length in bytes of line i with its padding, without its
 // line break.
 func lineLen(lines []Line, w Widths, i int) int {
 	let row = lines[i]
-	let mut n = maxOf(row.Indent, 0)
+	let mut n = cmp.Max(row.Indent, 0)
 	for j, c in row.Cells {
 		n += len(c)
 		if j < len(row.Cells)-1 {
@@ -135,7 +137,7 @@ func align(w *Widths, lines []Line, from int, to int, column int) {
 		let mut lnsum = 0.0
 		let mut count = 0
 		if prev > 0 {
-			lnsum = logOf(float64(prev))
+			lnsum = math.Log(float64(prev))
 			count = 1
 		}
 		for j < to && len(lines[j].Cells) > column+1 && lines[j].Indent == lines[i].Indent {
@@ -152,14 +154,14 @@ func align(w *Widths, lines []Line, from int, to int, column int) {
 				break
 			}
 			if count > 0 && (s > alignSmall || prev > alignSmall) {
-				let ratio = float64(s) / expOf(lnsum/float64(count))
+				let ratio = float64(s) / math.Exp(lnsum/float64(count))
 				if ratio*alignRatio <= 1.0 || ratio >= alignRatio {
 					break
 				}
 			}
 			if count > 0 {
-				let hi = maxOf(widest, s)
-				let lo = minOf(narrowest, s)
+				let hi = cmp.Max(widest, s)
+				let lo = cmp.Min(narrowest, s)
 				if hi > alignSmall && float64(hi) >= alignRatio*float64(lo) {
 					break
 				}
@@ -167,15 +169,15 @@ func align(w *Widths, lines []Line, from int, to int, column int) {
 			} else {
 				narrowest = s
 			}
-			lnsum += logOf(float64(s))
+			lnsum += math.Log(float64(s))
 			count += 1
 			prev = s
-			widest = maxOf(widest, s)
+			widest = cmp.Max(widest, s)
 			j += 1
 		}
 		let mut width = 0
 		for k in i..j {
-			width = maxOf(width, utf8.RuneCount(lines[k].Cells[column]))
+			width = cmp.Max(width, utf8.RuneCount(lines[k].Cells[column]))
 		}
 		if width > 0 {
 			width += 1

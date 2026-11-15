@@ -315,6 +315,10 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			if len(f.Names) > 0 {
 				p.space()
 			}
+			if f.Pure {
+				p.token(f.PurePos, "pure")
+				p.space()
+			}
 			p.typ(f.Type)
 		}
 		if f.Where != nil {

@@ -92,6 +92,7 @@ type ExecResult struct {
 // once.
 //
 //ergo:host
+//ergo:wait caller
 func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
 	t.Check()
 	if name == "" {

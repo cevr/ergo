@@ -32,6 +32,7 @@ var hostStart = time.Now()
 // gives Mono.
 //
 //ergo:host
+//ergo:wait none
 func TimeHostNow() Reading {
 	n := time.Now()
 	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(hostStart))}
@@ -49,6 +50,8 @@ type Timeline struct {
 // NewTimeline is time.Manual's timeline: a manual clock (rt.NewManual)
 // that reads time.Unix(sec, nsec). t, the calling task, is the first
 // member of its domain, so Advance waits for the tasks below it (fua-b).
+//
+//ergo:wait member
 func NewTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 	start := time.Unix(sec, nsec).UTC()
 	return &Timeline{v: rt.NewManual(t, start), start: start}
@@ -58,12 +61,16 @@ func NewTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 // (rt.NewAuto) that reads time.Unix(sec, nsec). t, the calling task, is the
 // first member of its domain, so the time moves on its own when every task
 // of the domain waits; Advance still moves it by hand.
+//
+//ergo:wait member
 func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 	start := time.Unix(sec, nsec).UTC()
 	return &Timeline{v: rt.NewAuto(t, start), start: start}
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
+//
+//ergo:wait none
 func (l *Timeline) Read() Reading {
 	n := l.v.Now()
 	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
@@ -73,6 +80,8 @@ func (l *Timeline) Read() Reading {
 // the time Wait began. A d of zero or less returns at once. It is an
 // interruption point: a stop of t ends the wait with rt.Interrupted, and
 // the stopped sleeper's timer is removed, so it never wakes.
+//
+//ergo:wait caller
 func (l *Timeline) Wait(t *rt.Task, d time.Duration) {
 	if err := rt.Sleep(t, l.v, d); err != nil {
 		raise(err)
@@ -89,6 +98,8 @@ func (l *Timeline) Wait(t *rt.Task, d time.Duration) {
 // a time: a call while another task's Advance runs is a defect
 // (rt.AdvanceRunning; batch-13 round 2, B1). A stop of t raises
 // rt.Interrupted.
+//
+//ergo:wait settle
 func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	if d < 0 {
 		panic("time.Manual: Advance by a negative duration")
@@ -102,4 +113,6 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 }
 
 // Sleepers is the number of sleepers waiting.
+//
+//ergo:wait none
 func (l *Timeline) Sleepers() int { return l.v.Pending() }

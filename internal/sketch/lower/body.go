@@ -203,6 +203,8 @@ type funcCtx struct {
 	// path is the statement lists around the code being written, each
 	// with the inline growth its path has taken (growth.go).
 	path []*growthAcct
+	// bounds are the facts in force at the code being written (bounds.go).
+	bounds []*boundFact
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -313,6 +315,7 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		fc.let(s.Decl)
 	case *syntax.AssignStmt:
 		fc.assign(s)
+		fc.killAssigned(s) // bounds.go: the write ends the facts over its root
 	case *syntax.ReturnStmt:
 		fc.ret(s)
 		return true
@@ -397,6 +400,7 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 				name := fc.declare(v)
 				fc.line("var " + name + " " + goType + " = " + val)
 			}
+			fc.assumeLet(v, spec.Values[0]) // bounds.go
 		}
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])
@@ -833,6 +837,11 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 // of every iteration, inside the loop, so a condition with effects runs once
 // per test; a loop with no condition and no break is terminating.
 func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
+	// bounds.go: a write in the body ends, at the head, the facts over
+	// what it writes; the condition's facts hold in the body.
+	fc.killWritten(s.Body)
+	mark := fc.factMark()
+	defer fc.factReset(mark)
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
@@ -858,6 +867,9 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 		breaks = true
 	}
 	breaks = fc.containsBreak(s.Body) || breaks
+	if s.Cond != nil {
+		fc.assume(s.Cond)
+	}
 	fc.loopBody(s, loop, s.Body)
 	fc.line("}")
 	body := fc.out.String()
@@ -890,6 +902,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	if target := fc.reserveTarget(s, l.Domain); target != "" {
 		fc.reserve(target, x) // reserve.go
 	}
+	fc.killWritten(s.Body) // bounds.go, as forStmt
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out

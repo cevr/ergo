@@ -111,6 +111,43 @@ func TestStdRunesMatchGo(t *testing.T) {
 		same("Sqrt", MathSqrt(f), math.Sqrt(f))
 		same("Pow", MathPow(f, g), math.Pow(f, g))
 		same("Mod", MathMod(f, g), math.Mod(f, g))
+		same("Log", MathLog(f), math.Log(f))
+		same("Exp", MathExp(f), math.Exp(f))
+		same("Max", CmpMax(f, g), max(f, g))
+		same("Min", CmpMin(f, g), min(f, g))
+		cut := runeText(r)
+		if got, want := StringsTrimLeft(s, cut), strings.TrimLeft(s, cut); got != want {
+			t.Fatalf("case %d: TrimLeft(%q, %q) = %q; Go %q", i, s, cut, got, want)
+		}
+		if got, want := StringsTrimRight(s, cut), strings.TrimRight(s, cut); got != want {
+			t.Fatalf("case %d: TrimRight(%q, %q) = %q; Go %q", i, s, cut, got, want)
+		}
+		var gb strings.Builder
+		var eb []byte
+		for _, part := range []string{s, cut, repl} {
+			if n := r.IntN(8); n%2 == 0 {
+				gb.Grow(n)
+				eb = StringsBuilderGrow(eb, n)
+				if cap(eb)-len(eb) < n {
+					t.Fatalf("case %d: Grow(%d) left room %d", i, n, cap(eb)-len(eb))
+				}
+			}
+			gb.WriteString(part)
+			eb = StringsBuilderAppend(eb, part)
+			c := byte(r.IntN(256))
+			gb.WriteByte(c)
+			eb = StringsBuilderAppendByte(eb, c)
+		}
+		if StringsBuilderText(eb) != gb.String() || len(eb) != gb.Len() {
+			t.Fatalf("case %d: Builder text %q (len %d); Go %q (len %d)", i, StringsBuilderText(eb), len(eb), gb.String(), gb.Len())
+		}
+		// The owned form shares the consumed buffer: the same text, and
+		// an append past its length (all a Builder writes) leaves it.
+		owned := StringsBuilderTextOwned(eb)
+		eb = StringsBuilderAppend(eb, repl)
+		if owned != gb.String() {
+			t.Fatalf("case %d: owned Builder text %q; Go %q", i, owned, gb.String())
+		}
 		sign := r.IntN(3) - 1
 		if MathIsNaN(f) != math.IsNaN(f) || MathIsInf(f, sign) != math.IsInf(f, sign) || MathInf(sign) != math.Inf(sign) || !math.IsNaN(MathNaN()) {
 			t.Fatalf("case %d: IsNaN, IsInf or Inf of %v, %d", i, f, sign)

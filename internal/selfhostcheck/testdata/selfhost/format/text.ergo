@@ -1,11 +1,5 @@
 import strings
 
-// maxOf is the larger of a and b: Ergo has no predeclared max (gaps.md).
-func maxOf(a int, b int) int { if a > b { a } else { b } }
-
-// minOf is the smaller of a and b.
-func minOf(a int, b int) int { if a < b { a } else { b } }
-
 // hasAt reports whether s holds text at byte offset i.
 func hasAt(s string, i int, text string) bool {
 	i >= 0 && i <= len(s) && len(text) <= len(s)-i && strings.Slice(s, i, i+len(text)) == text
@@ -19,25 +13,6 @@ func indexNewline(s string) int {
 		}
 	}
 	-1
-}
-
-// trimRightOf drops the bytes of cutset from the end of s, as Go's
-// strings.TrimRight does for an ASCII cutset.
-func trimRightOf(s string, cutset string) string {
-	let mut n = len(s)
-	for n > 0 && byteIn(s[n-1], cutset) {
-		n -= 1
-	}
-	strings.Slice(s, 0, n)
-}
-
-func byteIn(c byte, set string) bool {
-	for i in 0..len(set) {
-		if set[i] == c {
-			return true
-		}
-	}
-	false
 }
 
 // isWordByte reports a byte that may continue a name or a number.

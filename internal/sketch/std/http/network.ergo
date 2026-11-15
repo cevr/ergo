@@ -5,8 +5,8 @@
 import fs
 type OriginPolicy = AnyOrigin{} | Origins{Values []string}
 type RedirectPolicy = NoRedirects{} | Follow{MaxHops int}
-type OriginRefused { Origin string }
-type RedirectLimit { URL string, Limit int }
+extern go ergo.local/prototype/runtime/v1.HTTPOriginRefused type OriginRefused { Origin string }
+extern go ergo.local/prototype/runtime/v1.HTTPRedirectLimit type RedirectLimit { URL string, Limit int }
 
 // Credential is a header bound to one origin. Only ForOrigin builds it.
 type Credential { origin string, field Field }
@@ -68,7 +68,7 @@ func FetchFile(root fs.HostRoot, path string, r URLRequest) Response fails Reque
 // BodyFile is the new file of one IntoFile: only IntoFile makes one, and
 // it is valid only while the fetch it was given to runs.
 // law-exempt: only IntoFile makes one; TestHTTPFetchIntoMatchesModel and TestHTTPFetchIntoStops hold its file.
-type BodyFile { Put(part string) fails SinkFailed, partOnly() }
+extern go ergo.local/prototype/runtime/v1.BodyFile type BodyFile { Put(part string) fails SinkFailed, partOnly() }
 
 // IntoFile runs fetch with the new file of path below root, which stays
 // the caller's, and puts it in place of path when fetch succeeds. The new

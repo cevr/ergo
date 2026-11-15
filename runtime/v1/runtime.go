@@ -53,6 +53,9 @@ func (Console) Println(line string) {
 // duration)`. The hidden task is the task running the call. The primitive
 // observes its stop before and during the wait, and respects its mask.
 // Interruption follows the same exit path as Wait and queue operations.
+//
+//ergo:wait caller
+//ergo:bridge ergo.local/prototype/runtime/rt.Sleep LiveScheduler
 func Sleep(t *rt.Task, d time.Duration) {
 	if err := rt.Sleep(t, rt.Live{}, d); err != nil {
 		raise(err)

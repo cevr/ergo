@@ -1,0 +1,50 @@
+// Builder builds a text by appending to one buffer, as Go's
+// strings.Builder does: a loop of writes allocates what Go's does, where
+// a loop of + copies the text each time. Go's Builder panics when a copy
+// of it is written after a write; a Builder here is a value, so a copy is
+// its own builder and a write to one never reaches the other (types.md,
+// Bindings 1). Build one with NewBuilder; Builder is the program's value,
+// so it has no zero value outside this package.
+type Builder { buf []byte }
+
+// NewBuilder is an empty Builder.
+func NewBuilder() Builder { Builder{buf: []byte{}} }
+
+// WriteString adds s at the end of b, as Go's Builder.WriteString.
+func WriteString(b *Builder, s string) { b.buf = builderAppend(b.buf, s) }
+
+// WriteByte adds c at the end of b, as Go's Builder.WriteByte.
+func WriteByte(b *Builder, c byte) { b.buf = builderAppendByte(b.buf, c) }
+
+// Grow makes room for n more bytes in b, so that the next n bytes written
+// allocate nothing, as Go's Builder.Grow; a negative n is a defect, as Go
+// panics.
+func Grow(b *Builder, n int) { b.buf = builderGrow(b.buf, n) }
+
+// Len is the number of bytes written to b.
+func Len(b Builder) int { len(b.buf) }
+
+// String is the text written to b.
+func String(b Builder) string { builderText(b.buf) }
+
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppend func builderAppend(buf []byte, s string) []byte
+
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendByte func builderAppendByte(buf []byte, c byte) []byte
+
+extern go ergo.local/prototype/runtime/v1.StringsBuilderGrow func builderGrow(buf []byte, n int) []byte
+
+extern go ergo.local/prototype/runtime/v1.StringsBuilderText func builderText(buf []byte) string
+
+// BuilderConcatenates: a Builder's text is its writes joined in order,
+// Len is that text's length, and a copy taken after a write is its own
+// builder: a write to the copy leaves the original as it was.
+law BuilderConcatenates(a string, c byte, d string) {
+	let mut b = NewBuilder()
+	b.WriteString(a)
+	b.Grow(len(d))
+	b.WriteByte(c)
+	let mut copy = b
+	copy.WriteString(d)
+	let want = a + builderText([]byte{c})
+	b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d)
+}

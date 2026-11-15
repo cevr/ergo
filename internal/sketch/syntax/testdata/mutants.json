@@ -1,6 +1,8 @@
 {
   "about": "The mutant ledger of internal/sketch/syntax: edits of the parser's derived forms that the package's tests must kill. Run it with go run ./scripts/mutants ./internal/sketch/syntax; a unit that cannot afford the coverage pass applies each edit by hand and runs the killer. Seeded by wf10 batch-15 fix-r2 (L11b M1).",
   "mutants": [
+    {"name":"pure-clause-not-parsed","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/syntax/parser.go","from":"\tif p.tok.tok != IDENT || p.tok.lit != \"pure\" {","to":"\tif true || p.tok.tok != IDENT || p.tok.lit != \"pure\" {","rule":"grammar.md Declarations 15: pure between a parameter's name and its type is the clause.","killers":["internal/sketch/syntax:TestDecidedFixtures"]},
+    {"name":"pure-clause-not-printed","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/format/nodes.go","from":"\t\t\tif f.Pure {\n\t\t\t\tp.token(f.PurePos, \"pure\")","to":"\t\t\tif false {\n\t\t\t\tp.token(f.PurePos, \"pure\")","rule":"The formatter keeps a parameter's pure clause, so formatting keeps the tree.","killers":["internal/sketch/format:TestFormatIdempotent"]},
     {"name":"builtin-target-any-name","origin":"wf10 OPT4b","file":"internal/sketch/syntax/parser.go","from":"if (path == \"\" && !goBuiltin[name]) || !isIdentifier(name) {","to":"if !isIdentifier(name) {","rule":"An extern target with no import path names a Go builtin.","killers":["check:TestBuiltinBindingShapes"]},
     {
       "name": "l11b-s1",

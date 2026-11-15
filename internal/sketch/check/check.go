@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,25 @@ import (
 // Importer resolves an import path to a checked package (Go types2's seam).
 type Importer interface {
 	Import(path string) (*Package, error)
+}
+
+// GoTrust is an Importer that names the module of the package it checks and
+// whether the root module vouches for that module's Go (ergo.mod `trust`;
+// docs/spec/interop.md, Trusted Go). The checker reads it from the
+// importer a caller passes, never from the default std importer, so a
+// package with no module is trusted by no one.
+type GoTrust interface {
+	TrustsGo() (module string, trusted bool)
+}
+
+// GoSource is an Importer that reads the Go source of the module's own Go
+// packages: GoPackage returns the files of the package at the Go import
+// path path, and whether path is a package of the module's own (go.mod
+// beside ergo.mod). An extern of a trusted package binds a body there
+// under the hidden-argument convention (moduleDoor; docs/spec/interop.md,
+// Trusted Go 3). The checker parses the files and runs no Go tool.
+type GoSource interface {
+	GoPackage(path string) (fs.FS, bool)
 }
 
 // Diagnostic is a located checker diagnostic. Offset and Length are a UTF-8
@@ -45,6 +65,21 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return CheckTest(path, files, imp, nil)
+}
+
+// CheckTest is Check for a package whose loader gives it the role of under's
+// test package (builders.go, rule 2; nil for none): its New<X> functions
+// may build under's operation types. The role comes from the loader, which
+// knows the package's import path whether it is the program's root
+// (checked as main) or an import (TestedPath), so a package checks the
+// same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
+	var module string
+	var trusted bool
+	if g, ok := imp.(GoTrust); ok {
+		module, trusted = g.TrustsGo()
+	}
 	if imp == nil {
 		imp = Std
 	}
@@ -58,6 +93,8 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
+	c.pkg.module, c.pkg.trusted = module, trusted
+	c.pkg.testOf = under
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -149,9 +186,9 @@ type checker struct {
 	// workSends holds the declaring identifier of each Listen work's send
 	// parameter (workLit): the one value actor.Child accepts (childRule).
 	workSends map[*syntax.Ident]bool
-	// durableCalls are the calls of a durable runner (durable.go), which
-	// checkDurableSteps judges once the footprints are known.
-	durableCalls []durableCall
+	// pureArgs are the arguments of pure parameters (durable.go), which
+	// checkPureArgs judges once the footprints are known.
+	pureArgs []pureArg
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -218,6 +255,12 @@ type checker struct {
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// capture, when not nil, lets the next assignability admit a provider
+	// whose operations need go.Foreign beyond the operation type's row, and
+	// records that it did: the site that builds the provider is charged
+	// go.Foreign (captureForeign; README Gap 17). assignability takes it
+	// and clears it, so no nested check inherits it.
+	capture *bool
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
@@ -714,6 +757,7 @@ func prelude() preludeResult {
 		}
 		c := newChecker(std.PreludePath, nil, u)
 		c.pkg.std = true
+		c.pkg.trusted = true // the toolchain vouches for what it ships
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -868,6 +912,8 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true // the toolchain vouches for what it ships
+	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
@@ -878,15 +924,34 @@ func (s *stdImporter) load(path string) (*Package, error) {
 
 // StdFixture checks files as the std package at path, as Std checks an
 // embedded one, with Std for its imports: the package is std, so its
-// externs may bind runtime/v1 and its records follow the std binding table.
+// externs may bind runtime/v1 and its types may name runtime/v1 Go types.
 // It serves tests of std bindings that need a std package the embedded
 // library does not have (lower's TestStdRecordsKeyedByPackage). The
 // compiler never calls it, and no Ergo source can reach it.
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true
+	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
+}
+
+// testOf is the std package whose test package is at path (fstest's fs),
+// or nil (TestedPath).
+func (s *stdImporter) testOf(path string) *Package {
+	base, ok := TestedPath(path)
+	if !ok {
+		return nil
+	}
+	if _, isStd := std.Package(base); !isStd {
+		return nil
+	}
+	under, err := s.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 func sortedKeys[V any](m map[string]V) []string {
