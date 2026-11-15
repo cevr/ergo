@@ -62,7 +62,7 @@ law SearchGoesToItsAddress(from int, text string) {
 	match Step(a, Submit) {
 	case Emit[App, Go] as e:
 		e.Next == a && route.Parse(e.Output.Path) == route.People{Search: search}
-	case Enter[App], Stay[App], Ignore, Reject, Done[Go]:
+	case Enter[App], Stay[App], Tell[App, Go], Ignore, Reject, Done[Go]:
 		false
 	}
 }

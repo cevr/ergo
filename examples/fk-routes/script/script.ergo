@@ -137,7 +137,7 @@ func ask(p Program, history memory.History, sig app.Signal) {
 	match d {
 	case Emit[app.App, app.Go] as e:
 		navigate(p, history, e.Output.Path)
-	case Enter[app.App], Stay[app.App], Ignore, Reject, Done[app.Go]:
+	case Enter[app.App], Stay[app.App], Tell[app.App, app.Go], Ignore, Reject, Done[app.Go]:
 	}
 }
 

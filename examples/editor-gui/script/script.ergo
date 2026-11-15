@@ -182,7 +182,7 @@ func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Stor
 			ui.Clipboard.Write(c.Text)
 			m.Next
 		}
-	case Ignore, Reject, Done[edit.Output]:
+	case Ignore, Tell[edit.State, edit.Output], Reject, Done[edit.Output]:
 		s
 	}
 }

@@ -6,7 +6,7 @@ import fs
 import twig/script
 
 // Disk reads the files of a file system.
-type Disk { files fs.Files }
+type Disk { files fs.Files } implements script.Sources
 
 // New is the provider over files.
 func New(files fs.Files) Disk { Disk{files: files} }

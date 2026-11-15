@@ -104,7 +104,7 @@ func quoted(src string, from int, at Pos) (string, int) fails LexError {
 				return LexError{At: at, Msg: b.Why}
 			case Char:
 			}
-		case Stay[Quote], Ignore, Reject:
+		case Stay[Quote], Tell[Quote, Piece], Ignore, Reject:
 		}
 	}
 	LexError{At: at, Msg: "a string has no closing quote"}

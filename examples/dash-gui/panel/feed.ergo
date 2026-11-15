@@ -206,7 +206,7 @@ func After(s State, e Event) State {
 		t.Next
 	case Emit[State, Note] as m:
 		m.Next
-	case Ignore, Reject, Done[Note]:
+	case Ignore, Tell[State, Note], Reject, Done[Note]:
 		s
 	}
 }

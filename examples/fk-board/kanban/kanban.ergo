@@ -73,7 +73,7 @@ func dragged(b Board, sig drag.Signal) Decision[Board, []Command] {
 	match dec {
 	case Ignore, Reject, Done[[]drag.Effect]:
 		return Ignore
-	case Emit[drag.Drag, []drag.Effect], Enter[drag.Drag], Stay[drag.Drag]:
+	case Emit[drag.Drag, []drag.Effect], Tell[drag.Drag, []drag.Effect], Enter[drag.Drag], Stay[drag.Drag]:
 	}
 	let next = drag.After(b.Drag, dec)
 	let mut at = Board{..b, Drag: next, Said: announce(b, next.State)}
@@ -156,7 +156,7 @@ func Commands(d Decision[Board, []Command]) []Command {
 	match d {
 	case Emit[Board, []Command] as e:
 		e.Output
-	case Enter[Board], Stay[Board], Ignore, Reject, Done[[]Command]:
+	case Enter[Board], Stay[Board], Tell[Board, []Command], Ignore, Reject, Done[[]Command]:
 		[]Command{}
 	}
 }
@@ -170,7 +170,7 @@ func After(b Board, d Decision[Board, []Command]) Board {
 		e.Next
 	case Stay[Board] as s:
 		s.Next
-	case Ignore, Reject, Done[[]Command]:
+	case Ignore, Tell[Board, []Command], Reject, Done[[]Command]:
 		b
 	}
 }

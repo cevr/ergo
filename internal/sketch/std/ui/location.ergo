@@ -96,7 +96,7 @@ type history { entries []URL, at int }
 
 // MemoryHistory is a Location in memory, the desktop host's and a test's:
 // its copies share one history.
-type MemoryHistory { state sync.Ref[history] }
+type MemoryHistory { state sync.Ref[history] } implements Location
 
 // NewMemoryHistory is a history of one entry, at start.
 func NewMemoryHistory(start URL) MemoryHistory { MemoryHistory{state: sync.NewRef(history{entries: []URL{start}, at: 0})} }

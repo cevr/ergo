@@ -118,7 +118,7 @@ type Numeral machine[Part, Class] {
 			match NumberStep(Zero, ClassOf(c)) {
 			case Done[Verdict] as d:
 				d.Output == Ended
-			case Enter[Part], Stay[Part], Emit[Part, Verdict], Ignore, Reject:
+			case Enter[Part], Stay[Part], Emit[Part, Verdict], Tell[Part, Verdict], Ignore, Reject:
 				false
 			}
 		case Dash, Plus, Dot, Exponent, Other:
@@ -148,7 +148,7 @@ func Scan(text string) (int, Option[string]) {
 			case Broken as b:
 				return (i, Some{Value: b.Why})
 			}
-		case Emit[Part, Verdict], Ignore, Reject:
+		case Emit[Part, Verdict], Tell[Part, Verdict], Ignore, Reject:
 			return (i, Some{Value: "a number the grammar cannot read"})
 		}
 	}

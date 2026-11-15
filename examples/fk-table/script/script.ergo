@@ -70,7 +70,7 @@ func Run() int needs Console | io.Stdin {
 		case Emit[query.Route, table.Replace] as e:
 			address = e.Output.Path
 			r = machines.Next(r, table.Step(r, table.Navigated{Path: address}))
-		case Enter[query.Route], Stay[query.Route], Ignore, Reject, Done[table.Replace]:
+		case Enter[query.Route], Stay[query.Route], Tell[query.Route, table.Replace], Ignore, Reject, Done[table.Replace]:
 		}
 		shown = show(shown, view(address, r))
 	}

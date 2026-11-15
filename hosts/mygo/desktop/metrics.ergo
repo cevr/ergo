@@ -15,7 +15,7 @@ import ui/layout
 
 // Metrics is what the window's text engine said: run widths and line
 // heights by font size.
-type Metrics { runs Map[run, float32], lines Map[float32, float32] }
+type Metrics { runs Map[run, float32], lines Map[float32, float32] } implements layout.Measure
 
 // run is a text set on one line at a size.
 type run { text string, size float32 }

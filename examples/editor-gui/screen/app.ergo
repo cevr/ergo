@@ -54,7 +54,7 @@ func Step(w Window, e Signal) Decision[Window, Note] {
 			case edit.Copied as c:
 				Stay[Window]{Next: Window{..w, Ed: x.Next, Clipping: Some{Value: Put{Text: c.Text}}, Clips: w.Clips + 1}}
 			}
-		case Ignore:
+		case Ignore, Tell[edit.State, edit.Output]:
 			Ignore
 		case Reject, Done[edit.Output]:
 			Reject
@@ -92,7 +92,7 @@ func After(w Window, e Signal) Window {
 		x.Next
 	case Emit[Window, Note] as x:
 		x.Next
-	case Ignore, Reject, Done[Note]:
+	case Ignore, Tell[Window, Note], Reject, Done[Note]:
 		w
 	}
 }

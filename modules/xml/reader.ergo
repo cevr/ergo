@@ -13,7 +13,7 @@ import strings
 // cell (types.md, Interface assignability 6), and lends the cell to
 // decode[T] as its Reader, so each read writes the place in the cell, as
 // std json's runtime reader writes its own.
-type reader { text string, c cursor, a attrs }
+type reader { text string, c cursor, a attrs } implements Cursor
 
 // Cursor is a reader of a checked document: the prelude's Reader,
 // sealed here (seal), so its one provider, reader, is a cell that

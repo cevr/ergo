@@ -4,7 +4,7 @@
 import ergo.local/prototype/examples/starsgui/catalog
 
 // Texts holds the catalogues by name.
-type Texts { Catalogues Map[string, string] }
+type Texts { Catalogues Map[string, string] } implements catalog.Shelf
 
 // Text is the catalogue named name.
 func Text(t Texts, name string) string fails catalog.Unreadable {

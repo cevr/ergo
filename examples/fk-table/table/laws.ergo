@@ -71,7 +71,7 @@ law UrlIsAFunctionOfTheControls(q query.Query, lost bool, sig Signal) {
 	match Step(r, sig) {
 	case Emit[query.Route, Replace] as e:
 		e.Next == r && query.Decode(e.Output.Path) == query.Browse{Query: want}
-	case Enter[query.Route], Stay[query.Route], Ignore, Reject, Done[Replace]:
+	case Enter[query.Route], Stay[query.Route], Tell[query.Route, Replace], Ignore, Reject, Done[Replace]:
 		false
 	}
 }

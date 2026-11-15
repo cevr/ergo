@@ -42,12 +42,20 @@
       "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
     },
     {
-      "name": "fk3-no-work", "origin": "wf10/fk3a",
+      "name": "fk3-no-work",
+      "origin": "wf10/fk3a",
       "file": "examples/fk-weather/weather/lookup.ergo",
-      "from": "\tcase Loading as q:\n\t\tSome{machines.Work{Run: func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, OnSuccess: func(r Report) Signal { Got{Report: r} }}}\n\tcase Blank, Ready, Failed:\n",
+      "from": "\tcase Loading as q:\n\t\tSome{machines.Attempt(func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, func(r Report) Signal { Got{Report: r} }, func(failure) {\n\t\t\tlet failed Signal = failure\n\t\t\tfailed\n\t\t})}\n\tcase Blank, Ready, Failed:\n",
       "to": "\tcase Loading, Blank, Ready, Failed:\n",
       "rule": "Loading's entry owns the fetch: with no work, no answer ever comes (the cases' script waits for it).",
-      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+      "anchor": {
+        "tests": [
+          "examples:fk-weather"
+        ]
+      },
+      "killers": [
+        "examples:fk-weather"
+      ]
     },
     {
       "name": "fk3-memory-notfound-zip", "origin": "wf10/fk3a",

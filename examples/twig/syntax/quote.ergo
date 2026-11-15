@@ -102,7 +102,7 @@ type Quoting machine[Quote, Mark] {
 			match QuoteStep(Body, MarkOf(c)) {
 			case Emit[Quote, Piece] as e:
 				e.Output == Char{C: c} && e.Next == Body
-			case Enter[Quote], Stay[Quote], Ignore, Reject, Done[Piece]:
+			case Enter[Quote], Stay[Quote], Tell[Quote, Piece], Ignore, Reject, Done[Piece]:
 				false
 			}
 		case Close, Backslash, Newline:

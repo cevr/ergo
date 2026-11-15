@@ -66,12 +66,20 @@
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     },
     {
-      "name": "fk5-no-join", "origin": "wf10/fk5a",
+      "name": "fk5-no-join",
+      "origin": "wf10/fk5a",
       "file": "examples/fk-form/subscribe/form.ergo",
-      "from": "\t\tSome{machines.Work{Run: func() Signal fails JoinFailed needs Subscribers {\n\t\t\ttry Subscribers.Join(s)\n\t\t\tJoined\n\t\t}}}\n",
+      "from": "\t\tSome{machines.Attempt(func() Signal fails JoinFailed needs Subscribers {\n\t\t\ttry Subscribers.Join(s)\n\t\t\tJoined\n\t\t}, func(joined Signal) Signal { joined }, func(failure) {\n\t\t\tlet failed Signal = failure\n\t\t\tfailed\n\t\t})}\n",
       "to": "\t\tlet _ = s\n\t\tNone\n",
       "rule": "A Sending form's entry owns the submit: with no work, no answer ever comes (the cases' script waits for it).",
-      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+      "anchor": {
+        "tests": [
+          "examples:fk-form"
+        ]
+      },
+      "killers": [
+        "examples:fk-form"
+      ]
     },
     {
       "name": "fk5-refused-as-sent", "origin": "wf10/fk5a",

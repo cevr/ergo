@@ -283,7 +283,7 @@ func touch(b *builder, parent int, seg Seg, u Use, shown string) int fails Dupli
 		case Conflict as c:
 			return Clash{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown, Why: c.Why}
 		}
-	case Emit[Shape, Refusal], Ignore, Reject:
+	case Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
 		Unreachable("the machine Definition neither emits, ignores nor rejects")
 	}
 	match u {

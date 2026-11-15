@@ -161,7 +161,7 @@ func step(s canvas.State, sig canvas.Signal) canvas.State needs io.Stdout {
 			io.Stdout.Println("removed " + strings.Join(ids, ","))
 		}
 		m.Next
-	case Ignore, Reject, Done[canvas.Output]:
+	case Ignore, Tell[canvas.State, canvas.Output], Reject, Done[canvas.Output]:
 		s
 	}
 }

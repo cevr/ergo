@@ -90,12 +90,20 @@
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
-      "name": "px1-offline-passes", "origin": "wf10/domain PX1",
+      "name": "px1-offline-passes",
+      "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "func(u Offline) Signal { Ran{OK: false} })",
-      "to": "func(u Offline) Signal { Ran{OK: true} })",
+      "from": "func(_) { Ran{OK: false} })",
+      "to": "func(_) { Ran{OK: true} })",
       "rule": "An offline runner is a failed try: SceneAgreesWithStory.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+      "anchor": {
+        "tests": [
+          "examples:pipeline"
+        ]
+      },
+      "killers": [
+        "examples:pipeline"
+      ]
     },
     {
       "name": "px1-desk-last-first", "origin": "wf10/domain PX1",

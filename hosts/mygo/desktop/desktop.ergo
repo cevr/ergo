@@ -331,7 +331,7 @@ func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails ac
 func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	match s.node {
 	case ui.AreaNode:
-		try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y)}})
+		try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
 	case _:
 	}
 }
