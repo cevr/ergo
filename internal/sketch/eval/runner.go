@@ -56,6 +56,7 @@ const (
 	decIgnore
 	decReject
 	decDone
+	decTell // a Stay that gives an output
 )
 
 type envelope struct {
@@ -428,14 +429,22 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 	}
 	k := kv.(int64)
 	// The step's hosts (rule 15): an Enter's and an Emit's are bound when
-	// the entry opens, a Stay's to the current entry; the others close.
+	// the entry opens, a Stay's and a Tell's to the current entry; the
+	// others close.
 	switch k {
-	case decStay:
+	case decStay, decTell:
 		a.bindNewHosts()
 	case decIgnore, decReject, decDone:
 		a.closeHosts(&a.newHosts)
 	}
-	if k == decStay {
+	if k == decStay || k == decTell {
+		// A Tell keeps the entry, its timer and its work, as a Stay does
+		// (rule 4); its output goes first (rule 17).
+		if k == decTell {
+			if _, ab := a.call(in, fr, a.out, d); ab != nil {
+				return s, true, ab
+			}
+		}
 		ns, ab := a.call(in, fr, a.next, s, d)
 		if ab != nil {
 			return s, true, ab
