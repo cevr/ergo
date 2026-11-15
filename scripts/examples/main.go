@@ -13,6 +13,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -918,10 +919,15 @@ func (r *runner) finish() int {
 // (keyed) and no check stores a verdict the native test leg would print
 // cached.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
+	return r.toolWith(nil, timeout, args...)
+}
+
+// toolWith is tool with the variables extra added to its environment.
+func (r *runner) toolWith(extra []string, timeout time.Duration, args ...string) (outcome, error) {
 	if o, ok := r.keyed[keyedCall(args)]; ok {
 		return o, nil
 	}
-	env := r.toolEnv
+	env := append(slices.Clip(r.toolEnv), extra...)
 	// test --emitted --json checks each package too (GS31b).
 	if len(args) > 0 && (args[0] == "check" || args[0] == "test" && slices.Contains(args, "--json")) {
 		env = append(slices.Clip(env), lawCacheOff)
@@ -945,12 +951,30 @@ const emissionCacheVariable = "ERGO_CACHE"
 // of the run's scratch, whatever the caller set: the runner is a check, and
 // its programs would fill the user's cache (docs/tooling.md, Emission cache
 // bound). The folder goes with the scratch when the run ends.
+//
+// It drops the caller's ERGO_BUILD and ERGO_STAGE_REPORT. ERGO_BUILD=full
+// turns ergo's warm answer off, and `ergo test DIR/...` then links one
+// shared test module (TEST-one) where the key hashed each package's own
+// module (legKey); the runner names its own stage report (testModule)
+// (gate-speed GS32a′).
 func toolEnvironment(environ []string, scratch string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(entry string) bool {
-		return strings.HasPrefix(entry, emissionCacheVariable+"=")
+		name, _, _ := strings.Cut(entry, "=")
+		return name == emissionCacheVariable || name == warmVariable || name == stageReportVariable
 	})
 	return append(env, emissionCacheVariable+"="+filepath.Join(scratch, "cache"))
 }
+
+// warmVariable is sketchfront.WarmVariable, and stageReportVariable
+// sketchfront.StageReportVariable.
+const (
+	warmVariable        = "ERGO_BUILD"
+	stageReportVariable = "ERGO_STAGE_REPORT"
+)
+
+// sharedTestModules is the stage report's count of the shared test modules
+// `ergo test DIR/...` linked (stage.SharedTestModules).
+const sharedTestModules = "shared_test_modules"
 
 // toolFailed prints the failure of a compiler leg (fmt, fix or build) and counts
 // it. Output over the cap is named, never printed.
@@ -1068,9 +1092,21 @@ func (r *runner) testModule(p *program) bool {
 	if err != nil {
 		return false
 	}
-	o, err := r.tool(r.cfg.timeout*time.Duration(len(p.tests)), "test", filepath.Join(p.dir, "..."))
+	pattern := filepath.Join(p.dir, "...")
+	report := filepath.Join(r.scratch, "stage-"+p.name+".json")
+	o, err := r.toolWith([]string{stageReportVariable + "=" + report}, r.cfg.timeout*time.Duration(len(p.tests)), "test", pattern)
 	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
 		return false
+	}
+	// The key hashed each package's own test module (legKey), so the run
+	// must have linked those: one that linked the shared module (TEST-one)
+	// ran Go the key does not hold, and the verdict is not kept (GS32a′).
+	if _, keyed := r.keyed[keyedCall([]string{"test", "--emitted", "--json", pattern})]; keyed {
+		if why := linkedPerPackage(report); why != "" {
+			fmt.Fprintf(r.out, "FAIL %s: test: %s; its key holds each package's own test module\n", p.name, why)
+			r.fail(p.name + ": test")
+			return true
+		}
 	}
 	sections, order := splitPackages(o.stdout)
 	var want, inside []string
@@ -1120,6 +1156,28 @@ func (r *runner) testModule(p *program) bool {
 		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.elapsed))
 	}
 	return true
+}
+
+// linkedPerPackage says why the stage report at path does not show a run
+// that linked each package's own test module, or "": it names no shared
+// test module. A report that cannot be read fails closed.
+func linkedPerPackage(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "ergo test wrote no stage report"
+	}
+	var counts map[string]int64
+	if err := json.Unmarshal(data, &counts); err != nil {
+		return "ergo test's stage report is not JSON"
+	}
+	n, ok := counts[sharedTestModules]
+	if !ok {
+		return "ergo test's stage report has no " + sharedTestModules
+	}
+	if n > 0 {
+		return fmt.Sprintf("ergo test linked %d shared test module", n)
+	}
+	return ""
 }
 
 // splitPackages splits the stdout of `ergo test DIR/...` at each `package

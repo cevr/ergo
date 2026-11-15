@@ -55,7 +55,8 @@ func TestPatternKeyCoversEveryTarget(t *testing.T) {
 // another test module, or fails the check, the rest alike, is not
 // replayed. It catches gs31b-key-calls-three, gs31b-check-not-keyed,
 // gs31b-build-digest-unkeyed, gs31b-test-digest-unkeyed and
-// gs31b-producer-keyed.
+// gs31b-producer-keyed, and that the test leg linked the modules the key
+// hashed: gs32a-path-ignored.
 //
 // It runs go list in the fixture module, the driver's listing.
 func TestPatternKeyIsOneCall(t *testing.T) {
@@ -82,11 +83,12 @@ func TestPatternKeyIsOneCall(t *testing.T) {
 	}
 	tools := filepath.Dir(f.ergo)
 	for name, env := range map[string]string{
-		"a":     "FAKE_ERGO_PRODUCER=a",
-		"a2":    "FAKE_ERGO_PRODUCER=a2",
-		"build": "FAKE_ERGO_PRODUCER=a FAKE_ERGO_EMIT_BUILD=other",
-		"test":  "FAKE_ERGO_PRODUCER=a FAKE_ERGO_EMIT_TEST=other",
-		"check": "FAKE_ERGO_PRODUCER=a FAKE_ERGO_CHECKFAIL=1",
+		"a":      "FAKE_ERGO_PRODUCER=a",
+		"a2":     "FAKE_ERGO_PRODUCER=a2",
+		"build":  "FAKE_ERGO_PRODUCER=a FAKE_ERGO_EMIT_BUILD=other",
+		"test":   "FAKE_ERGO_PRODUCER=a FAKE_ERGO_EMIT_TEST=other",
+		"check":  "FAKE_ERGO_PRODUCER=a FAKE_ERGO_CHECKFAIL=1",
+		"shared": "FAKE_ERGO_PRODUCER=a FAKE_ERGO_EMIT_TEST=shared FAKE_ERGO_SHARED_TEST=1",
 	} {
 		installExecutable(t, filepath.Join(tools, "ergo-"+name), fmt.Sprintf("#!/bin/sh\nFAKE_ERGO_TOOLS=%s %s exec %s \"$@\"\n", tools, env, fake))
 	}
@@ -119,6 +121,22 @@ func TestPatternKeyIsOneCall(t *testing.T) {
 	run("build", "0 programs replayed, 1 run")
 	run("test", "0 programs replayed, 1 run")
 	run("check", "0 programs replayed, 1 run")
+	// A test leg that linked the shared test module ran Go the key does not
+	// hold: the program fails, and is not kept (GS32a′).
+	run("shared", "FAIL walker: test: ergo test linked 1 shared test module; its key holds each package's own test module")
+	run("shared", "0 programs replayed, 1 run")
+}
+
+// TestToolEnvironmentKeepsTheKeyedTestPath: no compiler call gets the
+// caller's ERGO_BUILD, whose "full" makes `ergo test DIR/...` link the
+// shared test module where the key hashed each package's own, nor the
+// caller's stage report (GS32a′). It catches gs32a-warm-variable-kept.
+func TestToolEnvironmentKeepsTheKeyedTestPath(t *testing.T) {
+	env := toolEnvironment([]string{"ERGO_BUILD=full", "ERGO_STAGE_REPORT=/nonexistent/r.json", "ERGO_CACHE=/nonexistent/c", "KEEP=1"}, "/nonexistent/scratch")
+	want := []string{"KEEP=1", "ERGO_CACHE=" + filepath.Join("/nonexistent/scratch", "cache")}
+	if !slices.Equal(env, want) {
+		t.Errorf("toolEnvironment = %q, want %q", env, want)
+	}
 }
 
 // TestPatternReachingAnotherPackageIsNotCached: a program of packages whose

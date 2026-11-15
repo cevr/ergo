@@ -51,6 +51,10 @@
 tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 [ -n "${FAKE_ERGO_ONE:-}" ] || { printf '%s\n' "$*" >> "$tools/calls.log"; printf '%s\n' "${ERGO_CACHE-unset}" >> "$tools/cache.log"; }
 [ -n "${FAKE_ERGO_ONE:-}" ] || { [ "$1" != check ] && [ "$3" != --json ]; } || printf '%s\n' "${ERGO_LAWCACHE-unset}" >> "$tools/lawcache.log"
+# ERGO_STAGE_REPORT, when set, names where the call writes its stage report:
+# shared_test_modules is FAKE_ERGO_SHARED_TEST, else 0 (a recursive test
+# that linked each package's own test module).
+[ -n "${FAKE_ERGO_ONE:-}" ] || [ -z "${ERGO_STAGE_REPORT:-}" ] || printf '{"shared_test_modules": %s}\n' "${FAKE_ERGO_SHARED_TEST:-0}" > "$ERGO_STAGE_REPORT"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
