@@ -145,9 +145,6 @@ type loader struct {
 	stale    map[string]string
 	// opts are the checker modes of every local package (clauses.go).
 	opts check.Options
-	// roots are the test roots of a shared load (CheckPackages): each a
-	// package of order read again and checked as its own program's main.
-	roots []*loadedPackage
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -586,7 +583,7 @@ func (l *loader) checkAll() {
 		if i == len(l.order)-1 {
 			path = "main" // the root package is the program's main package
 		}
-		pkg, ds := check.CheckOptions(path, files, l, l.opts)
+		pkg, ds := check.CheckTest(path, files, l, l.testOf(p), l.opts)
 		work.checks.Add(1)
 		p.pkg = pkg
 		for _, d := range ds {
@@ -602,6 +599,20 @@ func (l *loader) checkAll() {
 			p.broken = true
 		}
 	}
+}
+
+// testOf is the checked package p tests (check.TestedPath of p's import
+// path, read the same whether p is the root or an import), or nil.
+func (l *loader) testOf(p *loadedPackage) *check.Package {
+	base, ok := check.TestedPath(p.path)
+	if !ok {
+		return nil
+	}
+	under, err := l.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 // Import is the loader's check.Importer: std, then the checked local

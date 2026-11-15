@@ -13,22 +13,25 @@ import (
 	"testing"
 )
 
-// TestUnsafeBodiesListed holds the inventory of runtime/v1's unsafe bodies
-// (unsafe.txt; owner q112): every function of a non-test runtime/v1 file
-// that names package unsafe is listed, every listed function still names
-// it, and every line states its invariant and its review. A use outside a
-// function is named by its file and "-".
+// TestUnsafeBodiesListed holds the inventory of the repository's unsafe
+// uses (unsafe.txt; owner q112, audit 3 G8): every function of a non-test
+// Go file of any package in the checkout that names package unsafe is
+// listed, every listed function still names it, and every line states its
+// invariant and its review. A use outside a function is named by its file
+// and "-". The files are those the go command builds: a directory named
+// testdata, or one whose name starts with "_" or ".", holds no package.
 //
 // Mutants it alone catches (testdata/mutants.md): an unsafe body added
-// unlisted; a listing left after its body stops naming unsafe; a listing
-// with no review.
+// unlisted, in runtime/v1 or in any other package; a listing left after its
+// body stops naming unsafe; a listing with no review.
 func TestUnsafeBodiesListed(t *testing.T) {
 	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}
 	repo := strings.TrimSpace(string(root))
-	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z", "--", "runtime/v1/*.go")
+	// Tracked files and files added in the working tree and not yet tracked.
+	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.go")
 	ls.Dir = repo
 	list, err := ls.Output()
 	if err != nil {
@@ -36,22 +39,16 @@ func TestUnsafeBodiesListed(t *testing.T) {
 	}
 	var files []string
 	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
-		if name != "" && !strings.HasSuffix(name, "_test.go") && !strings.Contains(strings.TrimPrefix(name, "runtime/v1/"), "/") {
+		if name != "" && !strings.HasSuffix(name, "_test.go") && goPackageFile(name) && !slices.Contains(files, name) {
 			files = append(files, name)
-		}
-	}
-	// Files added in the working tree and not yet tracked count too.
-	if extra, err := filepath.Glob(filepath.Join(repo, "runtime", "v1", "*.go")); err == nil {
-		for _, p := range extra {
-			name := "runtime/v1/" + filepath.Base(p)
-			if !strings.HasSuffix(name, "_test.go") && !slices.Contains(files, name) {
-				files = append(files, name)
-			}
 		}
 	}
 	found := map[string]bool{}
 	for _, name := range files {
 		src, err := os.ReadFile(filepath.Join(repo, name))
+		if os.IsNotExist(err) {
+			continue // deleted in the working tree
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,6 +82,19 @@ func TestUnsafeBodiesListed(t *testing.T) {
 			t.Errorf("%s uses package unsafe and is not in internal/residue/testdata/unsafe.txt (owner q112: a reviewed body, its invariant and its review)", use)
 		}
 	}
+}
+
+// goPackageFile reports whether the slash path name is in a directory the go
+// command reads packages from: no element of its directory is testdata or
+// starts with "_" or ".".
+func goPackageFile(name string) bool {
+	parts := strings.Split(name, "/")
+	for _, dir := range parts[:len(parts)-1] {
+		if dir == "testdata" || strings.HasPrefix(dir, "_") || strings.HasPrefix(dir, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 // unsafeUses names each function of the Go file src (its method as

@@ -48,10 +48,20 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
-	return check(path, files, imp, Options{})
+	return check(path, files, imp, Options{}, nil)
 }
 
-func check(path string, files []*syntax.File, imp Importer, opts Options) (*Package, []Diagnostic) {
+// CheckTest is CheckOptions for a package whose loader gives it the role of
+// under's test package (builders.go, rule 2; nil for none): its New<X>
+// functions may build under's operation types. The role comes from the
+// loader, which knows the package's import path whether it is the
+// program's root (checked as main) or an import (TestedPath), so a package
+// checks the same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
+	return check(path, files, imp, opts, under)
+}
+
+func check(path string, files []*syntax.File, imp Importer, opts Options, under *Package) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -66,6 +76,7 @@ func check(path string, files []*syntax.File, imp Importer, opts Options) (*Pack
 	c := newChecker(path, imp, prelude().scope)
 	c.derive = derived
 	c.opts = opts
+	c.pkg.testOf = under
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -110,7 +121,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 
 type checker struct {
 	derive *derive.Package // the package's derive record (derive.go)
-	opts Options
+	opts   Options
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -883,6 +894,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
@@ -900,8 +912,26 @@ func (s *stdImporter) load(path string) (*Package, error) {
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
+}
+
+// testOf is the std package whose test package is at path (fstest's fs),
+// or nil (TestedPath).
+func (s *stdImporter) testOf(path string) *Package {
+	base, ok := TestedPath(path)
+	if !ok {
+		return nil
+	}
+	if _, isStd := std.Package(base); !isStd {
+		return nil
+	}
+	under, err := s.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 func sortedKeys[V any](m map[string]V) []string {

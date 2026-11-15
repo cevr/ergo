@@ -24,7 +24,7 @@ type Options struct {
 
 // CheckOptions checks like Check, in the modes opts selects.
 func CheckOptions(path string, files []*syntax.File, imp Importer, opts Options) (*Package, []Diagnostic) {
-	return check(path, files, imp, opts)
+	return check(path, files, imp, opts, nil)
 }
 
 // ClauseFix is the edit that writes one clause of a function's signature:

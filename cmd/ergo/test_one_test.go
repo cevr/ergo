@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -339,37 +338,5 @@ func TestModuleTestWorksOnce(t *testing.T) {
 		if links := sketchfront.WorkDone().Links - linked.Links; links != 1 {
 			t.Fatalf("seed %d: %d links of %d packages; want one", seed, links, len(dirs))
 		}
-	}
-}
-
-// TestModuleTestPackageChecksAsMain is the smallest repro of the one rule
-// that reads a root's path, found when TEST-one round 2 checked each
-// package once: the builder rule (check/builders.go, rule 2) gives
-// celltest, under its import path gen/celltest, the builders of gen/cell's
-// operation types, so its property over cell.Cell checks; checked alone,
-// as main, it has none and reports S108. A shared load that another
-// package's import made check celltest only under its path would pass
-// what `ergo test celltest` refuses; it must refuse the shared load, so
-// the packages are tested alone.
-func TestModuleTestPackageChecksAsMain(t *testing.T) {
-	root := physicalTempDir(t)
-	smokeWrite(t, root, "ergo.mod", "module gen\n")
-	smokeWrite(t, root, "cell/cell.ergo", "type Cell {\n\tGet() int,\n}\n")
-	smokeWrite(t, root, "celltest/mem.ergo", "import gen/cell\n\ntype Mem { v int }\n\nfunc Get(m Mem) int { m.v }\n\nfunc NewMem() Mem { Mem{v: 7} }\n\ntest Reads(c cell.Cell) { assert c.Get() == 7 }\n")
-	smokeWrite(t, root, "user/user.ergo", "import gen/celltest\n\nfunc Seven() int { celltest.Get(celltest.NewMem()) }\n\ntest S { assert Seven() == 7 }\n")
-	alone, err := sketchfront.CheckDir(filepath.Join(root, "celltest"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(alone.Diagnostics) == 0 {
-		t.Fatal("celltest checks alone; the repro no longer reaches the builder rule")
-	}
-	platform, err := platformOf("", false, os.Getenv("GOOS"), os.Getenv("GOARCH"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dirs := []string{filepath.Join(root, "cell"), filepath.Join(root, "celltest"), filepath.Join(root, "user")}
-	if _, err := sketchfront.CheckPackages(dirs, platform); !errors.Is(err, sketchfront.ErrNotShared) {
-		t.Fatalf("CheckPackages = %v; want ErrNotShared, as celltest alone does not check", err)
 	}
 }
