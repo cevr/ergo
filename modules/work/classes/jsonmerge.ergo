@@ -1,0 +1,359 @@
+import slices
+import strconv
+import strings
+
+// MergeJson merges two JSON (or JSONC) objects by key path (SEMWS WG2,
+// class json): member by member, and an object both sides hold member by
+// member again, so two branches that each add a dependency merge. A
+// member only one side changed, added or removed takes that side; two
+// equal changes are one; two different changes of one key are a conflict
+// named by its key path ("dependencies/react"). A list is one value, which
+// two different changes merge by lines when that is clean; a list whose
+// key path is in sets is a set of elements: each side's additions and
+// removals. The merge is written in ours' bytes: a member nothing changed
+// keeps its text, and a comment outside a changed value stays where it
+// is; a member theirs added goes after the member before it in theirs.
+func MergeJson(base string, ours string, theirs string, sets []string) Merged fails Unreadable {
+	if ours == base {
+		let _ = try Members(theirs, "theirs")
+		return Merged{Text: theirs, Conflicts: []string{}, Regenerate: false}
+	}
+	if theirs == base || ours == theirs {
+		let _ = try Members(ours, "ours")
+		return Merged{Text: ours, Conflicts: []string{}, Regenerate: false}
+	}
+	let (text, conflicts) = try mergeObject("", base, ours, theirs, sets)
+	Merged{Text: text, Conflicts: conflicts, Regenerate: false}
+}
+
+// keyPath is the key path of key in the object at path.
+func keyPath(path string, key string) string { if path == "" { key } else { path + "/" + key } }
+
+// isObjectText reports whether a raw JSON value is an object.
+func isObjectText(v Option[string]) bool {
+	match v {
+	case Some[string] as s:
+		strings.HasPrefix(s.Value, "{")
+	case None:
+		false
+	}
+}
+
+// isListText reports whether a raw JSON value is a list.
+func isListText(v Option[string]) bool {
+	match v {
+	case Some[string] as s:
+		strings.HasPrefix(s.Value, "[")
+	case None:
+		false
+	}
+}
+
+// mergeObject is the merge of three objects at path, in ours' bytes, and
+// the key paths that conflict.
+func mergeObject(path string, base string, ours string, theirs string, sets []string) (string, []string) fails Unreadable {
+	let b = try Members(base, "base")
+	let o = try Members(ours, "ours")
+	let t = try Members(theirs, "theirs")
+	let mut conflicts = []string{}
+	// What becomes of each member of ours: its value's new text (its own
+	// when unchanged), or gone.
+	let mut values = []Option[string]{}
+	for m in o {
+		let p = keyPath(path, m.Key)
+		let bv = member(b, m.Key)
+		let tv = member(t, m.Key)
+		let ov = Some[string]{Value: m.Raw}
+		if isObjectText(bv) && isObjectText(ov) && isObjectText(tv) {
+			let (raw, inner) = try mergeObject(p, textOf(bv), m.Raw, textOf(tv), sets)
+			conflicts = slices.Concat(conflicts, inner)
+			values = values.Append(Some[string]{Value: raw})
+			continue
+		}
+		if slices.Contains(sets, p) && isListText(bv) && isListText(ov) && isListText(tv) {
+			values = values.Append(Some[string]{Value: try mergeSet(textOf(bv), m.Raw, textOf(tv))})
+			continue
+		}
+		match Choose(bv, ov, tv, sameBare) {
+		case Take as k:
+			values = values.Append(k.Value)
+		case Clash:
+			let byLines = MergeText(textOf(bv), m.Raw, textOf(tv))
+			if isListText(bv) && isListText(tv) && byLines.Clashes == 0 {
+				values = values.Append(Some[string]{Value: Text(byLines)})
+			} else {
+				conflicts = conflicts.Append(p)
+				values = values.Append(if tv == None { ov } else { Some[string]{Value: Marked(m.Raw, textOf(tv))} })
+			}
+		}
+	}
+	// The members theirs added, each after the member before it in
+	// theirs that the merge keeps (at the start when there is none).
+	let mut added = Map[string, []string]{}
+	let mut first = []string{}
+	let mut after Option[string] = None
+	for m in t {
+		let at = slices.IndexFunc(o, func(x Entry) bool { x.Key == m.Key })
+		if at >= 0 {
+			if values[at] != None {
+				after = Some[string]{Value: m.Key}
+			}
+			continue
+		}
+		match Choose(member(b, m.Key), None, Some[string]{Value: m.Raw}, sameBare) {
+		case Take as k:
+			match k.Value {
+			case Some[string] as v:
+				let text = m.KeyRaw + ": " + v.Value
+				match after {
+				case Some[string] as a:
+					added[a.Value] = maps0(added, a.Value).Append(text)
+				case None:
+					first = first.Append(text)
+				}
+			case None:
+			}
+		case Clash:
+			conflicts = conflicts.Append(keyPath(path, m.Key))
+		}
+	}
+	(objectText(ours, o, values, added, first), conflicts)
+}
+
+// maps0 is the list of key in m, empty when absent.
+func maps0(m Map[string, []string], key string) []string {
+	match m.Get(key) {
+	case Some[[]string] as v:
+		v.Value
+	case None:
+		[]string{}
+	}
+}
+
+// objectText is ours with each member's new value, the members gone
+// taken out, and the added members put in, in ours' layout.
+func objectText(ours string, o []Entry, values []Option[string], added Map[string, []string], first []string) string {
+	let sep = memberSep(ours, o)
+	let mut spans = []Span{}
+	let mut kept = 0 - 1
+	for i, v in values {
+		if v != None {
+			kept = i
+		}
+	}
+	if len(o) == 0 {
+		if len(first) == 0 {
+			return ours
+		}
+		let open = space(ours, 0)
+		let close = strings.LastIndex(ours, "}")
+		return strings.Slice(ours, 0, open+1) + sep + strings.Join(first, "," + sep) + strings.Slice(sep, 0, len(sep)-2) + strings.Slice(ours, close, len(ours))
+	}
+	if len(first) > 0 {
+		let at = space(ours, 0) + 1
+		spans = spans.Append(Span{Raw: sep + strings.Join(first, "," + sep) + (if kept >= 0 { "," } else { "" }), Start: at, End: at})
+	}
+	for i, m in o {
+		match values[i] {
+		case Some[string] as v:
+			if v.Value != m.Raw {
+				spans = spans.Append(Span{Raw: v.Value, Start: m.Start, End: m.End})
+			}
+			let more = maps0(added, m.Key)
+			if len(more) > 0 {
+				spans = spans.Append(Span{Raw: "," + sep + strings.Join(more, "," + sep), Start: m.End, End: m.End})
+			}
+		case None:
+			if i < kept {
+				spans = spans.Append(Span{Raw: "", Start: lineStart(ours, m.KeyStart), End: afterComma(ours, m.End)})
+			}
+		}
+	}
+	if kept < len(o)-1 {
+		// The members after the last one kept go with the comma before them.
+		let start = if kept >= 0 { o[kept].End } else { o[kept+1].KeyStart }
+		spans = spans.Append(Span{Raw: "", Start: start, End: o[len(o)-1].End})
+	}
+	replaced(ours, spans)
+}
+
+// memberSep is what goes between two members of the object ours: a line
+// break and the first member's indent (", " on one line).
+func memberSep(ours string, o []Entry) string {
+	if len(o) == 0 {
+		return "\n  "
+	}
+	let start = lineStart(ours, o[0].KeyStart)
+	if start == o[0].KeyStart && start > 0 && ours[start-1] != '\n' {
+		return " "
+	}
+	"\n" + strings.Slice(ours, start, o[0].KeyStart)
+}
+
+// lineStart is the start of the line of i when only spaces or tabs come
+// before i on it, else i.
+func lineStart(s string, i int) int {
+	let mut at = i
+	for at > 0 && (s[at-1] == ' ' || s[at-1] == '\t') {
+		at = at - 1
+	}
+	if at == 0 || s[at-1] == '\n' { at } else { i }
+}
+
+// afterComma is the index after the comma that follows the value ending
+// at end, and after the rest of its line when only white space is left
+// on it.
+func afterComma(s string, end int) int {
+	let mut at = space(s, end)
+	if at < len(s) && s[at] == ',' {
+		at = at + 1
+	}
+	let mut rest = at
+	for rest < len(s) && (s[rest] == ' ' || s[rest] == '\t') {
+		rest = rest + 1
+	}
+	if rest < len(s) && s[rest] == '\n' { rest + 1 } else { at }
+}
+
+// mergeSet merges three lists as sets of elements (equal when equal
+// bare): ours' elements without those theirs removed, with those theirs
+// added after the element before them in theirs, in ours' layout.
+func mergeSet(base string, ours string, theirs string) string fails Unreadable {
+	let b = try Elements(base, "base")
+	let o = try Elements(ours, "ours")
+	let t = try Elements(theirs, "theirs")
+	let bare = func(xs []Span, x string) bool { slices.IndexFunc(xs, func(s Span) bool { Bare(s.Raw) == x }) >= 0 }
+	let mut out = []Row{}
+	for e in o {
+		let key = Bare(e.Raw)
+		if bare(b, key) && !bare(t, key) {
+			continue
+		}
+		out = out.Append(Row{Key: key, Raw: e.Raw})
+	}
+	let mut after Option[string] = None
+	for e in t {
+		let key = Bare(e.Raw)
+		if !bare(b, key) && rowNamed(out, key) == None {
+			out = rowInserted(out, after, Row{Key: key, Raw: e.Raw})
+		}
+		if rowNamed(out, key) != None {
+			after = Some[string]{Value: key}
+		}
+	}
+	if len(o) == 0 && len(out) > 0 {
+		let mut parts = []string{}
+		for r in out {
+			parts = parts.Append(r.Raw)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	listText(ours, o, out)
+}
+
+// manifest is units as a package manifest in JSONC: a comment, a name in
+// a layout of its own, the keys 0 to 2 at the top, 3 to 5 in an object
+// "deps", and "files", the set of "f<key>" for each key.
+func manifest(units Map[int, int]) string {
+	let mut top = []string{"\"name\":   \"app\""}
+	let mut deps = []string{}
+	let mut files = []string{}
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			let line = "\"k\(key)\": \(v.Value)"
+			if key < 3 {
+				top = top.Append(line)
+			} else {
+				deps = deps.Append("  " + line)
+			}
+			files = files.Append("\"f\(key)\"")
+		case None:
+		}
+	}
+	let inner = if len(deps) == 0 { "{}" } else { "{\n  " + strings.Join(deps, ",\n  ") + "\n  }" }
+	top = top.Append("\"deps\": " + inner)
+	top = top.Append("\"files\": [" + strings.Join(files, ", ") + "]")
+	"{\n  // a comment no merge touches\n  " + strings.Join(top, ",\n  ") + "\n}\n"
+}
+
+// Read is a manifest's units and files, or None when it does not read.
+type Read { Units Map[int, int], Files []string }
+
+func manifestRead(text string) Option[Read] {
+	let top = Members(text, "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let deps = Members(textOf(member(top, "deps")), "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let mut units = Map[int, int]{}
+	for m in slices.Concat(top, deps) {
+		if !strings.HasPrefix(m.Key, "k") {
+			continue
+		}
+		let key = strconv.Atoi(strings.TrimPrefix(m.Key, "k")) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		let value = strconv.Atoi(m.Raw) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		units[key] = value
+	}
+	let els = Elements(textOf(member(top, "files")), "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let mut files = []string{}
+	for e in els {
+		files = files.Append(e.Raw)
+	}
+	Some[Read]{Value: Read{Units: units, Files: files}}
+}
+
+// JsonIsTheReference: two edit scripts on a JSONC manifest (each a key
+// set or dropped, at the top or in a nested object, and its file added
+// to or taken from a set) merge by key path to the reference "apply both
+// scripts to the base": the clashes are the keys both changed apart,
+// named by key path; a clean merge has the reference's keys and the set
+// with both sides' additions and removals, and keeps the comment and the
+// bytes of the member no script touched.
+law JsonIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let want = reference(base, ours, theirs)
+	let got = Merge(Json{Sets: []string{"files"}}, manifest(base), manifest(ours), manifest(theirs)) catch {
+	case Unreadable:
+		return false
+	}
+	let mut clashes = []string{}
+	for key in want.Clashes {
+		clashes = clashes.Append(if key < 3 { "k\(key)" } else { "deps/k\(key)" })
+	}
+	if !sameStrings(got.Conflicts, clashes) {
+		return false
+	}
+	if len(clashes) > 0 {
+		return true
+	}
+	let mut files = []string{}
+	for key in 0..6 {
+		let inB = base.Get(key) != None
+		let inO = ours.Get(key) != None
+		let inT = theirs.Get(key) != None
+		if (inO && !(inB && !inT)) || (inT && !inB) {
+			files = files.Append("\"f\(key)\"")
+		}
+	}
+	match manifestRead(got.Text) {
+	case Some[Read] as r:
+		r.Value.Units == want.Units && sameStrings(r.Value.Files, files) && strings.Contains(got.Text, "// a comment no merge touches") && strings.Contains(got.Text, "\"name\":   \"app\"")
+	case None:
+		false
+	}
+}

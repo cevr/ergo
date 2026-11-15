@@ -15,11 +15,15 @@
 
 import strings
 
-// Class is how a file merges.
-type Class = Rows{} | Measured{} | Lines{} | Derived{}
+// Class is how a file merges. Json's Sets are the key paths whose list
+// merges as a set.
+type Class = Rows{} | Measured{} | Lines{} | Derived{} | Json{Sets []string}
+
+// ClassNames are the names ClassNamed knows.
+let ClassNames = []string{"rows", "measured", "lines", "derived", "json"}
 
 // ClassNamed is the class of a driver's name (rows, measured, lines,
-// derived).
+// derived, json).
 func ClassNamed(name string) Option[Class] {
 	match name {
 	case "rows":
@@ -30,6 +34,8 @@ func ClassNamed(name string) Option[Class] {
 		Some[Class]{Value: Lines}
 	case "derived":
 		Some[Class]{Value: Derived}
+	case "json":
+		Some[Class]{Value: Json{Sets: []string{}}}
 	case _:
 		None
 	}
@@ -42,9 +48,14 @@ type Merged { Text string, Conflicts []string, Regenerate bool }
 
 // Merge is the merge of ours and theirs against base: by lines, and when
 // that clashes by the unit of c.
+//
+// Json is never merged by lines first: a merge of JSON by lines that is
+// clean can still be no JSON (a comma both sides moved).
 func Merge(c Class, base string, ours string, theirs string) Merged fails Unreadable {
-	if c == Derived {
+	match c {
+	case Derived, Json:
 		return ByUnits(c, base, ours, theirs)
+	case Rows, Measured, Lines:
 	}
 	let lines = MergeText(base, ours, theirs)
 	if lines.Clashes == 0 {
@@ -76,6 +87,8 @@ func ByUnits(c Class, base string, ours string, theirs string) Merged fails Unre
 		try MergeMeasured(base, ours, theirs)
 	case Lines:
 		MergeLines(base, ours, theirs)
+	case Json as j:
+		try MergeJson(base, ours, theirs, j.Sets)
 	case Derived:
 		// A derived file is never merged: a side the other did not change
 		// is taken whole, and two changed sides keep ours, to be made
@@ -250,7 +263,7 @@ law MergeOfEqualIsOne(units Map[int, int], edits []Edit) {
 	let base = ledger(applied(units, []Edit{}))
 	let side = ledger(applied(applied(units, []Edit{}), edits))
 	let mut ok = true
-	for c in []Class{Rows, Measured, Lines, Derived} {
+	for c in []Class{Rows, Measured, Lines, Derived, Json{Sets: []string{}}} {
 		let text = if c == Measured { durations(applied(units, []Edit{})) } else { base }
 		let other = if c == Measured { durations(applied(applied(units, []Edit{}), edits)) } else { side }
 		let equal = Merge(c, text, other, other) catch {

@@ -5,20 +5,36 @@ import strings
 type Unreadable { Side string, At int, Why string }
 
 // Entry is one member of a JSON object as its text has it: the key, the
-// value's raw text, and where the value starts and ends in the object's
-// text.
-type Entry { Key string, Raw string, Start int, End int }
+// value's raw text, where the value starts and ends in the object's text,
+// and where the member's key starts and its raw text.
+type Entry { Key string, Raw string, Start int, End int, KeyStart int, KeyRaw string }
 
 // Span is a JSON value's raw text and where it is in the text it was read
 // from.
 type Span { Raw string, Start int, End int }
 
 // space is the index of the first byte at or after i that is not JSON
-// white space.
+// white space. A JSONC comment (// to the end of the line, or /* to */) is
+// white space too, so a reader skips it and a merge keeps its bytes.
 func space(s string, i int) int {
 	let mut at = i
-	for at < len(s) && (s[at] == ' ' || s[at] == '\t' || s[at] == '\n' || s[at] == '\r') {
-		at = at + 1
+	for at < len(s) {
+		let c = s[at]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			at = at + 1
+			continue
+		}
+		if c == '/' && at+1 < len(s) && s[at+1] == '/' {
+			let end = strings.Index(strings.Slice(s, at, len(s)), "\n")
+			at = if end < 0 { len(s) } else { at + end + 1 }
+			continue
+		}
+		if c == '/' && at+1 < len(s) && s[at+1] == '*' {
+			let end = strings.Index(strings.Slice(s, at+2, len(s)), "*/")
+			at = if end < 0 { len(s) } else { at + 2 + end + 2 }
+			continue
+		}
+		return at
 	}
 	at
 }
@@ -101,6 +117,7 @@ func Members(s string, side string) []Entry fails Unreadable {
 		if s[at] != '"' {
 			return Unreadable{Side: side, At: at, Why: "a key is not a string"}
 		}
+		let keyStart = at
 		let keyEnd = try stringEnd(s, at, side)
 		let key = unquote(strings.Slice(s, at, keyEnd))
 		at = space(s, keyEnd)
@@ -109,10 +126,13 @@ func Members(s string, side string) []Entry fails Unreadable {
 		}
 		let start = space(s, at+1)
 		let end = try valueEnd(s, start, side)
-		out = out.Append(Entry{Key: key, Raw: strings.Slice(s, start, end), Start: start, End: end})
+		out = out.Append(Entry{Key: key, Raw: strings.Slice(s, start, end), Start: start, End: end, KeyStart: keyStart, KeyRaw: strings.Slice(s, keyStart, keyEnd)})
 		at = space(s, end)
 		if at < len(s) && s[at] == ',' {
 			at = space(s, at+1)
+			if at < len(s) && s[at] == '}' {
+				return out
+			}
 			continue
 		}
 		if at < len(s) && s[at] == '}' {
@@ -141,6 +161,9 @@ func Elements(s string, side string) []Span fails Unreadable {
 		at = space(s, end)
 		if at < len(s) && s[at] == ',' {
 			at = space(s, at+1)
+			if at < len(s) && s[at] == ']' {
+				return out
+			}
 			continue
 		}
 		if at < len(s) && s[at] == ']' {
@@ -151,8 +174,9 @@ func Elements(s string, side string) []Span fails Unreadable {
 	Unreadable{Side: side, At: at, Why: "the list does not end"}
 }
 
-// Bare is raw without the white space outside its strings: two texts of
-// one JSON value are equal bare when they differ only in layout.
+// Bare is raw without the white space (and the JSONC comments) outside
+// its strings: two texts of one JSON value are equal bare when they
+// differ only in layout.
 func Bare(raw string) string {
 	let mut b = strings.NewBuilder()
 	let mut i = 0
@@ -167,9 +191,12 @@ func Bare(raw string) string {
 			i = end
 			continue
 		}
-		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
-			b.WriteByte(c)
+		let next = space(raw, i)
+		if next > i {
+			i = next
+			continue
 		}
+		b.WriteByte(c)
 		i = i + 1
 	}
 	b.String()
