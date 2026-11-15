@@ -159,7 +159,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
 		if owner >= 0 {
-			pv := fc.convert(bd[owner].Conv, vs[0], law.Decl)
+			pv := fc.lawProvider(bd[owner], vs[0], law.Decl)
 			if generic {
 				args = append(args, pv)
 				tc := &typeCtx{l: l, site: law.Decl}
@@ -175,7 +175,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		}
 		for i := range law.Params {
 			if k, ok := bound[i]; ok {
-				args = append(args, fc.convert(bd[k].Conv, vs[i], law.Decl))
+				args = append(args, fc.lawProvider(bd[k], vs[i], law.Decl))
 				continue
 			}
 			args = append(args, vs[i])

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // The ts leg runs the programs tagged ts: an Ergo program with a
@@ -27,14 +28,19 @@ import (
 // is ergo-ts itself, and `ergo-ts/bun` would name a file of the install.
 const tsPackage = `{ "name": "ergo-example-case", "private": true, "type": "module" }` + "\n"
 
+// tsInstall is the run's one install of tools/ts's dependencies: made
+// once, by the first ts program, whichever program's goroutine that is.
+type tsInstall struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
 // tsDeps is the scratch install of tools/ts's dependencies, made by the
 // first ts program of the run, or why it could not be made.
 func (r *runner) tsDeps() (string, error) {
-	if r.tsDir != "" || r.tsErr != nil {
-		return r.tsDir, r.tsErr
-	}
-	r.tsDir, r.tsErr = r.installTS()
-	return r.tsDir, r.tsErr
+	r.install.once.Do(func() { r.install.dir, r.install.err = r.installTS() })
+	return r.install.dir, r.install.err
 }
 
 func (r *runner) installTS() (string, error) {

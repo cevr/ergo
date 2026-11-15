@@ -334,6 +334,23 @@ func (c *checker) planLaws() {
 		c.planLaw(law)
 	}
 	c.pkg.LawRuns = c.lawRuns()
+	for _, r := range c.pkg.LawRuns {
+		if r.Law.Decl.Rewrite == nil {
+			continue
+		}
+		// A rewrite law runs each side on a fresh provider (Laws 14): its
+		// constructor builds one per side from the case's arguments.
+		for _, b := range r.Bindings {
+			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+			}
+		}
+		for i := range r.Contexts {
+			if r.Contexts[i].Unrun == "" {
+				r.Contexts[i].Unrun = "a rewrite law runs on providers its constructor builds, not under a context"
+			}
+		}
+	}
 }
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
@@ -392,6 +409,36 @@ func (c *checker) planLaw(law *Law) {
 			own = n
 		}
 		slots = append([]LawSlot{{Param: -1, Type: own}}, slots...)
+		if law.Decl.Rewrite != nil {
+			// A rewrite law runs two sides on fresh providers of its
+			// owner (Laws 14): a parameter of an operation type or a
+			// generic owner has no such run yet.
+			switch {
+			case len(own.TParams) > 0 || len(own.origin().TParams) > 0:
+				law.Unrun = "a rewrite law of a generic operation type does not run yet"
+				return
+			case len(slots) > 1:
+				law.Unrun = "a rewrite law's parameters are values, not operation types"
+				return
+			}
+			if law.Rewrite != nil {
+				// The prefix and the continuation of a case draw
+				// operations whose parameters have generators.
+				it, _ := own.Underlying().(*Interface)
+				for _, m := range it.Methods {
+					drawn := true
+					for _, p := range m.Sig.Params {
+						if c.ungeneratable(p.Type) != "" {
+							drawn = false
+							break
+						}
+					}
+					if drawn {
+						law.Rewrite.Steps = append(law.Rewrite.Steps, m)
+					}
+				}
+			}
+		}
 	}
 	law.Slots = slots
 }
@@ -564,10 +611,17 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		slot = c.instantiate(own, targs)
 	}
 	a, _ := c.providerAssignability(p, slot)
+	value := false
+	if _, record := p.Underlying().(*Struct); record {
+		// A law owns a fresh record and may lend it to *P operations.
+		// This is not a value-to-operation-type conversion (PS3).
+		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
+		value = a.ok()
+	}
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
@@ -634,6 +688,7 @@ func (c *checker) checkLaws() {
 	for _, law := range c.pkg.Laws {
 		c.checkLaw(law)
 	}
+	c.checkUnfoldCycles()
 }
 
 func (c *checker) checkLaw(law *Law) {
@@ -723,7 +778,11 @@ func (c *checker) checkLaw(law *Law) {
 			}
 		}
 	}
-	c.lawBody(d.Body)
+	if d.Rewrite != nil {
+		c.rewriteLaw(law, tg)
+	} else {
+		c.lawBody(d.Body)
+	}
 	c.reportGoCopyWrites(d.Body)
 	law.Fails = c.types.resolve(tg.errors).known(c.types)
 	c.reportUnused(fc)

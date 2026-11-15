@@ -32,14 +32,72 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/sketch/regexpplan"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // GoReport is what ergo inspect prints.
 type GoReport struct {
-	Imports   []GoImport   `json:"imports"`
-	Functions []GoFunction `json:"functions"`
-	Symbols   []GoSymbol   `json:"symbols"`
+	Imports      []GoImport          `json:"imports"`
+	Functions    []GoFunction        `json:"functions"`
+	Symbols      []GoSymbol          `json:"symbols"`
+	RewriteSites []lower.RewriteSite `json:"rewriteSites"`
+	// Derived are the program's derives (patterns.md, Derivation 7).
+	Derived []GoDerived `json:"derived,omitempty"`
+}
+
+// InspectRewrites are the rewrite sites of the checked analysis's run
+// build (types.md, Laws 14; runtime.md, Tests 10): each site's law and
+// provider, its constants, the verdict of its entry in the ledger at
+// ledger and the std ledger, the entry's state (current, stale or
+// missing), and whether the build applies the rewrite. It lowers the
+// program in process and runs no Go tool; source anchors a program of
+// one source text.
+func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	text, err := ledgerText(ledger)
+	if err != nil {
+		return nil, err
+	}
+	ev, err := ledgerEvidence(a, unit, text)
+	if err != nil || !ev.HasRules() {
+		return []lower.RewriteSite{}, err
+	}
+	unit.Rewrite = ev
+	// A form the lowering refuses ends the list there; ergo build
+	// names the refusal.
+	_, _ = lower.Lower(unit)
+	return ev.Sites(), nil
+}
+
+// GoDerived is one `type T derive E`: what it produced and, for a pattern,
+// the parse matcher's engine, why that engine, and its counts.
+type GoDerived struct {
+	Package string   `json:"package"`
+	Type    string   `json:"type"`
+	Plan    string   `json:"plan"`
+	Decls   []string `json:"decls"`
+	Steps   int      `json:"steps"`
+	Pattern string   `json:"pattern,omitempty"`
+	// Engine is the parse engine: direct, table or nfa.
+	Engine string `json:"engine,omitempty"`
+	// Reason says why the construction check selected the engine.
+	Reason       string `json:"reason,omitempty"`
+	Nodes        int    `json:"nodes,omitempty"`
+	Instructions int    `json:"instructions,omitempty"`
+	States       int    `json:"states,omitempty"`
+	// Allocates is true when the parse matcher allocates: a capture repeats
+	// (it keeps events), or the engine is the NFA (its thread lists). A
+	// fixed plan under the direct or table engine allocates nothing
+	// (patterns.md, Lowering 3; TestPatternLoweringAgrees counts it).
+	Allocates bool `json:"allocates,omitempty"`
 }
 
 // GoImport is one Go package the program imports.
@@ -110,7 +168,7 @@ type reachWalker struct {
 // root last; std packages are skipped).
 func InspectGo(pkgs []*check.Package) GoReport {
 	w := &reachWalker{nodes: map[*check.Func]*reachNode{}, symbols: map[string]GoSymbol{}}
-	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}}
+	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}, RewriteSites: []lower.RewriteSite{}}
 	seenImport := map[string]bool{}
 	var order []*check.Func
 	for _, p := range pkgs {
@@ -152,6 +210,21 @@ func InspectGo(pkgs []*check.Package) GoReport {
 		r.Symbols = append(r.Symbols, s)
 	}
 	sort.Slice(r.Symbols, func(i, j int) bool { return r.Symbols[i].Target < r.Symbols[j].Target })
+	for _, p := range pkgs {
+		if p == nil || p.Std() || p.Host() || p.Derive == nil {
+			continue
+		}
+		for _, d := range p.Derive.Derived {
+			g := GoDerived{Package: p.Path, Type: d.Type, Plan: d.Plan, Decls: append([]string{}, d.Decls...), Steps: d.Steps, Pattern: d.Pattern}
+			if d.Parse != nil {
+				in := d.Parse.Inspect()
+				g.Engine, g.Reason = string(in.Engine), in.Reason
+				g.Nodes, g.Instructions, g.States = in.Nodes, in.Instructions, in.States
+				g.Allocates = !d.Parse.Fixed() || in.Engine == regexpplan.NFA
+			}
+			r.Derived = append(r.Derived, g)
+		}
+	}
 	return r
 }
 

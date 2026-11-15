@@ -6,8 +6,57 @@
 // one byte, Any every byte, and Class each byte in its spans, or each byte
 // outside them when Negated. Cat matches its parts one after another; Alt
 // matches Left or Right. Star repeats Of zero or more times, Plus one or
-// more, and Quest zero times or once.
-type Node = Empty{} | Lit{C byte} | Any{} | Class{Spans []Span, Negated bool} | Cat{Parts []Node} | Alt{Left Node, Right Node} | Star{Of Node} | Plus{Of Node} | Quest{Of Node}
+// more, and Quest zero times or once. Count is Of repeated from Min to
+// Max times (Max -1: no bound), as written in a{2,3}; As is that repeat
+// written out, and matching uses As. Parse makes As = Counted(Of, Min,
+// Max), and Check refuses a Count whose As is not that. Keeping As in the
+// node keeps a tree's size its own: a count never multiplies the work of
+// a tree that was not checked. Group matches what Of matches and captures
+// it under Name; matching that only answers yes or no ignores groups.
+type Node = Empty{} | Lit{C byte} | Any{} | Class{Spans []Span, Negated bool} | Cat{Parts []Node} | Alt{Left Node, Right Node} | Star{Of Node} | Plus{Of Node} | Quest{Of Node} | Count{Of Node, Min int, Max int, As Node} | Group{Name string, Of Node}
+
+// Counted is of repeated from min to max times, max -1 for no bound,
+// written out: min copies of of, then max-min optional copies, each
+// inside the one before (greedy), or a Star when max is -1. Each copy
+// keeps of's groups, so a group in it captures once per copy that
+// matches: the copies are occurrences of one capture. 0 <= min, and max is -1
+// or at least min.
+func Counted(of Node, min int, max int) Node {
+	let mut rest Node = Empty
+	if max == -1 {
+		rest = Star{Of: of}
+	} else {
+		for _ in min..max {
+			rest = Quest{Of: joined(of, rest)}
+		}
+	}
+	let mut parts = []Node{}
+	for _ in 0..min {
+		parts = parts.Append(of)
+	}
+	match rest {
+	case Empty:
+	case _:
+		parts = parts.Append(rest)
+	}
+	if len(parts) == 0 {
+		return Empty
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	Cat{Parts: parts}
+}
+
+// joined is a then b, or a alone when b is Empty.
+func joined(a Node, b Node) Node {
+	match b {
+	case Empty:
+		a
+	case _:
+		Cat{Parts: []Node{a, b}}
+	}
+}
 
 // Span is the bytes from Lo to Hi, both included.
 type Span { Lo byte, Hi byte }
@@ -42,7 +91,8 @@ func Literal(text string) Node {
 // .*n.* in the syntax.
 func Search(n Node) Node { Cat{Parts: []Node{Star{Of: Any}, n, Star{Of: Any}}} }
 
-// Size is the number of nodes of n.
+// Size is the number of nodes of n, a Group counted twice, once for each
+// end of what it captures.
 func Size(n Node) int {
 	match n {
 	case Empty:
@@ -67,5 +117,9 @@ func Size(n Node) int {
 		1 + Size(p.Of)
 	case Quest as q:
 		1 + Size(q.Of)
+	case Count as c:
+		1 + Size(c.As)
+	case Group as g:
+		2 + Size(g.Of)
 	}
 }

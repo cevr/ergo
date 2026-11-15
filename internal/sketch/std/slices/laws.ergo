@@ -93,6 +93,15 @@ law MaxIsLastSorted(xs []int) {
 	Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]}
 }
 
+// LastIsFinalElement: Last is the element at len(xs)-1, or None for an
+// empty xs.
+law LastIsFinalElement(xs []int) {
+	if len(xs) == 0 {
+		return Last(xs) == None
+	}
+	Last(xs) == Some[int]{Value: xs[len(xs)-1]}
+}
+
 // AscendOrders: the items of Ascend(xs) are in ascending order.
 law AscendOrders(xs []int) { isSorted(Items(Ascend(xs))) }
 

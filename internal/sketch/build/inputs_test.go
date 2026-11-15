@@ -3,6 +3,7 @@ package build
 import (
 	"bytes"
 	"debug/elf"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,6 +184,24 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("flagged executable prints %q, want %q", got, want)
 			}
 		})
+		t.Run("Strip", func(t *testing.T) {
+			// The stripped link reuses the module (bs4-cache-key: the flag
+			// is the action's, not the emission's) and drops the symbols.
+			covered["Toolchain.Strip"] = true
+			tc := hostToolchain()
+			tc.Strip = true
+			data := reuse(t, tc)
+			binary := filepath.Join(t.TempDir(), "stripped")
+			if err := os.WriteFile(binary, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if len(data) >= len(baseBytes) {
+				t.Fatalf("the stripped executable has %d bytes, the base %d", len(data), len(baseBytes))
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("stripped executable prints %q, want %q", got, want)
+			}
+		})
 		t.Run("GOARCH", func(t *testing.T) {
 			covered["Toolchain.GOARCH"] = true
 			tc := hostToolchain()
@@ -245,6 +264,39 @@ func TestCacheInputs(t *testing.T) {
 			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
 				t.Fatalf("wrapped toolchain's executable prints %q, want %q", got, want)
 			}
+		})
+		t.Run("GoBuild", func(t *testing.T) {
+			// The reference path is go build itself, not the direct path
+			// (direct.go): the selection is the action's alone.
+			covered["Toolchain.GoBuild"] = true
+			for _, goBuild := range []bool{false, true} {
+				tc := hostToolchain()
+				tc.GoBuild = goBuild
+				report, err := tc.Build(Cache{Root: root}, module, filepath.Join(t.TempDir(), "program"), io.Discard)
+				// This module's go line is not the toolchain's, so the
+				// direct path refuses it; only the selection says why.
+				if err != nil || (report.Refused == "go build selected") != goBuild {
+					t.Fatalf("GoBuild=%t built by %v: %v", goBuild, report, err)
+				}
+			}
+		})
+		t.Run("Root", func(t *testing.T) {
+			// A managed toolchain's GOROOT is the action's (internal/toolchain):
+			// the action states it and still links the same module.
+			covered["Toolchain.Root"] = true
+			goCommand, err := exec.LookPath("go")
+			if err == nil {
+				goCommand, err = filepath.EvalSymlinks(goCommand)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc := hostToolchain()
+			tc.Root = filepath.Dir(filepath.Dir(goCommand)) // GOROOT/bin/go
+			if !slices.Contains(tc.Command(module, "/out/program").Env, "GOROOT="+tc.Root) {
+				t.Fatal("the action does not state the toolchain's GOROOT")
+			}
+			reuse(t, tc)
 		})
 		t.Run("Tags", func(t *testing.T) {
 			// `ergo test --explore` (runtime.md, Explored schedules): the

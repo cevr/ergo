@@ -13,8 +13,10 @@
 #                        ticker into ticks-test beside itself, then fails; on
 #                        TESTSKIP prints one law's skip line and passes; on
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
-#                        stdout and ERR bytes to stderr and passes; passes
-#                        otherwise.
+#                        stdout and ERR bytes to stderr and passes; on
+#                        TESTLEDGER appends an entry to the ergo.laws beside
+#                        FILE, as a run that finds the ledger stale does;
+#                        passes otherwise.
 # A SRC or FILE that is a folder is a package (196b): build reads its
 # main.ergo, and test reads every .ergo file in it.
 # A ticker is a background loop in the caller's process group that appends a
@@ -45,6 +47,7 @@ check)
   ;;
 test)
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
+  if [ -f "$2" ] && grep -q TESTLEDGER "$2"; then echo "law Counter.Joins for Box proved h1:fresh" >> "$(dirname "$2")/ergo.laws"; fi
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/package.ergo" || exit 1
     set -- "$1" "$tools/package.ergo"

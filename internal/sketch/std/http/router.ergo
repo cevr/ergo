@@ -29,13 +29,12 @@ func Success[T](route Route[T], body string) Response {
 }
 
 // SuccessJSON answers as Success(route, json.Encode(c, v)) does, with
-// v's text written straight to the connection (SendText), never made a
+// v's text written straight to the connection (SendBytes), never made a
 // string: a 204 or a 205 has no body, as Success has none.
 func SuccessJSON[T, V wire](route Route[T], c json.Codec[V], v V) Response needs Streaming {
 	if route.Status == 205 || route.Status == 204 { return Success(route, "") }
-	json.With(func(t json.Text) Response needs Streaming {
-		encode(v, t)
-		SendText(route.Status, []Field{Field{Name: "Content-Type", Value: "application/json"}}, t)
+	json.EncodeWith(c, v, func(text []byte) Response needs Streaming {
+		SendBytes(route.Status, []Field{Field{Name: "Content-Type", Value: "application/json"}}, text)
 	})
 }
 

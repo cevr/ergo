@@ -13,7 +13,7 @@ import "fmt"
 // borrow, so the write is seen through a let mut root, as Ergo writes are
 // (types.md, Bindings 1).
 //
-//	append  [T](xs []T, x T) []T
+//	append  [T](xs []T, x T) []T   (xs []byte, s string) []byte
 //	len     [T](xs []T) int        cap [T](xs []T) int
 //	copy    [T](dst *[]T, src []T) int
 //	clear   [T](xs *[]T)
@@ -42,6 +42,30 @@ func GoBuiltin(f *Func) string {
 		return ""
 	}
 	return name
+}
+
+// AppendsString reports an extern of Go's append at its second shape,
+// `(xs []byte, s string) []byte`: Go's append(xs, s...), the bytes of s
+// added at the end of xs (interop.md, Lowering 13). It is a concatenation, as
+// `+` on strings is, and the check-time evaluator runs it as one.
+func AppendsString(f *Func) bool {
+	if GoBuiltin(f) != "append" {
+		return false
+	}
+	s := f.Sig
+	if len(s.TParams) != 0 || len(s.Params) != 2 || len(s.Results) != 1 || !s.Errors.Empty() || !s.Uses.Empty() {
+		return false
+	}
+	isBytes := func(t Type) bool {
+		sl, ok := t.(*Slice)
+		if !ok {
+			return false
+		}
+		b, ok := sl.Elem.(*Basic)
+		return ok && b.Kind == Uint8
+	}
+	b, ok := s.Params[1].Type.(*Basic)
+	return isBytes(s.Params[0].Type) && ok && b.Kind == String && isBytes(s.Results[0])
 }
 
 // builtinRefusal is the refusal of an extern of the Go builtin b whose
@@ -77,6 +101,9 @@ func builtinRefusal(f *Func, b string) string {
 	}
 	switch b {
 	case "append":
+		if AppendsString(f) {
+			return ""
+		}
 		if !one || len(s.Params) != 2 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || s.Params[1].Type != t || elem(s.Results[0]) != t {
 			return bad("[T](xs []T, x T) []T")
 		}

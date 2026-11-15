@@ -52,6 +52,19 @@
       ]
     },
     {
+      "file": "patterns.md",
+      "heading": "Derived types and patterns",
+      "status": "partly implemented",
+      "text": ": the parser reads `type T derive E`, the checker evaluates the plan at check time within its budgets and derives the bundle, and the build emits each pattern's matcher from its compiled plan; `ergo inspect` shows each derive with its engine and counts. The derived laws `TMatches` and `TAccepts`, the witness generator and the related information of [Diagnostics](#diagnostics) 2 are designed.",
+      "witnesses": [
+        "internal/sketch/derive:TestPatternGrammar",
+        "internal/sketch/derive:TestPatternShapes",
+        "internal/sketch/check:TestDeriveModel",
+        "internal/sketch/check:TestPatternDiagnostics",
+        "internal/sketch/lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
       "file": "resources.md",
       "heading": "Resources and automatic release",
       "status": "partly implemented",
@@ -84,6 +97,15 @@
         "internal/sketch/lower:TestTimeoutAfterLowers",
         "internal/sketch/lower:TestTaskGoAndTaskResults",
         "internal/sketch/lower:TestErgoRunQueueOperations"
+      ]
+    },
+    {
+      "file": "inserted.md",
+      "heading": "Inserted operations",
+      "status": "partly implemented",
+      "text": ": the inventory below is normative, and `TestInsertedOpsAgree` (internal/sketch/check) checks the rule for the rows marked \"elaborated\". Owners of the open rows are named in the last column.",
+      "witnesses": [
+        "internal/sketch/check:TestInsertedOpsAgree"
       ]
     }
   ],
@@ -586,6 +608,16 @@
       "cell": "Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001",
       "section": "[facts](facts.md)",
       "witnesses": []
+    },
+    {
+      "construct": "Derived types `type T derive E`: type plans, plan functions and typed byte patterns",
+      "status": "partly implemented",
+      "cell": "Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed",
+      "section": "[patterns](patterns.md)",
+      "witnesses": [
+        "internal/sketch/check:TestDeriveModel",
+        "internal/sketch/lower:TestPatternLoweringAgrees"
+      ]
     }
   ]
 }

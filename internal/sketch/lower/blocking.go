@@ -160,6 +160,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Hand":          {},
 	"Returned":      {},
 	"Owned.Release": {},
+	// ReleaseLatestFirst releases a scope's end in the frame list's order
+	// where an assignment re-registered a local (R41; releaseAt).
+	"ReleaseLatestFirst": {},
 	// Generated release (release.go, B2; resources R3, R37, R39): a value
 	// whose parts hold resources registers through OwningParts, a field
 	// taken in place marks its entry (Owned.TakeField), and its release
@@ -283,7 +286,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Exchange.Begin": {},
 	"Exchange.Write": {wait: callerWait},
 	"Exchange.End":   {},
-	// SendText (GX9): Send takes the exchange's lock for one write of the
+	// SendBytes (GX9): Send takes the exchange's lock for one write of the
 	// whole response, as Begin does for the header.
 	"Exchange.Send": {},
 	// std machines (fs2): the defect of a timer that is not positive.
@@ -404,35 +407,23 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Sha256Sum":       {},
 	"Crc32Checksum":   {},
 	"Crc32Update":     {},
-	// std json (S-json): a Text's Writer events take the caller's task
-	// only so that *v1.Text has the prelude Writer's Go method set; no
-	// body waits or releases.
-	"NewJSONText":        {},
+	// std json (S-json): text's value appenders and buffer pool, and
+	// the Cursor's reads; no body waits or releases.
+	"JSONAppendQuoted":   {},
+	"JSONAppendInt":      {},
+	"JSONAppendUint":     {},
+	"JSONAppendBool":     {},
+	"JSONAppendFloat":    {},
+	"JSONBytesText":      {},
 	"JSONOpen":           {},
 	"TOMLParse":          {},
 	"TOMLFromJSON":       {},
 	"JSONTake":           {},
-	"NewJSONHTMLText":    {},
-	"Text.Null":          {task: true},
-	"JSONGive":           {},
-	"JSONDrop":           {},
+	"JSONRecycle":        {},
 	"Cursor.Wrong":       {},
 	"Cursor.TakeNull":    {},
 	"Cursor.Kind":        {},
 	"Cursor.Number":      {},
-	"Text.Number":        {task: true},
-	"Text.Bool":          {task: true},
-	"Text.Int":           {task: true},
-	"Text.Uint":          {task: true},
-	"Text.Float":         {task: true},
-	"Text.String":        {task: true},
-	"Text.BeginList":     {task: true},
-	"Text.EndList":       {task: true},
-	"Text.BeginObject":   {task: true},
-	"Text.Tag":           {task: true},
-	"Text.Key":           {task: true},
-	"Text.EndObject":     {task: true},
-	"Text.Written":       {},
 	"Cursor.Path":        {},
 	"Cursor.Bool":        {},
 	"Cursor.Int":         {},

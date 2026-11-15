@@ -26,11 +26,11 @@ func Failure(table []FailureStatus, body string) Response {
 	case _:
 		Unreachable("HTTP failure body is not JSON")
 	}
-	json.BeginObject(r) catch {
+	r.BeginObject() catch {
 	case _:
 		Unreachable("HTTP failure body is not an object")
 	}
-	let tag = json.Tag(r) catch {
+	let tag = r.Tag() catch {
 	case _:
 		Unreachable("HTTP failure body has no tag")
 	}

@@ -14,6 +14,9 @@ type Engine {}
 // Compile is the Matcher of pattern.
 func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: pattern} }
 
+// Search deliberately retains the original expansion as the reference.
+func Search(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: syntax.Search(pattern)} }
+
 // Tree is a pattern that backtrack matches by walking it.
 type Tree { pattern syntax.Node }
 
@@ -21,6 +24,9 @@ type Tree { pattern syntax.Node }
 func Matches(t Tree, text string) bool {
 	run(t.pattern, text, 0, func(j int) bool { j == len(text) })
 }
+
+// Lines is the simple per-text reference; the tree keeps no scratch.
+func Lines(t Tree, lines Seq[string]) Seq[string] { engine.Filter(t, lines) }
 
 // run reports whether n matches text from i to some j for which k(j)
 // holds.
@@ -44,6 +50,10 @@ func run(n syntax.Node, text string, i int, k func(j int) bool) bool {
 		run(p.Of, text, i, func(j int) bool { star(p.Of, text, j, k) })
 	case syntax.Quest as q:
 		run(q.Of, text, i, k) || k(i)
+	case syntax.Count as c:
+		run(c.As, text, i, k)
+	case syntax.Group as g:
+		run(g.Of, text, i, k)
 	}
 }
 

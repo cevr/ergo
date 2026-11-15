@@ -245,7 +245,7 @@ Ergo is a prototype. The opening program builds, runs and passes its tests. The 
 
 ## Working in this repo
 
-You need Go 1.27 or later and Git.
+Building ergo from source needs Go 1.27 or later and Git. The programs ergo builds need no Go install: each ergo pins one Go release, downloads it on first build, verifies it against Go's checksum database and caches it (`ergo version`; `ERGO_GO=system` builds with the go command on PATH instead; [Go toolchain](docs/tooling.md#go-toolchain)).
 
 ```sh
 git clone https://github.com/cevr/ergo.git

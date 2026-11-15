@@ -1,0 +1,42 @@
+// Command format is the Ergo formatter as a filter: it reads a source on
+// standard input and writes its canonical layout on standard output, as
+// `ergo fmt --stdin` does with the Go formatter. A syntax failure exits 2
+// with its line, column, code and message. It is the CLI's composition
+// root: it alone binds the Go parser (through the adapter hostsyntax) and
+// the host's streams; the format package stays pure apart from the parser
+// it is handed. `ergo build` cannot build it yet (G1, gaps.md); `ergo
+// check` checks it.
+
+import go ergo.local/prototype/selfhost/hostsyntax
+import io
+import os
+import selfhost/format
+import selfhost/tree
+
+// parseGo is the Go parser, through the adapter's encoding.
+func parseGo(src string) tree.Tree fails tree.SyntaxFailure | format.InvalidTree needs go.Foreign {
+	format.Decoded(hostsyntax.Parse(src))
+}
+
+// run formats standard input.
+func run() fails os.Exit needs io.Stdin | io.Stdout | go.Foreign {
+	let src = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "format: " + r.Reason}
+	}
+	let out = format.Source(src, 0, parseGo) catch {
+	case tree.SyntaxFailure as f:
+		return os.Exit{Code: 2, Message: "format: \(f.Line):\(f.Column): \(f.Code) \(f.Message)"}
+	case format.OutputLimit as o:
+		return os.Exit{Code: 1, Message: "format: the output exceeds \(o.Limit) bytes"}
+	case format.InvalidTree as i:
+		return os.Exit{Code: 1, Message: "format: node \(i.Node): \(i.Reason)"}
+	}
+	io.Stdout.Print(out)
+}
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
+		try run()
+	}
+}

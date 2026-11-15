@@ -1,0 +1,525 @@
+// The parser's facts the printer reads from a tree: fields by name, the
+// first and end byte of every node (syntax's Pos and End methods), the
+// spelling and precedence of a token, and the derived declarations. They
+// are the Go parser's rules, carried over so that no layout fact comes from
+// the Go side.
+
+import selfhost/tree
+
+// NoPos is the parser's absent position (syntax.NoPos). A position is a
+// byte offset of the source; the tree carries an absent one as None, and
+// the printer compares positions as Go's does, so it reads None as NoPos.
+let NoPos = -1
+
+// item is the value of field name of node id: Missing when the node has no
+// such field (Validate refuses that tree first).
+func item(t tree.Tree, id int, name string) tree.Item {
+	for f in t.Nodes[id].Fields {
+		if f.Name == name {
+			return f.Value
+		}
+	}
+	tree.Missing
+}
+
+func family(t tree.Tree, id int) string { t.Nodes[id].Family }
+
+// pos is a position field, NoPos when absent.
+func pos(t tree.Tree, id int, name string) int {
+	match item(t, id, name) {
+	case tree.Position as p:
+		match p.At {
+		case Some[int] as s:
+			s.Value
+		case None:
+			NoPos
+		}
+	case _:
+		NoPos
+	}
+}
+
+// has reports a node field that holds a node.
+func has(t tree.Tree, id int, name string) bool {
+	match item(t, id, name) {
+	case tree.Ref:
+		true
+	case _:
+		false
+	}
+}
+
+// kid is the node of a node field; Validate makes sure a field the
+// printer reads without has holds one.
+func kid(t tree.Tree, id int, name string) int {
+	match item(t, id, name) {
+	case tree.Ref as r:
+		r.Id
+	case _:
+		Unreachable("tree field \(name) of \(family(t, id)) holds no node")
+	}
+}
+
+// kids is the nodes of a list field.
+func kids(t tree.Tree, id int, name string) []int {
+	let mut out = []int{}
+	match item(t, id, name) {
+	case tree.List as l:
+		for x in l.Items {
+			match x {
+			case tree.Ref as r:
+				out = out.Append(r.Id)
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+func num(t tree.Tree, id int, name string) int {
+	match item(t, id, name) {
+	case tree.Number as n:
+		n.V
+	case _:
+		0
+	}
+}
+
+func str(t tree.Tree, id int, name string) string {
+	match item(t, id, name) {
+	case tree.Bytes as b:
+		b.V
+	case _:
+		""
+	}
+}
+
+func flag(t tree.Tree, id int, name string) bool {
+	match item(t, id, name) {
+	case tree.Flag as f:
+		f.V
+	case _:
+		false
+	}
+}
+
+func last(xs []int) int { xs[len(xs)-1] }
+
+// line is the 1-based line of offset p, as syntax.File.Line computes it.
+func line(t tree.Tree, p int) int { tree.Locate(t, p).Line }
+
+// ---------------------------------------------------------------- tokens
+
+// tokens are the spellings of syntax.Token, in its order.
+let tokens = []string{
+	"ILLEGAL", "EOF", "COMMENT", "IDENT", "INT", "FLOAT", "DURATION", "STRING", "RUNE", "PATH",
+	"STRING_HEAD", "STRING_MID", "STRING_TAIL",
+	"+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^",
+	"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=",
+	"&&", "||", "<-", "++", "--", "..",
+	"==", "<", ">", "=", "!",
+	"!=", "<=", ">=", ":=", "...",
+	"(", "[", "{", ",", ".", ")", "]", "}", ";", ":",
+	"",
+	"break", "case", "continue", "else", "for", "func", "if", "import", "return", "type",
+	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
+	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as",
+	"",
+	"",
+	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
+	"range", "select", "struct", "switch", "var",
+}
+
+// The tokens the printer tells apart by number.
+let tokenINT = 4
+let tokenFLOAT = 5
+let tokenQUO = 16
+let tokenOR = 19
+let tokenDOTDOT = 40
+
+// tokenText is syntax.Token.String.
+func tokenText(n int) string {
+	if n >= 0 && n < len(tokens) && tokens[n] != "" {
+		return tokens[n]
+	}
+	"token(?)"
+}
+
+// precedence is syntax.Token.Precedence.
+func precedence(n int) int {
+	match tokenText(n) {
+	case "||":
+		1
+	case "&&":
+		2
+	case "==", "!=", "<", "<=", ">", ">=":
+		3
+	case "+", "-", "|", "^":
+		4
+	case "*", "/", "%", "<<", ">>", "&", "&^":
+		5
+	case _:
+		0
+	}
+}
+
+// ---------------------------------------------------------------- spans
+
+// posOf is syntax's Pos of node id.
+func posOf(t tree.Tree, id int) int {
+	match family(t, id) {
+	case "Comment":
+		pos(t, id, "Slash")
+	case "CommentGroup":
+		posOf(t, kids(t, id, "List")[0])
+	case "File":
+		let decls = kids(t, id, "Decls")
+		let groups = kids(t, id, "Comments")
+		let mut p = pos(t, id, "EOF")
+		if len(decls) > 0 {
+			p = posOf(t, decls[0])
+		}
+		if len(groups) > 0 && posOf(t, groups[0]) < p {
+			p = posOf(t, groups[0])
+		}
+		p
+	case "ImportDecl":
+		pos(t, id, "Import")
+	case "ImportSpec":
+		if num(t, id, "Kind") != 0 { pos(t, id, "NamePos") } else { posOf(t, kid(t, id, "Path")) }
+	case "VarDecl", "TypeDecl", "FuncDecl":
+		if has(t, id, "Extern") {
+			posOf(t, kid(t, id, "Extern"))
+		} else {
+			match family(t, id) {
+			case "VarDecl":
+				pos(t, id, "Var")
+			case "TypeDecl":
+				pos(t, id, "Type")
+			case _:
+				pos(t, id, "Func")
+			}
+		}
+	case "VarSpec":
+		if has(t, id, "Pattern") { posOf(t, kid(t, id, "Pattern")) } else { posOf(t, kids(t, id, "Names")[0]) }
+	case "ContextDecl":
+		let l = pos(t, id, "Let")
+		if l >= 0 { l } else { pos(t, id, "Context") }
+	case "ContextBody":
+		pos(t, id, "Lbrace")
+	case "ContextEntry":
+		if num(t, id, "Kind") == 2 { pos(t, id, "Replace") } else { posOf(t, kid(t, id, "Key")) }
+	case "Field":
+		if flag(t, id, "Include") {
+			pos(t, id, "Dots")
+		} else if len(kids(t, id, "Names")) > 0 {
+			posOf(t, kids(t, id, "Names")[0])
+		} else {
+			posOf(t, kid(t, id, "Type"))
+		}
+	case "FieldList":
+		let o = pos(t, id, "Opening")
+		if o >= 0 { o } else { posOf(t, kids(t, id, "List")[0]) }
+	case "NeedsClause":
+		pos(t, id, "Needs")
+	case "TakesClause":
+		pos(t, id, "Takes")
+	case "ProvidesClause":
+		pos(t, id, "Provides")
+	case "MachineEntry":
+		pos(t, id, "NamePos")
+	case "CatchArm", "CaseClause":
+		pos(t, id, "Case")
+	case "Ident":
+		pos(t, id, "NamePos")
+	case "BasicLit":
+		pos(t, id, "ValuePos")
+	case "CompositeLit":
+		if has(t, id, "Type") { posOf(t, kid(t, id, "Type")) } else { pos(t, id, "Lbrace") }
+	case "KeyValueExpr":
+		posOf(t, kid(t, id, "Key"))
+	case "FuncLit":
+		posOf(t, kid(t, id, "Type"))
+	case "ParenExpr":
+		pos(t, id, "Lparen")
+	case "SelectorExpr", "IndexExpr", "SliceExpr", "TypeGuard", "BinaryExpr", "CatchExpr", "AsPattern":
+		posOf(t, kid(t, id, "X"))
+	case "CallExpr":
+		posOf(t, kid(t, id, "Fun"))
+	case "StarExpr":
+		pos(t, id, "Star")
+	case "UnaryExpr":
+		pos(t, id, "OpPos")
+	case "TryExpr":
+		pos(t, id, "Try")
+	case "ContextLit":
+		pos(t, id, "Context")
+	case "ArrayType":
+		pos(t, id, "Lbrack")
+	case "MapType":
+		pos(t, id, "Map")
+	case "FuncType":
+		if pos(t, id, "Escaping") >= 0 {
+			pos(t, id, "Escaping")
+		} else if pos(t, id, "Func") >= 0 {
+			pos(t, id, "Func")
+		} else {
+			posOf(t, kid(t, id, "Params"))
+		}
+	case "StructType":
+		posOf(t, kid(t, id, "Fields"))
+	case "InterfaceType":
+		let l = pos(t, id, "Lbrace")
+		if l >= 0 { l } else { posOf(t, kids(t, id, "Union")[0]) }
+	case "ErrorRow":
+		pos(t, id, "Error")
+	case "MachineType":
+		pos(t, id, "Machine")
+	case "TupleExpr":
+		let l = pos(t, id, "Lparen")
+		if l >= 0 { l } else { posOf(t, kids(t, id, "Elts")[0]) }
+	case "DeclStmt":
+		posOf(t, kid(t, id, "Decl"))
+	case "ExprStmt":
+		posOf(t, kid(t, id, "X"))
+	case "AssignStmt":
+		posOf(t, kids(t, id, "Lhs")[0])
+	case "ReturnStmt":
+		pos(t, id, "Return")
+	case "BranchStmt":
+		pos(t, id, "TokPos")
+	case "BlockStmt":
+		pos(t, id, "Lbrace")
+	case "IfStmt":
+		pos(t, id, "If")
+	case "SwitchStmt", "TypeSwitchStmt":
+		pos(t, id, "Switch")
+	case "ForStmt", "RangeStmt":
+		pos(t, id, "For")
+	case "ExternSpec":
+		pos(t, id, "Extern")
+	case "TestDecl":
+		pos(t, id, "Test")
+	case "LawDecl":
+		pos(t, id, "Law")
+	case "LawReach":
+		let n = pos(t, id, "Never")
+		if n != NoPos { n } else { pos(t, id, "Word") }
+	case "AssertStmt":
+		pos(t, id, "Assert")
+	case "VariantSpec":
+		posOf(t, kid(t, id, "Name"))
+	case "InterpolatedString":
+		posOf(t, kids(t, id, "Texts")[0])
+	case _:
+		Unreachable("no Pos for \(family(t, id))")
+	}
+}
+
+// endOf is syntax's End of node id.
+func endOf(t tree.Tree, id int) int {
+	match family(t, id) {
+	case "Comment":
+		pos(t, id, "EndPos")
+	case "CommentGroup":
+		endOf(t, last(kids(t, id, "List")))
+	case "File":
+		pos(t, id, "EOF")
+	case "ImportDecl":
+		endOf(t, kids(t, id, "Specs")[0])
+	case "ImportSpec":
+		endOf(t, kid(t, id, "Path"))
+	case "VarDecl":
+		endOf(t, kids(t, id, "Specs")[0])
+	case "VarSpec":
+		let values = kids(t, id, "Values")
+		if len(values) > 0 {
+			endOf(t, last(values))
+		} else if has(t, id, "Type") {
+			endOf(t, kid(t, id, "Type"))
+		} else if has(t, id, "Pattern") {
+			endOf(t, kid(t, id, "Pattern"))
+		} else {
+			endOf(t, last(kids(t, id, "Names")))
+		}
+	case "TypeDecl":
+		if has(t, id, "Where") { endOf(t, kid(t, id, "Where")) } else { endOf(t, kid(t, id, "Spec")) }
+	case "FuncDecl":
+		if has(t, id, "Body") { endOf(t, kid(t, id, "Body")) } else { endOf(t, kid(t, id, "Type")) }
+	case "ContextDecl", "ContextLit":
+		endOf(t, kid(t, id, "Body"))
+	case "ContextBody", "CompositeLit", "CatchExpr", "MachineType", "SwitchStmt", "TypeSwitchStmt", "BlockStmt":
+		pos(t, id, "Rbrace") + 1
+	case "ContextEntry":
+		if has(t, id, "Value") { endOf(t, kid(t, id, "Value")) } else { endOf(t, kid(t, id, "Key")) }
+	case "Field":
+		if has(t, id, "Key") {
+			endOf(t, kid(t, id, "Key"))
+		} else if pos(t, id, "Any") > 0 {
+			pos(t, id, "Any") + 3
+		} else if has(t, id, "Where") {
+			endOf(t, kid(t, id, "Where"))
+		} else if !has(t, id, "Type") {
+			endOf(t, last(kids(t, id, "Names")))
+		} else {
+			endOf(t, kid(t, id, "Type"))
+		}
+	case "FieldList":
+		let c = pos(t, id, "Closing")
+		if c >= 0 { c + 1 } else { endOf(t, last(kids(t, id, "List"))) }
+	case "NeedsClause", "ProvidesClause":
+		endOf(t, last(kids(t, id, "Names")))
+	case "TakesClause":
+		let names = kids(t, id, "Names")
+		if len(names) == 0 { pos(t, id, "Takes") + 5 } else { endOf(t, last(names)) }
+	case "MachineEntry", "KeyValueExpr":
+		endOf(t, kid(t, id, "Value"))
+	case "CatchArm", "CaseClause":
+		let body = kids(t, id, "Body")
+		if len(body) > 0 { endOf(t, last(body)) } else { pos(t, id, "Colon") + 1 }
+	case "Ident":
+		pos(t, id, "NamePos") + len(str(t, id, "Name"))
+	case "BasicLit":
+		pos(t, id, "ValueEnd")
+	case "FuncLit":
+		endOf(t, kid(t, id, "Body"))
+	case "ParenExpr":
+		pos(t, id, "Rparen") + 1
+	case "SelectorExpr":
+		endOf(t, kid(t, id, "Sel"))
+	case "IndexExpr", "SliceExpr":
+		pos(t, id, "Rbrack") + 1
+	case "TypeGuard", "StarExpr", "UnaryExpr", "TryExpr", "AssertStmt", "ExprStmt":
+		endOf(t, kid(t, id, "X"))
+	case "CallExpr":
+		if has(t, id, "Trailing") {
+			endOf(t, kid(t, id, "Trailing"))
+		} else if flag(t, id, "TrailingFunc") {
+			endOf(t, last(kids(t, id, "Args")))
+		} else {
+			pos(t, id, "Rparen") + 1
+		}
+	case "BinaryExpr":
+		endOf(t, kid(t, id, "Y"))
+	case "ArrayType":
+		endOf(t, kid(t, id, "Elt"))
+	case "MapType":
+		let r = pos(t, id, "Rbrack")
+		if r >= 0 { r + 1 } else { endOf(t, kid(t, id, "Value")) }
+	case "FuncType":
+		if has(t, id, "Takes") {
+			endOf(t, kid(t, id, "Takes"))
+		} else if has(t, id, "Needs") {
+			endOf(t, kid(t, id, "Needs"))
+		} else if has(t, id, "Results") {
+			endOf(t, kid(t, id, "Results"))
+		} else {
+			endOf(t, kid(t, id, "Params"))
+		}
+	case "StructType":
+		endOf(t, kid(t, id, "Fields"))
+	case "InterfaceType":
+		let r = pos(t, id, "Rbrace")
+		if r >= 0 { r + 1 } else { endOf(t, last(kids(t, id, "Union"))) }
+	case "ErrorRow":
+		endOf(t, last(kids(t, id, "Types")))
+	case "TupleExpr":
+		let r = pos(t, id, "Rparen")
+		if r >= 0 { r + 1 } else { endOf(t, last(kids(t, id, "Elts"))) }
+	case "DeclStmt":
+		endOf(t, kid(t, id, "Decl"))
+	case "AssignStmt":
+		endOf(t, last(kids(t, id, "Rhs")))
+	case "ReturnStmt":
+		let results = kids(t, id, "Results")
+		if len(results) > 0 { endOf(t, last(results)) } else { pos(t, id, "Return") + 6 }
+	case "BranchStmt":
+		pos(t, id, "TokPos") + len(tokenText(num(t, id, "Tok")))
+	case "IfStmt":
+		if has(t, id, "Else") { endOf(t, kid(t, id, "Else")) } else { endOf(t, kid(t, id, "Body")) }
+	case "ForStmt", "RangeStmt", "TestDecl":
+		endOf(t, kid(t, id, "Body"))
+	case "ExternSpec":
+		endOf(t, kid(t, id, "Target"))
+	case "LawDecl":
+		if has(t, id, "Reach") { endOf(t, kid(t, id, "Reach")) } else { endOf(t, kid(t, id, "Body")) }
+	case "LawReach":
+		let targets = kids(t, id, "Targets")
+		if flag(t, id, "Path") {
+			pos(t, id, "Rbrack") + 1
+		} else if has(t, id, "Pred") {
+			endOf(t, kid(t, id, "Pred"))
+		} else if len(targets) == 0 {
+			pos(t, id, "Word") + 1
+		} else {
+			endOf(t, last(targets))
+		}
+	case "VariantSpec":
+		endOf(t, kid(t, id, "Fields"))
+	case "AsPattern":
+		endOf(t, kid(t, id, "Name"))
+	case "InterpolatedString":
+		endOf(t, last(kids(t, id, "Texts")))
+	case _:
+		Unreachable("no End for \(family(t, id))")
+	}
+}
+
+// isDerived is syntax.IsDerived: a declaration the parser derived from a
+// refinement, which the formatter does not print.
+func isDerived(t tree.Tree, id int) bool {
+	match family(t, id) {
+	case "FuncDecl":
+		has(t, id, "Derived")
+	case "LawDecl":
+		has(t, id, "Derived") || has(t, id, "Pair")
+	case _:
+		false
+	}
+}
+
+// skipped are the fields syntax.Inspect does not walk: comments, and the
+// derived declarations and the takes clause's names, which are not
+// expressions of the node.
+func skipped(fam string, name string) bool {
+	name == "Doc" || name == "Comments" || name == "Derived" || name == "Pair" || fam == "TakesClause" && name == "Names"
+}
+
+// forcesBreak reports whether node id prints on several lines even when
+// its source is on one line: it holds a clause list (match, catch) or a
+// statement block with more than one statement (syntax.Inspect's walk).
+func forcesBreak(t tree.Tree, id int) bool {
+	match family(t, id) {
+	case "SwitchStmt", "TypeSwitchStmt", "CatchExpr":
+		return true
+	case "BlockStmt":
+		if len(kids(t, id, "List")) > 1 {
+			return true
+		}
+	case _:
+	}
+	let fam = family(t, id)
+	for f in t.Nodes[id].Fields {
+		if !skipped(fam, f.Name) && itemForces(t, f.Value) {
+			return true
+		}
+	}
+	false
+}
+
+func itemForces(t tree.Tree, it tree.Item) bool {
+	match it {
+	case tree.Ref as r:
+		forcesBreak(t, r.Id)
+	case tree.List as l:
+		for x in l.Items {
+			if itemForces(t, x) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}

@@ -67,6 +67,9 @@ type File struct {
 	Comments []*CommentGroup
 	EOF      Pos
 	lines    []int
+	// Expansion is the record the checker's derive expansion keeps for the
+	// package of this file (internal/sketch/derive), or nil before it.
+	Expansion any
 }
 
 // Pos is the first declaration or comment, or the end of an empty file: a
@@ -157,6 +160,12 @@ type TypeDecl struct {
 	// type's parse function and law from it (refine.go).
 	WherePos Pos
 	Where    Expr
+	// DerivePos and Derive are `derive E` (patterns.md, Derivation;
+	// derive.go), or NoPos and nil. Origin is the derived type a bundle
+	// declaration was derived from, or nil for a written one.
+	DerivePos Pos
+	Derive    Expr
+	Origin    *TypeDecl
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
@@ -237,6 +246,9 @@ func (d *TypeDecl) Pos() Pos {
 	return d.Type
 }
 func (d *TypeDecl) End() Pos {
+	if d.Derive != nil {
+		return d.Derive.End() // derive.go: the bundle stands at the derive
+	}
 	if d.Where != nil {
 		return d.Where.End()
 	}

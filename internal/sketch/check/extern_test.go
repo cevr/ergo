@@ -335,6 +335,17 @@ func EndObject(_ Mine)          {}
 func Null(_ Mine)                {}
 func Number(_ Mine, text string) {}
 func Written(_ Mine) string     { "" }
+func raw(_ Mine, text string)    {}
+func sep(_ Mine)                 {}
+func commaDue(_ Mine) bool       { false }
+func setComma(_ Mine, due bool)  {}
+func html(_ Mine) bool           { false }
+func keyBody(_ Mine, k string)   {}
+func stringBody(_ Mine, s string) {}
+func intBody(_ Mine, n int64)    {}
+func uintBody(_ Mine, n uint64)  {}
+func boolBody(_ Mine, b bool)    {}
+func floatBody(_ Mine, f float64) {}
 
 func use(t json.Text) { t.EndList() }
 
@@ -948,6 +959,7 @@ var unexportedStd = map[string]string{
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
+	"json.Text":       "raw is an unexported operation of json.Text, so only a type of package json implements it",
 }
 
 // openStd records the operation types that did not use the old implicit

@@ -254,9 +254,9 @@ func Fail(w string) int fails Missing { return Missing{Why: w} }
 			units = append(units, u)
 			x := aliases[k]
 			imports += "import " + x + " " + paths[k] + "\n"
-			body += fmt.Sprintf("\tlet mut q%[1]s = %[1]s.Q{N: %[2]d}\n", x, k+1)
-			body += fmt.Sprintf("\tConsole.Println(\"\\(%[1]s.Make().Get()) \\(use%[1]s(%[1]s.Make())) \\(%[1]s.Show(%[1]s.Q{N: %[2]d})) \\(%[1]s.First([]int{}, %[2]d)) \\(bump%[1]s(&q%[1]s))\")\n", x, k+1)
-			header += fmt.Sprintf("func use%[1]s(r %[1]s.Read) int { r.Get() }\nfunc bump%[1]s(b %[1]s.Bump) int { b.Inc() }\n", x)
+			body += fmt.Sprintf("\tlet mut q%[1]s = %[1]s.Q{N: %[2]d}\n\tlet b%[1]s %[1]s.Bump = &q%[1]s\n", x, k+1)
+			body += fmt.Sprintf("\tConsole.Println(\"\\(%[1]s.Make().Get()) \\(use%[1]s(%[1]s.Make())) \\(%[1]s.Show(%[1]s.Q{N: %[2]d})) \\(%[1]s.First([]int{}, %[2]d)) \\(b%[1]s.Inc())\")\n", x, k+1)
+			header += fmt.Sprintf("func use%[1]s(r %[1]s.Read) int { r.Get() }\n", x)
 			expect += strings.Repeat(fmt.Sprint(k+1)+" ", 4) + fmt.Sprint(k+11) + "\n"
 			if k > 0 {
 				// An error type returned from a function whose result is the

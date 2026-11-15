@@ -1,0 +1,200 @@
+// Samples for the capture laws: trees that Check accepts, and texts that
+// a tree matches (witnesses), made from a seed.
+
+// labeler is a source and the number of the next group name, so the
+// groups of one tree have distinct names.
+type labeler { g source, next int }
+
+// CaptureSample is a tree of seed, at most four levels deep, that Check
+// accepts: its groups have distinct names (g0, g1, ...), and an operand
+// of a repeat that could match the empty text is followed by a leaf.
+func CaptureSample(seed int) Node {
+	let mut l = labeler{g: seeded(seed + 104729), next: 0}
+	l.ctree(4)
+}
+
+// Clashing is a tree with two groups of Name.
+type Clashing { Tree Node, Name string }
+
+// Clash is CaptureSample(seed) with one more group whose name an earlier
+// group has, and that name: put after the sample or in an Alt beside it,
+// or a pair of groups of one name when the sample has none. Check must
+// refuse it at the second group of the name.
+func Clash(seed int) Clashing {
+	let base = CaptureSample(seed)
+	let mut g = seeded(seed + 7)
+	let groups = Groups(base)
+	if len(groups) == 0 {
+		let pair = Alt{Left: Group{Name: "d", Of: g.leaf()}, Right: Group{Name: "d", Of: g.leaf()}}
+		return Clashing{Tree: Cat{Parts: []Node{base, pair}}, Name: "d"}
+	}
+	let name = groups[g.next(len(groups))].Name
+	let again = Group{Name: name, Of: g.leaf()}
+	match g.next(2) {
+	case 0:
+		Clashing{Tree: Cat{Parts: []Node{base, again}}, Name: name}
+	case _:
+		Clashing{Tree: Alt{Left: base, Right: again}, Name: name}
+	}
+}
+
+// ctree is a checked tree of at most depth levels.
+func ctree(l *labeler, depth int) Node {
+	if depth <= 1 {
+		return l.g.leaf()
+	}
+	match l.g.next(12) {
+	case 0, 1:
+		let mut parts = []Node{l.ctree(depth - 1), l.ctree(depth - 1)}
+		if l.g.next(2) == 0 {
+			parts = parts.Append(l.ctree(depth - 1))
+		}
+		Cat{Parts: parts}
+	case 2:
+		Alt{Left: l.ctree(depth - 1), Right: l.ctree(depth - 1)}
+	case 3:
+		Star{Of: l.solid(depth - 1)}
+	case 4:
+		Plus{Of: l.solid(depth - 1)}
+	case 5:
+		Quest{Of: l.solid(depth - 1)}
+	case 6:
+		l.g.counted(l.solid(depth - 1))
+	case 7, 8:
+		let name = "g\(l.next)"
+		l.next += 1
+		Group{Name: name, Of: l.ctree(depth - 1)}
+	case 9:
+		Empty
+	case _:
+		l.g.leaf()
+	}
+}
+
+// solid is a checked tree that does not match the empty text and holds
+// at most one group that no other of its groups holds, so it can be the
+// operand of any repeat: two such groups go inside a new one, as in
+// (?<g4>(?<g2>a)(?<g3>b))*.
+func solid(l *labeler, depth int) Node {
+	let mut t = l.ctree(depth)
+	if Nullable(t) {
+		t = Cat{Parts: []Node{t, l.g.leaf()}}
+	}
+	if len(Outer(t)) >= 2 {
+		let name = "g\(l.next)"
+		l.next += 1
+		t = Group{Name: name, Of: t}
+	}
+	t
+}
+
+// Parallel is CaptureSample(seed) followed by a repeat that may run more
+// than once (Star, Plus or a Count to 2 or more) of two or three groups
+// side by side, and the names of those groups, in order. Check must refuse
+// it at that repeat, naming them. Wrapped is the same tree with the
+// repeat's operand inside one more group, entry, which Check accepts.
+func Parallel(seed int) Sided {
+	let mut l = labeler{g: seeded(seed + 31), next: 0}
+	let base = CaptureSample(seed)
+	let mut parts = []Node{}
+	let mut names = []string{}
+	for i in 0..2+l.g.next(2) {
+		let name = "p\(i)"
+		names = names.Append(name)
+		parts = parts.Append(Group{Name: name, Of: l.g.leaf()})
+		if l.g.next(2) == 0 {
+			parts = parts.Append(l.g.leaf())
+		}
+	}
+	let body = Cat{Parts: parts}
+	let kind = l.g.next(3)
+	let min = l.g.next(2)
+	let max = if l.g.next(2) == 0 { -1 } else { 2 + l.g.next(2) }
+	let tree = Cat{Parts: []Node{base, repeatOf(kind, body, min, max)}}
+	let wrapped = Cat{Parts: []Node{base, repeatOf(kind, Group{Name: "entry", Of: body}, min, max)}}
+	Sided{Tree: tree, Names: names, Wrapped: wrapped}
+}
+
+// repeatOf is of under a Star (kind 0), a Plus (kind 1), or else a Count
+// from min to max.
+func repeatOf(kind int, of Node, min int, max int) Node {
+	match kind {
+	case 0:
+		Star{Of: of}
+	case 1:
+		Plus{Of: of}
+	case _:
+		Count{Of: of, Min: min, Max: max, As: Counted(of, min, max)}
+	}
+}
+
+// Sided is a tree with a repeat of the groups Names side by side, and
+// the same tree with those groups inside one group.
+type Sided { Tree Node, Names []string, Wrapped Node }
+
+// Witness is a text that n matches, of seed; n has no class that
+// matches no byte. Repeats take zero to two more copies than they must.
+func Witness(n Node, seed int) string {
+	let mut g = seeded(seed + 15485863)
+	g.word(n)
+}
+
+// word is a text that n matches.
+func word(g *source, n Node) string {
+	match n {
+	case Empty:
+		""
+	case Lit as l:
+		ByteText(l.C)
+	case Any:
+		let i = g.next(len(alphabet))
+		alphabet[i : i+1]
+	case Class as k:
+		classMember(g, k)
+	case Cat as c:
+		let mut out = ""
+		for p in c.Parts {
+			out = out + g.word(p)
+		}
+		out
+	case Alt as a:
+		if g.next(2) == 0 { g.word(a.Left) } else { g.word(a.Right) }
+	case Star as s:
+		g.copies(s.Of, g.next(3))
+	case Plus as p:
+		g.copies(p.Of, 1+g.next(3))
+	case Quest as q:
+		g.copies(q.Of, g.next(2))
+	case Count as c:
+		g.word(c.As)
+	case Group as gr:
+		g.word(gr.Of)
+	}
+}
+
+// copies is k texts that of matches, one after another.
+func copies(g *source, of Node, k int) string {
+	let mut out = ""
+	for _ in 0..k {
+		out = out + g.word(of)
+	}
+	out
+}
+
+// classMember is a byte that k matches, as text: one of the alphabet when
+// k has one, else the first byte it has. k matches some byte.
+func classMember(g *source, k Class) string {
+	let start = g.next(len(alphabet))
+	for d in 0..len(alphabet) {
+		let i = (start + d) % len(alphabet)
+		if k.Has(alphabet[i]) {
+			return alphabet[i : i+1]
+		}
+	}
+	for i in 0..256 {
+		if k.Has(byte(i)) {
+			return ByteText(byte(i))
+		}
+	}
+	Unreachable("Witness of a class that matches no byte")
+}

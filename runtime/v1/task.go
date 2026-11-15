@@ -919,6 +919,39 @@ func (h *Owned) Release() {
 	e.own()
 }
 
+// ReleaseLatestFirst releases the values of hs at a scope's end, last
+// registered first (R5), whatever order hs names them in: an assignment
+// registers a local's new value when it runs (R41), so the order of a
+// scope's values is their entries' order in the frame's list, not their
+// declaration order. A nil handle, or one whose entry left the list, does
+// nothing. A defect of one release leaves as Release's does, and the
+// frame's End releases the rest.
+func ReleaseLatestFirst(hs ...*Owned) {
+	var order []*Owned
+	for i, h := range hs {
+		if h == nil || h.e == nil {
+			continue
+		}
+		walked := false
+		for _, g := range hs[:i] {
+			walked = walked || g != nil && g.e != nil && g.s == h.s
+		}
+		if walked {
+			continue
+		}
+		for e := h.s.last; e != nil; e = e.prev {
+			for _, g := range hs {
+				if g != nil && g.e == e {
+					order = append(order, g)
+				}
+			}
+		}
+	}
+	for _, h := range order {
+		h.Release()
+	}
+}
+
 // runOwn is the frame's release of an owned value at its End: a defect
 // joins the frame's exits, and the releases after it still run (R9).
 func (s *Scope) runOwn(e *entry) {

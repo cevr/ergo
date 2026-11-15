@@ -17,6 +17,18 @@ type ordered interface{ integer | float | ~string }
 // types give the target's wrapping and rounding; the defects Go panics on
 // (an integer divided by zero, a negative shift) are defects here.
 func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) (Value, *abrupt) {
+	if in.sym != nil && (symbolic(a) || symbolic(b)) {
+		// A symbolic run takes a term only for + on strings (symbolic.go).
+		_, sa := a.(string)
+		_, sb := b.(string)
+		if op != syntax.ADD || !(sa || stringTerm(a)) || !(sb || stringTerm(b)) {
+			return nil, fr.abrupt(ctlUnsupported, at, nil, frameName(fr)+" computes with a symbol at "+in.siteText(fr, at.Pos()))
+		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return concatString(a, b), nil
+	}
 	switch op {
 	case syntax.EQL, syntax.NEQ:
 		eq, ab := in.equal(fr, at, a, b)

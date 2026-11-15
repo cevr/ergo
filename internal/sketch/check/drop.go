@@ -60,6 +60,12 @@ type Drop struct {
 	// (Drain ends admission) or a Task's result no Wait delivered (after
 	// its Close), released last entered first; nil for none.
 	Drain *Drop
+	// Own is, for a type with a written Close, the release of its parts
+	// that the Close's function runs after its body (R3): every caller of
+	// the Close (an explicit x.Close(), an operation type's Close, the
+	// generated release) releases the whole value. d then has no parts of
+	// its own; Info.CloseParts gives Own to the Close's lowering.
+	Own *Drop
 }
 
 // DropField is one part of a record or tuple: its index into the
@@ -224,5 +230,30 @@ func (w *dropWalk) visit(t Type) *Drop {
 		// or a part no rule above releases.
 		w.bad = t.String()
 	}
+	if d.Close != nil && d.Close.Func != nil && d.Close.Op == nil && (len(d.Fields) > 0 || d.Elem != nil || len(d.Variants) > 0) {
+		if n, ok := t.(*Named); ok && w.c.closeMethod(n) == d.Close.Func {
+			d.Own = &Drop{Type: t, Fields: d.Fields, Elem: d.Elem, Variants: d.Variants}
+			d.Fields, d.Elem, d.Variants = nil, nil, nil
+		}
+	}
 	return d
+}
+
+// closeParts records the parts a written Close f releases after its body
+// (Drop.Own, R3) in Info.CloseParts, for the Close's lowering.
+func (c *checker) closeParts(f *Func) {
+	if f.Sig == nil || len(f.Sig.Params) != 1 {
+		return
+	}
+	recv := f.Sig.Params[0].Type
+	if p, ok := recv.(*Pointer); ok {
+		recv = p.Elem
+	}
+	n, ok := recv.(*Named)
+	if !ok || c.closeMethod(n) != f {
+		return
+	}
+	if d, bad := c.dropOf(n); bad == "" && d != nil && d.Own != nil {
+		f.Pkg.Info.CloseParts[f] = d.Own
+	}
 }

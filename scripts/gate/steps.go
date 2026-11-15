@@ -545,7 +545,7 @@ func examplesStep(root string) (*Step, error) {
 		return nil, err
 	}
 	return &Step{
-		Name:  "examples (default)",
+		Name:  examplesStepName,
 		Class: classFast,
 		Needs: []string{"build bin/ergo"},
 		Argv:  []string{"go", "run", examplesRunner},
@@ -558,6 +558,9 @@ func examplesStep(root string) (*Step, error) {
 		},
 	}, nil
 }
+
+// examplesStepName names the examples step.
+const examplesStepName = "examples (default)"
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"

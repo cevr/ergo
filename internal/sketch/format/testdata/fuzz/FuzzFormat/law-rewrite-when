@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Pos int\n\nlet AfterValue Pos = 1\n\ntype Text {\n\tpos() Pos,\n\tsep(),\n\traw(s string),\n\tlaw SepAfterValue() when pos() == AfterValue { sep() } == { raw(\",\") },\n}\n")

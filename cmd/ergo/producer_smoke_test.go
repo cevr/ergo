@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -232,11 +231,11 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 		}
 	})
 
-	// A causal sentinel names every caller of producer.Current. Compilation
-	// and emission never acquire. build and run, which key the emission
-	// cache, acquire exactly once, at the cache key (build.CompilerIdentity),
-	// on a miss and on a hit. check, diagnostics and a build refusal, which
-	// print facts, acquire from the command, never from the cache.
+	// A causal sentinel names every caller of producer.Current. The checked
+	// std key needs the producer before checking; emission reuses that
+	// acquisition. build and run still acquire exactly once, through
+	// build.CompilerIdentity, on a miss and on a hit. Commands that print
+	// facts also request their full report identity from the command.
 	t.Run("lazy-acquisition", func(t *testing.T) {
 		t.Parallel()
 		directory, file := workspace(t)
@@ -287,8 +286,8 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 		for _, args := range [][]string{{"check", file}, {"diagnostics", file}, {"build", bad}} {
 			_, stderr, _ := runSmokeCLI(t, lazy, directory, "", args...)
 			callers := acquisitions(stderr)
-			if len(callers) == 0 || slices.Contains(callers, cacheKey) {
-				t.Fatalf("ergo %v acquired %v; want the command to acquire for its facts, and the cache never", args, callers)
+			if len(callers) != 2 || callers[0] != cacheKey || callers[1] == cacheKey {
+				t.Fatalf("ergo %v acquired %v; want one std-key acquire then the command's report identity", args, callers)
 			}
 		}
 	})

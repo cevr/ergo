@@ -45,6 +45,9 @@ func bindCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo bind: " + err.Error()}
 	}
+	if err := useGoCommand(); err != nil {
+		return exitStatusError{code: 1, message: "ergo bind: " + err.Error()}
+	}
 	env := os.Environ()
 	v, err := gobind.GoVersion(env)
 	if err != nil {
@@ -78,6 +81,27 @@ func bindCommand(args []string) error {
 	sort.Strings(paths)
 	for _, p := range paths {
 		fmt.Print(files[p])
+	}
+	return nil
+}
+
+// useGoCommand makes the selected go command (goCommand) the one that
+// go list and go env run in this process and its children: its directory
+// first on PATH, and for the managed release its GOROOT with
+// GOTOOLCHAIN=local, so a binding is typed against the Go that builds.
+func useGoCommand() error {
+	selected, err := goCommand()
+	if err != nil || selected.Mode == "system" {
+		return err
+	}
+	dir := filepath.Dir(selected.Go)
+	if path := os.Getenv("PATH"); path != "" {
+		dir += string(os.PathListSeparator) + path
+	}
+	os.Setenv("PATH", dir)
+	if selected.Root != "" {
+		os.Setenv("GOROOT", selected.Root)
+		os.Setenv("GOTOOLCHAIN", "local")
 	}
 	return nil
 }

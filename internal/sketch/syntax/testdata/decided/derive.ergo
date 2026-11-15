@@ -1,0 +1,15 @@
+// Derived types (patterns.md, Derivation 1): derive is a contextual word.
+type Date derive Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?`)
+
+type Ticket derive Fixed("TK", 6)
+
+type Port derive Refine(Of[int](), 1, 65535)
+
+// A type over a type named derive, at the end of its line.
+type Alias derive
+
+type derive int
+
+func Fixed(prefix string, width int) TypePlan {
+	Pattern("\(prefix)-(?<Num>[0-9]{\(width)})")
+}

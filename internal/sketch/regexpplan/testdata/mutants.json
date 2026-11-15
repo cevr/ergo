@@ -1,0 +1,148 @@
+{
+  "about": "RC3 bounded tagged byte matcher. These are new seams; no previous package, law or example tests this engine. Seeded AST semantics are tested, not emission authority.",
+  "mutants": [
+    {
+      "name": "rc3-priority-reversed",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/nfa.go",
+      "from": "visit(thread{i.x, t.h})\n\t\t\tvisit(thread{i.y, t.h})",
+      "to": "visit(thread{i.y, t.h})\n\t\t\tvisit(thread{i.x, t.h})",
+      "rule": "Ordered alternatives and greedy repetition preserve first successful path priority.",
+      "killers": ["internal/sketch/regexpplan:TestTaggedConstructionAgrees"]
+    },
+    {
+      "name": "rc3-fallback-last-history-only",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/nfa.go",
+      "from": "return events\n}",
+      "to": "if len(events)>2 { return events[len(events)-2:] }; return events\n}",
+      "rule": "Canonical fallback keeps all capture occurrences and nested event correlation.",
+      "killers": ["internal/sketch/regexpplan:TestTaggedConstructionAgrees"]
+    },
+    {
+      "name": "rc3-validator-ignores-tag-order",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/validate.go",
+      "from": "!slices.Equal(got.tags, expected.tags) || ",
+      "to": "",
+      "rule": "Construction checks symbolic action identity, not sampled capture values.",
+      "killers": ["internal/sketch/regexpplan:TestConstructionRejectsCorruption"]
+    },
+    {
+      "name": "rc3-validator-loses-eof",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/validate.go",
+      "from": "for b, got := range s.edges {",
+      "to": "for b, got := range s.edges { if b==256 { continue };",
+      "rule": "Every reachable state includes end-of-input in its complete correspondence.",
+      "killers": ["internal/sketch/regexpplan:TestConstructionRejectsCorruption"]
+    },
+    {
+      "name": "rc3-validator-loses-byte",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/validate.go",
+      "from": "for b, got := range s.edges {",
+      "to": "for b, got := range s.edges { if b==255 { continue };",
+      "rule": "All 256 input bytes, including non-ASCII input failure paths, are checked.",
+      "killers": ["internal/sketch/regexpplan:TestConstructionRejectsCorruption"]
+    },
+    {
+      "name": "rc3-work-exhaustion-is-proof",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/validate.go",
+      "from": "if n > limits.Work-work {",
+      "to": "if false {",
+      "rule": "A bounded attempt that runs out of work selects NFA, never a proved candidate.",
+      "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
+    },
+    {
+      "name": "rc3-ambiguous-history-admitted",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/validate.go",
+      "from": "return nil, work, \"competing byte or acceptance histories\"",
+      "to": "continue",
+      "rule": "A deterministic edge cannot merge competing priority histories.",
+      "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
+    },
+    {
+      "name": "rc3-nullable-repeat-admitted",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/plan.go",
+      "from": "if childNull[0] {",
+      "to": "if false {",
+      "rule": "Nullable repeated bodies are refused before they can generate unbounded empty history.",
+      "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
+    },
+    {
+      "name": "rc3-expansion-budget-ignored",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/plan.go",
+      "from": "body := size - 1",
+      "to": "body := 0",
+      "rule": "Oversized bounded repetition is refused before materialization.",
+      "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
+    },
+    {
+      "name": "rc3-dedup-ignores-capture-policy",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/plan.go",
+      "from": "mode, p.names, p.code, p.start",
+      "to": "mode, []string{}, p.code, p.start",
+      "rule": "Capture identities, mode, byte profile and all-occurrences policy participate in semantic cache identity.",
+      "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
+    },
+    {
+      "name": "rc3-emitter-drops-actions",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/emit.go",
+      "from": "e.to, actionLiteral(e.tags), e.accept",
+      "to": "e.to, actionLiteral(nil), e.accept",
+      "rule": "The actual emitted direct action representation is validated before export.",
+      "killers": ["internal/sketch/regexpplan:TestTaggedConstructionAgrees"]
+    },
+    {
+      "name": "rc3-emitted-driver-truncates-history",
+      "origin": "wf10 RC3",
+      "file": "internal/sketch/regexpplan/emit.go",
+      "from": "best=make([][2]int,n)",
+      "to": "best=make([][2]int,n); if n>2 {n=2;best=best[:2]}",
+      "rule": "The actual NFA Go driver preserves histories, including paths that cannot be one-pass.",
+      "killers": ["internal/sketch/regexpplan:TestEmittedDriversAgree"],
+      "anchor": {
+        "text": "src += strings.NewReplacer(\"FIND\", find, \"INITIAL\", strconv.Itoa(p.start), \"PROGRAM\", program.String()).Replace(nfaMatch)",
+        "tests": ["internal/sketch/regexpplan:TestEmittedDriversAgree"]
+      }
+    },
+    {
+      "name": "rc4b-find-no-dedup",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "\t\t\tif seen[t.pc] == pos+1 {\n",
+      "to": "\t\t\tif false && seen[t.pc] == pos+1 {\n",
+      "rule": "A find runs every start in one pass: a thread that reaches a visited instruction is dropped, so work per byte is bounded (Lowering 4).",
+      "killers": ["internal/sketch/regexpplan:TestFindIsLinear"]
+    },
+    {
+      "name": "rc4b-parse-at-off-by-one",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "\t\tif len(ready) > 0 {\n\t\t\tat = pos\n",
+      "to": "\t\tif len(ready) > 0 {\n\t\t\tat = pos + 1\n",
+      "rule": "NoMatch.At is the longest prefix that is a prefix of a word, for every engine (The pattern bundle 2).",
+      "killers": ["internal/sketch/regexpplan:TestSlotDriverAgrees"]
+    },
+    {
+      "name": "rc4b-slot-close-swapped",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "{r[2-2*tag]=pos}",
+      "to": "{r[1-2*tag]=pos}",
+      "rule": "The emitted typed result keeps each capture's open and close in its own slot (Lowering 3).",
+      "killers": ["internal/sketch/regexpplan:TestEmittedSlotDriversAgree"],
+      "anchor": {
+        "text": "return strings.NewReplacer(\"NAME\", name,",
+        "tests": ["internal/sketch/regexpplan:TestEmittedSlotDriversAgree"]
+      }
+    }
+  ]
+}

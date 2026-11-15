@@ -329,6 +329,8 @@ func describe(v Value) string {
 		return formatFloat(v, 64)
 	case unit:
 		return "no value"
+	case term:
+		return v.termText()
 	}
 	if s, ok := describeColl(v); ok {
 		return s

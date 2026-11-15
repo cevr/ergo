@@ -80,7 +80,7 @@ func catchBinding(info *check.Info, x *syntax.CatchExpr) *check.Pattern {
 func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand) operand {
 	result, reuse := "", false
 	if m.Result != nil {
-		if t, ok := fc.typed(x.X); ok && o.val != "" && goIdent(o.val) && fc.goType(t) == fc.goType(m.Result) {
+		if t, ok := fc.typed(x.X); ok && o.val != "" && goIdent(o.val) && fc.goType(t) == fc.goType(m.Result) && !fc.l.info.ReturnedTemps[check.ReturnedKey(x.X)] {
 			// The call's result is a temporary of the catch's Go type:
 			// the arm writes over it.
 			result, reuse = o.val, true
@@ -88,6 +88,8 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 			result = fc.temp("v")
 			fc.line("var " + result + " " + fc.goType(m.Result))
 		}
+		fc.armHeldVar(x, result)
+		fc.armValueVar(x, result)
 	} else if o.val != "" {
 		fc.line("_ = " + o.val)
 	}
@@ -108,9 +110,10 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 	fc.depth--
 	if result != "" && !reuse && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), fc.caughtValue(x, m, o.val)))
 	}
 	fc.line("}")
+	fc.armValueEnd(x, result)
 	return operand{val: result}
 }
 

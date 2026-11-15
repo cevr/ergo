@@ -1,0 +1,36 @@
+// Package counter declares the bounded counter contract. A digit is the
+// complete input domain, not a sample of the integers.
+type Digit int where 0 <= it && it <= 9
+
+type Counter {
+	Add(n Digit),
+	Total() Digit,
+	law AddJoins(a Digit, b Digit) { Add(a); Add(b) } == { Add(Plus(a, b)) },
+}
+
+// Plus is addition on a ten-position wheel. Its result is a Digit on every
+// path, with no failed conversion or host call hidden inside the proof.
+func Plus(a Digit, b Digit) Digit {
+	match (int(a) + int(b)) % 10 {
+	case 0:
+		0
+	case 1:
+		1
+	case 2:
+		2
+	case 3:
+		3
+	case 4:
+		4
+	case 5:
+		5
+	case 6:
+		6
+	case 7:
+		7
+	case 8:
+		8
+	case _:
+		9
+	}
+}

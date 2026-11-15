@@ -189,8 +189,9 @@ type pass struct {
 	examined, removed int
 }
 
-// trim is one bounded pass from cursor over Root/modules, Root/staging and
-// Root/private, in that order, as one sequence of names. It passes over the
+// trim is one bounded pass from cursor over Root/modules, Root/staging,
+// Root/private and the direct path's Root/go/plans, Root/go/actions and
+// Root/go/blobs, in that order, as one sequence of names. It passes over the
 // first cursor names, which earlier passes of this trim examined, then
 // examines at most sweepEntries names and removes at most sweepRemovals
 // directories. The next cursor counts the names it passed over and
@@ -209,6 +210,9 @@ func (c Cache) trim(now time.Time, cursor int) pass {
 		{filepath.Join(c.Root, "modules"), c.trimEntry},
 		{filepath.Join(c.Root, "staging"), c.trimStaging},
 		{filepath.Join(c.Root, "private"), c.reclaim},
+		{filepath.Join(c.Root, "go", "plans"), trimFile},
+		{filepath.Join(c.Root, "go", "actions"), trimFile},
+		{filepath.Join(c.Root, "go", "blobs"), trimFile},
 	}
 	var p pass
 	passed := 0
@@ -248,6 +252,19 @@ func (c Cache) trim(now time.Time, cursor int) pass {
 // unusedLimit and no build holds it, and reports whether it did.
 func (c Cache) trimEntry(now time.Time, path string) bool {
 	return c.takeAside(now, path, unusedLimit)
+}
+
+// trimFile removes a file of the direct build path (direct.go: a plan, an
+// action record or a blob) that no build used for unusedLimit, and reports
+// whether it did. It takes no lock: each file is written whole by a rename
+// and only read after, and a build that finds one gone makes it again, or
+// falls back to go build when a link loses it.
+func trimFile(now time.Time, path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) <= unusedLimit {
+		return false
+	}
+	return os.Remove(path) == nil
 }
 
 // trimStaging removes the staging directory at path when it is older than

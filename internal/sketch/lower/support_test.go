@@ -105,6 +105,17 @@ func needsBuild(t testing.TB) {
 	}
 }
 
+// defaultLoweringOnly marks a test of the rewrite engine itself (its
+// work, or the fast form it writes): a build with
+// -X …/lower.rewriteLowering=reference turns the engine off, so the test
+// has nothing to observe there and is skipped.
+func defaultLoweringOnly(t testing.TB) {
+	t.Helper()
+	if rewriteLowering == "reference" {
+		t.Skip("default lowering only: it observes the rewrite engine, which rewriteLowering=reference turns off")
+	}
+}
+
 // fastTierGuard fails a test that reaches a helper that builds or runs Go
 // under -short: such a test lacks needsBuild, and would build in the fast
 // tier by accident. buildAll (with a link), runProgram and ergoCLI call it.

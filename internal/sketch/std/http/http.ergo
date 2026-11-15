@@ -6,7 +6,6 @@
 // A handler that needs to send its body in parts uses Stream, through the
 // Streaming capability Serve binds per request.
 
-import json
 import strings
 import sync
 
@@ -108,19 +107,21 @@ func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 type Streaming {
 	open(status int, header []Field) BodyWriter,
 	close() string,
-	reply(status int, header []Field, t json.Text) string,
+	reply(status int, header []Field, body []byte) string,
 }
 
-// SendText answers the request with status, header and the JSON text t
-// as its body, of t's length. Under Serve it writes t's bytes to the
-// connection where they are, with no string of the body, and the
-// result's Body is empty; under a Recorder the Body is t's text. A
-// response that has started (a Stream or a SendText before) is a defect.
-// json.With lends the Text, so the body's bytes are written once, into a
-// pooled buffer (GX9).
-func SendText(status int, header []Field, t json.Text) Response needs Streaming {
-	Response{Status: status, Header: header, Body: Streaming.reply(status, header, t)}
+// SendBytes answers the request with status, header and body, of body's
+// length. Under Serve it writes body to the connection where it is, with
+// no string of it, and the result's Body is empty; under a Recorder the
+// Body is body's text. A response that has started (a Stream or a
+// SendBytes before) is a defect. json.EncodeWith lends a value's text as
+// bytes, so a JSON body is written once, into a pooled buffer (GX9).
+func SendBytes(status int, header []Field, body []byte) Response needs Streaming {
+	Response{Status: status, Header: header, Body: Streaming.reply(status, header, body)}
 }
+
+// bytesText is the bytes of b as a string (a Recorder's body).
+extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(b []byte) string
 
 // Stream answers the request with status and header, then a body that
 // write sends in parts (Effect HttpServerResponse.stream; Go's Flusher).
@@ -147,9 +148,9 @@ type Exchange {
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,
 	End(),
-	// Send writes status, header and t's text as the whole response, with
-	// its length.
-	Send(status int, header []Field, t json.Text),
+	// Send writes status, header and body as the whole response, with its
+	// length.
+	Send(status int, header []Field, body []byte),
 }
 
 // live is Serve's Streaming provider for one request.
@@ -165,8 +166,8 @@ func close(l live) string {
 	""
 }
 
-func reply(l live, status int, header []Field, t json.Text) string {
-	l.x.Send(status, header, t)
+func reply(l live, status int, header []Field, body []byte) string {
+	l.x.Send(status, header, body)
 	""
 }
 
@@ -197,10 +198,10 @@ func close(r Recorder) string {
 	r.text.Get()
 }
 
-func reply(r Recorder, status int, header []Field, t json.Text) string {
+func reply(r Recorder, status int, header []Field, body []byte) string {
 	if r.state.Get() != 0 {
-		Unreachable("http.SendText: the response has already started")
+		Unreachable("http.SendBytes: the response has already started")
 	}
 	r.state.Set(2)
-	t.Written()
+	bytesText(body)
 }

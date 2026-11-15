@@ -457,7 +457,19 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		return s, nil, "", nil
 	case *syntax.SelectorExpr:
 		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
-			return nil, nil, "a field through a pointer", nil
+			if in.sym == nil {
+				return nil, nil, "a field through a pointer", nil
+			}
+			// A field of a provider's cell (symbolic.go).
+			v, ab := in.expr(fr, x.X)
+			if ab != nil {
+				return nil, nil, "", ab
+			}
+			c, isCell := v.(*cell)
+			if !isCell {
+				return nil, nil, "a pointer that is no provider cell", nil
+			}
+			return c.s, []step{{at: x, field: x.Sel.Name}}, "", nil
 		}
 		root, steps, why, ab := in.place(fr, x.X)
 		if ab != nil || why != "" {

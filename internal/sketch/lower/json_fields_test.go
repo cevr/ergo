@@ -88,8 +88,7 @@ test JsonFieldsAgree(i input) {
 	let back = json.Decode(c[fields](), text) catch { case _: assert false; v }
 	assert back == v
 	let t = json.NewText()
-	let w Writer = t
-	encode(v, w)
+	encode(v, t)
 	assert t.Written() == want
 	// A field typed by a type parameter takes the form of its argument.
 	// Inside a generic function the record's codec takes T's witness.
@@ -103,8 +102,7 @@ func encodeVia[T wire, U wire](g boxed[T, U]) string { json.Encode(c[boxed[T, U]
 
 func writeVia[T wire, U wire](g boxed[T, U]) string {
 	let t = json.NewText()
-	let w Writer = t
-	encode(g, w)
+	encode(g, t)
 	t.Written()
 }
 

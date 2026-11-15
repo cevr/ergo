@@ -111,6 +111,8 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	why := tg.why
 	if law.Unrun != "" {
 		why = law.Unrun
+	} else if law.Decl.Rewrite != nil && why == "" {
+		why = RewriteVerdict()
 	}
 	if why != "" {
 		res.Status, res.Reason = Skipped, why

@@ -1,0 +1,106 @@
+// Inside matching keeps the original pattern, before Search's .* prefix
+// hides its leading literal. Compiled and Simulation stay the reference.
+
+import regex/engine
+import regex/syntax
+import strings
+import machines
+
+// Search compiles an Inside matcher; Compile still matches Whole texts.
+func Search(_ Engine, pattern syntax.Node) engine.Matcher { NewSearchCompiled(pattern) }
+
+// SearchCompiled owns only immutable pattern data, never scan scratch.
+type SearchCompiled { prefix syntax.Prefix, program Program }
+
+// NewSearchCompiled selects an algorithm once, not for every input line.
+func NewSearchCompiled(pattern syntax.Node) SearchCompiled {
+	let prefix = syntax.Leading(pattern)
+	let p = if !prefix.Complete && prefix.Text == "" { syntax.Search(pattern) } else { pattern }
+	SearchCompiled{prefix: prefix, program: Build(p)}
+}
+
+// Work counts candidate NFA starts and byte transitions, not elapsed time,
+// hardware instructions or allocations. A complete literal starts no NFA.
+type Work { Matched bool, Starts int, Transitions int }
+
+// Matches reports whether the original pattern occurs anywhere in text.
+func Matches(c SearchCompiled, text string) bool {
+	if c.prefix.Complete {
+		return strings.Contains(text, c.prefix.Text)
+	}
+	let mut w = NewWorkspace(c.program.Len())
+	c.RunSearch(&w, text).Matched
+}
+
+// Measure retains the R1 search as a selectable reference with work counters. A failed
+// candidate advances one byte, so overlapping prefixes remain candidates.
+func Measure(c SearchCompiled, text string) Work {
+	if c.prefix.Complete {
+		return Work{Matched: strings.Contains(text, c.prefix.Text), Starts: 0, Transitions: 0}
+	}
+	if c.prefix.Text == "" {
+		return scan(c.program, text)
+	}
+	let mut work = Work{Matched: false, Starts: 0, Transitions: 0}
+	let mut next = strings.Index(text, c.prefix.Text)
+	if next < 0 {
+		return work
+	}
+	let mut i = next
+	let mut at = []int{}
+	for i <= len(text) {
+		if i == next {
+			// Union this candidate with earlier live configurations. Resetting
+			// here loses earlier matches; rescanning each suffix is quadratic.
+			at = closure(c.program, at.Append(c.program.start))
+			work.Starts += 1
+			let resume = i + 1
+			let offset = strings.Index(text[resume:], c.prefix.Text)
+			next = if offset < 0 { -1 } else { resume + offset }
+		}
+		if accepts(c.program, at) {
+			work.Matched = true
+			return work
+		}
+		if i == len(text) {
+			return work
+		}
+		if len(at) == 0 {
+			if next < 0 {
+				return work
+			}
+			i = next
+			continue
+		}
+		at = advance(c.program, at, text[i])
+		work.Transitions += 1
+		i += 1
+	}
+	work
+}
+
+// scan counts the original Simulation's byte/End operations for a
+// no-prefix fallback Search program. No mutable storage escapes a scan.
+func scan(p Program, text string) Work {
+	let m = machines.Start(Simulation{}, p)
+	let mut state = machines.Initial(m)
+	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
+	for i in 0..len(text) {
+		let d = m.Step(state, Read{C: text[i]})
+		work.Transitions += 1
+		match d {
+		case Done[bool] as out:
+			work.Matched = out.Output
+			return work
+		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		}
+		state = machines.Next(state, d)
+	}
+	match m.Step(state, End) {
+	case Done[bool] as out:
+		work.Matched = out.Output
+	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		Unreachable("Simulation is Done at End")
+	}
+	work
+}

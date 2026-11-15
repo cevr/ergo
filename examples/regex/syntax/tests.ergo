@@ -38,6 +38,57 @@ test FailuresAreNamed {
 	assert failure("a(b|c)*d") == "ok"
 }
 
+// RC1-digit-literal, RC1-count-extra-copy: no law reads "\d" or a
+// Count's As against its counts, since Print writes neither.
+test ParsesCountsAndGroups {
+	let digits = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}}, Negated: false}
+	assert (try Parse("(?<Year>\\d{4})")) == Group{Name: "Year", Of: Count{Of: digits, Min: 4, Max: 4, As: Cat{Parts: []Node{digits, digits, digits, digits}}}}
+	let word = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}, Span{Lo: '_', Hi: '_'}}, Negated: false}
+	assert (try Parse("[\\d_]{2,}")) == Count{Of: word, Min: 2, Max: -1, As: Cat{Parts: []Node{word, word, Star{Of: word}}}}
+	let x = Lit{C: 'x'}
+	assert (try Parse("x{1,3}")) == Count{Of: x, Min: 1, Max: 3, As: Cat{Parts: []Node{x, Quest{Of: Cat{Parts: []Node{x, Quest{Of: x}}}}}}}
+	assert (try Parse("a{,2}")) == Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: '{'}, Lit{C: ','}, Lit{C: '2'}, Lit{C: '}'}}}
+}
+
+test CaptureFailuresAreNamed {
+	assert failure("(?x)") == "bad group at 0: want (?<name>"
+	assert failure("(?<1a>x)") == "bad group at 0: want (?<name>"
+	assert failure("a{3,2}") == "bad repeat {3,2} at 1"
+	assert failure("a{1001}") == "bad repeat {1001} at 1"
+	assert failure("a{1000}{5}") == "bad repeat {5} at 7"
+	assert failure("{2}") == "nothing to repeat before {2} at 0"
+	assert refusal("(a?)*") == "repeat a?* can match the empty text"
+	assert refusal("(?<X>x)(?<X>y)") == "group name X is used twice: group 2, (?<X>y), repeats it"
+	assert refusal("(?<A>(?<X>a)|(?<X>a))") == "group name X is used twice: group 3, (?<X>a), repeats it"
+	assert refusal("(?<X>a){2}") == "ok"
+	assert refusal("((?<K>a)=(?<V>b);)*") == "repeat ((?<K>a)=(?<V>b);)* holds groups K, V side by side: name the repeated group, (?<Entry>…)*, so each occurrence is one record"
+	assert refusal("(?<Pair>(?<K>a)=(?<V>b);)*") == "ok"
+	assert refusal("((?<K>a)(?<V>b))?(x(?<K2>a)(?<V2>b)){0,1}") == "ok"
+	let fake = Count{Of: Lit{C: 'a'}, Min: 2, Max: 2, As: Lit{C: 'a'}}
+	assert refusalOf(fake) == "repeat a{2} is not a counted repeat that Parse makes"
+	assert refusal("x[^\x00-\xff]") == "class [^\x00-\xff] matches no byte"
+	assert refusal("(?<X>a|b?)+c") == "repeat (?<X>a|b?)+ can match the empty text"
+	assert refusal("(?<A>a)+(?<B>b{0,2}c)") == "ok"
+}
+
+// refusal is the message of Check on the tree of text, or "ok".
+func refusal(text string) string {
+	let n = Parse(text) catch {
+	case err:
+		return Describe(err)
+	}
+	refusalOf(n)
+}
+
+// refusalOf is the message of Check on n, or "ok".
+func refusalOf(n Node) string {
+	let _ = Check(n) catch {
+	case err:
+		return DescribeCapture(err)
+	}
+	"ok"
+}
+
 test PrintsCanonically {
 	assert Print(try Parse("a(b|c)*d")) == "a(b|c)*d"
 	assert Print(try Parse("((a))(b)")) == "ab"

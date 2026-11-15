@@ -194,6 +194,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 		"lowerer.testDecl":         "a test's declared header: func ergoTestName(env *Env, ...)",
 		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
+		"lowerer.rewriteFunc":      "a rewrite law side's declared header: func ergoLawTLLeft(env *Env, ...) error (types.md, Laws 14)",
 		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
 		"funcCtx.operations":       "an Env value of the caller's task for an operation table",
 		"funcCtx.witnessMethod":    "an Env value of the caller's task for a witness adapter",

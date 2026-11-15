@@ -198,7 +198,6 @@
     "TestMatchTreeShape": 0,
     "TestNamingWorkIsLinear": 0.5,
     "TestNeedsBuildComesFirst": 0,
-    "TestNestedEncodeKeepsTheFastText": 0,
     "TestNoValueTypeArgumentsLower": 0.7,
     "TestOSProcessRuns": 0,
     "TestOwnershipRunModel": 13.7,

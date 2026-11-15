@@ -11,7 +11,7 @@ import (
 )
 
 // TestHTTPSendWritesTheText sends seeded JSON texts through a loopback
-// server with Exchange.Send (std http SendText, GX9): the client gets the
+// server with Exchange.Send (std http SendBytes, GX9): the client gets the
 // text as the whole body, with its length declared, never chunked, for a
 // GET and for a HEAD (which gets the length and no body); the response
 // the handler returns after Send is not sent; a Write after Send fails.
@@ -25,7 +25,7 @@ func TestHTTPSendWritesTheText(t *testing.T) {
 	texts := make(chan string, 1)
 	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		text := <-texts
-		x.Send(200, []HTTPField{{"Content-Type", "application/json"}}, &Text{B: []byte(text)})
+		x.Send(200, []HTTPField{{"Content-Type", "application/json"}}, []byte(text))
 		if err := x.Write(ct, "more"); err != (HTTPWriteFailed{Reason: "the stream has ended"}) {
 			t.Errorf("write after Send: %v", err)
 		}

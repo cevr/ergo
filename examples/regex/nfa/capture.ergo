@@ -1,0 +1,198 @@
+// Captures on the NFA: a tagged machine (Pike's) whose state is a list
+// of threads in priority order, each an instruction and the history of
+// the path that reached it. A Save on a path adds its event to that
+// path's history. Two threads at one instruction and offset have the
+// same future, so the first, the one of higher priority, is kept and the
+// other dropped; that keeps the list as long as the program at most and
+// keeps the history of the path the reference engine would choose.
+
+import machines
+import regex/syntax
+import slices
+
+// Thread is an instruction that reads a byte, or Accept, and the history
+// of the path that reached it.
+type Thread { Pc int, H syntax.History }
+
+// Begin is what the tagged machine starts from: the program, the offset
+// of the first byte it reads, and whether it finds (a match may end
+// anywhere) or parses (a match ends at the End).
+type Begin { P Program, At int, Find bool }
+
+// Best is the end and the history of the match found so far.
+type Best { End int, H syntax.History }
+
+// Tagged is what the tagged machine outputs: its match, and its work.
+type Tagged { Match Option[Best], Work TagWork }
+
+// TagWork counts the tagged machine's work: Steps is the threads moved
+// over a byte, Events the Save instructions followed.
+type TagWork { Steps int, Events int }
+
+// Tags is the tagged machine's state. A machine's state is a union
+// (G-ex-c-16), so Tags is a union of one variant.
+type Tags = Running{B Begin, Threads []Thread, At int, Best Option[Best], Work TagWork}
+
+// StartTags is the state before the first byte: the closure of the start
+// instruction with an empty history.
+func StartTags(b Begin) Tags {
+	let mut v = newVisit(b.P)
+	v.add(b.P, b.P.start, syntax.Start, b.At)
+	settle(Running{B: b, Threads: v.out, At: b.At, Best: None, Work: TagWork{Steps: 0, Events: v.events}})
+}
+
+// StepTags is the tagged machine's transition. On a byte it moves every
+// thread that reads it, in order; at the End it is Done with its match.
+// It is Done early when no thread is left.
+func StepTags(s Tags, sig Signal) Decision[Tags, Tagged] {
+	match (s, sig) {
+	case (Running as r, Read as rd):
+		let mut v = newVisit(r.B.P)
+		for t in r.Threads {
+			match r.B.P.insts[t.Pc] {
+			case Byte as b:
+				if b.C == rd.C {
+					v.add(r.B.P, b.Next, t.H, r.At+1)
+				}
+			case AnyByte as a:
+				v.add(r.B.P, a.Next, t.H, r.At+1)
+			case Set as st:
+				if st.Class.Has(rd.C) {
+					v.add(r.B.P, st.Next, t.H, r.At+1)
+				}
+			case Split, Save, Accept:
+			}
+		}
+		let work = TagWork{Steps: r.Work.Steps + len(r.Threads), Events: r.Work.Events + v.events}
+		let next = settle(Running{B: r.B, Threads: v.out, At: r.At + 1, Best: r.Best, Work: work})
+		match next {
+		case Running as n:
+			if len(n.Threads) == 0 {
+				return Done[Tagged]{Output: Tagged{Match: n.Best, Work: n.Work}}
+			}
+		}
+		Enter[Tags]{Next: next}
+	case (Running as r, End):
+		if r.B.Find {
+			return Done[Tagged]{Output: Tagged{Match: r.Best, Work: r.Work}}
+		}
+		for t in r.Threads {
+			match r.B.P.insts[t.Pc] {
+			case Accept:
+				return Done[Tagged]{Output: Tagged{Match: Some{Value: Best{End: r.At, H: t.H}}, Work: r.Work}}
+			case _:
+			}
+		}
+		Done[Tagged]{Output: Tagged{Match: None, Work: r.Work}}
+	}
+}
+
+// settle records, when the machine finds, the first thread at Accept as
+// the best match so far and drops it and every thread after it: they
+// have lower priority. The threads before it may still find a better one.
+func settle(s Tags) Tags {
+	match s {
+	case Running as r:
+		if !r.B.Find {
+			return s
+		}
+		for i in 0..len(r.Threads) {
+			match r.B.P.insts[r.Threads[i].Pc] {
+			case Accept:
+				let best = Best{End: r.At, H: r.Threads[i].H}
+				return Running{B: r.B, Threads: r.Threads[:i], At: r.At, Best: Some{Value: best}, Work: r.Work}
+			case _:
+			}
+		}
+		s
+	}
+}
+
+// Tagger is the tagged NFA as a machine. Its input is a Begin.
+type Tagger machine[Tags, Signal] {
+	initial: StartTags,
+	step:    StepTags,
+}
+
+// visit is a closure while it is built: its threads in priority order, a
+// mark for each instruction, and the Save instructions it followed.
+type tagVisit { out []Thread, marked []bool, events int }
+
+// newVisit is an empty closure over the instructions of p.
+func newVisit(p Program) tagVisit { tagVisit{out: []Thread{}, marked: slices.Repeat([]bool{false}, len(p.insts)), events: 0} }
+
+// add adds the thread at pc with history h, at offset at, and what it
+// reaches through Split (X first) and Save, each instruction once.
+func add(v *tagVisit, p Program, pc int, h syntax.History, at int) {
+	if v.marked[pc] {
+		return
+	}
+	v.marked[pc] = true
+	match p.insts[pc] {
+	case Split as s:
+		v.add(p, s.X, h, at)
+		v.add(p, s.Y, h, at)
+	case Save as s:
+		v.events += 1
+		let e syntax.Event = if s.Open { syntax.Open{Name: s.Name, At: at} } else { syntax.Close{Name: s.Name, At: at} }
+		v.add(p, s.Next, syntax.Then{Before: h, Event: e}, at)
+	case _:
+		v.out = v.out.Append(Thread{Pc: pc, H: h})
+	}
+}
+
+// Capturing is the program of a checked pattern. Only a Pattern, which
+// Check made, compiles to one.
+type Capturing { program Program }
+
+// NewCapturing is the Capturing of p.
+func NewCapturing(p syntax.Pattern) Capturing { Capturing{program: Build(p.Tree())} }
+
+// runTags runs the tagged machine on text from start.
+func runTags(p Program, text string, start int, find bool) Tagged {
+	let m = machines.Start(Tagger{}, Begin{P: p, At: start, Find: find})
+	let mut s = machines.Initial(m)
+	for i in start..len(text) {
+		let d = m.Step(s, Read{C: text[i]})
+		match d {
+		case Done[Tagged] as o:
+			return o.Output
+		case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Ignore, Reject:
+		}
+		s = machines.Next(s, d)
+	}
+	match m.Step(s, End) {
+	case Done[Tagged] as o:
+		o.Output
+	case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Ignore, Reject:
+		Unreachable("StepTags is Done at the End of every text")
+	}
+}
+
+// ParseCaptures is the events of the match of c on the whole text, or
+// None when it does not match.
+func ParseCaptures(c Capturing, text string) Option[[]syntax.Event] {
+	match runTags(c.program, text, 0, false).Match {
+	case Some[Best] as b:
+		Some{Value: syntax.Events(b.Value.H)}
+	case None:
+		None
+	}
+}
+
+// FindCaptures is the leftmost match of c in text, of highest priority
+// at its start, or None. It starts the machine again at each offset, so a
+// failing long text costs time quadratic in its length.
+func FindCaptures(c Capturing, text string) Option[syntax.Found] {
+	for start in 0..len(text)+1 {
+		match runTags(c.program, text, start, true).Match {
+		case Some[Best] as b:
+			return Some{Value: syntax.Found{Start: start, End: b.Value.End, Events: syntax.Events(b.Value.H)}}
+		case None:
+		}
+	}
+	None
+}
+
+// MeasureCaptures is the work of parsing text with c.
+func MeasureCaptures(c Capturing, text string) TagWork { runTags(c.program, text, 0, false).Work }

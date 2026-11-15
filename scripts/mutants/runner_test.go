@@ -26,7 +26,12 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // unmutated tree. Its ledger holds one value mutant per function (known
 // killers drawn at random, some wrong), a mutant that does not build, one
 // that no longer applies, a string-literal mutant with an anchor and one
-// without, and on Linux one that allocates past the memory limit.
+// without, the same mutant named with a killer in two that reads one's
+// source (no coverage of one records it: fu-mutants-xpkg), and on Linux one
+// that allocates past the memory limit. A named killer runs whether or not
+// it covers the lines. TestGreet
+// also reads the repository with git ls-files, as internal/residue's rules
+// do: in a copy with no Git index it would fail on the unmutated tree.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -134,7 +139,7 @@ func (m fakeModule) source(pkg string) string {
 
 func (m fakeModule) testSource(pkg string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _ = one.Greet, two.Grow\n\n", pkg)
+	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"strings\"\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _, _, _, _ = one.Greet, two.Grow, exec.Command, os.ReadFile, strings.Contains\n\n", pkg)
 	for _, ft := range m.tests {
 		if ft.suite != pkg {
 			continue
@@ -145,6 +150,9 @@ func (m fakeModule) testSource(pkg string) string {
 			switch fn {
 			case "one.Greet":
 				fmt.Fprintf(&b, "\tif %s != \"hellobye\" {\n\t\tt.Fatal(%q)\n\t}\n", got, fn)
+				// It reads the repository, as internal/residue's rules do:
+				// the copy must carry the checkout's file list.
+				b.WriteString("\tif out, err := exec.Command(\"git\", \"ls-files\", \"--error-unmatch\", \"f.go\").CombinedOutput(); err != nil {\n\t\tt.Fatalf(\"git ls-files: %v\\n%s\", err, out)\n\t}\n")
 				continue
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
@@ -160,6 +168,12 @@ func (m fakeModule) testSource(pkg string) string {
 			b.WriteString("\tt.Fatal(\"fails on the unmutated tree\")\n")
 		}
 		b.WriteString("}\n\n")
+	}
+	if pkg == "two" {
+		// It kills a mutant of one that no coverage of it records, as a
+		// test that builds and runs a program does (check's tests kill
+		// eval's mutants through the ergo programs they run).
+		b.WriteString("func TestReadsOne(t *testing.T) {\n\tfakelog.Ran(t)\n\tsrc, err := os.ReadFile(\"../one/f.go\")\n\tif err != nil || !strings.Contains(string(src), `\"bye\"`) {\n\t\tt.Fatal(\"one's farewell changed\", err)\n\t}\n}\n\n")
 	}
 	return b.String()
 }
@@ -220,6 +234,24 @@ func (m fakeModule) model(target string, invalid bool) expect {
 	return e
 }
 
+// named adds the ledger's named killers to e: the runner runs a named test
+// whether or not it covers the lines, so a mutant whose named test does not
+// kill it survives rather than being uncovered. A test that fails on the
+// unmutated tree judges nothing.
+func (m fakeModule) named(e expect, killers []string) expect {
+	for _, id := range killers {
+		i := slices.IndexFunc(m.tests, func(ft fakeTest) bool { return ft.id() == id })
+		if i < 0 || m.tests[i].broken || slices.Contains(e.covering, id) {
+			continue
+		}
+		e.covering = append(e.covering, id)
+		if e.status == Uncovered {
+			e.status = Survived
+		}
+	}
+	return e
+}
+
 func checkModel(t *testing.T, seed uint64, all bool) {
 	r := rand.New(rand.NewPCG(seed, 0x6d75))
 	m := generate(r)
@@ -253,7 +285,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 			mu.Killers = append(mu.Killers, ids[r.IntN(len(ids))])
 		}
 		mutants = append(mutants, mu)
-		want[mu.Name] = m.model(fn, false)
+		want[mu.Name] = m.named(m.model(fn, false), mu.Killers)
 	}
 	extra := []struct {
 		mu   *Mutant
@@ -263,6 +295,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
 		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`}, expect{status: Uncovered}},
+		// No coverage of one records two:TestReadsOne; the ledger names it
+		// (with a note for the reader), so it runs and kills.
+		{&Mutant{Name: "literal-named", File: "one/f.go", From: `"bye"`, To: `"by"`, Killers: []string{"two:TestReadsOne (reads one's source)"}},
+			expect{status: Killed, killers: []string{"two:TestReadsOne"}, covering: []string{"two:TestReadsOne"}}},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {

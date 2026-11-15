@@ -1,0 +1,8 @@
+import counter
+
+// Wheel owns its state as an ordinary value. It has no shared runtime cell.
+type Wheel { at counter.Digit }
+
+func NewWheel() Wheel               { Wheel{at: 0} }
+func Add(w *Wheel, n counter.Digit) { w.at = counter.Plus(w.at, n) }
+func Total(w Wheel) counter.Digit   { w.at }

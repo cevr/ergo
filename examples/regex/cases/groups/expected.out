@@ -1,0 +1,12 @@
+port=8080
+	key 0-4=port
+	value 5-9=8080
+	more none
+retries=3,5,8
+	key 0-7=retries
+	value 8-9=3
+	more 10-11=5 12-13=8
+ -- x=1,
+	key 4-5=x
+	value 6-7=1
+	more none

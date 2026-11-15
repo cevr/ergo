@@ -38,6 +38,51 @@
       "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
     },
     {
+      "name": "gateex-examples-step-uncounted",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/gate/tier.go",
+      "from": "var fastCPUSteps = []string{examplesStepName}",
+      "to": "var fastCPUSteps = []string{}",
+      "rule": "The fast-tier CPU budget counts the examples step.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "gateex-step-recorded-as-package",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/gate/tier.go",
+      "from": "if slices.Contains(fastCPUSteps, pkg) {",
+      "to": "if false {",
+      "rule": "-record-durations -fast records a budgeted step under its step name.",
+      "killers": ["scripts/gate:TestRecordFastCPURecordsAStepByName"]
+    },
+    {
+      "name": "tc-gate-managed-go",
+      "origin": "wf10/toolchain r1",
+      "file": "scripts/gate/main.go",
+      "from": "\tif _, set := os.LookupEnv(ergoGo); !set {",
+      "to": "\tif _, set := os.LookupEnv(ergoGo); false && !set {",
+      "rule": "A gate step's ergo builds with the system go and never downloads Go, unless the caller sets ERGO_GO.",
+      "killers": ["scripts/gate:TestStepsBuildWithTheSystemGo"]
+    },
+    {
+      "name": "b18-full-tier-package-unrecognized",
+      "origin": "wf10 batch-18 fix-tool (verify B1)",
+      "file": "scripts/gate/tier.go",
+      "from": "\treturn tests > 0, nil\n",
+      "to": "\treturn false, nil\n",
+      "rule": "A package whose every test builds Go (each Test function starts with needsBuild) has no fast-tier step, so a checker edit does not compile, link and start its test binary to skip every test.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "b18-full-tier-package-stepped",
+      "origin": "wf10 batch-18 fix-tool (verify B1)",
+      "file": "scripts/gate/tier.go",
+      "from": "\t\t} else if only {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
+      "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
+      "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
+      "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
+    },
+    {
       "name": "b17-fast-all-large-stepped",
       "origin": "wf10 batch-17 integration (TRY1's scripts/langmigrate)",
       "file": "scripts/gate/tier.go",

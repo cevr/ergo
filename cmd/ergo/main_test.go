@@ -28,6 +28,11 @@ var testCLI struct {
 }
 
 func TestMain(m *testing.M) {
+	// The CLI under test builds with the go command on PATH, as in the
+	// gate, and never downloads its pinned Go (internal/toolchain).
+	if _, set := os.LookupEnv("ERGO_GO"); !set {
+		os.Setenv("ERGO_GO", "system")
+	}
 	// The CLI builds in the process's own environment, before any test
 	// overrides Go variables with t.Setenv.
 	testCLI.environment = os.Environ()

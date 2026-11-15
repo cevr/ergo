@@ -45,4 +45,19 @@ func TestCommandKeepsTheUsersGoConfig(t *testing.T) {
 			t.Errorf("the action's environment has %s = %q; want exactly one entry, %q", name, got, value)
 		}
 	}
+	// A managed toolchain (Root) is the pinned Go: the user's GOROOT and
+	// GOTOOLCHAIN cannot choose another.
+	t.Setenv("GOROOT", "/usr/local/go")
+	t.Setenv("GOTOOLCHAIN", "go1.30.0")
+	managed := Toolchain{Go: "/cache/toolchain/go/bin/go", Root: "/cache/toolchain/go"}.Command(Module{Dir: "/cache/modules/key"}, "/out/app")
+	entries = map[string][]string{}
+	for _, kv := range managed.Env {
+		name, value, _ := strings.Cut(kv, "=")
+		entries[name] = append(entries[name], value)
+	}
+	for name, value := range map[string]string{"GOROOT": "/cache/toolchain/go", "GOTOOLCHAIN": "local"} {
+		if got := entries[name]; len(got) != 1 || got[0] != value {
+			t.Errorf("the managed action's environment has %s = %q; want exactly one entry, %q", name, got, value)
+		}
+	}
 }

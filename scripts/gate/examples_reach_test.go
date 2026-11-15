@@ -97,6 +97,13 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 			}
 		}
 		for _, dir := range readers {
+			// A package whose every test builds Go has no fast step
+			// (fullTierOnly: internal/selfhostcheck); the full tier runs it.
+			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(dir))); err != nil {
+				t.Fatal(err)
+			} else if only {
+				continue
+			}
 			at := slices.IndexFunc(packages, func(p testPackage) bool { return p.dir == dir })
 			if at < 0 || !packages[at].closure.Covers(file) {
 				t.Errorf("%s: %s reads it (closure table) and its fast-tier key does not cover it", file, dir)

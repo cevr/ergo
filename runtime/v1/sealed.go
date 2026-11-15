@@ -9,7 +9,6 @@ func (*Ref[T]) runtimeOnly()         {}
 func (*Int64) runtimeOnly()          {}
 func (*Bool) runtimeOnly()           {}
 func (*FS) runtimeOnly()             {}
-func (*Text) runtimeOnly()           {}
 func (*Cursor) runtimeOnly()         {}
 func (*Actor[S, E, D]) runtimeOnly() {}
 func (*Host[A]) runtimeOnly()        {}

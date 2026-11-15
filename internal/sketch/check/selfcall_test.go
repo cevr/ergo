@@ -176,13 +176,13 @@ func speak(c Cat) string { return "meow" }
 
 func speak(n int) string { return "n" }
 `, want: []selfWant{{"S108", "speak is already declared in this package", 7}}},
-		{name: "a type and a function", src: `
+		{name: "a type and a function that is no member", src: `
 
 type Cat { name string }
 
 type speak { n int }
 
-func speak(c Cat) string { return "meow" }
+func speak(n int) string { return "n" }
 `, want: []selfWant{{"S108", "speak is already declared as a type in this package", 7}}},
 	})
 }

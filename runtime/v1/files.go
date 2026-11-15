@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	runtimefiles "ergo.local/prototype/runtime"
 )
@@ -177,16 +179,46 @@ type Param struct {
 // the function Go, "Queue.Push" for the method Push of Queue. It fails when
 // there is no such exported declaration, or when its parameters break the
 // convention: a hidden type after an Ergo parameter, out of order or twice.
+// It reads bodyTable, which TestBodyTableIsCurrent generates from Source
+// with goDecls.body and fails on when it is stale, so it parses nothing
+// (CHK1).
 func BodyOf(name string) (Body, error) {
-	decls, err := sourceDecls()
-	if err != nil {
-		return Body{}, err
+	f, ok := bodyTable[name]
+	if !ok {
+		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
-	return decls.body(name)
+	if f.refusal != "" {
+		return Body{}, errors.New(f.refusal)
+	}
+	return f.body, nil
 }
 
-// sourceDecls parses Source once per process.
-var sourceDecls = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+// bodyFact is one row of bodyTable: a body's shape, or the text of the
+// error goDecls.body refuses it with.
+type bodyFact struct {
+	body    Body
+	refusal string
+}
+
+// sourceDecls returns Source parsed, once per process, and counts the
+// read (SourceReads).
+func sourceDecls() (goDecls, error) {
+	sourceReads.Add(1)
+	return parsedSource()
+}
+
+// parsedSource parses Source once per process.
+var parsedSource = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+
+// sourceReads counts the reads of the parsed Source in this process.
+var sourceReads atomic.Int64
+
+// SourceReads returns how many times this process read Source's parsed
+// declarations, the first of which parses every runtime/v1 Go file (CHK1).
+// A check reads none: the body facts it needs are a generated table
+// (bodyTable), so TestCheckWorkGrowsWithImports holds the count still
+// across a check. It counts work, never time.
+func SourceReads() int64 { return sourceReads.Load() }
 
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its

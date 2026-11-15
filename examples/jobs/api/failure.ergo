@@ -22,11 +22,11 @@ law FailuresCoverContract(f contractFailure) {
 	case _:
 		return false
 	}
-	json.BeginObject(r) catch {
+	r.BeginObject() catch {
 	case _:
 		return false
 	}
-	let tag = json.Tag(r) catch {
+	let tag = r.Tag() catch {
 	case _:
 		return false
 	}

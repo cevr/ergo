@@ -338,6 +338,10 @@ func (v *RowVar) Solution() *Row {
 	return v.root().sol
 }
 
+// Final reports a variable bound for good; a final variable with no
+// solution is the empty row.
+func (v *RowVar) Final() bool { return v.root().final }
+
 // RowArg is a row bound to a row-kinded type parameter: the type argument of
 // E in Task[T, E] or a row inferred for E or R.
 type RowArg struct{ Row *Row }

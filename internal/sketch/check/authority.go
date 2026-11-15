@@ -473,6 +473,16 @@ func Sealed(t Type) bool {
 	return false
 }
 
+// sealedStdOps reports a named std operation type that is Sealed. Only std
+// implements it, so its value may be the runtime's own Go type, whose
+// conversion into another operation type the checker records for the
+// lowering's adapter (typeops.go; lower/sealedops.go). It reads the
+// declaration (an unexported operation), never a std name: it is
+// sealedStd, the one rule.
+func sealedStdOps(t Type) bool {
+	return sealedStd(t) != nil
+}
+
 // sealedStd is t when t is a sealed operation type of the prelude or a std
 // package (Sealed: it declares an unexported operation, as the prelude's
 // Task and queue.Queue do), else nil. The runtime's own Go type stands for

@@ -124,8 +124,7 @@ test UserFormsAgree(i draw) {
 	let back = try decodeVia(want, v)
 	assert encodeVia(back) == want
 	let t = json.NewText()
-	let w Writer = t
-	encode(v, w)
+	encode(v, t)
 	assert t.Written() == want
 	// Root/array omission is not a field: it keeps the tagged union.
 	let tagged = match a {

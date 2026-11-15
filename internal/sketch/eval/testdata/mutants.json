@@ -2,6 +2,61 @@
   "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
   "mutants": [
     {
+      "name": "ps2-branch-on-term-continues",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-concat-commutes",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\t\tif n := len(parts); n > 0 {\n\t\t\t\tif prev, ok := parts[n-1].(string); ok {\n\t\t\t\t\tparts[n-1] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-extern-args-ignored",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\treturn ok && a.fn == bv.fn && symEqualAll(a.args, bv.args)",
+      "to": "\t\treturn ok && a.fn == bv.fn",
+      "rule": "Two uninterpreted calls are one term only when their arguments are.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-read-of-written-field-stale",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "rule": "A write through a provider's cell is what every later read and the end state see.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-stop-proved",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\treturn no(\"%s\", why)\n\t\t}",
+      "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
+      "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
       "name": "short-circuit-rhs",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/expr.go",
@@ -406,6 +461,16 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
     },
     {
+      "name": "nondet1-argument-keys",
+      "origin": "wf10 NONDET1",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tsort.SliceStable(keys, func(i, j int) bool { return text[keys[i]] < text[keys[j]] })\n",
+      "to": "\t\t_ = text\n",
+      "rule": "An evaluation's steps are a function of the program: the charged sort of a map argument's keys starts from one order, not the map's.",
+      "killers": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"],
+      "anchor": {"tests": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"]}
+    },
+    {
       "name": "try1-eval-cover-ignored",
       "origin": "wf10 batch 17 (TRY1 x EV)",
       "file": "internal/sketch/eval/expr.go",
@@ -430,6 +495,42 @@
       "from": "\ts, ok := caught.(syntax.Stmt)\n\treturn ok && tailOf(info, s, x)",
       "to": "\treturn false",
       "rule": "rows.md Error rows 2, Catch 5: the tail an if branch, a match arm or a branch's nested if yields is the caught expression's own result, so under a try its failure is the catch's, as lower/tails.go passes it (branchExpr); the condition, the subject and the statements before the tail leave the frame.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-elseif-tail-escapes",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O1)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tcase *syntax.IfStmt:\n\t\t\treturn tailOf(info, e, x)",
+      "to": "\t\tcase *syntax.IfStmt:\n\t\t\treturn false",
+      "rule": "rows.md Error rows 2, Catch 5: the tail of an else-if branch is the caught if's own result, so under a try its failure is the catch's (lower/tails.go tailFallible).",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-typematch-tail-escapes",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O2)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.TypeSwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {",
+      "to": "\tcase *syntax.TypeSwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif false && last(cl.Body) {",
+      "rule": "rows.md Error rows 2, Catch 5: the tail of a type match's arm is the caught match's own result, so under a try its failure is the catch's (lower/tails.go tailFallible).",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-cond-caught",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O3)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.IfStmt:\n\t\tif last(s.Body.List) {",
+      "to": "\tcase *syntax.IfStmt:\n\t\tif unparen(s.Cond) == x || last(s.Body.List) {",
+      "rule": "rows.md Catch 5: a caught if's failing condition is not the caught expression's own failure; under a try it leaves the frame, as the lowering's header value propagates it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-subject-caught",
+      "origin": "wf10 batch 17 round 3 TS-2 (verifier's O4)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {",
+      "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif unparen(s.Tag) == x || last(cl.Body) {",
+      "rule": "rows.md Catch 5: a caught match's failing subject is not the caught expression's own failure; under a try it leaves the frame, as the lowering propagates it.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     }
   ]

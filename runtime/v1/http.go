@@ -129,31 +129,31 @@ func (x *Exchange) Write(t *rt.Task, text string) error {
 	return nil
 }
 
-// Send writes status, header and body's text as the whole response,
-// with its length, straight from body's buffer (std http SendText, GX9):
+// Send writes status, header and body as the whole response, with its
+// length, straight from body's buffer (std http SendBytes, GX9):
 // no string of the body is made. The header rules are the buffered
 // form's (an empty body has no content type, none is sniffed). A
 // response that has started is a defect, as Begin's is. A write the
 // connection refuses is dropped, as the buffered form's is: the client
 // went away, and the request ends with it.
-func (x *Exchange) Send(status int, header []HTTPField, body *Text) {
+func (x *Exchange) Send(status int, header []HTTPField, body []byte) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	if x.started || x.ended {
-		panic("http.SendText: the response has already started")
+		panic("http.SendBytes: the response has already started")
 	}
 	x.started, x.ended = true, true
 	h := x.w.Header()
 	for _, f := range header {
 		h.Add(f.Name, f.Value)
 	}
-	if len(body.B) == 0 {
+	if len(body) == 0 {
 		h["Content-Type"] = nil
 	}
-	h.Set("Content-Length", strconv.Itoa(len(body.B)))
+	h.Set("Content-Length", strconv.Itoa(len(body)))
 	x.w.WriteHeader(status)
-	if len(body.B) > 0 {
-		_, _ = x.w.Write(body.B)
+	if len(body) > 0 {
+		_, _ = x.w.Write(body)
 	}
 }
 
