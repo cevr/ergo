@@ -36,7 +36,9 @@ import (
 //
 // Each use writes its own takes clause in its own names, read from the
 // binding's clause and the checker's conservative Go default, so it holds
-// with and without clause inference (q137); a Go pointer is passed as a
+// with and without clause inference (q137), and writes in its needs clause
+// what the release of its result requires, which the checker names
+// (goBoundReleaseNeed: base64.NewEncoder's io.WriteCloser); a Go pointer is passed as a
 // go.Ref, and a method value's literal of a method that takes its receiver
 // takes the receiver as a parameter instead of capturing it.
 //
@@ -178,6 +180,11 @@ type goBoundUse struct {
 	// literal holds cannot be handed off, so its full form may step down
 	// on the generator's text, which goBoundOwnFault does not fail.
 	capture bool
+	// releaseNeeds are the capabilities the release of the use's result
+	// requires (a Go io.WriteCloser's Close needs go.Foreign), which no
+	// binding row states: the checker names them (S102, goBoundReleaseNeed)
+	// and the program writes them in its needs clause (goBoundText).
+	releaseNeeds []string
 }
 
 var (
@@ -536,6 +543,12 @@ var goBoundFalseWrite = regexp.MustCompile(`is written here after a function lit
 // name and checks the program again; this is not a step down.
 var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 
+// goBoundReleaseNeed is S102 on a capability that the release of a value
+// the use owns requires (resources, Context ownership 6): the row is
+// written, not inferred (EX2), so the generator adds the capability to the
+// use's needs clause and checks the program again; not a step down.
+var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of function use\d+`)
+
 // goBoundClauseText is a clause the generator writes, before its body.
 var goBoundClauseText = regexp.MustCompile(` takes (\w+(?:, \w+)*) \{`)
 
@@ -557,7 +570,7 @@ func goBoundText(u goBoundUse, f goBoundForm) string {
 	if f == goBoundPlain {
 		text = u.short
 	}
-	return goBoundClauseText.ReplaceAllStringFunc(text, func(m string) string {
+	text = goBoundClauseText.ReplaceAllStringFunc(text, func(m string) string {
 		var keep []string
 		for _, n := range strings.Split(goBoundClauseText.FindStringSubmatch(m)[1], ", ") {
 			if !u.crossing[n] {
@@ -569,6 +582,21 @@ func goBoundText(u goBoundUse, f goBoundForm) string {
 		}
 		return " takes " + strings.Join(keep, ", ") + " {"
 	})
+	if len(u.releaseNeeds) == 0 {
+		return text
+	}
+	// The function's own signature is the text's first line.
+	sig, body, _ := strings.Cut(text, " {\n")
+	needs := strings.Join(u.releaseNeeds, ", ")
+	switch {
+	case strings.Contains(sig, " needs "):
+		sig = strings.Replace(sig, " needs ", " needs "+needs+", ", 1)
+	case strings.Contains(sig, " takes "):
+		sig = strings.Replace(sig, " takes ", " needs "+needs+" takes ", 1)
+	default:
+		sig += " needs " + needs
+	}
+	return sig + " {\n" + body
 }
 
 // isErrorRow reports the `fails …` field of a signature's results.
@@ -641,6 +669,11 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 			m := goBoundCrossing.FindStringSubmatch(l.text)
 			if i := useAt(l.line); m != nil && i >= 0 && !uses[i].crossing[m[1]] && goBoundNames(uses[i], forms[i])[m[1]] {
 				uses[i].crossing[m[1]] = true
+				narrowed = true
+			}
+			m = goBoundReleaseNeed.FindStringSubmatch(l.text)
+			if i := useAt(l.line); m != nil && i >= 0 && !slices.Contains(uses[i].releaseNeeds, m[1]) {
+				uses[i].releaseNeeds = append(uses[i].releaseNeeds, m[1])
 				narrowed = true
 			}
 		}
