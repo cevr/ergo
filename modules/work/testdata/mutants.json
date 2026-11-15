@@ -1184,6 +1184,14 @@
       "to": "\tfor at < len(order) && oursOnly(order[at]) && false {",
       "rule": "Where both sides added units after one unit, ours' come first, as Git writes them (memory's AMergeThatDoesNotParseIsTheLineMerge: k2 then k1).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wg4-json-reorder-dropped", "origin": "wf10/semws WG4",
+      "file": "modules/work/classes/jsonmerge.ergo",
+      "from": "\tif sameOrder(b, o) && !sameOrder(b, t) {",
+      "to": "\tif sameOrder(b, o) && !sameOrder(b, t) && false {",
+      "rule": "A reordering of an object's members by one side is carried (classes' JsonCarriesAReorder; WG2's follow-up).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

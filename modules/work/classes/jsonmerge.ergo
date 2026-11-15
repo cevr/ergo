@@ -13,6 +13,10 @@ import strings
 // removals. The merge is written in ours' bytes: a member nothing changed
 // keeps its text, and a comment outside a changed value stays where it
 // is; a member theirs added goes after the member before it in theirs.
+// A side that reordered an object's members (a tool that sorts the
+// dependencies) while the other kept the base's order is carried: that
+// object is written in the reordering side's bytes, when its merge is
+// clean that way.
 func MergeJson(base string, ours string, theirs string, sets []string) Merged fails Unreadable {
 	if ours == base {
 		let _ = try Members(theirs, "theirs")
@@ -55,6 +59,12 @@ func mergeObject(path string, base string, ours string, theirs string, sets []st
 	let b = try Members(base, "base")
 	let o = try Members(ours, "ours")
 	let t = try Members(theirs, "theirs")
+	if sameOrder(b, o) && !sameOrder(b, t) {
+		let (text, inner) = try mergeObject(path, base, theirs, ours, sets)
+		if len(inner) == 0 {
+			return (text, inner)
+		}
+	}
 	let mut conflicts = []string{}
 	// What becomes of each member of ours: its value's new text (its own
 	// when unchanged), or gone.
@@ -118,6 +128,24 @@ func mergeObject(path string, base string, ours string, theirs string, sets []st
 		}
 	}
 	(objectText(ours, o, values, added, first), conflicts)
+}
+
+// sameOrder reports whether the members both objects hold are in one
+// order in each.
+func sameOrder(x []Entry, y []Entry) bool {
+	let mut a = []string{}
+	for m in x {
+		if slices.IndexFunc(y, func(e Entry) bool { e.Key == m.Key }) >= 0 {
+			a = a.Append(m.Key)
+		}
+	}
+	let mut b = []string{}
+	for m in y {
+		if slices.IndexFunc(x, func(e Entry) bool { e.Key == m.Key }) >= 0 {
+			b = b.Append(m.Key)
+		}
+	}
+	a == b
 }
 
 // maps0 is the list of key in m, empty when absent.
@@ -254,7 +282,11 @@ func mergeSet(base string, ours string, theirs string) string fails Unreadable {
 // manifest is units as a package manifest in JSONC: a comment, a name and
 // an object "meta" in a layout of their own, the keys 0 to 2 at the top, 3 to 5 in an object
 // "deps", and "files", the set of "f<key>" for each key.
-func manifest(units Map[int, int]) string {
+func manifest(units Map[int, int]) string { manifestIn(units, false) }
+
+// manifestIn is manifest with the members of "deps" in descending key
+// order when reversed (as a side that sorted them another way writes it).
+func manifestIn(units Map[int, int], reversed bool) string {
 	let mut top = []string{"\"name\":   \"app\"", "\"meta\": { \"x\":  [1,  2] }"}
 	let mut deps = []string{}
 	let mut files = []string{}
@@ -271,7 +303,8 @@ func manifest(units Map[int, int]) string {
 		case None:
 		}
 	}
-	let inner = if len(deps) == 0 { "{}" } else { "{\n  " + strings.Join(deps, ",\n  ") + "\n  }" }
+	let order = if reversed { slices.Reverse(deps) } else { deps }
+	let inner = if len(order) == 0 { "{}" } else { "{\n  " + strings.Join(order, ",\n  ") + "\n  }" }
 	top = top.Append("\"deps\": " + inner)
 	top = top.Append("\"files\": [" + strings.Join(files, ", ") + "]")
 	"{\n  // a comment no merge touches\n  " + strings.Join(top, ",\n  ") + "\n}\n"
@@ -353,6 +386,45 @@ law JsonIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) 
 	match manifestRead(got.Text) {
 	case Some[Read] as r:
 		r.Value.Units == want.Units && sameStrings(r.Value.Files, files) && strings.Contains(got.Text, "// a comment no merge touches") && strings.Contains(got.Text, "\"name\":   \"app\"") && strings.Contains(got.Text, "\"meta\": { \"x\":  [1,  2] }")
+	case None:
+		false
+	}
+}
+
+// JsonCarriesAReorder: theirs only reorders "deps" (descending), ours
+// edits keys: the merge is clean, holds ours' values, and writes the keys
+// of deps the base had in theirs' order.
+law JsonCarriesAReorder(units Map[int, int], ourEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let got = Merge(Json{Sets: []string{"files"}}, manifest(base), manifest(ours), manifestIn(base, true)) catch {
+	case Unreadable:
+		return false
+	}
+	let top = Members(got.Text, "merged") catch {
+	case Unreadable:
+		return false
+	}
+	let deps = Members(textOf(member(top, "deps")), "merged") catch {
+	case Unreadable:
+		return false
+	}
+	let mut last = 6
+	for m in deps {
+		let key = strconv.Atoi(strings.TrimPrefix(m.Key, "k")) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		if base.Get(key) != None {
+			if key > last {
+				return false
+			}
+			last = key
+		}
+	}
+	match manifestRead(got.Text) {
+	case Some[Read] as r:
+		len(got.Conflicts) == 0 && r.Value.Units == reference(base, ours, base).Units
 	case None:
 		false
 	}
