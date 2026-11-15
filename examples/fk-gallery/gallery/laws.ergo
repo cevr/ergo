@@ -1,0 +1,108 @@
+// The site's laws (plan §18.3 FK9): what a navigation means, read from
+// the route before and the route after.
+
+// Routes are one route of each kind; a painting's id comes from the case.
+func routeOf(k int, id int) Route {
+	let ks = []Route{Home, Gallery, Painting{ID: id}, Studio, NotFound{Path: "/nowhere"}}
+	ks[((k%len(ks))+len(ks))%len(ks)]
+}
+
+func has(cs []Command, c Command) bool {
+	for x in cs {
+		if x == c {
+			return true
+		}
+	}
+	false
+}
+
+func catalogLoads(cs []Command) int {
+	let mut n = 0
+	for c in cs {
+		match c {
+		case LoadCatalog:
+			n = n + 1
+		case LoadPainting, SaveDraft, Push, Leave:
+		}
+	}
+	n
+}
+
+// CatalogueLoadsOncePerVisit: over drawn navigations and catalog answers,
+// the site asks for the catalog exactly when it enters the gallery (from
+// another page or cold) with no load in flight: a reference model of a
+// visit and a flight, step by step.
+law CatalogueLoadsOncePerVisit(ops []int) {
+	let mut s = Blank
+	let mut onGallery = false
+	let mut flying = false
+	for o in ops {
+		let op = if o < 0 { -(o / 2) } else { o }
+		if op%4 == 3 {
+			s = After(s, Step(s, CatalogLoaded))
+			flying = false
+			continue
+		}
+		let next = routeOf(op/4, 1+op%7)
+		let entering = next == Gallery && !onGallery
+		let want = entering && !flying
+		let got = catalogLoads(Commands(Step(s, Arrived{URL: Print(next)})))
+		if got != (if want { 1 } else { 0 }) {
+			return false
+		}
+		s = After(s, Step(s, Arrived{URL: Print(next)}))
+		flying = flying || want
+		onGallery = next == Gallery
+	}
+	true
+}
+
+// StayRefetchesOnlyOnIdChange: on a painting, loaded or loading, a
+// navigation to a painting loads it exactly when its id is another.
+law StayRefetchesOnlyOnIdChange(a int where 1 <= a && a <= 9, b int where 1 <= b && b <= 9, loaded bool) {
+	let shown Shown = if loaded { ReadyPainting{ID: a} } else { LoadingPainting{ID: a} }
+	let s = Site{..Blank, Route: Some[Route]{Value: Painting{ID: a}}, Painting: shown}
+	let d = Step(s, Arrived{URL: "/gallery/\(b)"})
+	let asked = has(Commands(d), LoadPainting{ID: b})
+	let after = After(s, d).Painting
+	let want Shown = if a != b { LoadingPainting{ID: b} } else { shown }
+	asked == (a != b) && after == want
+}
+
+// LeavingStudioSavesDraft: leaving the studio saves its draft once,
+// unless it is empty; staying in it or leaving another page saves
+// nothing.
+law LeavingStudioSavesDraft(text int where 0 <= text && text <= 2, from int where 0 <= from && from <= 4, to int where 0 <= to && to <= 4) {
+	let draft = []string{"", "a", "half-finished thought"}[text]
+	let before = routeOf(from, 2)
+	let next = routeOf(to, 3)
+	let s = Site{..Blank, Route: Some[Route]{Value: before}, Draft: draft}
+	let saves = has(Commands(Step(s, Arrived{URL: Print(next)})), SaveDraft{Draft: draft})
+	saves == (before == Studio && next != Studio && draft != "")
+}
+
+// LogKeepsTheLastTwenty: after n navigations the log holds the last
+// min(n, 20), newest first, numbered n down.
+law LogKeepsTheLastTwenty(n int where 0 <= n && n <= 60) {
+	let mut s = Blank
+	for i in 0..n {
+		s = After(s, Step(s, Arrived{URL: Print(routeOf(i, i))}))
+	}
+	let want = if n < LogSize { n } else { LogSize }
+	if len(s.Log) != want {
+		return false
+	}
+	for i, l in s.Log {
+		if l.Seq != n-i {
+			return false
+		}
+	}
+	true
+}
+
+// RoutesRoundTrip: every route of the site prints to a path that parses
+// back to it.
+law RoutesRoundTrip(k int where 0 <= k && k <= 3, id int where 0 <= id && id <= 1000000) {
+	let r = routeOf(k, id)
+	Parse(Print(r)) == r
+}
