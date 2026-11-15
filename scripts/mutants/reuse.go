@@ -361,7 +361,13 @@ func listModule(root string) (*listedModule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("go list -deps -test ./...: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(root)
+	// go list names absolute directories: a relative root (the default
+	// -root ".") is made absolute first, or no package is inside it.
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
 		return nil, err
 	}

@@ -191,6 +191,15 @@
       "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
     },
     {
+      "name": "gt2-relative-root",
+      "origin": "wf10 GATE2 GT2 receipt",
+      "file": "scripts/mutants/reuse.go",
+      "from": "absolute, err := filepath.Abs(root)",
+      "to": "absolute, err := root, error(nil)",
+      "rule": "A relative -root still finds its packages' closures; else every row is keyed on every file.",
+      "killers": ["scripts/mutants:TestKeysListARelativeRoot"]
+    },
+    {
       "name": "gt2-no-reuse",
       "origin": "wf10 GATE2 GT2",
       "file": "scripts/mutants/reuse.go",
