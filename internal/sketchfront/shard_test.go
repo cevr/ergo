@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -93,6 +94,50 @@ func TestShardsLeaveTheRootUnimported(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestShardsAfterTheFirstBuild: a test build shards only a program built
+// before (lowerAuto). The first build of a program is cold, and shards
+// would make it dearer (each shard compiles its imports and
+// instantiations again); every later build is the edit loop. With one
+// cache: the first test build of examples/deps/graph emits no shard, the
+// second emits shards, and ERGO_LOWER=split keeps the split. It lowers in
+// process and stops before Go compiles (BuildRequest.Reuse). Mutants:
+// ft9-auto-shards-cold, ft9-auto-never-marks.
+func TestShardsAfterTheFirstBuild(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", "deps", "graph"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := CheckDir(dir)
+	if err != nil || len(a.Diagnostics) > 0 {
+		t.Fatalf("%s does not check: %v %v", dir, err, a.Diagnostics)
+	}
+	cache := build.Cache{Root: t.TempDir()}
+	sharded := func() bool {
+		t.Helper()
+		var has bool
+		_, err := Build(a, BuildRequest{Mode: build.ModeTest, Source: dir, Output: filepath.Join(t.TempDir(), "t"),
+			Cache: cache, Toolchain: build.Toolchain{Go: "go"}, Reuse: func(m build.Module) bool {
+				_, err := os.Stat(filepath.Join(m.Dir, "shard"))
+				has = err == nil
+				return true
+			}})
+		if err != nil {
+			t.Fatalf("the test build does not lower: %v", err)
+		}
+		return has
+	}
+	if sharded() {
+		t.Fatal("the first test build of the program shards: its cold compile pays every shard's imports")
+	}
+	if !sharded() {
+		t.Fatal("the second test build of the program does not shard: a body edit compiles the whole package")
+	}
+	t.Setenv(LowerSingleEnv, "split")
+	if sharded() {
+		t.Fatal("ERGO_LOWER=split shards")
 	}
 }
 

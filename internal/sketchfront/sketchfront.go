@@ -251,9 +251,24 @@ func loweringOf(mode build.Mode) string {
 		return v
 	}
 	if mode == build.ModeTest {
-		return lowerShards
+		return lowerAuto
 	}
 	return lowerSplit
+}
+
+// lowerAuto is the default of a test build: the split for the first build
+// of a program, whose cold compile shards would make dearer (each shard
+// pays the compile's start, its imports and its instantiations again;
+// docs/receipts/compile-speed.md, "Declaration shards"), and shards for
+// every build after it, the edit loop, where a body edit then compiles
+// one shard.
+const lowerAuto = "auto"
+
+// shardsSeen is the cache key that marks a program built before in mode:
+// a test build of it then shards.
+func shardsSeen(req BuildRequest) string {
+	sum := sha256.Sum256([]byte("ergo-shards\x00" + string(req.Mode) + "\x00" + req.Source))
+	return "shards-" + hex.EncodeToString(sum[:])
 }
 
 // BuildRequest is one build of a checked analysis.
@@ -374,6 +389,13 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	// rewrite ledger lowered it stays one package.
 	// Declaration shards (FT9) cut the split further in a test build.
 	how := loweringOf(req.Mode)
+	auto := how == lowerAuto
+	if auto {
+		how = lowerSplit
+		if _, ok := req.Cache.WarmManifest(shardsSeen(req)); ok && req.Cache.Root != "" {
+			how = lowerShards
+		}
+	}
 	if lowered != nil {
 		how = lowerSingle
 	}
@@ -423,6 +445,11 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	if module.Reused {
 		stage.Add(stage.ModulesReused, 1)
+	}
+	if auto && how == lowerSplit && req.Cache.Root != "" {
+		// The next test build of this program shards. A mark that cannot
+		// be written leaves it on the split: the error is not the build's.
+		_ = req.Cache.PutWarmManifest(shardsSeen(req), []byte(req.Source+"\n"))
 	}
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
