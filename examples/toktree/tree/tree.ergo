@@ -46,36 +46,38 @@ func Kids(tr Tree, id dense.ID[Node]) []dense.ID[Node] { dense.List(tr.pool, den
 // Pooled is the number of child ids in the pool.
 func Pooled(tr Tree) int { dense.Items(tr.pool) }
 
-// add puts one row and returns its id.
-func add(tr *Tree, kind int, tok int, kids []dense.ID[Node]) dense.ID[Node] {
+// add puts one row with the child run kids and returns its id.
+func add(tr *Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
 	let id = dense.Put(&tr.ids, Node)
 	dense.Push(&tr.kind, uint8(kind))
 	dense.Push(&tr.tok, uint32(tok))
-	dense.Push(&tr.kids, dense.PutList(&tr.pool, kids))
+	dense.Push(&tr.kids, kids)
 	id
 }
 
 // Built is a tree and its deepest nesting.
 type Built { Tree Tree, Depth int }
 
-// Build is the tree of the tokens t. The scratch stack keeps its own top
-// in an integer: a slice that shrinks (stack = stack[0:mark]) lowers to a
-// copy today (OWN1; plan §2.3 point 1).
+// Build is the tree of the tokens t. Its stores get room for a row per
+// token up front (a tree has at most one row per token, and the root), and
+// every child list is gathered on one dense.Stack: a group's children are
+// the rows pushed since its open bracket's mark, which PutSince moves into
+// the pool in one bulk append while it cuts the stack back to the mark.
 func Build(t token.Toks) Built {
+	let n = token.Len(t) + 1
 	let mut tr = Tree{
-		ids:  dense.New[Node](),
-		kind: dense.NewCol[Node, uint8](),
-		tok:  dense.NewCol[Node, uint32](),
-		kids: dense.NewCol[Node, dense.Run[dense.ID[Node]]](),
-		pool: dense.NewPool[dense.ID[Node]](),
+		ids:  dense.WithCap[Node](n),
+		kind: dense.ColWithCap[Node, uint8](n),
+		tok:  dense.ColWithCap[Node, uint32](n),
+		kids: dense.ColWithCap[Node, dense.Run[dense.ID[Node]]](n),
+		pool: dense.PoolWithCap[dense.ID[Node]](n),
 	}
-	let mut stack = []dense.ID[Node]{}
-	let mut top = 0
+	let mut stack = dense.StackWithCap[dense.ID[Node]](64)
 	let mut marks = []int{}
 	let mut opens = []int{}
 	let mut open = 0
 	let mut depth = 0
-	let none = []dense.ID[Node]{}
+	let none = dense.PutList(&tr.pool, []dense.ID[Node]{})
 	for i in 0..token.Len(t) {
 		let k = token.Kind(t, token.At(t, i))
 		if k == token.Comment {
@@ -83,10 +85,10 @@ func Build(t token.Toks) Built {
 		}
 		if k == token.Open {
 			if open < len(marks) {
-				marks[open] = top
+				marks[open] = dense.Mark(stack)
 				opens[open] = i
 			} else {
-				marks = marks.Append(top)
+				marks = marks.Append(dense.Mark(stack))
 				opens = opens.Append(i)
 			}
 			open = open + 1
@@ -97,32 +99,17 @@ func Build(t token.Toks) Built {
 		}
 		let id = if k == token.Close && open > 0 {
 			open = open - 1
-			let mark = marks[open]
-			let g = add(&tr, Group, opens[open], stack[mark:top])
-			top = mark
-			g
+			add(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))
 		} else {
 			add(&tr, Leaf, i, none)
 		}
-		if top < len(stack) {
-			stack[top] = id
-		} else {
-			stack = stack.Append(id)
-		}
-		top = top + 1
+		dense.StackPush(&stack, id)
 	}
 	for open > 0 {
 		open = open - 1
-		let mark = marks[open]
-		let id = add(&tr, Group, opens[open], stack[mark:top])
-		top = mark
-		if top < len(stack) {
-			stack[top] = id
-		} else {
-			stack = stack.Append(id)
-		}
-		top = top + 1
+		let id = add(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))
+		dense.StackPush(&stack, id)
 	}
-	let _ = add(&tr, Root, 0, stack[0:top])
+	let _ = add(&tr, Root, 0, dense.PutSince(&tr.pool, &stack, 0))
 	Built{Tree: tr, Depth: depth}
 }
