@@ -20,4 +20,5 @@ Each case's `setup.sh` makes a Git base (and, where the command reads them, a re
 - `rm-held`, `rm-dirty`, `rm-abandon`: a clean workspace whose head the base holds goes to the trash; one with an untracked file is `NotHeld` unless `-abandon`.
 - `gc` deletes the trashed workspace and keeps one whose clone started ten seconds before; another base's trash is beside it and stays.
 - `list` replays a journal with a re-put, a drop and a line a crash cut short.
+- `json-noinit`: with `--json` a failure's JSON is on standard output, and standard error says so.
 - `init`, `noinit`, `badname`, `badconfig`, `taken`, `adopt`.

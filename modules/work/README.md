@@ -24,7 +24,7 @@ An Ergo module of this repository (`modules/`, MK0): `ergo work`, copy-on-write 
 
 ## Commands
 
-`ergo work init` (in the base), `new NAME [-copy]`, `adopt DIR [-name N]`, `list`, `rm NAME [-abandon]`, `gc [-older AGE]`, `du`; `--json` prints every answer as JSON. A failure prints its tag and its JSON on stderr with status 1; a usage error has status 2.
+`ergo work init` (in the base), `new NAME [-copy]`, `adopt DIR [-name N]`, `list`, `rm NAME [-abandon]`, `gc [-older AGE]`, `du`; `--json` before the command (`ergo work --json list`) prints the answer as JSON. A failure prints its tag and its JSON on stderr with status 1; a usage error has status 2.
 
 - `new` records the workspace as `Creating`, clones, leaves out the `leave-out` folders of `ergo.work`, then records it `Active` and runs the `warm` command in it. The first `Cloner` the file system supports makes the clone (btrfs, then reflink, then clonefile), and the record keeps its name. Where none can share blocks, `new` refuses with `CopyRefused` and the bytes a copy would take; `-copy`, or a `copy` line in `ergo.work`, allows the plain copy. A workspaces folder on another file system than its base is `NotSameVolume`.
 - `rm` moves the workspace to `.ergo-trash/` beside it (a rename) and records it `Trashed`. It refuses (`NotHeld`) a workspace with an uncommitted or untracked change, or whose head no branch of the base holds, unless `-abandon`.

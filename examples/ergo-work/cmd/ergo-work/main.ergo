@@ -100,6 +100,11 @@ func main() fails os.Exit needs Ambient | Console {
 				return
 			}
 		}
+		// With --json the failure's JSON is the answer on standard output;
+		// an Exit always writes a line, so it says where the answer went.
+		if o.Err == "" {
+			return os.Exit{Code: code, Message: "ergo work: failed; the JSON on standard output says why"}
+		}
 		return os.Exit{Code: code, Message: "ergo work: " + strings.TrimSuffix(o.Err, "\n")}
 	}
 }

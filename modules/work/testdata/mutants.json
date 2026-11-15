@@ -104,6 +104,14 @@
       "to": "\ttrue\n",
       "rule": "git's Clean sees an untracked file: the rm-dirty case is NotHeld.",
       "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
+    },
+    {
+      "name": "ws0-json-failure-empty-message", "origin": "wf10/semws WS0",
+      "file": "examples/ergo-work/cmd/ergo-work/main.ergo",
+      "from": "\t\tif o.Err == \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "With --json a failure is its JSON on standard output, and standard error says so, not a bare \"ergo work: \" line (an os.Exit always writes its Message and a line feed): the json-noinit case.",
+      "anchor": {"tests": ["examples:ergo-work"]}, "killers": ["examples:ergo-work"]
     }
   ]
 }
