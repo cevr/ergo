@@ -793,8 +793,10 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
 	argv, cwd, env := e.argv(s, root, bin, name)
-	if s.Package != "" && s.Module == "" {
-		// A nested module's suite is built without coverage (Suite.Module).
+	if s.Package != "" && s.Module == "" && len(e.cfg.Cover) > 0 {
+		// A nested module's suite is built without coverage (Suite.Module),
+		// and so is every suite when no package is covered (a ledger of
+		// .ergo rows only: its tests are selected by what they read).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
 	testLog := ""
