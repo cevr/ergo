@@ -234,8 +234,10 @@ func verdictSequence(t *testing.T, seed uint64, bin string) {
 		for n, got := range []warmRun{first, second} {
 			// A verdict the evaluator wrote is marked (TESTSPEED FT1); the
 			// module's one test binary, which the reference may run,
-			// writes the same line unmarked.
-			if got.code != ref.code || strings.ReplaceAll(got.stdout, " (evaluated)\n", "\n") != strings.ReplaceAll(ref.stdout, " (evaluated)\n", "\n") {
+			// writes the same line unmarked. A verdict read from the
+			// verdict store is marked " (cached)" (FT2), as a law's is.
+			unmark := strings.NewReplacer(" (evaluated)\n", "\n", " (cached)\n", "\n").Replace
+			if got.code != ref.code || unmark(got.stdout) != unmark(ref.stdout) {
 				fail("run %d: exit %d %q, the reference exit %d %q", n+1, got.code, got.stdout, ref.code, ref.stdout)
 			}
 		}
