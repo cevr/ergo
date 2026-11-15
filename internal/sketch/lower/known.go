@@ -132,6 +132,9 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// Taken is the sites that took each shortcut, by its name in the
+	// registry (shortcuts.go).
+	Taken map[string]int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
