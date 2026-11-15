@@ -95,9 +95,54 @@ func widthsIn(k known, text string, size float32) layout.Intrinsic {
 	layout.Intrinsic{Max: most, Min: least}
 }
 
-// Height is the lines of Lines, one line height each.
+// Height is the lines of Lines, one line height each: counted as linesIn
+// breaks them, with no line built (law CountIsLines).
 func Height(m Metrics, text string, size float32, width float32) float32 {
-	sync.Modify(m.known, func(k known) (float32, known) { (float32(len(linesIn(k, text, size, width))) * lineIn(k, size), k) })
+	sync.Modify(m.known, func(k known) (float32, known) { (float32(countIn(k, text, size, width)) * lineIn(k, size), k) })
+}
+
+// countIn is len(linesIn(k, text, size, wide)), breaking the lines as it
+// does without building them.
+func countIn(k known, text string, size float32, wide float32) int {
+	let space = widthIn(k, " ", size)
+	let mut n = 0
+	let mut any = false
+	for p in strings.Split(text, "\n") {
+		let mut at = float32(0)
+		let mut open = false
+		for w in strings.Fields(p) {
+			any = true
+			let r = widthIn(k, w, size)
+			if !open {
+				at = r
+				open = true
+			} else if at+space+r <= wide {
+				at = at + space + r
+			} else {
+				n = n + 1
+				at = r
+			}
+		}
+		n = n + 1
+	}
+	if any { n } else { 0 }
+}
+
+// CountIsLines: Height's count is the lines Lines breaks, for texts of
+// words of the widths drawn, in paragraphs, at any width.
+law CountIsLines(words []int, breaks []bool, widths []int, wide int) {
+	let mut text = ""
+	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
+	for i in 0..len(words) {
+		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
+		let gap = if i < len(breaks) && breaks[i] { "\n" } else { " " }
+		text = if i == 0 { w } else { text + gap + w }
+		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		runs = runs.Put(run{text: w, size: 13}, float32(v))
+	}
+	let k = known{runs: runs, lines: Map[float32, float32]{}}
+	let at = float32(((wide % 120) + 120) % 120)
+	countIn(k, text, 13, at) == len(linesIn(k, text, 13, at))
 }
 
 // Lines breaks each paragraph greedily: a run goes on the line when the

@@ -614,6 +614,15 @@
       "killers": ["mygo/screen:TestLayoutsOfOldListsGo"]
     },
     {
+      "name": "GPa-count-no-break",
+      "origin": "GPa (allocations)",
+      "file": "hosts/mygo/desktop/metrics.ergo",
+      "from": "\t\t\t\tn = n + 1\n\t\t\t\tat = r\n",
+      "to": "\t\t\t\tat = r\n",
+      "rule": "Height counts the lines Lines breaks, a wrapped run starting one",
+      "killers": ["hosts/mygo/desktop:law CountIsLines"]
+    },
+    {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
       "file": "hosts/mygo/desktop/desktop.ergo",
