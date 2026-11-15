@@ -47,6 +47,15 @@
       "killers": ["internal/sketch/lawfix:TestPlanKeepsProvidersAndNamesFiles"]
     },
     {
+      "name": "lawloc-fix-helper-churns",
+      "origin": "wf10 LAWLOC round 2",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "stays = stays || ends(u) == fileOf[h.Decl]",
+      "to": "stays = stays || ends(u) == fileOf[h.Decl] && u == h.User",
+      "rule": "A helper stays where one of its users stays or arrives, so a second ergo fix moves nothing (the integrator reruns it on a merged head).",
+      "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
+    },
+    {
       "name": "lawloc-fix-drops-provider",
       "origin": "wf10 LAWLOC round 2",
       "file": "internal/sketch/check/lawplace.go",

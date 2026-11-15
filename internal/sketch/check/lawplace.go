@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -370,6 +371,7 @@ func (c *checker) checkLawPlacement() {
 		}
 	}
 	first := map[syntax.Decl]syntax.Decl{}
+	reach := map[syntax.Decl][]syntax.Decl{}
 	for _, u := range users {
 		seen := map[syntax.Decl]bool{}
 		var visit func(x syntax.Decl)
@@ -381,6 +383,9 @@ func (c *checker) checkLawPlacement() {
 				seen[r.decl] = true
 				if _, ok := first[r.decl]; !ok {
 					first[r.decl] = u.at
+				}
+				if !slices.Contains(reach[r.decl], u.at) {
+					reach[r.decl] = append(reach[r.decl], u.at)
 				}
 				visit(r.decl)
 			}
@@ -412,6 +417,7 @@ func (c *checker) checkLawPlacement() {
 				for _, x := range append([]syntax.Decl{d}, g.methods[d]...) {
 					if _, ok := first[x]; !ok && fixHelper[x] {
 						first[x] = at
+						reach[x] = []syntax.Decl{at}
 					}
 				}
 			}
@@ -419,7 +425,7 @@ func (c *checker) checkLawPlacement() {
 	}
 	for _, d := range g.order {
 		if u, ok := first[d]; ok {
-			c.pkg.LawHelpers = append(c.pkg.LawHelpers, LawHelper{Decl: d, User: u})
+			c.pkg.LawHelpers = append(c.pkg.LawHelpers, LawHelper{Decl: d, User: u, Users: reach[d]})
 		}
 	}
 	for _, law := range top {
@@ -451,6 +457,10 @@ type LawHelper struct {
 	// User is the first law or test that reaches it, or the type or
 	// machine declaration of the first member law that does.
 	User syntax.Decl
+	// Users are every law, test or such type that reaches it, User first,
+	// in package order. ergo fix leaves a helper where one of them stays
+	// or arrives, so a second run moves nothing.
+	Users []syntax.Decl
 }
 
 // subjects lists d's subjects (rule 1, 2): the declarations d names that

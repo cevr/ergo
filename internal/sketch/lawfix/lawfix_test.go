@@ -21,9 +21,10 @@ type genPackage struct {
 	// home is, by law, the file the law must end in: its own file when one
 	// of its subjects is there, else its first subject's file.
 	home map[string]string
-	// helperOf is, by helper, the law or test that must hold it beside
-	// itself: the first one, in package order, that uses it.
-	helperOf map[string]string
+	// helperAt is, by helper, the file it must end in: its own file when a
+	// law or test that uses it stays or arrives there, else the file of the
+	// first one, in package order, that uses it.
+	helperAt map[string]string
 }
 
 // generate draws a package of 2 to 4 files: functions F (subjects), laws
@@ -58,7 +59,7 @@ func generate(r *rand.Rand) genPackage {
 		}
 		decls[helpFile[j]] = append(decls[helpFile[j]], fmt.Sprintf("// h%d helps.\nfunc h%d(n int) int { %s }", j, j, body))
 	}
-	g := genPackage{files: map[string]string{}, home: map[string]string{}, helperOf: map[string]string{}}
+	g := genPackage{files: map[string]string{}, home: map[string]string{}, helperAt: map[string]string{}}
 	used := make([]bool, nhelp)
 	type lawInfo struct {
 		name, file string
@@ -161,10 +162,19 @@ func generate(r *rand.Rand) genPackage {
 		}
 		return uses[a].at/16 < uses[b].at/16
 	})
+	end := func(u use) string {
+		if u.kind == 0 {
+			return g.home[u.name]
+		}
+		return u.file
+	}
 	for _, u := range uses {
 		h := fmt.Sprintf("h%d", u.at%16)
-		if _, ok := g.helperOf[h]; !ok {
-			g.helperOf[h] = u.name
+		if _, ok := g.helperAt[h]; !ok {
+			g.helperAt[h] = end(u)
+		}
+		if end(u) == helpFile[u.at%16] {
+			g.helperAt[h] = end(u)
 		}
 	}
 	for _, n := range names {
@@ -237,10 +247,12 @@ func declsByFile(files []*syntax.File) map[string]string {
 // TestPlanPlacesEveryLaw: for a drawn package, Plan's edit checks with no
 // diagnostic, keeps every declaration, puts each law in its reference
 // home (its own file when that holds a subject, else its first subject's)
-// and each helper beside the first law or test that uses it.
-// LAWLOC_SEED=n replays one seed. Mutants (testdata of check,
-// mutants.json): lawloc-fix-drops-helper (a helper stays behind) and
-// lawloc-fix-no-import (a moved law loses its import).
+// and each helper where a law or test that uses it stays or arrives, else
+// beside the first one; a second Plan of the result edits nothing.
+// LAWLOC_SEED=n replays one seed. Mutants (mutants.json):
+// lawloc-fix-drops-helper (a helper stays behind), lawloc-fix-no-import
+// (a moved law loses its import) and lawloc-fix-helper-churns (a helper
+// follows its first user only, so a second run moves it again).
 func TestPlanPlacesEveryLaw(t *testing.T) {
 	seeds := 200
 	first := uint64(1)
@@ -282,19 +294,41 @@ func TestPlanPlacesEveryLaw(t *testing.T) {
 		if len(ds) > 0 {
 			fail("the fixed package has diagnostics: %v", ds)
 		}
+		// A file of laws left holding a helper or a test is renamed.
+		ren := map[string]string{}
+		for _, rn := range res.Renamed {
+			from, to, _ := strings.Cut(rn, " -> ")
+			ren[from] = to
+		}
+		named := func(f string) string {
+			if to, ok := ren[f]; ok {
+				return to
+			}
+			return f
+		}
 		was, now := declsByFile(files), declsByFile(after)
 		if len(was) != len(now) {
 			fail("declarations %d before, %d after", len(was), len(now))
 		}
 		for law, home := range g.home {
-			if now[law] != home {
+			if now[law] != named(home) {
 				fail("law %s is in %s, its home is %s", law, now[law], home)
 			}
 		}
-		for h, law := range g.helperOf {
-			if now[h] != now[law] {
-				fail("helper %s is in %s, apart from %s in %s", h, now[h], law, now[law])
+		for h, at := range g.helperAt {
+			if now[h] != named(at) {
+				fail("helper %s is in %s, want %s", h, now[h], at)
 			}
+		}
+		// A second run moves nothing: the integrator reruns ergo fix on a
+		// merged head (LAWLOC r2).
+		pkg2, files2, _ := checkSources(t, out)
+		again, err := Plan(pkg2, files2)
+		if err != nil {
+			fail("the second run: %v", err)
+		}
+		if len(again.Files) > 0 || len(again.Deleted) > 0 {
+			fail("a second run edits %d files and deletes %v", len(again.Files), again.Deleted)
 		}
 	}
 }
@@ -314,8 +348,10 @@ func TestPlanKeepsProvidersAndNamesFiles(t *testing.T) {
 		"clock_laws.ergo": "type Clock { N int }\n\nlaw ClockKeepsN(n int) {\n\tClock{N: n}.N == n\n}\n",
 	}
 	pkg, files, ds := checkSources(t, srcs)
-	if len(ds) > 0 {
-		t.Fatalf("the package does not check: %v\n%s", ds, dump(srcs))
+	for _, d := range ds {
+		if d.Code != check.CodeLawPlace {
+			t.Fatalf("the package does not check: %v\n%s", ds, dump(srcs))
+		}
 	}
 	res, err := Plan(pkg, files)
 	if err != nil {

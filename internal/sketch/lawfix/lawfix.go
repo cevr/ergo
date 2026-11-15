@@ -131,13 +131,22 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 		home[law.Decl] = main.File
 		mv.To = main.File.Name
 	}
-	// A helper goes beside its first user, where that user ends up.
-	for _, h := range pkg.LawHelpers {
-		dest := fileOf[h.User]
-		if f, ok := home[h.User]; ok {
-			dest = f
+	// A helper stays where one of its users stays or arrives, so a second
+	// run moves nothing; else it goes beside its first user, where that
+	// user ends up.
+	ends := func(u syntax.Decl) *syntax.File {
+		if f, ok := home[u]; ok {
+			return f
 		}
-		if dest == nil || dest == fileOf[h.Decl] {
+		return fileOf[u]
+	}
+	for _, h := range pkg.LawHelpers {
+		dest := ends(h.User)
+		stays := false
+		for _, u := range h.Users {
+			stays = stays || ends(u) == fileOf[h.Decl]
+		}
+		if dest == nil || stays {
 			continue
 		}
 		put(h.User, h.Decl)
