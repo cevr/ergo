@@ -229,7 +229,7 @@ type splitGroup struct {
 	natural int   // the package of its source, -1 for none
 	pin     bool  // stays in the root: main, init, an embedded asset
 	embed   bool
-	generic bool  // a generic function or type: its users compile its instantiations
+	generic bool // a generic function or type: its users compile its instantiations
 	pkg     int
 	refs    []int
 }
