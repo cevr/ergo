@@ -138,6 +138,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
+	case check.CallOp:
+		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallProviderOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

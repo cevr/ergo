@@ -13,10 +13,12 @@ package lower
 //     depth.
 
 import (
+	"fmt"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // admitOnce reports whether the record or union named by tn was admitted
@@ -52,6 +54,10 @@ func (b *irBuilder) spelling(s string) string {
 			case strings.HasPrefix(s[i:], "[]"):
 				out.WriteString("[]")
 				i += 2
+			case s[i] == '*':
+				// A runtime type is a pointer (*ergo.Ref[T]).
+				out.WriteByte('*')
+				i++
 			case strings.HasPrefix(s[i:], ", "):
 				out.WriteString(", ")
 				i += 2
@@ -63,7 +69,13 @@ func (b *irBuilder) spelling(s string) string {
 			}
 			continue
 		}
-		out.WriteString(b.qualifiedName(s, s[i:j]))
+		q := b.qualifiedName(s, s[i:j])
+		if q != s[i:j] {
+			// The whole Go type keeps the import used: a generic type
+			// (ergo.Ref) is no type without its arguments.
+			b.keepImport("var _ " + s)
+		}
+		out.WriteString(q)
 		i = j
 	}
 	return out.String()
@@ -87,7 +99,6 @@ func (b *irBuilder) qualifiedName(s, n string) string {
 	if path == "" {
 		irNo("Go type spelling %s", s)
 	}
-	b.keepImport("var _ " + q + "." + name)
 	return path + "." + name
 }
 
@@ -189,6 +200,50 @@ func (b *irBuilder) mapLit(x *syntax.CompositeLit) []*irExpr {
 	return out
 }
 
+// admitOps admits a value of a program's operation type: the Go interface
+// the lowering declares for it (decls.go, kindOps), whose methods take the
+// running task first; a std operation type (sync.Ref, queue.Queue) is its
+// runtime type, a pointer to a runtime/v1 struct (runtimeType), whose
+// operations are its methods (stdOpCall).
+func (b *irBuilder) admitOps(t *check.Named) {
+	b.admitArgs(t, 0)
+}
+
+// opCall is the call x of the operation c.Op on a value of a program's
+// operation type, c.Recv: the Go interface's method, the running task
+// first, as the emitter's programOpCall writes it. The emitter calls a
+// local whose provider it knows by the provider's function instead
+// (cellOpCall, a speed path); the IR calls through the interface, which
+// gives the same result.
+func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	switch {
+	case c.Recv == nil || c.Op == nil:
+		irNo("operation call form")
+	case b.env < 0:
+		irNo("operation call from a pure function")
+	case b.fc.refSiteOf(x) != nil:
+		irNo("operation call into an owning literal")
+	}
+	n, ok := b.l.info.Types[c.Recv].(*check.Named)
+	if !ok {
+		irNo("operation call on a %T", b.l.info.Types[c.Recv])
+	}
+	if b.l.typeDecl(n.Obj, x).kind != kindOps {
+		irNo("operation call on a named type that is no operation type")
+	}
+	b.admitOps(n)
+	if b.l.runtimeType(n, x) != "" {
+		return b.stdOpCall(x, c, n, p)
+	}
+	if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
+		irNo("fallible call with an empty row at its site")
+	}
+	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	env := &irExpr{K: "local", Pos: p, I: b.env}
+	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
+	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}, true
+}
+
 // own is the type whose Go type fu's helpers spell: the instance, for a
 // generic union's copy.
 func (fu *flatUnion) own() check.Type {
@@ -224,8 +279,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		irNo("std call into an owning literal")
-	case len(body.Hidden) > 0:
-		irNo("std call with hidden arguments")
 	case len(body.TypeParams) > 0:
 		irNo("generic or task call")
 	case defersCall(body) || commaOk(body):
@@ -262,9 +315,107 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) {
 		irNo("std call with a converted result")
 	}
+	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
 	b.keepImport("var _ = " + b.l.rt() + "." + name)
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: args}, !body.Pure
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: append(hidden, args...)}, !body.Pure
+}
+
+// hidden is the hidden arguments of the std body called at x, as the
+// emitter's hiddenArgs writes them, before the call's own: the caller's
+// task and Scheduler (fields of the environment), the reading package (a
+// string constant) and the call site (a runtime Site of a string
+// constant). A frame scope or a result release keeps the source body.
+func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p irPos) []*irExpr {
+	var out []*irExpr
+	for _, h := range body.Hidden {
+		if b.env < 0 {
+			irNo("std call with hidden arguments in a pure function")
+		}
+		env := &irExpr{K: "local", Pos: p, I: b.env}
+		switch h {
+		case v1.CallerTask:
+			out = append(out, &irExpr{K: "field", Pos: p, Name: envTask, X: env})
+		case v1.CallerScheduler:
+			out = append(out, &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env})
+		case v1.ReadingPackage:
+			if c.Func == nil || c.Func.Pkg == nil {
+				irNo("std call with hidden arguments: a context read without its package")
+			}
+			out = append(out, &irExpr{K: "const", Pos: p, T: "string", V: contextNamespace(c.Func.Pkg)})
+		case v1.CallSite:
+			src, line, column := b.l.locate(x, x.Pos())
+			site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, c), src, line, column)
+			b.keepImport("var _ = " + b.l.rt() + ".Site")
+			out = append(out, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Site", Args: []*irExpr{{K: "const", Pos: p, T: "string", V: site}}})
+		default:
+			irNo("std call with hidden argument %s", h)
+		}
+	}
+	return out
+}
+
+// stdOpCall is the call x of the operation c.Op on a value of a std
+// operation type n (sync.Ref, queue.Queue): the runtime/v1 method of
+// the value's Go type, its hidden arguments first, as the emitter's opCall
+// writes it through runtimeCall, when the method needs no adapter.
+func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
+	name := n.Obj.Name + "." + c.Op.Name
+	if _, bound := runtimeBindings[name]; !bound {
+		irNo("std call with no runtime binding")
+	}
+	body, err := v1.BodyOf(name)
+	if err != nil || len(body.Params) != len(x.Args) {
+		irNo("std operation without its runtime method")
+	}
+	switch {
+	case defersCall(body) || commaOk(body):
+		irNo("std call with an adapted result")
+	case b.l.info.Closes[x] != nil:
+		irNo("std Close")
+	}
+	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
+		irNo("std call with an adapted result")
+	}
+	for i, q := range body.Params {
+		if q.Func != nil || q.Funcs != nil {
+			irNo("std call that adapts a function")
+		}
+		if !b.sameGo(b.l.info.Types[x.Args[i]], b.recvTypeArgs(n, q.Type)) {
+			irNo("std call with a converted operand")
+		}
+	}
+	if goFallible(body) != failsHere(c) {
+		irNo("fallible call with an empty row at its site")
+	}
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) {
+		irNo("std call with a converted result")
+	}
+	hidden := b.hidden(body, x, c, p)
+	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}, !body.Pure
+}
+
+// recvTypeArgs is the Go type s of a runtime method of n's Go type with
+// the method's type parameters (the receiver's: Ref[T]'s T) replaced by
+// n's Go type arguments, so sameGo compares the instance's types.
+func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
+	args := typeArgs(n)
+	origin := n
+	if n.Orig != nil {
+		origin = n.Orig
+	}
+	i := 0
+	for _, tp := range origin.TParams {
+		if tp.Kind != check.KindType {
+			continue
+		}
+		if i < len(args) && s == tp.Name {
+			return b.fc.goType(args[i])
+		}
+		i++
+	}
+	return s
 }
 
 // sameGo reports whether the Ergo type t lowers to the Go type a

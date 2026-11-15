@@ -70,7 +70,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		b.admit(td.defined, depth+1)
 		return
 	case kindOps:
-		irNo("operation-type value")
+		b.admitOps(t) // ir_pkg.go
+		return
 	case kindMachine:
 		irNo("machine value")
 	}
