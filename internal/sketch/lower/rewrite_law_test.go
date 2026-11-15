@@ -128,7 +128,7 @@ func (t rwType) source() string {
 	}
 	b.WriteString("}\n\n")
 	p := t.prov
-	fmt.Fprintf(&b, "type %s { s sync.Ref[int] }\n\n", p)
+	fmt.Fprintf(&b, "type %s { s sync.Ref[int] } implements %s\n\n", p, t.name)
 	fmt.Fprintf(&b, "func New%s() %s { %s{s: sync.NewRef[int](0)} }\n\n", p, p, p)
 	fmt.Fprintf(&b, "func Add(p %s, n int) { p.s.Set((p.s.Get() + n*%d) & 3) }\n\n", p, t.c)
 	fmt.Fprintf(&b, "func Inc(p %s) { p.s.Set((p.s.Get() + %d) & 3) }\n\n", p, t.d)
@@ -435,8 +435,14 @@ func (t rwType) entryText(types []rwType) string {
 func rwProgram(types []rwType) string {
 	var b strings.Builder
 	b.WriteString("import sync\n\nfunc spot(k int) int {\n\tif k == " + strconv.Itoa(rwSpot) + " {\n\t\treturn 1\n\t}\n\t0\n}\n\n")
+	// Every provider declares every type (EXC1), so each law runs against
+	// each provider.
+	var names []string
 	for _, t := range types {
-		b.WriteString(t.source())
+		names = append(names, t.name)
+	}
+	for _, t := range types {
+		b.WriteString(strings.Replace(t.source(), "} implements "+t.name+"\n", "} implements "+strings.Join(names, ", ")+"\n", 1))
 	}
 	for _, t := range types {
 		if t.entry == 1 {

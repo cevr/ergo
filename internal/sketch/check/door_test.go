@@ -42,7 +42,7 @@ func TestTrustedDoorRefusals(t *testing.T) {
 // type's shape; anything else is S108 with its reason. Std's own
 // declarations are std TestStdRecordTable. Mutants: runtime-type-std-only,
 // runtime-type-untrusted, runtime-type-arity, runtime-type-fields,
-// runtime-type-open.
+// runtime-type-open, runtime-type-basic.
 func TestRuntimeTypeDeclarations(t *testing.T) {
 	const v1 = "extern go ergo.local/prototype/runtime/v1."
 	for _, c := range []struct {
@@ -51,6 +51,8 @@ func TestRuntimeTypeDeclarations(t *testing.T) {
 		want    string // "" for no diagnostic
 	}{
 		{v1 + "Closed type Closed {}", true, ""},
+		{v1 + "Code type Code int where 1 <= it && it <= 125", true, ""},
+		{v1 + "Code type Code string", true, "v1.Code is not a defined type over the Go type string"},
 		{v1 + "Closed type Closed {}", false, "which a package names only when the root module trusts its Go"},
 		{v1 + "Closed type Closed[T] {}", true, "Closed has 1 type parameters and v1.Closed has 0"},
 		{v1 + "Closed type Closed { Reason string }", true, "is not a struct with those fields"},
@@ -68,13 +70,46 @@ func TestRuntimeTypeDeclarations(t *testing.T) {
 		if c.want == "" {
 			if len(diags) != 0 {
 				t.Errorf("%s: %v", c.decl, diags)
-			} else if goName, ok := GoTypeOf(pkg.Types[0].Type.(*Named)); !ok || goName != "Closed" {
+			} else if goName, ok := GoTypeOf(pkg.Types[0].Type.(*Named)); !ok || goName != pkg.Types[0].Name {
 				t.Errorf("%s: GoTypeOf = %q, %v", c.decl, goName, ok)
 			}
 			continue
 		}
 		if len(diags) != 1 || diags[0].Code != CodeType || !strings.Contains(diags[0].Message, c.want) {
 			t.Errorf("%s (trusted %v): got %v, want one S108 %q", c.decl, c.trusted, diags, c.want)
+		}
+	}
+}
+
+// TestExitActionFollowsTheBody (STD-NOPRIV NP3d): the frame rule of
+// scope.OnExit follows the body fact `//ergo:release frame`, not the name.
+// A trusted package that binds v1.OnExit gets it, so the call at a package
+// let is S108; a package at path scope whose own Ergo OnExit registers
+// nothing does not (before, a match on the path and the name refused it).
+// Mutants: onexit-by-name, onexit-std-only.
+func TestExitActionFollowsTheBody(t *testing.T) {
+	const use = "func one() int { 1 }\n\nlet n = if one() > 0 {\n\tOnExit() { }\n\t1\n} else {\n\t2\n}\n"
+	for _, c := range []struct {
+		path, decl string
+		imp        Importer
+		want       string
+	}{
+		{"app/x", "extern go ergo.local/prototype/runtime/v1.OnExit func OnExit[R](body func() needs R) needs R\n\n", trustingImporter{}, "x.OnExit needs the frame scope of a function body"},
+		{"scope", "func OnExit(body func()) { body() }\n\n", Std, ""},
+	} {
+		f, err := syntax.Parse(c.decl + use)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, diags := CheckTest(c.path, []*syntax.File{f}, c.imp, nil)
+		if c.want == "" {
+			if len(diags) != 0 {
+				t.Errorf("%s: %v", c.path, diags)
+			}
+			continue
+		}
+		if len(diags) != 1 || !strings.Contains(diags[0].Message, c.want) {
+			t.Errorf("%s: got %v, want one %q", c.path, diags, c.want)
 		}
 	}
 }

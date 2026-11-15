@@ -1,9 +1,5 @@
 package check
 
-import (
-	v1 "ergo.local/prototype/runtime/v1"
-)
-
 // Generated release (#197 L8 B2; resources R3, R23, R37, R39, Gap 36): the
 // release of a value whose type holds a resource in its parts. The checker
 // derives it from the one property of resource.go (holdsResource), so the
@@ -38,10 +34,11 @@ type Drop struct {
 	// Variants are the union's variants that hold a resource; the active
 	// one is released.
 	Variants []*Drop
-	// Drain is the release of each value a std operation type holds (Q7,
-	// R13, Q5): its runtime body's Drain gives them, a queue's values left
-	// (Drain ends admission) or a Task's result no Wait delivered (after
-	// its Close), released last entered first; nil for none.
+	// Drain is the release of each value an operation type keeps (Q7,
+	// R13, Q5): the operation the type declares to give them back
+	// (DrainOp) gives them, a queue's values left (its drain ends
+	// admission) or a Task's result no Wait delivered (after its Close),
+	// released last entered first; nil for none.
 	Drain *Drop
 	// Own is, for a type with a written Close, the release of its parts
 	// that the Close's function runs after its body (R3): every caller of
@@ -91,49 +88,81 @@ type dropWalk struct {
 	bad  string
 }
 
-// drain is the release of the values an operation type t holds through a
-// taking operation (Q7, R13): only a std operation type whose runtime body
-// declares Drain (a reviewed body, as v1.MovesOnly: `queue.Queue[T]`'s
-// Drain ends admission and gives the values left); nil for any other.
+// drain is the release of the values an operation type t keeps (Q7, R13;
+// questions Q6 of STD-NOPRIV): t includes the prelude's Keeping[E]
+// (keepsOf), and each value its drain gives is released. Any package's
+// operation type keeps values the same way: queue.Queue[T]'s drain ends
+// admission and gives the values left, a Task's gives the result no Wait
+// delivered. nil when t includes no Keeping.
 func (w *dropWalk) drain(t Type, it *Interface) *Drop {
-	n, ok := t.(*Named)
-	if !ok || n.origin().Obj == nil || !n.origin().Obj.Pkg.Std() {
+	_, elem := keepsOf(it, w.c.keeps())
+	if elem == nil {
 		return nil
 	}
-	if _, err := v1.BodyOf(n.origin().Obj.Name + ".Drain"); err != nil {
+	if n, ok := t.(*Named); ok {
+		sub := map[*TypeParam]Type{}
+		for i, tp := range n.origin().TParams {
+			if i < len(n.TArgs) {
+				sub[tp] = n.TArgs[i]
+			}
+		}
+		if len(sub) > 0 {
+			elem = w.c.subst(elem, sub)
+		}
+	}
+	return w.visit(elem)
+}
+
+// DrainOp is the drain of the prelude's Keeping that the operation type t
+// includes, or nil (STD-NOPRIV NP3c; resources R13): t keeps values, and
+// the value's generated release calls it (after its Close, if it has one)
+// and releases each value it gives, last first. The rule reads the
+// include, as a resource's reads its Closer (R1): no name or shape of t's
+// own operations counts.
+func DrainOp(t Type) *Method {
+	it := asInterface(t)
+	if it == nil {
 		return nil
 	}
-	sub := map[*TypeParam]Type{}
-	for i, tp := range n.origin().TParams {
-		if i < len(n.TArgs) {
-			sub[tp] = n.TArgs[i]
-		}
+	m, _ := keepsOf(it, preludeType("Keeping"))
+	return m
+}
+
+// keeps is the prelude's keeping contract, `type Keeping[T] { drain() []T
+// takes }` (resources R13).
+func (c *checker) keeps() *Named { return c.preludeContract("Keeping") }
+
+// keepsOf finds the instance of keeps that it includes, directly or
+// through an include, and gives its drain and its element type; nil, nil
+// when it includes none.
+func keepsOf(it *Interface, keeps *Named) (*Method, Type) {
+	if keeps == nil {
+		return nil, nil
 	}
-	for _, m := range it.Methods {
-		if m.Sig == nil {
-			continue
+	seen := map[*Interface]bool{}
+	var find func(it *Interface) (*Method, Type)
+	find = func(it *Interface) (*Method, Type) {
+		if it == nil || seen[it] {
+			return nil, nil
 		}
-		var held []Type
-		for _, i := range m.Sig.Takes {
-			if i >= 0 && i < len(m.Sig.Params) {
-				held = append(held, m.Sig.Params[i].Type)
+		seen[it] = true
+		for _, inc := range it.includes {
+			if inc.origin() == keeps.origin() && len(inc.TArgs) == 1 {
+				if ki := asInterface(inc); ki != nil {
+					for _, m := range ki.Methods {
+						if m.Name == "drain" {
+							return m, inc.TArgs[0]
+						}
+					}
+				}
+			}
+			if m, e := find(asInterface(inc)); m != nil {
+				return m, e
 			}
 		}
-		if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {
-			// An operation that takes the value and gives its one result
-			// (Task's Wait): the value holds that result until it is taken.
-			held = append(held, m.Sig.Results[0])
-		}
-		for _, pt := range held {
-			if len(sub) > 0 {
-				pt = w.c.subst(pt, sub)
-			}
-			if p := w.visit(pt); p != nil {
-				return p
-			}
-		}
+		return nil, nil
 	}
-	return nil
+	return find(it)
 }
 
 // visit returns t's release, nil when t crosses.
@@ -200,7 +229,7 @@ func (w *dropWalk) visit(t Type) *Drop {
 		if d.Close == nil {
 			d.Close = w.c.closeOperation(t, nil, "Close")
 		}
-		// A std body's Drain gives what the value still holds after its
+		// The declared drain gives what the value still holds after its
 		// Close (a Task's unread result, Q5) or in place of one (a queue's
 		// values left, Q7).
 		d.Drain = w.drain(t, u)

@@ -170,7 +170,8 @@ func pairKinds() []pairKind {
 
 // admits is the model of the checker's assignability (types.md,
 // Assignability) over the grid: clause 1 identity, clause 2 one underlying
-// type with an unnamed side, clause 3 an operation type from a provider,
+// type with an unnamed side, clause 3 an operation type from a provider
+// that declares it (EXC1; no operation type of the grid includes another),
 // clause 4 a variant into its union, clause 5 subset rows (the error row
 // and the needs row) on otherwise identical function shapes with at least
 // one unnamed side. The row bits are sets from the source declarations,

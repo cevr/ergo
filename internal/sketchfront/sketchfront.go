@@ -25,10 +25,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -37,6 +37,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
 )
 
 // Analysis is the 2026 front-end's outcome for one source text (Check) or
@@ -67,37 +68,18 @@ func CheckOptions(source string, opts check.Options) Analysis {
 	return checkSource(source, nil, opts)
 }
 
-// CheckForPlatform is Check against the stated GOOS/GOARCH: an import of
-// Go's standard library whose binding does not state the platform is S104
-// (stdUnbound, load.go).
-func CheckForPlatform(source string, platform gobind.Platform) Analysis {
-	return checkSource(source, platformStd{check.NewGoBindings(nil), platform}, check.Options{})
-}
-
-// platformStd resolves the standard library, as a nil importer does, with
-// Go bindings that refuse a standard-library binding off its platforms.
-type platformStd struct {
-	goBindings *check.GoBindings
-	platform   gobind.Platform
-}
-
-func (p platformStd) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
-
-func (p platformStd) GoBindings() *check.GoBindings {
-	if p.goBindings.Unbound == nil {
-		p.goBindings.Unbound = func(path string) string { return stdUnbound(p.platform, path) }
-	}
-	return p.goBindings
-}
-
 func checkSource(source string, imp check.Importer, opts check.Options) Analysis {
 	file, err := syntax.Parse(source)
+	stage.Add(stage.FilesParsed, 1)
+	stage.Add(stage.BytesParsed, int64(len(source)))
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
 	prepareStd(nil)
 	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, imp, opts)
+	stage.Add(stage.PackagesChecked, 1)
+	stage.Add(stage.DeclsChecked, int64(len(file.Decls)))
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
@@ -259,7 +241,7 @@ const emitterRevision = "lower/2"
 
 // LowerSingleEnv selects the reference lowering, one Go package for the
 // whole program, when it is "single" (compile-speed CS4): the default
-// splits the program into one Go package per Ergo package (lower.Split).
+// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
 // The choice is part of the emission key.
 const LowerSingleEnv = "ERGO_LOWER"
 
@@ -278,6 +260,11 @@ type BuildRequest struct {
 	Source string
 	// Output is the executable to write.
 	Output string
+	// Reuse, when set, is asked with the module before its link; when it
+	// reports true (the caller has what the link would serve, such as a
+	// cached test result), Build returns the module unlinked, and runs no
+	// go command.
+	Reuse func(build.Module) bool
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
@@ -296,6 +283,9 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// Inputs, when set, is the file system the build reads the ledger
+	// through (a warm request's Recorder); nil reads the host.
+	Inputs FS
 	// Report, when set, receives how the toolchain built the executable
 	// (build.Report: the direct path, or go build and why).
 	Report *build.Report
@@ -337,34 +327,20 @@ func Library(a Analysis, source, module, name string) ([]lower.File, error) {
 // cannot be anchored, or one the lowering refuses is refused before
 // anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
-	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
-		return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
-	}
-	lowering := lower.Lower
-	switch req.Mode {
-	case build.ModeBuild:
-		if req.IR {
-			lowering = withoutReport(lower.LowerIR)
-		}
-	case build.ModeTest:
-		lowering = lower.LowerTests
-		if req.IR {
-			lowering = withoutReport(lower.LowerIRTests)
-		}
-	default:
-		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
-	}
-	unit, input, err := buildInput(a, req)
+	unit, lowering, split, err := emission(a, req)
 	if err != nil {
 		return build.Module{}, err
 	}
-	var lowered []lower.File
+	input, err := unitInput(unit, analysisDependencies(a), req)
+	if err != nil {
+		return build.Module{}, err
+	}
+	if !split {
+		input.Emitter += "+single"
+	}
+	var ledgered []lower.File
 	if req.Mode == build.ModeBuild {
-		ev, files, err := lowerWithLedger(a, unit, req)
-		var refused *lower.Refused
-		if errors.As(err, &refused) {
-			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
-		}
+		ev, files, err := ledgerLowered(a, unit, req, split)
 		if err != nil {
 			return build.Module{}, err
 		}
@@ -372,27 +348,18 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			// The entries the lowering read are an input of it: the key
 			// holds them, and no other entry of the module's ledger.
 			input.Dependencies = append(input.Dependencies, sourceDependency(lower.LedgerFile, map[string]string{"read": ev.Read()}))
-			lowered = files
+			ledgered = files
 		}
-	}
-	split := splitLowering()
-	if !split {
-		input.Emitter += "+single"
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lowered, error(nil)
+		files := ledgered
 		if files == nil {
-			files, err = lowering(unit)
-		}
-		var refused *lower.Refused
-		if errors.As(err, &refused) {
-			return nil, &BuildError{Diagnostics: a.refusals(refused)}
-		}
-		if err != nil {
-			return nil, err
-		}
-		if split {
-			files, _ = lower.Split(unit, files)
+			var err error
+			files, err = lowerUnit(a, unit, lowering)
+			if err != nil {
+				return nil, err
+			}
+			countLowered(files)
 		}
 		out := make([]build.File, len(files))
 		for i, f := range files {
@@ -403,6 +370,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	if module.Reused {
+		stage.Add(stage.ModulesReused, 1)
+	}
 	return module, link(module, req)
 }
 
@@ -412,6 +382,9 @@ func link(module build.Module, req BuildRequest) error {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
+	if req.Reuse != nil && req.Reuse(module) {
+		return nil
+	}
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
 		return err
@@ -433,19 +406,6 @@ func withoutReport(lowering func(lower.Unit) ([]lower.File, lower.IRReport, erro
 		files, _, err := lowering(u)
 		return files, err
 	}
-}
-
-// buildInput is the unit of a checked analysis and its emission key's
-// input for req's mode. A program of one source text is anchored at the
-// request's Source; a program read from a folder at the admitted path of
-// each file it read.
-func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
-	unit, err := analysisUnit(a, req.Source)
-	if err != nil {
-		return lower.Unit{}, build.Input{}, err
-	}
-	input, err := unitInput(unit, analysisDependencies(a), req)
-	return unit, input, err
 }
 
 // analysisUnit is the validated unit of a checked analysis; source
@@ -507,8 +467,8 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // refuses instead (*LedgerError). A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
-func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
-	text, err := ledgerText(req.Ledger)
+func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -516,18 +476,24 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ev.HasRules() {
+	if !lower.HasRewriteLaws(unit) {
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev
-	lowering := lower.Lower
-	if req.IR {
-		lowering = withoutReport(lower.LowerIR)
+	var files []lower.File
+	if split {
+		files, err = splitLowerer(false, req.IR)(unit)
+	} else {
+		lowering := lower.Lower
+		if req.IR {
+			lowering = withoutReport(lower.LowerIR)
+		}
+		files, err = lowering(unit)
 	}
-	files, err := lowering(unit)
 	if err != nil {
 		return nil, nil, err
 	}
+	countLowered(files)
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
 		return nil, nil, &LedgerError{Lines: notes}
@@ -538,6 +504,107 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 		}
 	}
 	return ev, files, nil
+}
+
+// emission is the unit a build of req lowers, the lowering it uses and
+// whether that lowering splits the program by package (splitLowering; an
+// IR build too, CS10): Build's and EmittedDigest's one reading of a
+// request.
+func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), bool, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return lower.Unit{}, nil, false, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	lowering := lower.Lower
+	switch req.Mode {
+	case build.ModeBuild:
+		if req.IR {
+			lowering = withoutReport(lower.LowerIR)
+		}
+	case build.ModeTest:
+		lowering = lower.LowerTests
+		if req.IR {
+			lowering = withoutReport(lower.LowerIRTests)
+		}
+	default:
+		return lower.Unit{}, nil, false, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
+	}
+	unit, err := analysisUnit(a, req.Source)
+	if err != nil {
+		return lower.Unit{}, nil, false, err
+	}
+	split := splitLowering()
+	if split {
+		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)
+	}
+	return unit, lowering, split, nil
+}
+
+// splitLowerer is the package split (CS4) of a build or test lowering, of
+// IR bodies when ir (CS10).
+func splitLowerer(test, ir bool) func(lower.Unit) ([]lower.File, error) {
+	return func(u lower.Unit) ([]lower.File, error) {
+		if ir {
+			files, _, _, err := lower.LowerIRSplit(u, test)
+			return files, err
+		}
+		files, _, err := lower.LowerSplit(u, test)
+		return files, err
+	}
+}
+
+// lowerUnit lowers unit, a refusal as the analysis's diagnostics.
+func lowerUnit(a Analysis, unit lower.Unit, lowering func(lower.Unit) ([]lower.File, error)) ([]lower.File, error) {
+	files, err := lowering(unit)
+	var refused *lower.Refused
+	if errors.As(err, &refused) {
+		return nil, &BuildError{Diagnostics: a.refusals(refused)}
+	}
+	return files, err
+}
+
+// ledgerLowered is lowerWithLedger, a refusal as the analysis's
+// diagnostics: a run build's files when its module has rewrite laws, else
+// no evidence and no files.
+func ledgerLowered(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
+	ev, files, err := lowerWithLedger(a, unit, req, split)
+	var refused *lower.Refused
+	if errors.As(err, &refused) {
+		return nil, nil, &BuildError{Diagnostics: a.refusals(refused)}
+	}
+	return ev, files, err
+}
+
+// EmittedDigest is the SHA-256 of the Go module a Build of req would link:
+// the runtime and the lowered files, by path and bytes, and the mode. Two
+// compilers that emit the same module for a program give the same digest,
+// so a cache keyed on it replays across a compiler edit that does not
+// change that program's Go (the examples runner, gate-speed GS8). It writes
+// nothing and runs no Go tool.
+func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
+	unit, lowering, split, err := emission(a, req)
+	if err != nil {
+		return "", err
+	}
+	var files []lower.File
+	if req.Mode == build.ModeBuild {
+		if _, files, err = ledgerLowered(a, unit, req, split); err != nil {
+			return "", err
+		}
+	}
+	if files == nil {
+		if files, err = lowerUnit(a, unit, lowering); err != nil {
+			return "", err
+		}
+	}
+	all := append(slices.Clone(lower.Runtime()), files...)
+	slices.SortFunc(all, func(x, y lower.File) int { return strings.Compare(x.Path, y.Path) })
+	hash := sha256.New()
+	fmt.Fprintf(hash, "mode %s\n", req.Mode)
+	for _, f := range all {
+		fmt.Fprintf(hash, "%d:%s%d:", len(f.Path), f.Path, len(f.Data))
+		hash.Write(f.Data)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and
@@ -553,6 +620,14 @@ func stdDependencies() []build.Dependency {
 	return deps
 }
 
+// countLowered counts one lowered module and its Go bytes (stage).
+func countLowered(files []lower.File) {
+	stage.Add(stage.ModulesLowered, 1)
+	for _, f := range files {
+		stage.Add(stage.GoBytesLowered, int64(len(f.Data)))
+	}
+}
+
 // sourceDependency summarises a source package by the digest of its file
 // names and bytes, each length-prefixed so no two packages encode alike.
 func sourceDependency(name string, files map[string]string) build.Dependency {
@@ -565,6 +640,7 @@ func sourceDependency(name string, files map[string]string) build.Dependency {
 	for _, file := range names {
 		fmt.Fprintf(hash, "%d:%s%d:", len(file), file, len(files[file]))
 		hash.Write([]byte(files[file]))
+		stage.Add(stage.BytesHashed, int64(len(files[file])))
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	return build.Dependency{Name: name, Interface: digest, Implementation: digest}

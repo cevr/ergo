@@ -86,7 +86,7 @@
       "file": "examples/pipeline/run/run.ergo",
       "from": "\tEmit{Next: Fold(s, es), Output: es}\n",
       "to": "\tEmit{Next: s, Output: es}\n",
-      "rule": "The step's next state is the fold of its events: SceneAgreesWithStory.",
+      "rule": "The step's next state is the fold of its events: run.HandleFoldsItsEvents (since DK5b the desk folds the events itself, so no desk law sees Handle's Next).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
@@ -100,8 +100,8 @@
     {
       "name": "px1-desk-last-first", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "\tfor i, id in b.Queue {\n",
-      "to": "\tfor i, id in slices.Reverse(b.Queue) {\n",
+      "from": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[0], run.Start)}\n",
+      "to": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[len(b.Queue)-1], run.Start)}\n",
       "rule": "Runs start in the order they were submitted: SceneAgreesWithStory.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
@@ -188,8 +188,8 @@
     {
       "name": "dk5-keep-loses-receipt", "origin": "wf10/domain DK5",
       "file": "modules/domain/sourced.ergo",
-      "from": "Receipts: l.Receipts.Put(id, Receipt{ID: id, Stream: l.Stream, Position: p}), Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
-      "to": "Receipts: l.Receipts, Last: Recorded[E]{Position: p, ID: id, Events: events}}}",
+      "from": "Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}",
+      "to": "Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts, Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}",
       "rule": "A Keep's ledger keeps the command's receipt, which the sender reads: CommandKeepsTheWait (its second submit is kept while the desk waits).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },

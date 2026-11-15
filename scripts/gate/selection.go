@@ -43,12 +43,16 @@ import (
 
 // selectPackages are the packages whose fast-tier tests the gate selects:
 // the compiler's (check, lower) and the CLI's, the ones every compiler
-// edit runs (about 170 CPU-s of the fast tier, fast-cpu.json).
-var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo"}
+// edit runs (about 170 CPU-s of the fast tier, fast-cpu.json), and the
+// packages that a compiler or std edit reruns whole next (gate-speed GS12:
+// on a lower edit scripts/examples, sketchfront and tsproj took 42 CPU-s;
+// on a std edit bindc, scripts/examples, sketchfront, std, syntax and
+// gobind took 89).
+var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo", "scripts/examples", "internal/sketchfront", "internal/tsproj", "internal/bindc", "internal/sketch/std", "internal/sketch/syntax", "internal/gobind"}
 
 // coverageVersion is the record format; a record of another version is
-// no record.
-const coverageVersion = 1
+// no record. Version 2 observes the embedded std files (observedEmbeds).
+const coverageVersion = 2
 
 // coverageSubdir is where the records live in the gate's cache directory:
 // one file per package, and the base sources the hunks are read against.
@@ -98,7 +102,46 @@ type recordedRead struct {
 
 // performanceVariables change how fast a test runs, not what it does; a
 // difference in them selects no test. GOFLAGS is compared without its -p.
-var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT", "TMPDIR", "GOTMPDIR", "GOCOVERDIR", testenvToolDigest}
+var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT", "TMPDIR", "GOTMPDIR", "GOCOVERDIR", testenvToolDigest, embedObserveVariable}
+
+// embedObserveVariable is internal/sketch/std's ObserveVariable: the record
+// sets it to the checkout root, and a package that observes its embedded
+// files then opens each one it reads at its checkout path, which the test
+// log names (gate-speed GS9). Only the record sets it; it changes no verdict.
+const embedObserveVariable = "ERGO_EMBED_OBSERVE"
+
+// recordedCLIs are the packages whose tests run the package's own
+// executable, each with the variable through which a test takes one built
+// for it (gate-speed GS11). The record builds it with coverage of the
+// test's packages and hands each test a wrapper that writes the CLI's
+// counters beside the test's own, so the blocks a test ran in the CLI are
+// its blocks, and the test does not build the CLI from source, which would
+// read every source file and select it after every edit. A test that
+// ignores the variable still builds from source: it reads the sources and
+// is selected by any edit (fail closed).
+var recordedCLIs = map[string]string{"cmd/ergo": "ERGO_TEST_CLI"}
+
+// observedEmbeds are the packages that observe the files they embed
+// (embedObserveVariable): an edit of one of those files is a read the record
+// placed, which reruns its readers, not every test. A file another package
+// embeds, even one in a folder below an observing package (std's gostd/src),
+// is not observed, and an embedded file added or removed still runs every
+// test.
+var observedEmbeds = []string{"internal/sketch/std"}
+
+// embeddingPackage is the package directory that compiles in rel: the
+// nearest directory above it that is a package of the closure (an embedded
+// file may lie in a folder below its package), or "".
+func embeddingPackage(rel string, deps map[string]bool) string {
+	for dir := path.Dir(rel); ; dir = path.Dir(dir) {
+		if deps[dir] {
+			return dir
+		}
+		if dir == "." || dir == "/" {
+			return ""
+		}
+	}
+}
 
 // testenvToolDigest is the variable through which the gate passes the
 // tools' digest; the tools themselves are reads (a program run is an open).
@@ -302,6 +345,8 @@ func selectTests(root, cacheDir string, p testPackage, env []string, names []str
 		dir, base := path.Dir(rel), path.Base(rel)
 		built := strings.HasSuffix(base, ".go") || slices.Contains(buildExtensions, path.Ext(base))
 		switch {
+		case slices.Contains(p.closure.Embeds, rel) && before != "" && after != "" && slices.Contains(observedEmbeds, embeddingPackage(rel, deps)):
+			// An observed embedded file: its readers (below).
 		case !deps[dir] || slices.Contains(p.closure.Embeds, rel) || slices.Contains(moduleFiles, rel):
 			// An embedded file, a module file, or a file of a directory
 			// that is no longer, or not yet, compiled in.
@@ -522,6 +567,17 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 	if output, err := build.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("go test -c -cover %s: %w\n%s", p.dir, err, output)
 	}
+	// A package whose tests run the package's own executable gets one
+	// built with coverage of the same packages (recordedCLIs).
+	cliVariable, hasCLI := recordedCLIs[p.dir]
+	cli := filepath.Join(scratch, "cli")
+	if hasCLI {
+		build := exec.Command("go", "build", "-cover", "-covermode=set", "-coverpkg="+strings.Join(coverpkg, ","), "-o", cli, "./"+p.dir)
+		build.Env, build.Dir = env, root
+		if output, err := build.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("go build -cover %s: %w\n%s", p.dir, err, output)
+		}
+	}
 	facts, err := selectionFacts(declared)
 	if err != nil {
 		return nil, err
@@ -557,7 +613,24 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 		// sh runs the built binary, as writeTestCPU does: the gate's host
 		// programs are literals (hostPrograms).
 		command := exec.Command("sh", "-c", `exec "$0" "$@"`, binary, "-test.run", exactNames([]string{name}), "-test.short", "-test.count=1", "-test.testlogfile="+log, "-test.gocoverdir="+counters)
-		command.Env = setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOCOVERDIR", counters)
+		// GOTMPDIR is the test's own scratch too (gate-speed GS10): the go
+		// command a test starts makes and removes its work directories
+		// there, so a shared GOTMPDIR's listing, read by every test that
+		// builds Go, changed between any two runs and selected those tests
+		// after every edit, a docs edit included.
+		command.Env = setEnvironmentVariable(setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOTMPDIR", temporary), "GOCOVERDIR", counters)
+		command.Env = setEnvironmentVariable(command.Env, embedObserveVariable, root)
+		if hasCLI {
+			// The wrapper names the test's counters, and has the CLI
+			// observe its embedded files (embedObserveVariable), whatever
+			// environment the test gives the CLI.
+			wrapper := filepath.Join(work, "cli")
+			script := fmt.Sprintf("#!/bin/sh\nGOCOVERDIR='%s' %s='%s' exec '%s' \"$@\"\n", counters, embedObserveVariable, root, cli)
+			if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+				return nil, err
+			}
+			command.Env = setEnvironmentVariable(command.Env, cliVariable, wrapper)
+		}
 		command.Dir = packageDir
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output

@@ -23,7 +23,7 @@ import (
 func TestRuntime199BlockingProperty(t *testing.T) {
 	needsBuild(t)
 	var names []string
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		body, err := v1.BodyOf(name)
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		t.Fatal("the owner has no blocking bindings")
 	}
 	for _, name := range names {
-		for _, route := range blockingRoutes(name, runtimeBindings[name]) {
+		for _, route := range blockingRoutes(name, runtimeBindings()[name]) {
 			t.Run(name+"/"+route, func(t *testing.T) { blockingNative(t, name, route) })
 		}
 	}
@@ -329,6 +329,8 @@ func blockingNative(t *testing.T, name, route string) {
 			data = replace(data, "return &Timeline{v: rt.NewManual(t, start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		case "ergo/runtime/rt/handle.go":
 			data = replace(data, "close(h.done)", "ready := BlockingFinished\n\tclose(h.done)\n\tif ready != nil { ready <- &h.task }")
 		}

@@ -163,7 +163,7 @@ func main() needs Console {
 	// A with of a local context inside a function literal that runs after
 	// the block that defines it has ended.
 	{"literal", e5Prelude + `
-func make(name string) escaping func() string {
+func make(name string) func() string {
 	let n = name + "!"
 	let w = context { Store: Holder{v: n} }
 	func() string {

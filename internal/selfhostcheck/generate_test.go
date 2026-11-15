@@ -466,7 +466,7 @@ func (g *gen) decl() {
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
 		g.list(func() { g.w(g.name(), " ", g.typeName()) })
-		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " escaping func() int"), " {")
+		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " func() int"), " {")
 		g.block()
 	}
 }

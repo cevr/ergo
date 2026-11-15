@@ -339,6 +339,14 @@ docs/wayfinder/snapshot.json	to `needs`; add `provides` on wires",
 internal/sketch/check/testdata/corpus/corpus-01.txtar	*
 
 # L11b: generic codecs (wired[T], codec witnesses) and the round-trip law of a by-name pair Wire
+examples/cborpack/cbor/cbor.ergo	// The form: a record is a map of its wire keys, a union value the map of
+examples/cborpack/cbor/cbor.ergo	func Encode[T wire](v T) string {
+examples/cborpack/cbor/tests.ergo	func hexOf[T wire](v T) string { hex.Encode(Encode(v)) }
+modules/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string {
+modules/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
+modules/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
+internal/sketchfront/ledger_import_test.go	// RawJoins the build rewrites by, and Show, which encodes any wire value
+internal/sketchfront/ledger_import_test.go	func Show[T wire](v T) string {
 examples/confparse/README.md	| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level` with its by-name codec pair `ParseLevel`/`Wire`, whose round-trip law `LevelRound
 examples/confparse/cmd/confparse/main.ergo	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.Wire(c.Log))"}
 examples/confparse/config/config.ergo	// ParseLevel and Wire are Level's by-name codec pair (types.md, Codecs 1):
@@ -383,6 +391,13 @@ internal/sketch/std/json/json.ergo	*
 internal/sketch/std/json/stream.ergo	func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] {
 internal/sketch/std/http/query.ergo	// record follows the codec's rules: a field's key is its wire name, an
 internal/sketch/std/http/query.ergo	func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+internal/sketch/std/ui/location.ergo	// rule (http.DecodeQuery, stdlib.md HTTP 3): a field's key is its wire
+internal/sketch/std/ui/location.ergo	func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] {
+internal/sketch/std/ui/location.ergo	func EncodeQuery[T wire](v T) string fails QueryShape {
+internal/sketch/std/ui/location.ergo	func WithQuery[T wire](u URL, v T) URL fails QueryShape {
+docs/spec/stdlib.md	`QueryOf[T wire](u) T fails http.QueryRepeated | wired[T]`
+docs/spec/stdlib.md	a field's key is its wire name, an unknown key is skipped, a missing field fails unless it is a `json.Optional`
+docs/spec/stdlib.md	goes on the wire as a string by a by-name pair (`ParseX`, `Wire`;
 runtime/v1/http/http_target_test.go	// this checks the bytes on the wire against it, at a raw loopback
 runtime/v1/http/testdata/webtarget/gen.mjs	// checks on the wire (S-target). Each row is a generated URL (or a base and
 docs/spec/stdlib.md	**Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
@@ -412,7 +427,7 @@ internal/sketch/lower/testdata/mutants.json	"from": "f.wires[tp] = wit + \".Fiel
 internal/sketch/lower/testdata/mutants.json	"to": "f.wires[tp] = wit",
 internal/sketch/syntax/testdata/refuse/49-wire-let.ergo	// want: S108 3 cannot write a composite literal of wire
 docs/spec/stdlib.md	| `Codec` | `Codec[T wire] { MaxBytes int, MaxDepth int }` | Ergo |
-docs/spec/stdlib.md	| `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `JSONTake`, `JSONRecycle` |
+docs/spec/stdlib.md	| `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `strings.Hint`, `Borrow`, `Give`, `FromBytes` |
 docs/spec/stdlib.md	| `Decode` | `Decode[T wire](c Codec[T], text string) T fails Malformed \| wired[T]` | Ergo over `Open`, `decode[T]` |
 docs/spec/stdlib.md	| `DecodeStream` | `DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed \| io.ReadFailed \| wired[T]` | Ergo over `NewStream`, `decode[T]`, `Settle` |
 docs/spec/stdlib.md	| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `JSON.parse`/`JSON.stringify` | W5, W6, W7, W9 | `Codec[T wire]{MaxBytes, MaxDepth}`
@@ -473,11 +488,9 @@ examples/fk-domains/domains/domainsrpc/wire.ergo	*
 examples/fk-domains/loopback/loopback.ergo	*
 examples/fk-domains/domains/listing.ergo	*
 examples/fk-domains/domains/registry.ergo	*
-examples/fk-domains/sample/sample.ergo	*
 examples/fk-domains/server/origin.ergo	*
 examples/fk-domains/server/recorded/wire.mjs	*
 examples/fk-domains/README.md	*
-examples/fk-domains/search/search.ergo	Some[string]{Value: domains.Wire(l)}
 examples/fk-domains/expected-skips	*
 examples/fk-domains/origin/README.md	*
 examples/fk-domains/origin/measure/README.md	*
@@ -504,6 +517,11 @@ internal/sketch/std/config/load.ergo	*
 internal/sketch/std/config/reader.ergo	*
 internal/sketch/std/config/redacted.ergo	*
 runtime/v1/config_names.go	*
+internal/sketch/check/wirewrite.go	*
+internal/sketch/lower/wirewrite.go	*
+modules/xml/attribute.ergo	*
+docs/spec/types.md	by its name and shape, as `Wire` is, so only
+internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/lower/wire.go","from":"\t\t\tcall += \", nil\"
 modules/infra/outputs.ergo	func WriteOutputs[O wire](
 modules/infra/outputs.ergo	func Deploy[O wire, R](
 modules/infra/cli.ergo	type Bound[O wire] {

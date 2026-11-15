@@ -87,6 +87,9 @@ type testLowering struct {
 	// posts are the unit's post laws that run from drawn reached states
 	// (Unit.Posts, postRun).
 	posts []*check.Law
+	// importLaws are the imported packages' law runs the build runs
+	// beside the root's (Unit.ImportLaws).
+	importLaws []check.LawRun
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -105,12 +108,17 @@ func lowerTestParts(u Unit) ([]byte, []File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts})
+	l := newTestLowerer(u)
 	code, err := l.program()
 	if err != nil {
 		return nil, nil, err
 	}
 	return code, l.assetFiles(), nil
+}
+
+// newTestLowerer is the lowerer of u's test binary.
+func newTestLowerer(u Unit) *lowerer {
+	return newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws})
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -121,7 +129,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
-	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
+	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenMatch", "ergoGenMatch"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
@@ -226,10 +234,29 @@ func (l *lowerer) nameTests() {
 				if _, lt, rt, shown := l.assertShown(a.X); shown {
 					reserveLit(lt)
 					reserveLit(rt)
+					if l.ir != nil {
+						l.pkgName(assertShowKey(a), "ergoAssertShow") // ir_assert.go
+					}
 				}
 			}
 			return true
 		})
+	}
+	if l.ir != nil {
+		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
+		// A law's asserts may take a helper in the IR too: each is named,
+		// since a law of another package is shown under its own Info.
+		for _, r := range l.runLaws() {
+			if r.Law == nil {
+				continue
+			}
+			syntax.Inspect(r.Law.Decl, func(n syntax.Node) bool {
+				if a, ok := n.(*syntax.AssertStmt); ok {
+					l.pkgName(assertShowKey(a), "ergoAssertShow")
+				}
+				return true
+			})
+		}
 	}
 }
 
@@ -325,9 +352,25 @@ func (l *lowerer) testFunc(t *check.Test) string {
 // runs (check.Package.LawRuns), its own laws and the laws of its imports
 // bound to providers it is the least package to see, in canonical order,
 // as runTests are its tests (Laws). A law that does not run (Law.Unrun) is
-// reported as skipped and has no body in the build.
+// reported as skipped and has no body in the build. A rewrite check's
+// build runs the imported packages' runs it was given after them
+// (Unit.ImportLaws), each law once.
 func (l *lowerer) runLaws() []check.LawRun {
-	return l.canon.lawRuns(l.pkg)
+	runs := l.canon.lawRuns(l.pkg)
+	if l.tests == nil || len(l.tests.importLaws) == 0 {
+		return runs
+	}
+	seen := map[*check.Law]bool{}
+	for _, r := range runs {
+		seen[r.Law] = true
+	}
+	for _, r := range l.tests.importLaws {
+		if !seen[r.Law] {
+			seen[r.Law] = true
+			runs = append(runs, r)
+		}
+	}
+	return runs
 }
 
 // lawLowered reports whether the build lowers the run's law: it runs and
@@ -489,11 +532,23 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		head += fc.resultList(result, true)
 	}
 	fc.depth = 1
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
+		if sourced {
+			l.user.WriteString(l.directive(d))
+		}
+		l.user.WriteString(head + "\n\n")
+		return
+	}
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
+	// A law's body keeps values as a function's does: its copies are
+	// decided as a test's are (let before = b, then a write through &b).
+	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))
@@ -549,15 +604,21 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 	} else {
 		head += fc.resultList(nil, true)
 	}
+	fc.depth = 1
+	l.analyzeValues(d, l.info)
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.testBody(fc, d, l.testFunc(t), t.Params, needsFrame) {
+		l.user.WriteString(l.directive(d) + head + "\n\n")
+		return
+	}
 	l.user.WriteString(l.directive(d))
 	l.user.WriteString(head + " {\n")
-	fc.depth = 1
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")
@@ -1637,6 +1698,76 @@ func $GenStrLen(r *$Rand, n int) string {
 	return r.stream.StrLen(n)
 }
 
+// $GenMatch is a string of n bytes that a refinement's pattern matches
+// (types.md, Refinements 11): the walk of check.Matcher.Generate over the
+// automaton's edges {lo, hi, to} and accepting states. Each step takes an
+// edge and a UTF-8 width that still reach an accepting state in the bytes
+// left, each pair as likely, then a rune of that width on the edge: half
+// the time printable ASCII when the edge has some.
+func $GenMatch(r *$Rand, n int, edges [][][3]int32, accept []bool) string {
+	bands := [5][][2]int32{nil, {{0, 0x7F}}, {{0x80, 0x7FF}}, {{0x800, 0xD7FF}, {0xE000, 0xFFFF}}, {{0x10000, 0x10FFFF}}}
+	width := func(lo, hi int32, w int) [][2]int32 {
+		var out [][2]int32
+		for _, b := range bands[w] {
+			if l, h := max(lo, b[0]), min(hi, b[1]); l <= h {
+				out = append(out, [2]int32{l, h})
+			}
+		}
+		return out
+	}
+	reach := make([][]bool, n+1)
+	reach[0] = append([]bool(nil), accept...)
+	for k := 1; k <= n; k++ {
+		reach[k] = make([]bool, len(edges))
+		for q := range edges {
+			for _, e := range edges[q] {
+				for w := 1; w <= 4 && w <= k && !reach[k][q]; w++ {
+					reach[k][q] = reach[k-w][e[2]] && len(width(e[0], e[1], w)) > 0
+				}
+			}
+		}
+	}
+	var b []rune
+	q := 0
+	for left := n; left > 0; {
+		type option struct {
+			e [3]int32
+			w int
+		}
+		var ok []option
+		for _, e := range edges[q] {
+			for w := 1; w <= 4 && w <= left; w++ {
+				if reach[left-w][e[2]] && len(width(e[0], e[1], w)) > 0 {
+					ok = append(ok, option{e, w})
+				}
+			}
+		}
+		o := ok[r.intn(len(ok))]
+		spans := width(o.e[0], o.e[1], o.w)
+		var c int32
+		if lo, hi := max(spans[0][0], 0x20), min(spans[0][1], 0x7e); len(spans) == 1 && lo <= hi && r.intn(2) == 0 {
+			c = lo + int32(r.intn(int(hi-lo+1)))
+		} else {
+			total := 0
+			for _, s := range spans {
+				total += int(s[1] - s[0] + 1)
+			}
+			k := r.intn(total)
+			for _, s := range spans {
+				if size := int(s[1] - s[0] + 1); k >= size {
+					k -= size
+					continue
+				}
+				c = s[0] + int32(k)
+				break
+			}
+		}
+		b = append(b, c)
+		q, left = int(o.e[2]), left-o.w
+	}
+	return string(b)
+}
+
 // $GenSliceLen is a slice of n elements.
 func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
 	xs := make([]T, n)
@@ -1989,6 +2120,16 @@ func (l *lowerer) genRefined(t check.Type, ref *check.Refinement, r, d string, s
 	}
 	if b, ok := under.(*check.Basic); ok {
 		unsigned = b.Kind >= check.Uint && b.Kind <= check.Uintptr
+	}
+	if ref.Pattern != nil {
+		// A pattern (Refinements 11): a length it reaches, then a walk.
+		var lens []string
+		for _, s := range ref.GenLengths(lenCap) {
+			lens = append(lens, "{"+strconv.FormatInt(s[0], 10)+", "+strconv.FormatInt(s[1], 10)+"}")
+		}
+		edges, accept := patternTable(ref.Pattern)
+		n := l.helper("GenIn") + "(" + r + ", [][2]int64{" + strings.Join(lens, ", ") + "})"
+		return tc.goType(t) + "(" + l.helper("GenMatch") + "(" + r + ", int(" + n + "), " + edges + ", " + accept + "))"
 	}
 	var spans []string
 	for _, s := range ref.Spans {

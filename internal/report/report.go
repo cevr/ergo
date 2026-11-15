@@ -62,14 +62,17 @@ type Diagnostic struct {
 // when the fixed file's check reports it unused), and Clause, Function,
 // Row and Signature are empty.
 type Fix struct {
-	Clause    string   `json:"clause,omitempty"`
-	Function  string   `json:"function,omitempty"`
-	Row       []string `json:"row,omitempty"`
-	Rule      string   `json:"rule,omitempty"`
-	InsertAt  int      `json:"insertAt"`
-	Replace   int      `json:"replace,omitempty"`
-	Text      string   `json:"text,omitempty"`
-	Open      int      `json:"open,omitempty"`
+	Clause   string   `json:"clause,omitempty"`
+	Function string   `json:"function,omitempty"`
+	Row      []string `json:"row,omitempty"`
+	Rule     string   `json:"rule,omitempty"`
+	InsertAt int      `json:"insertAt"`
+	Replace  int      `json:"replace,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Open     int      `json:"open,omitempty"`
+	// Owns are the further offsets an "own" clause fix inserts Text at,
+	// one per parameter it marks after the first (EXM1).
+	Owns      []int    `json:"owns,omitempty"`
 	Imports   []string `json:"imports,omitempty"`
 	Unused    []string `json:"unused,omitempty"`
 	Signature string   `json:"signature,omitempty"`

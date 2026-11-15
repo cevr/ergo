@@ -53,6 +53,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.goErrorCall(x, c) // gocall.go
 	case check.CallEncode, check.CallDecode:
 		return fc.wireCall(x, c)
+	case check.CallPattern:
+		return fc.patternCall(x, c) // refinematch.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -313,6 +315,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
+			} else if !known && !dropped && fd.pure {
+				if v, ok := fc.tabAt(c, vals); ok {
+					return v, true, false // the function's table (tabulate.go)
+				}
 			}
 			if mono != nil {
 				head = mono.name // one instance: no type arguments
@@ -321,6 +327,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
 		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
+		if sp != nil && sp.wit != nil && !known {
+			lead = nil // the copy for a known witness takes none (witspec.go)
+		}
 		if !fd.pure {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
@@ -813,10 +822,6 @@ func (fc *funcCtx) callArgs(list []syntax.Expr, call *syntax.CallExpr) []string 
 // callArgsAddr is callArgs; with addr, the first operand is a receiver
 // place whose address is the operand.
 func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
-	return fc.callArgsOf(list, call, addr)
-}
-
-func (fc *funcCtx) callArgsOf(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || (list[i] != nil && (fc.emits(list[i]) || fc.handsOff(list[i])))

@@ -20,7 +20,7 @@ var decidedFamilies = []string{
 	"test", "assert",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
-	"catch arm", "catch-all binding",
+	"catch arm", "catch-all binding", "or pattern",
 	"for in", "for pattern", "for tuple pattern", "counting range", "range value", "for condition",
 	"assignment", "break and continue",
 	"function literal", "untyped parameter",
@@ -288,15 +288,26 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
-	{"fails and needs", "a takes clause (#197)", `
+	{"fails and needs", "a retired takes clause names own (#197, q168)", `
 type R {} implements Closer
 func Close(r R) {}
 type Holder { r R }
-func keep(r R) Holder takes r { Holder{r: r} }
+func keep(r own R) Holder { Holder{r: r} }
+func main() {}
+`, []string{"S108:5"}},
+	{"fails and needs", "the mode word own (EXM1, q168)", `
+type R {} implements Closer
+func Close(r own R) {}
+type Holder { r R }
+func keep(r own R) Holder { Holder{r: r} }
 func main() {}
 `, nil},
-	{"escaping", "an escaping function type (196e, check-v1 stage E2)", `
-func f(g escaping func(int) int) int { return g(1) }
+	{"escaping", "a retired escaping names own (196e, q168)", `
+func f(g own func(int) int) int { return g(1) }
+func main() {}
+`, []string{"S108:2"}},
+	{"escaping", "own before a parameter's function type (196e, q168)", `
+func f(g own func(int) int) int { return g(1) }
 func main() {}
 `, nil},
 	{"escaping", "a pure parameter (STD-NOPRIV NP3a; rows.md, Footprints 6)", `
@@ -475,6 +486,24 @@ func f(u U) int {
 }
 func main() {}
 `, []string{"S108:7", "S108:7"}},
+	{"or pattern", "nested alternatives in a match's and a catch's patterns (FK7a)", `
+type A {}
+type B {}
+type U = A | B
+type Bang { N int }
+func load() int fails Bang { 1 }
+func f(u U, n int) int {
+	let k = load() catch {
+	case Bang{N: 1 | 2}: 0
+	case Bang: 1
+	}
+	match (u, n) {
+	case (A | B, 0): k
+	case _: 2
+	}
+}
+func main() {}
+`, nil},
 	{"catch arm", "catch arm with as", `
 type NotFound { ID string }
 type Gone {}

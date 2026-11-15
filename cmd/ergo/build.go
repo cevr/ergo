@@ -14,12 +14,14 @@ import (
 
 	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/pinset"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
 )
 
@@ -41,11 +43,35 @@ func buildCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if opts.emitted {
+		return printEmitted(opts, build.ModeBuild)
+	}
 	output, err := buildSource(opts, outputPath)
 	if err != nil {
 		return err
 	}
 	fmt.Println(output)
+	return nil
+}
+
+// printEmitted is build's and test's --emitted: it checks the source as
+// the command does and prints "emitted <digest>", the digest of the Go
+// module the command would link for mode (sketchfront.EmittedDigest), with
+// the platform it links for. It builds and writes nothing. A source that
+// does not check is refused as the command refuses it.
+func printEmitted(opts fileOptions, mode build.Mode) error {
+	checked, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !checked.result.Checked {
+		return refuseUnchecked(checked, opts)
+	}
+	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("emitted %s %s/%s\n", digest, opts.platform.GOOS, opts.platform.GOARCH)
 	return nil
 }
 
@@ -73,6 +99,7 @@ func runCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	stage.Add(stage.Processes, 1)
 	child := exec.Command(output.Path(), opts.args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
@@ -89,7 +116,11 @@ func runCommand(args []string) error {
 // first needs the key. A process-scoped identity builds the module
 // privately and never publishes it.
 func buildSource(opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	w := startWarm(opts, warmToolchain(opts))
+	if w != nil && w.hit {
+		return placeWarm(w, opts, place)
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return receipt.Location{}, err
 	}
@@ -112,6 +143,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	stderr := &quiet{w: os.Stderr}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
@@ -119,10 +151,11 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc,
 		IR:        true,
-		Stderr:    os.Stderr,
+		Stderr:    stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
 		Report:    &report,
+		Inputs:    w.fsys(),
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
@@ -130,6 +163,20 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	}
 	if err != nil {
 		return receipt.Location{}, err
+	}
+	if opts.report == "copies" {
+		// The copy report (OWN1): the run build's form of each Append and
+		// Concat site, lowered in process, one line each on stderr.
+		sites, err := sketchfront.CopyReport(l.analysis, l.source.Admitted())
+		if err != nil {
+			return receipt.Location{}, err
+		}
+		for _, s := range sites {
+			fmt.Fprintf(os.Stderr, "COPY %s:%d:%d %s: %s\n", s.File, s.Line, s.Column, s.Form, s.Why)
+		}
+	}
+	if report.Direct && report.Executable != "" && !stderr.written {
+		w.record(sketchfront.WarmAnswer{Executable: report.Executable})
 	}
 	return output, nil
 }
@@ -165,39 +212,81 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	return irspike.GoText(files, tc, output.Path(), dir, os.Stderr)
 }
 
+// placeWarm answers a build from the store: the output is a hard link of
+// the executable's blob, placed again only when it is not that file.
+func placeWarm(w *warm, opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
+	source, err := receipt.LocateSource(opts.file)
+	if err != nil {
+		return receipt.Location{}, err
+	}
+	output, err := locateArtifact(place(filepath.Base(source.Admitted()), opts.output))
+	if err != nil {
+		return receipt.Location{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(output.Path()), 0o755); err != nil {
+		return receipt.Location{}, err
+	}
+	return output, w.cache.PlaceExecutable(w.answer.Executable, output.Path())
+}
+
 // buildAction is the Go build action of opts' command: the release of the
 // go command ERGO_GO selects (goCommand), with ergo's patched compile
-// (patchedCompile), the user's GOFLAGS, linking for opts.platform, always
-// stated, so the go env file's GOOS and GOARCH never choose it. `ergo
-// build` strips the symbol table and DWARF unless --debug is given;
-// `ergo run` keeps them, as its binary is not shipped. The emitted module
-// is the same for every platform and either way; Go's action cache keys
-// the link on the platform and the flags. Every build lowers Ergo bodies through IR
-// (plan-tier §1.1), which only the patched compile reads.
+// (patchedCompile), the user's GOFLAGS, and actionFor's platform and link.
+// Every build lowers Ergo bodies through IR (plan-tier §1.1), which only
+// the patched compile reads.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
-	tc := build.HostToolchain()
 	selected, err := goCommand()
 	if err != nil {
 		return build.Toolchain{}, err
 	}
-	patched, err := patchedCompile(selected)
+	pins, err := pinSource()
 	if err != nil {
 		return build.Toolchain{}, err
 	}
+	patched, err := patchedCompile(selected, &pins)
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	tc := actionFor(opts, selected)
 	tc.Go, tc.Root = patched.Go, patched.Root
-	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
-	tc.Strip = opts.command == "build" && !opts.debug
+	tc.Pins = build.Pins{Source: pins, Patch: patched.Digest}
 	return tc, nil
 }
 
+// actionFor is the Go build action of opts' command with the go command
+// selected: linking for opts.platform, always stated, so the go env file's
+// GOOS and GOARCH never choose it, and without the symbol table and DWARF
+// (-s -w) unless --debug is given, for build, run and test alike
+// (compile-speed CS7: about half of a link's work; a traceback and a
+// defect report are the same). The emitted module is the same for every
+// platform and either link; the link key holds both (build/direct.go).
+func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
+	tc := build.HostToolchain()
+	tc.Go, tc.Root = selected.Go, selected.Root
+	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Strip = !opts.debug
+	return tc
+}
+
+// pinSource is the pin archive sets of ergo's cache (docs/spec/build.md,
+// Pin archives), fetched from ERGO_PIN_URL when set.
+func pinSource() (pinset.Source, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return pinset.Source{}, err
+	}
+	return toolchain.PinSource(root, os.Getenv("ERGO_PIN_URL"), os.Stderr)
+}
+
 // patchedCompile is the release selected runs, with ergo's patched
-// compile, built once into ergo's cache (internal/toolchain, Patch).
-func patchedCompile(selected toolchain.Toolchain) (toolchain.Patched, error) {
+// compile, taken from the tools set of pins or built once into ergo's
+// cache (internal/toolchain, Patch).
+func patchedCompile(selected toolchain.Toolchain, pins *pinset.Source) (toolchain.Patched, error) {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return toolchain.Patched{}, err
 	}
-	return sketchfront.PatchedRelease(selected, root, os.Stderr)
+	return sketchfront.PinnedRelease(selected, root, pins, os.Stderr)
 }
 
 // goCommand is the go command every build and `ergo bind go` run
@@ -215,10 +304,9 @@ func goCommand() (toolchain.Toolchain, error) {
 // platformOf is the platform a build links for: --platform OS/ARCH when
 // given (spelled), else GOOS and GOARCH of the environment, each one unset
 // or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
-// platform outside the build list (gobind.BuildPlatforms: the platforms
-// every generated Go binding holds for, then windows/amd64, js/wasm and
-// wasip1/wasm) is the EF110 refusal. A Go binding must also state the
-// selected platform before the build can link it.
+// platform outside the target list (gobind.Platforms, the platforms every
+// generated Go binding holds for) is the EF110 refusal. A module binding
+// must also state the selected platform before the build can link it.
 func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
 	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if goos != "" {
@@ -234,11 +322,11 @@ func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platfor
 		}
 		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
 	}
-	if slices.Contains(gobind.BuildPlatforms, p) {
+	if slices.Contains(gobind.Platforms, p) {
 		return p, nil
 	}
-	names := make([]string, len(gobind.BuildPlatforms))
-	for i, listed := range gobind.BuildPlatforms {
+	names := make([]string, len(gobind.Platforms))
+	for i, listed := range gobind.Platforms {
 		names[i] = listed.String()
 	}
 	diagnostic := report.UnsupportedPlatform(p.String(), names)

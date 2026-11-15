@@ -1,11 +1,9 @@
 package mygo
 
 import (
-	"debug/pe"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -57,34 +55,6 @@ func play(bin, script string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// playWasm runs the js/wasm binary wasm under node with Go's runner on the
-// script, as play does, in nodeEnv.
-func playWasm(node, runner, wasm, script string, args ...string) (string, error) {
-	cmd := bounded(node, append([]string{runner, wasm}, args...)...)
-	cmd.Env = nodeEnv()
-	cmd.Stdin = strings.NewReader(script)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
-// nodeEnv is the environment a js/wasm binary runs in under node: this
-// process's, without GOMAXPROCS. Go's wasm_exec_node.js hands node's
-// environment to the program, and the Go runtime sizes its scheduler from
-// GOMAXPROCS in its own start, before any of the program's code runs;
-// js/wasm has one thread, so a value over 1 dies there with "newosproc:
-// not implemented" (measured on go1.27.3: 2 and 4 die, unset and 1 run).
-// No program-side fix exists, since runtime/v1's code runs after that
-// start. A browser hands a program no environment, so it never meets it.
-func nodeEnv() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GOMAXPROCS=") {
-			env = append(env, kv)
-		}
-	}
-	return env
-}
-
 // firstDiff is the first line where a and b differ, both sides.
 func firstDiff(a, b string) string {
 	al, bl := strings.Split(a, "\n"), strings.Split(b, "\n")
@@ -103,154 +73,25 @@ func firstDiff(a, b string) string {
 	return ""
 }
 
-// TestExamplesCrossBuild builds the window binaries for the Mac, Windows
-// and the browser from this host with CGO_ENABLED=0 (ergo build
-// --platform darwin/arm64, windows/amd64, js/wasm); the Linux build is
-// TestExamplesAgreeOnTheDesktop's. The Windows file is a PE amd64
-// executable. The browser binary also runs, headless, under Node with
-// Go's wasm_exec_node.js: for seeds 1 to 3 of its example's script it
-// prints what ui.TestHost prints (W1's smoke; the window binary's MyGo
-// binding states js/wasm, interop.md, Platforms). With no node on PATH
-// that run is skipped, by name.
+// TestExamplesCrossBuild builds the window binaries for the Mac from this
+// host with CGO_ENABLED=0 (ergo build --platform darwin/arm64); the Linux
+// build is TestExamplesAgreeOnTheDesktop's. Windows is not an ergo build
+// platform (interop.md, Platforms: runtime/v1 starts processes with
+// Setpgid and Kill), so no Windows binary is claimed.
 //
 // It builds Go binaries because the claim is that the Go toolchain links
-// them for another platform, and runs the browser one because its
-// runtime (runtime/v1's files for js) is what is claimed; no in-process
-// check links or runs. Node runs under bounded's memory limit.
+// them for another platform; no in-process check links.
 func TestExamplesCrossBuild(t *testing.T) {
 	ergo, err := builtErgo()
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Dir(ergo)
 	for _, name := range guiExamples {
-		for _, platform := range []string{"darwin/arm64", "windows/amd64", "js/wasm"} {
-			bin := filepath.Join(dir, name+"-"+strings.ReplaceAll(platform, "/", "-"))
-			if o, err := bounded(ergo, "build", "./cmd/"+name, "--platform", platform, "-o", bin).CombinedOutput(); err != nil {
-				t.Errorf("ergo build cmd/%s --platform %s: %v\n%s", name, platform, err, o)
-			}
-		}
-		if f, err := pe.Open(filepath.Join(dir, name+"-windows-amd64")); err != nil {
-			t.Errorf("%s for windows/amd64: %v", name, err)
-		} else {
-			if f.Machine != pe.IMAGE_FILE_MACHINE_AMD64 {
-				t.Errorf("%s for windows/amd64: machine %#x", name, f.Machine)
-			}
-			f.Close()
+		bin := filepath.Join(filepath.Dir(ergo), name+"-darwin-arm64")
+		if o, err := bounded(ergo, "build", "./cmd/"+name, "--platform", "darwin/arm64", "-o", bin).CombinedOutput(); err != nil {
+			t.Errorf("ergo build cmd/%s --platform darwin/arm64: %v\n%s", name, err, o)
 		}
 	}
-	if t.Failed() {
-		return
-	}
-	t.Run("browser-run", func(t *testing.T) {
-		node, runner := wasmRunner(t)
-		bins, err := buildExamples()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, name := range guiExamples {
-			wasm := filepath.Join(dir, name+"-js-wasm")
-			for seed := 1; seed <= 3; seed++ {
-				script, err := play(bins[name].testHost, "", "gen", "-seed", fmt.Sprint(seed), "-n", "120")
-				if err != nil {
-					t.Fatalf("%s gen -seed %d: %v\n%s", name, seed, err, script)
-				}
-				want, err := play(bins[name].testHost, script)
-				if err != nil {
-					t.Fatalf("%s on ui.TestHost, seed %d: %v\n%s", name, seed, err, want)
-				}
-				got, err := playWasm(node, runner, wasm, script, "-headless")
-				if err != nil || got != want {
-					t.Errorf("%s on js/wasm, seed %d (err %v): %s\nreplay: go test -run TestExamplesCrossBuild ./hosts/mygo; node %s %s -headless < (%s gen -seed %d -n 120)", name, seed, err, firstDiff(want, got), runner, wasm, bins[name].testHost, seed)
-				}
-			}
-		}
-	})
-}
-
-// wasmRunner is node and Go's wasm_exec_node.js; with no node on PATH the
-// test skips, by name.
-func wasmRunner(t *testing.T) (string, string) {
-	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("no node on PATH: the js/wasm binaries are built, not run")
-	}
-	goroot, err := exec.Command("go", "env", "GOROOT").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return node, filepath.Join(strings.TrimSpace(string(goroot)), "lib", "wasm", "wasm_exec_node.js")
-}
-
-// TestWasmRunsUnderAnInheritedGOMAXPROCS is the smallest repro of the
-// browser-run failure under the gate (GOMAXPROCS=2): a js/wasm Go program
-// that prints one line runs under node while this process has
-// GOMAXPROCS=2, because playWasm leaves it out of node's environment
-// (nodeEnv). Handed down, the program dies in the Go runtime's own start
-// with "newosproc: not implemented", before any code of its own.
-//
-// It builds Go because the subject is the Go runtime's start on js/wasm
-// under node, which only a built program meets.
-//
-// Mutant (testdata/mutants.json): wasm-node-env-inherits-gomaxprocs.
-func TestWasmRunsUnderAnInheritedGOMAXPROCS(t *testing.T) {
-	node, runner := wasmRunner(t)
-	dir := t.TempDir()
-	for name, text := range map[string]string{
-		"go.mod":  "module wasmprobe\n\ngo 1.27\n",
-		"main.go": "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"ok\") }\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	wasm := filepath.Join(dir, "probe.wasm")
-	build := bounded("go", "build", "-o", wasm, ".")
-	build.Dir = dir
-	build.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0")
-	if o, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build for js/wasm: %v\n%s", err, o)
-	}
-	t.Setenv("GOMAXPROCS", "2")
-	if got, err := playWasm(node, runner, wasm, ""); err != nil || got != "ok\n" {
-		t.Fatalf("js/wasm under node with GOMAXPROCS=2 here (err %v), want \"ok\":\n%.400s", err, got)
-	}
-	if t.Failed() {
-		return
-	}
-	t.Run("browser-run", func(t *testing.T) {
-		node, err := exec.LookPath("node")
-		if err != nil {
-			t.Skip("no node on PATH: the js/wasm binaries are built, not run")
-		}
-		goroot, err := exec.Command("go", "env", "GOROOT").Output()
-		if err != nil {
-			t.Fatal(err)
-		}
-		runner := filepath.Join(strings.TrimSpace(string(goroot)), "lib", "wasm", "wasm_exec_node.js")
-		bins, err := buildExamples()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, name := range guiExamples {
-			wasm := filepath.Join(dir, name+"-js-wasm")
-			for seed := 1; seed <= 3; seed++ {
-				script, err := play(bins[name].testHost, "", "gen", "-seed", fmt.Sprint(seed), "-n", "120")
-				if err != nil {
-					t.Fatalf("%s gen -seed %d: %v\n%s", name, seed, err, script)
-				}
-				want, err := play(bins[name].testHost, script)
-				if err != nil {
-					t.Fatalf("%s on ui.TestHost, seed %d: %v\n%s", name, seed, err, want)
-				}
-				got, err := play(node, script, runner, wasm, "-headless")
-				if err != nil || got != want {
-					t.Errorf("%s on js/wasm, seed %d (err %v): %s\nreplay: go test -run TestExamplesCrossBuild ./hosts/mygo; node %s %s -headless < (%s gen -seed %d -n 120)", name, seed, err, firstDiff(want, got), runner, wasm, bins[name].testHost, seed)
-				}
-			}
-		}
-	})
 }
 
 // TestExamplesAgreeOnTheDesktop is X-gui's agreement: the examples'

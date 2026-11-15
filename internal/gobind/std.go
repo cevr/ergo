@@ -64,9 +64,7 @@ func StdBindings(dir string, env []string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The binding platforms only: a std binding states no build platform
-	// past them (an import of one there is S104, sketchfront.stdUnbound).
-	return bindOn(dir, env, v, Platforms, paths)
+	return Bind(dir, env, v, paths...)
 }
 
 // FileName is where the binding of path lives under a binding root:

@@ -54,7 +54,7 @@ type RowReport { Kind string, ID string, Status string, Seq int }
 // StateReport is the JSON of state: Holder is "" when the lock is free.
 type StateReport { Stage string, Holder string, Rows []RowReport }
 
-func leaf(name string, usage string, flags []flag.Flag, args []flag.ArgSpec, build escaping func(v flag.Values) Order fails flag.Failure) flag.Command[Order] {
+func leaf(name string, usage string, flags []flag.Flag, args []flag.ArgSpec, build own func(v flag.Values) Order fails flag.Failure) flag.Command[Order] {
 	flag.Command[Order]{Name: name, Usage: usage, Set: flag.Set{Name: name, Usage: usage, Flags: flags, Args: args}, Build: build, Commands: []flag.Command[Order]{}}
 }
 

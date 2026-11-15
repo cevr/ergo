@@ -88,7 +88,10 @@ func TestModuleLawSelectionReceipts(t *testing.T) {
 // smoke runner bounds each child's memory and owns its process group.
 // It kills e5-pattern, e5-roots, e5-order, e5-status, e5-continue, e5-nested
 // e5-fmt, e5-fatal and e5-empty; previous CLI tests select one package,
-// never a module pattern.
+// never a module pattern. Its cmd/app package (fu-test-main) kills
+// test-main-initialized: a package with nothing to test is built and run,
+// and its package let's defect stops the module's tests; and, run alone
+// with a receipt, it kills empty-receipt-builds (g-b2).
 func TestModuleCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("module command process acceptance runs in the full tier")
@@ -99,6 +102,10 @@ func TestModuleCommands(t *testing.T) {
 	write("ergo.mod", "module tree\n")
 	write("a/a.ergo", "import tree/z\nfunc Value(x int) int { z.Value(x) }\ntest FromA { assert Value(3) == 3 }\n")
 	write("b/b.ergo", "test Independent { assert true }\n")
+	// fu-test-main: a main package with no test and no law, whose package
+	// let is a defect when it runs. ergo test ./... has nothing to run in
+	// it, so it must not run its initializers.
+	write("cmd/app/main.ergo", "func at(xs []string, i int) string { xs[i] }\n\nlet first = at([]string{}, 1)\n\nfunc main() needs Console { Console.Println(first) }\n")
 	z := "func Value(x int) int { x }\nlaw Identity(x int) { Value(x) != x }\n"
 	write("z/z.ergo", z)
 	for _, ignored := range []string{".hidden", "_ignored", "testdata", "nested"} {
@@ -125,10 +132,16 @@ func TestModuleCommands(t *testing.T) {
 	order(out)
 	write("z/z.ergo", strings.Replace(z, "!=", "==", 1))
 	out, err, code = run("test", "./...", "--seed=7")
-	if code != 0 || !strings.Contains(out, "ok law Identity") || !strings.Contains(out, "ok Independent") {
+	if code != 0 || !strings.Contains(out, "ok law Identity") || !strings.Contains(out, "ok Independent") || !strings.Contains(out, "package tree/cmd/app\nPASS (0 tests)\n") {
 		t.Fatalf("fixed module law: exit %d\n%s\n%s", code, out, err)
 	}
 	order(out)
+	// g-b2: the package is not built for one package and a receipt either;
+	// its receipt is the empty run's (TestEmptyRunMatchesTheRunner).
+	receipt := filepath.Join(t.TempDir(), "app.json")
+	if out, err, code = run("test", "cmd/app", "--receipt", receipt); code != 0 || out != "PASS (0 tests)\n" {
+		t.Fatalf("one package with nothing to test, with a receipt: exit %d\n%s\n%s", code, out, err)
+	}
 	if out, err, code = run("check", "./..."); code != 0 {
 		t.Fatalf("fixed module check: exit %d\n%s\n%s", code, out, err)
 	}

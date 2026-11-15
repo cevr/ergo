@@ -154,9 +154,9 @@ func within(want []int, all []int) bool {
 // cannot write it (types.md, Function values 3).
 type Crashing {
 	inner  memory.Journal[int, int],
-	append escaping func(e int) fails journal.Failed,
-	arm    escaping func(mode int),
-	all    escaping func() []int,
+	append func(e int) fails journal.Failed,
+	arm    func(mode int),
+	all    func() []int,
 } implements journal.Journal[int, int]
 
 func Append(c Crashing, e int) fails journal.Failed { try c.append(e) }

@@ -412,7 +412,7 @@ func mintForm(x syntax.Expr, info *Info) (MintForm, bool) {
 		return 0, true // moves an arm's value
 	case *syntax.TypeSwitchStmt:
 		return 0, true // moves an arm's value
-	case *syntax.AsPattern:
+	case *syntax.AsPattern, *syntax.OrPattern:
 		return 0, false // a pattern
 	case *syntax.ArrayType:
 		return 0, true // a type: an element type is walked for nothing

@@ -21,7 +21,7 @@ type BootFailed { Why string }
 type Lease { Engine Engine, back func() } implements Closer
 
 // NewLease is a lease of e whose release calls back.
-func NewLease(e Engine, back escaping func()) Lease { Lease{Engine: e, back: back} }
+func NewLease(e Engine, back own func()) Lease { Lease{Engine: e, back: back} }
 
 // Close gives the engine back.
 func Close(l Lease) { l.back() }

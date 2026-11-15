@@ -151,7 +151,7 @@ var nodeTable = map[string]nodeEntry{
 	"VarDecl": {"let", ""}, "VarSpec": {"let", ""}, "AssignStmt": {"assignment", ""},
 	"BranchStmt": {"break and continue", ""}, "ForStmt": {"for condition", ""}, "RangeStmt": {"for in", ""},
 	"SwitchStmt": {"value match", ""}, "CaseClause": {"value match", ""},
-	"TypeSwitchStmt": {"type match", ""}, "TypeGuard": {"type match", ""}, "AsPattern": {"as pattern", ""},
+	"TypeSwitchStmt": {"type match", ""}, "TypeGuard": {"type match", ""}, "AsPattern": {"as pattern", ""}, "OrPattern": {"or pattern", ""},
 	"CatchExpr": {"catch arm", ""}, "CatchArm": {"catch arm", ""}, "TryExpr": {"fails and needs", ""},
 	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""}, "TakesClause": {"fails and needs", ""},
 	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""},

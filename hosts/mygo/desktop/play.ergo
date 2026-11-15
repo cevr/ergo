@@ -221,6 +221,11 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.SettleAll:
 			try Settle(d)
 		case ui.AdvanceBy:
+		case ui.ClickOn, ui.FillIn, ui.ExpectOn, ui.NavigateTo, ui.GoBack:
+			// The desktop driver finds nodes by label only: a locator
+			// (H4r) or a location (H7) step is not played here yet, and
+			// fails as a node it cannot find.
+			return ui.NoNode{Label: "a locator or location step (the desktop driver plays labels only)"}
 		}
 	}
 }

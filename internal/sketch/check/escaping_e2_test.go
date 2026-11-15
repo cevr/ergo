@@ -21,19 +21,19 @@ import (
 
 const escHead = `import task
 
-type Holder { Run escaping func(int) int }
+type Holder { Run func(int) int }
 type Box[T] { V T }
 type F func(int) int
 type Runner {
 	Run(g func(int) int) int,
-	Keep(g escaping func(int) int) int,
+	Keep(g own func(int) int) int,
 }
 type Svc { Get() int }
 
-func take(g escaping func(int) int) int { 0 }
+func take(g own func(int) int) int { 0 }
 func pass(g func(int) int) int { g(1) }
 func gen[T](x T) int { 0 }
-func later(body escaping func() int) int { 0 }
+func later(body own func() int) int { 0 }
 func now(body func() int) int { body() }
 func give(g func(int) int) func(int) int { func(x int) int { x } }
 func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
@@ -63,7 +63,7 @@ var escPositions = map[string][]escCase{
 		{src: "func u(f func(int) int) int {\n\t$take(f)\n}\n"},
 		{src: "func u(f func(int) int) int {\n\t$gen(f)\n}\n"},
 		{src: "func u(f func(int) int, r Runner) int {\n\t$r.Keep(f)\n}\n"},
-		{src: "func u(f func(int) int, k func(g escaping func(int) int) int) int {\n\t$k(f)\n}\n"},
+		{src: "func u(f func(int) int, k func(g own func(int) int) int) int {\n\t$k(f)\n}\n"},
 		{src: "func u(f func(int) int) F {\n\t$F(f)\n}\n"},
 		{src: "func u(f func(int) int) int {\n\t$len(f)\n}\n", want: "S108"},
 	},

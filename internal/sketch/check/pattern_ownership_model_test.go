@@ -65,7 +65,7 @@ func lendPair(p Pair) {}
 type PatternHeld = Pair | Empty
 func makeHeld(n int) PatternHeld { if n > 0 { return Empty }; pair() }
 func plain[T](p (T, int)) int { let (_, n) = p; n }
-func keepHeld(p PatternHeld) takes p {}
+func keepHeld(p own PatternHeld) {}
 func Body(n int, p PatternHeld) {
 ` + body + "\n}\nfunc main() {}\n"
 	c, ds := checkFor(src)
@@ -489,12 +489,12 @@ func ofElemBound(r *rand.Rand, close bool) ofBound {
 	// ..Closer is the release (EXC1: an operation type includes it).
 	b := ofBound{members: []string{"..Tag"}, close: close}
 	for _, m := range []struct{ decl, fn string }{
-		{"Keep(o Res) takes o", "func Keep(t %s, o Res) takes o { keep(o) }\n"},
+		{"Keep(o own Res)", "func Keep(t %s, o own Res) { keep(o) }\n"},
 		{"See(o Res) bool", "func See(t %s, o Res) bool { held(o) }\n"},
 		{"Make() Res", "func Make(t %s) Res { open(1) }\n"},
 	} {
 		if r.IntN(2) == 0 {
-			b.takes = b.takes || strings.Contains(m.decl, "takes")
+			b.takes = b.takes || strings.Contains(m.decl, " own ")
 			b.members = append(b.members, m.decl)
 			for _, typ := range []string{"Tagged", "TaggedC", "Num"} {
 				b.funcs = append(b.funcs, strings.ReplaceAll(m.fn, "%s", typ))
@@ -516,7 +516,7 @@ func ofQueueBound(r *rand.Rand, values bool) ofBound {
 	if values || r.IntN(2) == 0 {
 		b.members = append(b.members, "Values() Seq[E]")
 	}
-	for _, m := range []string{"Push(v E) fails queue.Closed takes v", "Pop() E fails queue.Closed", "Poll() Option[E]", "Len() int", "End()"} {
+	for _, m := range []string{"Push(v own E) fails queue.Closed", "Pop() E fails queue.Closed", "Poll() Option[E]", "Len() int", "End()"} {
 		if r.IntN(2) == 0 {
 			b.members = append(b.members, m)
 		}

@@ -372,6 +372,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			// A cell stays where its confinement rules see it.
 			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
+		if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {
+			// Keeping is the release's contract (R13): a type includes it,
+			// and its one operation, sealed, is the runtime's; no value
+			// is converted to it.
+			return assignment{}, fmt.Sprintf("%s is the release's contract for a type that keeps values (resources R13): a type includes it with ..%s, and no value converts to it", t, t)
+		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
@@ -398,6 +404,13 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// records the conversion; the lowering decides the Go
 				// representation (lower/std.go runtimeType).
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+			}
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {
+				// An Ergo operation type's operations take Ergo's calling
+				// convention (the task they run on), not the Go method
+				// shapes of a Go interface, so Go would refuse the
+				// assignment (batch-16b r3): check and build agree.
+				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
@@ -1117,7 +1130,7 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
 func defaultable(t Type) bool {
-	if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {
+	if r := RefinementOf(t); r != nil && (!r.Holds(big.NewInt(0)) || r.Pattern != nil && !r.Pattern.Match("")) {
 		// The base's zero (0, or length 0) fails the where (Refinements 8).
 		return false
 	}

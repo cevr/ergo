@@ -51,7 +51,7 @@ extern go ergo.local/prototype/runtime/v1/rpc.RPCEnvelope type Envelope { Tag st
 // one task per request serve RPC as they serve any route. A program that
 // serves other routes beside RPC calls Answer from its own handler.
 // limits are http.Serve's: a body over MaxBodyBytes is refused with 413.
-func Serve[R](l http.Listener, limits http.Limits, mount string, handle escaping func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | Scheduler {
+func Serve[R](l http.Listener, limits http.Limits, mount string, handle own func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | Scheduler {
 	try http.Serve(l, limits, func(r http.Request) http.Response needs R | http.Streaming {
 		Answer(r, mount, handle)
 	})
@@ -71,7 +71,7 @@ func Serve[R](l http.Listener, limits http.Limits, mount string, handle escaping
 // body over the limit is 413 and a failed read 400; a body that is not
 // Effect RPC's (Malformed) is a 200 whose one message is a Defect
 // {name, message}, in the body's framing.
-func Answer[R](r http.Request, mount string, handle escaping func(tag string, payload string) string fails Failed needs R) http.Response needs R | http.Streaming {
+func Answer[R](r http.Request, mount string, handle own func(tag string, payload string) string fails Failed needs R) http.Response needs R | http.Streaming {
 	let base = strings.TrimSuffix(mount, "/")
 	if (r.Path != base && r.Path != base+"/") || r.Method != "POST" {
 		return http.Response{Status: 404, Header: []http.Field{}, Body: ""}
@@ -126,12 +126,12 @@ extern go ergo.local/prototype/runtime/v1/rpc.RPCParse func parse(text string, f
 // exits runs each Request of envelopes on a task of its own below the
 // caller's and is the json answer: the array of their Exits, each with
 // its request's id, in the order the calls end.
-extern go ergo.local/prototype/runtime/v1/rpc.RPCExits func exits[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R) string needs R
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExits func exits[R](envelopes []Envelope, handle own func(tag string, payload string) string fails Failed needs R) string needs R
 
 // exitLines runs each Request of envelopes as exits does, and emits each
 // Exit's ndjson line as its call ends. A failed emit stops the calls
 // left and is exitLines' failure.
-extern go ergo.local/prototype/runtime/v1/rpc.RPCExitLines func exitLines[R](envelopes []Envelope, handle escaping func(tag string, payload string) string fails Failed needs R, emit func(line string) fails http.WriteFailed) fails http.WriteFailed needs R
+extern go ergo.local/prototype/runtime/v1/rpc.RPCExitLines func exitLines[R](envelopes []Envelope, handle own func(tag string, payload string) string fails Failed needs R, emit func(line string) fails http.WriteFailed) fails http.WriteFailed needs R
 
 // Conn is an Effect RPC server, for Call: one at a URL (Dial) or one
 // served in this process (Loopback). Its field is unexported: only this
@@ -151,7 +151,7 @@ func Dial(url string) Conn needs Ambient {
 // a stop of the caller stops that task, and Call ends after its releases
 // ran. A test binds the generated Client of a contract over a Loopback of
 // its server, so the contract's laws hold through the wire.
-func Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn {
+func Loopback(handle own func(tag string, payload string) string fails Failed) Conn {
 	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport {
 		let id = nextID()
 		let r = http.Request{Method: "POST", Path: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}

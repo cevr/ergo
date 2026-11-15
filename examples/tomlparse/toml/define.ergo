@@ -107,7 +107,7 @@ type Definition machine[Shape, Use] {
 		match DefineStep(Closed, u) {
 		case Done[Refusal]:
 			true
-		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Ignore, Reject:
+		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
 			false
 		}
 	},
@@ -119,7 +119,7 @@ type Definition machine[Shape, Use] {
 		match DefineStep(s, Set) {
 		case Done[Refusal] as d:
 			d.Output == Twice
-		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Ignore, Reject:
+		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
 			false
 		}
 	},

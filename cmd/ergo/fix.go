@@ -101,6 +101,20 @@ func fixCommand(args []string) error {
 		}
 		fmt.Fprint(out, impl.Text())
 	}
+	// The keep mode's old spellings (takes, escaping) become own (EXM1).
+	// Syntactic: it reads every file under the paths, bindings included,
+	// so the clause pass below checks the new spelling.
+	modes, err := fix.RunModes(fix.Options{Paths: paths, Write: write, Go: goLits})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := modes.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {
 		if !fixProgram(path) {

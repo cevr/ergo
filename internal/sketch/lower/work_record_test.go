@@ -92,7 +92,7 @@ type Signal = Got{N int} | Missing
 
 type Source { Count(query string) int, Find(query string) int fails Missing }
 
-type Fixed {}
+type Fixed {} implements Source
 
 func Count(f Fixed, query string) int { len(query) }
 

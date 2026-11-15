@@ -1,0 +1,41 @@
+import hex
+import strings
+
+// Escape writes s for a path segment or a query value: a letter, a digit
+// and - . _ ~ stand for themselves, and every other byte is %XX, its two
+// hex digits upper-case.
+func Escape(s string) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let b = s[i]
+		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_' || b == '~' {
+			out = out + s[i:i+1]
+		} else {
+			out = out + "%" + strings.ToUpper(hex.Encode(s[i:i+1]))
+		}
+	}
+	out
+}
+
+// Unescape reads what Escape writes: each %XX is its byte, in either
+// case. A % not followed by two hex digits stands for itself.
+func Unescape(s string) string {
+	let mut out = ""
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == '%' && i+3 <= len(s) {
+			let b = hex.Decode(s[i+1 : i+3]) catch {
+			case hex.Malformed:
+				out = out + "%"
+				i = i + 1
+				continue
+			}
+			out = out + b
+			i = i + 3
+			continue
+		}
+		out = out + s[i:i+1]
+		i = i + 1
+	}
+	out
+}

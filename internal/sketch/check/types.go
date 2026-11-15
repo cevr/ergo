@@ -116,6 +116,9 @@ type Field struct {
 	// and the generic declaration's field in an instance. nil means the
 	// field itself.
 	origin *Field
+	// provider is the Ergo NewF and Call of a derived provider's field
+	// whose field type is declared in Ergo (provider.go), or nil.
+	provider *ProviderCalls
 }
 
 // Origin is the declaration of f: two fields have the same declaration
@@ -485,7 +488,7 @@ func (t *Signature) String() string {
 			b.WriteString(", ")
 		}
 		if s, ok := p.Type.(*Signature); ok && !s.NonEscaping {
-			b.WriteString("escaping ")
+			b.WriteString("own ")
 		}
 		if s, ok := p.Type.(*Signature); ok && s.Entry {
 			b.WriteString("entry ")

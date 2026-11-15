@@ -269,6 +269,10 @@ func keyName(k platform.Key) string {
 		return "Home"
 	case platform.KeyEnd:
 		return "End"
+	case platform.KeyPageUp:
+		return "PageUp"
+	case platform.KeyPageDown:
+		return "PageDown"
 	case platform.KeyLeft:
 		return "ArrowLeft"
 	case platform.KeyRight:

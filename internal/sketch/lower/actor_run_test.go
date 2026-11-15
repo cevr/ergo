@@ -493,6 +493,88 @@ test ActorRestartIsFresh(signals []int, n int) { assert RestartIsFresh(signals, 
 
 test ActorRestartRecovers(signals []int, n int) { assert RestartRecovers(signals, n) }
 
+func tellStep(s int, e int) Decision[int, int] {
+	match ((e % 3) + 3) % 3 {
+	case 0:
+		Tell[int, int]{Next: s + 1, Output: s}
+	case 1:
+		Emit[int, int]{Next: s + 1, Output: -s}
+	case _:
+		Stay[int]{Next: s + e}
+	}
+}
+
+func heard(signals []int) bool needs Scheduler {
+	let got = sync.NewRef[[]int]([]int{})
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: tellStep, After: untimed, Work: unworked}, 1, func(o int) {
+		got.Set(got.Get().Append(o))
+	})
+	let mut s = 0
+	let mut want = []int{}
+	for e in signals {
+		let d = tellStep(s, e)
+		match d {
+		case Emit[int, int] as em:
+			want = want.Append(em.Output)
+		case Tell[int, int] as tl:
+			want = want.Append(tl.Output)
+		case _:
+		}
+		s = machines.Next(s, d)
+		let _ = a.Ask(e) catch {
+		case actor.Stopped:
+			a.Stop()
+			return false
+		}
+	}
+	a.Stop()
+	got.Get() == want
+}
+
+func SinkGetsEachOutput(signals []int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		heard(signals)
+	}
+}
+
+test ActorSinkGetsEachOutput(signals []int) { assert SinkGetsEachOutput(signals) }
+
+func versioned(signals []int) bool needs Scheduler {
+	let a = actor.StartMachine(tally(), 1, func(o int) {})
+	let _ = a.State()
+	let mut want = 1
+	for e in signals {
+		let d = a.Ask(e) catch {
+		case actor.Stopped:
+			a.Stop()
+			return false
+		}
+		match d {
+		case Done[int]:
+			a.Stop()
+			return actor.Version(a) == want
+		case Ignore, Reject:
+		case _:
+			want = want + 1
+		}
+		let (s, v) = actor.Shown(a)
+		if v != want || s != a.State() {
+			a.Stop()
+			return false
+		}
+	}
+	a.Stop()
+	true
+}
+
+func VersionCountsCommits(signals []int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		versioned(signals)
+	}
+}
+
+test ActorVersionCountsCommits(signals []int) { assert VersionCountsCommits(signals) }
+
 // staged and its helpers restate the machine of the actor stage's law
 // (std actor stage_laws.ergo), which this package cannot name.
 type staged = stagedOpen{N int, Ticks int} | stagedSaving{N int, Ticks int} | stagedSaved{N int, Ticks int}
@@ -659,6 +741,8 @@ var actorLawStatements = map[string]string{
 	"actor RejectKeepsState":           `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
 	"actor RestartIsFresh":             `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
 	"actor RestartRecovers":            `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
+	"actor SinkGetsEachOutput":         `SinkGetsEachOutput(signals []int) { with context { Scheduler: time.NewManual(0) } { heard(signals) } }`,
+	"actor VersionCountsCommits":       `VersionCountsCommits(signals []int) { with context { Scheduler: time.NewManual(0) } { versioned(signals) } }`,
 	"actor SendsStepInOrder":           `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 	"testing Stage.SettleIsIdempotent": `SettleIsIdempotent() { Settle() let v = Show() Settle() Show() == v }`,
 	"testing Stage.ShowIsStable":       `ShowIsStable() { Settle() Show() == Show() }`,

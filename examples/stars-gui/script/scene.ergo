@@ -15,8 +15,8 @@
 import actor
 import io
 import machines
-import stars/catalog
-import stars/screen
+import ergo.local/prototype/examples/starsgui/catalog
+import ergo.local/prototype/examples/starsgui/screen
 import strings
 import sync
 import time
@@ -61,6 +61,8 @@ func Scene(rows []catalog.Star, height int, lines Seq[string], clock time.Manual
 				return s
 			case ui.BadPatch as b:
 				return b
+			case ui.Mismatch as x:
+				io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 			}
 			shown = try follow(&h, shown)
 			for r in refused.Get() {
@@ -180,7 +182,7 @@ func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
 				}
 			}
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
 		}
 		for t in Shown(s.Kids, w) {
 			out = out.Append(t)

@@ -13,6 +13,7 @@
 import slices
 import strings
 import time
+import sync
 import timeout
 
 // NotFound is the failure of a program Name that is not on the PATH, or of
@@ -188,7 +189,7 @@ extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	// masked even when the caller has been stopped. WaitFor waits with a
 	// deadline; Stop in its Expired catch observes the status after
 	// termination. Close is the scope-release form.
-	Stop() int takes,
+	own Stop() int,
 }
 
 // WaitFor waits at most d for p's end and gives its status, as Wait
@@ -274,6 +275,102 @@ type Runner {
 	},
 }
 
+// Detached names a program started to outlive the code that started it
+// (Spawner.Spawn). It is plain data: it crosses, has no release, and is
+// stored in a pidfile or a state, so a later Alive or Kill, from this
+// process or another one, acts on it. Pid is the program's process id and
+// the id of its session and process group. Start is its start time as the
+// host reports it, so Alive and Kill never act on another process that
+// reused the pid. Name is the program's name.
+extern go ergo.local/prototype/runtime/v1/exec.ExecDetached type Detached { Pid int, Start int64, Name string }
+
+// Spawner starts programs that outlive the caller's scope, and finds and
+// ends them later. It is a capability apart from Runner, so a detached
+// start shows in the row of the code that does it; a Running stays owned
+// by its scope, and no Running becomes a Detached.
+type Spawner {
+	// Spawn starts c in a new session and process group, with its streams
+	// going to s, and returns once it has started. A sink of s that is
+	// ToCaller is Failed: no caller outlives the program to read it. A
+	// stop of the calling task does not end the program.
+	Spawn(c Command, s Streams) Detached fails NotFound | Denied | Failed,
+
+	// Alive reports that d's program is still running: the same process,
+	// by its pid and its start time.
+	Alive(d Detached) bool,
+
+	// Kill ends d's process group: SIGTERM, then SIGKILL when the group
+	// has not ended grace later (a grace of 0 sends SIGKILL at once), and
+	// returns once no process of the group is left. A d whose program is
+	// gone is no failure.
+	Kill(d Detached, grace duration),
+
+	// KilledIsNotAlive: a spawned program that Kill ended is not Alive.
+	law KilledIsNotAlive(name string) {
+		let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Kill(d, 0s)
+		!Alive(d)
+	},
+
+	// KillIsIdempotent: a second Kill of a program that is gone is no
+	// failure and leaves it gone.
+	law KillIsIdempotent(name string) {
+		let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Kill(d, 0s)
+		Kill(d, 0s)
+		!Alive(d)
+	},
+}
+
+// Processes is the memory Spawner, for laws and for the tests of code
+// that spawns: Spawn records a live entry for c and gives it the next
+// pid, Alive reads the entry, Kill removes it. It runs nothing. Spawn
+// fails NotFound when Programs does not list c.Name, and Failed for a
+// ToCaller sink, as the host's does. Its table is in a sync.Ref, so the
+// copies of one Processes share it, as handles of one host do.
+type Processes { Programs []string, live sync.Ref[Map[int, string]], next sync.Ref[int] } implements Spawner
+
+// NewProcesses is a memory Spawner whose Spawn knows the programs named.
+func NewProcesses(programs []string) Processes {
+	Processes{Programs: programs, live: sync.NewRef(Map[int, string]{}), next: sync.NewRef(0)}
+}
+
+// Spawn records c as a live program under the next pid. The pid is its
+// Start too: the memory host never reuses one.
+func Spawn(p Processes, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	if !slices.Contains(p.Programs, c.Name) {
+		return NotFound{Name: c.Name}
+	}
+	if toCaller(s.Stdout) || toCaller(s.Stderr) {
+		return Failed{Name: c.Name, Reason: "a detached program has no caller to read it (ToCaller)"}
+	}
+	let pid = p.next.Get() + 1
+	p.next.Set(pid)
+	let mut m = p.live.Get()
+	m[pid] = c.Name
+	p.live.Set(m)
+	Detached{Pid: pid, Start: int64(pid), Name: c.Name}
+}
+
+// Alive reports that d names a live entry: its pid holds d's Name and d's
+// Start is that pid's.
+func Alive(p Processes, d Detached) bool {
+	d.Start == int64(d.Pid) && p.live.Get().Get(d.Pid) == Some[string]{Value: d.Name}
+}
+
+// Kill removes d's entry, if it is there.
+func Kill(p Processes, d Detached, _ duration) {
+	if p.Alive(d) {
+		p.live.Set(p.live.Get().Delete(d.Pid))
+	}
+}
+
 // Script is a Runner for tests. It runs nothing: Run gives the Result that
 // Results holds at the command's Key, and fails NotFound when it holds
 // none. The environment, the directory and the standard input are not in
@@ -290,25 +387,37 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	}
 }
 
-// Start is a Running that replays the Result recorded for c: Chunks gives
-// its Stdout, then its Stderr, each when its sink is ToCaller (so Lines
-// gives the lines of each), and Wait its Status. It writes nothing to a
-// file or a stream of this process. It fails NotFound when Results holds
-// no Result for c.
+// Start is the Running of the Result recorded for c (Ended). It fails
+// NotFound when Results holds no Result for c.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		let mut cs = []Chunk{}
-		if toCaller(st.Stdout) {
-			cs = whole(cs, hit.Value.Stdout, false)
-		}
-		if toCaller(st.Stderr) {
-			cs = whole(cs, hit.Value.Stderr, true)
-		}
-		return replay(cs, hit.Value.Status, toCaller(st.Stdout) || toCaller(st.Stderr))
+		return Ended(st, hit.Value)
 	case None:
 		return NotFound{Name: c.Name}
 	}
+}
+
+// Ended is the Running of a program that has already ended with r: Chunks
+// gives r's Stdout, then its Stderr, each when its sink in s is ToCaller
+// (so Lines gives the lines of each), and Wait gives r's Status. It starts
+// nothing and writes nothing to a file or a stream of this process. It is
+// how any Runner that runs no program, Script or a module's own fake, gives
+// the Running its Start returns: a Running is the runtime's value, so no
+// other package's type implements it.
+//
+// Its first parameter is the Streams, not the Result: a function of this
+// package on Result, a runtime type, would lower as a Go method that
+// v1.ExecResult does not have.
+func Ended(s Streams, r Result) Running {
+	let mut cs = []Chunk{}
+	if toCaller(s.Stdout) {
+		cs = whole(cs, r.Stdout, false)
+	}
+	if toCaller(s.Stderr) {
+		cs = whole(cs, r.Stderr, true)
+	}
+	replay(cs, r.Status, toCaller(s.Stdout) || toCaller(s.Stderr))
 }
 
 // whole is cs with the stream text as one Chunk, when it is not empty, and
@@ -356,7 +465,7 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // Host is the host's Runner. Its field gives this package the construction
 // authority (types.md, Zero values 6): no other package writes exec.Host{},
 // its zero value or a record update of it.
-type Host { live hostOnly } implements Runner
+type Host { live hostOnly } implements Runner, Spawner
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}
@@ -413,5 +522,27 @@ func sinkAppends(s Sink) bool {
 		false
 	}
 }
+
+// Spawn starts c on the host in a new session and process group, so it
+// outlives the calling task's scope and this process. Its streams go to
+// s's sinks; a file sink that cannot be opened, or a ToCaller sink, fails
+// Failed and starts nothing.
+func Spawn(_ Host, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	try hostSpawn(c.Name, c.Args, c.Env, c.Dir, c.Stdin, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+}
+
+// Alive reports that d's program is running on the host: its pid names a
+// process that has not ended and that started at d.Start.
+func Alive(_ Host, d Detached) bool { hostAlive(d.Pid, d.Start) }
+
+// Kill ends d's process group on the host (Spawner.Kill). A pid that
+// another process now has gets no signal.
+func Kill(_ Host, d Detached, grace duration) { hostKill(d.Pid, d.Start, grace) }
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecSpawn func hostSpawn(name string, args []string, env Map[string, string], dir string, stdin string, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Detached fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecAlive func hostAlive(pid int, start int64) bool
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecKill func hostKill(pid int, start int64, grace duration)
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed

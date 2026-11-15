@@ -80,6 +80,7 @@ func irBreaks(list []*irStmt, label string) bool {
 // that no expression reads.
 func irUseLocals(body []*irStmt) []*irStmt {
 	read := map[int]bool{}
+	var stmts func(list []*irStmt)
 	var expr func(e *irExpr)
 	expr = func(e *irExpr) {
 		if e == nil {
@@ -96,11 +97,12 @@ func irUseLocals(body []*irStmt) []*irStmt {
 		for _, a := range e.Elems {
 			expr(a)
 		}
+		stmts(e.Body) // a function literal reads what its body reads
 	}
-	var stmts func(list []*irStmt)
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
 			expr(s.X)
+			expr(s.Y)
 			stmts(s.Then)
 			stmts(s.Else)
 			stmts(s.Body)
@@ -118,6 +120,7 @@ func irUseLocals(body []*irStmt) []*irStmt {
 		var out []*irStmt
 		for _, s := range list {
 			s.Then, s.Else, s.Body = mark(s.Then), mark(s.Else), mark(s.Body)
+			irLiterals(s, func(e *irExpr) { e.Body = mark(e.Body) })
 			for _, c := range s.Cases {
 				c.Body = mark(c.Body)
 			}

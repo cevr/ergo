@@ -102,7 +102,7 @@ type Editor machine[State, Signal] {
 		case Enter[State] as e:
 			let d = DocOf(e.Next)
 			Text(d) == strings.ReplaceAll(text, query, by) && len(d.Undo) == 1
-		case Stay[State], Emit[State, Output], Ignore, Reject, Done[Output]:
+		case Stay[State], Emit[State, Output], Tell[State, Output], Ignore, Reject, Done[Output]:
 			!strings.Contains(text, query)
 		}
 	},
@@ -150,7 +150,7 @@ law CopyIsTheSelection(text string, signals []Signal, a int, b int) {
 		match Step(s, Copy) {
 		case Emit[State, Output] as e:
 			e.Next == s && e.Output == Copied{Text: piece.Slice(d.Buf, lo, hi)}
-		case Enter[State], Stay[State], Ignore, Reject, Done[Output]:
+		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
 			false
 		}
 	case Editing, Searching:
@@ -179,7 +179,7 @@ law CutThenPasteRestores(text string, signals []Signal, a int, b int) {
 			}
 			let undos = if lo < hi { len(d.Undo) + 1 } else { len(d.Undo) }
 			copied == piece.Slice(d.Buf, lo, hi) && len(cut.Undo) == undos && Text(DocOf(After(e.Next, Type{Text: copied}))) == Text(d)
-		case Enter[State], Stay[State], Ignore, Reject, Done[Output]:
+		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
 			false
 		}
 	case Editing, Searching:
@@ -205,7 +205,7 @@ func After(s State, sig Signal) State {
 		t.Next
 	case Emit[State, Output] as m:
 		m.Next
-	case Ignore, Reject, Done[Output]:
+	case Ignore, Tell[State, Output], Reject, Done[Output]:
 		s
 	}
 }

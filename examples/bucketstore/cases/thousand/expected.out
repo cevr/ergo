@@ -1,0 +1,4 @@
+buckets 64
+bucket0/counter0 3
+bucket5/counter5 3
+sum of counts returned 1656

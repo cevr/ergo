@@ -82,7 +82,7 @@ func Feed(m Sim, sig Signal) Sim {
 	let took = match d {
 	case Ignore, Reject:
 		false
-	case Enter[Search], Emit[Search, []Effect], Stay[Search], Done[[]Effect]:
+	case Enter[Search], Emit[Search, []Effect], Tell[Search, []Effect], Stay[Search], Done[[]Effect]:
 		true
 	}
 	match sig {
@@ -102,7 +102,7 @@ func Feed(m Sim, sig Signal) Sim {
 		check(tell(Sim{..at, S: em.Next, Due: arm(em.Next, now)}, em.Output, now), m.S, now)
 	case Stay[Search] as st:
 		check(Sim{..at, S: st.Next}, m.S, now)
-	case Ignore, Reject, Done[[]Effect]:
+	case Ignore, Tell[Search, []Effect], Reject, Done[[]Effect]:
 		check(at, m.S, now)
 	}
 }

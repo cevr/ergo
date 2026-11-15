@@ -137,6 +137,29 @@ widgets by design).
 control and holds their output equal, byte for byte, on 20 seeded scripts
 of 120 steps each (`-examples.seed=N` replays one).
 
+## The star table's window: `cmd/stars-gui` (GP1c)
+
+`examples/stars-gui` (module `ergo.local/prototype/examples/starsgui`) is
+required the same way. `cmd/stars-gui [-headless] [-rows H] CATALOG`
+shows its table, app and view on the desktop driver; its 100,000 rows are
+a `ui.Rows` list, so a pass writes only the rows the window's viewport
+shows. Headless, it plays the example's script lines as a person gives
+them: a key after a click on the list (so a focused button does not take
+Enter), a click on each button, a click on the field and the typed text,
+and after each line the wheel scrolls the list to the table's window.
+
+`controls/stars-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/stars-gui/control`, copied, with the window on MyGo's
+widgets and its rows in a `ui.List`. Headless, a line goes to the model
+and `ui.Tester` lays out and paints the window after it, scrolled to the
+table's window; at each `show` it writes a line for any row of the
+table's window the frame does not show.
+
+`TestStarsGuiOnTheDesktop` holds both to the example's own
+`stars-gui scene` (the view on `ui.TestHost`) on 24 seeded catalogues and
+scripts (`-stars.seed=N` replays one). The receipts per line, at 100,000
+rows, are in the run's `receipts/stars-gui-c/`.
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
@@ -144,14 +167,4 @@ of 120 steps each (`-examples.seed=N` replays one).
   and `go vet` for linux, darwin, windows and js/wasm. The batch gate runs
   it after `scripts/gate.sh --merge`, on Linux and on the Mac. It needs the
   pinned modules in the module cache (the network once).
-- `TestExamplesCrossBuild` builds the window binaries for darwin/arm64,
-  windows/amd64 and js/wasm (screen's binding states those platforms), and
-  runs the js/wasm ones headless under Node (Go's `wasm_exec_node.js`) on
-  three seeded scripts, each printing what `ui.TestHost` prints. Node runs
-  them without `GOMAXPROCS`: `wasm_exec_node.js` hands node's environment
-  to the program, and Go's runtime on js/wasm dies in its own start
-  ("newosproc: not implemented") when it is over 1, before any program
-  code runs, so no fix in the program can help
-  (`TestWasmRunsUnderAnInheritedGOMAXPROCS`). A browser passes no
-  environment. Run a js/wasm binary under node with `GOMAXPROCS` unset.
 - `testdata/mutants.json` is the module's mutant ledger.

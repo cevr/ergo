@@ -130,7 +130,7 @@ func Effects(dec Decision[Drag, []Effect]) []Effect {
 	match dec {
 	case Emit[Drag, []Effect] as e:
 		e.Output
-	case Enter[Drag], Stay[Drag], Ignore, Reject, Done[[]Effect]:
+	case Enter[Drag], Stay[Drag], Tell[Drag, []Effect], Ignore, Reject, Done[[]Effect]:
 		[]Effect{}
 	}
 }
@@ -144,7 +144,7 @@ func After(d Drag, dec Decision[Drag, []Effect]) Drag {
 		e.Next
 	case Stay[Drag] as s:
 		s.Next
-	case Ignore, Reject, Done[[]Effect]:
+	case Ignore, Tell[Drag, []Effect], Reject, Done[[]Effect]:
 		d
 	}
 }

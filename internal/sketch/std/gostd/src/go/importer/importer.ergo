@@ -9,10 +9,10 @@ import go io
 extern go go/importer.Default func Default() types.Importer needs go.Foreign
 
 // ergo:go func For(compiler string, lookup Lookup) types.Importer
-extern go go/importer.For func For(compiler string, lookup escaping func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign
+extern go go/importer.For func For(compiler string, lookup own func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign
 
 // ergo:go func ForCompiler(fset *token.FileSet, compiler string, lookup Lookup) types.Importer
-extern go go/importer.ForCompiler func ForCompiler(fset *token.FileSet, compiler string, lookup escaping func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign takes fset
+extern go go/importer.ForCompiler func ForCompiler(fset own *token.FileSet, compiler string, lookup own func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign
 
 // ergo:go type Lookup func
 // ergo:refused Lookup: a Go function type maps to no Ergo host type in v1

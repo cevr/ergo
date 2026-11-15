@@ -45,7 +45,7 @@ func search(args []string) fails os.Exit needs Console | domains.Registry {
 		return usage()
 	}
 	let label = domains.ParseLabel(args[0]) catch {
-	case domains.Invalid:
+	case Unsatisfied:
 		return os.Exit{Code: 1, Message: "fk-domains: \(args[0]) is not a label: a to z, 0 to 9 and inner hyphens, at most 63"}
 	}
 	let mut offset json.Optional[domains.Offset] = json.Absent

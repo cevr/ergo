@@ -134,7 +134,7 @@ func Shown(b Board, f int, data [][]int, dropped []int) Step {
 			case Emit[panel.State, panel.Note] as m:
 				s = m.Next
 				notes = notes.Append(Notice{Panel: i, Note: m.Output})
-			case Ignore, Reject, Done[panel.Note]:
+			case Ignore, Tell[panel.State, panel.Note], Reject, Done[panel.Note]:
 			}
 		}
 		panels = panels.Append(s)
@@ -159,7 +159,7 @@ func Send(b Board, i int, e panel.Event) Sent {
 		Sent{Board: Board{..b, Panels: replace(b.Panels, i, t.Next)}, Ok: true}
 	case Emit[panel.State, panel.Note] as m:
 		Sent{Board: Board{..b, Panels: replace(b.Panels, i, m.Next)}, Ok: true}
-	case Ignore:
+	case Ignore, Tell[panel.State, panel.Note]:
 		Sent{Board: b, Ok: true}
 	case Reject, Done[panel.Note]:
 		Sent{Board: b, Ok: false}

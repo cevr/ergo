@@ -274,7 +274,7 @@ law Named(a Money) { Flag(a == a) }
 	x == n
 }
 `},
-	{"a non-escaping function parameter", `func keep(f escaping func(int) int) bool {
+	{"a non-escaping function parameter", `func keep(f own func(int) int) bool {
 	true
 }
 
@@ -286,7 +286,7 @@ law Applies(f func(int) int) { apply(f) }
 
 law Keeps(f func(int) int) { keep(f) } // want S108
 
-law Escapes(f escaping func(int) int) { keep(f) }
+law Escapes(f own func(int) int) { keep(f) }
 `},
 
 	// Frames: a top-level law is a frame of its own, as a test is.
@@ -392,7 +392,7 @@ func count(n int) int fails Bad {
 	n
 }
 
-func keep(f escaping func(int) int) bool {
+func keep(f own func(int) int) bool {
 	true
 }
 
@@ -495,7 +495,7 @@ var paramMenu = []genParam{
 	{"m", "Money", KindNone, "money"},
 	{"xs", "[]int", KindNone, "slice"},
 	{"f", "func(int) int", KindNone, "func"},
-	{"g", "escaping func(int) int", KindNone, "escfunc"},
+	{"g", "own func(int) int", KindNone, "escfunc"},
 }
 
 func genLaw(r *rand.Rand) GenLaw {

@@ -318,7 +318,7 @@ func (c *checker) checkOwnership() {
 				seen[g] = true
 				msg := g.msg
 				if g.take > 0 && fix != nil {
-					if i := strings.LastIndex(msg, "; write takes "); i >= 0 {
+					if i := strings.LastIndex(msg, "; write own before its type"); i >= 0 {
 						msg = msg[:i]
 					}
 					msg += "; write: " + fix.Signature
@@ -858,28 +858,51 @@ func (w *ownWalk) valuesSeq(x syntax.Expr) (Type, bool) {
 		return nil, false
 	}
 	k := w.info.Calls[call]
-	if k == nil || k.Kind != CallOp || k.Op == nil || k.Op.Name != "Values" {
+	if k == nil || k.Kind != CallOp || k.Op == nil || k.Op.Sig == nil || len(k.Op.Sig.Params) != 0 || len(k.Op.Sig.Results) != 1 {
 		return nil, false
 	}
 	sel, ok := unparen(call.Fun).(*syntax.SelectorExpr)
-	if !ok || !isQueue(w.info.Types[sel.X]) {
+	if !ok {
 		return nil, false
 	}
-	n := w.info.Types[sel.X].(*Named)
-	if len(n.TArgs) != 1 {
-		return nil, true
-	}
-	return n.TArgs[0], true
+	return w.c.keptSeq(w.info.Types[sel.X], k.Op)
 }
 
-// isQueue reports std queue.Queue[T] or an instance of it.
-func isQueue(t Type) bool {
+// keptSeq reports whether op, an operation of t with no parameter, gives
+// a sequence of the values t keeps (STD-NOPRIV NP3c; Q7): t includes the
+// prelude's Keeping[E] (keepsOf), and op's result is a Seq of E
+// (queue.Queue[T]'s Values). Each value such a sequence yields is one t
+// gave back, so it is the iterating code's own. It returns the element
+// type as t's instance has it.
+func (c *checker) keptSeq(t Type, op *Method) (Type, bool) {
+	it := asInterface(t)
+	if it == nil {
+		return nil, false
+	}
+	_, kept := keepsOf(it, c.keeps())
+	if kept == nil {
+		return nil, false
+	}
+	seq, ok := under(op.Sig.Results[0]).(*Signature)
+	if !ok || len(seq.Params) != 1 || len(seq.Results) != 0 {
+		return nil, false
+	}
+	yield, ok := under(seq.Params[0].Type).(*Signature)
+	if !ok || len(yield.Params) != 1 || len(yield.Results) != 1 || !c.identical(yield.Params[0].Type, kept) {
+		return nil, false
+	}
 	n, ok := t.(*Named)
 	if !ok {
-		return false
+		return kept, true
 	}
-	o := n.origin().Obj
-	return o != nil && o.Pkg != nil && o.Pkg.std && o.Pkg.Path == "queue" && o.Name == "Queue"
+	// The method set may be the origin's (kept is its type parameter) or
+	// already the instance's.
+	for i, tp := range n.origin().TParams {
+		if tp == kept && i < len(n.TArgs) {
+			return n.TArgs[i], true
+		}
+	}
+	return kept, true
 }
 
 // ownLoopMemo is a loop's last fixpoint: its entry state, its exit state
@@ -1333,7 +1356,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		}
 		// A lent T handed off is a copy of it (the caller keeps its own):
 		// a mode, not a mark, so a call with a resource is refused (q56).
-		w.refuseLent(i, l.param, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		w.refuseLent(i, l.param, x, fmt.Sprintf("%s is lent and handed off (%s); write own before its type to take it", x.Name, h.how), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write own before its type in the signature: %s own T", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.loanConflict(i, h)
@@ -1416,7 +1439,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		// them (withProviders), so the literal evaluates nothing.
 		return
 	case *syntax.BasicLit, *syntax.ArrayType, *syntax.MapType, *syntax.FuncType, *syntax.StructType,
-		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern:
+		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern, *syntax.OrPattern:
 		// A literal, a type or a pattern: no value of a local is used.
 		return
 	case *syntax.KeyValueExpr:
@@ -1842,7 +1865,7 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
 		w.promote[l.param-1] = true
 	case l.lent:
-		w.refuseLent(i, l.param, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
+		w.refuseLent(i, l.param, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write own before its type in the signature: %s own T", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
 	default:
 		w.st.slots[i].fields |= 1 << k
 		w.info.FieldTakes[sel] = FieldTake{Var: l.v, Index: k}
@@ -2009,11 +2032,11 @@ func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
 			add(f, x.Base.Pos())
 		}
 	}
-	// Each temporary is a node the checker makes (made, owner.go), from
-	// the update it releases for, so it lies in the update's file.
+	// Each temporary is a node made from x, so it lies in x's file
+	// (owner.go; the provenance manifest lists this site).
 	var rs []Replaced
 	for _, d := range drops {
-		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, syntax.Node(x))})
+		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, x)})
 	}
 	if len(rs) > 0 {
 		w.info.Replaced[x] = rs
@@ -2616,16 +2639,20 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) {
 	}
 }
 
-// holdsTaken reports a call of a bodiless std operation or function that
-// takes a value: the lowering keeps a taken local's entry on its frame
-// until the call returns (lower.holdTaken, Q7, D-C).
+// holdsTaken reports a call that takes a value and whose body is a Go
+// body of the runtime: an operation of a type whose declaration names its
+// runtime Go type (OpBodyOf; STD-NOPRIV NP4c), or an extern bound to a
+// runtime/v1 body (BodyOf). The Go body does not own an Ergo frame's
+// entry, so the lowering keeps a taken local's entry on its frame until
+// the call returns (lower.holdTaken, Q7, D-C). An operation with an Ergo
+// body owns what it takes itself. It reads declarations, never the
+// package's std mark.
 func (w *ownWalk) holdsTaken(call *Call) bool {
 	switch {
 	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
-		n, ok := w.info.Types[call.Recv].(*Named)
-		return ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.std && len(call.Op.Sig.Takes) > 0
-	case call.Kind == CallFunc && call.Func != nil && call.Func.Pkg != nil && call.Func.Pkg.std && call.Func.Decl != nil && call.Func.Decl.Extern != nil:
-		return len(call.Func.Sig.Takes) > 0
+		return len(call.Op.Sig.Takes) > 0 && OpBodyOf(w.info.Types[call.Recv], call.Op.Name).Runtime != ""
+	case call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil:
+		return len(call.Func.Sig.Takes) > 0 && BodyOf(call.Func).Runtime != ""
 	}
 	return false
 }

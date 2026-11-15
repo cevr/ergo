@@ -47,7 +47,7 @@ func refReport(w io.Writer, err error) int {
 		if x, ok := reasons[0].Err.(Exit); ok {
 			fmt.Fprintln(w, x.Message)
 			if x.Code >= 1 && x.Code <= 125 {
-				return x.Code
+				return int(x.Code)
 			}
 			fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
 			return 1
@@ -183,7 +183,7 @@ func genReportValue(r *rand.Rand) any {
 		var xs []int
 		return func() (p any) { defer func() { p = recover() }(); _ = xs[r.IntN(3)]; return nil }()
 	case 10:
-		return Exit{Code: r.IntN(300) - 50, Message: runeText(r)}
+		return Exit{Code: Code(r.IntN(300) - 50), Message: runeText(r)}
 	default:
 		return &MachineTimerDefect{Machine: runeText(r), State: runeText(r), In: time.Duration(r.Int64N(2e10) - 1e10)}
 	}
@@ -230,7 +230,7 @@ func genExitErr(r *rand.Rand) error {
 		if err, ok := genReportValue(r).(error); ok {
 			return err
 		}
-		return Exit{Code: r.IntN(300) - 50, Message: runeText(r)}
+		return Exit{Code: Code(r.IntN(300) - 50), Message: runeText(r)}
 	}
 	c := &rt.Cause{}
 	for range 1 + r.IntN(4) {

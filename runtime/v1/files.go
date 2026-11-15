@@ -165,11 +165,10 @@ var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
 // BodyNames is the name of every exported function and method of Source
 // that BodyOf reads, sorted, a refused one included.
 func BodyNames() []string {
-	names := make([]string, 0, len(bodyTable))
-	for name := range bodyTable {
-		names = append(names, name)
+	names := make([]string, len(bodyTable))
+	for i, r := range bodyTable {
+		names[i] = r.name // the rows are sorted by name
 	}
-	slices.Sort(names)
 	return names
 }
 
@@ -203,8 +202,8 @@ func (b Bodies) Body(name string) (Body, error) {
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
-	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "":
-		return Body{}, fmt.Errorf("%s states a release route, a bridge or an owned form, which only runtime/v1's bodies state", name)
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "":
+		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form or a checking form, which only runtime/v1's bodies state", name)
 	}
 	return body, nil
 }
@@ -226,8 +225,21 @@ const OwnedMark = "//ergo:owned "
 const CheckMark = "//ergo:check "
 
 // HostImports are the Go packages each of whose members reaches host
-// state. hostReach refuses an unmarked body that names one.
+// state, but those HostImportsExcept names. hostReach refuses an unmarked
+// body that names one.
 var HostImports = []string{"os", "os/exec", "os/signal", "syscall", "net"}
+
+// HostImportsExcept names, for a package of HostImports, the members that
+// reach no host state: net.Pipe joins two in-memory ends, and net.Conn and
+// net.Addr are interface types, whose methods a body calls through a value
+// (hostReach follows no call through an interface value: the value's
+// maker is the claim). syscall.ECONNREFUSED is an errno constant a body
+// compares a failure with (httpDoErr). The local Network (http_local.go)
+// reaches them and nothing else of those packages.
+var HostImportsExcept = map[string][]string{
+	"net":     {"Pipe", "Conn", "Addr"},
+	"syscall": {"ECONNREFUSED"},
+}
 
 // HostMembers names, for a Go package outside HostImports, its members
 // that reach host state: time's are PureImportHostMembers' (the clock, its
@@ -243,7 +255,7 @@ var HostMembers = map[string][]string{
 // hostMember reports whether member of the Go package path reaches host
 // state.
 func hostMember(path, member string) bool {
-	return slices.Contains(HostImports, path) || slices.Contains(HostMembers[path], member)
+	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept[path], member) || slices.Contains(HostMembers[path], member)
 }
 
 // PureImports are the Go packages a file may import when one of its bodies
@@ -304,18 +316,25 @@ type Param struct {
 // with goDecls.body and fails on when it is stale, so it parses nothing
 // (CHK1).
 func BodyOf(name string) (Body, error) {
-	f, ok := bodyTable[name]
+	i, ok := slices.BinarySearchFunc(bodyTable, name, func(r bodyRow, name string) int { return strings.Compare(r.name, name) })
 	if !ok {
 		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
+	f := bodyTable[i].fact
 	if f.refusal != "" {
 		return Body{}, errors.New(f.refusal)
 	}
 	return f.body, nil
 }
 
-// bodyFact is one row of bodyTable: a body's shape, or the text of the
-// error goDecls.body refuses it with.
+// bodyRow is one row of bodyTable: a BodyOf name and its fact.
+type bodyRow struct {
+	name string
+	fact bodyFact
+}
+
+// bodyFact is a body's shape, or the text of the error goDecls.body
+// refuses it with.
 type bodyFact struct {
 	body    Body
 	refusal string
@@ -488,6 +507,9 @@ type GoType struct {
 	// Package is the import path of the type's package: runtime/v1 (Path)
 	// or one of its leaves (Leaves).
 	Package string
+	// Basic is the predeclared Go type a defined type is over
+	// (`type Code int`), or "".
+	Basic string
 }
 
 // TypeOf returns the shape of the exported type name of Source, and
@@ -516,6 +538,11 @@ func (d goDecls) goType(name string) (GoType, bool) {
 		t.Struct = true
 		if len(fields) > 0 {
 			t.Fields = fields
+		}
+	}
+	if id, ok := g.typ.Type.(*ast.Ident); ok && !g.typ.Assign.IsValid() && types.Universe.Lookup(id.Name) != nil {
+		if _, basic := types.Universe.Lookup(id.Name).Type().(*types.Basic); basic {
+			t.Basic = id.Name
 		}
 	}
 	return t, true
@@ -631,6 +658,9 @@ func parseDeclsIn(fsys fs.FS, own bool, pkg string) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.VAR {
 				for _, s := range gd.Specs {
 					for _, n := range s.(*ast.ValueSpec).Names {
+						if n.Name == "_" {
+							continue // `var _ = x` (unsupported_os.go) names no value a body can read
+						}
 						values[n.Name] = true
 						index.vars[n.Name] = append(index.vars[n.Name], reachDecl{s, locals})
 					}

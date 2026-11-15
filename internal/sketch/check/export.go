@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -82,12 +83,23 @@ func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
 		seen[keys[i]] = true
 	}
 	prelude()
-	imp := Std.(*stdImporter)
 	for _, path := range std.Packages() {
 		if _, err := Std.Import(path); err != nil {
 			return nil, err
 		}
 	}
+	s, err := stdSnapshotNow(pkgs, keys)
+	if err != nil {
+		return nil, err
+	}
+	return encodeSnapshot(s)
+}
+
+// stdSnapshotNow is the export of std as this process holds it, checked,
+// with the module packages pkgs after it, pkgs[i] the segment keys[i]
+// (ExportSnapshot).
+func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
+	imp := Std.(*stdImporter)
 	s := &stdSnapshot{base: &stdBase{
 		universe:  universeOnce.scope,
 		errorName: universeOnce.errorName,
@@ -119,7 +131,7 @@ func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
 	nextID.Lock()
 	s.base.nextID = nextID.n
 	nextID.Unlock()
-	return encodeSnapshot(s)
+	return s, nil
 }
 
 // ModuleSegment is the segment key of the package at path of a required
@@ -214,6 +226,28 @@ type segment struct {
 	sum       [sha256.Size]byte
 }
 
+// segment writes one segment: its starts, the objects body encodes and
+// the syntax nodes they name, and the earlier segments it names.
+func (e *encoder) segment(path string, body func()) segment {
+	seg := segment{path: path, objStart: e.next, nodeStart: e.nodes.Next()}
+	e.objStarts = append(e.objStarts, seg.objStart)
+	e.nodeStarts = append(e.nodeStarts, seg.nodeStart)
+	e.deps = map[int]bool{}
+	e.buf = nil
+	body()
+	objects := e.buf
+	nodes := e.nodes.Bytes()
+	for dep := range e.deps {
+		seg.deps = append(seg.deps, dep)
+	}
+	slices.Sort(seg.deps)
+	seg.data = binary.AppendUvarint(nil, uint64(len(nodes)))
+	seg.data = append(seg.data, nodes...)
+	seg.data = append(seg.data, objects...)
+	seg.sum = sha256.Sum256(seg.data)
+	return seg
+}
+
 func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	e := newEncoder()
 	defer func() {
@@ -227,27 +261,21 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	}()
 	var segs []segment
 	write := func(path string, body func()) {
-		seg := segment{path: path, objStart: e.next, nodeStart: e.nodes.Next()}
-		e.objStarts = append(e.objStarts, seg.objStart)
-		e.nodeStarts = append(e.nodeStarts, seg.nodeStart)
-		e.deps = map[int]bool{}
-		e.buf = nil
-		body()
-		objects := e.buf
-		nodes := e.nodes.Bytes()
-		for dep := range e.deps {
-			seg.deps = append(seg.deps, dep)
-		}
-		slices.Sort(seg.deps)
-		seg.data = binary.AppendUvarint(nil, uint64(len(nodes)))
-		seg.data = append(seg.data, nodes...)
-		seg.data = append(seg.data, objects...)
-		seg.sum = sha256.Sum256(seg.data)
-		segs = append(segs, seg)
+		segs = append(segs, e.segment(path, body))
 	}
-	write("", func() { e.encPtrstdBase(s.base) })
+	// Each segment first reaches its files, so its syntax ids follow the
+	// trees, and a map keyed by nodes is written in tree order
+	// (export_order.go).
+	reach := func(pkg *Package) {
+		if pkg != nil {
+			for _, f := range pkg.files {
+				e.nodes.Reach(f.syntax)
+			}
+		}
+	}
+	write("", func() { reach(s.base.prelude.pkg); e.encPtrstdBase(s.base) })
 	for i, pkg := range s.packages {
-		write(s.paths[i], func() { e.encPtrPackage(pkg) })
+		write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })
 	}
 	// The header: every segment's path, starts, deps, size and checksum,
 	// and the ends of the last segment. Its own checksum is verified before
@@ -678,6 +706,13 @@ type encoder struct {
 	// current one names.
 	objStarts, nodeStarts []uint64
 	deps                  map[int]bool
+	// crossRef, when set (UserExport), sees each reference to an object
+	// of an earlier segment, with that segment's index.
+	crossRef func(seg int, v any)
+	// symbolic, when set (UserExport), names an object of an earlier
+	// segment by its object path instead of its id (tag 4), when the
+	// segment's package may be checked again (compile-speed/cs5b.md §2).
+	symbolic func(seg int, v any) (objPath, bool)
 }
 
 func newEncoder() *encoder {
@@ -700,8 +735,19 @@ func (e *encoder) failf(format string, args ...any) {
 	panic(exportError{fmt.Errorf("check: export: "+format, args...)})
 }
 
+// external is x's index among the encoder's externals, for an interface
+// value of a type the codec has no case for.
+func (e *encoder) external(x any) (uint64, bool) {
+	if !reflect.TypeOf(x).Comparable() {
+		return 0, false
+	}
+	i, ok := e.ext[x]
+	return i, ok
+}
+
 // ref writes a pointer's reference and reports whether it is complete: nil
-// (0), an external (1, index), an object written before (2, id). Otherwise
+// (0), an external (1, index), an object written before (2, id), or one of
+// an earlier segment by its object path (4, segment, path; encoder.symbolic). Otherwise
 // it writes 3, gives the object the next id, and the caller writes its
 // contents.
 func (e *encoder) ref(v any, isNil bool) bool {
@@ -716,7 +762,19 @@ func (e *encoder) ref(v any, isNil bool) bool {
 	}
 	if id, ok := e.ids[v]; ok {
 		if cur := e.objStarts[len(e.objStarts)-1]; id < cur {
-			e.deps[segmentOf(e.objStarts, id)] = true
+			seg := segmentOf(e.objStarts, id)
+			e.deps[seg] = true
+			if e.crossRef != nil {
+				e.crossRef(seg, v)
+			}
+			if e.symbolic != nil {
+				if p, ok := e.symbolic(seg, v); ok {
+					e.uint(4)
+					e.uint(uint64(seg))
+					e.string(string(p))
+					return true
+				}
+			}
 		}
 		e.uint(2)
 		e.uint(id)
@@ -815,6 +873,17 @@ type decoder struct {
 	seg      int
 	start    uint64
 	checkers []*checker
+	// imports, when set (UserExport.Decode), is the current package of an
+	// earlier segment, in which a tag 4 reference's path resolves; paths
+	// caches the resolved paths, so one path is one object.
+	imports func(seg int) *Package
+	paths   map[pathRef]any
+}
+
+// pathRef is a tag 4 reference: a segment and an object path in it.
+type pathRef struct {
+	seg  int
+	path objPath
 }
 
 func (d *decoder) failf(format string, args ...any) {
@@ -848,6 +917,27 @@ func (d *decoder) ref() (any, bool) {
 		return x, false
 	case 3:
 		return nil, true
+	case 4:
+		r := pathRef{seg: int(d.uint()), path: objPath(d.string())}
+		if x, ok := d.paths[r]; ok {
+			return x, false
+		}
+		var pkg *Package
+		if d.imports != nil {
+			pkg = d.imports(r.seg)
+		}
+		if pkg == nil {
+			d.failf("a path into segment %d, which has no current package", r.seg)
+		}
+		x, ok := resolvePath(pkg, r.path)
+		if !ok {
+			d.failf("the path %s names nothing in %s", r.path, pkg.Path)
+		}
+		if d.paths == nil {
+			d.paths = map[pathRef]any{}
+		}
+		d.paths[r] = x
+		return x, false
 	}
 	d.failf("bad reference tag")
 	return nil, false
@@ -862,13 +952,30 @@ func (d *decoder) add(v any) {
 }
 
 // afterDecode rebuilds what the codec does not carry: each checker's type
-// table substitutes rows through its checker (newChecker).
+// table substitutes rows through its checker (newChecker), and starts its
+// memos empty (exportgen skipFields).
 func (d *decoder) afterDecode() {
 	for _, c := range d.checkers {
 		if c.types != nil {
 			c.types.substRow = c.substRow
+			c.types.of = map[Type]int32{}
+			c.types.foreign = map[*Row]*Row{}
+			c.types.resolved = map[*Row]*Row{}
+			c.types.varRows = map[*RowVar]*Row{}
+			c.types.scoped = map[Type]int32{}
+			c.types.scopedRows = map[*Row]*Row{}
+			c.types.scopedVarRows = map[*RowVar]*Row{}
 		}
 	}
+}
+
+// external reads an external's index (encoder.external).
+func (d *decoder) external() any {
+	i := d.uint()
+	if i >= uint64(len(d.ext)) {
+		d.failf("external %d", i)
+	}
+	return d.ext[i]
 }
 
 func (d *decoder) node() any {

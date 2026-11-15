@@ -20,7 +20,7 @@ extern go ergo.local/prototype/runtime/v1.Exit type Exit { Code Code, Message st
 
 // Code is a failure status: zero claims success, and 126 and above are
 // reserved by the shell. ParseCode checks a status computed at run time.
-type Code int where 1 <= it && it <= 125
+extern go ergo.local/prototype/runtime/v1.Code type Code int where 1 <= it && it <= 125
 
 // NoWorkdir is the failure of Getwd when the host cannot name the
 // process's working directory: it was removed, or a directory above it

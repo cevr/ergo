@@ -116,30 +116,88 @@ func (st *irState) reachAll(l *lowerer) {
 }
 
 func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
-	if err := u.Validate(); err != nil {
+	files, _, report, _, err := lowerIRModule(u, tests)
+	if err != nil {
 		return nil, IRReport{}, err
+	}
+	data, err := json.Marshal(report.out)
+	if err != nil {
+		return nil, IRReport{}, err
+	}
+	sum := sha256.Sum256(data)
+	report.Hash = hex.EncodeToString(sum[:])
+	files = append(files, File{Path: IRFileName, Data: data})
+	return files, report.IRReport, nil
+}
+
+// LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
+// package split (LowerSplit): one Go package per Ergo package and std
+// package, each with the IR file of its own bodies (pkgsplit_ir.go). A
+// program the split does not split keeps LowerIR's one package and its
+// one IR file, with the reason in the report.
+func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplit(u, tests, programModule)
+}
+
+func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitReport, error) {
+	var tl *testLowering
+	if tests {
+		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+	}
+	files, origins, report, l, err := lowerIRModule(u, tl)
+	if err != nil {
+		return nil, IRReport{}, SplitReport{}, err
+	}
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
+	var out []File
+	rep := SplitReport{Reason: "no main.go"}
+	if i >= 0 {
+		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+	}
+	res := files
+	if out == nil {
+		if rep.Packages == 0 {
+			rep.Packages = 1
+		}
+		data, err := json.Marshal(report.out)
+		if err != nil {
+			return nil, IRReport{}, SplitReport{}, err
+		}
+		res = append(slices.Clone(files), File{Path: IRFileName, Data: data})
+	} else {
+		res = append(slices.Clone(files[:i]), out...)
+		res = append(res, files[i+1:]...)
+	}
+	report.Hash = irHash(res)
+	return res, report.IRReport, rep, nil
+}
+
+// irModule is what lowerIRModule made: the report and the IR file.
+type irModule struct {
+	IRReport
+	out *irFile
+}
+
+// lowerIRModule lowers u with IR bodies: the module's files without an IR
+// file, the std origins of its names (the split's), and the IR.
+func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	if err := u.Validate(); err != nil {
+		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}}
 	code, err := l.program()
 	if err != nil {
-		return nil, IRReport{}, err
+		return nil, nil, irModule{}, nil, err
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
-	data, err := json.Marshal(&l.ir.out)
-	if err != nil {
-		return nil, IRReport{}, err
-	}
-	sum := sha256.Sum256(data)
-	l.ir.report.Hash = hex.EncodeToString(sum[:])
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
 		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	files = append(files, File{Path: IRFileName, Data: data})
 	sort.Strings(l.ir.report.IR)
-	return files, l.ir.report, nil
+	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
 
 // irState is the IR a LowerIR run collects.
@@ -238,6 +296,11 @@ type irExpr struct {
 	Args  []*irExpr `json:"args,omitempty"`
 	Elems []*irExpr `json:"elems,omitempty"`
 	Keys  []string  `json:"keys,omitempty"`
+	// Params, Body and End are a function literal's ("func",
+	// ir_closure.go): its parameters' locals, its statements, its brace.
+	Params []int     `json:"params,omitempty"`
+	Body   []*irStmt `json:"body,omitempty"`
+	End    *irPos    `json:"end,omitempty"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -281,6 +344,10 @@ type irBuilder struct {
 	// source local keeps its spelling unless Go's scope or one of these
 	// has it (ir_stmt.go, localName).
 	given map[string]bool
+	// law is the law whose body is built (ir_assert.go), nil in any
+	// other body and inside a function literal: each value it returns is
+	// checked where it is returned.
+	law *check.Law
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -336,29 +403,11 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if fd.method != nil {
 		name = fd.method.name + "." + name
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			u, isNo := r.(irUnsupported)
-			if !isNo {
-				panic(r)
-			}
-			st.report.Fallback[u.reason]++
-			b.note(u.reason)
-			ok = false
-		}
-		if st.census != nil {
-			pkg := ""
-			if f.Pkg != nil {
-				pkg = f.Pkg.Path
-			}
-			file := ""
-			if _, sourced := b.l.sourceOf(f.Decl); sourced {
-				_, file, _, _ = b.l.at(f.Decl, f.Decl.Pos())
-			}
-			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: f.Pkg.Std(), Reasons: b.reasons})
-			ok = false
-		}
-	}()
+	pkg := ""
+	if f.Pkg != nil {
+		pkg = f.Pkg.Path
+	}
+	defer st.finish(b, pkg, name, f.Decl, f.Pkg.Std(), &ok)
 	// A library body (a std body the program reaches, written with no
 	// //line directive) takes an IR body as a sourced one does: its
 	// positions name its std file (pos), so its lines and its defects'
@@ -428,6 +477,28 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	return true
+}
+
+// finish ends a body's build, deferred: a reason the builder stopped at
+// is its fallback, and a census records the body with every reason.
+func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std bool, ok *bool) {
+	if r := recover(); r != nil {
+		u, isNo := r.(irUnsupported)
+		if !isNo {
+			panic(r)
+		}
+		st.report.Fallback[u.reason]++
+		b.note(u.reason)
+		*ok = false
+	}
+	if st.census != nil {
+		file := ""
+		if _, sourced := b.l.sourceOf(decl); sourced {
+			_, file, _, _ = b.l.at(decl, decl.Pos())
+		}
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		*ok = false
+	}
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern

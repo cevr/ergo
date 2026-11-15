@@ -5,8 +5,9 @@
 
 import fkboard/sortkey
 
-// Card is a card of the board. Key orders it in its column.
-type Card { ID string, Title string, Description string, Key string }
+// Card is a card of the board. Key orders it in its column; its codec
+// key is upstream's sortKey.
+type Card { ID string, Title string, Description string, Key string "sortKey" }
 
 // Column is a column of the board and its cards, in key order.
 type Column { ID string, Name string, Cards []Card }

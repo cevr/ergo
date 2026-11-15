@@ -16,21 +16,6 @@ import (
 	"testing"
 )
 
-// init gives every CLI this package's tests start a private emission cache:
-// it runs before TestMain captures the environment, so no test writes the
-// developer's $XDG_CACHE_HOME or $HOME/.cache. The directory is not
-// removed (follow-up: move this into TestMain, with cleanup, once
-// main_test.go is this unit's to edit).
-func init() {
-	dir, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
-	if err != nil {
-		panic("cmd/ergo tests: private cache directory: " + err.Error())
-	}
-	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
-		panic(err)
-	}
-}
-
 // innerRunVariable marks the package run that
 // TestPackageNeverWritesUnderHome starts, which must not start another.
 const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
@@ -95,9 +80,20 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	case code != 0:
 		t.Logf("the package run with an empty HOME exited %d after %d passing tests; failing: %s", code, len(passed), bytes.Join(failed, []byte(", ")))
 	}
+	// The builds run the release's go command by its path, the patched
+	// GOROOT's bin/go (internal/toolchain, Patch), which the wrapper on
+	// PATH does not reach: that go command's telemetry directory, and the
+	// directories above it, are the go command's writes, not Ergo's.
+	telemetry := filepath.Join(home, ".config", "go", "telemetry")
+	if runtime.GOOS == "darwin" {
+		telemetry = filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	}
 	var written []string
 	_ = filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-		if p != home && !slices.Contains(telemetryOff, p) {
+		if p == telemetry {
+			return filepath.SkipDir
+		}
+		if p != home && !slices.Contains(telemetryOff, p) && !strings.HasPrefix(telemetry, p+string(filepath.Separator)) {
 			written = append(written, p)
 		}
 		return nil

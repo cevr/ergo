@@ -216,7 +216,7 @@ func lowered(t *testing.T, a Analysis, path string, locked bool) (program, recor
 	}
 	var stderr bytes.Buffer
 	req.Stderr = &stderr
-	ev, files, err := lowerWithLedger(a, unit, req)
+	ev, files, err := lowerWithLedger(a, unit, req, false)
 	if err != nil {
 		return "", "", nil, err
 	}

@@ -52,6 +52,11 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		if fu := b.flatOf(t); fu != nil && (fu.niche || fu.generic) {
 			irNo("generic or declared-elsewhere type")
 		}
+		if fu := b.flatOf(t); fu != nil && fu.shared {
+			// U1's shared slots hold a variant's fields by Go type, not
+			// a record per variant: narrow reads a record slot only.
+			irNo("flat union with shared slots")
+		}
 		if b.admitted == nil {
 			b.admitted = map[*check.TypeName]bool{}
 		}

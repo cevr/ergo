@@ -73,7 +73,7 @@ func Put[T](a *Of[T], v T) Ref[T] {
 // returns the slot's free-list link. Put writes the slot through this one
 // borrow, so the lowered Go indexes the store once, as hand-written Go
 // does with a pointer to the slot.
-func reuse[T](s *slot[T], v T) int takes v {
+func reuse[T](s *slot[T], v own T) int {
 	s.value = stored[T]{Value: v}
 	s.gen = s.gen + 1
 	s.next

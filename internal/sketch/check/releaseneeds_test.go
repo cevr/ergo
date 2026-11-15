@@ -44,8 +44,8 @@ func TestReleaseNeedRows(t *testing.T) {
 	}{
 		{
 			name: "exported taker",
-			src:  res + "func Drop(x Res) takes x {}\n\nfunc main() {\n\tDrop(Res{id: 1})\n}\n",
-			want: "7:11: S102 Res.Close, run by the release of Res here, requires Console, which is not in the capability row of function Drop and no with provides it; write: func Drop(x Res) needs Console takes x",
+			src:  res + "func Drop(x own Res) {}\n\nfunc main() {\n\tDrop(Res{id: 1})\n}\n",
+			want: "7:11: S102 Res.Close, run by the release of Res here, requires Console, which is not in the capability row of function Drop and no with provides it; write: func Drop(x own Res) needs Console",
 		},
 		{
 			name: "released result",

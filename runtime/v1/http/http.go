@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -174,53 +175,30 @@ func HTTPListen(addr string) (*Listener, error) {
 	return &Listener{ln: ln}, nil
 }
 
-// httpCall crosses the net/http goroutine and the serving task. The task
-// owns h; done publishes its completed exit, including all frame releases.
-type httpCall struct {
-	in        httpIncoming
-	x         *Exchange
-	response  HTTPResponse
-	err       error
-	done      chan struct{}
-	h         *rt.Handle[struct{}]
-	mu        sync.Mutex
-	task      *rt.Task
-	cancelled bool
-}
-
-func (c *httpCall) cancel() {
-	c.mu.Lock()
-	c.cancelled = true
-	t := c.task
-	c.mu.Unlock()
-	if t != nil {
-		t.Interrupt()
-	}
-}
-
-func (c *httpCall) start(t *rt.Task) {
-	c.mu.Lock()
-	c.task = t
-	cancelled := c.cancelled
-	c.mu.Unlock()
-	if cancelled {
-		t.Interrupt()
-	}
-}
-
 type httpServer struct {
-	limits  HTTPLimits
-	calls   chan *httpCall
-	quit    chan struct{}
-	mu      sync.Mutex
-	closing bool
-	workers sync.WaitGroup
+	limits HTTPLimits
+	site   string
+	handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+	// requests is the parent of every request task (rt.Group): each runs
+	// on the net/http goroutine that read its request.
+	requests *rt.Group
+	mu       sync.Mutex
+	closing  bool
+	workers  sync.WaitGroup
 
-	// wake tells the serving goroutine that dirty holds connections whose
-	// phase changed. dmu guards dirty; a connection is in it at most once.
-	wake  chan struct{}
-	dmu   sync.Mutex
-	dirty []*httpConn
+	// failed wakes the serving goroutine when a request ended in a defect;
+	// fmu guards defects, every such exit, which the serving task raises.
+	failed  chan struct{}
+	fmu     sync.Mutex
+	defects rt.Cause
+
+	// timers is the parent of every phase sleep (rt.Group): each runs on
+	// its connection's timer goroutine (timeouts), on sleeper, the
+	// program's Scheduler. stopping ends those goroutines.
+	timers    *rt.Group
+	sleeper   v1.Sleeper
+	timerSite string
+	stopping  chan struct{}
 }
 
 // phase is the read phase of one connection. Header, body and idle are
@@ -271,24 +249,27 @@ func (p phase) budget() string {
 // once (net/http's own abort uses the same).
 var aLongTimeAgo = time.Unix(1, 0)
 
-// httpConn is one accepted connection. net/http, the request worker and
-// the serving goroutine move its phase (enter); the serving goroutine
-// alone owns timer. An expiry pins a past read deadline, so every later
-// read fails, whatever deadline net/http sets after it.
+// httpConn is one accepted connection. net/http and the request worker
+// move its phase (enter); its timer goroutine (timeouts) bounds the phase.
+// An expiry pins a past read deadline, so every later read fails, whatever
+// deadline net/http sets after it.
 type httpConn struct {
 	net.Conn
 	s       *httpServer
 	at      atomic.Uint32 // the phase, for Read's lock-free check
+	kick    chan struct{} // a phase change wakes the timer goroutine
 	mu      sync.Mutex
 	phase   phase
-	epoch   uint64 // counts phase changes; a timer expires only its own
-	queued  bool   // c is in s.dirty
-	expired phase  // the phase that expired, or phaseFree
-	timer   *phaseTimer
+	epoch   uint64   // counts phase changes; a sleep expires only its own
+	expired phase    // the phase that expired, or phaseFree
+	sleep   *rt.Task // the phase sleep in flight, cut by the next change
+	request *rt.Task // the request task that a disconnect stops
+	gone    bool     // a read failed other than by a deadline: the peer left
 }
 
-// enter moves c to phase p and queues c for the serving goroutine, which
-// stops the timer of the old phase and arms the new one.
+// enter moves c to phase p: it cuts the sleep of the old phase and wakes
+// c's timer goroutine, which sleeps the new phase's bound, if it has one.
+// The timer's deadline moves in place: no task is started for the change.
 func (c *httpConn) enter(p phase) {
 	c.mu.Lock()
 	c.enterLocked(p)
@@ -302,23 +283,12 @@ func (c *httpConn) enterLocked(p phase) {
 	c.phase = p
 	c.at.Store(uint32(p))
 	c.epoch++
-	c.queueLocked()
-}
-
-// queueLocked asks the serving goroutine to read c's latest phase. A
-// stopped timer uses it again once joined: interruption does not vacate
-// the timer slot, so a connection never has two live timer tasks.
-func (c *httpConn) queueLocked() {
-	if c.queued {
-		return
+	if c.sleep != nil {
+		c.sleep.Interrupt()
+		c.sleep = nil
 	}
-	c.queued = true
-	s := c.s
-	s.dmu.Lock()
-	s.dirty = append(s.dirty, c)
-	s.dmu.Unlock()
 	select {
-	case s.wake <- struct{}{}:
+	case c.kick <- struct{}{}:
 	default:
 	}
 }
@@ -337,12 +307,41 @@ func (c *httpConn) Read(b []byte) (int, error) {
 	if err != nil {
 		c.mu.Lock()
 		expired := c.expired
+		if !isTimeout(err) {
+			// The peer closed or reset the connection: net/http's
+			// background read sees it while a handler runs, and the
+			// request stops, as net/http cancels its context. A deadline
+			// net/http sets to end that read is no disconnect.
+			c.gone = true
+			if c.request != nil {
+				c.request.Interrupt()
+			}
+		}
 		c.mu.Unlock()
 		if expired != phaseFree {
 			return n, httpTimeout{expired.budget()}
 		}
 	}
 	return n, err
+}
+
+// isTimeout reports whether err, a read error of the accepted connection
+// itself (never wrapped), is a read deadline's. An assertion, not
+// errors.As: net/http's own deadline ends a read after every request.
+func isTimeout(err error) bool {
+	ne, ok := err.(net.Error)
+	return ok && ne.Timeout()
+}
+
+// running makes t the request that a disconnect of c stops, or stops t at
+// once when the peer has left; done (t == nil) ends it.
+func (c *httpConn) running(t *rt.Task) {
+	c.mu.Lock()
+	c.request = t
+	if t != nil && c.gone {
+		t.Interrupt()
+	}
+	c.mu.Unlock()
 }
 
 // SetReadDeadline passes net/http's deadlines through until an expiry,
@@ -384,23 +383,74 @@ func (c *httpConn) expire(epoch uint64) {
 	_ = c.Conn.SetReadDeadline(aLongTimeAgo)
 }
 
-// take returns c's phase and epoch for the serving goroutine and lets a
-// later change queue c again.
-func (c *httpConn) take() (phase, uint64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.queued = false
-	return c.phase, c.epoch
+// timeouts bounds c's read phases, on a goroutine of c's own from the
+// accept until c closes or the server stops: for each bounded phase it
+// sleeps the phase's Limits timeout on the Scheduler, as a member of the
+// server's timers group, and expires the phase when the sleep ran its
+// whole length with the phase still current. A phase change cuts the
+// sleep in flight (enter), so a connection has at most one sleep, and a
+// test Scheduler decides when a phase expires. A defect of a sleep (a
+// Scheduler's) reaches the serving task, as a request's does.
+func (s *httpServer) timeouts(c *httpConn) {
+	defer s.workers.Done()
+	for {
+		select {
+		case <-c.kick:
+		case <-s.stopping:
+			return
+		}
+		c.mu.Lock()
+		p, epoch := c.phase, c.epoch
+		c.mu.Unlock()
+		if p == phaseClosed {
+			return
+		}
+		d := s.limits.timeout(p)
+		if d <= 0 {
+			continue
+		}
+		slept, err := rt.RunIn(s.timers, s.timerSite, func(st *rt.Task) (bool, error) {
+			c.mu.Lock()
+			if c.epoch != epoch {
+				c.mu.Unlock()
+				return false, nil
+			}
+			c.sleep = st
+			c.mu.Unlock()
+			defer func() {
+				c.mu.Lock()
+				if c.sleep == st {
+					c.sleep = nil
+				}
+				c.mu.Unlock()
+			}()
+			return v1.Guarded(st, func(st *rt.Task) (bool, error) {
+				s.sleeper.Sleep(st, d)
+				return true, nil
+			})
+		})
+		if err != nil {
+			if !rt.OnlyInterruption(err) {
+				s.fail(err)
+				return
+			}
+			continue
+		}
+		if slept {
+			c.expire(epoch)
+		}
+	}
 }
 
-// phaseTimer bounds one phase of one connection: a child of the serving
-// task that sleeps on the program's Scheduler. Only the serving goroutine
-// touches its fields.
-type phaseTimer struct {
-	c         *httpConn
-	epoch     uint64
-	h         *rt.Handle[struct{}]
-	cancelled bool
+// watch starts c's timer goroutine, unless the server is stopping.
+func (s *httpServer) watch(c *httpConn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return
+	}
+	s.workers.Add(1)
+	go s.timeouts(c)
 }
 
 // httpListener wraps each accepted connection, so Serve sees its reads.
@@ -414,7 +464,7 @@ func (l httpListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &httpConn{Conn: nc, s: l.s}, nil
+	return &httpConn{Conn: nc, s: l.s, kick: make(chan struct{}, 1)}, nil
 }
 
 // connKey finds a request's connection in its context.
@@ -429,6 +479,7 @@ func connState(nc net.Conn, st http.ConnState) {
 	}
 	switch st {
 	case http.StateNew:
+		c.s.watch(c)
 		c.enter(phaseHeader)
 	case http.StateActive:
 		c.enter(phaseFree)
@@ -439,10 +490,13 @@ func connState(nc net.Conn, st http.ConnState) {
 	}
 }
 
-// HTTPServe is the transport body of std http.Serve. Only its calling
-// goroutine creates and consumes task handles. net/http workers hand it
-// requests, so handlers run on the same child-task tree as task.Go and
-// RPC. A disconnect stops that request alone. End means completed child
+// HTTPServe is the transport body of std http.Serve. Each request runs
+// as a task on the net/http goroutine that read it, a member of one
+// rt.Group under the serving task t, so handlers run on the same task
+// tree as task.Go and RPC with no dispatcher goroutine between the
+// connection and its handler (Cowboy, Bandit and mist run a request in
+// its connection's own process the same way). A disconnect stops that
+// request alone; a stop of t, or a defect of any request, stops them all. End means completed child
 // cleanup, closed connections and joined transport workers, not merely a
 // cancellation signal. Defects remain defects and reach the serving task.
 // Each handler call gets its request's Exchange, through which std http's
@@ -451,11 +505,12 @@ func connState(nc net.Conn, st http.ConnState) {
 //
 // Each connection's read phases are bounded by the Limits timeouts: the
 // header (from the accept, or from the first byte after idle, to the
-// whole header), the body, and the idle wait between requests. A phase
-// timer is a child of t that sleeps on sleeper, the program's Scheduler,
-// so a test Scheduler decides when a phase expires, as for timeout.After;
-// Serve arms no host timer of its own. A phase that ends first stops its
-// timer. An expired idle or header phase closes the connection; an
+// whole header), the body, and the idle wait between requests. Each
+// connection has one phase timer, a goroutine whose sleeps are tasks under
+// t that sleep on sleeper, the program's Scheduler, so a test Scheduler
+// decides when a phase expires, as for timeout.After; Serve arms no host
+// timer of its own. A phase that ends first cuts its sleep, and the next
+// bounded phase sleeps its own bound on the same goroutine. An expired idle or header phase closes the connection; an
 // expired body phase reaches the handler as a failed read, and its answer
 // is the connection's last. A stop drains the timers with the requests.
 //
@@ -467,7 +522,8 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 	}
 	defer l.Close()
 	t.Check()
-	s := &httpServer{limits: limits, calls: make(chan *httpCall), quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1),
+		timers: rt.NewGroup(t, string(site)+" (timeouts)"), sleeper: sleeper, timerSite: string(site) + " (timeout)", stopping: make(chan struct{})}
 	srv := &http.Server{
 		Handler:        s,
 		MaxHeaderBytes: limits.MaxHeaderBytes,
@@ -476,142 +532,33 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(httpListener{l.ln, s}) }()
-	ended := make(chan *httpCall)
-	live := map[*httpCall]bool{}
-	fired := make(chan *phaseTimer)
-	timers := map[*phaseTimer]bool{}
-	timerSite := string(site) + " (timeout)"
-	arm := func(c *httpConn, d time.Duration, epoch uint64) {
-		pt := &phaseTimer{c: c, epoch: epoch}
-		holder := rt.NewScope(t)
-		pt.h = rt.Go(&holder, timerSite, func(ct *rt.Task) (struct{}, error) {
-			defer func() { fired <- pt }()
-			return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
-				sleeper.Sleep(ct, d)
-				return struct{}{}, nil
-			})
-		})
-		c.timer = pt
-		timers[pt] = true
-	}
-	cancel := func(pt *phaseTimer) {
-		pt.cancelled = true
-		pt.h.Task().Interrupt()
-		// Keep c.timer until settle joins the child, including its cleanup.
-	}
-	// settle ends a timer whose task has ended: a sleep that ran its whole
-	// length expires its phase, if that phase is still current.
-	settle := func(pt *phaseTimer) error {
-		delete(timers, pt)
-		var err error
-		if pt.cancelled {
-			err = pt.h.Stop()
-		} else {
-			_, err = pt.h.Wait()
-			if err == nil {
-				pt.c.expire(pt.epoch)
-			}
-		}
-		if pt.c.timer == pt {
-			pt.c.timer = nil
-		}
-		if pt.cancelled {
-			// A phase change may have been taken while the old child was
-			// stopping. Revisit the latest phase now that its slot is free.
-			pt.c.mu.Lock()
-			pt.c.queueLocked()
-			pt.c.mu.Unlock()
-		}
-		return err
-	}
-	// rearm brings each changed connection's timer to its current phase.
-	rearm := func() {
-		s.dmu.Lock()
-		dirty := s.dirty
-		s.dirty = nil
-		s.dmu.Unlock()
-		for _, c := range dirty {
-			p, epoch := c.take()
-			if pt := c.timer; pt != nil && pt.epoch != epoch {
-				cancel(pt)
-			}
-			if d := limits.timeout(p); d > 0 && c.timer == nil {
-				arm(c, d, epoch)
-			}
-		}
-	}
-	finish := func(c *httpCall, stop bool) error {
-		var err error
-		if stop {
-			err = c.h.Stop()
-			c.err = rt.Interrupted
-		} else {
-			_, err = c.h.Wait()
-			c.err = err
-		}
-		delete(live, c)
-		close(c.done)
-		return err
-	}
+	// shutdown stops the requests and the timers and joins them: every
+	// request task and every sleep has returned once its goroutine has
+	// (workers). It returns the defects of the requests and of the timers.
 	shutdown := func() error {
 		s.mu.Lock()
 		s.closing = true
-		close(s.quit)
 		s.mu.Unlock()
+		close(s.stopping)
 		_ = srv.Close() // unblock even a partial header or body read
-		for c := range live {
-			c.cancel()
-		}
-		for pt := range timers {
-			cancel(pt)
-		}
+		// Closing a connection cuts its sleep (enter), so the timers end
+		// with the connections.
+		s.requests.Interrupt()
 		var causes rt.Cause
-		for len(live) > 0 || len(timers) > 0 {
-			select {
-			case c := <-ended:
-				causes.Add(finish(c, true))
-			case pt := <-fired:
-				pt.cancelled = true
-				causes.Add(settle(pt))
-			}
-		}
 		s.workers.Wait()
+		s.requests.End()
+		s.timers.End()
+		s.fmu.Lock()
+		causes.Add(s.defects.Err())
+		s.fmu.Unlock()
 		return causes.Err()
 	}
 	for {
 		select {
-		case c := <-s.calls:
-			holder := rt.NewScope(t)
-			c.h = rt.Go(&holder, string(site), func(ct *rt.Task) (struct{}, error) {
-				defer func() { ended <- c }()
-				return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
-					c.start(ct)
-					ct.Check()
-					v := c.in
-					c.response = handle(ct, c.x, v.Method, v.Path, v.Query, v.Header, v.Body, v.TooLarge, v.ReadError)
-					return struct{}{}, nil
-				})
-			})
-			live[c] = true
-		case <-s.wake:
-			rearm()
-		case pt := <-fired:
-			if err := settle(pt); err != nil && !rt.OnlyInterruption(err) {
-				var causes rt.Cause
-				causes.Add(err)
-				causes.Add(shutdown())
-				<-served
-				v1.Raise(causes.Err())
-			}
-		case c := <-ended:
-			err := finish(c, false)
-			if err != nil && !rt.OnlyInterruption(err) {
-				var causes rt.Cause
-				causes.Add(err)
-				causes.Add(shutdown())
-				<-served
-				v1.Raise(causes.Err())
-			}
+		case <-s.failed:
+			err := shutdown()
+			<-served
+			v1.Raise(err)
 		case <-t.Done():
 			var causes rt.Cause
 			causes.AddInterruption()
@@ -638,74 +585,117 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.workers.Add(1)
 	s.mu.Unlock()
 	defer s.workers.Done()
-	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header), Query: HTTPParseQuery(r.URL.RawQuery)}
-	// The body phase is bounded only while there is a body to read.
-	conn, _ := r.Context().Value(connKey{}).(*httpConn)
-	if r.Body == http.NoBody {
-		conn = nil
+	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header)}
+	if r.URL.RawQuery != "" {
+		in.Query = HTTPParseQuery(r.URL.RawQuery)
 	}
-	if conn != nil {
-		conn.enter(phaseBody)
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(s.limits.MaxBodyBytes)))
-	if conn != nil {
-		conn.enter(phaseFree)
-	}
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			in.TooLarge = true
-		} else {
-			in.ReadError = err.Error()
+	ctx := r.Context()
+	conn, _ := ctx.Value(connKey{}).(*httpConn)
+	// A request with no body reads none. The body phase is bounded only
+	// while there is a body to read.
+	if r.Body != http.NoBody {
+		if conn != nil {
+			conn.enter(phaseBody)
 		}
-	} else {
-		in.Body = string(body)
+		body, err := readBody(w, r, s.limits.MaxBodyBytes)
+		if conn != nil {
+			conn.enter(phaseFree)
+		}
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				in.TooLarge = true
+			} else {
+				in.ReadError = err.Error()
+			}
+		} else {
+			in.Body = body
+		}
 	}
-	c := &httpCall{in: in, x: &Exchange{w: w}, done: make(chan struct{})}
-	gone := r.Context().Done()
-	if in.ReadError != "" {
-		// net/http cancels the request context on an input EOF, even
-		// when the peer only closed its write half and can still read
-		// our response. Deliver the typed read refusal to the program;
-		// its child remains owned and stoppable by the serving task.
-		gone = nil
-	}
-	select {
-	case s.calls <- c:
-	case <-s.quit:
+	// net/http cancels the request context on an input EOF, even when the
+	// peer only closed its write half and can still read our response:
+	// after a read refusal the program gets the typed refusal, and only a
+	// stop of the server stops the request.
+	watch := in.ReadError == "" && conn != nil
+	if watch && ctx.Err() != nil {
+		// The client left before its handler started.
 		panic(http.ErrAbortHandler)
-	case <-gone:
-		panic(http.ErrAbortHandler)
 	}
-	select {
-	case <-c.done:
-	case <-gone:
-		c.cancel()
-		<-c.done
-	}
+	x := &Exchange{w: w}
+	response, err := rt.RunIn(s.requests, s.site, func(ct *rt.Task) (HTTPResponse, error) {
+		if watch {
+			// A disconnect stops this request alone.
+			conn.running(ct)
+			defer conn.running(nil)
+		}
+		return v1.Guarded(ct, func(ct *rt.Task) (HTTPResponse, error) {
+			ct.Check()
+			return s.handle(ct, x, in.Method, in.Path, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
+		})
+	})
 	// The request task has ended: a writer it kept now fails, and a
 	// streamed response is complete (or, after a stop or a defect,
 	// aborted with the connection, so the client sees a cut body).
-	streamed := c.x.finish()
-	if c.err != nil {
+	streamed := x.finish()
+	if err != nil {
+		if !rt.OnlyInterruption(err) {
+			s.fail(err)
+		}
 		panic(http.ErrAbortHandler)
 	}
 	if streamed {
 		return
 	}
-	for _, f := range c.response.Header {
+	httpWriteAnswer(w, response)
+}
+
+// httpWriteAnswer writes a handler's buffered answer: Serve's, and a local
+// Network's (httpLocalServe), so both send the same bytes.
+func httpWriteAnswer(w http.ResponseWriter, r HTTPResponse) {
+	for _, f := range r.Header {
 		w.Header().Add(f.Name, f.Value)
 	}
-	if c.response.Body == "" {
+	if r.Body == "" {
 		// A nil value suppresses net/http's content sniffing without
 		// writing an empty Content-Type header in the HTTP output.
 		w.Header()["Content-Type"] = nil
 	}
-	w.WriteHeader(c.response.Status)
+	w.WriteHeader(r.Status)
 	// net/http suppresses HEAD's body and still computes the GET
 	// content length and content type from this buffered representation.
-	if c.response.Body != "" {
-		_, _ = io.WriteString(w, c.response.Body)
+	if r.Body != "" {
+		_, _ = io.WriteString(w, r.Body)
+	}
+}
+
+// bodyChunks holds the read buffers of readBody.
+var bodyChunks = sync.Pool{New: func() any { return new([2048]byte) }}
+
+// readBody is r's body, at most max bytes (a longer one is
+// *http.MaxBytesError). The text is one allocation of its own size: a
+// declared length sizes it first, and the reads go through a pooled
+// chunk, not io.Copy's 32 KB buffer per request (neither a
+// MaxBytesReader nor a strings.Builder takes io.Copy's shortcuts).
+func readBody(w http.ResponseWriter, r *http.Request, max int) (string, error) {
+	var body strings.Builder
+	if n := r.ContentLength; n > 0 && n <= int64(max) {
+		body.Grow(int(n))
+	}
+	chunk := bodyChunks.Get().(*[2048]byte)
+	defer bodyChunks.Put(chunk)
+	_, err := io.CopyBuffer(&body, http.MaxBytesReader(w, r.Body, int64(max)), chunk[:])
+	return body.String(), err
+}
+
+// fail keeps a request's or a sleep's defect for the serving task, and wakes it to
+// stop the server and raise every defect.
+func (s *httpServer) fail(err error) {
+	s.fmu.Lock()
+	s.defects.Add(err)
+	s.fmu.Unlock()
+	select {
+	case s.failed <- struct{}{}:
+	default:
 	}
 }
 
@@ -727,7 +717,11 @@ func httpFields(values map[string][]string) []HTTPField {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var fields []HTTPField
+	n := 0
+	for _, vs := range values {
+		n += len(vs)
+	}
+	fields := make([]HTTPField, 0, n)
 	for _, k := range keys {
 		for _, v := range values[k] {
 			fields = append(fields, HTTPField{k, v})

@@ -109,6 +109,7 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
+	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
@@ -116,8 +117,10 @@ func (l *lowerer) nameAll() {
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
 	}
-	l.reserveMono(append([]*check.Package{l.pkg}, libs...)) // mono.go
-	l.reserveHeld()                                         // inforce.go
+	l.reserveMono(append([]*check.Package{l.pkg}, libs...))     // mono.go
+	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...)) // witspec.go
+	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))     // tabulate.go
+	l.reserveHeld()                                             // inforce.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its
@@ -253,10 +256,13 @@ func (l *lowerer) nameAll() {
 		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
 	})
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
-		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
+		generated = append(generated, entry{key, key.kind + " " + key.obj.(string), cloneBase(t)})
 	})
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})
+	})
+	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
+		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)

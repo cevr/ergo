@@ -181,7 +181,7 @@ type Bag {
 	seal(),
 }
 
-type Kept { r Res, n int, log sync.Ref[int] } implements Bag, Closer
+type Kept { r Res, n int, log sync.Ref[int] } implements Bag
 
 func Add(k *Kept, n int) { k.n = k.n + n }
 func Close(k Kept) { k.log.Set(k.log.Get() * 100 + k.n + 1) }

@@ -186,7 +186,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Machine**: A declaration `type X machine[S, E] { initial v; step f }` of a state machine over the unions `S` and `E`. Its meaning is a plan any lawful provider can run. In the earlier language (specified), a machine is a checked definition of state and event types, transition policies and state-owned behavior.
 
-**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Ignore{}`, `Reject{}` or `Done{output}`. Its type is the prelude `Decision[S, O]`.
+**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Emit{next, output}`, `Ignore{}`, `Reject{}`, `Done{output}` or `Tell{next, output}`. Its type is the prelude `Decision[S, O]`. Only the first state, an `Enter` and an `Emit` open an entry; `Stay` and `Tell` keep the entry's timer and work, and `Emit` and `Tell` give an output (runtime.md, Machines and actors 2).
 
 **Actor**: A machine run by `actor.Start` as one task with a bounded mailbox, behind a resource handle with `Send`, `Ask`, `State` and `Stop`. In the earlier language (specified), an actor is an owned, addressable instance of behavior with typed messages and replies and an explicit admission and concurrency policy; an effect without a message interface remains a fiber.
 
@@ -307,6 +307,28 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability. The frame holds the retained tree, its view-local cells and its loads; `ui.Render` runs one pass and reconciles what it wrote into a patch (`[]ui.Op[E]`). `E` is the program's signal type.
 
 **Load epoch (ui)**: The number of one fetch a `ui.Load` asked for, unique within its frame. A new key, a new place or a removal ends the epoch, and a result is taken only while its epoch is live (`ui.Arrive`), so a result never shows for a key it was not fetched for. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Boundary (ui)**: A `ui.Boundary(f) { … } catch { … }`: a group with no node of its own whose `catch` arms show something else when its body fails, with `ui.Pending` while data has not arrived or with a failure the body's reads declare. See [stdlib](docs/spec/stdlib.md#ui), UI 15.
+
+**Group (ui)**: A `ui` primitive that takes a body: a container, `ui.Each`, `ui.Rows` or `ui.Boundary`. When a failure leaves its body, the group cuts the pass back to where the group started (nothing the body wrote stays) and passes the failure on. See [stdlib](docs/spec/stdlib.md#ui), UI 15.
+
+**Parked (ui)**: Said of a node, cell or load that a pass under a stopped group did not write or read: out of the tree and the host's copy, kept with its `Id`, cells, loads and subtree until a pass writes it again (it comes back with the same `Id`) or a pass in which no group under its parent stops (it is released). See [stdlib](docs/spec/stdlib.md#ui), UI 15.
+
+**Await (ui)**: `ui.Await(a)`, which reads an `Async[T, F]` as `T fails F | ui.Pending`: the value, `Pending` while loading, or the held failure. A view reads a load's value with `try ui.Await(…)` under a boundary. See [stdlib](docs/spec/stdlib.md#ui), UI 19.
+
+**Crash (ui)**: An app's actor that ended with a defect or its step's typed failure (`ui.Crash[F]`). The app's session reports it once and shows the app's crash view instead of a view of the dead state; a signal of the crash view is a reload, a fresh actor from the machine's initial state. A Done or a stop is an end, not a crash. See [stdlib](docs/spec/stdlib.md#ui), UI 20.
+
+**Zone (ui)**: A container that marks its body with a key for the pointer events of the Area around it (`ui.Zone`). The host names the topmost zone under the pointer and its box; the composer gives the Area's function the keys of the zones from the Area down to it, its box and the pointer's offset in it (`ui.ZoneHit`). See [stdlib](docs/spec/stdlib.md#ui), UI 22.
+
+**Pointer capture (ui)**: After a Down on an Area, the host sends that Area every pointer event until an Up, wherever the pointer is (`ui.Captured` on the test host). See [stdlib](docs/spec/stdlib.md#ui), UI 22.
+
+**Stats (ui)**: One pass's work, counted in work units per phase (signals, nodes written and committed, rows run, patch ops by kind, paint ops, fetches and cancels), never time (`ui.Stats`, `StatsOf(h)`). A view's `OnSlow` budget turns a pass over it into `ui.Slow` signals. See [stdlib](docs/spec/stdlib.md#ui), UI 21.
+
+**Same (ui)**: `ui.Same(f, key) { … }`, a Box whose body runs only when its `Key` changed since the last pass: otherwise the pass keeps the subtree the body wrote then, and nothing under it runs or is compared. A cell write under it or a change of the disabled state around it runs it again. See [stdlib](docs/spec/stdlib.md#ui), UI 18.
+
+**Location (ui)**: The `ui.Location` operation type: a program's history of places (`URL`s), with `Current`, `Push`, `Replace` and `Back`, bound in `cmd/<name>/main.ergo` (a `MemoryHistory` on the desktop and in a test). A change the program did not make reaches the view as `URLChanged`, through `OnURL`. See [stdlib](docs/spec/stdlib.md#ui), UI 17.
+
+**Locator (ui)**: A `ui.Locator` value that finds nodes on a screen by role and accessible name, by label, by placeholder or by text, in tree order; a scene checks what it finds with a `ui.Matcher`. Roles and names come from the node kinds and labels. See [stdlib](docs/spec/stdlib.md#ui), UI 16.
 
 **Paint list (ui)**: The content of a `ui.Canvas`: a list of `ui.PaintOp` values (fills and strokes of paths, and transforms and clips each closed by a pop) that the canvas's draw function wrote through a borrowed `*ui.Paint`. It is a field of the canvas node, so an unchanged list is no change, and a host replays it. See [stdlib](docs/spec/stdlib.md#ui).
 

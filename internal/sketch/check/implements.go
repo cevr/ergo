@@ -154,20 +154,24 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 	}
 }
 
-// closerType is the prelude's release contract, `type Closer { Close()
+// closer is the prelude's release contract, `type Closer { Close()
 // takes }` (resources R1): a type that implements it is a resource.
-func (c *checker) closer() *Named {
+func (c *checker) closer() *Named { return c.preludeContract("Closer") }
+
+// preludeContract is the prelude's operation type name, a contract the
+// language gives a meaning (Closer, R1; Keeping, R13), or nil.
+func (c *checker) preludeContract(name string) *Named {
 	if c.pkg.Path == std.PreludePath {
 		// The prelude's own check reads its scope: prelude() is not
 		// done yet.
-		tn, _ := c.pkg.Scope.names["Closer"].(*TypeName)
+		tn, _ := c.pkg.Scope.names[name].(*TypeName)
 		if tn == nil {
 			return nil
 		}
 		n, _ := tn.Type.(*Named)
 		return n
 	}
-	return preludeType("Closer")
+	return preludeType(name)
 }
 
 // isGoCloser reports the binding of Go's io.Closer: in a binding, the
@@ -397,7 +401,20 @@ func (c *checker) clauseUnmet(v Type, it *Interface) bool {
 	if !ok || asInterface(n) != nil || len(n.origin().impls) == 0 || n.origin().Obj.Pkg.Host() {
 		return false
 	}
-	return c.implements(&Pointer{Elem: v}, it, true) != ""
+	// The release contract's clause checks only the Close function's
+	// shape at the type (checkImplementsClauses), so a refusal of the
+	// conversion itself, a release that needs a capability (R5), is
+	// reported at the use.
+	if cl := c.closer(); cl != nil && asInterface(cl) == it {
+		return false
+	}
+	for _, d := range c.declaredOps(v) {
+		if isGoCloser(d) && asInterface(d) == it {
+			return false
+		}
+	}
+	foreign := false // as checkImplementsClauses reads the clause
+	return c.implementsCapturing(&Pointer{Elem: v}, it, true, &foreign) != ""
 }
 
 // checkImplementsClauses checks each written clause of the package at its
@@ -437,6 +454,11 @@ func (c *checker) checkImplementsClauses() {
 				}
 				continue
 			}
+			// A method that needs go.Foreign beyond the operation's row
+			// implements it: the build of a value as the operation type
+			// holds go.Foreign, and that conversion charges it (README
+			// Gap 17), so the declaration admits what the conversion does.
+			foreign := false
 			// A Go interface's method may keep the value it is called on
 			// (resources R19), so a value that may hold a resource meets it
 			// only by taking it. A generic type's parameters hold a resource
@@ -444,7 +466,7 @@ func (c *checker) checkImplementsClauses() {
 			// receiver to each conversion, which checks it at the instance
 			// (assignableTo, implementsCapturing).
 			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
-			if why := c.implements(&Pointer{Elem: self}, it, checkReceiver); why != "" {
+			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}

@@ -1,0 +1,117 @@
+import arena
+
+// Zones, pointer capture, announcements and edge scrolling (H5g, stdlib.md
+// UI 22). A pure view cannot read boxes: the host has them. So the host
+// hit-tests and names, with a pointer event, the topmost zone under the
+// pointer and that zone's box; the composer turns the zone into the keys
+// of the zones from the Area down to it, and the pointer into its offset
+// in the zone's box. Drag and drop itself is a machine of a program's
+// (examples/kit/drag), not std's.
+
+// Zone is a container that marks its body with key for the pointer events
+// of the Area around it: an event over it carries, in PointerEvent.Zone,
+// the keys of the zones from the Area down to it, its box and the
+// pointer's offset in that box.
+func Zone[E, F, R](f *Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, ZoneNode{Key: key, Style: style}, body, at)
+}
+
+// ZoneHit is the zone under a pointer: the keys of the zones from the Area
+// down to it (Path, its own key last), its box in the Area's box, and the
+// pointer's offset from the zone box's top left corner.
+type ZoneHit { Path []Key, Box Rect, X float64, Y float64 }
+
+// ZoneBox is the host's hit test of a pointer event: the topmost zone
+// under the pointer and its box in the Area's box.
+type ZoneBox[E] { Id Id[E], Box Rect }
+
+// zoneHit is the ZoneHit of over for a pointer at p in the Area area:
+// None when over names no zone f holds, or one that is not under area.
+func zoneHit[E](f *Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
+	if !arena.Has(f.nodes, area.ref) || !arena.Has(f.nodes, over.Id.ref) {
+		return None
+	}
+	match zoneKey(f, over.Id.ref) {
+	case None:
+		return None
+	case Some[Key]:
+	}
+	match zonePath(f, area.ref, over.Id.ref) {
+	case Some[[]Key] as path:
+		Some{Value: ZoneHit{Path: path.Value, Box: over.Box, X: p.X - float64(over.Box.X), Y: p.Y - float64(over.Box.Y)}}
+	case None:
+		None
+	}
+}
+
+// zonePath is the keys of the zones on the way from r (not counted) down
+// to target, target's last; None when target is not under r. It visits
+// r's subtree in order, so its work is at most that subtree's size.
+func zonePath[E](f *Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
+	for i in 0..kidCount(f, r) {
+		let k = kidAt(f, r, i)
+		let mut own = []Key{}
+		match zoneKey(f, k) {
+		case Some[Key] as key:
+			own = own.Append(key.Value)
+		case None:
+		}
+		if k == target {
+			return Some{Value: own}
+		}
+		match zonePath[E](f, k, target) {
+		case Some[[]Key] as rest:
+			for x in rest.Value {
+				own = own.Append(x)
+			}
+			return Some{Value: own}
+		case None:
+		}
+	}
+	None
+}
+
+// zoneKey is the key of the zone r, None for a node that is not one.
+func zoneKey[E](f *Frame[E], r arena.Ref[node[E]]) Option[Key] {
+	let mut out Option[Key] = None
+	change(f, r, func(n *node[E]) {
+		match n.node {
+		case ZoneNode as z:
+			out = Some{Value: z.Key}
+		case _:
+		}
+	})
+	out
+}
+
+// Announce writes text to the host's live region: the host says each new
+// text once, politely (after what it is saying), as the web's aria-live
+// "polite" region does. An empty text says nothing. A pass that writes
+// the same text as the last one says nothing again.
+func Announce[E](f *Frame[E], text string, at CallSite) {
+	let _ = put(f, LiveNode{Text: text}, None, None, at)
+}
+
+// EdgeScroll is the offset a host gives a Scroll while a captured pointer
+// is near one of its edges: at y in a viewport of height over content of
+// height content, offset by moves toward the edge the pointer is within
+// edge of (step per frame, more the nearer the edge), and stays inside
+// [0, content - height]. In the middle, or with nothing to scroll, it is
+// offset itself.
+func EdgeScroll(offset Length, height Length, content Length, y Length, edge Length, step Length) Length {
+	let most = if content > height { content - height } else { Length(0.0) }
+	let at = if offset > most { most } else if offset < Length(0.0) { Length(0.0) } else { offset }
+	let mut next = at
+	if edge > Length(0.0) && y < edge {
+		next = at - step*(edge-y)/edge
+	} else if edge > Length(0.0) && y > height-edge {
+		next = at + step*(y-(height-edge))/edge
+	}
+	if next < Length(0.0) {
+		next = Length(0.0)
+	}
+	if next > most {
+		next = most
+	}
+	next
+}

@@ -1,0 +1,33 @@
+# An overnight trip packs supplies before the permit.
+continue
+continue
+back
+back
+# A day trip skips supplies, going and coming back.
+trip day
+continue
+back
+# A cancel and a start over keep the trip's kind.
+cancel
+file
+startover
+continue
+leader on
+continue
+# A code in any case with spaces grants its allowance; an unknown one is refused.
+code  ranger10 
+apply
+code BOGUS
+apply
+code WINTER2
+code winter20
+apply
+# Filing needs the rules agreed.
+file
+agree on
+file
+# The office answers a second after the filing; a cancel meanwhile is ignored.
+wait 999
+cancel
+wait 1
+startover

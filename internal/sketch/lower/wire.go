@@ -609,6 +609,9 @@ func (l *lowerer) wireParseReturn(parse *check.Func, env string, site syntax.Nod
 // path em: the Writer's events on the interface or on a direct writer
 // (wiredirect.go).
 func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
+	if l.wireOwnWrite(em, tc, b, t, env, w, v, scope) {
+		return // P's own write of t (wirewrite.go)
+	}
 	if check.WireFormOf(t) == check.WireNullable {
 		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
 		return

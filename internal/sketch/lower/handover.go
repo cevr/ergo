@@ -16,18 +16,25 @@ import (
 // field or rebinds through slices.Concat is quadratic. Three shortcuts
 // take the write in place, each registered in shortcuts.go:
 //
-//   - own-consume (static): the first operand of a runtime/v1 body whose
-//     owned form has a checking form (v1.Body.Check: SlicesConcat's
-//     SlicesConcatOwned) is consumed, so the owned form takes it over: on
-//     a dead unshared local (consumes, values.go), and on the rebinding
-//     p = slices.Concat(p, q) of one place rooted at a let mut or a borrow
-//     that names the root nowhere else (rootConsumes), as V3 takes
-//     p = p.Append(x). The other operands' elements enter the root, so
-//     they are copied unless fresh, as Append's element is (V1).
+//   - own-consume (static): slices.Concat is an appender (gobody.go), so
+//     V3 already proves p = slices.Concat(p, q) on a let mut or a borrow
+//     root, and Concat on a dead unshared local, free to write its source;
+//     but its body made a new array anyway. An in-place call of an
+//     appender whose runtime/v1 body has an owned form with a checking
+//     form (v1.Body.Check) now calls the owned form, SlicesConcatOwned,
+//     which appends to the source (appenderConsumes). A spread operand
+//     whose elements hold no Map or slice is no longer copied: only its
+//     elements enter the root.
 //   - own-field (static): Append on a field path r.f… of a local that is
 //     dead after the call and unshared (fresh): V3's dead source, through
-//     record fields (deadField). The journal's Ref.Update literal
-//     l.Signals.Append(e), whose l the cell hands over (V6), is one.
+//     record fields (deadField). Three facts let more sources be fresh: a
+//     read of a disjoint field whose value holds no Map or slice (r.head
+//     beside r.items) does not count as another use (disjointRead); a use
+//     inside a return statement is the last of its frame for every use
+//     outside that statement (endingReturn); and a parameter taken over
+//     through its fields (`let mut items = r.items`, r.items.Append(v),
+//     reads of r.head) is owned (fieldOwned, V5), so callers pass it
+//     unshared and r = push(r, v) hands it over (GP's ring-copy).
 //   - own-lineage (checked at run time): Append on any other field path
 //     not rooted at a let mut or a borrow (an actor state's i.Log) lowers
 //     to v1.LineageAppend with a token of its own (runtime/v1, Lineage):
@@ -143,6 +150,229 @@ func (w *valueWalk) fieldPath(x syntax.Expr) *syntax.Ident {
 	}
 }
 
+// fieldNames is the field names of the field path x (r.f.g gives [f g]),
+// or nil when x is no field path of record fields.
+func (w *valueWalk) fieldNames(x syntax.Expr) []string {
+	if w.fieldPath(x) == nil {
+		return nil
+	}
+	var names []string
+	for e := unparen(x); ; {
+		sel, ok := e.(*syntax.SelectorExpr)
+		if !ok {
+			break
+		}
+		names = append([]string{sel.Sel.Name}, names...)
+		e = unparen(sel.X)
+	}
+	return names
+}
+
+// disjointRead reports whether the use id is a read of a field path of
+// its variable that path does not overlap (the two differ at a field) and
+// whose value can share no Map or slice with path's (refown.go, mayShare,
+// by type): r.head beside r.items, d.Undo []Change beside d.Buf's []int.
+// Such a use keeps no storage of path's value and cannot see a write
+// through it.
+func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
+	want := w.fieldNames(path)
+	if len(want) == 0 {
+		return false
+	}
+	cur := syntax.Expr(id)
+	for {
+		sel, ok := w.parent[cur].(*syntax.SelectorExpr)
+		if !ok || syntax.Expr(sel.X) != cur || w.dotCall(cur) != nil {
+			break
+		}
+		cur = sel
+	}
+	got := w.fieldNames(cur)
+	if t := w.typeOf(cur); len(got) == 0 || w.l.holdsValue(t) && w.l.mayShare(t, w.typeOf(path)) {
+		return false
+	}
+	for i := 0; i < len(got) && i < len(want); i++ {
+		if got[i] != want[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// fieldOwned reports a parameter vv of f that the body takes over through
+// its fields (GP ring-copy; types.md, Bindings 2): every use is a field
+// path of vv in the body's own frame and outside any loop, one such path
+// holding a Map or slice is taken (the value of a let mut, or the source
+// of an Append), and f cannot fail after the first taking. Such a
+// parameter is owned (V5), as a consumed one: its callers pass it
+// unshared, and the body reads it as an unshared local, so
+// `let mut items = r.items` copies nothing and r.items.Append(v) appends
+// in place (own-field), each when no other use reads that field again.
+func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
+	if !valueOwned() || vv.ptr || vv.local || len(vv.occs) == 0 {
+		return false
+	}
+	first, binds := -1, false
+	for _, o := range vv.occs {
+		if o.frame != w.root || len(o.loops) > 0 {
+			return false
+		}
+		if r, ok := w.returnNode(o, o.id).(*syntax.ReturnStmt); ok && len(r.Results) == 1 && unparen(r.Results[0]) == syntax.Expr(o.id) {
+			// `return d` hands the whole value back: the frame ends, so
+			// no other use runs after it (GP2b's Make).
+			continue
+		}
+		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
+		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
+			return false
+		}
+		cur := syntax.Expr(sel)
+		for {
+			up, ok := w.parent[cur].(*syntax.SelectorExpr)
+			if !ok || syntax.Expr(up.X) != cur || w.dotCall(cur) != nil {
+				break
+			}
+			cur = up
+		}
+		if !w.l.holdsValue(w.typeOf(cur)) {
+			continue
+		}
+		taken, bound := w.takenField(cur)
+		if !taken {
+			continue
+		}
+		if first < 0 || o.pre < first {
+			first = o.pre
+		}
+		binds = binds || bound
+	}
+	// Only a let mut taking makes the parameter owned: the body copies
+	// there anyway, so the copy moves to a caller that shares (none, for a
+	// rebinding r = f(r, …)). An Append alone is the one-extender site's.
+	if first < 0 || !binds {
+		return false
+	}
+	return len(rowElems(f.Sig.Errors)) == 0 || !w.failsAfter(f, first)
+}
+
+// takenField reports a field path that is the source of an Append
+// (taken) or the whole value of a let mut (taken and bound).
+func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
+	parent, child := w.unparenParent(x)
+	if call := w.dotCall(x); call != nil {
+		return w.appendSite(call), false
+	}
+	if call, ok := parent.(*syntax.CallExpr); ok {
+		return w.appendSite(call) && w.recvOf(call) == child, false
+	}
+	for _, o := range w.owns {
+		if o.value == child && o.root.local && o.root.mut {
+			return true, true
+		}
+	}
+	return false, false
+}
+
+// freshAll reports whether every result of the Ergo body f is fresh when
+// each of its parameters holds an unshared value: the analysis of f's
+// body, read with every parameter that is no borrow as an unshared local
+// (freshIdent), proves each returned value fresh. A one-extender site on
+// a dead field of such a parameter counts as fresh there (fresh): the
+// site writes in place only the array the token says it made last, and
+// that array is the parameter's alone. So a call whose every operand is
+// fresh, handed over or consumed returns a fresh value (freshCall), and
+// `b = insert(b, at, t)` on a let mut root takes it with no copy (GP2b).
+// A function being decided is not fresh.
+func (l *lowerer) freshAll(f *check.Func) bool {
+	vf := l.valueFacts()
+	switch vf.fromAll[f] {
+	case 1, 3:
+		return false
+	case 2:
+		return true
+	}
+	vf.fromAll[f] = 3
+	if !valueOwned() || f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Pkg.Host() || f.Decl.Type == nil || f.Decl.Type.Params == nil {
+		return false
+	}
+	if l.freshResult(f) {
+		vf.fromAll[f] = 2
+		return true
+	}
+	owners := map[*check.Var]bool{}
+	for _, field := range f.Decl.Type.Params.List {
+		for _, id := range field.Names {
+			if p, ok := f.Pkg.Info.Defs[id].(*check.Var); ok {
+				if _, ptr := p.Type.(*check.Pointer); !ptr {
+					owners[p] = true
+				}
+			}
+		}
+	}
+	vf.fromAll[f] = 1
+	saved := l.info
+	l.info = f.Pkg.Info
+	w := l.analyzeValues(f.Decl, f.Pkg.Info)
+	fresh := false
+	if w.root != nil && w.done {
+		w.owners = owners
+		fresh = w.resultsFresh()
+		w.owners = nil
+	}
+	l.info = saved
+	vf.fromAll[f] = 3
+	if fresh {
+		vf.fromAll[f] = 2
+	}
+	return fresh
+}
+
+// freshCall reports a call of an Ergo body fresh from unshared arguments
+// (freshAll) whose every operand that holds a Map or slice is fresh,
+// handed over (V7) or consumed (V5).
+func (w *valueWalk) freshCall(x *syntax.CallExpr, c *check.Call) bool {
+	if !valueOwned() || c.Func == nil || c.Func.Decl == nil || c.Func.Pkg == nil || c.Func.Pkg.Host() {
+		return false
+	}
+	for _, a := range callOperands(x, c) {
+		t := w.typeOf(a)
+		if _, ptr := t.(*check.Pointer); ptr || !w.l.holdsValue(t) {
+			continue
+		}
+		if !w.fresh(a) && !w.vf.handed[a] && !w.vf.consumed[a] {
+			return false
+		}
+	}
+	if !w.l.freshAll(c.Func) || !w.l.takes("own-fresh-call") {
+		return false
+	}
+	w.l.took("own-fresh-call")
+	return true
+}
+
+// endingReturn is the return statement, or the tail value, of o's own
+// frame that holds the use o at any depth (an operand of a call in the
+// returned value, or in one arm's last value), or nil: once it runs the
+// frame ends, so a use outside it (in another arm) never runs after o.
+func (w *valueWalk) endingReturn(o *vocc) syntax.Node {
+	for n := w.parent[o.id]; n != nil; n = w.parent[n] {
+		if f := w.frameOf[n]; f != nil {
+			return nil
+		}
+		if x, ok := n.(syntax.Expr); ok && w.frameOfTail(x) == o.frame {
+			// The frame's last value (a match arm's, GP2b's apply).
+			return x
+		}
+		if r, ok := n.(*syntax.ReturnStmt); ok {
+			if w.frameOfReturn(r) == o.frame {
+				return r
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 // appendSite reports a call of the prelude's Append of two operands: a
 // source and one element.
 func (w *valueWalk) appendSite(call *syntax.CallExpr) bool {
@@ -176,6 +406,76 @@ func (w *valueWalk) lineageSites() {
 		}
 		w.vf.lineage[call] = true
 	}
+	w.settleNamedTails()
+}
+
+// settleNamedTails turns back to the plain clipped Append each
+// one-extender site that the root frame returns (a tail or a return's
+// value) when the function is passed by name in its own package
+// (maps.Update(m, k, start)): its new array is fresh when its elements
+// hold no Map or slice, so the function's every result may be fresh
+// (freshResult) and a callback by name is analysed as a literal is
+// (argsUnshared, litFresh). The decision is the callee's own, whatever
+// the order its callers are lowered in; a caller in another package sees
+// the site kept, a result that is not fresh, and copies.
+func (w *valueWalk) settleNamedTails() {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok || f.Pkg == nil || f.Pkg.Info == nil || !w.l.passedByName(f) {
+		return
+	}
+	settle := func(x syntax.Expr) {
+		if call, ok := unparen(x).(*syntax.CallExpr); ok && w.vf.lineage[call] && !w.l.holdsValue(elemOf(w.typeOf(call))) {
+			delete(w.vf.lineage, call)
+		}
+	}
+	for x := range w.root.tails {
+		settle(x)
+	}
+	syntax.Inspect(w.root.node, func(n syntax.Node) bool {
+		if w.frameOf[n] != nil && w.frameOf[n] != w.root {
+			return false
+		}
+		if r, isRet := n.(*syntax.ReturnStmt); isRet {
+			for _, x := range r.Results {
+				settle(x)
+			}
+		}
+		return true
+	})
+}
+
+// passedByName reports a function its own package names other than as a
+// call's callee: a value, such as a callback by name.
+func (l *lowerer) passedByName(f *check.Func) bool {
+	vf := l.valueFacts()
+	if vf.byName == nil {
+		vf.byName = map[*check.Package]map[*check.Func]bool{}
+	}
+	set, ok := vf.byName[f.Pkg]
+	if !ok {
+		info := f.Pkg.Info
+		callee := map[*syntax.Ident]bool{}
+		for call := range info.Calls {
+			switch fun := unparen(call.Fun).(type) {
+			case *syntax.Ident:
+				callee[fun] = true
+			case *syntax.SelectorExpr:
+				callee[fun.Sel] = true
+			}
+		}
+		set = map[*check.Func]bool{}
+		for id, obj := range info.Uses {
+			if g, isFunc := obj.(*check.Func); isFunc && !callee[id] {
+				set[g] = true
+			}
+		}
+		vf.byName[f.Pkg] = set
+	}
+	return set[f]
 }
 
 // deadField reports an Append on a field path of a local that is dead

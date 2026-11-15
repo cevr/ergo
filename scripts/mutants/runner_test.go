@@ -29,10 +29,14 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // without, the same mutant named with a killer in two that reads one's
 // source (no coverage of one records it: fu-mutants-xpkg), mutants of a
 // data file that only the tests their rows name judge (one/word.txt, as
-// std's .ergo sources), and on Linux one that allocates past the memory
-// limit. A named killer runs whether or not it covers the lines. TestGreet
-// also reads the repository with git ls-files, as internal/residue's rules
-// do: in a copy with no Git index it would fail on the unmutated tree.
+// std's .ergo sources), on Linux one that allocates past the memory
+// limit, and mutants of a source file that a source check validates
+// (Config.Sources; a stand-in for .ergo): a value change, one the
+// formatter would rewrite (FK7a), one the compiler refuses (FK12a), and
+// that refusal declared as the row's point. A named killer runs whether
+// or not it covers the lines. TestGreet also reads the repository with
+// git ls-files, as internal/residue's rules do: in a copy with no Git
+// index it would fail on the unmutated tree.
 // TestPlain fails when its binary is built with coverage, as
 // internal/closure's sandboxed self-runs do, and when it has no deadline,
 // as internal/closure's reap test does; it is the only killer of
@@ -43,8 +47,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // mutant, that a killer is a test that asserts the mutated function (with
 // All, that the killers are exactly those tests), that the mutant pass runs
 // only tests that cover the mutated lines, that a mutant that does not
-// build is invalid and never killed, that the memory mutant is killed by
-// the memory limit, and that the checkout is left equal to HEAD.
+// build, format or check is invalid and never killed, that the memory
+// mutant is killed by the memory limit, and that the checkout is left
+// equal to HEAD. Mutants of the runner it catches: fk7a-format-ignored,
+// fk12a-refusal-ignored, fk12a-declared-ignored (this package's ledger).
 //
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
@@ -225,6 +231,79 @@ func Ran(t testing.TB) {
 }
 `
 
+// srcTest reads one/data.src as the examples runner reads a program: it
+// fails when the file is not formatted (a double space), when the
+// compiler would refuse it (ERROR), or when its value is not 1.
+const srcTest = `package one_test
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"fake.test/m/internal/fakelog"
+)
+
+func TestSrc(t *testing.T) {
+	fakelog.Ran(t)
+	data, err := os.ReadFile("data.src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	switch {
+	case strings.Contains(text, "  "):
+		t.Fatal("not formatted")
+	case strings.Contains(text, "ERROR"):
+		t.Fatal("refused")
+	case text != "value 1\n":
+		t.Fatalf("value %q", text)
+	}
+}
+`
+
+// srcTool is the source check's tool: "fmt FILE" fails on a double space,
+// "check DIR" prints one E1 diagnostic per ERROR in DIR's .src files.
+const srcTool = `package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	switch os.Args[1] {
+	case "fmt":
+		data, err := os.ReadFile(os.Args[2])
+		if err != nil || strings.Contains(string(data), "  ") {
+			os.Exit(1)
+		}
+	case "check":
+		files, _ := filepath.Glob(filepath.Join(os.Args[2], "*.src"))
+		var codes []string
+		for _, f := range files {
+			data, _ := os.ReadFile(f)
+			for range strings.Count(string(data), "ERROR") {
+				codes = append(codes, ` + "`" + `{"code":"E1"}` + "`" + `)
+			}
+		}
+		fmt.Printf("{\"diagnostics\":[%s]}\n", strings.Join(codes, ","))
+	}
+}
+`
+
+var srcAnchor = &Anchor{Tests: []string{"one:TestSrc"}}
+
+func srcExpect(status string) expect {
+	e := expect{status: status, covering: []string{"one:TestSrc"}}
+	if status == Killed {
+		e.killers = e.covering
+	}
+	return e
+}
+
 // expect is the model's verdict on a mutant: its status, the tests that
 // kill it, and the tests that cover it (the only ones the runner may run).
 type expect struct {
@@ -288,6 +367,9 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"one/f_test.go":               m.testSource("one"),
 		"two/f_test.go":               m.testSource("two"),
 		"one/word.txt":                "hi\n",
+		"one/data.src":                "value 1\n",
+		"one/src_test.go":             srcTest,
+		"cmd/src/main.go":             srcTool,
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -335,6 +417,13 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "data-broken-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestBroken", "one:TestWord"}},
 			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
 		{&Mutant{Name: "data-unnamed", File: "one/word.txt", From: "hi", To: "ho"}, expect{status: Uncovered}},
+		// Source mutants (Config.Sources): TestSrc fails on any of them, as
+		// the examples runner's fmt and check legs do; only a value change
+		// or a declared refusal is a kill.
+		{&Mutant{Name: "src-value", File: "one/data.src", From: "value 1", To: "value 2", Anchor: srcAnchor}, srcExpect(Killed)},
+		{&Mutant{Name: "src-unformatted", File: "one/data.src", From: "value 1", To: "value  1", Anchor: srcAnchor}, srcExpect(Invalid)},
+		{&Mutant{Name: "src-refused", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor}, srcExpect(Invalid)},
+		{&Mutant{Name: "src-refused-declared", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor, Refused: "the refusal is the rule"}, srcExpect(Killed)},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {
@@ -365,6 +454,12 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		Procs:   1,
 		Memory:  memoryLimit,
 		All:     all,
+		Sources: []SourceCheck{{
+			Ext:    ".src",
+			Tool:   Tool{Name: "src", Package: "./cmd/src"},
+			Format: []string{"{bin:src}", "fmt", "{file}"},
+			Check:  []string{"{bin:src}", "check", "{dir}"},
+		}},
 	}
 	results, _, err := Run(context.Background(), cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}}})
 	if err != nil {

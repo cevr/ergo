@@ -388,7 +388,7 @@ func After(s State, sig Signal) State {
 		t.Next
 	case Emit[State, Refused] as m:
 		m.Next
-	case Ignore, Reject, Done[Refused]:
+	case Ignore, Tell[State, Refused], Reject, Done[Refused]:
 		s
 	}
 }

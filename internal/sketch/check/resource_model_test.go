@@ -306,7 +306,7 @@ func (g *resGen) program() (string, []string) {
 	g.add("type Rel { ..Closer }")
 	g.add("type Named { Name() string }")
 	g.add("type G[T] { v T, n int }")
-	g.add("type Box[T] { Put(v T) takes v }")
+	g.add("type Box[T] { Put(v own T) }")
 	g.add("type View[T] { Get() T }")
 	for i, d := range g.decls {
 		// Every type declares Named (cv below); the release by its mode.
@@ -388,20 +388,16 @@ func (g *resGen) program() (string, []string) {
 			g.at(ln, "Map[", 1, len("Map["), "S112") // at the key
 		}
 	}
-	// takes: on a parameter of each kind of type, and on a type parameter.
+	// own: on a parameter of each kind of type, and on a type parameter.
 	for k := range 1 + g.r.IntN(3) {
 		e := g.expr(len(g.decls), 0, false)
-		ln := g.add("func tk%d(p %s) takes p {}", k, e)
+		ln := g.add("func tk%d(p own %s) {}", k, e)
 		if !g.holds(e, decl, true) {
-			g.at(ln, "takes p", 1, 6, "S110")
+			g.at(ln, "p own", 1, 0, "S110")
 		}
 	}
 	if g.r.IntN(2) == 0 {
-		g.add("func tg[T](p T, q G[T], r []T) takes p, q, r {}")
-	}
-	if g.r.IntN(3) == 0 {
-		ln := g.add("func tw(p int) takes w {}")
-		g.at(ln, "takes w", 1, 6, "S108")
+		g.add("func tg[T](p own T, q own G[T], r own []T) {}")
 	}
 	g.add("func main() {}")
 	return strings.Join(g.lines, "\n") + "\n", g.want

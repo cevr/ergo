@@ -137,7 +137,7 @@ func jsonAgree(t *testing.T, bins []string, ref jsonRef, path, what string, args
 	var first string
 	for i, run := range [][]string{args, flat, args, flat} {
 		bin := bins[i/2]
-		got := runCorpus(t, bin, append(slices.Clone(run), path)...)
+		got := runCorpusArgs(t, bin, append(slices.Clone(run), path)...)
 		if !want.MatchString(got) || (i > 0 && got != first) {
 			src, _ := os.ReadFile(path)
 			t.Fatalf("%s: %s %s printed\n%s\nthe reference wants\n%s\nthe first run printed\n%s\nthe document:\n%q\n%s",
@@ -199,10 +199,10 @@ func buildHandControl(t *testing.T, name, work string) string {
 	return bin
 }
 
-// runCorpus runs bin with args in the folder of the last argument, which
+// runCorpusArgs runs bin with args in the folder of the last argument, which
 // it names by its base, and is its stdout, stderr and exit status as one
 // text.
-func runCorpus(t *testing.T, bin string, args ...string) string {
+func runCorpusArgs(t *testing.T, bin string, args ...string) string {
 	t.Helper()
 	command := exec.Command(bin, args...)
 	command.Dir = filepath.Dir(args[len(args)-1])

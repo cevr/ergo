@@ -31,7 +31,7 @@ type Screen {
 	bottom  int,
 	saved   Option[Saved],
 	title   string,
-}
+} implements vt.Screen
 
 // blank is the blank cell.
 let blank = Cell{C: rune(0), Part: vt.Single, Style: vt.Default}

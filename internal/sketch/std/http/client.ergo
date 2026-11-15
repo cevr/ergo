@@ -154,10 +154,10 @@ extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, l
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is
 // checked against its server in memory.
-type Handler { handle escaping func(Request) Response needs Streaming } implements Net
+type Handler { handle func(Request) Response needs Streaming } implements Net
 
 // InMemory is a Net that answers with handle.
-func InMemory(handle escaping func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
+func InMemory(handle own func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
 
 func Send(h Handler, r Request) Response fails RequestFailed {
 	with context { Streaming: NewRecorder() } { h.handle(r) }

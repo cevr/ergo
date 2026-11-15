@@ -41,7 +41,7 @@ var taskReleaseLaws = map[string]string{
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.release == notRelease || taskReleaseLaws[name] != "" {
 			continue
 		}
@@ -111,8 +111,8 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// value of Close is refused (resources R33: a function value owns
 			// no resource; check TestCloseMethodValueRefused).
 			paths["value"] = true
-		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed:
-			// A conversion, len, go.Is and go.As, encode and decode (L11)
+		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed, check.CallPattern:
+			// A conversion, len, a pattern (FKre), go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
 			// CallFunc since check-v1 stage D3a.
 		case check.CallLawOp:
@@ -472,6 +472,8 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.End\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		}
 		write(f.Path, data)
 	}

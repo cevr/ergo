@@ -306,8 +306,20 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 		tparams = append(tparams, row.name)
 	}
+	// A Go type supplies no lifetime proof. Resource-capable parameters
+	// are kept (own) unless a per-function source review establishes a
+	// lend.
+	off, first := 0, 0
+	if recv != nil {
+		off = 1
+	}
+	if sm.ctx {
+		first = 1
+	}
+	for i := range params {
+		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
+	}
 	var b strings.Builder
-	recvName := ""
 	b.WriteString("func ")
 	if recv != nil {
 		r := sig.Recv()
@@ -326,8 +338,11 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 				name = fmt.Sprintf("r%d", i)
 			}
 		}
-		fmt.Fprintf(&b, "(%s %s) ", name, rt)
-		recvName = name
+		mode := ""
+		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
+			mode = "own "
+		}
+		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
@@ -358,28 +373,6 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 	}
 	b.WriteString(needs)
-	// A Go type supplies no lifetime proof. Resource-capable parameters
-	// are kept unless a per-function source review establishes a lend.
-	var takes []string
-	off := 0
-	if recv != nil {
-		off = 1
-		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
-			takes = append(takes, recvName)
-		}
-	}
-	first := 0
-	if sm.ctx {
-		first = 1
-	}
-	for i, p := range params {
-		if goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off) {
-			takes = append(takes, p.name)
-		}
-	}
-	if len(takes) > 0 {
-		b.WriteString(" takes " + strings.Join(takes, ", "))
-	}
 	return b.String(), variadic, sm.ctx, nil
 }
 
@@ -464,12 +457,20 @@ func constraint(tp *types.TypeParam) (string, types.Type, error) {
 	return "", nil, refuse("type parameter %s has the constraint %s, which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)", tp.Obj().Name(), types.TypeString(c, func(p *types.Package) string { return p.Name() }))
 }
 
-type param struct{ name, typ string }
+// param is a bound parameter: its name, its Ergo type, and whether the
+// callee keeps it (the mode word own, q168).
+type param struct {
+	name, typ string
+	own       bool
+}
 
 func paramList(ps []param) string {
 	parts := make([]string, len(ps))
 	for i, p := range ps {
 		parts[i] = p.name + " " + p.typ
+		if p.own {
+			parts[i] = p.name + " own " + p.typ
+		}
 	}
 	return "(" + strings.Join(parts, ", ") + ")"
 }
@@ -541,7 +542,7 @@ func (m *sigMapper) signature(sig *types.Signature, cb bool) ([]param, string, b
 			name = fmt.Sprintf("p%d", i)
 		}
 		used[name] = true
-		params = append(params, param{name, text})
+		params = append(params, param{name: name, typ: text})
 	}
 	n := sig.Results().Len()
 	fails := n > 0 && isError(sig.Results().At(n-1).Type())
@@ -689,7 +690,7 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 			s += " fails go.Error"
 		}
 	default:
-		s = "escaping " + s
+		s = "own " + s // the parameter's mode: the callee may keep it
 		if fails {
 			s += " fails go.Error"
 		}
@@ -923,7 +924,17 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				lines = append(lines, Line{f.Name(), goText, include, m.refs})
 				continue
 			}
+			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
+			fsig := f.Type().(*types.Signature)
+			kept := false
+			for j := range params {
+				params[j].own = goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j)
+				kept = kept || params[j].own
+			}
 			line := f.Name() + paramList(params)
+			if !kept && !v1.GoArgLent(target, -1) {
+				line = "own " + line // the operation keeps its receiver
+			}
 			if results != "" {
 				line += " " + results
 			}
@@ -931,19 +942,7 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				line += " fails go.Error"
 			}
 			line += m.needs("")
-			var takes []string
-			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
-			fsig := f.Type().(*types.Signature)
-			for j, p := range params {
-				if goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j) {
-					takes = append(takes, p.name)
-				}
-			}
-			if len(takes) > 0 {
-				line += " takes " + strings.Join(takes, ", ")
-			} else if !v1.GoArgLent(target, -1) {
-				line += " takes"
-			}
+
 			lines = append(lines, Line{f.Name(), goText, line, m.refs})
 		}
 		m.refs = nil

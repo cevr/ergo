@@ -158,6 +158,13 @@ func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
 //ergo:wait none
 func StringsBytes(s string) []byte { return []byte(s) }
 
+// StringsFromBytes is the text of b, a copy: a writer's buffer goes back
+// to a pool after (StringsGive), so the text never shares its bytes.
+//
+//ergo:pure
+//ergo:wait none
+func StringsFromBytes(b []byte) string { return string(b) }
+
 // StringsFields is strings.Fields.
 //
 //ergo:pure
@@ -536,6 +543,30 @@ func StrconvFormatBool(b bool) string { return strconv.FormatBool(b) }
 //ergo:wait none
 func StrconvFormatFloat(f float64, fmt byte, prec int) string {
 	return strconv.FormatFloat(f, fmt, prec, 64)
+}
+
+// StrconvAppendInt is strconv.AppendInt: b with n in base appended. An
+// appender (lower, goBodyAppends): the call writes into b's spare
+// capacity, so a buffer the caller holds is appended in place, not copied.
+//
+//ergo:pure
+//ergo:wait none
+func StrconvAppendInt(b []byte, n int64, base int) []byte { return strconv.AppendInt(b, n, base) }
+
+// StrconvAppendUint is strconv.AppendUint, an appender as
+// StrconvAppendInt is.
+//
+//ergo:pure
+//ergo:wait none
+func StrconvAppendUint(b []byte, n uint64, base int) []byte { return strconv.AppendUint(b, n, base) }
+
+// StrconvAppendFloat is strconv.AppendFloat at 64 bits, an appender as
+// StrconvAppendInt is.
+//
+//ergo:pure
+//ergo:wait none
+func StrconvAppendFloat(b []byte, f float64, fmt byte, prec int) []byte {
+	return strconv.AppendFloat(b, f, fmt, prec, 64)
 }
 
 // StrconvUnquote is strconv.Unquote.

@@ -67,6 +67,15 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 // retExpr: a value of an error type is a failure; an untried fallible
 // call returns its value and error as they are.
 func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
+	out := b.retOf(x, p)
+	if b.law != nil {
+		out = b.lawResult(x, out) // ir_assert.go
+	}
+	return out
+}
+
+// retOf is ret's statements before a law's check.
+func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 	if x == nil {
 		if b.result != nil {
 			irNo("bare return")
@@ -79,6 +88,12 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 			// the call's failure leaves first, then the value returns.
 			pre, v := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
+		}
+		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
+			// A function value's pair: its failure leaves, then the
+			// frame returns with no value (ir_closure.go).
+			pre, _ := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
@@ -224,6 +239,12 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
+	if x.K == "vcall" && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
+		// A function value with no value returns struct{} first
+		// (ir_closure.go).
+		u := b.temp("unit", "struct{}", p)
+		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
+	}
 	if t == nil || isNoValue(t) {
 		return append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x}), -1, e
 	}

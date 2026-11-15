@@ -1,0 +1,31 @@
+// markup N renders a document of N sections (a heading, a paragraph and,
+// every third section, a two-line quote and a rule) and prints how many
+// lines it made and its first and last line.
+
+import os
+import strconv
+import markup/render
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: markup N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let mut doc = []render.Block{}
+	for i in 0..n {
+		doc = doc.Append(render.Heading{Level: 1 + i%3, Text: "Section \(i)"}).Append(render.Para{Text: "Body of \(i)."})
+		if i%3 == 2 {
+			doc = doc.Append(render.Quote{Lines: []string{"said \(i)", "again"}}).Append(render.Rule)
+		}
+	}
+	let lines = render.Tagged(render.Lines(doc), "doc")
+	Console.Println("lines \(len(lines))")
+	if len(lines) > 0 {
+		Console.Println("first \(lines[0])")
+		Console.Println("last \(lines[len(lines)-1])")
+	}
+}

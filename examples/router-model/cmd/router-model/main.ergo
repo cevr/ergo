@@ -62,7 +62,7 @@ func told(d Decision[route.Server, route.Event]) string {
 		case route.Closed:
 			"\(route.Text(e.Next)) (closed)"
 		}
-	case Ignore:
+	case Ignore, Tell[route.Server, route.Event]:
 		"ignored"
 	case Reject:
 		"rejected"

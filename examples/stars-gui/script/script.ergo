@@ -5,7 +5,7 @@
 // text.
 
 import io
-import stars/catalog
+import ergo.local/prototype/examples/starsgui/catalog
 import strconv
 import strings
 
@@ -191,7 +191,7 @@ func step(s catalog.State, sig catalog.Signal) catalog.State needs io.Stdout {
 		t.Next
 	case Emit[catalog.State, catalog.Refused] as m:
 		m.Next
-	case Ignore, Reject, Done[catalog.Refused]:
+	case Ignore, Tell[catalog.State, catalog.Refused], Reject, Done[catalog.Refused]:
 		s
 	}
 }

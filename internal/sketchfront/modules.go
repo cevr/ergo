@@ -580,6 +580,15 @@ func (l *loader) trustGo(p *loadedPackage, f loadedFile, file *syntax.File) {
 				}
 			}
 		case *syntax.FuncDecl:
+			// A binding of a Go builtin (append, len, …; OPT4b) runs no Go
+			// code: the lowering writes the builtin at the call, and the
+			// checker holds the declaration to the builtin's own type. So
+			// it needs no trust, as it needs none in std.
+			if d.Extern != nil && d.Extern.Target != nil {
+				if path, name := d.Extern.Split(); path == "" && check.IsGoBuiltin(name) {
+					continue
+				}
+			}
 			extern(d.Extern)
 		case *syntax.TypeDecl:
 			extern(d.Extern)

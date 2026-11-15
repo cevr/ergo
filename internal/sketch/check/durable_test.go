@@ -171,11 +171,11 @@ func hidden() Machine[State, Signal, int] {
 	m
 }
 
-func durableRunner[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink escaping func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
+func durableRunner[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink own func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
 	try journal.Start(m, j, every, capacity, sink)
 }
 
-func forward[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink escaping func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
+func forward[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink own func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
 	try RUNNER(m, j, every, capacity, sink)
 }
 `
@@ -183,7 +183,7 @@ func forward[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j journal.Journ
 // opaqueHelper is opaque, declared only in the programs that call it: its
 // own call of RUNNER is refused.
 const opaqueHelper = `
-func opaque[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink escaping func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
+func opaque[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j journal.Journal[S, E], every int, capacity int, sink own func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails journal.Failed | journal.Diverged needs R | W | Scheduler {
 	try RUNNER(m, j, every, capacity, sink)
 }
 `

@@ -8,10 +8,12 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree: the result is kept under -work, by default a
-// private directory removed at the end): every
+// coverage (once per tree and scope: the result is kept under -work, by
+// default a private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
-// example program, each in its own process, with coverage of check and
+// example program whose binary, or the tool it runs, compiles a package of
+// a selected mutant (scope.go), each in its own process, logging each test
+// as it ends and a receipt of the work, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
 // main packages included). Then, for each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover
@@ -129,6 +131,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
+	cfg.Sources = ergoSources
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	start := time.Now()
@@ -224,6 +227,17 @@ func addScope(cfg *Config, s scope) {
 		}
 	}
 }
+
+// ergoSources validate every .ergo mutant, whichever suites judge it: the
+// compiler built from the unmutated checkout formats and checks the
+// mutated file's package folder (a std folder checked as a folder has
+// diagnostics of its own, such as S108; only new ones count).
+var ergoSources = []SourceCheck{{
+	Ext:    ".ergo",
+	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
+	Format: []string{"{bin:ergo}", "fmt", "--check", "{file}"},
+	Check:  []string{"{bin:ergo}", "check", "{dir}"},
+}}
 
 // ergoSuites are the suites that judge the checker's and the lowering's
 // mutants: their own tests, the std tests (laws and guards), and the

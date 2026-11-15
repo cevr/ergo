@@ -2,26 +2,12 @@
   "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
     {"name":"type-binding-read-by-name","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\treturn name, v1.Owns(path)","to":"\treturn n.origin().Obj.Name + name[:0], v1.Owns(path)","rule":"stdlib.md The body contract: a type's Go type is the one its declaration names, never one read from its Ergo name.","killers":["std:TestStdRecordTable"]},
-    {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f escaping func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","internal/sketch/std:TestExternArgumentClauses"]},
-    {
-      "name": "esc1-transform-nonescaping", "origin": "wf10 ESC1",
-      "file": "internal/sketch/std/tasks/tasks.ergo",
-      "from": "f escaping func(x A) B", "to": "f func(x A) B",
-      "rule": "types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).",
-      "anchor": {"tests": ["internal/sketch/std:TestExternArgumentClauses", "lower:TestStdCallbackClausesAdmit"]},
-      "killers": ["internal/sketch/std:TestExternArgumentClauses", "lower:TestStdCallbackClausesAdmit"]
-    },
-    {
-      "name": "esc1-feed-nonescaping", "origin": "wf10 ESC1",
-      "file": "internal/sketch/std/actor/actor.ergo",
-      "from": "run escaping func(send func(e E))) fails Stopped", "to": "run func(send func(e E))) fails Stopped",
-      "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
-      "anchor": {"tests": ["internal/sketch/std:TestExternArgumentClauses"]},
-      "killers": ["internal/sketch/std:TestExternArgumentClauses"]
-    },
-    {"name":"dense-optof-drops-id","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"Opt[K]{n: id.n} }","to":"Opt[K]{n: none} }","rule":"OptOf holds the id it was made of.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
-    {"name":"dense-or-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == none { or }","to":"if o.n == 0 { or }","rule":"Or gives the default only for none, never for the first id.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
-    {"name":"dense-unpack-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == none {\n\t\treturn None","to":"if o.n == 0 {\n\t\treturn None","rule":"Unpack is None only for none.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
+    {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f own func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","internal/sketch/std:TestExternArgumentClauses"]},
+    {"name":"esc1-transform-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/tasks/tasks.ergo","from":"f own func(x A) B","to":"f func(x A) B","rule":"types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).","anchor":{"tests":["internal/sketch/std:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},"killers":["internal/sketch/std:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},
+    {"name":"esc1-feed-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/actor/actor.ergo","from":"run own func(send func(e E))) fails Stopped","to":"run func(send func(e E))) fails Stopped","rule":"std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.","anchor":{"tests":["internal/sketch/std:TestExternArgumentClauses"]},"killers":["internal/sketch/std:TestExternArgumentClauses"]},
+    {"name":"dense-optof-drops-id","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"Opt[K]{n: id.n + uint32(1)} }","to":"Opt[K]{n: uint32(0)} }","rule":"OptOf holds the id it was made of.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
+    {"name":"dense-or-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == uint32(0) { or }","to":"if o.n == limit { or }","rule":"Or gives the default only for none, never for the first id.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
+    {"name":"dense-unpack-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == uint32(0) {\n\t\treturn None","to":"if o.n == limit {\n\t\treturn None","rule":"Unpack is None only for none.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
     {"name":"dense-index-off-by-one","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"func Index[K](id ID[K]) int { int(id.n) }","to":"func Index[K](id ID[K]) int { int(id.n) + 1 }","rule":"Index is the position of the row: 0 for the first row put.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
     {"name":"dense-next-skips-zero","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"\tID[K]{n: uint32(n)}\n","to":"\tID[K]{n: uint32(n + 1)}\n","rule":"The id of a store that holds n rows is n: ids are dense from 0.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
     {"name":"dense-has-includes-end","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }","to":"func Has[T](t Table[T], id ID[T]) bool { int(id.n) <= len(t.rows) }","rule":"Has is false for an id one past the end.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
@@ -314,6 +300,27 @@
       "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
       "anchor": {"tests": ["std:TestStdCopyAgrees"]},
       "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "gs9-observe-never", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\tif root == \"\" {\n\t\treturn\n\t}\n", "to": "\tif root == \"\" || true {\n\t\treturn\n\t}\n",
+      "rule": "Under a coverage record each embedded std file read is opened at its checkout path, so the gate's selection knows its readers.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+    },
+    {
+      "name": "gs9-package-unobserved", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\t\tobserve(path.Join(importPath, entry.Name()))\n", "to": "",
+      "rule": "Package observes every file it reads.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+    },
+    {
+      "name": "gs9-prelude-unobserved", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
+      "rule": "Prelude observes the prelude it reads.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
     }
   ]
 }

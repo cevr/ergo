@@ -92,7 +92,7 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 			tags && d.Output == Before
 		case Stay[HtmlEnd] as s:
 			!tags && s.Next == e
-		case Enter[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+		case Enter[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
 			false
 		}
 	},
@@ -106,7 +106,7 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 		match HtmlStep(ofKind[i], Line{Text: before + markers[i] + after}) {
 		case Done[Ending] as d:
 			d.Output == With
-		case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+		case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
 			false
 		}
 	},
@@ -118,7 +118,7 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 		match HtmlStep(e, Line{Text: strings.ReplaceAll(s, ">", "")}) {
 		case Stay[HtmlEnd] as st:
 			st.Next == e
-		case Enter[HtmlEnd], Done[Ending], Emit[HtmlEnd, Ending], Ignore, Reject:
+		case Enter[HtmlEnd], Done[Ending], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
 			false
 		}
 	},
@@ -137,7 +137,7 @@ func EndsBefore(e HtmlEnd) bool {
 	match HtmlStep(e, Blank) {
 	case Done[Ending]:
 		true
-	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
 		false
 	}
 }
@@ -147,7 +147,7 @@ func EndsWith(e HtmlEnd, text string) bool {
 	match HtmlStep(e, Line{Text: text}) {
 	case Done[Ending] as d:
 		d.Output == With
-	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
 		false
 	}
 }

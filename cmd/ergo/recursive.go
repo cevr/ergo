@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,15 +25,47 @@ type moduleTestOptions struct {
 	law, receiptDir string
 }
 
+// moduleVerdict is the warm answer of `ergo test ./...` (compile-speed
+// CS8): each selected package's import path and its stored passing
+// result, in the order the run printed them; a nil result is a package
+// with nothing to test.
+type moduleVerdict struct {
+	Path   string `json:"path"`
+	Result []byte `json:"result,omitempty"`
+}
+
+// recursiveTestCommand tests every package below a folder. A request whose
+// every package passed, with no --law or --receipt, is a warm answer: the
+// next identical request whose inputs (every folder discovery listed and
+// every file the packages' checks read) and the law ledger are unchanged
+// replays each package's stored result, as a run in which every package
+// replays its test result cache prints it, with no discovery, check,
+// build or process.
 func recursiveTestCommand(opts fileOptions) error {
 	module := moduleTestOptions{law: opts.law, receiptDir: opts.receipt}
 	opts.law, opts.receipt = "", ""
-	if shared, err := sharedTestCommand(opts, module); shared {
-		return err
+	var w *warm
+	ledger := ledgerPath(opts.file)
+	if testCacheable(opts) && module.law == "" && module.receiptDir == "" {
+		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledger))
 	}
+	if w != nil && w.hit {
+		return replayModuleVerdict(opts, w.answer.Test)
+	}
+	// A request with no warm answer to keep (--uncached, --law, --receipt)
+	// checks the module once and links one test binary (TEST-one). A
+	// cacheable one tests each package through the warm recorder, so the
+	// warm answer it keeps names every file the packages' checks read:
+	// the shared load reads around it (CheckPackages takes no FS).
+	if w == nil {
+		if shared, err := sharedTestCommand(opts, module); shared {
+			return err
+		}
+	}
+	kept, complete := []moduleVerdict{}, true
 	matched := module.law == ""
-	err := recursiveCommand(opts, func(one fileOptions) error {
-		l, err := load(one.file, one.target)
+	err := recursiveCommand(opts, w.fsys(), func(one fileOptions) error {
+		l, err := loadPackageThrough(w.fsys(), one.file, one.target)
 		if err != nil {
 			return err
 		}
@@ -44,10 +77,21 @@ func recursiveTestCommand(opts fileOptions) error {
 			return err
 		}
 		matched = true
-		return testLoadedPackage(one, l)
+		kept = append(kept, moduleVerdict{Path: l.analysis.Root().Path})
+		n, stored := len(kept)-1, false
+		err = testLoadedPackage(one, l, func(result []byte) {
+			kept[n].Result, stored = result, true
+		})
+		complete = complete && stored
+		return err
 	})
 	if err != nil {
 		return err
+	}
+	if w != nil && complete {
+		if data, err := json.Marshal(kept); err == nil {
+			w.recordAs(sketchfront.WarmAnswer{Test: data}, ledgerPart(ledger))
+		}
 	}
 	if !matched {
 		return fmt.Errorf("no law %s in selected packages (--law)", module.law)
@@ -138,7 +182,7 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 	for i, l := range loads {
 		one := opts
 		one.file = packages[i].Dir
-		stop, fail := packageOutcome(packages[i].Path, checkLoaded(one, l))
+		stop, fail := packageOutcome(packages[i].Path, checkLoaded(one, l, nil))
 		if stop != nil {
 			return true, stop
 		}
@@ -225,7 +269,7 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 		if r.index < 0 {
 			continue
 		}
-		err := runTestBinary(r.one, r.l, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)})
+		err := runTestBinary(r.one, r.l, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
 		stop, fail := packageOutcome(packages[i].Path, err)
 		if stop != nil {
 			return true, stop
@@ -238,11 +282,45 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	return true, nil
 }
 
+// replayModuleVerdict prints a stored `ergo test ./...` verdict: each
+// package's line and its replayed result.
+func replayModuleVerdict(opts fileOptions, data []byte) error {
+	var verdicts []moduleVerdict
+	if err := json.Unmarshal(data, &verdicts); err != nil {
+		return fmt.Errorf("test result cache: %w", err)
+	}
+	for _, v := range verdicts {
+		fmt.Fprintf(os.Stdout, "package %s\n", v.Path)
+		if v.Result == nil {
+			if err := emptyTestRun(opts, "", os.Stdout, os.Stderr); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := replayTestResult(v.Result, os.Stdout, os.Stderr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadPackageThrough is load reading through fsys (a warm request's
+// Recorder); nil reads the host.
+func loadPackageThrough(fsys sketchfront.FS, path, target string) (loaded, error) {
+	platform, err := platformOf("", false, os.Getenv("GOOS"), os.Getenv("GOARCH"))
+	if err != nil {
+		return loaded{}, err
+	}
+	return loadThrough(fsys, path, target, platform)
+}
+
 // recursiveCommand retains each package command's flags and result. A normal
 // test/check failure does not hide later packages. A defect or signal stops
 // the run: the existing test command's stronger exit status is preserved.
-func recursiveCommand(opts fileOptions, run func(fileOptions) error) error {
-	packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(opts.file)))
+// fsys, when not nil, is the file system discovery reads through (a warm
+// request's Recorder).
+func recursiveCommand(opts fileOptions, fsys sketchfront.FS, run func(fileOptions) error) error {
+	packages, err := sketchfront.DiscoverPackagesThrough(fsys, filepath.Dir(filepath.Clean(opts.file)))
 	if err != nil {
 		return invalidInvocation(err)
 	}

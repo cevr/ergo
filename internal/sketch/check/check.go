@@ -296,9 +296,10 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
-	// encodeLend is set while encode's writer operand is converted to
-	// the Writer: encode keeps no writer, so a value that holds a cell
-	// may cross to the Writer there (types.md, Interface assignability 6).
+	// encodeLend is set while encode's writer operand, or decode's reader
+	// operand, is converted to the Writer or the Reader: neither keeps
+	// it, so a value that holds a cell may cross to it there (types.md,
+	// Interface assignability 6).
 	encodeLend bool
 	// typeNamedFuncs are the functions that share a type's name: members
 	// of their first parameter's type once it is known (Methods 3).
@@ -317,6 +318,8 @@ type checker struct {
 	ownershipSites []ownershipSite
 	ownershipSeen  map[ownershipKey]bool
 	takesSeen      map[*syntax.TakesClause]bool
+	escapingSeen   map[*syntax.FuncType]bool // retired escaping words already reported (q168)
+	ownSeen        map[*syntax.Field]bool    // own parameter fields whose sites are recorded
 	mapKeysSeen    map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.
@@ -357,6 +360,8 @@ type checker struct {
 	grew           map[*Func][2]bool
 	// asNames holds each as pattern's binding name until finishInfo.
 	asNames map[*Pattern]*syntax.Ident
+	// nodeOrder is the source order of the package's nodes (sourceorder.go).
+	nodeOrder map[syntax.Node]int
 	// literals keeps isLiteral's answer for each operation it has seen.
 	literals map[syntax.Expr]bool
 	// callee is the selector a call is about to check as its callee: only
@@ -498,6 +503,9 @@ type checker struct {
 	// (refine.go).
 	refining      bool
 	refusedWheres map[*fileInfo][][2]syntax.Pos
+	// patternCalls are the matches calls of the derived ParseN and NWhere
+	// of each refined type with a pattern (refine_pattern.go).
+	patternCalls map[*syntax.CallExpr]*Matcher
 
 	fn *funcCtx // the body being checked
 }

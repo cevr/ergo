@@ -339,11 +339,16 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 	}
 	first := !c.takesSeen[u]
 	c.takesSeen[u] = true
+	if first {
+		// The clause is retired (q168): its facts still hold so that one
+		// diagnostic says it, and ergo fix rewrites it.
+		c.errorf(u, CodeType, "takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close(); ergo fix rewrites it")
+	}
+	sites := first
+	first = false // the clause's own errors are the one above
 	if len(u.Names) == 0 {
 		if method {
 			sig.TakesSelf = true
-		} else if first {
-			c.errorf(u, CodeType, "a bare takes names the value an operation is called on; name the parameter: takes p")
 		}
 		return
 	}
@@ -378,8 +383,35 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 		}
 		seen[id.Name] = true
 		sig.Takes = append(sig.Takes, at)
-		if first {
+		if sites {
 			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: made(c, id, syntax.Node(u)), t: sig.Params[at].Type, name: id.Name})
+		}
+	}
+}
+
+// ownParams reads the mode word own on a parameter field whose n
+// parameters are the last n of sig (audit CSX §4.3, q168): own on a
+// function value lets the callee keep it (escaping; writtenParamType
+// reads the word), and on any other value the callee takes it, as
+// `takes p` says. The facts are the clause's: Signature.Takes, and the
+// late S110 of a taken parameter whose type crosses.
+func (c *checker) ownParams(field *syntax.Field, sig *Signature, n int) {
+	first := !c.ownSeen[field]
+	if c.ownSeen == nil {
+		c.ownSeen = map[*syntax.Field]bool{}
+	}
+	c.ownSeen[field] = true
+	for k := len(sig.Params) - n; k < len(sig.Params); k++ {
+		p := sig.Params[k]
+		if _, fn := under(p.Type).(*Signature); fn || isInvalid(p.Type) {
+			continue
+		}
+		if slices.Contains(sig.Takes, k) {
+			continue
+		}
+		sig.Takes = append(sig.Takes, k)
+		if first {
+			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: field, t: p.Type, name: p.Name})
 		}
 	}
 }

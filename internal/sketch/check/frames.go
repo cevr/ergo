@@ -101,7 +101,7 @@ func frameNeed(info *Info, x *syntax.CallExpr) string {
 			return "a call that starts a task"
 		}
 		if isOnExit(call) {
-			return "scope.OnExit"
+			return call.Func.Pkg.Name + "." + call.Func.Name
 		}
 	}
 	if w := info.Withs[x]; w != nil {

@@ -1,0 +1,81 @@
+> seed 7
+  scene: balls, running; balls: 0
+> press 300 200
+  scene: balls, running; balls: 1
+  ball 0: at (300, 200), heading (-64, 53) px/s, radius 22, #5ac8fa
+> press 20 30
+  scene: balls, running; balls: 2
+  ball 1: at (20, 30), heading (-115, 35) px/s, radius 15, #ff2d55
+> press 590 390
+  scene: balls, running; balls: 3
+  ball 2: at (590, 390), heading (97, 109) px/s, radius 10, #af52de
+> frame 16 x10
+  ball 0: at (290, 208), heading (-64, 53) px/s, radius 22, #5ac8fa
+  ball 1: at (28, 36), heading (115, 35) px/s, radius 15, #ff2d55
+  ball 2: at (576, 375), heading (-97, -109) px/s, radius 10, #af52de
+> frame 100 x20
+  ball 0: at (163, 314), heading (-64, 53) px/s, radius 22, #5ac8fa
+  ball 1: at (258, 106), heading (115, 35) px/s, radius 15, #ff2d55
+  ball 2: at (382, 156), heading (-97, -109) px/s, radius 10, #af52de
+> toggle
+  scene: balls, paused; balls: 3
+> frame 16 x5
+> toggle
+  scene: balls, running; balls: 3
+> frame 16
+  ball 0: at (161, 315), heading (-64, 53) px/s, radius 22, #5ac8fa
+  ball 1: at (259, 107), heading (115, 35) px/s, radius 15, #ff2d55
+  ball 2: at (381, 155), heading (-97, -109) px/s, radius 10, #af52de
+> clear
+  scene: balls, running; balls: 0
+> press 100 100
+  scene: balls, running; balls: 1
+  ball 3: at (100, 100), heading (191, -108) px/s, radius 22, #ff2d55
+> frame 16 x3
+  ball 3: at (109, 95), heading (191, -108) px/s, radius 22, #ff2d55
+> show flow
+  scene: flow, running, 0.00 s
+  controls: strength 1.40, scale 1.00, pointer none
+  particles: 45 (0 from bursts), numbered to 45, 45 trail points, heads centred at (488, 294)
+> frame 16 x30
+  scene: flow, running, 0.48 s
+  particles: 55 (0 from bursts), numbered to 55, 1683 trail points, heads centred at (507, 293)
+> move 480 300
+  controls: strength 1.40, scale 1.00, pointer (480, 300)
+> press 480 300
+  particles: 77 (22 from bursts), numbered to 77, 1705 trail points, heads centred at (499, 295)
+> frame 16 x20
+  scene: flow, running, 0.80 s
+  particles: 77 (22 from bursts), numbered to 77, 2442 trail points, heads centred at (505, 296)
+> strength 9
+  controls: strength 3.00, scale 1.00, pointer (480, 300)
+> scale 0.93
+  controls: strength 3.00, scale 0.95, pointer (480, 300)
+> frame 16 x20
+  scene: flow, running, 1.12 s
+  particles: 77 (22 from bursts), numbered to 77, 2772 trail points, heads centred at (505, 297)
+> frame 50 x120
+  scene: flow, running, 7.12 s
+  particles: 55 (2 from bursts), numbered to 112, 1479 trail points, heads centred at (505, 262)
+> toggle
+  scene: flow, paused, 7.12 s
+> frame 16 x5
+> toggle
+  scene: flow, running, 7.12 s
+> frame 1000
+  scene: flow, running, 7.17 s
+  particles: 55 (2 from bursts), numbered to 114, 1442 trail points, heads centred at (505, 262)
+> clear
+  controls: strength 3.00, scale 0.95, pointer none
+  particles: 0 (0 from bursts), numbered to 114, 0 trail points, heads centred at none
+> frame 16 x2
+  scene: flow, running, 7.20 s
+  particles: 6 (0 from bursts), numbered to 120, 9 trail points, heads centred at (367, 340)
+> show balls
+  scene: balls, running; balls: 0
+> press 50 50
+  scene: balls, running; balls: 1
+  ball 0: at (50, 50), heading (132, -53) px/s, radius 20, #ff2d55
+> frame 16
+  ball 0: at (52, 49), heading (132, -53) px/s, radius 20, #ff2d55
+> stop

@@ -5,7 +5,7 @@
 # removes the reason. The file only moves to same: a differs row may not
 # join (stdCopyBaseline).
 
-actor	same
+actor	differs	lower: a match over the prelude's Decision in a module package (Tell, MQ-tell) writes the union's variant methods (isDecision) in the copy's unit, where std's actor shares the prelude's	follow-up flat-union-std
 arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
 atomic	same
 base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
@@ -34,9 +34,9 @@ log	same
 machines	same
 maps	same
 math	same
-os	differs	lower: os.Code lowers to Go's int at the runtime record boundary (runtimeType names it), a copy's Code to its own type	follow-up os-code-type
+os	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
-queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
+queue	same
 rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
@@ -55,4 +55,5 @@ time	differs	lower: a union of a user package lowers to the flat form, a std uni
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 toml	same
 trace	same
+ui	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 utf8	same

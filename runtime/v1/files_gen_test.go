@@ -81,15 +81,17 @@ func renderBodyTable(decls goDecls) string {
 	b.WriteString("// bodyTable is goDecls.body of every exported function and method of\n")
 	b.WriteString("// Source, by BodyOf name: its Body, or the text of the error the reviewed\n")
 	b.WriteString("// rules refuse it with. BodyOf reads it, so no process parses Source to\n")
-	b.WriteString("// learn a body's shape (CHK1).\n")
-	b.WriteString("var bodyTable = map[string]bodyFact{\n")
+	b.WriteString("// learn a body's shape (CHK1). Its rows are sorted by name, and it is a\n")
+	b.WriteString("// slice, which Go lays out at build time: a process pays nothing for it at\n")
+	b.WriteString("// start, as it would to build a map.\n")
+	b.WriteString("var bodyTable = []bodyRow{\n")
 	for _, name := range names {
 		body, err := decls.body(name)
 		if err != nil {
-			fmt.Fprintf(&b, "\t%q: {refusal: %q},\n", name, err.Error())
+			fmt.Fprintf(&b, "\t{%q, bodyFact{refusal: %q}},\n", name, err.Error())
 			continue
 		}
-		fmt.Fprintf(&b, "\t%q: {body: %s},\n", name, bodyLiteral(body))
+		fmt.Fprintf(&b, "\t{%q, bodyFact{body: %s}},\n", name, bodyLiteral(body))
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("// typeTable is goDecls.goType of every exported type of Source, by name.\n")
@@ -113,6 +115,9 @@ func renderBodyTable(decls goDecls) string {
 		}
 		if len(t.Fields) > 0 {
 			fields = append(fields, fmt.Sprintf("Fields: %#v", t.Fields))
+		}
+		if t.Basic != "" {
+			fields = append(fields, fmt.Sprintf("Basic: %q", t.Basic))
 		}
 		fields = append(fields, packageField(t.Package))
 		fmt.Fprintf(&b, "\t%q: {%s},\n", name, strings.Join(fields, ", "))
@@ -172,9 +177,6 @@ func bodyLiteral(b Body) string {
 	if b.Owned != "" {
 		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
 	}
-	if b.Check != "" {
-		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
-	}
 	if b.Wait != "" {
 		fields = append(fields, fmt.Sprintf("Wait: %q", b.Wait))
 	}
@@ -183,6 +185,9 @@ func bodyLiteral(b Body) string {
 	}
 	if b.BridgeTarget != "" {
 		fields = append(fields, fmt.Sprintf("BridgeTarget: %q, BridgeProvider: %q", b.BridgeTarget, b.BridgeProvider))
+	}
+	if b.Check != "" {
+		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
 	}
 	if b.Package != "" {
 		fields = append(fields, packageField(b.Package))

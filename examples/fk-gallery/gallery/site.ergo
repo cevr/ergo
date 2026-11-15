@@ -164,6 +164,8 @@ func Commands(d Decision[Site, []Command]) []Command {
 	match d {
 	case Emit[Site, []Command] as e:
 		e.Output
+	case Tell[Site, []Command] as t:
+		t.Output
 	case Enter[Site], Stay[Site], Ignore, Reject, Done[[]Command]:
 		[]Command{}
 	}
@@ -178,6 +180,8 @@ func After(s Site, d Decision[Site, []Command]) Site {
 		e.Next
 	case Stay[Site] as st:
 		st.Next
+	case Tell[Site, []Command] as t:
+		t.Next
 	case Ignore, Reject, Done[[]Command]:
 		s
 	}

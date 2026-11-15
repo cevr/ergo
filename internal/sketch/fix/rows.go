@@ -169,6 +169,13 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 			return nil, fmt.Errorf("fix: a clause of %s is in %q, which is not a file of the program", f.Function, d.File)
 		}
 		edits[d.File] = append(edits[d.File], insert{at: f.InsertAt, text: f.Text, clause: f.Clause})
+		for _, at := range f.Owns {
+			// One parameter marked own by two fixes of its function: once.
+			if k := fmt.Sprintf("%s\x00%d\x00%s\x00%s", d.File, at, f.Clause, f.Text); !seen[k] {
+				seen[k] = true
+				edits[d.File] = append(edits[d.File], insert{at: at, text: f.Text, clause: f.Clause})
+			}
+		}
 		if f.Open > 0 {
 			// Both clauses of one function may open the result: once.
 			open := fmt.Sprintf("%s\x00%d\x00(", d.File, f.Open)
@@ -211,7 +218,7 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 
 func rank(clause string) int {
 	switch clause {
-	case "takes":
+	case "takes", "own":
 		return 0
 	case "needs":
 		return 1

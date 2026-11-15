@@ -4,34 +4,64 @@ import arena
 // and the pass a view is writing. A view writes nodes into it; Render
 // runs a view and commits the pass. The nodes live in one arena, so the
 // tree holds Refs, not pointers.
+//
+// A pass reuses the storage of the last one (GP frame cost, UC-3): the
+// pass's specs, cells, loads, key and frame functions are the first
+// nspecs, ncells, nloads, nkeys and nanims elements of their lists, the
+// rest is an older pass's, written over before it is read; the pass's
+// maps are emptied in place. first and last are the root's first and
+// last child spec (-1 for none).
 type Frame[E] {
-	nodes  arena.Of[node[E]],
-	root   arena.Ref[node[E]],
-	specs  []spec[E],
-	cells  []cellSpec,
-	loads  []loadSpec[E],
-	seen   Map[slotOf, int],
-	index  Map[indexAt, arena.Ref[node[E]]],
-	indexed Map[int, bool],
-	parent int,
-	each   CallSite,
-	key    Key,
-	epoch  int,
-	ops    []Op[E],
-	jobs   []Job[E],
-	keys   []func(k KeyPress) Option[E],
-	anims  []func(at duration) E,
+	nodes   arena.Of[node[E]],
+	root    arena.Ref[node[E]],
+	specs   []spec[E],
+	nspecs  int,
+	first   int,
+	last    int,
+	cells   []cellSpec,
+	ncells  int,
+	loads   []loadSpec[E],
+	nloads  int,
+	seen    Map[slotOf, int],
+	seenLog []slotOf,
+	nseen   int,
+	index   Map[kid[E], arena.Ref[node[E]]],
+	indexed Map[arena.Ref[node[E]], bool],
+	held    Map[arena.Ref[node[E]], bool],
+	stopped Map[int, bool],
+	parent  int,
+	each    CallSite,
+	key     Key,
+	epoch   int,
+	ops     []Op[E],
+	jobs    []Job[E],
+	keys    []func(k KeyPress) Option[E],
+	nkeys   int,
+	urls    []func(u URL) Option[E],
+	nurls   int,
+	anims   []func(at duration) E,
+	nanims  int,
 	rowRuns int,
 	// Groups (group.ergo): the arguments' memo, the groups kept from the
 	// last pass, this pass's groups, the one being written (-1 none), the
-	// groups' identities counted apart from the nodes', and the bodies run.
-	args   GroupArgs,
-	kept   Map[groupKey[E], int],
-	keptList []keptGroup[E],
-	groups []groupRec[E],
-	group  int,
+	// groups' identities counted apart from the nodes' with the first
+	// ngroupLog entries of groupLog the counts taken (a cut gives them
+	// back), the cuts this pass made, and the bodies run.
+	args      GroupArgs,
+	kept      Map[groupKey[E], int],
+	keptList  []keptGroup[E],
+	groups    []groupRec[E],
+	group     int,
 	groupSeen Map[slotOf, int],
+	groupLog  []slotOf,
+	ngroupLog int,
+	cuts      int,
 	groupRuns int,
+	skips   int,
+	written int,
+	stops   []CallSite,
+	nstops  int,
+	slow    Option[slowWatch[E]],
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -44,29 +74,42 @@ type Id[E] { ref arena.Ref[node[E]] }
 // under the same parent and its kind stays.
 type ident { site CallSite, each CallSite, key Key, n int }
 
+// kid is a node's identity among the children of one parent: owner is
+// the parent's node of the last pass. The pass's index of the last pass's
+// children is flat, one entry a child, so a lookup reads one entry and
+// copies no sibling list (GP frame cost, UC-1). It is keyed by the old
+// node, not by the spec, so a spec index that a cut gives back and the
+// pass writes again finds its own parent's children.
+type kid[E] { owner arena.Ref[node[E]], id ident }
+
 // base is ident without n.
 type base { site CallSite, each CallSite, key Key }
 
 // slotOf is a base under one parent spec (-1 the root), for counting n.
 type slotOf { parent int, b base }
 
-// indexAt is an identity under one parent spec (-1 the root): a key of
-// the pass's index of the last pass's children (prior).
-type indexAt { parent int, id ident }
-
 // node is one retained node: what it shows, its identity, its children in
 // order, the signal of a text (an Input), the cell an event on it writes
 // (a Field, a Toggle, a Submit), and the cells and loads read directly
-// under it.
+// under it. parked holds the old children that a stopped group did not
+// write (H8a): out of the tree and the host's copy, with their cells,
+// loads and subtrees, until a pass writes them again or a pass under this
+// node stops no group.
 type node[E] {
-	node   Node[E],
-	id     ident,
-	kids   []arena.Ref[node[E]],
-	onText Option[func(t string) E],
+	node    Node[E],
+	id      ident,
+	kids    []arena.Ref[node[E]],
+	parked  []arena.Ref[node[E]],
+	off     bool,
+	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
-	binds  Option[bound[E]],
-	cells  Map[ident, Cell],
-	loads  Map[ident, slot],
+	binds   Option[bound[E]],
+	cells   Map[ident, Cell],
+	loads   Map[ident, slot],
+	run     Option[memoRun[E]],
+	dirty   bool,
+	memo    arena.Ref[node[E]],
+	up      arena.Ref[node[E]],
 }
 
 // bound is the cell an event on a node writes: the cell id of node owner.
@@ -75,16 +118,28 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // spec is one node a pass wrote: what it shows, its identity, the index
 // of its parent spec (-1 for a child of the root), the node of the last
 // pass with its identity (prev, Null for none) and the node of this pass
-// (ref, set by Commit).
+// (ref, set by Commit). The pass's tree is linked through the specs: first
+// and last are the spec's first and last child, next and before its next
+// and previous sibling (-1 for none), so the children of a spec are a
+// walk, not a list built each pass.
 type spec[E] {
-	node   Node[E],
-	id     ident,
-	parent int,
-	prev   arena.Ref[node[E]],
-	ref    arena.Ref[node[E]],
-	onText Option[func(t string) E],
+	node    Node[E],
+	id      ident,
+	parent  int,
+	prev    arena.Ref[node[E]],
+	ref     arena.Ref[node[E]],
+	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
-	binds  Option[cellAt],
+	binds   Option[cellAt],
+	off     bool,
+	memo    int,
+	same    Option[memoRun[E]],
+	skip    bool,
+	live    bool,
+	first   int,
+	last    int,
+	next    int,
+	before  int,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -96,17 +151,17 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
-	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[indexAt, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0}
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupLog: []slotOf{}, ngroupLog: 0, cuts: 0, groupRuns: 0}
 }
 
-func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
+func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]]()}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
 // shows what the view wrote, and the result is the changes a host applies.
-func Render[E comparable, S](f *Frame[E], view func(f *Frame[E], s S), s S) []Op[E] {
+func Render[E comparable, S lent, R](f *Frame[E], view func(f *Frame[E], s S) needs R, s S) []Op[E] needs R {
 	begin(f)
 	view(f, s)
 	Commit(f)
@@ -114,22 +169,43 @@ func Render[E comparable, S](f *Frame[E], view func(f *Frame[E], s S), s S) []Op
 
 // begin starts a pass: nothing written yet.
 func begin[E](f *Frame[E]) {
-	f.specs = []spec[E]{}
-	f.cells = []cellSpec{}
-	f.loads = []loadSpec[E]{}
-	f.seen = Map[slotOf, int]{}
-	f.index = Map[indexAt, arena.Ref[node[E]]]{}
-	f.indexed = Map[int, bool]{}
+	f.nspecs = 0
+	f.first = -1
+	f.last = -1
+	f.ncells = 0
+	f.nloads = 0
+	for s, _ in f.seen {
+		f.seen = f.seen.Delete(s)
+	}
+	for k, _ in f.index {
+		f.index = f.index.Delete(k)
+	}
+	for p, _ in f.indexed {
+		f.indexed = f.indexed.Delete(p)
+	}
+	for p, _ in f.held {
+		f.held = f.held.Delete(p)
+	}
+	for p, _ in f.stopped {
+		f.stopped = f.stopped.Delete(p)
+	}
+	f.nseen = 0
 	f.parent = -1
 	f.each = nowhere
 	f.key = NoKey
-	f.keys = []func(k KeyPress) Option[E]{}
-	f.anims = []func(at duration) E{}
+	f.nkeys = 0
+	f.nurls = 0
+	f.nanims = 0
 	f.rowRuns = 0
 	f.groups = []groupRec[E]{}
 	f.group = -1
 	f.groupSeen = Map[slotOf, int]{}
+	f.ngroupLog = 0
+	f.cuts = 0
 	f.groupRuns = 0
+	f.written = 0
+	f.nstops = 0
+	f.slow = None
 }
 
 // identify is the identity of the next entry at site under the current
@@ -137,8 +213,20 @@ func begin[E](f *Frame[E]) {
 func identify[E](f *Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
 	let n = count(f.seen, s)
-	f.seen[s] = n + 1
+	bump(f, s)
 	ident{site: at, each: f.each, key: f.key, n: n}
+}
+
+// bump takes the next identity count of s, logged so that a cut gives it
+// back.
+func bump[E](f *Frame[E], s slotOf) {
+	f.seen[s] = count(f.seen, s) + 1
+	if f.nseen < len(f.seenLog) {
+		f.seenLog[f.nseen] = s
+	} else {
+		f.seenLog = f.seenLog.Append(s)
+	}
+	f.nseen = f.nseen + 1
 }
 
 func count(seen Map[slotOf, int], s slotOf) int {
@@ -166,16 +254,21 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 	if !arena.Has(f.nodes, o) {
 		return arena.Null[node[E]]()
 	}
-	// One flat index, filled once per parent: a Map read out of a Map is
-	// a copy, which made each write cost its siblings (P-ui, measured:
-	// 92% of a pass of 1,617 nodes in the copy).
-	if !isLive(f.indexed, f.parent) {
-		for r in nodeAt(f, o).kids {
-			f.index[indexAt{parent: f.parent, id: nodeAt(f, r).id}] = r
+	if f.indexed.Get(o) == None {
+		for i in 0..kidCount(f, o) {
+			let r = kidAt(f, o, i)
+			f.index[kid[E]{owner: o, id: idOf(f, r)}] = r
 		}
-		f.indexed[f.parent] = true
+		for r in parkedOf(f, o) {
+			let k = kid[E]{owner: o, id: idOf(f, r)}
+			if !has(f.index, k) {
+				f.index[k] = r
+				f.held[r] = true
+			}
+		}
+		f.indexed[o] = true
 	}
-	match f.index.Get(indexAt{parent: f.parent, id: id}) {
+	match f.index.Get(kid[E]{owner: o, id: id}) {
 	case Some[arena.Ref[node[E]]] as r:
 		r.Value
 	case None:
@@ -187,44 +280,144 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
 	let id = identify(f, at)
 	let mut prev = prior(f, id)
-	if arena.Has(f.nodes, prev) && kindOf(nodeAt(f, prev).node) != kindOf(n) {
+	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
-	len(f.specs) - 1
+	link(f, spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1})
 }
 
-// open writes a node and runs body with that node as the parent.
-func open[E](f *Frame[E], n Node[E], body func(), at CallSite) {
-	let outer = f.parent
+// link writes sp as the next spec of the pass, the last child of its
+// parent spec, and returns its index.
+func link[E](f *Frame[E], given spec[E]) int {
+	let i = f.nspecs
+	let p = given.parent
+	let mut sp = given
+	sp.first = -1
+	sp.last = -1
+	sp.next = -1
+	sp.before = lastKid(f, p)
+	sp.off = (p >= 0 && f.specs[p].off) || disables(sp.node)
+	sp.memo = memoOf(f, p)
+	sp.same = None
+	sp.skip = false
+	sp.live = (p < 0 || f.specs[p].live) && arena.Has(f.nodes, sp.prev) && !has(f.held, sp.prev)
+	if i < len(f.specs) {
+		f.specs[i] = sp
+	} else {
+		f.specs = f.specs.Append(sp)
+	}
+	f.nspecs = i + 1
+	f.written = f.written + 1
+	if p < 0 {
+		if f.last < 0 {
+			f.first = i
+		} else {
+			f.specs[f.last].next = i
+		}
+		f.last = i
+	} else {
+		if f.specs[p].last < 0 {
+			f.specs[p].first = i
+		} else {
+			f.specs[f.specs[p].last].next = i
+		}
+		f.specs[p].last = i
+	}
+	i
+}
+
+// firstKid is the first child spec of spec p (-1 the root), -1 for none.
+func firstKid[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return f.first
+	}
+	f.specs[p].first
+}
+
+// lastKid is the last child spec of spec p (-1 the root), -1 for none.
+func lastKid[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return f.last
+	}
+	f.specs[p].last
+}
+
+// memoOf is the nearest Same at or above spec p (-1 the root), -1 for
+// none.
+func memoOf[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return -1
+	}
+	f.specs[p].memo
+}
+
+// childrenOf is the child specs of spec p (-1 the root), in order.
+func childrenOf[E](f *Frame[E], p int) []int {
+	let mut out = []int{}
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		out = out.Append(s)
+		s = f.specs[s].next
+	}
+	out
+}
+
+// open writes a node and runs body with that node as the parent. It is a
+// group (H8a): a failure that leaves body cuts the node and what body
+// wrote, and passes on.
+func open[E, F, R](f *Frame[E], n Node[E], body func() fails F needs R, at CallSite) fails F needs R {
+	let m = markOf(f)
 	f.parent = put(f, n, None, None, at)
-	body()
-	f.parent = outer
+	body() catch {
+	case err:
+		cut(f, m)
+		return err
+	}
+	f.parent = m.parent
+}
+
+// Fieldset is a container that says what its controls are (H4r), as
+// HTML's fieldset does: while disabled, a press or a text on any node
+// under it does nothing (Handle), and a locator reports each control
+// under it disabled; description, when not empty, is the accessible
+// description of the nodes under it that no nearer Fieldset describes.
+func Fieldset[E, F, R](f *Frame[E], disabled bool, description string, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, FieldsetNode{Disabled: disabled, Description: description}, body, at)
+}
+
+// disables is whether n is a disabled Fieldset.
+func disables[E](n Node[E]) bool {
+	match n {
+	case FieldsetNode as x:
+		x.Disabled
+	case _:
+		false
+	}
 }
 
 // Box is a container that stacks its children.
-func Box[E](f *Frame[E], style Style, body func(), at CallSite) {
-	open(f, BoxNode{Style: style}, body, at)
+func Box[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, BoxNode{Style: style}, body, at)
 }
 
 // Row lays its children out left to right.
-func Row[E](f *Frame[E], style Style, body func(), at CallSite) {
-	open(f, RowNode{Style: style}, body, at)
+func Row[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, RowNode{Style: style}, body, at)
 }
 
 // Column lays its children out top to bottom.
-func Column[E](f *Frame[E], style Style, body func(), at CallSite) {
-	open(f, ColumnNode{Style: style}, body, at)
+func Column[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, ColumnNode{Style: style}, body, at)
 }
 
 // Scroll shows its children in a scrolled viewport.
-func Scroll[E](f *Frame[E], style Style, body func(), at CallSite) {
-	open(f, ScrollNode{Style: style}, body, at)
+func Scroll[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, ScrollNode{Style: style}, body, at)
 }
 
 // Pressable sends on when the host presses it; body is what it shows.
-func Pressable[E](f *Frame[E], label string, on E, body func(), at CallSite) {
-	open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
+func Pressable[E, F, R](f *Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
 }
 
 // Text shows a string.
@@ -239,19 +432,26 @@ func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
 
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
-func Input[E](f *Frame[E], value string, placeholder string, onText escaping func(t string) E, at CallSite) {
+func Input[E](f *Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
 	let _ = put(f, InputNode{Value: value, Placeholder: placeholder}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the
-// row's key, so a row keeps its instance when xs is reordered.
-func Each[E, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T), at CallSite) {
+// row's key, so a row keeps its instance when xs is reordered. It is a
+// group with no node of its own (H8a): a failure that leaves a row cuts
+// every row written so far and passes on.
+func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at CallSite) fails F needs R {
+	let m = markOf(f)
 	let outerEach = f.each
 	let outerKey = f.key
 	for x in xs {
 		f.each = at
 		f.key = key(x)
-		row(x)
+		row(x) catch {
+		case err:
+			cut(f, m)
+			return err
+		}
 	}
 	f.each = outerEach
 	f.key = outerKey
@@ -265,24 +465,10 @@ func Each[E, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T), at CallSi
 func Commit[E comparable](f *Frame[E]) []Op[E] {
 	f.ops = []Op[E]{}
 	f.jobs = []Job[E]{}
-	let kids = childLists(f)
-	reconcile(f, kids, -1, f.root, kids[0])
+	reconcile(f, -1, f.root)
 	settle(f)
 	keepGroups(f)
 	f.ops
-}
-
-// childLists gives the spec indices of each node's children: [0] for the
-// root, [i+1] for spec i.
-func childLists[E](f *Frame[E]) [][]int {
-	let mut out = [][]int{[]int{}}
-	for _ in f.specs {
-		out = out.Append([]int{})
-	}
-	for i, s in f.specs {
-		out[s.parent+1] = out[s.parent+1].Append(i)
-	}
-	out
 }
 
 // at is the node r names; every Ref the tree holds is live.
@@ -291,6 +477,53 @@ func nodeAt[E](f *Frame[E], r arena.Ref[node[E]]) node[E] {
 	case arena.Stale:
 		Unreachable("ui: the tree holds a freed node")
 	}
+}
+
+// The readers of one field of a retained node read it in place, through
+// the arena's borrow, and copy only what they return: nodeAt copies the
+// whole node, its children and its cell and load maps, to read one field
+// (GP frame cost, UC-2).
+
+// idOf is the identity of the node r names.
+func idOf[E](f *Frame[E], r arena.Ref[node[E]]) ident {
+	let mut id = ident{site: nowhere, each: nowhere, key: NoKey, n: 0}
+	change(f, r, func(n *node[E]) { id = n.id })
+	id
+}
+
+// kindAt is the kind of what the node r names shows.
+func kindAt[E](f *Frame[E], r arena.Ref[node[E]]) int {
+	let mut k = -1
+	change(f, r, func(n *node[E]) { k = kindOf(n.node) })
+	k
+}
+
+// shows is whether the node r names shows x.
+func shows[E comparable](f *Frame[E], r arena.Ref[node[E]], x Node[E]) bool {
+	let mut same = false
+	change(f, r, func(n *node[E]) { same = n.node == x })
+	same
+}
+
+// kidCount is the number of children of the node r names.
+func kidCount[E](f *Frame[E], r arena.Ref[node[E]]) int {
+	let mut c = 0
+	change(f, r, func(n *node[E]) { c = len(n.kids) })
+	c
+}
+
+// kidAt is child i of the node r names.
+func kidAt[E](f *Frame[E], r arena.Ref[node[E]], i int) arena.Ref[node[E]] {
+	let mut k = arena.Null[node[E]]()
+	change(f, r, func(n *node[E]) { k = n.kids[i] })
+	k
+}
+
+// kidsOf is the children of the node r names.
+func kidsOf[E](f *Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut kids = []arena.Ref[node[E]]{}
+	change(f, r, func(n *node[E]) { kids = n.kids })
+	kids
 }
 
 // change runs edit on the node r names.
@@ -304,10 +537,25 @@ func change[E](f *Frame[E], r arena.Ref[node[E]], edit func(n *node[E])) {
 func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 
 // reconcile makes the children of parent (spec index p, node pr) the nodes
-// of want (spec indices), keeping each old child that put matched (prev),
-// and then does the same below each child.
-func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node[E]], want []int) {
-	let old = nodeAt(f, pr).kids
+// of the child specs of p, keeping each old child that put matched (prev),
+// and then does the same below each child. When every child is the old
+// child at its place, nothing moves, and the pass builds no list (UC-3).
+func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
+	if inPlace(f, p, pr) {
+		let mut s = lastKid(f, p)
+		for s >= 0 {
+			let r = f.specs[s].prev
+			f.specs[s].ref = r
+			if !f.specs[s].skip {
+				update(f, s, r)
+				reconcile[E](f, s, r)
+			}
+			s = f.specs[s].before
+		}
+		return
+	}
+	let want = childrenOf(f, p)
+	let old = kidsOf(f, pr)
 	let mut oldAt = Map[arena.Ref[node[E]], int]{}
 	let mut used = []bool{}
 	for i, r in old {
@@ -327,10 +575,51 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		}
 		src = src.Append(from)
 	}
+	// A parked child that a spec matched comes back (revived); the other
+	// parked children stay parked while a group under p stopped in this
+	// pass, and are dropped otherwise. An old child the pass did not write
+	// leaves the host's copy, and is parked or dropped by the same rule.
+	let park = stops(f, p)
+	let held = parkedOf(f, pr)
+	let mut heldAt = Map[arena.Ref[node[E]], int]{}
+	let mut back = []bool{}
+	for i, r in held {
+		heldAt[r] = i
+		back = back.Append(false)
+	}
+	let mut revive = []bool{}
+	for j, s in want {
+		let mut again = false
+		if src[j] < 0 {
+			match heldAt.Get(f.specs[s].prev) {
+			case Some[int] as h:
+				if !back[h.Value] {
+					back[h.Value] = true
+					again = true
+				}
+			case None:
+			}
+		}
+		revive = revive.Append(again)
+	}
+	let mut parked = []arena.Ref[node[E]]{}
 	for i, r in old {
 		if !used[i] {
 			emit(f, Remove{Id: Id[E]{ref: r}})
-			drop(f, r)
+			if park {
+				parked = parked.Append(r)
+			} else {
+				drop(f, r)
+			}
+		}
+	}
+	for i, r in held {
+		if !back[i] {
+			if park {
+				parked = parked.Append(r)
+			} else {
+				drop(f, r)
+			}
 		}
 	}
 	let keep = increasing(src)
@@ -339,12 +628,18 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		let sp = f.specs[s]
 		if src[j] >= 0 {
 			refs = refs.Append(old[src[j]])
+		} else if revive[j] {
+			refs = refs.Append(sp.prev)
+			unpark(f, sp.prev)
 		} else {
-			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint)))
+			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.off)))
 		}
 		f.specs[s].ref = refs[j]
 	}
-	change(f, pr, func(n *node[E]) { n.kids = refs })
+	change(f, pr, func(n *node[E]) {
+		n.kids = refs
+		n.parked = parked
+	})
 	let parent = Id[E]{ref: pr}
 	for k in 0..len(want) {
 		let j = len(want) - 1 - k
@@ -356,21 +651,74 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		let id = Id[E]{ref: refs[j]}
 		if src[j] < 0 {
 			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
-		} else {
-			if nodeAt(f, refs[j]).node != sp.node {
-				emit(f, Set{Id: id, Node: sp.node})
+			if revive[j] {
+				change(f, refs[j], func(n *node[E]) {
+					n.node = sp.node
+					n.onText = sp.onText
+					n.onPoint = sp.onPoint
+					n.off = sp.off
+				})
 			}
-			change(f, refs[j], func(n *node[E]) {
-				n.node = sp.node
-				n.onText = sp.onText
-				n.onPoint = sp.onPoint
-			})
+		} else {
+			if !sp.skip {
+				update(f, want[j], refs[j])
+			}
 			if !keep[j] {
 				emit(f, Move{Id: id, Parent: parent, Before: before})
 			}
 		}
-		reconcile[E](f, kids, want[j], refs[j], kids[want[j]+1])
+		if src[j] < 0 || !sp.skip {
+			reconcile[E](f, want[j], refs[j])
+		}
 	}
+}
+
+// unpark makes a parked node that comes back hold no child in the tree:
+// the host's copy has none of them, so its old children are parked under
+// it, and each comes back by the same rule when the pass wrote it.
+func unpark[E](f *Frame[E], r arena.Ref[node[E]]) {
+	change(f, r, func(n *node[E]) {
+		let mut all = n.parked
+		for k in n.kids {
+			all = all.Append(k)
+		}
+		n.parked = all
+		n.kids = []arena.Ref[node[E]]{}
+	})
+}
+
+// inPlace is whether the child specs of p are the children of pr, each
+// the old child at its own place, and pr holds no parked child.
+func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
+	if parkedCount(f, pr) > 0 {
+		return false
+	}
+	let n = kidCount(f, pr)
+	let mut i = 0
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
+			return false
+		}
+		i = i + 1
+		s = f.specs[s].next
+	}
+	i == n
+}
+
+// update makes the kept node r show spec s: a Set when what it shows
+// changed, and the spec's functions.
+func update[E comparable](f *Frame[E], s int, r arena.Ref[node[E]]) {
+	let sp = f.specs[s]
+	if !shows(f, r, sp.node) {
+		emit(f, Set{Id: Id[E]{ref: r}, Node: sp.node})
+	}
+	change(f, r, func(n *node[E]) {
+		n.node = sp.node
+		n.onText = sp.onText
+		n.onPoint = sp.onPoint
+		n.off = sp.off
+	})
 }
 
 // drop frees the node r names and every node below it; each load they
@@ -378,6 +726,9 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 func drop[E](f *Frame[E], r arena.Ref[node[E]]) {
 	let n = nodeAt(f, r)
 	for k in n.kids {
+		drop[E](f, k)
+	}
+	for k in n.parked {
 		drop[E](f, k)
 	}
 	for _, l in n.loads {
@@ -461,14 +812,34 @@ func kindOf[E](n Node[E]) int {
 		10
 	case RowsNode:
 		11
+	case FieldsetNode:
+		12
+	case ZoneNode:
+		13
+	case LiveNode:
+		14
 	}
 }
 
 // Root is the Id of the root, the parent of what a view writes at its top.
 func Root[E](f *Frame[E]) Id[E] { Id[E]{ref: f.root} }
 
-// Len is the number of nodes in f's tree, the root included.
-func Len[E](f *Frame[E]) int { arena.Len(f.nodes) }
+// Len is the number of nodes in f's tree, the root included. A parked
+// node is not in the tree.
+func Len[E](f *Frame[E]) int { treeSize(f, f.root) }
+
+func treeSize[E](f *Frame[E], r arena.Ref[node[E]]) int {
+	let mut c = 1
+	for i in 0..kidCount(f, r) {
+		c = c + treeSize[E](f, kidAt(f, r, i))
+	}
+	c
+}
+
+// Retained is the number of nodes f holds: the tree's and the parked ones,
+// with their subtrees. It is the frame's memory: a parked node that is
+// never released shows here (the growth guard of the boundary laws).
+func Retained[E](f *Frame[E]) int { arena.Len(f.nodes) }
 
 // Kids are the children of id, in order; none for an Id f does not hold.
 func Kids[E](f *Frame[E], id Id[E]) []Id[E] {

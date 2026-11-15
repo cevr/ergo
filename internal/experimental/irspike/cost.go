@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -284,3 +285,7 @@ func programCompile(log string) (int64, error) {
 	}
 	return 0, fmt.Errorf("%s: no compile of the program package", strings.TrimSpace(log))
 }
+
+// CountSelf counts the user instructions f retires on this thread (-1 when
+// the host exposes no counter; internal/opcount).
+func CountSelf(f func()) int64 { return opcount.CountSelf(f) }

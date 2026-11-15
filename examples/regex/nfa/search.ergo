@@ -92,14 +92,14 @@ func scan(p Program, text string) Work {
 		case Done[bool] as out:
 			work.Matched = out.Output
 			return work
-		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
 		}
 		state = machines.Next(state, d)
 	}
 	match m.Step(state, End) {
 	case Done[bool] as out:
 		work.Matched = out.Output
-	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
 		Unreachable("Simulation is Done at End")
 	}
 	work

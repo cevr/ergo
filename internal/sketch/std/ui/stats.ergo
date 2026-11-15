@@ -1,0 +1,130 @@
+// Frame statistics (H6b): what one pass did, counted in work units, not
+// time, per phase, so a count is the same on every run and every host.
+// The composer keeps two counters of its own (the nodes a view wrote and
+// the groups that stopped, an integer addition each); every other count is
+// read from what the pass already holds (its specs, its patch, its jobs),
+// only when it is asked for.
+
+// Stats is one pass's work, per phase:
+//   - step: Signals, the signals the loop sent the actor since the pass
+//     before (a session's; 0 for a bare Render);
+//   - view: Written, the nodes the view wrote, with those a stopped group
+//     dropped; Rows, the row functions Rows ran; Skipped, the Sames kept
+//     without running; Stopped, the groups (Boundary) that stopped;
+//   - compose: Committed, the nodes the pass committed;
+//   - patch: Inserted, Moved, Removed and Set, the patch's ops by kind;
+//   - paint: Painted, the paint ops of the canvases the patch writes;
+//   - loads: Fetches and Cancels, the pass's jobs.
+// Layout is the host's (H2L): a host reports its own.
+type Stats {
+	Signals   int,
+	Written   int,
+	Rows      int,
+	Skipped   int,
+	Stopped   int,
+	Committed int,
+	Inserted  int,
+	Moved     int,
+	Removed   int,
+	Set       int,
+	Painted   int,
+	Fetches   int,
+	Cancels   int,
+}
+
+// PassStats is the last pass of f, Signals 0.
+func PassStats[E](f *Frame[E]) Stats {
+	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips, Stopped: f.nstops, Committed: f.nspecs, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
+	for op in f.ops {
+		match op {
+		case Insert[E] as x:
+			s.Inserted = s.Inserted + 1
+			s.Painted = s.Painted + painted(x.Node)
+		case Move[E]:
+			s.Moved = s.Moved + 1
+		case Remove[E]:
+			s.Removed = s.Removed + 1
+		case Set[E] as x:
+			s.Set = s.Set + 1
+			s.Painted = s.Painted + painted(x.Node)
+		}
+	}
+	for j in f.jobs {
+		match j {
+		case Fetch[E]:
+			s.Fetches = s.Fetches + 1
+		case Cancel:
+			s.Cancels = s.Cancels + 1
+		}
+	}
+	s
+}
+
+// painted is the number of paint ops n carries.
+func painted[E](n Node[E]) int {
+	match n {
+	case CanvasNode as c:
+		len(c.Paint)
+	case _:
+		0
+	}
+}
+
+// StoppedAt is the call sites of the groups the last pass of s stopped,
+// in the order they stopped: the pass's boundary outcomes (a boundary has
+// no node, so the tree cannot show them).
+func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
+	let mut out = []CallSite{}
+	for i in 0..s.frame.nstops {
+		out = out.Append(s.frame.stops[i])
+	}
+	out
+}
+
+// SessionStats is the last pass of s, with the signals the loop sent
+// before it.
+func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
+	let mut st = PassStats(&s.frame)
+	st.Signals = s.passSignals
+	st
+}
+
+// StatsOf is the last pass of the test host's session (the driver's
+// reading, plan H6b).
+func StatsOf[S, E, D, F](h *TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
+
+// Budget is the work a pass may do before it is slow, per counter: 0 is
+// no bound.
+type Budget { Signals int, Written int, Committed int, Ops int, Painted int, Fetches int }
+
+// Slow is a pass that did more than its budget: the counter (by its Stats
+// field name, "Ops" for the patch's ops), its count and its bound.
+type Slow { Counter string, Count int, Bound int }
+
+// OnSlow asks for the signal of each counter over b after a pass (H6b, a
+// program's slow warnings): the session sends on(Slow{…}) to the actor,
+// one per counter, in the order of Budget's fields, after a pass an
+// event of the loop caused (an input, a fetch's result, a frame). A pass
+// of a commit the loop did not cause (a work's reply, the Slow signals
+// themselves) is not judged, so a slow warning is never judged on its own
+// account. The last OnSlow of a pass counts.
+func OnSlow[E](f *Frame[E], b Budget, on own func(s Slow) E) {
+	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
+}
+
+// slowWatch is a pass's OnSlow.
+type slowWatch[E] { budget Budget, on func(s Slow) E }
+
+// slows is the Slow of each counter of s over b.
+func slows(s Stats, b Budget) []Slow {
+	let mut out = []Slow{}
+	let ops = s.Inserted + s.Moved + s.Removed + s.Set
+	let pairs = [](string, int, int){("Signals", s.Signals, b.Signals), ("Written", s.Written, b.Written), ("Committed", s.Committed, b.Committed), ("Ops", ops, b.Ops), ("Painted", s.Painted, b.Painted), ("Fetches", s.Fetches, b.Fetches)}
+	for p in pairs {
+		let (name, count, bound) = p
+		if bound > 0 && count > bound {
+			out = out.Append(Slow{Counter: name, Count: count, Bound: bound})
+		}
+	}
+	out
+}

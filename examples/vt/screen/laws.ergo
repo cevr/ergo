@@ -3,7 +3,7 @@ import maps
 import strings
 import vt/plain
 import vt/vt
-import vt/workload
+import vt/traffic
 
 // Chunk is the size of the pieces a law feeds: 1 to 64 bytes.
 type Chunk int where 1 <= it && it <= 64
@@ -19,7 +19,7 @@ func ConfigOf(seed int) vt.Config {
 
 // Input is the stream a law plays for seed: terminal output (Gen), then
 // edits that cut wide characters and cross the region (Edits).
-func Input(seed int) string { workload.Gen(seed, 2000) + workload.Edits(seed, 3000) }
+func Input(seed int) string { traffic.Gen(seed, 2000) + traffic.Edits(seed, 3000) }
 
 // ScreenMatchesPlain: the dense screen and the plain one, given the same
 // generated stream in the same pieces, show the same history, buffer,
@@ -49,7 +49,7 @@ law StylesAreCounted(seed int, chunk Chunk) {
 // holds more than the history's pages, the buffer's, and one.
 law ScrollbackIsBounded(seed int) {
 	let config = ConfigOf(seed)
-	let input = workload.Gen(seed, 2000) + Fill(config)
+	let input = traffic.Gen(seed, 2000) + Fill(config)
 	let mut d = New(config)
 	let _ = vt.Play(&d, input, 512)
 	let full = d.Grown()

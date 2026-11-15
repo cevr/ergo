@@ -26,11 +26,11 @@ let Probes = []string{"test@example.com", "Demo@Email.com", "new@example.org", "
 func TakenIgnoresCase(n int) bool needs Subscribers {
 	let text = Probes[((n%len(Probes))+len(Probes))%len(Probes)]
 	let a = ParseEmail(text) catch {
-	case Required, Malformed:
+	case Unsatisfied:
 		return false
 	}
 	let b = ParseEmail(strings.ToUpper(text)) catch {
-	case Required, Malformed:
+	case Unsatisfied:
 		return false
 	}
 	Subscribers.Taken(a) == Subscribers.Taken(b)

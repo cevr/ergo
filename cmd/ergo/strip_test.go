@@ -5,41 +5,38 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/toolchain"
 )
 
-// TestBuildStripsUnlessDebug: `ergo build` links stripped, `--debug` keeps
-// the symbols, and `ergo run` never strips (binsize BS4). It reads the Go
-// build action in process; the sizes command of the full tier measures
-// the files. Mutants bs4-default-unstripped and bs4-debug-stripped.
-func TestBuildStripsUnlessDebug(t *testing.T) {
-	t.Setenv("GOFLAGS", "")
-	for _, c := range []struct {
-		command string
-		args    []string
-		strip   bool
-	}{
-		{"build", []string{"main.ergo"}, true},
-		{"build", []string{"main.ergo", "--debug"}, false},
-		{"run", []string{"main.ergo"}, false},
-	} {
-		opts, err := parseFileOptions(c.command, c.args)
-		if err != nil {
-			t.Fatalf("%s %v: %v", c.command, c.args, err)
-		}
-		action, err := buildAction(opts)
-		if err != nil {
-			t.Fatalf("%s %v: %v", c.command, c.args, err)
-		}
-		command := action.Command(build.Module{Dir: "/nonexistent/loop-probe-module"}, "/nonexistent/loop-probe-out")
-		stripped := slices.ContainsFunc(command.Env, func(kv string) bool {
-			return strings.HasPrefix(kv, "GOFLAGS=") && strings.Contains(kv, "-ldflags=-s -w")
-		})
-		if stripped != c.strip {
-			t.Errorf("ergo %s %v: the link strips = %v, want %v (env GOFLAGS of %v)", c.command, c.args, stripped, c.strip, command.Args)
+// TestRunAndTestLinkStripped is the one promised fact of compile-speed CS7:
+// `ergo build`, `ergo run` and `ergo test` link without the symbol table
+// and DWARF, and `--debug` keeps them. It reads the flags the direct
+// path's link adds (build.Toolchain.LinkFlags) for each command's build
+// action, in process; the build tests check that the link passes them
+// (direct-strip-ignored) and keys on them (direct-key-strip). It kills
+// cs-debug-flag-ignored and cs-strip-only-build.
+func TestRunAndTestLinkStripped(t *testing.T) {
+	for _, command := range []string{"build", "run", "test"} {
+		for _, debug := range []bool{false, true} {
+			args := []string{"main.ergo"}
+			if debug {
+				args = append([]string{"--debug"}, args...)
+			}
+			opts, err := parseFileOptions(command, args)
+			if err != nil {
+				t.Fatalf("ergo %s %v: %v", command, args, err)
+			}
+			got := actionFor(opts, toolchain.Toolchain{Go: "go"}).LinkFlags()
+			want := []string{"-s", "-w"}
+			if debug {
+				want = nil
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("ergo %s %s: the link adds %q; want %q", command, strings.Join(args, " "), got, want)
+			}
 		}
 	}
-	if _, err := parseFileOptions("run", []string{"--debug", "main.ergo"}); err == nil || !strings.Contains(err.Error(), "--debug is only supported by build") {
-		t.Errorf("ergo run --debug: %v, want the refusal", err)
+	if _, err := parseFileOptions("check", []string{"--debug", "main.ergo"}); err == nil || !strings.Contains(err.Error(), "--debug is only supported by build, run and test") {
+		t.Errorf("ergo check --debug: %v, want the refusal", err)
 	}
 }

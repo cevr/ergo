@@ -3,7 +3,6 @@ package build
 import (
 	"bytes"
 	"cmp"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -18,7 +17,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"ergo.local/prototype/internal/pinset"
+	"ergo.local/prototype/internal/stage"
 )
 
 // The direct build path runs Go's compiler and linker itself, from an
@@ -52,7 +55,7 @@ import (
 // build tool and call the host compiler per module.
 
 // directSchema versions every key and plan this file writes.
-const directSchema = "ergo-go-direct-2"
+const directSchema = "ergo-go-direct-3"
 
 // GoBuildVariable set to "go" in the environment selects go build, the
 // reference path, for every build of the process.
@@ -72,6 +75,13 @@ type Report struct {
 	// reused.
 	Compiled, Reused int
 	Linked           bool
+	// Pinned counts the reused compiles taken from a runtime pin set.
+	Pinned int
+	// Sets are the pin sets a Pins.Produce build makes.
+	Sets []ProducedSet
+	// Executable is the digest of the executable's blob in the store, which
+	// the output links to; empty when go build built it.
+	Executable string
 }
 
 // String is the report as `ergo build -work` prints it: "direct" with the
@@ -99,9 +109,12 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		}
 		report = d.report
 		report.Refused = err.Error()
+		report.Executable = ""
 	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
+	stage.Add(stage.GoCommands, 1)
+	stage.Add(stage.Processes, 1)
 	if err := child.Run(); err != nil {
 		return report, fmt.Errorf("Go build failed: %w", err)
 	}
@@ -123,10 +136,18 @@ type direct struct {
 	output string
 	report Report
 
+	// mu guards the build's state while compiles run at once
+	// (compileAll).
+	mu sync.Mutex
+
 	plan    planFile
 	stage   string             // this build's temporary directory
 	digests map[string]archive // the module's compiled packages
 	now     time.Time
+
+	runtime        *pinset.Set // the runtime pin set (runtimeSet)
+	runtimeOpened  bool
+	runtimeEntries []pinset.Entry // a Produce build's runtime set
 }
 
 // goPackage is one package of the generated module that the direct path
@@ -214,10 +235,11 @@ func (d *direct) build() error {
 			return err
 		}
 	}
-	for _, p := range tg.packages {
-		if err := d.compile(p); err != nil {
-			return err
-		}
+	if err := d.compileAll(tg.packages); err != nil {
+		return err
+	}
+	if d.t.Pins.Produce {
+		d.report.Sets = d.producedSets()
 	}
 	return d.link(tg)
 }
@@ -448,13 +470,19 @@ func buildID(key string, parts int) string {
 }
 
 // compileKey is the action key of a package's compile: every input of the
-// object it writes. The root package's IR file (-ergoir) is one, by its
-// content; the patched compile that reads it is one through the tool's
-// digest.
+// object it writes. The package's IR file (-ergoir, in its folder) is
+// one, by its content; the patched compile that reads it is one through
+// the tool's digest.
 func (d *direct) compileKey(p *goPackage) (string, error) {
+	return d.packageKey(p, "compile", func(k *keyer) { d.toolchainKey(k, d.plan.Compile) })
+}
+
+// packageKey is the key of p's compile with the tool and target that tool
+// adds: the compile's own, or a pin set's name (pinCompileKey).
+func (d *direct) packageKey(p *goPackage, kind string, tool func(*keyer)) (string, error) {
 	var k keyer
-	k.add("schema", directSchema+" compile")
-	d.toolchainKey(&k, d.plan.Compile)
+	k.add("schema", directSchema+" "+kind)
+	tool(&k)
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
@@ -464,6 +492,7 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 			return "", err
 		}
 		sum := sha256.Sum256(data)
+		stage.Add(stage.BytesHashed, int64(len(data)))
 		// The object names a file by its trimmed path, the package's
 		// trimmed directory and the file's name, and resolves a relative
 		// //line name against it: where the module lies on disk is no
@@ -471,15 +500,13 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 		k.add("file", p.Trim+"/"+filepath.Base(f))
 		k.add("content", hex.EncodeToString(sum[:]))
 	}
-	if p.ImportPath == d.mainPath() {
-		if ir := ergoIR(d.module); ir != nil {
-			data, err := os.ReadFile(ir[1])
-			if err != nil {
-				return "", err
-			}
-			sum := sha256.Sum256(data)
-			k.add("ergoir", hex.EncodeToString(sum[:]))
+	if ir := ergoIR(p.Dir); ir != nil {
+		data, err := os.ReadFile(ir[1])
+		if err != nil {
+			return "", err
 		}
+		sum := sha256.Sum256(data)
+		k.add("ergoir", hex.EncodeToString(sum[:]))
 	}
 	for _, imp := range p.Imports {
 		if imp == "unsafe" { // built into the compiler: the tool digest covers it
@@ -604,7 +631,68 @@ func (d *direct) toolEnv(goroot string) []string {
 	return env
 }
 
-// compile runs, or reuses, the compile action of p.
+// compileAll runs, or reuses, the compile of each package, in dependency
+// order (the root last), starting each as soon as the module's packages
+// it imports are compiled: the compiles of packages that do not import
+// each other run at the same time, at most GOMAXPROCS at once, as cmd/go
+// runs its actions (-p). A package whose import failed is not compiled,
+// and the first failure in dependency order is the build's.
+func (d *direct) compileAll(pkgs []*goPackage) error {
+	done := map[string]chan struct{}{}
+	for _, p := range pkgs {
+		done[p.ImportPath] = make(chan struct{})
+	}
+	errs := make([]error, len(pkgs))
+	failed := map[string]bool{}
+	slots := make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
+	for i, p := range pkgs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer close(done[p.ImportPath])
+			for _, imp := range p.Imports {
+				if ch, ok := done[imp]; ok {
+					<-ch
+				}
+			}
+			d.mu.Lock()
+			skip := slices.ContainsFunc(p.Imports, func(imp string) bool { return failed[imp] })
+			if skip {
+				failed[p.ImportPath] = true
+			}
+			d.mu.Unlock()
+			if skip {
+				return
+			}
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			err := d.compile(p)
+			if err == nil {
+				err = d.produced(p)
+			}
+			if err != nil {
+				errs[i], failed[p.ImportPath] = err, true
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runCompile runs a compile process of the package at importPath and
+// returns its output (a test holds compiles with it).
+var runCompile = func(cmd *exec.Cmd, importPath string) ([]byte, error) { return cmd.CombinedOutput() }
+
+// compile runs, or reuses, the compile action of p. It runs under d.mu,
+// which it releases only while the compiler runs.
 func (d *direct) compile(p *goPackage) error {
 	key, err := d.compileKey(p)
 	if err != nil {
@@ -613,7 +701,15 @@ func (d *direct) compile(p *goPackage) error {
 	if fields, ok := d.cached(key); ok && len(fields) == 2 {
 		d.digests[p.ImportPath] = archive{Digest: fields[0], Export: fields[1]}
 		d.report.Reused++
+		stage.Add(stage.GoCompilesReused, 1)
 		return nil
+	}
+	if a, ok := d.fromRuntimeSet(p); ok {
+		d.digests[p.ImportPath] = a
+		d.report.Reused++
+		d.report.Pinned++
+		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
+		return d.record(key, a.Digest, a.Export)
 	}
 	pkgPath := p.ImportPath
 	if pkgPath == d.mainPath() {
@@ -645,11 +741,9 @@ func (d *direct) compile(p *goPackage) error {
 	if d.plan.pie() {
 		args = append(args, "-shared")
 	}
-	if p.ImportPath == d.mainPath() {
-		// Where go build puts -gcflags: the IR bodies, for the patched
-		// compile (ergoIR).
-		args = append(args, ergoIR(d.module)...)
-	}
+	// Where go build puts -gcflags: the package's IR bodies, for the
+	// patched compile (ergoIR).
+	args = append(args, ergoIR(p.Dir)...)
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {
 		cfg, err := embedConfig(p)
@@ -666,7 +760,12 @@ func (d *direct) compile(p *goPackage) error {
 	cmd := exec.Command(d.plan.Compile.Path, args...)
 	cmd.Dir = d.module.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	stage.Add(stage.GoCompiles, 1)
+	stage.Add(stage.Processes, 1)
+	d.mu.Unlock()
+	output, err := runCompile(cmd, p.ImportPath)
+	d.mu.Lock()
+	if err != nil {
 		return fmt.Errorf("compile %s: %v: %s", p.ImportPath, err, firstLine(output))
 	}
 	a, err := d.storeArchive(out)
@@ -731,6 +830,15 @@ func (d *direct) modinfo(tg *target) string {
 	return start + info.String() + end
 }
 
+// LinkFlags are the flags the direct path's link adds for t: -s -w when t
+// strips, as go build -ldflags='-s -w' does.
+func (t Toolchain) LinkFlags() []string {
+	if t.Strip {
+		return []string{"-s", "-w"}
+	}
+	return nil
+}
+
 // link runs, or reuses, the link of the root package, and writes the
 // executable to the output.
 func (d *direct) link(tg *target) error {
@@ -758,6 +866,7 @@ func (d *direct) link(tg *target) error {
 	var digest string
 	if ok && len(fields) == 1 {
 		digest = fields[0]
+		stage.Add(stage.LinksReused, 1)
 	} else {
 		var cfg strings.Builder
 		cfg.WriteString("# import config\n")
@@ -775,20 +884,20 @@ func (d *direct) link(tg *target) error {
 			mode = "-buildmode=pie"
 		}
 		args := []string{"-o", out, "-importcfg", cfgPath, mode, "-buildid=" + buildID(key, 4)}
-		if d.t.Strip {
-			// go build's -ldflags stand after its forced flags; under
-			// -trimpath the build information does not record them.
-			args = append(args, "-s", "-w")
-		}
+		// go build's -ldflags stand after its forced flags; under -trimpath
+		// the build information does not record them.
+		args = append(args, d.t.LinkFlags()...)
 		args = append(args, "-extld="+d.plan.CC, d.blob(all[tg.main.Module]))
 		cmd := exec.Command(d.plan.Link.Path, args...)
 		cmd.Dir = d.module.Dir
 		cmd.Env = d.toolEnv("")
+		stage.Add(stage.Links, 1)
+		stage.Add(stage.Processes, 1)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("link: %v: %s", err, firstLine(output))
 		}
 		var err error
-		if digest, err = d.store(out); err != nil {
+		if digest, err = d.storeMode(out, 0o555); err != nil {
 			return err
 		}
 		if err := d.record(key, digest); err != nil {
@@ -796,40 +905,8 @@ func (d *direct) link(tg *target) error {
 		}
 		d.report.Linked = true
 	}
-	return d.place(digest)
-}
-
-// place copies the executable blob to the output by a rename, so the
-// output is never a partial file.
-func (d *direct) place(digest string) error {
-	absolute, err := filepath.Abs(d.output)
-	if err != nil {
-		return err
-	}
-	src, err := os.Open(d.blob(digest))
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	// Mode 0777 less the umask, the mode go build gives an executable.
-	name := filepath.Join(filepath.Dir(absolute), "."+filepath.Base(absolute)+".tmp-"+hex.EncodeToString(nonce[:]))
-	tmp, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(name)
-	if _, err := io.Copy(tmp, src); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, absolute)
+	d.report.Executable = digest
+	return d.c.PlaceExecutable(digest, d.output)
 }
 
 func (d *direct) blob(digest string) string {
@@ -864,7 +941,11 @@ func (d *direct) cached(key string) ([]string, bool) {
 }
 
 // store moves the file at path into the blob store and returns its digest.
-func (d *direct) store(path string) (string, error) {
+func (d *direct) store(path string) (string, error) { return d.storeMode(path, 0o644) }
+
+// storeMode is store with the blob's mode: 0o555 for an executable, which
+// outputs link to (PlaceExecutable).
+func (d *direct) storeMode(path string, mode os.FileMode) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -876,7 +957,7 @@ func (d *direct) store(path string) (string, error) {
 		return "", err
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
-	if err := os.Chmod(path, 0o644); err != nil {
+	if err := os.Chmod(path, mode); err != nil {
 		return "", err
 	}
 	return digest, os.Rename(path, d.blob(digest))

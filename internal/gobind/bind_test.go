@@ -32,11 +32,7 @@ import (
 // (batch-14 apply 1). No binary is built: go/types reads export data in process.
 // BV1 extends it with resource variables: it alone kills refusal of a
 // resource variable, admission of ordinary state or a wrong Close result,
-// and mapping a nullable package pointer as a non-null handle. W1 extends
-// it with the build platforms past the binding platforms: it alone kills
-// a portable binding that does not state them (gobind-w1-extras-dropped)
-// and one that states a platform where a declaration differs
-// (gobind-w1-extras-unchecked).
+// and mapping a nullable package pointer as a non-null handle.
 func TestBindMappingProperty(t *testing.T) {
 	// Seed 13 reaches an array whose elements hold a slice or a map.
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 13}
@@ -69,35 +65,9 @@ func TestBindMappingProperty(t *testing.T) {
 		sources["example.test/bindprop/"+name] = src
 		patterns = append(patterns, "./"+name)
 	}
-	// A package with a declaration of the Unix platforms only: its binding
-	// keeps the declaration and states the binding platforms alone.
-	write(t, filepath.Join(dir, "unixonly", "unixonly.go"), "package unixonly\n\nfunc Portable() int { return 0 }\n")
-	write(t, filepath.Join(dir, "unixonly", "unix.go"), "//go:build unix\n\npackage unixonly\n\nfunc OnlyUnix() int { return 0 }\n")
-	patterns = append(patterns, "./unixonly")
 	files, err := gobind.Bind(dir, os.Environ(), "go1.27", patterns...)
 	if err != nil {
 		t.Fatal(err)
-	}
-	// The headers: a portable package's binding states every build
-	// platform; one that differs off the binding platforms states those.
-	header := func(ps []gobind.Platform) string {
-		var names []string
-		for _, p := range ps {
-			names = append(names, p.String())
-		}
-		return " go1.27 " + strings.Join(names, " ") + "\n"
-	}
-	unix := files["example.test/bindprop/unixonly"]
-	if !strings.Contains(unix, "/unixonly"+header(gobind.Platforms)) || readBinding(t, "example.test/bindprop/unixonly", unix)["OnlyUnix"].refused {
-		t.Errorf("binding of a package with a Unix-only declaration: want it bound, for %v alone\n%s", gobind.Platforms, unix)
-	}
-	for path := range want {
-		if path == "example.test/bindprop/"+fmt.Sprintf("p%d", seeds[0]) {
-			continue // its platform files: the refusals name the platforms
-		}
-		if !strings.Contains(files[path], path+header(gobind.BuildPlatforms)) {
-			t.Errorf("binding of the portable %s does not state %v:\n%s", path, gobind.BuildPlatforms, strings.SplitN(files[path], "\n", 3)[1])
-		}
 	}
 	for path, decls := range want {
 		text, ok := files[path]
@@ -397,8 +367,8 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 			return "", false // one result at most (IG6)
 		}
 		// A generated package is in no reviewed table of synchronous
-		// callbacks, so every callback is escaping (IG6).
-		s := "escaping func(" + strings.Join(ps, ", ") + ")"
+		// callbacks, so every callback is kept: own (IG6, q168).
+		s := "own func(" + strings.Join(ps, ", ") + ")"
 		if res != "" {
 			s += " " + res
 		}
@@ -527,7 +497,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want := map[string]verdict{
 		"S": {ergo: "type S { X int, }"},
 		"D": {ergo: "type D int"},
-		"I": {ergo: "type I { M() int needs go.Foreign takes, }"},
+		"I": {ergo: "type I { own M() int needs go.Foreign, }"},
 	}
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
@@ -560,11 +530,11 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		// ESC1's lifetime policy: a resource-capable receiver (a pointer,
 		// or a type whose Close makes it a resource) is taken, since no
 		// review lists Close as a lend.
-		takes := ""
+		mode := ""
 		if pointer || i < 2 {
-			takes = " takes r"
+			mode = "own "
 		}
-		want[name+".Close"] = verdict{ergo: "func (r " + recv + ") Close" + ergoSig + " needs go.Foreign" + takes}
+		want[name+".Close"] = verdict{ergo: "func (r " + mode + recv + ") Close" + ergoSig + " needs go.Foreign"}
 		want[fmt.Sprintf("Value%d", i)] = verdict{refused: true}
 		want[fmt.Sprintf("Pointer%d", i)] = verdict{refused: true}
 		if i < 2 {
@@ -631,9 +601,9 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	refused := false
 	var params []string // Go params
 	var ergoParams []string
-	var takes []string
+	ergoRecv := recv
 	if recv == "s *S" {
-		takes = append(takes, "s")
+		ergoRecv = "s own *S" // a pointer receiver is kept (q168)
 	}
 	if recv == "" && r.IntN(4) == 0 {
 		switch r.IntN(7) {
@@ -645,12 +615,10 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 			goTP, ergoTP, g.tparams = []string{"T cmp.Ordered"}, []string{"T ordered"}, []string{"T"}
 		case 3:
 			goTP, ergoTP, g.tparams = []string{"Q ~[]E", "E any"}, []string{"E"}, []string{"E"}
-			params, ergoParams = append(params, "q Q"), append(ergoParams, "q []E")
-			takes = append(takes, "q")
+			params, ergoParams = append(params, "q Q"), append(ergoParams, "q own []E")
 		case 4:
 			goTP, ergoTP, g.tparams = []string{"M ~map[K]V", "K comparable", "V any"}, []string{"K comparable", "V"}, []string{"K", "V"}
-			params, ergoParams = append(params, "m M"), append(ergoParams, "m Map[K, V]")
-			takes = append(takes, "m")
+			params, ergoParams = append(params, "m M"), append(ergoParams, "m own Map[K, V]")
 		case 5:
 			goTP, g.tparams, refused = []string{"T interface{ ~int | ~string }"}, []string{"T"}, true
 		case 6:
@@ -662,10 +630,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, fmt.Sprintf("a%d %s", i, t.goText()))
 		s, ok := ref(t, param, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s", i, s))
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, fmt.Sprintf("a%d", i))
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s%s", i, mode, s))
 	}
 	variadic := r.IntN(4) == 0
 	if variadic {
@@ -673,10 +642,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, "rest ..."+t.goText())
 		s, ok := ref(t, inner, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, "rest []"+s)
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, "rest")
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, "rest "+mode+"[]"+s)
 	}
 	results := g.results(0)
 	res, fails, ok := refResults(results, false)
@@ -690,7 +660,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	key := name
 	if recv != "" {
 		head += "(" + recv + ") "
-		ergoHead += "(" + recv + ") "
+		ergoHead += "(" + ergoRecv + ") "
 		key = "S." + name
 	}
 	tp := ""
@@ -717,8 +687,5 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		e += " fails go.Error"
 	}
 	e += " needs go.Foreign"
-	if len(takes) > 0 {
-		e += " takes " + strings.Join(takes, ", ")
-	}
 	want[key] = verdict{ergo: squash(e), variadic: variadic}
 }

@@ -157,8 +157,8 @@ func TestTOMLParseAgreesWithControl(t *testing.T) {
 // the same, and is what they print.
 func tomlBoth(t *testing.T, bins []string, path, what, cmd, replay string) string {
 	t.Helper()
-	first := runCorpus(t, bins[0], cmd, path)
-	if second := runCorpus(t, bins[1], cmd, path); second != first {
+	first := runCorpusArgs(t, bins[0], cmd, path)
+	if second := runCorpusArgs(t, bins[1], cmd, path); second != first {
 		src, _ := os.ReadFile(path)
 		t.Fatalf("%s: tomlparse %s printed\n%s\nthe control printed\n%s\nthe document:\n%q\n%s", what, cmd, clip(first), clip(second), clip(string(src)), replay)
 	}

@@ -1,6 +1,6 @@
 # stars-gui
 
-A table of stars that a window will show: 100,000 rows of a generated catalogue (name, constellation, magnitude, distance, class, right ascension, declination, planets). The user scrolls, sorts by any column, filters as they type, selects a range and edits a cell. Stage a (corpus wave GP1a) is the model and a headless driver; stage b (GP1b) is the window's view on `ui.TestHost`. The desktop window (stage c) comes with the MyGo host.
+A table of stars that a window will show: 100,000 rows of a generated catalogue (name, constellation, magnitude, distance, class, right ascension, declination, planets). The user scrolls, sorts by any column, filters as they type, selects a range and edits a cell. Stage a (corpus wave GP1a) is the model and a headless driver; stage b (GP1b) is the window's view on `ui.TestHost`. Stage c (GP1c) is the desktop window: `hosts/mygo/cmd/stars-gui` runs the same view on the MyGo host, held to `stars-gui scene` by `TestStarsGuiOnTheDesktop` there, beside a MyGo-direct control. The module is `ergo.local/prototype/examples/starsgui`, so the host can require it.
 
 ```sh
 stars-gui gen [-seed S] [-n N]     # write a catalogue of N stars, one a line, tab-separated

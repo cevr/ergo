@@ -34,8 +34,7 @@ type TermWindow struct {
 }
 
 // termMode is a mode an Enter pushes. term_unix.go changes the terminal's
-// state to it; on a platform with no terminal control (term_other.go)
-// every stream is not a terminal, so Enter fails with TermNotTerminal.
+// state to it.
 type termMode int
 
 const (

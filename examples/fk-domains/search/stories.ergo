@@ -24,7 +24,7 @@ func effectsOf(m Sim, sig Signal) []Effect {
 	match with context { time.Clock: m.Clock } { Step(m.S, sig) } {
 	case Emit[Search, []Effect] as e:
 		e.Output
-	case Enter[Search], Stay[Search], Ignore, Reject, Done[[]Effect]:
+	case Enter[Search], Stay[Search], Tell[Search, []Effect], Ignore, Reject, Done[[]Effect]:
 		[]Effect{}
 	}
 }

@@ -107,3 +107,25 @@ law StagesPassInOrder(stages int, oks []bool) {
 	}
 	true
 }
+
+// HandleFoldsItsEvents: the state Handle moves a run to is the fold of
+// the events it gives, so a follower that folds the events (the desk,
+// a recovery) sees the run the step committed. The run is driven with
+// Forward commands, oks answering its stages.
+law HandleFoldsItsEvents(stages int, oks []bool) {
+	let mut s Run = Unsubmitted
+	let mut log = []Event{}
+	for ok in slices.Concat([]bool{true, true}, oks) {
+		let d = Handle(s, Forward(s, ok, stages)) catch {
+		case WrongState, WrongStage, Closed, BadLength:
+			return s == Fold(Unsubmitted, log)
+		}
+		match d {
+		case Emit[Run, []Event] as e:
+			s = e.Next
+			log = slices.Concat(log, e.Output)
+		case _:
+		}
+	}
+	s == Fold(Unsubmitted, log)
+}

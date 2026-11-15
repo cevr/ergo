@@ -103,7 +103,7 @@ func TestMdhtmlAgreesWithControl(t *testing.T) {
 		what := "the workload of " + n + " sections"
 		mdBoth(t, bins, path, what, "", "-unsafe")
 		mdBoth(t, bins, path, what, "")
-		if got := runCorpus(t, ergoBin, "-blocks", path); !regexp.MustCompile(`^stdout:\n[1-9][0-9]*\n\nstderr:\n\nstatus 0\n$`).MatchString(got) {
+		if got := runCorpusArgs(t, ergoBin, "-blocks", path); !regexp.MustCompile(`^stdout:\n[1-9][0-9]*\n\nstderr:\n\nstatus 0\n$`).MatchString(got) {
 			t.Fatalf("%s: mdhtml -blocks printed\n%s", what, clip(got))
 		}
 	}
@@ -114,8 +114,8 @@ func TestMdhtmlAgreesWithControl(t *testing.T) {
 func mdBoth(t *testing.T, bins []string, path, what, replay string, args ...string) string {
 	t.Helper()
 	run := append(append([]string{}, args...), path)
-	first := runCorpus(t, bins[0], run...)
-	if second := runCorpus(t, bins[1], run...); second != first {
+	first := runCorpusArgs(t, bins[0], run...)
+	if second := runCorpusArgs(t, bins[1], run...); second != first {
 		src, _ := os.ReadFile(path)
 		t.Fatalf("%s: mdhtml %s printed\n%s\nthe control printed\n%s\nthe Markdown:\n%q\n%s", what, strings.Join(args, " "), clip(first), clip(second), clip(string(src)), replay)
 	}

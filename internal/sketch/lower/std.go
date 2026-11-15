@@ -26,10 +26,11 @@ import (
 // (`extern go …/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
-// methods are its operations. The checker holds the declaration to the Go
-// type's shape (check/body.go runtimeTypeRefusal), so the lowering reads
-// the declaration and never a std name. Every other type of every package
-// is a declaration of the program, apart from os.Code below.
+// methods are its operations. A defined basic type (os.Code) is the Go
+// defined type. The checker holds the declaration to the Go type's shape
+// (check/body.go runtimeTypeRefusal), so the lowering reads the
+// declaration and never a std name. Every other type of every package is
+// a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	ref := l.rtRef
 	if l.probing {
@@ -48,11 +49,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + ref(goName)
 		}
 		return ref(goName)
-	}
-	// Code is checked as an ordinary refinement. At the runtime record
-	// boundary its representation is the existing Go int field of Exit.
-	if obj.Pkg.Std() && obj.Pkg.Path == "os" && obj.Name == "Code" {
-		return "int"
 	}
 	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
 	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
@@ -263,6 +259,10 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		fc.copySite(x, "copy", "the first operand may be read again")
 	}
 	vals := fc.callArgs(args, x)
+	// An appender's operand is clipped where it is not written in place
+	// (V3), as the prelude's Append's is: two appends to one buffer never
+	// write the same spare capacity.
+	vals = fc.valueSource(x, c, vals)
 	for i, p := range body.Params {
 		if p.Func != nil {
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)

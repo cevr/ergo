@@ -293,6 +293,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
+	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
@@ -602,6 +603,15 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 			p.tests = append(p.tests, target)
 		}
 	}
+	if p.module && present["go.mod"] {
+		for _, dir := range localModules(p) {
+			for _, target := range testsOfModule(dir) {
+				if !slices.Contains(p.tests, target) {
+					p.tests = append(p.tests, target)
+				}
+			}
+		}
+	}
 	slices.Sort(p.tests)
 	if present[exploredFile] {
 		lines, found := readExplored(p)
@@ -794,8 +804,8 @@ type runner struct {
 	cases    int
 	failures []string
 	// ts is the TypeScript run of the program whose cases run now, or
-	// nil (ts.go); install is the run's one install, shared by every
-	// program's runner.
+	// nil (ts.go); install is the run's one install, which every
+	// program's runner shares.
 	ts      *tsRun
 	install *tsInstall
 	// cache is the run's verdict cache, or nil (cache.go).

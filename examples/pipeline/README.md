@@ -74,6 +74,7 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | --- | --- | --- | --- |
 | `Life.ClosedIsFinal` | run | a run that ended refuses every command with `Closed` | `Decide` takes a submit of a run that ended |
 | `StagesPassInOrder` | run | stages pass one after the other from the first; a run finishes after its last stage | `Evolve` drops `StagePassed` |
+| `HandleFoldsItsEvents` | run | the state `Handle` moves a run to is the fold of the events it gives, so the desk and a recovery, which fold the events, see the run the step committed | `Handle` keeps the old state |
 | `BoardIsFoldOfEvents` | board | the board folded from the events is the board of the runs' states | `Apply` keeps a run that leaves `failing` in that column too (two columns); `Apply` leaves a retried run in `failing` |
 | `GivesUpAfterAttempts` | retry | a stage that always fails is tried three times, then given up | the saga gives up one failure early; its third order names the wrong try |
 | `WaitsItsBackoff` | retry | the next try is ordered exactly when its wait ends | the timer fires after half the wait |
@@ -81,7 +82,7 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `Runner.Repeatable` | contract (against `memory.Flaky`) | the same try asked twice gets the same answer | `Flaky` answers by the count of calls, not by the try |
 | `Pipeline.DuplicateIsNoop` / `ModelTakesEachCommandOnce` | contract / pipeline | a resend gets the first receipt | the desk does not look up the command's ID |
 | `SceneAgreesWithStory` | pipeline | the program ends in the story's desk | `Handle` emits the events but keeps the old state; the work counts an offline runner as a pass; the desk starts the last queued run first |
-| `RecoverAgrees` | pipeline | the stream a scene wrote folds back (`domain.Sourced`'s recover with `Evolve`) into the desk it ended in: runs, log, queue, job and try | a recovered retry keeps the try it retries; a recovered failure stays busy; a recovered cancel keeps the waiting job |
+| `RecoverAgrees` | pipeline | the stream a scene wrote folds back (`domain.Sourced`'s recover with `Evolve`) into the desk it ended in, exactly (the step commits the desk `Evolve` folds): runs, log, queue, job and try | a recovered retry keeps the try it retries; a recovered failure stays busy; a recovered cancel keeps the waiting job |
 | `CommandKeepsTheWait` | pipeline | a command taken while the desk waits out a backoff keeps the wait: the next try comes when the backoff from the failure ends | the desk commits a stay with `Commit` (a new entry, a new wait); `Keep` drops the receipt |
 | `RestartGoesOn` | pipeline | a context stopped part-way and opened again over the same log plays the rest to the story's desk | (module `domain`'s `SourcedSurvivesCrashes` holds the save's position) |
 | `RestartMidStage` | pipeline | `RestartGoesOn` for a run whose second stage waits at the cut, after the operator retried its first | a job counts the failures of other stages |

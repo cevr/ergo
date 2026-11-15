@@ -558,6 +558,7 @@ func mainStatus(body func(*rt.Task) error) int {
 
 // runMain runs body as the root task and returns its canonical exit.
 func runMain(body func(*rt.Task) error) error {
+	heapFloor(os.Getenv) // heap.go
 	if rt.Exploring {
 		return exploreMain(body)
 	}
@@ -645,9 +646,9 @@ func report(w io.Writer, err error) int {
 func reportExit(w io.Writer, x Exit) int {
 	io.WriteString(w, x.Message+"\n")
 	if x.Code >= 1 && x.Code <= 125 {
-		return x.Code
+		return int(x.Code)
 	}
-	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(x.Code)+" is outside 1..125\n")
+	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(int(x.Code))+" is outside 1..125\n")
 	return 1
 }
 

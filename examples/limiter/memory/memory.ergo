@@ -118,7 +118,7 @@ func Take(m Memory, key string, cost int) limits.Grant fails limits.Limited | li
 		match d {
 		case Emit[bucket.Bucket, bucket.Told] as e:
 			(Told{T: e.Output}, next)
-		case Enter[bucket.Bucket], Stay[bucket.Bucket], Ignore, Reject, Done[bucket.Told]:
+		case Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Reject, Done[bucket.Told]:
 			(Bad{Capacity: b.Capacity}, bs)
 		}
 	})

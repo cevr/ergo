@@ -149,14 +149,14 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 	checked := 0
 	for _, name := range sortedKeys(func() map[string]bool {
 		m := map[string]bool{}
-		for name, b := range runtimeBindings {
+		for name, b := range runtimeBindings() {
 			if b.wait == noWait {
 				m[name] = true
 			}
 		}
 		return m
 	}()) {
-		b := runtimeBindings[name]
+		b := runtimeBindings()[name]
 		if b.release == callerRelease && taskReleaseLaws[name] != "" {
 			// A release that stops running code waits for it, masked
 			// (resources R9): a Task's in rt, a Running's for its program.
@@ -267,6 +267,15 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
 		// unchecked.go); each reads memory and returns, no wait.
 		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
+		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
+		// appends under at most one uncontended lock, no wait.
+		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
+		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
+		// compare-and-swap or atomic store; no wait.
+		"Claim": true, "Done": true,
+		// GX2: an append loop's room (reserve.go), Go's slices.Grow; no
+		// wait, no release.
+		"Reserve": true,
 		// CK-rowarg part 3: a held context's install checks that its
 		// owning with has not ended (a panic value, no wait), then calls
 		// the generated copier of its row, a method of the program's own.
@@ -274,7 +283,7 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.wait != noWait {
 			parts := strings.Split(name, ".")
 			methods[parts[len(parts)-1]] = true

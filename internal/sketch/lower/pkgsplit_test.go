@@ -29,6 +29,17 @@ func genSplitProgram(seed uint64) splitProgram {
 	k := func() int { return 1 + r.IntN(9) }
 	var p splitProgram
 	base := fmt.Sprintf(`import strings
+import slices
+
+func Cell(n int) int {
+	let evens = slices.Filter([]int{n, n + 1, n + 2, n + 3}, func(x int) bool { x %% 2 == 0 })
+	match strings.Cut("a-\(n)", "-") {
+	case Some[strings.Halves] as h:
+		len(evens) + len(h.Value.After)
+	case None:
+		0
+	}
+}
 
 type Item { id int, Name string }
 
@@ -146,7 +157,7 @@ type Oops[T] { V T }
 func oops() fails Oops[base.Q] { Oops[base.Q]{V: base.Q{N: %d}} }
 
 func line() string {
-	"\(Total) \(left.Sum(%d)) \(right.Sum(%d)) \(left.Name()) \(right.Name()) \(base.ID(left.Item())) \(base.ID(right.Item())) \(base.Make().Get()) \(left.Show(left.Pick(%d))) \(right.Show(right.Pick(%d))) \(left.Boxed(%d)) \(right.Boxed(%d)) \(left.Same(%d)) \(right.Same(%d)) \(left.Scaled(%d)) \(right.Scaled(%d)) \(top.Both(%d)) \(top.Sizes(%d))"
+	"\(Total) \(left.Sum(%d)) \(right.Sum(%d)) \(left.Name()) \(right.Name()) \(base.ID(left.Item())) \(base.ID(right.Item())) \(base.Make().Get()) \(left.Show(left.Pick(%d))) \(right.Show(right.Pick(%d))) \(left.Boxed(%d)) \(right.Boxed(%d)) \(left.Same(%d)) \(right.Same(%d)) \(left.Scaled(%d)) \(right.Scaled(%d)) \(top.Both(%d)) \(top.Sizes(%d)) \(base.Cell(3))"
 }
 
 func main() needs Console {
@@ -178,23 +189,24 @@ func (g splitProgram) check(t *testing.T) Unit {
 	return root
 }
 
-// splitLowered is o's module split into its Go packages, as the program
-// p/NAME of the test module: its main.go is the root package, and its
-// other packages are extra files below p/NAME.
-func splitLowered(t *testing.T, o *lowered, u Unit, name string) (*lowered, SplitReport) {
+// splitLowered is u's split lowering (LowerSplit), as the program p/NAME
+// of the test module: its main.go is the root package, and its other
+// packages are extra files below p/NAME. o is its reference.
+func splitLowered(t *testing.T, o *lowered, u Unit, name string, tests bool) (*lowered, SplitReport) {
 	t.Helper()
-	files, rep := splitMain(u, []byte(o.mainGo()), programModule+"/p/"+name)
-	out := &lowered{name: name, src: o.src, pkg: o.pkg}
-	if files == nil {
-		out.files = o.files
-		return out, rep
+	files, rep, err := lowerSplit(u, tests, programModule+"/p/"+name)
+	if err != nil {
+		t.Fatalf("the split lowering fails where the reference lowers: %v", err)
 	}
+	out := &lowered{name: name, src: o.src, pkg: o.pkg}
 	for _, f := range files {
-		if f.Path == "main.go" {
+		switch {
+		case f.Path == "go.mod":
+		case f.Path == "main.go":
 			out.files = []File{{Path: "go.mod", Data: []byte(goMod)}, f}
-			continue
+		case strings.HasSuffix(f.Path, ".go"):
+			out.extra = append(out.extra, File{Path: "p/" + name + "/" + f.Path, Data: f.Data})
 		}
-		out.extra = append(out.extra, File{Path: "p/" + name + "/" + f.Path, Data: f.Data})
 	}
 	return out, rep
 }
@@ -237,9 +249,27 @@ func TestSplitLoweringAgrees(t *testing.T) {
 		for _, tests := range []bool{false, true} {
 			name := fmt.Sprintf("s%dt%v", seed, tests)
 			ref := mustLowerUnit(t, name+"ref", u, tests)
-			split, rep := splitLowered(t, ref, u, name+"split")
-			if rep.Packages < 3 || rep.Reason != "" {
-				t.Fatalf("seed %d tests=%v: the program did not split: %+v\nsource:\n%s", seed, tests, rep, ref.src)
+			split, rep := splitLowered(t, ref, u, name+"split", tests)
+			t.Logf("seed %d tests=%v: %+v", seed, tests, rep)
+			if rep.Packages < 3 || rep.Std < 2 || rep.Reason != "" {
+				t.Fatalf("seed %d tests=%v: the program did not split into its packages and two std packages: %+v\nsource:\n%s", seed, tests, rep, ref.src)
+			}
+			// A std package holds only std declarations.
+			if rep.Foreign != 0 {
+				t.Fatalf("seed %d tests=%v: %d declarations that are not std are in a std package\nsource:\n%s", seed, tests, rep.Foreign, ref.src)
+			}
+			// Law InitsKeepTheirOrder: Go runs a package's inits after its
+			// imports' and in file order, so the split keeps every init of
+			// the reference in the root, in the reference's order (the
+			// splices keep declaration order), and no other package has one.
+			const goInit = "\nfunc init() {"
+			if n, m := strings.Count(ref.mainGo(), goInit), strings.Count(split.mainGo(), goInit); n != m {
+				t.Fatalf("seed %d tests=%v: the reference has %d Go inits and the split root %d", seed, tests, n, m)
+			}
+			for _, f := range split.extra {
+				if strings.Contains(string(f.Data), goInit) {
+					t.Fatalf("seed %d tests=%v: %s has a Go init, which would run before the root's", seed, tests, f.Path)
+				}
 			}
 			pairs = append(pairs, pair{seed, tests, ref, split})
 			programs = append(programs, ref, split)

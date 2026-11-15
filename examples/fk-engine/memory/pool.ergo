@@ -15,7 +15,7 @@ type Pool {
 	booted   atomic.Int64,
 	released atomic.Int64,
 	faults   atomic.Int64,
-}
+} implements engine.Engines
 
 // NewPool is a pool whose boots take no time, with no engine out.
 func NewPool() Pool { OnClock(time.NewManual(0), 0s) }

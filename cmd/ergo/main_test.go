@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,37 +29,68 @@ var testCLI struct {
 	output      []byte
 }
 
+// TestMain runs the tests under observation: process tests run the CLI and
+// the programs it builds, which Go's test cache sees only through
+// observation. The preparation runs in the test process alone
+// (testinputs.MainFunc), so the observing process, which can replace
+// itself, makes no directory it would leave behind.
+//
+// Every CLI the tests start gets a private emission cache, so no test
+// writes the developer's $XDG_CACHE_HOME or $HOME/.cache; it is removed
+// when the tests end. As an init that never removed it, it left one
+// directory per test process in /tmp (7,404 of them, 68 GB, on 2026-11-13;
+// a go command without GOCACHE puts its build cache there; GS18).
 func TestMain(m *testing.M) {
 	// The CLI under test builds with the go command on PATH, as in the
 	// gate, and never downloads its pinned Go (internal/toolchain).
 	if _, set := os.LookupEnv("ERGO_GO"); !set {
 		os.Setenv("ERGO_GO", "system")
 	}
-	// The CLI builds in the process's own environment, before any test
-	// overrides Go variables with t.Setenv.
-	testCLI.environment = os.Environ()
-	// Process tests run the CLI and the programs it builds, which Go's test
-	// cache sees only through observation. This package's tests resolve
-	// the emission cache through XDG_CACHE_HOME, as a user's command does:
-	// init in build_test.go makes it private, the tests pass their own
-	// to the CLIs they start, and TestPackageNeverWritesUnderHome checks
-	// that nothing reaches HOME. So the private ERGO_CACHE that
-	// testinputs sets, which would come first, is taken off again.
-	code := testinputs.MainFunc(m, func() int {
+	os.Exit(testinputs.MainFunc(m, func() int {
+		// This package's tests resolve the emission cache through
+		// XDG_CACHE_HOME, as a user's command does: a private one, the
+		// tests pass their own to the CLIs they start, and
+		// TestPackageNeverWritesUnderHome checks that nothing reaches HOME.
+		// So the private ERGO_CACHE that testinputs sets, which would come
+		// first, is taken off again.
 		if err := os.Unsetenv(build.RootVariable); err != nil {
 			return 1
 		}
+		cache, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
+		if err == nil {
+			err = os.Setenv("XDG_CACHE_HOME", cache)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cmd/ergo tests: private cache directory:", err)
+			return 2
+		}
+		defer os.RemoveAll(cache)
+		// The CLI builds in the process's own environment, before any test
+		// overrides Go variables with t.Setenv.
+		testCLI.environment = os.Environ()
+		defer func() {
+			if testCLI.dir != "" {
+				_ = os.RemoveAll(testCLI.dir)
+			}
+		}()
 		return m.Run()
-	})
-	if testCLI.dir != "" {
-		_ = os.RemoveAll(testCLI.dir)
-	}
-	os.Exit(code)
+	}))
 }
+
+// testCLIVariable names a CLI the gate's coverage record built from this
+// package's sources with coverage (scripts/gate, recordedCLIs; gate-speed
+// GS11). A test uses it instead of building its own: the record reads
+// which code of the CLI a test ran from its counters, where a build of its
+// own would read every source file and tie the test to every edit.
+const testCLIVariable = "ERGO_TEST_CLI"
 
 func buildTestCLI(t *testing.T) string {
 	t.Helper()
 	testCLI.once.Do(func() {
+		if path := os.Getenv(testCLIVariable); path != "" {
+			testCLI.path = path
+			return
+		}
 		testCLI.dir, testCLI.err = os.MkdirTemp("", "ef-test-cli-")
 		if testCLI.err != nil {
 			return
@@ -226,7 +258,7 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"run", "-o", "out", path}, "-o is only supported by build"},
 		{[]string{"build", path, "--receipt", "receipt.json"}, "--receipt is only supported by test"},
 		{[]string{"build", path, "--target", "wasm"}, "EF110: unsupported target wasm; the only target is go"},
-		{[]string{"build", path, "--platform", "windows/arm64"}, "EF110: unsupported target go on windows/arm64; the platforms are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64, js/wasm, wasip1/wasm"},
+		{[]string{"build", path, "--platform", "windows/amd64"}, "EF110: unsupported target go on windows/amd64; the platforms are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64"},
 		{[]string{"build", path, "--platform", "linux"}, `--platform takes OS/ARCH, such as linux/arm64, not "linux"`},
 		{[]string{"run", "--platform", "linux/arm64", path}, "--platform is only supported by build"},
 		{[]string{"check"}, "source file required"},

@@ -17,6 +17,6 @@ func main() fails os.Exit needs Console | Ambient {
 		script.Run()
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "fk-stopwatch: the script did not run"}
+		return os.Exit{Code: 1, Message: "fk-stopwatch: the script did not run"}
 	}
 }

@@ -92,11 +92,81 @@ func TestEnv(t *testing.T) {
 		t.Fatal("env")
 	}
 }
+
+// TestScratch does what the go command does in GOTMPDIR: it makes a work
+// directory there and lists it.
+func TestScratch(t *testing.T) {
+	dir := os.Getenv("GOTMPDIR")
+	if dir == "" {
+		t.Fatal("no GOTMPDIR")
+	}
+	if _, err := os.MkdirTemp(dir, "go-build"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+}
 `,
 	"p/testdata/x.txt": "x\n",
+	// An embedded file the package observes as internal/sketch/std does
+	// (embedObserveVariable; gate-speed GS9), in a folder below the package
+	// as std's are.
+	"p/e.go": `package p
+
+import (
+	_ "embed"
+	"os"
+	"path/filepath"
+)
+
+//go:embed e/e.txt
+var e string
+
+// E returns the embedded text, opened at its checkout path under a record.
+func E() string {
+	if root := os.Getenv("ERGO_EMBED_OBSERVE"); root != "" {
+		if f, err := os.Open(filepath.Join(root, "p", "e", "e.txt")); err == nil {
+			f.Close()
+		}
+	}
+	return e
+}
+`,
+	"p/e/e.txt": "e\n",
+	// A package below p that embeds a file and does not observe it, as
+	// std's gostd does: its edit runs every test.
+	"p/q/q.go": `package q
+
+import _ "embed"
+
+//go:embed d/d.txt
+var D string
+`,
+	"p/q/d/d.txt": "d\n",
+	"p/e_test.go": `package p
+
+import (
+	"testing"
+
+	"example.test/sel/p/q"
+)
+
+func TestE(t *testing.T) {
+	if E() != "e\n" {
+		t.Fatal("E")
+	}
 }
 
-var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv"}
+func TestQ(t *testing.T) {
+	if q.D != "d\n" {
+		t.Fatal("Q")
+	}
+}
+`,
+}
+
+var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch", "TestE", "TestQ"}
 
 // selectionEdit is one edit of the fixture: a replacement in a file (a new
 // file when from is empty) or a variable; reaches is the selection it
@@ -116,6 +186,8 @@ var selectionEdits = []selectionEdit{
 	{name: "a file added to the listed directory", file: "p/testdata/y.txt", to: "y\n", reaches: []string{"TestList"}},
 	{name: "a variable", env: "SEL_X=1", reaches: []string{"TestEnv"}},
 	{name: "a test's body", file: "p/p_test.go", from: "B() != 2", to: "B() != 3"},
+	{name: "an observed embedded file", file: "p/e/e.txt", from: "e\n", to: "f\n", reaches: []string{"TestE"}},
+	{name: "a file another package embeds unobserved", file: "p/q/d/d.txt", from: "d\n", to: "x\n"},
 }
 
 // TestSelectionRunsEveryTestAnEditReaches is the law of the fast tier's
@@ -127,7 +199,10 @@ var selectionEdits = []selectionEdit{
 // tests on the edited tree and holds the selection to their verdicts. An
 // edit alone also gets exactly the selection its row names: the tests whose
 // blocks or reads it touches, or every test when it is outside a function
-// body or in a test file.
+// body or in a test file. An edit of an embedded file the package observes
+// (observedEmbeds, as internal/sketch/std does; gate-speed GS9) reaches its
+// readers only, and a shared GOTMPDIR that the tests change reaches no test
+// (GS10).
 //
 // It builds Go because the law is about what go test runs: the record is
 // a cover build run test by test, and each verdict is a go test run of the
@@ -136,11 +211,17 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 	if realTools["go"] == "" {
 		t.Skip("no go")
 	}
+	// The fixture's p/ observes its embedded file as std does.
+	observed := observedEmbeds
+	observedEmbeds = append(slices.Clone(observedEmbeds), "p")
+	defer func() { observedEmbeds = observed }()
 	root := t.TempDir()
 	for name, content := range selectionBase {
 		write(t, root, name, content)
 	}
-	env := append(stepEnvironment(), "GOWORK=off")
+	// A shared GOTMPDIR, as scripts/gate.sh sets one: TestScratch and every
+	// go test of the verdicts change its listing (gate-speed GS10).
+	env := append(stepEnvironment(), "GOWORK=off", "GOTMPDIR="+t.TempDir())
 	listed, _, err := testPackages(root)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +270,7 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 				run = append(run, name)
 			}
 		}
-		verdicts := selectionVerdicts(t, root, edited)
+		verdicts := selectionVerdicts(t, root, edited, "p", selectionNames)
 		var names []string
 		for _, i := range applied {
 			names = append(names, selectionEdits[i].name)
@@ -244,13 +325,13 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 // selectionVerdicts runs the fixture's tests and returns each top-level
 // test's verdict: pass, fail, or none when it did not run (a build
 // failure).
-func selectionVerdicts(t *testing.T, root string, env []string) map[string]string {
+func selectionVerdicts(t *testing.T, root string, env []string, dir string, names []string) map[string]string {
 	t.Helper()
-	command := exec.Command("go", "test", "-json", "-short", "-count=1", "./p")
+	command := exec.Command("go", "test", "-json", "-short", "-count=1", "./"+dir)
 	command.Env, command.Dir = env, root
 	output, _ := command.Output()
 	verdicts := map[string]string{}
-	for _, name := range selectionNames {
+	for _, name := range names {
 		verdicts[name] = "none"
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))

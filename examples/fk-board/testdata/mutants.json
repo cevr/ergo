@@ -114,27 +114,27 @@
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     },
     {
-      "name": "fk11-file-line-uncounted", "origin": "wf10/fk11a",
-      "file": "examples/fk-board/file/file.ergo",
-      "from": "\t\tn = n + 1\n",
-      "to": "\t\tn = n + 0\n",
-      "rule": "A foreign line in the board file is named by its number (law AForeignLineIsNamed).",
-      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
-    },
-    {
-      "name": "fk11-file-drops-description", "origin": "wf10/fk11a",
-      "file": "examples/fk-board/file/file.ergo",
-      "from": "strconv.Quote(card.Description)",
-      "to": "strconv.Quote(\"\")",
-      "rule": "The file keeps every text of a card (law board.Store.LoadGivesTheLastSave for Sheet).",
-      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
-    },
-    {
       "name": "fk11-shelf-forgets", "origin": "wf10/fk11a",
       "file": "examples/fk-board/memory/shelf.ergo",
       "from": "\ts.saved.Set(Some[[]board.Column]{Value: columns})\n",
       "to": "",
       "rule": "A load gives the last save (law board.Store.LoadGivesTheLastSave for Shelf).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fkw-board-malformed-unnamed", "origin": "wf10 REF FKW",
+      "file": "examples/fk-board/file/file.ergo",
+      "from": "Why: \"\\(path): offset \\(m.Offset)",
+      "to": "Why: \"offset \\(m.Offset)",
+      "rule": "A board file that is not JSON is named in the failure (law ACutFileIsNamed).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fkw-board-sortkey-unkeyed", "origin": "wf10 REF FKW",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "Key string \"sortKey\" }",
+      "to": "Key string }",
+      "rule": "The file is upstream's saved board: a card's order key is the JSON key sortKey (case persisted reads upstream's JSON).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     }
   ]

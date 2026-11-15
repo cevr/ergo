@@ -231,7 +231,7 @@ extern go ergo.local/prototype/runtime/v1.InForce func InForce[R]() Context[R] n
 // value (owner q26; types.md, Bindings), and the lowering appends in place
 // only for xs = xs.Append(x) or a dead xs. With resource elements it takes
 // xs and x: the result is their one owner (#197 L8 A3, resources R14).
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T takes xs, x
+extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs own []T, x own T) []T
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
@@ -251,7 +251,7 @@ extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K,
 // Take gives up m and returns the value at k (Some, or None if absent)
 // and the map without k. Resource values and the remainder have separate
 // owners. With plain-data values, m is unchanged (mode crossing).
-extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m Map[K, V], k K) (Option[V], Map[K, V]) takes m
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
@@ -281,12 +281,17 @@ type Emit[S, O] { Next S, Output O }
 type Ignore {}
 type Reject {}
 type Done[O] { Output O }
+type Tell[S, O] { Next S, Output O }
 
 // Enter moves to Next and opens a new entry; Stay moves to Next and keeps
 // the entry; Emit moves to Next, opens a new entry, as Enter does, and
-// gives Output while the machine keeps running; Ignore and Reject keep the
-// state; Done ends the machine with Output.
-type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O]
+// gives Output while the machine keeps running; Tell moves to Next and
+// keeps the entry, as Stay does, and gives Output, as Emit does; Ignore
+// and Reject keep the state; Done ends the machine with Output. Only the
+// first state, an Enter and an Emit open an entry: a Stay and a Tell keep
+// the entry's timer and work (docs/spec/runtime.md, Machines and actors
+// 2 and 9).
+type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O] | Tell[S, O]
 
 // Never is the type with no value: a closed union of no variants
 // (docs/spec/types.md, Never; owner, 2026-11-13). No literal, conversion
@@ -311,7 +316,7 @@ func Absurd[T](n Never) T {
 
 // Timeout is a state's timer: when an entry of the state lasts In, the
 // runner gives the machine Signal. The runner owns the timer: it starts
-// when the entry opens, a Stay keeps it, and it never fires after its
+// when the entry opens, a Stay or a Tell keeps it, and it never fires after its
 // entry ended (docs/spec/runtime.md, Machines and actors 9).
 type Timeout[E] { In duration, Signal E }
 
@@ -355,7 +360,20 @@ type InputMachine[I, S, E, O, F, R, W] {
 // Interface assignability 1).
 // law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
 type Closer {
-	Close() takes,
+	own Close(),
+}
+
+// Keeping is the contract of a type that keeps the values it takes
+// (resources R13): an operation type that includes it with `..Keeping[T]`
+// holds values of T, and the release of its value calls drain, after its
+// Close if it has one, and releases each value drain gives, last first.
+// drain is unexported, so only the release calls it, and only a type whose
+// operations are a Go body of the runtime implements it (a queue's values
+// left, a Task's result no Wait took); an Ergo record that keeps values
+// holds them in its fields, which its own release releases (R3).
+// law-exempt: drain takes the value and only the release calls it, so no law can call it or observe it; the keeping rules are the checker's (resources R13, R35).
+type Keeping[T] {
+	own drain() []T,
 }
 
 // Task is a started task: task.Go() { … } yields one
@@ -364,13 +382,17 @@ extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
 	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
-	Wait() T fails E takes,
+	own Wait() T fails E,
 	Stop(),
 	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
 	// its owner's scope calls it at the scope's end when no Wait took the
 	// task. It stops the task and waits until it has ended, as Stop does,
 	// and drops its typed failure; a Task is a resource.
 	..Closer,
+	// Keeping's drain gives back the result the body returned that no Wait
+	// took, for the owner's release after Close (resources R13, Q5). Only
+	// the release calls it.
+	..Keeping[T],
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

@@ -30,6 +30,8 @@ type NodeEncoder struct {
 	objs []any
 	// start is the number of objects of the segments already written.
 	start int
+	// reached is the number of objects whose fields Reach has walked.
+	reached int
 	// Below, when set, receives every id of an earlier segment that the
 	// current segment names.
 	Below func(id uint64)
@@ -65,6 +67,26 @@ func (n *NodeEncoder) Lookup(x any) (uint64, bool) {
 	return n.ID(x), true
 }
 
+// Has returns x's id when x already has one; it gives no id.
+func (n *NodeEncoder) Has(x any) (uint64, bool) {
+	id, ok := n.ids[x]
+	return id, ok
+}
+
+// Reach gives x, then every syntax object reachable from it, an id, in the
+// order Bytes writes their fields. A caller reaches a tree before it names
+// the tree's nodes in an order of its own (a map's keys), so the ids follow
+// the tree alone.
+func (n *NodeEncoder) Reach(x any) {
+	n.ID(x)
+	n.reached = max(n.reached, n.start)
+	scratch := &encoder{table: n}
+	for ; n.reached < len(n.objs); n.reached++ {
+		scratch.buf = scratch.buf[:0]
+		scratch.encObj(n.objs[n.reached])
+	}
+}
+
 // Next is the id the next new object of the table gets.
 func (n *NodeEncoder) Next() uint64 { return uint64(len(n.objs)) + 1 }
 
@@ -83,6 +105,17 @@ func (n *NodeEncoder) Bytes() []byte {
 	}
 	n.start = len(n.objs)
 	return append(head.buf, body.buf...)
+}
+
+// Table is a NodeTable whose segments are the ones starts bounds, the
+// first n of them holding the very objects this encoder named (a decoder
+// in the same process reads them); the others are not decoded yet.
+func (n *NodeEncoder) Table(starts []uint64, written int) *NodeTable {
+	t := NewNodeTable(starts)
+	for i := range written {
+		t.segs[i] = n.objs[starts[i]-1 : starts[i+1]-1]
+	}
+	return t
 }
 
 // NodeTable holds the decoded segments of a table that NodeEncoder wrote.

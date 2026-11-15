@@ -35,7 +35,7 @@ func CheckOptions(path string, files []*syntax.File, imp Importer, opts Options)
 // element cannot be spelled.
 type ClauseFix struct {
 	File     int
-	Clause   string // "fails", "needs" or "takes"
+	Clause   string // "fails", "needs" or "own"
 	Function string
 	Row      []string
 	InsertAt int
@@ -43,7 +43,10 @@ type ClauseFix struct {
 	// Open, when not zero, is where "(" goes, with ")" at InsertAt before
 	// Text: a lone result of function type would otherwise take the
 	// clause as its own row (`func m() (func()) needs C`).
-	Open    int
+	Open int
+	// Owns are the further offsets where an "own" clause fix inserts
+	// Text, one per parameter it marks after the first (takesFix).
+	Owns    []int
 	Imports []string
 	// Signature is the function's header with the clause written, as the
 	// formatter prints it (the diagnostic's "write:" text).
@@ -163,57 +166,61 @@ func (c *checker) inferredClauses() []ClauseFix {
 	return out
 }
 
-// takesFix is the edit that adds the parameters of missing (indexes into
-// f's parameters) to f's takes clause (q137, EX3): after the written
-// names, or as a new clause after the rows. The names keep the
-// parameters' order. Nil when no parameter is missing; Text is empty when
-// a missing parameter has no name to write.
+// takesFix is the edit that marks the parameters of missing (indexes
+// into f's parameters) own (q137, EX3; EXM1: own before the type replaces
+// the takes clause): "own " inserted before each one's type, at InsertAt
+// and at each offset of Owns. Row names the parameters in their order.
+// Nil when no parameter is missing; Text is empty when a missing parameter
+// has no name, or shares its written type with a parameter that stays
+// lent (`a, b Res` with only a taken), so own cannot be written for it.
 func (c *checker) takesFix(f *Func, missing []int) *ClauseFix {
 	d := f.Decl
-	ft := d.Type
-	fix := &ClauseFix{File: f.file.index, Function: f.Name, Clause: "takes"}
-	if ft.Takes != nil {
-		for _, id := range ft.Takes.Names {
-			fix.Row = append(fix.Row, id.Name)
-		}
-	}
+	fix := &ClauseFix{File: f.file.index, Function: f.Name, Clause: "own"}
 	ix := slices.Clone(missing)
 	slices.Sort(ix)
-	var add []string
+	ix = slices.Compact(ix)
+	// fields[i] is the written field of parameter i.
+	var fields []*syntax.Field
+	if d.Type.Params != nil {
+		for _, field := range d.Type.Params.List {
+			for range max(1, len(field.Names)) {
+				fields = append(fields, field)
+			}
+		}
+	}
 	spellable := true
+	marked := map[*syntax.Field]bool{}
 	for _, i := range ix {
-		if i < 0 || i >= len(f.Sig.Params) {
+		if i < 0 || i >= len(f.Sig.Params) || i >= len(fields) {
+			continue
+		}
+		field := fields[i]
+		if field.Own != nil {
 			continue
 		}
 		name := f.Sig.Params[i].Name
-		if slices.Contains(fix.Row, name) || slices.Contains(add, name) {
-			continue
-		}
 		if name == "" || name == "_" {
 			spellable = false
 		}
-		add = append(add, name)
+		for _, id := range field.Names {
+			if k := slices.IndexFunc(f.Sig.Params, func(p *Var) bool { return p.Name == id.Name }); k < 0 || !slices.Contains(ix, k) {
+				spellable = false
+			}
+		}
+		fix.Row = append(fix.Row, name)
+		if !marked[field] && field.Type != nil {
+			marked[field] = true
+			fix.Owns = append(fix.Owns, int(field.Type.Pos()))
+		}
 	}
-	if len(add) == 0 {
+	if len(fix.Row) == 0 || len(fix.Owns) == 0 {
 		return nil
 	}
-	fix.Row = append(fix.Row, add...)
-	joined := strings.Join(add, ", ")
-	if ft.Takes != nil && len(ft.Takes.Names) > 0 {
-		fix.InsertAt = int(ft.Takes.End())
-		fix.Text = ", " + joined
-	} else {
-		at := clauseAt(ft)
-		if ft.Needs != nil {
-			at = max(at, ft.Needs.End())
-		}
-		fix.InsertAt = int(at)
-		fix.Text = " takes " + joined
-		fix.Open = loneFuncResult(ft)
-	}
+	fix.InsertAt, fix.Owns = fix.Owns[0], fix.Owns[1:]
+	fix.Text = "own "
 	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {
-		fix.Text, fix.Open = "", 0
+		fix.Text, fix.Owns = "", nil
 	}
 	return fix
 }
@@ -334,6 +341,14 @@ func writtenRow(src string, d *syntax.FuncDecl, kind Kind) []string {
 func signatureText(src string, d *syntax.FuncDecl, fix *ClauseFix) string {
 	start, end, at := int(d.Func), int(d.Body.Lbrace), fix.InsertAt
 	header := src[start:at] + fix.Text + src[at:end]
+	if len(fix.Owns) > 0 {
+		ats := append([]int{at}, fix.Owns...)
+		slices.Sort(ats)
+		header = src[start:end]
+		for k := len(ats) - 1; k >= 0; k-- {
+			header = header[:ats[k]-start] + fix.Text + header[ats[k]-start:]
+		}
+	}
 	if fix.Open > 0 {
 		header = src[start:fix.Open] + "(" + src[fix.Open:at] + ")" + fix.Text + src[at:end]
 	}
@@ -449,24 +464,19 @@ func (s *speller) row(r *Row) string {
 	return strings.Join(parts, " | ")
 }
 
-// sig spells a function type as signature writes it: escaping on a
-// parameter of a function type that may escape, the results, the fails
-// row and the needs row; then a takes clause by the names of its parameters (a
-// written takes names them all). A function type written in source has
-// no bare takes and no empty fails.
+// sig spells a function type as signature writes it: own before the type
+// of a parameter it takes and of a parameter of a function type that may
+// escape (EXM1), the results, the fails row and the needs row. A function
+// type written in source has no empty fails.
 func (s *speller) sig(t *Signature) string {
 	var b strings.Builder
 	b.WriteString("func(")
-	named := len(t.Takes) > 0
 	for i, p := range t.Params {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		if named {
-			b.WriteString(p.Name + " ")
-		}
-		if ps, ok := p.Type.(*Signature); ok && !ps.NonEscaping {
-			b.WriteString("escaping ")
+		if ps, ok := p.Type.(*Signature); ok && !ps.NonEscaping || slices.Contains(t.Takes, i) {
+			b.WriteString("own ")
 		}
 		b.WriteString(s.typ(p.Type))
 	}
@@ -481,13 +491,6 @@ func (s *speller) sig(t *Signature) string {
 	}
 	if !t.Uses.Empty() {
 		b.WriteString(" " + requirementKeyword + " " + s.row(t.Uses))
-	}
-	if named {
-		names := make([]string, len(t.Takes))
-		for i, ix := range t.Takes {
-			names[i] = t.Params[ix].Name
-		}
-		b.WriteString(" takes " + strings.Join(names, ", "))
 	}
 	return b.String()
 }

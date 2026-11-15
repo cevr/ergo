@@ -60,6 +60,9 @@ type Body struct {
 	// the result, any other index a parameter.
 	Keeps  bool
 	Keeper int
+	// FrameRelease: the body registers its callback as an exit action of
+	// the caller's frame (v1.Body.Release "frame"; scope.OnExit).
+	FrameRelease bool
 }
 
 // BodyOf returns the body contract of the extern f, the zero Body for
@@ -82,6 +85,7 @@ func BodyOf(f *Func) Body {
 	if body, err := v1.BodyIn(path, name); err == nil {
 		b.Known = true
 		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
+		b.FrameRelease = body.Release == "frame"
 		b.Value = valueBody(body)
 	}
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)
@@ -189,7 +193,7 @@ func runtimeTypeDecl(d syntax.Decl) bool {
 		return false
 	}
 	path, _ := td.Extern.Split()
-	return path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/")
+	return syntax.IsRuntimeTarget(path)
 }
 
 // checkRuntimeTypes refuses each type declaration of the package that names
@@ -260,8 +264,17 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		if len(spec.Union) > 0 || !Sealed(n) {
 			return fmt.Sprintf("extern go %s: an operation type that names a Go type declares an unexported operation, so no other package's value implements it (docs/spec/stdlib.md, The body contract)", target)
 		}
+	case *syntax.Ident:
+		// A defined type over a basic type, a refinement too (os.Code):
+		// the Go type is a defined type over the same Go basic type. The
+		// refinement's predicate stays the checker's, as for any
+		// refinement.
+		b, _ := n.Underlying().(*Basic)
+		if b == nil || b.Kind == Duration || gt.Basic != b.Name {
+			return fmt.Sprintf("extern go %s: %s is over %s, and v1.%s is not a defined type over the Go type %s (docs/spec/stdlib.md, The body contract)", target, tn.Name, n.Underlying(), name, n.Underlying())
+		}
 	default:
-		return fmt.Sprintf("extern go %s: only a record or an operation type names a Go type (docs/spec/stdlib.md, The body contract)", target)
+		return fmt.Sprintf("extern go %s: only a record, an operation type or a defined basic type names a Go type (docs/spec/stdlib.md, The body contract)", target)
 	}
 	return ""
 }
@@ -277,3 +290,48 @@ func GoTypeOf(n *Named) (string, bool) {
 	path, name := n.origin().Obj.Decl.Extern.Split()
 	return name, v1.Owns(path)
 }
+
+// embedTreeBody is the runtime's embedded-tree constructor, which the
+// lowering calls for embedded[T] of a tree (lower/embed.go).
+const embedTreeBody = "EmbeddedFS"
+
+// embedTree reports a type embedded[T] builds as a tree of assets: its
+// declaration names the Go type the runtime's embedded-tree constructor
+// returns (embed.FS is `extern go …/runtime/v1.FS type FS`). It reads the
+// declaration and the constructor's body, never a std name, so a trusted
+// package's type that names the same Go type is a tree too (STD-NOPRIV
+// NP3d; docs/spec/stdlib.md, The body contract).
+func embedTree(n *Named) bool {
+	goName, ok := GoTypeOf(n)
+	if !ok {
+		return false
+	}
+	body, err := v1.BodyOf(embedTreeBody)
+	return err == nil && len(body.Results) == 1 && body.Results[0] == "*"+goName
+}
+
+// providerFieldRefusal is why the type field cannot be a derived
+// provider's field type, or "" (patterns.md, Provider plans 3): the
+// lowering makes each field with the Go constructor NewG(script, op) and
+// answers a call with G.Call(task, args), so the field type's declaration names a runtime Go
+// type G of two type parameters that has both bodies (testing.Op names
+// v1.Op). Any module may use testing.Op, or name G with trust.
+func providerFieldRefusal(field *Named) string {
+	g, ok := GoTypeOf(field)
+	if !ok {
+		return fmt.Sprintf("its field type %s names no runtime Go type, whose constructor and Call answer the operations", field)
+	}
+	if gt, ok := v1.TypeOf(g); !ok || gt.Arity != 2 {
+		return fmt.Sprintf("its field type's Go type v1.%s is not a type of two type parameters", g)
+	}
+	for _, b := range []string{ProviderFieldNew(g), g + ".Call"} {
+		if _, err := v1.BodyOf(b); err != nil {
+			return fmt.Sprintf("its field type's Go type v1.%s has no body %s", g, b)
+		}
+	}
+	return ""
+}
+
+// ProviderFieldNew is the runtime constructor of a provider field whose Go
+// type is g (v1.NewOp for v1.Op).
+func ProviderFieldNew(g string) string { return "New" + g }

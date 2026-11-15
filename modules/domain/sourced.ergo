@@ -79,13 +79,13 @@ func Commit[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Led
 func ReceiptOf[S, E](l Ledger[S, E], id CommandID) Option[Receipt] { l.Receipts.Get(id) }
 
 // Keep is Commit that keeps the entry: the ledger at the next position,
-// with the events as its last record, as Stay. The state's work and timer
-// go on (runtime.md, Machines and actors 9.2: Stay neither restarts nor
-// cancels them; law KeepKeepsTheTimer). Stay gives no output, so the
-// sender reads the receipt from the ledger (Send does).
+// with the events as its last record, and the command's receipt as the
+// output, as a Tell. The state's work and timer go on (runtime.md,
+// Machines and actors 9.2: a Tell neither restarts nor cancels them; laws
+// KeepKeepsTheTimer and machines.StayAndTellKeepTheTimer).
 func Keep[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
-	let p = l.Position + 1
-	Stay[Ledger[S, E]]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: p, Receipts: l.Receipts.Put(id, Receipt{ID: id, Stream: l.Stream, Position: p}), Last: Recorded[E]{Position: p, ID: id, Events: events}}}
+	let r = Receipt{ID: id, Stream: l.Stream, Position: l.Position + 1}
+	Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
 }
 
 // StepID names the record of a step that no command caused (the end of
@@ -98,8 +98,8 @@ func StepID[S, E](l Ledger[S, E], kind string) CommandID { CommandID("#\(kind)@\
 // actor.StartDurable takes. Sig is the actor's signal, which save does
 // not read.
 type Store[S, Sig, E] {
-	Recover escaping func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
-	Save    escaping func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
+	Recover func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
+	Save    func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
 }
 
 // Sourced is the Store of stream on log for an aggregate that starts in
@@ -110,7 +110,7 @@ type Store[S, Sig, E] {
 // the id was reused, the provider could not keep it) is a defect that
 // ends the actor with the state it had (actor.StartDurable), and a
 // restart recovers from the log.
-func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve escaping func(s S, e E) S) Store[S, Sig, E] {
+func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve own func(s S, e E) S) Store[S, Sig, E] {
 	Store[S, Sig, E]{
 		Recover: func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept {
 			let mut l = Begin[S, E](stream, initial)
@@ -143,6 +143,8 @@ func Send[S, C, E, F](a actor.Actor[Ledger[S, E], Envelope[C], Decision[Ledger[S
 	match d {
 	case Emit[Ledger[S, E], Receipt] as e:
 		return e.Output
+	case Tell[Ledger[S, E], Receipt] as t:
+		return t.Output
 	case Enter[Ledger[S, E]], Stay[Ledger[S, E]], Ignore, Reject, Done[Receipt]:
 	}
 	match ReceiptOf(a.State(), env.ID) {

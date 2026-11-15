@@ -97,7 +97,7 @@ func work(f Form) Option[machines.Work[Signal, Subscribers]] {
 		Some{machines.Attempt(func() Signal fails JoinFailed needs Subscribers {
 			try Subscribers.Join(s)
 			Joined
-		}, func(done Signal) Signal { done }, func(failure) {
+		}, func(joined Signal) Signal { joined }, func(failure) {
 			let failed Signal = failure
 			failed
 		})}

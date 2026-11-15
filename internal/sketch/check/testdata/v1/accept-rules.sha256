@@ -35,6 +35,9 @@
 # L8 A1 (#197 q53): Esub4-extern-call-only.neg calls q.End(), the queue's
 # half-close renamed from Close; the source rule takes the same change when the
 # orchestrator syncs it.
+# EXM1 (audit CSX, q168): the E9-escaping copies write own before a kept
+# parameter's function type and no escaping on a field's or a result's; the
+# source rules take the same change when the orchestrator syncs them.
 42d3415f36e25b15e3ec1c5d5f7db162c013549fea5e6d7134e4c23b24aa8bb4  A1-literal-context.neg.ergo
 e1e6669a8bb9c6c8ff7f6c2a43489acf828265cf1ba29bb60017c058c7a37b37  A1-literal-context.pos.ergo
 dbbdafd0840737ec447f29252d036748a640ed4ddbd1ce5699d20b85e7689627  A2-default-and-operands.neg.ergo
@@ -113,8 +116,8 @@ b07a12ab11861a10823bd452c44e2a028f32eeb0d19cd084fe6cd15e54add568  E5-laws.neg.er
 f2c532af2f468daada2a64dd76a2714386e840c810cc38b012f5e88a7353bdd7  E6-extern-contexts.pos.ergo
 9fe7f55fe733d6d831a7ed7d8b67c1f246785eabc7ab5a496b98812e3517e963  E7-interpolation.neg.ergo
 36e206c3b4521817973681e0967650e022bf1d4e3e782a495e6ea20404988b09  E7-interpolation.pos.ergo
-8375688ab702da17a56e3198127d16223aebdbea9d1188c5b30790e8f10dd00f  E9-escaping.neg.ergo
-714d357a5647ecec4c6f4c4a5205baa5e693bc812dbc183558c9f8675b408485  E9-escaping.pos.ergo
+6698b42a862411e5b1e6426f2a1f1a3434464b71c590963069deb0ea5994bc67  E9-escaping.neg.ergo
+c9c6aa329b4dcb8e97edc8830c73c98b3e717753c29ff7990f35828951106197  E9-escaping.pos.ergo
 ad36a14e661cbecb97202ba13bc01524e268a06c795b1348a0130c870cc376ca  Esub1-instances.neg.ergo
 a6dcbc09a9d61c412e3a17ef022e8c89452e4ad5613b9e4d3478ddf91db73c93  Esub1-instances.pos.ergo
 c1f91f94a70d53a83e9180ebcbffed0fd84eed9eeb048f701aff0faa50068caf  Esub2-task-type-args.pos.ergo

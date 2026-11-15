@@ -1,17 +1,17 @@
-import vt/workload
+import vt/traffic
 
 // SplitDoesNotMatter: feeding a stream in pieces gives the events and the
 // tally of feeding it whole. Pieces of 1 to 16 bytes cut UTF-8
 // characters, sequences, OSC strings and text runs.
 law SplitDoesNotMatter(seed int, cuts []int) {
-	let input = workload.Gen(seed, 600)
+	let input = traffic.Gen(seed, 600)
 	Replay(input, []int{}, true) == Replay(input, cuts, true)
 }
 
 // FastPathMatchesStep: taking a run of text or of OSC data in one step
 // gives what taking each of its bytes through the machine gives.
 law FastPathMatchesStep(seed int, cuts []int) {
-	let input = workload.Gen(seed, 600)
+	let input = traffic.Gen(seed, 600)
 	Replay(input, cuts, true) == Replay(input, cuts, false)
 }
 

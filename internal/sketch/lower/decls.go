@@ -769,10 +769,12 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if _, isRecord := n.Obj.Decl.Spec.(*syntax.StructType); !isRecord {
 		return nil, false
 	}
-	if l.runtimeType(n, f.Decl) != "" {
-		// A std record bound to a runtime struct (its declaration names
-		// it, as rpc.Malformed's does): the runtime declares the Go type, and Go takes
-		// a method only in the package of its receiver's declaration.
+	if _, bound := check.GoTypeOf(n); bound {
+		// A record whose declaration names a runtime Go type (`extern go
+		// …/runtime/v1.RPCMalformed type Malformed {…}`, FD1-g2): the
+		// runtime declares the Go type, and Go takes a method only in its
+		// receiver's package, so the function stays a Go function. Its calls
+		// follow, as funcDecl decides both.
 		return nil, false
 	}
 	var own []*check.TypeParam
@@ -1161,6 +1163,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
 		}
 		fc.witness[tp] = scope.alloc("w" + tp.Name)
+		if sp != nil && sp.wit != nil && sp.wit.Param == tp {
+			// A copy for a known witness (witspec.go): no parameter; a
+			// use of the witness itself takes one built in the copy.
+			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
 		args = append(args, fc.witness[tp])
 	}
@@ -1295,7 +1303,14 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	if !known && sp == nil && !drop {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
-	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
+	body := fc.out.String()
+	if sp != nil && sp.wit != nil {
+		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
+			fc.depth = 1
+			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 	if owned {
 		// The wrapper stands in the generated part, before the first
 		// //line directive: a defect names no Ergo frame for it.
@@ -1485,7 +1500,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		if ok && l.consts[v] {
-			l.stats.Consts++ // forms.go
+			if l.constFold(v) {
+				l.stats.Consts++ // read by its bare name (forms.go)
+			}
 			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
 			return
 		}
@@ -1532,7 +1549,9 @@ func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
 
 // letRead is the Go text of a read of the package let v, Go-named name.
 func (l *lowerer) letRead(v *check.Var, name string) string {
-	if l.consts[v] {
+	if l.consts[v] && !l.constFold(v) {
+		// A let read only where Go's folding cannot fail is read by its
+		// bare name, so Go folds it (forms.go, constFold).
 		return l.rt() + ".Let(" + name + ")"
 	}
 	return name

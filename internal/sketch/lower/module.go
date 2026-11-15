@@ -67,9 +67,6 @@ func Runtime() []File {
 	return files
 }
 
-// goMod is the go.mod of a program with no Go requirements.
-var goMod = string(goModFile(GoModule{}))
-
 // moduleFiles are the emitted module's files: go.mod, go.sum when the
 // program has one, and main.go.
 func moduleFiles(m GoModule, code []byte) []File {
@@ -136,13 +133,16 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
-		// The producer record names the ledgers and the rewrites applied
-		// (ledger.go).
+	return l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...)), nil
+}
+
+// withRecord is files with the producer record of a run build that read a
+// ledger: it names the ledgers and the rewrites applied (ledger.go).
+func (l *lowerer) withRecord(u Unit, files []File) []File {
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
 		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
 	}
-	return files, nil
+	return files
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -211,6 +211,9 @@ type lowerer struct {
 	reassignedVars map[*check.Var]bool
 	// handed is each part a value being built took over (handParts).
 	handed map[syntax.Expr]bool
+	// inPlace is the in-place form of the owned literal being lowered
+	// (refown.go, inPlaceLit).
+	inPlace map[syntax.Node]*inPlaceLit
 	// Root registration callbacks for repeated moving task bodies (R12).
 	captureRoots map[syntax.Node]string
 	libs         []*check.Package // the libraries the program reaches (libraries)
@@ -244,6 +247,9 @@ type lowerer struct {
 	lastDir     string
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constFold).
+	letUses map[*check.Var][2]int
 
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
@@ -252,9 +258,13 @@ type lowerer struct {
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
 	kept   map[*check.Func][]bool     // kept-argument summaries (keeps.go)
-	stats  knownStats                 // what known.go and alias.go did (tests only)
-	vars   map[*check.Var]string      // package-level lets
-	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
+	// carrying are the carried-parameter summaries and carried the
+	// unions some call carries (carry.go, R3b).
+	carrying map[*check.Func][]bool
+	carried  map[*check.TypeName]bool
+	stats    knownStats            // what known.go and alias.go did (tests only)
+	vars     map[*check.Var]string // package-level lets
+	consts   map[*check.Var]bool   // the lets lowered as Go constants (constLet)
 	// constVals are those lets' values, which the bounds facts read
 	// (bounds.go).
 	constVals map[*check.Var]constant.Value
@@ -332,8 +342,9 @@ type lowerer struct {
 	refusals []Refusal
 	reads    map[*check.Var]bool // locals that some expression reads
 
-	readsDone   map[*check.Func]bool // std functions whose reads are in reads (readsOf)
-	builtinDone map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	readsDone    map[*check.Func]bool // std functions whose reads are in reads (readsOf)
+	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
 	calls    []callIdent // the call table (calls.go, #230)
 	callSeen map[*syntax.CallExpr]bool
@@ -363,6 +374,10 @@ type lowerer struct {
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int
+	// tabs memoizes each function's table domain (tabulate.go), and
+	// tabEmitted the functions whose table is written.
+	tabs       map[*check.Func]*tabInfo
+	tabEmitted map[*check.Func]bool
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the

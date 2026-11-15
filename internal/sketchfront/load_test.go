@@ -152,7 +152,7 @@ func TestLoaderModuleFile(t *testing.T) {
 		{"module 1app\n", "", "is not an import path"},
 		{"module a//b\n", "", "is not an import path"},
 		{"module a/\n", "", "is not an import path"},
-		// Trusted Go (NP4e): trust lines follow the module line.
+		// Trusted Go (NP4e, respelled `trust go MODULE` by the 2026-11-14 ruling).
 		{"module app\ntrust go log\n", "", "starts with the std package log"},
 	} {
 		module, _, d := parseModule(c.text)

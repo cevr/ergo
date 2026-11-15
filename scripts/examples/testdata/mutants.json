@@ -454,6 +454,43 @@
     {"name":"mk0-module-tests-skipped","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n\tr.testProgram(p)\n","to":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","rule":"A module of modules/ runs ergo test on every package folder, so a failing law fails it.","killers":["scripts/examples:TestModulesLeg"]},
     {"name":"mk0-default-run-skips-modules","origin":"wf10 MK0","file":"scripts/examples/main.go","from":"\t\tselected = append(selected, modules...)\n","to":"","rule":"A run of the tags (the gate's examples step) runs every module of modules/ too.","killers":["scripts/examples:TestModulesLeg"]},
     {"name":"mk0-module-binary-admitted","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\t\tcase entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","to":"\t\tcase false && entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","rule":"A module is a library: a cmd/ or cases/ folder in it is a layout error.","killers":["scripts/examples:TestModulesLeg"]},
-    {"name":"mk0-module-names-unchecked","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"if ergoName != \"\" && goName != \"\" && ergoName != goName {","to":"if false && ergoName != \"\" && goName != \"\" && ergoName != goName {","rule":"A module's ergo.mod and go.mod name one module path, so a replace that points at it resolves.","killers":["scripts/examples:TestModulesLeg"]}
+    {"name":"mk0-module-names-unchecked","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"if ergoName != \"\" && goName != \"\" && ergoName != goName {","to":"if false && ergoName != \"\" && goName != \"\" && ergoName != goName {","rule":"A module's ergo.mod and go.mod name one module path, so a replace that points at it resolves.","killers":["scripts/examples:TestModulesLeg"]},
+    {
+      "name": "fksrc-first-source-only", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\trels = append(rels, line)\n", "to": "\t\t\trels = append(rels[:0], line)\n",
+      "rule": "Every line of source is an upstream folder whose tests tests.txt restates.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-file-not-prefixed", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\tprefix = filepath.Base(rel) + \"/\"\n", "to": "\t\t\tprefix = rel[:0]\n",
+      "rule": "With more than one folder, FILE starts with its folder's last element.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-same-name-accepted", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\tif other, ok := prefixes[prefix]; ok {\n", "to": "\t\tif other, ok := prefixes[prefix]; ok && other == \"\" {\n",
+      "rule": "Two folders whose last elements match are refused, since their FILEs cannot be told apart.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "xmd-local-modules-untested",
+      "origin": "wf10 REF XMD",
+      "file": "scripts/examples/main.go",
+      "from": "\t\tfor _, dir := range localModules(p) {",
+      "to": "\t\tfor _, dir := range localModules(p)[:0] {",
+      "rule": "A program that installs a module of the repository by a go.mod replace runs the module's package tests in its test leg.",
+      "killers": [
+        "scripts/examples:TestModuleProgramTestsItsLocalModule"
+      ]
+    },
+    { "name": "gs8-driver-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\t\tfmt.Fprintf(h, \"driver %s\\n\", driver)\n", "to": "\t\t_ = driver\n", "rule": "Under early cutoff the key holds the driver's sources: an edit of cmd/ergo reruns every program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-test-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"check\", target})", "rule": "Under early cutoff the key holds the Go each test target emits: a compiler that emits another test binary reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-build-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "p.sources...), {\"build\", \"--emitted\", p.main}}", "to": "p.sources...)}", "rule": "Under early cutoff the key holds the Go the program's main emits: a compiler that emits another main reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-check-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"test\", \"--emitted\", target})", "rule": "Under early cutoff the key holds each check leg's result: a compiler that checks otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-fmt-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "calls := [][]string{append([]string{\"fmt\", \"--check\"}, p.sources...), ", "to": "calls := [][]string{", "rule": "Under early cutoff the key holds the fmt leg's result: a compiler that formats otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-bytes-keyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\tearly := err == nil\n", "to": "\tearly := false\n", "rule": "In a checkout with a driver, a compiler of other bytes that emits the same Go replays (early cutoff): a lower edit does not rerun every example.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\t\tstdout = withoutProducer(stdout)\n", "to": "\t\t\t_ = withoutProducer\n", "rule": "A check leg is keyed without its envelope's producer, the compiler's own digest, which no leg reads: a compiler of other bytes with the same results replays.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-snapshot-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\tdelete(snapshot, \"producer\")\n", "to": "\t\tdelete(snapshot, \"\")\n", "rule": "A check leg is keyed without its snapshot's producer either: ergo check names the compiler's digest in both places.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] }
   ]
 }

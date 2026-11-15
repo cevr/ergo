@@ -1,4 +1,7 @@
 {
+  "cmd/ergo": {
+    "TestDevClientAnswersInProcessWhenTheConnectionEnds": 0.01
+  },
   "ergo.local/prototype/cmd/ergo": {
     "TestALargeSourceChecksAndFmtRefusesIt": 0.09,
     "TestAManifestSelectsNothing": 1.49,
@@ -458,12 +461,12 @@
     "TestIRAgreesOnExamplesPart97": 3.49,
     "TestIRAgreesOnExamplesPart98": 3.92,
     "TestIRAgreesOnExamplesPart99": 4.94,
-    "TestIRBodyThatDoesNotCheck": 0.45,
-    "TestIRCacheKeysOnIR": 3.12,
+    "TestIRBodyThatDoesNotCheck": 0,
+    "TestIRCacheKeysOnIR": 0,
     "TestIRCensusFindsEveryReason": 2.55,
     "TestIRCoverage": 41.93,
     "TestIRFailuresMatchSource": 356.86,
-    "TestIRMatchesSource": 41.52,
+    "TestIRMatchesSource": 0,
     "TestIRTestsRunInTheFullTier": 0.01,
     "TestIRTextChecksPart0": 24.54,
     "TestIRTextChecksPart1": 0.24,
@@ -743,6 +746,9 @@
     "TestRules": 0.01,
     "TestSeparateAdjacentComments": 0,
     "TestTranslateMeaningKept": 0.14
+  },
+  "ergo.local/prototype/internal/pinset": {
+    "TestPinSetNameKeysEveryInput": 0
   },
   "ergo.local/prototype/internal/proclimit": {
     "TestStartedProgramsDieFirst": 0
@@ -1812,13 +1818,17 @@
     "TestBuildModeChoosesTheRoot": 0.54,
     "TestBuildRefusesAnUnanchorableSource": 0,
     "TestBuildReleasesItsPrivateRoot": 0.3,
+    "TestColdBuildCompilesNoPinPackage": 20.55,
     "TestFormat": 0,
+    "TestIRFilePerPackage": 2.33,
     "TestImportOfAnElementThatIsNotAName": 0,
     "TestLoaderBrokenDependency": 0,
     "TestLoaderImportReasons": 0,
     "TestLoaderModuleFile": 0,
     "TestLoaderOrderIsTheNames": 0.01,
     "TestModuleGoBodies": 0.05,
+    "TestPinArchivesMatchLocalBuild": 47.49,
+    "TestRefusedArchiveFallsBack": 27.16,
     "TestSketchBuildRefusesWhatTheLoweringCannotLower": 0,
     "TestSketchBuildRunsProgram": 0.22,
     "TestSketchCheckReportsLocatedDiagnostics": 0,
@@ -2499,5 +2509,8 @@
   },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
+  },
+  "internal/sketchfront": {
+    "TestStatSumsReadOnlyWhatChanged": 0.01
   }
 }
