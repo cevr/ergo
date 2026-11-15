@@ -72,7 +72,23 @@ func Reserve(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfi
 	case None:
 		(t.base, "")
 	}
-	let start = try startOf(t, parent, branch, o.From)
+	// The parent is read with no lock: an rm may take it meanwhile, and
+	// then the failure is that it is gone, not Git's.
+	let start = startOf(t, parent, branch, o.From) catch {
+	case NoRevision as e:
+		return e
+	case Diverged as e:
+		return e
+	case VcsFailed as e:
+		match o.On {
+		case Some[string] as on:
+			if try cloneable(t, on.Value) == None {
+				return NoWorkspace{Name: on.Value}
+			}
+		case None:
+		}
+		return e
+	}
 	let path = filepath.Join([]string{t.home, FolderOf(name)})
 	let id = idOf(t, name, path)
 	let m = Making{Name: name, Id: id, Path: path, Parent: parent, ParentId: parentId, Branch: branch, Start: start, Token: token, Config: c, Copy: o.Copy || c.Copy, Cloner: ""}
