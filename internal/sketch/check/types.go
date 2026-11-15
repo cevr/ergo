@@ -1039,6 +1039,11 @@ func (s *Struct) field(name string) (*Field, int) {
 	return s.Fields[i], i
 }
 
+// Includes are the operation types the members `..I` include, at this
+// instance's type arguments: the owners of the operations it does not
+// declare itself.
+func (i *Interface) Includes() []*Named { return i.includes }
+
 func (i *Interface) method(name string) *Method {
 	if i.index == nil {
 		i.index = make(map[string]*Method, len(i.Methods))

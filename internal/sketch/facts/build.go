@@ -64,7 +64,14 @@ type builder struct {
 	handle string
 	file   uint16
 	sites  []Site
-	n      Counts
+	// tpUses are the uses of type parameters that no name of the
+	// declaration defines (nameLocals).
+	tpUses []struct{ id, off uint32 }
+	// emitted holds each site's file and offset: a case's alternatives
+	// (FK7a) expand into patterns that copy a written name, one copy per
+	// combination, and the name is one site.
+	emitted map[[2]uint32]bool
+	n       Counts
 	// funcNames counts the functions of each package by name, to give a
 	// function of an overloaded name (196m) its receiver type in its
 	// handle.
@@ -106,7 +113,7 @@ func Build(pkg *check.Package, files []File) (*Table, Counts) {
 			if b.encl != NoSym {
 				b.handle = b.t.Symbols[b.encl].Handle
 			}
-			b.locals = b.locals[:0]
+			b.locals, b.tpUses = b.locals[:0], b.tpUses[:0]
 			syntax.Inspect(d, b.visit)
 			b.nameLocals()
 		}
@@ -482,6 +489,10 @@ func (b *builder) importSpec(x *syntax.ImportSpec) {
 }
 
 func (b *builder) emit(id, off uint32, k SiteKind, flag uint8) {
+	if b.emitted == nil {
+		b.emitted = map[[2]uint32]bool{}
+	}
+	b.emitted[[2]uint32{uint32(b.file), off}] = true
 	b.n.Rows++
 	b.sites = append(b.sites, Site{Sym: id, Off: off, Encl: b.encl, File: b.file, Kind: k, Flag: flag})
 	if k == Def && !b.t.Symbols[id].Declared {
@@ -492,6 +503,9 @@ func (b *builder) emit(id, off uint32, k SiteKind, flag uint8) {
 
 // ident emits the site of a resolved name.
 func (b *builder) ident(x *syntax.Ident) {
+	if b.emitted[[2]uint32{uint32(b.file), uint32(x.NamePos)}] {
+		return // a copy of a written name (emitted)
+	}
 	m := b.marks[x]
 	if tg, ok := b.tgts[x]; ok {
 		b.n.Names++
@@ -534,6 +548,8 @@ func (b *builder) ident(x *syntax.Ident) {
 		case Param, Local, TypeParam:
 			b.locals = append(b.locals, id)
 		}
+	} else if sym.Kind == TypeParam && !b.t.Symbols[id].Declared {
+		b.tpUses = append(b.tpUses, struct{ id, off uint32 }{id, uint32(x.NamePos)})
 	}
 	b.emit(id, uint32(x.NamePos), k, m.flag)
 }
@@ -561,6 +577,39 @@ func (b *builder) nameLocals() {
 		s.Handle = h
 		b.ids[h] = id
 	}
+	// A variant's own type parameter (Checking[T] in a union over T) has
+	// no declaring name in the checker's maps, only uses: it is the
+	// variant's, the nearest variant named before its first use.
+	for _, u := range b.tpUses {
+		s := &b.t.Symbols[u.id]
+		if s.Handle != "" {
+			continue
+		}
+		v := b.variantBefore(b.file, u.off)
+		if v == "" {
+			continue
+		}
+		h := v + "." + s.Name
+		if _, taken := b.ids[h]; taken {
+			continue
+		}
+		s.Handle = h
+		b.ids[h] = u.id
+	}
+}
+
+// variantBefore is the handle of the variant of the current declaration
+// whose name is nearest before off in file, or "".
+func (b *builder) variantBefore(file uint16, off uint32) string {
+	h, at := "", uint32(0)
+	encl := b.t.Symbols[b.encl]
+	for i := range b.t.Symbols {
+		v := &b.t.Symbols[i]
+		if v.Kind == Variant && v.Declared && v.File == file && v.Off < off && v.Off >= encl.Off && v.Off >= at && v.Handle != "" {
+			h, at = v.Handle, v.Off
+		}
+	}
+	return h
 }
 
 // symbol is the key and the symbol of o. at is the name that refers to o
@@ -675,6 +724,31 @@ func (b *builder) method(m *check.Method, t check.Type) (any, Symbol, bool) {
 		return h, Symbol{Handle: h, Kind: Operation, Name: m.Name, Exported: exported(m.Name)}, true
 	}
 	return m, Symbol{Kind: Operation, Name: m.Name, Exported: exported(m.Name)}, true
+}
+
+// opOf is the operation m of the operation type n as an edge's end: an
+// operation a member `..I` of n includes is I's, which declares it (none
+// for the prelude's, which has no handle).
+func (b *builder) opOf(m *check.Method, n *check.Named) (any, Symbol, bool) {
+	if _, ok := b.owners[m]; !ok {
+		i, _ := n.Underlying().(*check.Interface)
+		for _, inc := range i.Includes() {
+			ii, _ := inc.Underlying().(*check.Interface)
+			if ii == nil {
+				continue
+			}
+			for _, im := range ii.Methods {
+				if im.Name != m.Name {
+					continue
+				}
+				if inc.Obj == nil || inc.Obj.Pkg == nil || inc.Obj.Pkg.Path == "" {
+					return nil, Symbol{}, false
+				}
+				return b.opOf(im, inc)
+			}
+		}
+	}
+	return b.method(m, n)
 }
 
 // member is the field or the operation name of a value of type t.
