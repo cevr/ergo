@@ -920,6 +920,10 @@ func (g *gate) run(out io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(out, "gate: %v\n", err)
 	}
+	// The sweeps whose record this run found stale, by directory: the
+	// seconds they ran (rewriteStaleSweeps, at the end of the run).
+	var staleMu sync.Mutex
+	stale := map[string]float64{}
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -944,6 +948,9 @@ func (g *gate) run(out io.Writer) int {
 				results[i] = g.sweepCheckout(step)
 				if note := sweepCostStale(step.Sweep, sweepCosts[step.Sweep], results[i].duration.Seconds()); note != "" {
 					results[i].output = fmt.Appendf(results[i].output, "%s\n", note)
+					staleMu.Lock()
+					stale[step.Sweep] = results[i].duration.Seconds()
+					staleMu.Unlock()
 				}
 			} else {
 				results[i] = g.execute(step)
@@ -1017,6 +1024,13 @@ func (g *gate) run(out io.Writer) int {
 		if line != "" {
 			fmt.Fprintln(out, line)
 		}
+	}
+	// A stale sweep record corrects itself: every step has ended and the
+	// records are written, so no sweep sees the checkout change.
+	if dirs, err := rewriteStaleSweeps(g.root, stale); err != nil {
+		fmt.Fprintf(out, "gate: %s: %v\n", sweepCostFile, err)
+	} else if len(dirs) > 0 {
+		fmt.Fprintf(out, "gate: rewrote the rows of %s in %s from this run; commit them\n", strings.Join(dirs, ", "), sweepCostFile)
 	}
 	elapsed := time.Since(started).Seconds()
 	if len(failures) > 0 {

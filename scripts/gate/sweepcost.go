@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,12 +74,49 @@ func sweepCostStale(dir string, recorded sweepCost, ran float64) string {
 		if ran <= hangFloor.Seconds()/sweepStaleFactor {
 			return ""
 		}
-		return fmt.Sprintf("gate: closure sweep ./%s ran %.0fs and has no row in %s, so its runs' deadline is the floor; record it: ./scripts/gate.sh -record-durations -sweeps %s", dir, ran, sweepCostFile, dir)
+		return fmt.Sprintf("gate: closure sweep ./%s ran %.0fs and has no row in %s, so its runs' deadline is the floor; the gate writes its row at the end of this run (or record it: ./scripts/gate.sh -record-durations -sweeps %s)", dir, ran, sweepCostFile, dir)
 	}
 	if ran <= sweepStaleFactor*recorded.Sweep {
 		return ""
 	}
-	return fmt.Sprintf("gate: closure sweep ./%s ran %.0fs, more than %d times its recorded %.0fs (%s); record it again: ./scripts/gate.sh -record-durations -sweeps %s", dir, ran, sweepStaleFactor, recorded.Sweep, sweepCostFile, dir)
+	return fmt.Sprintf("gate: closure sweep ./%s ran %.0fs, more than %d times its recorded %.0fs (%s); the gate rewrites its row at the end of this run (or record it: ./scripts/gate.sh -record-durations -sweeps %s)", dir, ran, sweepStaleFactor, recorded.Sweep, sweepCostFile, dir)
+}
+
+// rewriteStaleSweeps rewrites the rows of sweepCostFile under root whose
+// sweep this run found stale (sweepCostStale), dir to the seconds it ran,
+// so the record corrects itself without a separate record run: the sweep
+// becomes what it ran, and its slowest run grows in the same proportion (a
+// package with no row: the whole run). The gate calls it after every step
+// has ended and its records are written, since a sweep fails on any change
+// of the checkout while it runs. It returns the directories it rewrote.
+func rewriteStaleSweeps(root string, stale map[string]float64) ([]string, error) {
+	if len(stale) == 0 {
+		return nil, nil
+	}
+	table, err := readSweepCosts(root)
+	if err != nil {
+		return nil, err
+	}
+	dirs := slices.Sorted(maps.Keys(stale))
+	for _, dir := range dirs {
+		ran := math.Ceil(stale[dir])
+		row := table[dir]
+		run := ran
+		if row.Sweep > 0 {
+			run = max(row.Run, math.Ceil(row.Run*ran/row.Sweep))
+		}
+		table[dir] = sweepCost{Run: run, Sweep: ran}
+	}
+	return dirs, writeSweepTable(root, table)
+}
+
+// writeSweepTable writes sweepCostFile under root, its rows in order.
+func writeSweepTable(root string, table map[string]sweepCost) error {
+	data, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, sweepCostFile), append(data, '\n'), 0o644)
 }
 
 // writeSweepCosts runs the closure sweep of each named package directory
@@ -150,15 +188,7 @@ func writeSweepCosts(root string, limit limiter, out io.Writer, dirs []string) e
 		table[step.Sweep] = cost
 		fmt.Fprintf(out, "gate: %s: slowest run %.0fs, sweep %.0fs\n", step.Name, cost.Run, cost.Sweep)
 	}
-	sorted := map[string]sweepCost{}
-	for _, k := range slices.Sorted(maps.Keys(table)) {
-		sorted[k] = table[k]
-	}
-	data, err := json.MarshalIndent(sorted, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(root, sweepCostFile), append(data, '\n'), 0o644); err != nil {
+	if err := writeSweepTable(root, table); err != nil {
 		return err
 	}
 	return errors.Join(failures...)
