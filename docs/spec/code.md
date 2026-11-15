@@ -1,6 +1,6 @@
 # Code: questions about a workspace's code
 
-Status: **partly implemented**: the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a); `Rename` with the proof `Alpha` and the refusals `NameTaken`, `OutsideWorkspace` and `Capture`, over `Model` (SEM5's core). `Calls`, `Reach`, `Machine` and `Api` (SEM2), the server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17; with them rename covers parameters, locals, variants, laws and tests), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).
+Status: **partly implemented**: the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a); `Rename` with the proof `Alpha` and the refusals `NameTaken`, `OutsideWorkspace` and `Capture`, over `Model` (SEM5's core); `Calls` and `Api`, a plan's contract impact, `ergo code calls|api`, and `ergo inspect api` as a view of `Api` (SEM2a). `Reach` and `Machine`, with `ergo inspect machine` as a view (SEM2b), the server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17; with them rename covers parameters, locals, variants, laws and tests), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).
 
 Std package `code` answers questions about code from the **fact tables** the checker's result gives for each package ([GLOSSARY](../../GLOSSARY.md), Fact table). No tool walks typed trees to answer a name question, and none reads source text with a regular expression.
 
@@ -19,19 +19,23 @@ type Reader {
 	Symbols(q SymbolQuery) SymbolPage,
 	Symbol(a string) Decl fails NoSymbol | Ambiguous,
 	References(q RefQuery) SitePage fails NoSymbol | Ambiguous,
+	Calls(q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable,
+	Api(q ApiQuery) ApiView fails NoPackage,
 	law HandleRoundTrips(pick int) { … },
 	law ReferencesAreSound(pick int, kinds []string) { … },
 	law ReferencesAreComplete() { … },
 	law PagesPartition(pick int, size int) { … },
+	law CallsAreSteps(pick int, depth int, inbound bool) { … },
 }
 ```
 
 1. **Addresses.** `Symbol` and `References` take an address: a handle; a position, `file:line:column` with the file as a diagnostic names it, which names the symbol of the first site there; or a short name, the handle without its package (`Parse`, `Token.Kind`). A short name that fits one declaration names it; one that fits several fails `Ambiguous{Address, Candidates}` with every handle in table order; an address that names nothing fails `NoSymbol{Address}`.
 2. **Queries.** `Symbols` finds declarations by name (exactly, by `prefix` or by `part`), kind and package; every field of `SymbolQuery` is optional. `References` gives the sites of one declaration, of the kinds asked for (all when none).
-3. **Pages.** Every list is a page in table order: `Offset` (0 by default) and `Limit` (100 by default, at most 1000), with `Total` and `Next` (-1 after the last page). At one revision the pages of an answer hold each row once (law `PagesPartition`).
-4. **Revision.** Every answer carries the revision of the tables it read: a digest of the program's file names and texts.
-5. **Laws.** `HandleRoundTrips`: the declaration at a declaration's handle is that declaration. `ReferencesAreSound`: each site answered names the declaration asked for, with a kind asked for. `ReferencesAreComplete`: the sites of every declaration, counted, are every site of the tables. `PagesPartition`: as above. The top-level law `IndexIsScan` holds the product provider to the reference one on generated tables. They run in `internal/sketch/lower`'s `TestStdCodeLawsRun` ([stdlib.md, Std laws](stdlib.md#std-laws)).
-6. **Providers.** `Index` (`IndexOf(t)`) indexes the tables once, by handle, by position and by short name, so a question reads the rows of its answer. `Scan` (`ScanOf(t)`) reads every row for every question: slow and plainly right. `NewIndex(seed)` and `NewScan(seed)` build each over `Generated(seed)`, the tables a law run draws. A program that reads code needs only `Reader`: its row shows it cannot write.
+3. **Calls and Api.** `Calls` follows the tables' call edges, one per call site, from the declaration a call is in to the one it calls: a function, an operation, or a parameter or local holding a function value. `Direction` is `out` (the default) or `in`; `Depth` is 1 by default and at most 16. The answer is the hops, each a call with the number of steps that reach it, by depth, then in the order the step before reached each declaration; each declaration is followed once, so a cycle ends. A type, a type parameter, a field, a variant or a package fails `NotCallable{Address, Kind}`. `Api` is the contracts of one package's exported functions (the root package by default; `NoPackage` for a path the tables do not have): each one's signature, row, and what it takes and copies, as `ergo inspect api` prints them. `ApiDiff(old, new)` is the changed contracts, each saying whether it breaks resource callers (it newly takes a parameter or `self`, or newly copies a type parameter); `ApiText` and `ApiDiffText` are their text.
+4. **Pages.** Every list is a page in table order: `Offset` (0 by default) and `Limit` (100 by default, at most 1000), with `Total` and `Next` (-1 after the last page). At one revision the pages of an answer hold each row once (law `PagesPartition`).
+5. **Revision.** Every answer carries the revision of the tables it read: a digest of the program's file names and texts.
+6. **Laws.** `HandleRoundTrips`: the declaration at a declaration's handle is that declaration. `ReferencesAreSound`: each site answered names the declaration asked for, with a kind asked for. `ReferencesAreComplete`: the sites of every declaration, counted, are every site of the tables. `PagesPartition`: as above. `CallsAreSteps`: one more depth begins with the answer before and adds only hops of the new depth; at depth 1 each hop is a call of (or, in, to) the declaration asked about. The top-level law `IndexIsScan` holds the product provider to the reference one on generated tables, `Calls` (Index walks by steps, Scan by rounds over every edge) and `Api` included. `ApiDiffOfItselfIsEmpty` and `ApiDiffBreaksOnANewTake` hold `ApiDiff`. `cmd/ergo`'s `TestCodeAnswersAgreeWithTheTables` holds `ergo code calls` at depth 1 to the checker's call sites on the examples, with a call through a function value in every package that has one. They run in `internal/sketch/lower`'s `TestStdCodeLawsRun` ([stdlib.md, Std laws](stdlib.md#std-laws)).
+7. **Providers.** `Index` (`IndexOf(t)`) indexes the tables once, by handle, by position and by short name, so a question reads the rows of its answer. `Scan` (`ScanOf(t)`) reads every row for every question: slow and plainly right. `NewIndex(seed)` and `NewScan(seed)` build each over `Generated(seed)`, the tables a law run draws. A program that reads code needs only `Reader`: its row shows it cannot write.
 
 ## Plans and apply
 
@@ -69,7 +73,8 @@ type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
    - every file it read, with that file's revision;
    - each file it changes, with the revision before, the revision after and the new text;
    - a line diff per changed file;
-   - its verdict.
+   - its verdict;
+   - its contract impact: each public contract of the workspace the change alters, adds or removes, as `ergo inspect api --diff` gives it, named by package and name (law `ImpactIsTheChangedContracts`, against the `sig` and `needs` lines of `Model`'s sources).
 
    A store keeps the latest 64 plans. A planner holds no `Files`, so it cannot write (`PlanWritesNothing`).
 6. **Apply.** `Apply` follows the protocol of the model `models/apply`, which `ergo test models/apply` proves in its scope:
@@ -117,13 +122,13 @@ type Capture { Handle string, To string, Rows []string }
 
 ## ergo code
 
-`ergo code [--in DIR] [--json] COMMAND [ARGS...]` checks the program in `DIR` (the current folder by default), builds its fact tables and answers one question through `Reader`'s command line, which `ergo gen cli` generates ([rpc.md](rpc.md), ergo gen cli): `describe`, `symbols [--name N] [--match M] [--kind K] [--package P] [--offset O] [--limit L]`, `symbol ADDRESS`, `references --of ADDRESS [--kinds K]... [--offset O] [--limit L]`. A record answer prints as its JSON. A typed failure prints its tag and its JSON on standard error with status 1, or its tagged JSON on standard output with `--json`:
+`ergo code [--in DIR] [--json] COMMAND [ARGS...]` checks the program in `DIR` (the current folder by default), builds its fact tables and answers one question through `Reader`'s command line, which `ergo gen cli` generates ([rpc.md](rpc.md), ergo gen cli): `describe`, `symbols [--name N] [--match M] [--kind K] [--package P] [--offset O] [--limit L]`, `symbol ADDRESS`, `references --of ADDRESS [--kinds K]... [--offset O] [--limit L]`, `calls --of ADDRESS [--direction in|out] [--depth N] [--offset O] [--limit L]`, `api [--package P]`. A record answer prints as its JSON. A typed failure prints its tag and its JSON on standard error with status 1, or its tagged JSON on standard output with `--json`:
 
 ```
 $ ergo code symbol Total
 Ambiguous: {"_tag":"Ambiguous","address":"Total","candidates":["shop/cart.Total","shop/stock.Total"]}
 ```
 
-The command line is Ergo: std `code` and its generated `codecli`, in the module `internal/linked/code/ergo`, linked into the binary as checked-in Go (docs/tooling.md, Linked Ergo packages). The tables cross from the Go checker to the Ergo reader as the JSON of `code.Tables`, a seam that capstone S1's mixed binary removes. `ergo query`, `ergo type` and `ergo graph` are gone, with no alias.
+The command line is Ergo: std `code` and its generated `codecli`, in the module `internal/linked/code/ergo`, linked into the binary as checked-in Go (docs/tooling.md, Linked Ergo packages). The tables cross from the Go checker to the Ergo reader as the JSON of `code.Tables`, a seam that capstone S1's mixed binary removes. `ergo query`, `ergo type` and `ergo graph` are gone, with no alias. `ergo inspect api [--json] [--diff OLD NEW]` is a view of the same package: `ApiText`, `ApiDiff` and `ApiDiffText` over the tables of the root package (its contracts come from `internal/sketch/api`'s projection); `--json` keeps the shape of `api.Function` and `api.Change`, and the output on every example is byte-equal to the Go view it replaced.
 
 *Prior art:* Gleam's compiler records kinded references while it type-checks, and its language server's rename reads them; gopls keeps a per-package cross-reference index computed during type checking and serves `go_symbol_references` to agents by a symbol's name (`lib.T.M`); SCIP names symbols by printable strings; MoonBit's `moon ide` takes a symbol name on the command line. ReScript's editor tooling reads compiler artifacts from a second binary; here the tools are the compiler's own release.

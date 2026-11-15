@@ -1117,6 +1117,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `journal` | `Journal.SnapshotDropsSignals` | `SnapshotDropsSignals(s S) { Snapshot(s) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s}) }` | `TestStdJournalLawsRun` | tested |
 | `journal/memory` | `DroppedIsNotJournaled` | `DroppedIsNotJournaled() { with context { Scheduler: time.NewManual(0) } { dropped(New[int, int]()) } }` | `TestStdJournalLawsRun` | tested |
 | `journal/memory` | `RecoveryIsTheFold` | `RecoveryIsTheFold(ops []int, every int) { with context { Scheduler: time.NewManual(0) } { let (j, arm, all) = crashing() recovers(j, arm, all, ops, every) } }` | `TestStdJournalLawsRun` | tested |
+| `code` | `ApiDiffBreaksOnANewTake` | `ApiDiffBreaksOnANewTake(seed int, pick int, how int) { apiDiffBreaksOnANewTake(seed, pick, how) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `ApiDiffOfItselfIsEmpty` | `ApiDiffOfItselfIsEmpty(seed int) { len(ApiDiff(allContracts(seed), allContracts(seed))) == 0 }` | `TestStdCodeLawsRun` | tested |
 | `code` | `AppliedIsPlanned` | `AppliedIsPlanned(seed int, pick int, word int) { appliedIsPlanned(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `ApplyIsSafe` | `ApplyIsSafe(seed int, mode int, at int, out int) { applyIsSafe(seed, mode, at, out) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `CanonicalStaysCanonical` | `CanonicalStaysCanonical(seed int, pick int, word int) { canonicalStaysCanonical(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
@@ -1124,6 +1126,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `code` | `Checker.FormatIsIdempotent` | `FormatIsIdempotent(text string) { formatIsIdempotent(text) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Files.ExchangeSwaps` | `ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Files.WriteThenRead` | `WriteThenRead(x string) { writeThenRead(x) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `ImpactIsTheChangedContracts` | `ImpactIsTheChangedContracts(seed int, pick int, word int) { impactIsTheChangedContracts(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `IndexIsScan` | `IndexIsScan(seed int, size int) { indexIsScan(seed, size) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `OverlapIsRefused` | `OverlapIsRefused(seed int) { overlapIsRefused(seed) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `OverlayDiagnosticBlocks` | `OverlayDiagnosticBlocks(seed int, pick int) { overlayDiagnosticBlocks(seed, pick) }` | `TestStdCodeLawsRun` | tested |
@@ -1131,6 +1134,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `code` | `Planner.PlanOfIsThePlan` | `PlanOfIsThePlan(pick int, word int) { planOfIsThePlan(pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `PlanOfAppliedIsEmpty` | `PlanOfAppliedIsEmpty(seed int, pick int, word int) { planOfAppliedIsEmpty(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `PlanWritesNothing` | `PlanWritesNothing(seed int, pick int, word int) { planWritesNothing(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `Reader.CallsAreSteps` | `CallsAreSteps(pick int, depth int, inbound bool) { callsAreSteps(pick, depth, inbound) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.HandleRoundTrips` | `HandleRoundTrips(pick int) { handleRoundTrips(pick) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.PagesPartition` | `PagesPartition(pick int, size int) { pagesPartition(pick, size) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Reader.ReferencesAreComplete` | `ReferencesAreComplete() { referencesAreComplete() }` | `TestStdCodeLawsRun` | tested |
