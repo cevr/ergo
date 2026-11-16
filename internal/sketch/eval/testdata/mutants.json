@@ -1404,8 +1404,8 @@
       "name": "oracle-o31-reported-arguments-dropped",
       "origin": "wf10 ORACLE O31",
       "file": "internal/sketch/eval/cases.go",
-      "from": "\t\t\tout.Case, out.Arguments = k+1, shown(shows)",
-      "to": "\t\t\tout.Case, out.Arguments = k+1, nil",
+      "from": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn",
+      "to": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, nil, result.Drawn",
       "rule": "A refuted case reports the arguments it ran with, written when it is reported.",
       "killers": ["internal/sketch/eval:TestCasePlansRun"]
     },
