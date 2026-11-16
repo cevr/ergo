@@ -36,6 +36,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
+			"irBuilder.adaptOperand":   "the IR's task block adapter: the Env copy's task is the body's task parameter, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
