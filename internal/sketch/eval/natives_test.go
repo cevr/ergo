@@ -122,7 +122,11 @@ func TestNativeWorkIsWhatGoReads(t *testing.T) {
 			args = []Value{s, int64(1), int64(5)}
 		}
 		in.steps, in.bytes = 0, 0
-		if _, ab := natives[name](in, fr, fr.decl, nil, args); ab != nil {
+		nat := natives[name]
+		if nat == nil {
+			nat = goNatives[name] // reached through std's import go strings
+		}
+		if _, ab := nat(in, fr, fr.decl, nil, args); ab != nil {
 			t.Fatalf("%s: %s", name, ab.msg)
 		}
 		return in.steps, in.bytes
@@ -307,7 +311,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return v1.StrconvItoa(int(d)) }},
 		{name: "strconv.FormatInt", args: []Value{d, int64(base)}, v1: func() any { return v1.StrconvFormatInt(d, base) }},
 		{name: "strconv.FormatBool", args: []Value{i > 4}, v1: func() any { return v1.StrconvFormatBool(i > 4) }},
-		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i)}, v1: func() any { return v1.StrconvFormatFloat(f, fmtc, i) }},
+		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i), int64(64)}, v1: func() any { return v1.StrconvFormatFloat(f, fmtc, i) }},
 		{name: "strconv.Quote", args: []Value{s}, v1: func() any { return v1.StrconvQuote(s) }},
 		{name: "strconv.Atoi", args: []Value{num}, v1: func() any { return result(v1.StrconvAtoi(num)) }},
 		{name: "strconv.ParseInt", args: []Value{num, int64(base), int64(bits)}, v1: func() any { return result(v1.StrconvParseInt(num, base, bits)) }},

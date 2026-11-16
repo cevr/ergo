@@ -19,10 +19,12 @@ import (
 var goNatives = map[string]native{
 	"math.Log":          goFloat(math.Log),
 	"math.Exp":          goFloat(math.Exp),
+	"strings.TrimLeft":  goStrings(strings.TrimLeft),
 	"strings.TrimRight": goStrings(strings.TrimRight),
 }
 
-// Go's math for float64, which std/math/math.ergo binds through import go.
+// Go's math for float64, which std/math/math.ergo binds through import go,
+// and strings.IndexByte, which std strings binds.
 func registerNativesgo() {
 	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Trunc": math.Trunc} {
 		goNatives["math."+name] = goFloat(f)
@@ -31,6 +33,12 @@ func registerNativesgo() {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			return f(args[0].(float64), args[1].(float64)), in.charge(fr, at, 1)
 		}
+	}
+	goNatives["strings.IndexByte"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+			return nil, ab
+		}
+		return int64(strings.IndexByte(args[0].(string), args[1].(uint8))), nil
 	}
 	goNatives["math.Pow"] = two(math.Pow)
 	goNatives["math.Mod"] = two(math.Mod)

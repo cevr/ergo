@@ -117,33 +117,33 @@ func registerNatives() {
 			return out, nil
 		}
 	}
-	pure("strings.Compare", func(a []Value) Value { return int64(strings.Compare(str(a[0]), str(a[1]))) })
+	goPure("strings.Compare", func(a []Value) Value { return int64(strings.Compare(str(a[0]), str(a[1]))) })
 	pure("strings.PadLeft", func(a []Value) Value { return pad(str(a[0]), i64(a[1]), a[2].(int32), true) })
 	pure("strings.PadRight", func(a []Value) Value { return pad(str(a[0]), i64(a[1]), a[2].(int32), false) })
-	pure("strings.Split", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })
+	goPure("strings.Split", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })
 	pure("strings.Join", func(a []Value) Value { return strings.Join(strs(a[0]), str(a[1])) })
-	pure("strings.HasPrefix", func(a []Value) Value { return strings.HasPrefix(str(a[0]), str(a[1])) })
-	pure("strings.HasSuffix", func(a []Value) Value { return strings.HasSuffix(str(a[0]), str(a[1])) })
-	pure("strings.TrimSpace", func(a []Value) Value { return strings.TrimSpace(str(a[0])) })
-	pure("strings.TrimPrefix", func(a []Value) Value { return strings.TrimPrefix(str(a[0]), str(a[1])) })
-	pure("strings.TrimSuffix", func(a []Value) Value { return strings.TrimSuffix(str(a[0]), str(a[1])) })
-	pure("strings.Fields", func(a []Value) Value { return list(strings.Fields(str(a[0]))) })
-	pure("strings.Repeat", func(a []Value) Value { return strings.Repeat(str(a[0]), i64(a[1])) })
-	pure("strings.ToLower", func(a []Value) Value { return strings.ToLower(str(a[0])) })
-	pure("strings.ToUpper", func(a []Value) Value { return strings.ToUpper(str(a[0])) })
-	pure("strings.Index", func(a []Value) Value { return int64(strings.Index(str(a[0]), str(a[1]))) })
-	pure("strings.Contains", func(a []Value) Value { return strings.Contains(str(a[0]), str(a[1])) })
+	goPure("strings.HasPrefix", func(a []Value) Value { return strings.HasPrefix(str(a[0]), str(a[1])) })
+	goPure("strings.HasSuffix", func(a []Value) Value { return strings.HasSuffix(str(a[0]), str(a[1])) })
+	goPure("strings.TrimSpace", func(a []Value) Value { return strings.TrimSpace(str(a[0])) })
+	goPure("strings.TrimPrefix", func(a []Value) Value { return strings.TrimPrefix(str(a[0]), str(a[1])) })
+	goPure("strings.TrimSuffix", func(a []Value) Value { return strings.TrimSuffix(str(a[0]), str(a[1])) })
+	goPure("strings.Fields", func(a []Value) Value { return list(strings.Fields(str(a[0]))) })
+	goPure("strings.Repeat", func(a []Value) Value { return strings.Repeat(str(a[0]), i64(a[1])) })
+	goPure("strings.ToLower", func(a []Value) Value { return strings.ToLower(str(a[0])) })
+	goPure("strings.ToUpper", func(a []Value) Value { return strings.ToUpper(str(a[0])) })
+	goPure("strings.Index", func(a []Value) Value { return int64(strings.Index(str(a[0]), str(a[1]))) })
+	goPure("strings.Contains", func(a []Value) Value { return strings.Contains(str(a[0]), str(a[1])) })
 	pure("strings.Slice", func(a []Value) Value { return str(a[0])[i64(a[1]):i64(a[2])] })
-	pure("strings.ReplaceAll", func(a []Value) Value { return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])) })
-	pure("strings.LastIndex", func(a []Value) Value { return int64(strings.LastIndex(str(a[0]), str(a[1]))) })
-	pure("strings.Count", func(a []Value) Value { return int64(strings.Count(str(a[0]), str(a[1]))) })
-	pure("strings.SplitN", func(a []Value) Value {
+	goPure("strings.ReplaceAll", func(a []Value) Value { return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])) })
+	goPure("strings.LastIndex", func(a []Value) Value { return int64(strings.LastIndex(str(a[0]), str(a[1]))) })
+	goPure("strings.Count", func(a []Value) Value { return int64(strings.Count(str(a[0]), str(a[1]))) })
+	goPure("strings.SplitN", func(a []Value) Value {
 		// Go's nil for n == 0 is Ergo's empty slice: Ergo has no nil slice.
 		return list(strings.SplitN(str(a[0]), str(a[1]), i64(a[2])))
 	})
-	pure("strings.EqualFold", func(a []Value) Value { return strings.EqualFold(str(a[0]), str(a[1])) })
-	pure("strings.ContainsRune", func(a []Value) Value { return strings.ContainsRune(str(a[0]), rune(a[1].(int32))) })
-	pure("strings.ToValidUTF8", func(a []Value) Value { return strings.ToValidUTF8(str(a[0]), str(a[1])) })
+	goPure("strings.EqualFold", func(a []Value) Value { return strings.EqualFold(str(a[0]), str(a[1])) })
+	goPure("strings.ContainsRune", func(a []Value) Value { return strings.ContainsRune(str(a[0]), rune(a[1].(int32))) })
+	goPure("strings.ToValidUTF8", func(a []Value) Value { return strings.ToValidUTF8(str(a[0]), str(a[1])) })
 
 	goPure("unicode/utf8.RuneCountInString", func(a []Value) Value { return int64(utf8.RuneCountInString(str(a[0]))) })
 	pure("utf8.RuneText", func(a []Value) Value { return string(rune(a[0].(int32))) })
@@ -171,13 +171,13 @@ func registerNatives() {
 		return stdRecord(fn, "Decoded", map[string]Value{"Rune": int32(r), "Size": int64(n)}), nil
 	}
 
-	pure("strconv.Itoa", func(a []Value) Value { return strconv.Itoa(i64(a[0])) })
-	pure("strconv.FormatInt", func(a []Value) Value { return strconv.FormatInt(a[0].(int64), i64(a[1])) })
-	pure("strconv.FormatBool", func(a []Value) Value { return strconv.FormatBool(a[0].(bool)) })
-	pure("strconv.FormatFloat", func(a []Value) Value {
-		return strconv.FormatFloat(a[0].(float64), a[1].(uint8), i64(a[2]), 64)
+	goPure("strconv.Itoa", func(a []Value) Value { return strconv.Itoa(i64(a[0])) })
+	goPure("strconv.FormatInt", func(a []Value) Value { return strconv.FormatInt(a[0].(int64), i64(a[1])) })
+	goPure("strconv.FormatBool", func(a []Value) Value { return strconv.FormatBool(a[0].(bool)) })
+	goPure("strconv.FormatFloat", func(a []Value) Value {
+		return strconv.FormatFloat(a[0].(float64), a[1].(uint8), i64(a[2]), i64(a[3]))
 	})
-	pure("strconv.Quote", func(a []Value) Value { return strconv.Quote(str(a[0])) })
+	goPure("strconv.Quote", func(a []Value) Value { return strconv.Quote(str(a[0])) })
 	// The parses fail as their rows say: Go's ErrRange is OutOfRange, its
 	// ErrSyntax Malformed; any other error (a bad base or bit size) is a
 	// precondition of the call, a defect.

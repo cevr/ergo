@@ -1052,8 +1052,8 @@
       "name": "oracle-o1-native-split-empty-sep",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
-      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "from": "\tgoPure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tgoPure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
       "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
