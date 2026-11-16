@@ -64,6 +64,8 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
 			case ui.NoNode as x:
 				io.Stdout.Println("? no node " + x.Label)
+			case ui.Ambiguous as x:
+				io.Stdout.Println("? \(x.Count) nodes at " + x.At)
 			case actor.Stopped as s:
 				return s
 			case ui.BadPatch as b:
@@ -109,7 +111,7 @@ func texts(shapes []ui.Shape[screen.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
 		}
 		for t in texts(s.Kids) {
 			out = out.Append(t)
