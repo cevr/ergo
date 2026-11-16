@@ -228,12 +228,12 @@ func registerNatives() {
 		return u, err
 	})
 
-	pure("filepath.Join", func(a []Value) Value { return filepath.Join(strs(a[0])...) })
-	pure("filepath.Base", func(a []Value) Value { return filepath.Base(str(a[0])) })
-	pure("filepath.Dir", func(a []Value) Value { return filepath.Dir(str(a[0])) })
-	pure("filepath.Ext", func(a []Value) Value { return filepath.Ext(str(a[0])) })
-	pure("filepath.Clean", func(a []Value) Value { return filepath.Clean(str(a[0])) })
-	pure("filepath.IsAbs", func(a []Value) Value { return filepath.IsAbs(str(a[0])) })
+	goPure("path/filepath.Join", func(a []Value) Value { return filepath.Join(strs(a[0])...) })
+	goPure("path/filepath.Base", func(a []Value) Value { return filepath.Base(str(a[0])) })
+	goPure("path/filepath.Dir", func(a []Value) Value { return filepath.Dir(str(a[0])) })
+	goPure("path/filepath.Ext", func(a []Value) Value { return filepath.Ext(str(a[0])) })
+	goPure("path/filepath.Clean", func(a []Value) Value { return filepath.Clean(str(a[0])) })
+	goPure("path/filepath.IsAbs", func(a []Value) Value { return filepath.IsAbs(str(a[0])) })
 	pure("hex.Encode", func(a []Value) Value { return hex.EncodeToString([]byte(str(a[0]))) })
 	pure("time.DurationText", func(a []Value) Value { return time.Duration(a[0].(int64)).String() })
 	pure("time.Times", func(a []Value) Value { return times(a[0].(int64), a[1].(int64)) })

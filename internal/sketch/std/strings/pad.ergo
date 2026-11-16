@@ -10,11 +10,23 @@ func Compare(a string, b string) int { strings.Compare(a, b) }
 // Go's fmt width does: PadLeft(s, 8, ' ') is fmt.Sprintf("%8s", s). An
 // invalid byte of s counts as one rune, and a pad that is not a valid rune
 // is U+FFFD, as RuneText gives it.
-extern go ergo.local/prototype/runtime/v1.StringsPadLeft func PadLeft(s string, width int, pad rune) string
+func PadLeft(s string, width int, pad rune) string {
+	let n = utf8.RuneCount(s)
+	if n >= width {
+		return s
+	}
+	strings.Repeat(utf8.RuneText(pad), width - n) + s
+}
 
 // PadRight is PadLeft with the pad after s: PadRight(s, 8, ' ') is
 // fmt.Sprintf("%-8s", s).
-extern go ergo.local/prototype/runtime/v1.StringsPadRight func PadRight(s string, width int, pad rune) string
+func PadRight(s string, width int, pad rune) string {
+	let n = utf8.RuneCount(s)
+	if n >= width {
+		return s
+	}
+	s + strings.Repeat(utf8.RuneText(pad), width - n)
+}
 
 // PadWidth: a padded text is width runes wide, or as wide as s when s is
 // wider.

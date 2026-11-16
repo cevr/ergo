@@ -2,44 +2,49 @@
 // path/filepath does (docs/spec/stdlib.md, filepath; Effect's Path). Go's
 // targets for Ergo are Linux and darwin, so the separator is '/' and no
 // path has a volume name. No function reads the file system or the working
-// directory: each extern binds a runtime/v1 body (runtime/v1/path.go) that
-// is marked pure, so a call is transparent in a footprint.
+// directory: each function calls Go's path/filepath through import go, as a
+// user binds it (NP4f), and Go's functions are pure, so a call is
+// transparent in a footprint.
 
+import go path/filepath
 import strings
 
 // Join is the non-empty parts with a separator between each pair, cleaned
 // (Clean); "" when every part is empty. Ergo has no variadic parameters,
 // so the parts are one slice.
-extern go ergo.local/prototype/runtime/v1.FilepathJoin func Join(parts []string) string
+func Join(parts []string) string { filepath.Join(parts) }
 
 // Base is the last element of path, its trailing separators removed: "."
 // for an empty path, "/" for a path of separators only.
-extern go ergo.local/prototype/runtime/v1.FilepathBase func Base(path string) string
+func Base(path string) string { filepath.Base(path) }
 
 // Dir is path without its last element, cleaned: "." when path has no
 // separator.
-extern go ergo.local/prototype/runtime/v1.FilepathDir func Dir(path string) string
+func Dir(path string) string { filepath.Dir(path) }
 
 // Ext is the extension of the last element of path: the text from its
 // last dot, or "" when it has no dot.
-extern go ergo.local/prototype/runtime/v1.FilepathExt func Ext(path string) string
+func Ext(path string) string { filepath.Ext(path) }
 
 // Clean is the shortest path that names the same file as path by lexical
 // processing: one separator in each run, no "." element, no "x/.."
 // element, no ".." at the start of a rooted path, no trailing separator
 // except in "/"; "." for an empty path.
-extern go ergo.local/prototype/runtime/v1.FilepathClean func Clean(path string) string
+func Clean(path string) string { filepath.Clean(path) }
 
 // IsAbs reports whether path is rooted: it begins with a separator.
-extern go ergo.local/prototype/runtime/v1.FilepathIsAbs func IsAbs(path string) bool
+func IsAbs(path string) bool { filepath.IsAbs(path) }
 
 // Parts is a path cut after its last separator.
-extern go ergo.local/prototype/runtime/v1.Parts type Parts { Dir string, File string }
+type Parts { Dir string, File string }
 
 // Split cuts path after its last separator: Dir ends with the separator
 // (or is "" when path has none), and Dir + File is path. It scans path
 // once, as Go's filepath.Split does.
-extern go ergo.local/prototype/runtime/v1.FilepathSplit func Split(path string) Parts
+func Split(path string) Parts {
+	let dir, file = filepath.Split(path)
+	Parts{Dir: dir, File: file}
+}
 
 // NotRelative is the failure of Rel: target cannot be made relative to
 // base by lexical processing, because one is rooted and the other is not,
@@ -49,7 +54,12 @@ extern go ergo.local/prototype/runtime/v1.NotRelative type NotRelative { Base st
 // Rel is a path that Join([]string{base, Rel(base, target)}) makes equal
 // to target after Clean. Both are cleaned first; Rel of two equal paths is
 // ".".
-extern go ergo.local/prototype/runtime/v1.FilepathRel func Rel(base string, target string) string fails NotRelative
+func Rel(base string, target string) string fails NotRelative {
+	filepath.Rel(base, target) catch {
+	case go.Error:
+		return NotRelative{Base: base, Target: target}
+	}
+}
 
 // CleanIsIdempotent: a clean path is its own Clean.
 law CleanIsIdempotent(path string) {

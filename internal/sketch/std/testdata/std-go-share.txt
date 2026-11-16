@@ -42,10 +42,8 @@ base64	decodeStd	library	NP4f-5
 base64	decodeURL	library	NP4f-5
 base64	encodeStd	library	NP4f-5
 base64	encodeURL	library	NP4f-5
-cmp	Compare	computation	NP4f-3
-cmp	Less	computation	NP4f-3
-cmp	Max	computation	NP4f-3
-cmp	Min	computation	NP4f-3
+cmp	Max	computation	PRIM: Go's builtin max over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
+cmp	Min	computation	PRIM: Go's builtin min over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 config	NewRedacted	computation	NP4f-7
 config	Redacted	type
 config	envKey	computation	NP4f-7
@@ -75,19 +73,10 @@ exec	hostKill	host
 exec	hostRun	host
 exec	hostSpawn	host
 exec	hostStart	host
-exec	replay	computation	NP4f-3
+exec	replay	computation	R2 (np4f-plan §8.4): it builds the runtime's Running (a replay process, channels and a filler goroutine), provider code
 exec	waitFor	provider
 explore	Replay	provider
-filepath	Base	library	NP4f-3
-filepath	Clean	library	NP4f-3
-filepath	Dir	library	NP4f-3
-filepath	Ext	library	NP4f-3
-filepath	IsAbs	library	NP4f-3
-filepath	Join	library	NP4f-3
 filepath	NotRelative	type
-filepath	Parts	type
-filepath	Rel	library	NP4f-3
-filepath	Split	library	NP4f-3
 fs	Clone	library	PRIM: a Text converts to nothing (types.md, Borrows 8), so Clone's copy of a borrow into a string is a language operation
 fs	Denied	type
 fs	Escapes	type
@@ -163,20 +152,9 @@ log	contextBound	provider
 log	contextValue	provider
 machines	firingOff	provider
 machines	firingOn	provider
-machines	notPositive	computation	NP4f-3
+machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
 maps	Clone	language	PRIM
 math	OutOfRange	type
-math	ToInt	computation	NP4f-3
-math	ToInt16	computation	NP4f-3
-math	ToInt32	computation	NP4f-3
-math	ToInt64	computation	NP4f-3
-math	ToInt8	computation	NP4f-3
-math	ToUint	computation	NP4f-3
-math	ToUint16	computation	NP4f-3
-math	ToUint32	computation	NP4f-3
-math	ToUint64	computation	NP4f-3
-math	ToUint8	computation	NP4f-3
-math	ToUintptr	computation	NP4f-3
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
@@ -222,20 +200,14 @@ scope	OnExit	provider
 sha256	Sum	library	NP4f-5
 slices	Clone	language	PRIM
 slices	Concat	language	PRIM
-slices	Contains	computation	NP4f-3
-slices	Equal	computation	NP4f-3
-slices	Index	computation	NP4f-3
 slices	Repeat	language	PRIM
-slices	Reverse	computation	NP4f-3
+slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesReverseOwned) must come from OWN1's rules on an Ergo body
 slices	Slice	language	PRIM
 slices	Sort	library	NP4f-5
 slices	SortFunc	library	NP4f-5
 slices	SortStableFunc	library	NP4f-5
 slices	Take	language	PRIM
 slices	WithCapacity	language	PRIM
-slices	largest	computation	NP4f-3
-slices	search	computation	NP4f-3
-slices	smallest	computation	NP4f-3
 strconv	AppendFloat	library	NP4f-5
 strconv	AppendInt	library	NP4f-5
 strconv	AppendUint	library	NP4f-5
@@ -250,8 +222,6 @@ strings	Borrow	provider
 strings	Give	provider
 strings	Hint	provider
 strings	Join	library	LF2 (FK2): a []string argument to import go is cloned before the call, 1.659x the body
-strings	PadLeft	computation	NP4f-3
-strings	PadRight	computation	NP4f-3
 strings	Slice	language	PRIM
 strings	builderAppend	language	PRIM
 strings	builderAppendByte	language	PRIM

@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -310,12 +311,12 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strconv.ParseFloat", args: []Value{num}, v1: func() any { return result(v1.StrconvParseFloat(num)) }},
 		{name: "strconv.ParseBool", args: []Value{num}, v1: func() any { return result(v1.StrconvParseBool(num)) }},
 		{name: "strconv.Unquote", args: []Value{num}, v1: func() any { return result(v1.StrconvUnquote(num)) }},
-		{name: "filepath.Join", args: []Value{ls(xs)}, v1: func() any { return v1.FilepathJoin(xs) }},
-		{name: "filepath.Base", args: []Value{s}, v1: func() any { return v1.FilepathBase(s) }},
-		{name: "filepath.Dir", args: []Value{s}, v1: func() any { return v1.FilepathDir(s) }},
-		{name: "filepath.Ext", args: []Value{s}, v1: func() any { return v1.FilepathExt(s) }},
-		{name: "filepath.Clean", args: []Value{s}, v1: func() any { return v1.FilepathClean(s) }},
-		{name: "filepath.IsAbs", args: []Value{s}, v1: func() any { return v1.FilepathIsAbs(s) }},
+		{name: "path/filepath.Join", args: []Value{ls(xs)}, v1: func() any { return filepath.Join(xs...) }},
+		{name: "path/filepath.Base", args: []Value{s}, v1: func() any { return filepath.Base(s) }},
+		{name: "path/filepath.Dir", args: []Value{s}, v1: func() any { return filepath.Dir(s) }},
+		{name: "path/filepath.Ext", args: []Value{s}, v1: func() any { return filepath.Ext(s) }},
+		{name: "path/filepath.Clean", args: []Value{s}, v1: func() any { return filepath.Clean(s) }},
+		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
