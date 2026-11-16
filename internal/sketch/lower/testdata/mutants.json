@@ -5814,6 +5814,7 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"lower-narrow-no-assert","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/lower/expr.go","from":"\t\t\t\targ = name + \".(\" + fc.goType(from.Params[i].Type) + \")\"","to":"\t\t\t\targ = name","rule":"A narrowed function asserts its row value, a Go error, to the one error type its value takes (ConvNarrow).","killers":["lower:TestNarrowedFunctionTypeChecks"]}
   ]
 }

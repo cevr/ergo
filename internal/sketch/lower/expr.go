@@ -274,6 +274,8 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
 		return val + ".(" + fc.goType(conv.To) + ")"
+	case check.ConvNarrow:
+		return fc.narrowFunc(conv, val, site)
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
@@ -292,6 +294,39 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
+}
+
+// narrowFunc is val, a function value of conv.From, as one of conv.To
+// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
+// whose parameters that are a row value of one error type, a Go error,
+// are asserted to that type, the value's parameter, before val runs. val
+// is evaluated once, where the conversion is.
+func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
+	from, ok := underlyingOf(conv.From).(*check.Signature)
+	to, ok2 := underlyingOf(conv.To).(*check.Signature)
+	if !ok || !ok2 || len(from.Params) != len(to.Params) {
+		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
+	}
+	f, e := fc.scope.alloc("f"), fc.scope.alloc("e")
+	params := []string{e + " *" + fc.l.env()}
+	args := []string{e}
+	for i, p := range to.Params {
+		name := fc.scope.alloc("p")
+		params = append(params, name+" "+fc.goType(p.Type))
+		arg := name
+		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+				arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
+			}
+		}
+		args = append(args, arg)
+	}
+	var result check.Type
+	if len(to.Results) == 1 {
+		result = to.Results[0]
+	}
+	inner := "func(" + strings.Join(params, ", ") + ")" + fc.valueResults(result) + " { return " + f + "(" + strings.Join(args, ", ") + ") }"
+	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
 }
 
 // expr lowers x; in a statement header, a composite literal value is
