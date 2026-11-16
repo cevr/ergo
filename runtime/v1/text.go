@@ -147,40 +147,6 @@ func UTF8RuneText(r rune) string { return string(r) }
 //ergo:wait none
 func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
 
-// UTF8RuneLen is utf8.RuneLen: -1 for a rune that is not valid.
-//
-//ergo:pure
-//ergo:wait none
-func UTF8RuneLen(r rune) int { return utf8.RuneLen(r) }
-
-// StringsPadLeft is s after copies of pad, width runes in all, as
-// fmt.Sprintf("%*s", width, s) pads with spaces: fmt counts the runes of s
-// with utf8.RuneCountInString, so an invalid byte is one rune. A pad that
-// is not a valid rune is written U+FFFD, as Go's string(r).
-//
-//ergo:pure
-//ergo:wait none
-func StringsPadLeft(s string, width int, pad rune) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	return strings.Repeat(string(pad), width-n) + s
-}
-
-// StringsPadRight is StringsPadLeft with the pad after s, as
-// fmt.Sprintf("%-*s", width, s).
-//
-//ergo:pure
-//ergo:wait none
-func StringsPadRight(s string, width int, pad rune) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	return s + strings.Repeat(string(pad), width-n)
-}
-
 // Malformed is strconv.Malformed, the failure of a text that is not in the
 // form a strconv function reads (Go's ErrSyntax). It is a record of a v1
 // package, so the lowering binds strconv.Malformed to this Go type

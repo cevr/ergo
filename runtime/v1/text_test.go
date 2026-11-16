@@ -2,7 +2,6 @@ package v1
 
 import (
 	"errors"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -310,7 +309,6 @@ func textBenches() []textBench {
 		{"DecodeRuneInString", "UTF8DecodeRuneInString", func() { textSink = UTF8DecodeRuneInString("世界").Size }, func() { _, textSink = utf8.DecodeRuneInString("世界") }},
 		{"RuneText", "UTF8RuneText", func() { textSink = UTF8RuneText('世') }, func() { textSink = string(rune('世')) }},
 		{"AppendRune", "UTF8AppendRune", func() { textSink = len(UTF8AppendRune(buf[:0], '世')) }, func() { textSink = len(utf8.AppendRune(buf[:0], '世')) }},
-		{"RuneLen", "UTF8RuneLen", func() { textSink = UTF8RuneLen('世') }, func() { textSink = utf8.RuneLen('世') }},
 		{"Atoi", "StrconvAtoi", func() { textSink, _ = StrconvAtoi("-1234567890") }, func() { textSink, _ = strconv.Atoi("-1234567890") }},
 		{"AtoiFails", "StrconvAtoi", func() { _, textSink = StrconvAtoi("12x") }, func() { _, textSink = strconv.Atoi("12x") }},
 		{"ParseInt", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("-1234567890", 10, 64) }, func() { textSink, _ = strconv.ParseInt("-1234567890", 10, 64) }},
@@ -322,8 +320,6 @@ func textBenches() []textBench {
 		{"AppendUint", "StrconvAppendUint", func() { buf = StrconvAppendUint(buf[:0], 1234567890, 16) }, func() { buf = strconv.AppendUint(buf[:0], 1234567890, 16) }},
 		{"AppendFloat", "StrconvAppendFloat", func() { buf = StrconvAppendFloat(buf[:0], 3.14159e10, 'g', -1) }, func() { buf = strconv.AppendFloat(buf[:0], 3.14159e10, 'g', -1, 64) }},
 		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
-		{"PadLeft", "StringsPadLeft", func() { textSink = StringsPadLeft("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%*s", 24, "alpha") }},
-		{"PadRight", "StringsPadRight", func() { textSink = StringsPadRight("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%-*s", 24, "alpha") }},
 	}
 }
 

@@ -118,8 +118,6 @@ func registerNatives() {
 		}
 	}
 	goPure("strings.Compare", func(a []Value) Value { return int64(strings.Compare(str(a[0]), str(a[1]))) })
-	pure("strings.PadLeft", func(a []Value) Value { return pad(str(a[0]), i64(a[1]), a[2].(int32), true) })
-	pure("strings.PadRight", func(a []Value) Value { return pad(str(a[0]), i64(a[1]), a[2].(int32), false) })
 	goPure("strings.Split", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })
 	pure("strings.Join", func(a []Value) Value { return strings.Join(strs(a[0]), str(a[1])) })
 	goPure("strings.HasPrefix", func(a []Value) Value { return strings.HasPrefix(str(a[0]), str(a[1])) })
@@ -254,7 +252,6 @@ func registerNatives() {
 	})
 	pure("slices.Sort", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("slices.sortOwned", func(a []Value) Value { return sortValues(elems(a[0])) })
-	pure("cmp.Compare", func(a []Value) Value { return int64(compareOrdered(a[0], a[1])) })
 	natives["slices.Slice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs := args[0].(sliceV)
 		i, j := args[1].(int64), args[2].(int64)
@@ -270,16 +267,6 @@ func registerNatives() {
 			return nil, fr.defect(at, "slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
-	}
-	// Contains, Index and Equal compare by Ergo's ==, each comparison
-	// paid as == pays it.
-	natives["slices.Contains"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		i, ab := in.indexOf(fr, at, args[0].(sliceV), args[1])
-		return i >= 0, ab
-	}
-	natives["slices.Index"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		i, ab := in.indexOf(fr, at, args[0].(sliceV), args[1])
-		return int64(i), ab
 	}
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
@@ -326,13 +313,6 @@ func registerNatives() {
 			return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "ParseError", map[string]Value{"Layout": "", "Value": s, "Message": err.Error()}), "")
 		}
 		return int64(d), nil
-	}
-	natives["slices.Equal"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		if ab := in.charge(fr, at, 1); ab != nil {
-			return nil, ab
-		}
-		eq, ab := in.equal(fr, at, args[0], args[1])
-		return eq, ab
 	}
 	natives["maps.Clone"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		m, ab := in.ownMap(fr, at, args[0].(mapV), &token{})
@@ -463,23 +443,6 @@ func valueSize(v Value) int64 {
 	return 0
 }
 
-// indexOf is the first index of x in xs by Ergo's ==, or -1.
-func (in *interp) indexOf(fr *frame, at syntax.Node, xs sliceV, x Value) (int, *abrupt) {
-	for i, e := range xs.elems() {
-		if ab := in.charge(fr, at, 1); ab != nil {
-			return -1, ab
-		}
-		eq, ab := in.equal(fr, at, e, x)
-		if ab != nil {
-			return -1, ab
-		}
-		if eq {
-			return i, nil
-		}
-	}
-	return -1, nil
-}
-
 // sortValues is a sorted copy of xs, a slice of one ordered basic type,
 // sorted by Go's own slices.Sort on that Go type, so equal keys (-0 and
 // +0) and NaNs land where the built program puts them.
@@ -527,36 +490,6 @@ func sortAs[T cmp.Ordered](xs []Value) Value {
 	return newSlice(out)
 }
 
-// compareOrdered is cmp.Compare of two values of one ordered basic type:
-// a NaN is less than any other float and equal to a NaN.
-func compareOrdered(a, b Value) int {
-	switch a := a.(type) {
-	case int8:
-		return cmp.Compare(a, b.(int8))
-	case int16:
-		return cmp.Compare(a, b.(int16))
-	case int32:
-		return cmp.Compare(a, b.(int32))
-	case int64:
-		return cmp.Compare(a, b.(int64))
-	case uint8:
-		return cmp.Compare(a, b.(uint8))
-	case uint16:
-		return cmp.Compare(a, b.(uint16))
-	case uint32:
-		return cmp.Compare(a, b.(uint32))
-	case uint64:
-		return cmp.Compare(a, b.(uint64))
-	case float32:
-		return cmp.Compare(a, b.(float32))
-	case float64:
-		return cmp.Compare(a, b.(float64))
-	case string:
-		return cmp.Compare(a, b.(string))
-	}
-	panic(fmt.Sprintf("a comparison of %T", a))
-}
-
 // times is d*n, saturating at the bounds of duration on overflow
 // (stdlib.md, time: Times never wraps).
 func times(d, n int64) int64 {
@@ -586,20 +519,6 @@ func abs64(x int64) uint64 {
 		return uint64(-x)
 	}
 	return uint64(x)
-}
-
-// pad is s after (left) or before copies of pad, width runes in all,
-// counting the runes of s as fmt's %*s does (an invalid byte is one rune).
-func pad(s string, width int, r rune, left bool) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	p := strings.Repeat(string(r), width-n)
-	if left {
-		return p + s
-	}
-	return s + p
 }
 
 // stdRecord is a value of the record type name of fn's std package.

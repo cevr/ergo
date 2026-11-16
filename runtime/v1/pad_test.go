@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -10,21 +9,36 @@ import (
 	"ergo.local/prototype/internal/lawledger"
 )
 
-// padLaws restate the laws of strings' pad.ergo over the Go bodies, on
-// texts with every rune length and invalid bytes (runeText), widths from
-// -64 to 63 and runes of every class, valid or not (anyRune).
+// padGo is Go's pad: the fmt width ("%*s", "%-*s") with any rune for the
+// space, string(r) giving U+FFFD for a rune that is not valid. std's
+// PadLeft and PadRight are Ergo bodies, held to it by lower's
+// TestStdMatchesGo (NP4f-3).
+func padGo(s string, width int, c rune, left bool) string {
+	k := width - utf8.RuneCountInString(s)
+	if k <= 0 {
+		return s
+	}
+	if left {
+		return strings.Repeat(string(c), k) + s
+	}
+	return s + strings.Repeat(string(c), k)
+}
+
+// padLaws restate the laws of strings' pad.ergo over padGo, on texts with
+// every rune length and invalid bytes (runeText), widths from -64 to 63
+// and runes of every class, valid or not (anyRune).
 var padLaws = map[string]func(r *rand.Rand) (bool, any){
 	"strings PadWidth": func(r *rand.Rand) (bool, any) {
 		s, w, c := runeText(r), int(r.Int64N(1000))-500, anyRune(r)
 		width := w % 64
 		n := utf8.RuneCountInString(s)
 		want := max(width, n)
-		return utf8.RuneCountInString(StringsPadLeft(s, width, c)) == want && utf8.RuneCountInString(StringsPadRight(s, width, c)) == want, []any{s, width, c}
+		return utf8.RuneCountInString(padGo(s, width, c, true)) == want && utf8.RuneCountInString(padGo(s, width, c, false)) == want, []any{s, width, c}
 	},
 	"strings PadKeepsText": func(r *rand.Rand) (bool, any) {
 		s, w, c := runeText(r), int(r.Int64N(1000))-500, anyRune(r)
 		width := w % 64
-		return strings.HasSuffix(StringsPadLeft(s, width, c), s) && strings.HasPrefix(StringsPadRight(s, width, c), s), []any{s, width, c}
+		return strings.HasSuffix(padGo(s, width, c, true), s) && strings.HasPrefix(padGo(s, width, c, false), s), []any{s, width, c}
 	},
 	"strings CompareIsAntisymmetric": func(r *rand.Rand) (bool, any) {
 		a, b := runeText(r), runeText(r)
@@ -57,29 +71,4 @@ func TestStdPadLaws(t *testing.T) {
 		}}
 	}
 	lawledger.Run(t, laws)
-}
-
-// TestStdPadMatchesGo (U2 std-strings-pad; stdlib.md, strings and strconv
-// 9): PadLeft and PadRight with a space are fmt's width, "%*s" and "%-*s",
-// and Compare is strings.Compare, on 10,000 seeded cases over texts with
-// multi-byte runes and invalid bytes and widths from -8 to 23. It catches
-// what the laws do not: a pad on the wrong side, and a Compare that keeps
-// the sign of one pair but not Go's order.
-func TestStdPadMatchesGo(t *testing.T) {
-	r := rand.New(rand.NewPCG(9, 2))
-	for i := range 10_000 {
-		s, w := runeText(r), r.IntN(32)-8
-		// fmt reads a negative width as the flag "-"; a pad of a negative
-		// width pads nothing.
-		left, right := fmt.Sprintf("%*s", w, s), fmt.Sprintf("%-*s", w, s)
-		if w < 0 {
-			left, right = s, s
-		}
-		if got := StringsPadLeft(s, w, ' '); got != left {
-			t.Fatalf("case %d: PadLeft(%q, %d, ' ') = %q; want %q", i, s, w, got, left)
-		}
-		if got := StringsPadRight(s, w, ' '); got != right {
-			t.Fatalf("case %d: PadRight(%q, %d, ' ') = %q; want %q", i, s, w, got, right)
-		}
-	}
 }

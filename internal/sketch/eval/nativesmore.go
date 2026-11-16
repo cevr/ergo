@@ -49,31 +49,6 @@ func registerNativesmore() {
 		}
 		return newSlice(out), nil
 	}
-	natives["slices.largest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		xs := args[0].(sliceV).elems()
-		if ab := in.charge(fr, at, 1+int64(len(xs))); ab != nil {
-			return nil, ab
-		}
-		if len(xs) == 0 {
-			return nil, fr.defect(at, "slices.Max: empty list")
-		}
-		// Go's slices.Max folds Go's max over the list: a float's NaN
-		// anywhere gives NaN, and +0 beats -0.
-		best := xs[0]
-		for _, x := range xs[1:] {
-			switch b := best.(type) {
-			case float64:
-				best = max(b, x.(float64))
-			case float32:
-				best = max(b, x.(float32))
-			default:
-				if less, _, _ := arith(syntax.LSS, best, x); less.(bool) {
-					best = x
-				}
-			}
-		}
-		return best, nil
-	}
 	natives["arena.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.appendTo(fr, at, args[0].(sliceV), args[1], nil)
 	}

@@ -78,8 +78,8 @@ func TestStdRunesMatchGo(t *testing.T) {
 		}
 		repl := []string{"\uFFFD", "", "?", "\xff"}[r.IntN(4)]
 		c := anyRune(r)
-		if UTF8RuneText(c) != string(c) || UTF8RuneLen(c) != utf8.RuneLen(c) {
-			t.Fatalf("case %d: rune %d: RuneText %q, RuneLen %d", i, c, UTF8RuneText(c), UTF8RuneLen(c))
+		if UTF8RuneText(c) != string(c) {
+			t.Fatalf("case %d: rune %d: RuneText %q", i, c, UTF8RuneText(c))
 		}
 		prefix := []byte(s)
 		if got, want := UTF8AppendRune(prefix[:len(prefix):len(prefix)], c), utf8.AppendRune([]byte(s), c); string(got) != string(want) {
@@ -167,7 +167,7 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 			return true, c
 		}
 		d := UTF8DecodeRuneInString(UTF8RuneText(c))
-		return d.Rune == c && d.Size == UTF8RuneLen(c) && d.Size == len(UTF8RuneText(c)), c
+		return d.Rune == c && d.Size == utf8.RuneLen(c) && d.Size == len(UTF8RuneText(c)), c
 	},
 	"utf8 InvalidRuneTextIsReplacement": func(r *rand.Rand) (bool, any) {
 		c := anyRune(r)

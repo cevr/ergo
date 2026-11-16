@@ -210,10 +210,6 @@ func nativeCases(g nativeGen) []nativeCase {
 	num := []string{"12", "-0", "+7", "9223372036854775807", "9223372036854775808", "-9223372036854775809", "0x1f", "1e3", "1_000", "", "-", "abc", "1.5", "1e400", "true", "F", "\"a\\tb\"", "`x`", "'c'"}[g.r.IntN(19)]
 	ints, ints2 := g.ints(), g.ints()
 	fl := g.floats()
-	fa, fb := 0.0, 0.0
-	if f2 := g.floats(); len(f2) > 1 {
-		fa, fb = f2[0], f2[1]
-	}
 	x := int64(g.r.IntN(5) - 2)
 	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
@@ -254,13 +250,6 @@ func nativeCases(g nativeGen) []nativeCase {
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
-	// slices.largest takes a list with an element; a float list mixes
-	// both zeros, which Go's max orders.
-	nonEmpty := append([]int64{x}, ints...)
-	zeros := append([]float64{math.Copysign(0, -1)}, fl...)
-	if g.r.IntN(2) == 0 {
-		zeros = append(zeros, 0)
-	}
 	// SortStableFunc by the remainder mod 3, so equal keys keep their
 	// order only when the sort is stable.
 	byMod3 := &nativeFunc{name: "byMod3", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
@@ -274,8 +263,6 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "config.flagKey", args: []Value{s}, v1: func() any { return v1.ConfigFlagKey(s) }},
 		{name: "config.envKey", args: []Value{u}, v1: func() any { return v1.ConfigEnvKey(u) }},
 		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(strings.Compare(s, u)) }},
-		{name: "strings.PadLeft", args: []Value{s, int64(i), rn}, v1: func() any { return v1.StringsPadLeft(s, i, rn) }},
-		{name: "strings.PadRight", args: []Value{s, int64(j), rn}, v1: func() any { return v1.StringsPadRight(s, j, rn) }},
 		{name: "strings.Split", args: []Value{s, u}, v1: func() any { return strings.Split(s, u) }},
 		{name: "strings.Join", args: []Value{ls(xs), u}, v1: func() any { return v1.StringsJoin(xs, u) }},
 		{name: "strings.HasPrefix", args: []Value{s, u}, v1: func() any { return strings.HasPrefix(s, u) }},
@@ -332,18 +319,11 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},
 		{name: "slices.Sort", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesSort(xs) }},
-		{name: "slices.Contains", args: []Value{li(ints), x}, v1: func() any { return v1.SlicesContains(ints, x) }},
-		{name: "slices.Index", args: []Value{li(ints), x}, v1: func() any { return int64(v1.SlicesIndex(ints, x)) }},
-		{name: "slices.Equal", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesEqual(ints, ints2) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
-		{name: "slices.largest", args: []Value{li(nonEmpty)}, v1: func() any { return v1.SlicesMax(nonEmpty) }},
-		{name: "slices.largest", args: []Value{lf(zeros)}, v1: func() any { return v1.SlicesMax(zeros) }},
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
 		}},
 		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
-		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
-		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
 	}
 }
 
