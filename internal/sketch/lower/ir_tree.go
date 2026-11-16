@@ -182,9 +182,14 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 			exit = "end" + strconv.Itoa(b.labels)
 		}
 		body := append(decls, out...)
+		// No jump follows a statement that terminates (a tree whose every
+		// case jumps to an arm or panics): go vet finds it unreachable
+		// (IRFIX-TEXT: tasks-cli's matches).
+		jumps := 0
 		jump := func() {
-			if exit != "" {
+			if exit != "" && (len(body) == 0 || !irTerminates(body[len(body)-1])) {
 				body = append(body, &irStmt{K: "goto", Pos: ep, Label: exit})
+				jumps++
 			}
 		}
 		jump()
@@ -194,7 +199,9 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 				jump()
 			}
 		}
-		if exit != "" {
+		// The last arm falls through to the end; the end's label is placed
+		// when a jump names it (Go refuses a label no goto names).
+		if exit != "" && jumps > 0 {
 			body = append(body, &irStmt{K: "block", Pos: ep, End: ep, Label: exit})
 		}
 		out = []*irStmt{{K: "block", Pos: p, End: ep, Body: body}}

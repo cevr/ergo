@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..e78b982
+index 0000000..8ce131d
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,288 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -64,6 +64,11 @@ index 0000000..e78b982
 +	End    ergoPos     `json:"end"`
 +	Locals []ergoLocal `json:"locals"`
 +	Body   []*ergoStmt `json:"body"`
++	// Results binds the signature's results, which the Go declaration
++	// names, as locals after the parameters (IR2-RESULTS): a frame's
++	// deferred end reads the named error result, as the emitter's
++	// `defer fs.End(&err)` does.
++	Results bool `json:"results,omitempty"`
 +}
 +
 +type ergoLocal struct {
@@ -251,6 +256,16 @@ index 0000000..e78b982
 +	}
 +	for i := 0; i < c.sig.Params().Len(); i++ {
 +		c.locals = append(c.locals, c.sig.Params().At(i))
++	}
++	if fn.Results {
++		for i := 0; i < c.sig.Results().Len(); i++ {
++			r := c.sig.Results().At(i)
++			if r.Name() == "" || r.Name() == "_" {
++				c.errorf(fn.Pos, "ergoir: %s: a result bound as a local needs a name in the Go declaration", fn.Name)
++				return
++			}
++			c.locals = append(c.locals, r)
++		}
 +	}
 +	if !ergoSigOK(c.sig) || c.sig.Variadic() {
 +		c.errorf(fn.Pos, "ergoir: %s: only plain signatures with at most one result take an IR body", fn.Name)
@@ -2210,10 +2225,10 @@ index 0000000..5e63550
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..7ea0112
+index 0000000..04b0837
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,640 @@
+@@ -0,0 +1,706 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2318,12 +2333,19 @@ index 0000000..7ea0112
 +		if end.FileBase() != file.Pos().FileBase() || end.Line() == 0 || int(end.Line()) > len(lines) {
 +			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
 +		}
++		// EndPos is the last field's end, inside a struct or interface
++		// result type that spans lines (a tuple's struct {…}): the body
++		// goes after the line where the signature itself ends.
++		last, ok := ergoSignatureEnd(lines, int(fd.Pos().Line())-1, int(fd.Pos().Col())-1)
++		if !ok || last < int(end.Line())-1 {
++			return "", fmt.Errorf("%s: the signature from %v does not end in the file", fd.Name.Value, fd.Pos())
++		}
 +		p.b.Reset()
 +		p.reads = ergoReads(info, fd.Body)
 +		p.block(fd.Body.List, 1)
 +		// The lines after the body keep their positions.
-+		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), end.RelLine()+1))
-+		bodies[int(end.Line())-1] = p.b.String()
++		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), int(end.RelLine())+last-(int(end.Line())-1)+1))
++		bodies[last] = p.b.String()
 +	}
 +	var out strings.Builder
 +	for i, l := range lines {
@@ -2342,6 +2364,58 @@ index 0000000..7ea0112
 +		}
 +	}
 +	return out.String(), nil
++}
++
++// ergoSignatureEnd is the index of the line where a bodiless function's
++// signature, which starts at lines[line][col], ends: the first line end
++// outside every bracket, as Go's automatic semicolon ends the
++// declaration. Strings, runes and comments are skipped.
++func ergoSignatureEnd(lines []string, line, col int) (int, bool) {
++	depth := 0
++	inBlock := false // inside /* … */
++	inRaw := false   // inside `…`
++	for i := line; i >= 0 && i < len(lines); i++ {
++		l := lines[i]
++		j := 0
++		if i == line {
++			j = col
++		}
++		for j < len(l) {
++			c := l[j]
++			switch {
++			case inBlock:
++				if strings.HasPrefix(l[j:], "*/") {
++					inBlock = false
++					j++
++				}
++			case inRaw:
++				inRaw = c != '`'
++			case strings.HasPrefix(l[j:], "//"):
++				j = len(l)
++				continue
++			case strings.HasPrefix(l[j:], "/*"):
++				inBlock = true
++				j++
++			case c == '`':
++				inRaw = true
++			case c == '"' || c == '\'':
++				for j++; j < len(l) && l[j] != c; j++ {
++					if l[j] == '\\' {
++						j++
++					}
++				}
++			case c == '(' || c == '[' || c == '{':
++				depth++
++			case c == ')' || c == ']' || c == '}':
++				depth--
++			}
++			j++
++		}
++		if depth == 0 && !inBlock && !inRaw {
++			return i, true
++		}
++	}
++	return 0, false
 +}
 +
 +// ergoPrinter prints typed syntax as Go text.
@@ -2744,7 +2818,7 @@ index 0000000..7ea0112
 +		for i, e := range x.ElemList {
 +			elems[i] = p.expr(e)
 +		}
-+		return p.typeOperand(tv.Type) + "{" + strings.Join(elems, ", ") + "}"
++		return p.litType(tv.Type) + "{" + strings.Join(elems, ", ") + "}"
 +	case *syntax.KeyValueExpr:
 +		return p.expr(x.Key) + ": " + p.expr(x.Value)
 +	case *syntax.FuncLit:
@@ -2788,8 +2862,8 @@ index 0000000..7ea0112
 +	return types2.TypeString(t, p.qualifier)
 +}
 +
-+// typeOperand is t spelled to be called or followed by a literal: a
-+// (qualified) name as it is, any other type in parentheses.
++// typeOperand is t spelled to be called (a conversion): a (qualified)
++// name as it is, any other type in parentheses.
 +func (p *ergoPrinter) typeOperand(t types2.Type) string {
 +	s := p.typ(t)
 +	if _, named := types2.Unalias(t).(*types2.Named); named {
@@ -2798,12 +2872,19 @@ index 0000000..7ea0112
 +	if _, basic := t.(*types2.Basic); basic {
 +		return s
 +	}
-+	// A slice or map type stands bare before a literal's braces (Go
-+	// refuses a parenthesized literal type).
 +	if (strings.HasPrefix(s, "[]") || strings.HasPrefix(s, "map[")) && !strings.Contains(s, "func") && !strings.Contains(s, "chan") {
 +		return s
 +	}
 +	return "(" + s + ")"
++}
++
++// litType is t spelled before a composite literal's braces. Go's grammar
++// takes a literal type bare (LiteralType: a struct, array, slice or map
++// type, or a type name) and refuses one in parentheses ("cannot
++// parenthesize type in composite literal"): a tuple's struct{F0 …; F1 …}
++// and an array stand as they are.
++func (p *ergoPrinter) litType(t types2.Type) string {
++	return p.typ(t)
 +}
 +
 +// constant is v as a constant of type t: a bare literal when t is the
@@ -2850,16 +2931,16 @@ index 0000000..7ea0112
 +			return p.constant(t, constant.MakeInt64(0))
 +		}
 +	case *types2.Struct, *types2.Array:
-+		return p.typeOperand(t) + "{}"
++		return p.litType(t) + "{}"
 +	}
 +	return p.typeOperand(t) + "(nil)"
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..58430ee
+index 0000000..e40cb9b
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
-@@ -0,0 +1,478 @@
+@@ -0,0 +1,516 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2952,7 +3033,45 @@ index 0000000..58430ee
 +	if b, ok := t.(*types2.Basic); ok {
 +		t = types2.Typ[b.Kind()]
 +	}
-+	return types2.TypeString(t, nil)
++	return types2.TypeString(ergoShapeUnnamed(t), nil)
++}
++
++// ergoShapeUnnamed is t with the names of its function types' parameters
++// and results dropped: they are not part of a type's identity (the Go
++// spec), and the IR's function types name none where the text's
++// function literal names its parameters, or the writer names a result
++// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT).
++func ergoShapeUnnamed(t types2.Type) types2.Type {
++	switch t := t.(type) {
++	case *types2.Tuple:
++		if t == nil {
++			return t
++		}
++		vars := make([]*types2.Var, t.Len())
++		for i := range vars {
++			v := t.At(i)
++			vars[i] = types2.NewParam(v.Pos(), v.Pkg(), "", ergoShapeUnnamed(v.Type()))
++		}
++		return types2.NewTuple(vars...)
++	case *types2.Signature:
++		// A method value's type has no receiver (the Go spec); the
++		// decoder's selector keeps the method's.
++		if t.TypeParams().Len() > 0 {
++			return t
++		}
++		return types2.NewSignatureType(nil, nil, nil, ergoShapeUnnamed(t.Params()).(*types2.Tuple), ergoShapeUnnamed(t.Results()).(*types2.Tuple), t.Variadic())
++	case *types2.Pointer:
++		return types2.NewPointer(ergoShapeUnnamed(t.Elem()))
++	case *types2.Slice:
++		return types2.NewSlice(ergoShapeUnnamed(t.Elem()))
++	case *types2.Array:
++		return types2.NewArray(ergoShapeUnnamed(t.Elem()), t.Len())
++	case *types2.Map:
++		return types2.NewMap(ergoShapeUnnamed(t.Key()), ergoShapeUnnamed(t.Elem()))
++	case *types2.Chan:
++		return types2.NewChan(t.Dir(), ergoShapeUnnamed(t.Elem()))
++	}
++	return t
 +}
 +
 +// ergoInstanceName is the name a function's instance is recorded at: x
