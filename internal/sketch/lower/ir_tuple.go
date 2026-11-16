@@ -217,7 +217,16 @@ func (b *irBuilder) letTuple(spec *syntax.VarSpec, p irPos) (out []*irStmt, ok b
 	var e *irExpr
 	b.part(func() { pre, e = b.value(x) })
 	out = append(out, pre...)
+	// An element a typed let converts (`let a, b Store = two()`) is
+	// defined from its converted field, as the emitter's elemAt.
+	convs, converts := b.l.info.ImplicitElems[x]
+	if converts && len(convs) != len(names) {
+		irNo("element conversions of another tuple")
+	}
 	if n := len(out); n > 0 && readsTdef(e, out[n-1]) {
+		if converts {
+			irNo("element conversions of a Go call's results")
+		}
 		// The Go call's own locals are the names: `a, b := f(…)`.
 		def := out[n-1]
 		for i, v := range vars {
@@ -247,6 +256,9 @@ func (b *irBuilder) letTuple(spec *syntax.VarSpec, p irPos) (out []*irStmt, ok b
 			b.reserve(v)
 		}
 		field := &irExpr{K: "field", Pos: p, Name: tupleField(i), X: &irExpr{K: "local", Pos: p, I: tmp}}
+		if converts {
+			field = b.convert(convs[i], field, x)
+		}
 		out = append(out, &irStmt{K: "def", Pos: p, Local: l, X: field})
 	}
 	return out, true

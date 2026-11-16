@@ -5814,6 +5814,7 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"ir-tuple-let-element-unconverted","origin":"wf10 IRFIX-ASSIGN (FLIP F4b)","file":"internal/sketch/lower/ir_tuple.go","from":"\t\t\tfield = b.convert(convs[i], field, x)\n","to":"\t\t\t_ = convs\n","rule":"A typed multi-name let (`let a, b Store = two()`) defines each name from its element after the element's implicit conversion (Info.ImplicitElems, the emitter's elemAt): the IR decoder refuses a def of another type","killers":["lower:TestErgoRunAssignability"]}
   ]
 }

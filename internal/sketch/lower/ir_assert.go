@@ -44,7 +44,7 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -83,7 +83,7 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
