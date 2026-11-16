@@ -73,7 +73,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		b.admitOps(t) // ir_pkg.go
 		return
 	case kindMachine:
-		irNo("machine value")
+		b.admitMachine(t) // ir_machine.go
+		return
 	}
 	irNo("named type that is not a record")
 }
@@ -118,7 +119,7 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	case check.ConvVariant:
 		return b.variantInto(conv.From, conv.To, e, x)
 	case check.ConvMachine:
-		irNo("machine conversion")
+		return b.machineValue(conv, e, x) // ir_machine.go
 	case check.ConvRow:
 		irNo("row conversion")
 	case check.ConvOperations:

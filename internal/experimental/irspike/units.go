@@ -120,8 +120,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"match with patterns", "G3b"},  // the decision tree (matchtree.go)
 	{"break inside a match", "G3b"}, // Go's break leaves the switch: a labelled loop
 	{"interpolated value of type *", "G3b"},
-	{"machine conversion", "G3b"},
-	{"machine value", "G3b"},
+	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
 	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
 	{"value of a type defined over a flat union", "G3b"},

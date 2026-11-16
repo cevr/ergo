@@ -62,6 +62,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			return
 		}
 		for _, f := range s.Fields {
+			if funcField(f.Type) { // ir_machine.go
+				continue
+			}
 			b.admit(f.Type, depth+1)
 		}
 		return

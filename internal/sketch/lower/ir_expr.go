@@ -163,6 +163,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+			if td.kind == kindMachine {
+				return b.machineLit(x, lit) // ir_machine.go
+			}
 			s := tt.Underlying().(*check.Struct)
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
