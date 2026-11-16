@@ -37,7 +37,7 @@ func TestCompilerTypesLawsRun(t *testing.T) {
 
 // TestCompilerTypesAgreeWithChecker is S3t's corpus agreement: over every
 // package folder of examples/ and std the Go checker checks, the bracket
-// parameter kinds compiler/check/types solves (cmd/kinddump) are the Go
+// parameter kinds compiler/check/types solves (typedump -kinds) are the Go
 // checker's TypeParam kinds, and the record field types it resolves
 // (cmd/typedump) print as the Go checker's Type.String. The types of other
 // packages come from the Go side as a table (EXT and FOREIGN files), until
@@ -46,14 +46,14 @@ func TestCompilerTypesLawsRun(t *testing.T) {
 // prelude-qualified, which the property cannot reach (both need a std or
 // prelude package as the one under test).
 //
-// It builds Go because kinddump and typedump are the Ergo programs under
+// It builds Go because typedump is the Ergo program under
 // test: compiler/check/types is Ergo source, and only its lowered, built
 // form runs over a corpus.
 func TestCompilerTypesAgreeWithChecker(t *testing.T) {
 	needsBuild(t)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	kd, td := typesDumps(t, ctx)
+	td := typesDump(t, ctx)
 	tmp := t.TempDir()
 	checked := 0
 	for _, dir := range corpusDirs(t) {
@@ -68,10 +68,10 @@ func TestCompilerTypesAgreeWithChecker(t *testing.T) {
 		e, f := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
-		if d := setDiff(kinds, runDump(t, ctx, kd, append([]string{e}, files...)...)); d != "" {
+		if d := setDiff(kinds, runDump(t, ctx, td, append([]string{"-std", stdDir(), "-kinds", e, f}, files...)...)); d != "" {
 			t.Errorf("%s: kinds differ (go -, ergo +):\n%s", rel(dir), d)
 		}
-		if d := setDiff(fields, dropCharged(runDump(t, ctx, td, append([]string{e, f}, files...)...))); d != "" {
+		if d := setDiff(fields, dropCharged(runDump(t, ctx, td, append([]string{"-std", stdDir(), e, f}, files...)...))); d != "" {
 			t.Errorf("%s: types differ (go -, ergo +):\n%s", rel(dir), d)
 		}
 	}
@@ -85,17 +85,17 @@ func TestCompilerTypesAgreeWithChecker(t *testing.T) {
 // and operation types whose parameters stand in type, error-row and
 // capability-row positions and link through each other's brackets and
 // through receiver functions; each types case is a package of records
-// whose field types use every form resolve handles. kinddump and typedump
+// whose field types use every form resolve handles. typedump's two dumps
 // must print what the Go checker gives, conflicts included. The run fails
 // unless every kind and every form is reached. It kills the kinds and
 // resolve mutants the corpus does not reach.
 //
-// It builds Go because kinddump and typedump are the programs under test.
+// It builds Go because typedump is the program under test.
 func TestCompilerTypesProperty(t *testing.T) {
 	needsBuild(t)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	kd, td := typesDumps(t, ctx)
+	td := typesDump(t, ctx)
 	base := uint32(1)
 	if s := os.Getenv(seedVariable); s != "" {
 		n, err := strconv.ParseUint(s, 10, 32)
@@ -132,9 +132,11 @@ func TestCompilerTypesProperty(t *testing.T) {
 				}
 			}
 		}
+		_, foreign := goTypes(pkg)
 		writeLines(t, e, ext)
+		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		if got := runDump(t, ctx, kd, e, file); setDiff(want, got) != "" {
+		if got := runDump(t, ctx, td, "-std", stdDir(), "-kinds", e, f, file); setDiff(want, got) != "" {
 			report(seed, src, want, got)
 		}
 	}
@@ -161,7 +163,7 @@ func TestCompilerTypesProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		if got := dropCharged(runDump(t, ctx, td, e, f, file)); setDiff(want, got) != "" {
+		if got := dropCharged(runDump(t, ctx, td, "-std", stdDir(), e, f, file)); setDiff(want, got) != "" {
 			report(seed, src, want, got)
 		}
 	}
@@ -180,21 +182,18 @@ func TestCompilerTypesProperty(t *testing.T) {
 	}
 }
 
-// typesDumps builds compiler/cmd/kinddump and compiler/cmd/typedump.
-func typesDumps(t *testing.T, ctx context.Context) (string, string) {
+// typesDump builds compiler/cmd/typedump.
+func typesDump(t *testing.T, ctx context.Context) string {
 	t.Helper()
-	ergo := ergoCLI(t, ctx)
-	dir := t.TempDir()
-	var out []string
-	for _, name := range []string{"kinddump", "typedump"} {
-		bin := filepath.Join(dir, name)
-		if o, err := runCompiler(t, ctx, ergo, "build", "-o", bin, "./cmd/"+name); err != nil {
-			t.Fatalf("ergo build ./cmd/%s: %v\n%s", name, err, o)
-		}
-		out = append(out, bin)
+	bin := filepath.Join(t.TempDir(), "typedump")
+	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/typedump"); err != nil {
+		t.Fatalf("ergo build ./cmd/typedump: %v\n%s", err, o)
 	}
-	return out[0], out[1]
+	return bin
 }
+
+// stdDir is the std the dumps load imports from.
+func stdDir() string { return filepath.Join(repoRoot(), "internal", "sketch", "std") }
 
 // runDump runs a dump in its own process group under the kernel memory
 // limit and returns its lines.
@@ -289,8 +288,11 @@ func paramKinds(n *check.Named) string {
 	return strings.Join(ws, ",")
 }
 
-// visible calls f for each type name pkg can name that is not its own,
-// with the qualifier it is written with ("-" for the prelude and universe).
+// visible calls f for each type name pkg can name that is not its own
+// and that typedump does not resolve itself: the prelude's and the
+// universe's (qualifier "-") and a Go import's (its local name). An Ergo
+// import's types are XRefs into the import's interface, which typedump
+// computes from the import's source (-std).
 func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) {
 	own, parent := scopeNames(pkg.Scope)
 	for s := parent; s != nil; {
@@ -311,6 +313,9 @@ func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) 
 		if !ok || pn.Pkg == nil || seen[id.Name] {
 			continue
 		}
+		if spec, _ := fieldOf(reflect.ValueOf(pn), "spec").Interface().(*syntax.ImportSpec); spec != nil && spec.Kind != syntax.ImportGo {
+			continue
+		}
 		seen[id.Name] = true
 		ns, _ := scopeNames(pn.Pkg.Scope)
 		for name, o := range ns {
@@ -321,7 +326,7 @@ func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) 
 	}
 }
 
-// goKinds is the Go checker's kinds in kinddump's form, "NAME KIND,…" per
+// goKinds is the Go checker's kinds in typedump -kinds' form, "NAME KIND,…" per
 // generic type declaration of pkg, and the EXT table: "HEAD KIND,…" per
 // generic type pkg can name that is not its own.
 func goKinds(pkg *check.Package) (local, ext []string) {
@@ -409,25 +414,6 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 			path = tn.Pkg.Path
 		}
 		foreign = append(foreign, fmt.Sprintf("%s %s %d %s %s", qual, name, arity, path, printKey(tn)))
-	})
-	visible(pkg, func(qual, name string, tn *check.TypeName) {
-		n, ok := tn.Type.(*check.Named)
-		if !ok || len(n.TParams) > 0 {
-			return
-		}
-		u, ok := fieldOf(reflect.ValueOf(n), "under").Interface().(*check.Union)
-		if !ok || u == nil || len(u.Variants) == 0 {
-			return
-		}
-		vs := make([]string, 0, len(u.Variants))
-		for _, v := range u.Variants {
-			vn, ok := v.(*check.Named)
-			if !ok || vn.Obj == nil || vn.Obj.Pkg != tn.Pkg {
-				return
-			}
-			vs = append(vs, vn.Obj.Name)
-		}
-		foreign = append(foreign, "@union "+qual+" "+name+" "+strings.Join(vs, ","))
 	})
 	sort.Strings(fields)
 	sort.Strings(foreign)
