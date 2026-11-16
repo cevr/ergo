@@ -1,0 +1,140 @@
+// infra's command line on the memory providers (IA3): a scripted session,
+// and the law of plan -refresh.
+
+import github.com/cevr/ergo/modules/infra
+import fstest
+import strings
+
+// deployment is the stack of want on w as infra's command line runs it,
+// its outputs written at Path in disk. Every stage is w.
+func deployment(w World, want Want, disk fstest.Memory) infra.Deployment[Sample] {
+	infra.Deployment[Sample]{
+		Name:   "stack",
+		Holder: "me",
+		Lock:   func(stage string) infra.Lock { w.lock },
+		Bind:   func(stage string, pass infra.Pass) infra.Bound[Sample] {
+			let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: pass}
+			let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: pass}
+			infra.Bound[Sample]{Engines: []infra.Sweeper{dirs, files}, Stack: func() Sample fails infra.Failed {
+				with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
+					try placed(want)
+				}
+			}}
+		},
+		Writes:  disk,
+		Outputs: func(stage string) string { Path },
+	}
+}
+
+// said is an Output on standard output with status 0.
+func said(text string) infra.Output { infra.Output{Out: text, Err: "", Code: 0} }
+
+// A session of an operator: plan, an apply refused without -yes, the
+// apply, an empty plan, the state, a lock another holds and its unlock,
+// a destroy refused and then done.
+test CommandLineSession {
+	let w = newWorld()
+	let disk = newDisk()
+	// d0 and f0 (wantOf's base-3 digits: d0 = 1, f0 = 1).
+	let d = deployment(w, wantOf(28), disk)
+	assert infra.Exec(d, []string{"plan"}) == said("create dir/d0\ncreate file/f0\nplan: 2 changes\n")
+	assert infra.Exec(d, []string{"plan", "-json"}) == said("{\"stage\":\"dev\",\"steps\":[{\"kind\":\"dir\",\"id\":\"d0\",\"change\":\"create\"},{\"kind\":\"file\",\"id\":\"f0\",\"change\":\"create\"}]}\n")
+	assert infra.Exec(d, []string{"apply"}).Code == 2 && Objects(w.cloud) == 0
+	assert infra.Exec(d, []string{"apply", "-yes"}) == said("create dir/d0\ncreate file/f0\napplied: 2 changes; outputs at state/outputs.json\n")
+	assert Objects(w.cloud) == 2 && readBack(disk) != None
+	assert infra.Exec(d, []string{"plan"}) == said("plan: no changes\n")
+	assert infra.Exec(d, []string{"state"}) == said("dir/d0 live\nfile/f0 live\nlock: free\n")
+	w.lock.Acquire("ci") catch {
+	case infra.Held:
+		assert false
+	}
+	let blocked = infra.Exec(d, []string{"apply", "-yes"})
+	assert blocked.Code == 3 && strings.Contains(blocked.Err, "held by ci")
+	assert infra.Exec(d, []string{"unlock", "nobody"}).Code == 1 && w.lock.Holder() == Some[string]{Value: "ci"}
+	assert infra.Exec(d, []string{"unlock", "ci"}) == said("unlocked stage dev, which ci held\n") && w.lock.Holder() == None
+	assert infra.Exec(d, []string{"unlock", "ci"}).Code == 1
+	assert infra.Exec(d, []string{"destroy"}).Code == 2 && Objects(w.cloud) == 2
+	assert infra.Exec(d, []string{"destroy", "-yes"}) == said("delete file/f0\ndelete dir/d0\ndestroyed: 2 changes\n")
+	assert Objects(w.cloud) == 0
+	assert infra.Exec(d, []string{"state"}) == said("no objects\nlock: free\n")
+	assert infra.Exec(d, []string{"deploy"}).Code == 2
+}
+
+// idsOf is the ids of the objects the stack of want ensures, in the
+// stack's order.
+func idsOf(want Want) []string {
+	let mut ids = []string{}
+	for i in 0..6 {
+		if want.Of[i] != 0 {
+			ids = ids.Append(if i < 3 { "d\(i)" } else { "f\(i - 3)" })
+		}
+	}
+	ids
+}
+
+// spoil takes the object id out of w's cloud (gone) or changes it behind
+// the engine's back (not gone).
+func spoil(w World, id string, gone bool) {
+	if strings.HasPrefix(id, "d") {
+		w.cloud.dirs.Update(func(m Map[string, Dir]) Map[string, Dir] {
+			if gone {
+				return m.Delete(id)
+			}
+			m.Put(id, Dir{Path: "/elsewhere"})
+		})
+	} else {
+		w.cloud.files.Update(func(m Map[string, File]) Map[string, File] {
+			if gone {
+				return m.Delete(id)
+			}
+			m.Put(id, File{Path: "/elsewhere", Size: 0})
+		})
+	}
+}
+
+// RefreshFindsDrift: after an apply, an object is taken out of the cloud
+// and another changed behind the engine's back. A plan sees nothing (it
+// reads only the rows); plan -refresh lists the first as Gone and the
+// second as Drifted, in the stack's order, and leaves the cloud as it
+// found it.
+law RefreshFindsDrift(n int, gone int, drift int) {
+	let w = newWorld()
+	let want = wantOf(n)
+	match run(w, infra.Applying, "r1", want) {
+	case Finished:
+	case Crashed, Locked:
+		return false
+	}
+	let ids = idsOf(want)
+	if len(ids) == 0 {
+		return true
+	}
+	let g = ids[((gone%len(ids))+len(ids))%len(ids)]
+	let dr = ids[((drift%len(ids))+len(ids))%len(ids)]
+	spoil(w, dr, false)
+	spoil(w, g, true)
+	let mut want_steps = []infra.Step{}
+	for id in ids {
+		let kind = if strings.HasPrefix(id, "d") { "dir" } else { "file" }
+		if id == g {
+			want_steps = want_steps.Append(infra.Step{Kind: kind, ID: id, Change: infra.Gone})
+		} else if id == dr {
+			want_steps = want_steps.Append(infra.Step{Kind: kind, ID: id, Change: infra.Drifted})
+		}
+	}
+	match run(w, infra.Planning, "r1", want) {
+	case Finished as f:
+		if len(f.Steps) != 0 {
+			return false
+		}
+	case Crashed, Locked:
+		return false
+	}
+	let before = (w.cloud.dirs.Get(), w.cloud.files.Get())
+	match run(w, infra.Refreshing, "r1", want) {
+	case Finished as f:
+		f.Steps == want_steps && (w.cloud.dirs.Get(), w.cloud.files.Get()) == before
+	case Crashed, Locked:
+		false
+	}
+}

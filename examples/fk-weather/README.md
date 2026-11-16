@@ -15,7 +15,7 @@ Tag: `default`.
 - Package `memory` has two Forecasts:
   - `Stations`, four fixed reports; the zip 99999 is a station that is down.
   - `Slow`, which answers as `Stations` does after a wait that `main` gives it: a sleep on the script's clock.
-- Package `web` is `OpenMeteo`, a Forecast over two `http.Net`s, as upstream's `fetchWeatherEffect` does: the open-meteo geocoding service finds the place of the zip, and the forecast service gives the weather there. Its tests give it `http.InMemory` Nets that answer with upstream's fixtures.
+- Package `web` is `OpenMeteo`, a Forecast over one `http.Network` whose origin policy names the two open-meteo services: the geocoding service finds the place of the zip, and the forecast service gives the weather there, as upstream's `fetchWeatherEffect` does. `Live` builds it with `http.NewNet`. Its tests give it an `http.InMemoryNetwork` that routes by origin and path, as upstream's one mock routes by the URL, and answers with upstream's fixtures.
 - Package `screen` is the view, as upstream's:
   - the zip field (placeholder `Enter a zip code`);
   - the button, which reads `Get Weather`, or `Loading...` in a disabled fieldset while a fetch is under way;
@@ -45,7 +45,7 @@ Each upstream story and scene test, and what restates it, is a line of `origin/t
 
 - `Forecast.ReportIsForTheZip`, `Forecast.NotFoundNamesTheZip` (contract): a report is the weather at the zip asked, and a zip with no place is refused with that zip.
   - They run against `memory.Stations`.
-  - The `web` property `ContractHoldsOverTheFixture` runs them against `OpenMeteo` over the fixture Nets, because the law runner cannot build an `http.Net`.
+  - The `web` property `ContractHoldsOverTheFixture` runs them against `OpenMeteo` over the fixture network, because the law runner cannot build an `http.Network`.
   - `memory.Slow` holds a function, which the runner cannot build either.
   - `expected-skips` lists the four skips.
 - `EditOnlyChangesTheDraft`: an edit in any state changes the draft and nothing else, and keeps the entry.

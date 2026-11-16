@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -226,9 +227,17 @@ const (
 	hangFactor = 10
 )
 
+// unmeasuredCost is the cost of a run with a test that has no recorded
+// time: no bound but the test binary's own deadline (runDeadline), which
+// the gate sets from the package's record (scripts/gate, sweepStep).
+var unmeasuredCost = math.Inf(1)
+
 // hangDeadline is hangFactor times cost seconds, at least hangFloor, in
-// whole minutes.
+// whole minutes; unmeasuredCost has none.
 func hangDeadline(cost float64) time.Duration {
+	if math.IsInf(cost, 1) {
+		return math.MaxInt64
+	}
 	d := time.Duration(hangFactor * cost * float64(time.Second))
 	return max(hangFloor, d.Round(time.Minute))
 }

@@ -1,5 +1,5 @@
 {
-  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping.",
+  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping. Every mutated line is in a _test.go file, which the cover tool does not instrument, so each row names its killers in anchor.tests.",
   "mutants": [
     {
       "name": "b15-r8-closure-skips-ended-child",
@@ -8,7 +8,8 @@
       "from": "if pid == helper {",
       "to": "if pid != 0 {",
       "rule": "An ended non-helper child is reaped, not left as a zombie.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "b15-r8-closure-steals-helper-status",
@@ -17,15 +18,22 @@
       "from": "if pid == helper {",
       "to": "if false && pid == helper {",
       "rule": "The helper's exec.Cmd remains the sole wait owner of its exit status.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "rm-cgo-link-input",
+      "origin": "wf10 Rm (c7486603b); killer MUT-names r2",
       "file": "internal/closure/closure_test.go",
       "from": "{\"-lc\", file, \"GNU ld's cwd lookup while the Go toolchain links a cgo dependency\"},",
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
-      "killers": ["closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"]
+      "killers": ["internal/closure:TestClosureClassifiesInputs"],
+      "anchor": {
+        "tests": [
+          "internal/closure:TestClosureClassifiesInputs"
+        ]
+      }
     },
     {
       "name": "g16fix2-alone-shares-a-run",
@@ -174,6 +182,18 @@
       "to": "d := hangDeadline(0)",
       "rule": "A swept run's deadline is ten times its recorded cost, not a fixed bound.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
+    },
+    { "name": "sweep-unmeasured-floored", "origin": "wf10 CS1", "file": "internal/closure/split_test.go", "from": "\t\tif len(plan[i].unmeasured) > 0 {\n", "to": "\t\tif false && len(plan[i].unmeasured) > 0 {\n", "rule": "A swept run holding a test with no recorded time is bounded only by the test binary's deadline, not the 30 minute floor.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] },
+    { "name": "sweep-unmeasured-hang-floored", "origin": "wf10 CS1", "file": "internal/closure/sandbox_test.go", "from": "\tif math.IsInf(cost, 1) {\n\t\treturn math.MaxInt64\n", "to": "\tif math.IsInf(cost, 1) {\n\t\treturn hangFloor\n", "rule": "An unmeasured run's cost sets no bound of its own.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] },
+    {
+      "name": "gatesandbox-std-store-under-tmpdir",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "\tif dir := os.Getenv(stdStoreVariable); dir != \"\" {\n",
+      "to": "\tif dir := \"\"; dir != \"\" {\n",
+      "rule": "A sweep given ERGO_CLOSURE_STD_DIR shares that std store and builds nothing, whatever its TMPDIR. The edited file is a test file, which coverage does not instrument.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
     }
   ]
 }

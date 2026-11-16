@@ -1,7 +1,10 @@
 package check
 
 import (
+	"slices"
 	"sort"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Laws under a context (types.md, Laws 10; L5, #237 stage 3). A member law
@@ -9,9 +12,10 @@ import (
 // package that binds T: each case builds the context, as a with of it
 // does, and runs the law against the provider the context binds, so the
 // provider is the one the program uses, made by its constructor with its
-// arguments and its other capabilities in place. A context whose build
-// acquires a provider with a Close does not run (LawContext.Unrun): the
-// case would have to release it. Only a law whose one slot is its owner
+// arguments and its other capabilities in place. A case releases the
+// providers with a Close it built when it ends, as the with does; a
+// context whose release a case cannot run does not run (lawRelease,
+// LawContext.Unrun). Only a law whose one slot is its owner
 // runs under a context; a law of a generic operation type runs under one
 // that binds an instance of it, at that instance.
 
@@ -32,6 +36,7 @@ type LawContext struct {
 // only such contexts here. It runs after the ownership pass, so the
 // acquisitions and Closes are known.
 func (c *checker) planLawContexts() {
+	c.lawProviderFixes()
 	if len(c.pkg.Contexts) == 0 {
 		return
 	}
@@ -67,13 +72,41 @@ func (c *checker) planLawContexts() {
 				continue
 			}
 			if i, ok := runs[law]; ok {
-				c.pkg.LawRuns[i].Contexts = under
+				r := &c.pkg.LawRuns[i]
+				r.Contexts = under
+				r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+					return c.builtByContext(b[0], under)
+				})
 				continue
 			}
 			runs[law] = len(c.pkg.LawRuns)
 			c.pkg.LawRuns = append(c.pkg.LawRuns, LawRun{Law: law, Contexts: under})
 		}
 	}
+}
+
+// builtByContext reports whether a context of under builds the provider p
+// that the law's run cannot build itself (p.Unrun): a context that runs
+// and whose entry for the owner is a value of p's type. The run under
+// that context is then p's run, so p is no skip. This is how a test file
+// picks a provider that takes another one, as cmd/NAME/main.ergo picks
+// the binary's: let overMemory = context { limits.Limiter:
+// NewLoopback(memory.NewMemory()) }.
+func (c *checker) builtByContext(p LawProvider, under []LawContext) bool {
+	if p.Unrun == "" {
+		return false
+	}
+	for _, lc := range under {
+		if lc.Unrun != "" {
+			continue
+		}
+		e := lc.With.Entries[0]
+		info := providerInfo(c.contextOwners.of[e])
+		if info != nil && e.Provider != nil && c.identical(info.Types[e.Provider], p.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // lawContext is the run of law under the named context w, when w binds its
@@ -111,12 +144,7 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 	c.contextOwners.add(w)
 	fact.Acquired = c.acquire(w, fact.Entries, c.contextOwners.of)
 	lc := LawContext{Context: w, With: fact, Params: params}
-	for _, a := range fact.Acquired {
-		if a.Close != nil {
-			lc.Unrun = "its build acquires a provider with a Close, which a law case does not release"
-			break
-		}
-	}
+	lc.Unrun = c.lawRelease(fact)
 	if lc.Unrun == "" && params != nil {
 		// A non-generic law's parameters were judged when it was planned.
 		for i, p := range law.Params {
@@ -126,5 +154,101 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 			}
 		}
 	}
+	if lc.Unrun == "" && law.Decl.Rewrite != nil && !freshEntry(w, node.entry) {
+		// Each side of a rewrite law's case needs its own provider
+		// (Laws 14): a build of the context makes one only when the
+		// entry calls the provider's constructor.
+		lc.Unrun = "a rewrite law runs each side on a fresh provider, and only an entry that calls a constructor func NewP(…) P builds one"
+	}
+	if lc.Unrun == "" && law.Decl.Rewrite != nil {
+		// A rewrite side builds the context into its own copy and has no
+		// case scope to release in (lower's contextRewriteSource), where
+		// a law case releases as a with does (lawRelease).
+		for _, a := range fact.Acquired {
+			if a.Releases() {
+				lc.Unrun = "a rewrite law's sides do not release the providers their build acquires, and this build acquires one with a release"
+				break
+			}
+		}
+	}
 	return lc, true
+}
+
+// lawRelease is why a law case cannot release the providers fact acquires,
+// or "". A case releases them as a with does at the end of its block
+// (resources.md, Context ownership): after the law's last operation, each
+// provider once, last built first. Outside that with a case has no
+// capability, so a release that needs one (rows.md, a release's needs are
+// charged outside the with) cannot run there; a provider that names a
+// package let would be released by the first case and read closed by the
+// next (R11); a generic Close with witnesses has no instance the case
+// could pass (S109).
+func (c *checker) lawRelease(fact *With) string {
+	for _, a := range fact.Acquired {
+		if !a.Releases() {
+			continue
+		}
+		if closeWitnessed(a.Close) != "" {
+			return "its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)"
+		}
+		if needs := c.providerNeeds(a); len(needs) > 0 {
+			return "its provider's release needs " + needs[0].cap.String() + "; a law case has no capability to release it with"
+		}
+		// A release was found from the provider's package facts (acquire),
+		// so info is set.
+		info := providerInfo(c.contextOwners.of[a.Entry])
+		if name := packageRoot(info, a.Entry.Provider); name != "" {
+			return "its provider names the package let " + name + ", which a case's release would close for every later case"
+		}
+	}
+	return ""
+}
+
+// freshEntry reports whether the entry e, of the context w or of one it
+// embeds, builds a new provider each time a with of the context runs: its
+// provider calls the constructor New<P> of its provider type P. A let
+// that holds a provider is one provider for every build.
+func freshEntry(w *Context, e *ContextEntry) bool {
+	pkg := entryPackage(w, e, map[*Context]bool{})
+	if pkg == nil || e.Provider == nil {
+		return false
+	}
+	call, ok := unparen(e.Provider).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	var id *syntax.Ident
+	switch x := unparen(call.Fun).(type) {
+	case *syntax.Ident:
+		id = x
+	case *syntax.SelectorExpr:
+		id = x.Sel
+	}
+	if id == nil {
+		return false
+	}
+	f, _ := pkg.Info.Uses[id].(*Func)
+	if f == nil || len(f.Sig.Results) != 1 {
+		return false
+	}
+	n, _ := f.Sig.Results[0].(*Named)
+	return n != nil && n.Obj.ctor == f
+}
+
+// entryPackage is the package of the context, w or one it embeds, whose
+// own entries hold e; nil when none does.
+func entryPackage(w *Context, e *ContextEntry, seen map[*Context]bool) *Package {
+	if w == nil || seen[w] {
+		return nil
+	}
+	seen[w] = true
+	for _, own := range w.Entries {
+		if own == e {
+			return w.pkg
+		}
+		if p := entryPackage(own.Embedded, e, seen); p != nil {
+			return p
+		}
+	}
+	return nil
 }

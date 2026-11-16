@@ -43,7 +43,7 @@ type plan struct {
 	lo, hi int64  // Refine
 	typ    syntax.Expr
 	file   *syntax.File // the file of typ (Of)
-	fields []*plan      // Record, Union: Field plans
+	fields []*plan      // Record, Union: Field plans; Provider: its three Of plans
 	name   str          // Field
 	at     origin       // the constructor call
 }
@@ -91,7 +91,7 @@ func (e *evaluator) charge(at origin, end syntax.Pos, what *int, by, limit int, 
 }
 
 // predeclared names the constructors of the closed algebra.
-var predeclared = map[string]bool{"Pattern": true, "Refine": true, "Of": true, "Record": true, "Union": true, "Optional": true, "List": true, "Field": true}
+var predeclared = map[string]bool{"Pattern": true, "Refine": true, "Of": true, "Record": true, "Union": true, "Optional": true, "List": true, "Field": true, "Provider": true}
 
 func (e *evaluator) eval(f *frame, x syntax.Expr) any {
 	at := origin{f.file, x.Pos()}
@@ -405,6 +405,16 @@ func (e *evaluator) call(f *frame, x *syntax.CallExpr) any {
 			e.fail(at, x.End(), "Field takes a name, a string, and a plan")
 		}
 		p.name, p.base = s, planArg(1)
+	case "Provider":
+		// Provider(cap, field, none) (patterns.md, Provider plans): each an
+		// Of plan; the checker reads the capability's operations.
+		want(3)
+		for i := range args {
+			if v := planArg(i); v.kind != "Of" {
+				e.fail(origin{f.file, x.Args[i].Pos()}, x.Args[i].End(), "Provider takes three Of plans: the capability, the field type and the type of no arguments")
+			}
+			p.fields = append(p.fields, args[i].(*plan))
+		}
 	case "Record", "Union":
 		want(1)
 		list, ok := args[0].([]any)

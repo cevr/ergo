@@ -114,7 +114,7 @@ func TestShieldedHelperStopsDirectly(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		inRelease(t, func(task *Task) {
 			v := NewVirtual(epoch)
-			go func() { v.AwaitTimers(1); v.Advance(time.Hour) }()
+			go func() { v.AwaitTimers(1); v.Advance(Span(time.Hour)) }()
 			_, err := After(task, v, time.Hour, blockUntilStopped)
 			if err != (Expired{}) {
 				t.Errorf("After in a release returned %v, want Expired", err)

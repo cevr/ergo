@@ -582,6 +582,33 @@ func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	out
 }
 
+func keyedLines(f *ui.Frame[int], xs []int) {
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
+			ui.Text(f, "line \(x)")
+		}
+	}
+}
+
+func longestRise(xs []int) int {
+	let mut best = []int{}
+	let mut most = 0
+	for i, x in xs {
+		let mut b = 1
+		for j in 0..i {
+			if xs[j] < x && best[j]+1 > b {
+				b = best[j] + 1
+			}
+		}
+		best = best.Append(b)
+		if b > most {
+			most = b
+		}
+	}
+	most
+}
+
+
 
 func sent(o Option[int]) int {
 	match o {

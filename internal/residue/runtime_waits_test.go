@@ -21,7 +21,8 @@ const runtimeWaitsAllow = "testdata/runtime-waits-allow.txt"
 // was a raw channel receive, so a time.Manual's Advance waited for ever
 // for a work that waited for a timer that only the Advance could fire.
 //
-// The rule is syntactic: in every non-test Go file of runtime/v1, a
+// The rule is syntactic: in every non-test Go file of runtime/v1 and of
+// its leaves (binsize BS1, BS8: a body that moved to a leaf keeps its rule), a
 // function (its literals included) that blocks (a channel receive or send
 // outside a select, a select with no default, or a call of a method Wait
 // with no arguments: a sync.WaitGroup's, a sync.Cond's, a process's)
@@ -49,7 +50,7 @@ func TestRuntimeWaitsPark(t *testing.T) {
 	used := map[string]bool{}
 	files := 0
 	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
-		if name == "" || strings.HasSuffix(name, "_test.go") || strings.Contains(name, "/testdata/") || filepath.Dir(name) != "runtime/v1" {
+		if name == "" || strings.HasSuffix(name, "_test.go") || strings.Contains(name, "/testdata/") || filepath.Dir(name) != "runtime/v1" && filepath.Dir(filepath.Dir(name)) != "runtime/v1" {
 			continue
 		}
 		src, err := os.ReadFile(filepath.Join(repo, name))

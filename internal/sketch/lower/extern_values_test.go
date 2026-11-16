@@ -63,7 +63,7 @@ func TestExternValuesRun(t *testing.T) {
 	b.WriteString("import slices\nimport strings\nimport strconv\nimport go gostrings strings\nimport go gostrconv strconv\nimport go unicode\nimport go flag\n\n")
 	b.WriteString("extern go strings.Map func Mapper(f func(r rune) rune, s string) string\n")
 	b.WriteString("extern go strings.ToUpper func Upper(s string) string\n\n")
-	b.WriteString("type Shift { Next(r rune) rune }\n\ntype One {}\n\nfunc Next(o One, r rune) rune { r + 1 }\n\n")
+	b.WriteString("type Shift { Next(r rune) rune }\n\ntype One {} implements Shift\n\nfunc Next(o One, r rune) rune { r + 1 }\n\n")
 	b.WriteString("func parsed(fs go.Ref[flag.FlagSet], args []string) string needs go.Foreign {\n\tfs.Parse(args) catch {\n\tcase go.Error:\n\t\treturn \"failed\"\n\t}\n\t\"ok\"\n}\n\n")
 	b.WriteString("func main() needs Console | go.Foreign {\n\tlet shift Shift = One\n")
 	for i, c := range cases {

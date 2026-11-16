@@ -4,7 +4,7 @@
 // RoundTrip: a sampled tree prints to a text that parses back to it.
 law RoundTrip(seed int) {
 	let n = Sample(seed)
-	(try Parse(Print(n))) == n
+	try Parse(Print(n)) == n
 }
 
 // ParsedIsCanonical: whatever text parses, its tree prints to a text
@@ -47,7 +47,7 @@ func canonical(text string) bool {
 law LiteralRoundTrip(text string) {
 	for t in []string{text, Scramble(text)} {
 		let n = Literal(t)
-		if (try Parse(Print(n))) != n {
+		if try Parse(Print(n)) != n {
 			return false
 		}
 	}

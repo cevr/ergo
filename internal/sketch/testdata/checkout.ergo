@@ -35,7 +35,7 @@ func checkout(id string) string fails OrderNotFound | GatewayDown | timeout.Expi
 	}
 }
 
-type MemoryOrders {}
+type MemoryOrders {} implements Orders
 
 func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	if id == "42" {
@@ -44,7 +44,7 @@ func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	return OrderNotFound{ID: id}
 }
 
-type FakeGateway { AuthID string }
+type FakeGateway { AuthID string } implements Gateway
 
 func Authorize(g FakeGateway, order Order) Payment fails GatewayDown {
 	return Authorized{g.AuthID}

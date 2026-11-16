@@ -1,0 +1,31 @@
+# fk-routes: the upstream tests of routing at d21db423 and what restates each.
+# No story is an Ergo test: a law and the tour case kill every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: GH produces the Home navigation Command -> `app` law `ShortcutsNavigate`; case `tour` (key GH)
+src/story.test.ts: GP produces the People navigation Command -> `app` law `ShortcutsNavigate`; case `tour` (key GP)
+src/story.test.ts: GF produces the Files navigation Command -> `app` law `ShortcutsNavigate`; case `tour` (key GF)
+src/story.test.ts: GN produces the Nested navigation Command -> `app` law `ShortcutsNavigate`; case `tour` (key GN)
+src/story.test.ts: navigating to /people parses to a People route -> `route` law `ParsePrintRoundTrips`; `app` law `NavigationSetsTheRoute`; case `tour` (visit /people)
+src/story.test.ts: navigating to /people?searchText=foo captures the query parameter -> `route` laws `ParsePrintRoundTrips` and `PrintParseRoundTrips`; case `tour` (start)
+src/story.test.ts: navigating to /people/3 parses to a Person route with numeric id -> `route` law `ParsePrintRoundTrips`; case `tour` (visit /people/3)
+src/story.test.ts: an unknown path falls through to NotFound with the path captured -> `route` law `UnknownPathIsNotFound`; case `tour` (visit /nowhere)
+src/story.test.ts: the deep nested path resolves to Nested -> `route` law `ParsePrintRoundTrips`; case `tour` (key GN)
+src/story.test.ts: navigating to /files parses to the FilesIndex route -> `route` law `ParsePrintRoundTrips`; case `tour` (key GF)
+src/story.test.ts: navigating under /files captures the remaining segments -> `route` laws `ParsePrintRoundTrips` and `PrintParseRoundTrips`; case `tour` (visit /files/...)
+src/story.test.ts: a same-page URL change syncs the input, records history, and refetches -> `app` law `NavigationSetsTheRoute`; `people` law `HistoryKeepsTheNewestDistinct`; case `tour` (search, back)
+src/story.test.ts: GotPeopleMessage writes through to peoplePage -> `app` law `TypingOnlyEdits`; case `tour` (type)
+src/page/people.story.test.ts: ChangedSearchInput updates the input without recording history or fetching -> `app` law `TypingOnlyEdits`; case `tour` (type)
+src/page/people.story.test.ts: SubmittedSearch pushes the current input to the URL -> `app` law `SearchGoesToItsAddress`; case `tour` (search)
+src/page/people.story.test.ts: SucceededFetchPeople stores the loaded results -> `people` law `SearchMatchesNameOrRole`; case `tour` (wait)
+src/scene.test.ts: the nav bar appears on every route -> not restated: stage a has no view (FK8b, after H4, H4r and H7)
+src/scene.test.ts: the Home route renders its welcome heading -> not restated: stage a has no view (FK8b); case `tour` shows the screen's line
+src/scene.test.ts: the Nested route renders its deep-route message -> not restated: stage a has no view (FK8b); case `tour` shows the screen's line
+src/scene.test.ts: the People route renders the People heading -> not restated: stage a has no view (FK8b); case `tour` shows the screen's line
+src/scene.test.ts: a valid Person route renders the person details -> not restated: stage a has no view (FK8b); case `tour` (visit /people/3)
+src/scene.test.ts: an unknown Person id renders the not-found panel -> not restated: stage a has no view (FK8b); case `tour` (visit /people/9)
+src/scene.test.ts: the Files index lists the top-level entries -> not restated: stage a has no view (FK8b); case `tour` (key GF)
+src/scene.test.ts: a directory path renders breadcrumb links and its entries -> not restated: stage a has no view (FK8b); case `tour` (visit /files/photos/vacation)
+src/scene.test.ts: a file path renders the file details -> not restated: stage a has no view (FK8b); case `tour` (visit /files/notes.txt)
+src/scene.test.ts: an unknown path under files renders the missing panel -> not restated: stage a has no view (FK8b); case `tour` (visit /files/nope)
+src/scene.test.ts: an unmatched URL renders the NotFound view -> not restated: stage a has no view (FK8b); case `tour` (visit /nowhere)
+src/page/people.scene.test.ts: lists every person -> not restated: stage a has no view (FK8b); case `tour` (the empty search)
+src/page/people.scene.test.ts: a search filters matches by name or role -> not restated: stage a has no view (FK8b); `people` law `SearchMatchesNameOrRole`

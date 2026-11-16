@@ -1,0 +1,8 @@
+{
+  "about": "The mutant ledger of runtime/v1/rand: edits of the leaf's source that its own tests must kill. Its rows moved from runtime/v1's ledger when BS8 moved the code into this leaf. Run it with go run ./scripts/mutants ./runtime/v1/rand (docs/tooling.md, \"Mutant ledger\").",
+  "mutants": [
+    {"name":"ss1-stream-reject","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"\t\tfor lo < thresh {","to":"\t\tfor lo < thresh && false {","rule":"stdlib.md rand: a seeded IntN is Go's draw, rejection included (uint64n).","killers":["runtime/v1/rand:TestSeededRandModel"]},
+    {"name":"ss1-stream-mask","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"\t\treturn s.pcg.Uint64() & (n - 1)","to":"\t\treturn s.pcg.Uint64() >> 1 & (n - 1)","rule":"stdlib.md rand: a seeded IntN of a power of two is Go's masked draw.","killers":["runtime/v1/rand:TestSeededRandModel"]},
+    {"name":"ss1-stream-float","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"float64(s.pcg.Uint64()<<11>>11) / (1 << 53)","to":"float64(s.pcg.Uint64()<<12>>12) / (1 << 53)","rule":"stdlib.md rand: a seeded Float64 is Go's draw.","killers":["runtime/v1/rand:TestSeededRandModel"]}
+  ]
+}

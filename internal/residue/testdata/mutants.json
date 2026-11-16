@@ -1,9 +1,6 @@
 {
   "about": "The rules that hold the specification's text (SPEC1a): no history in a rule paragraph, one name per form, statuses generated from docs/spec/status.json. Each mutant breaks one rule and a residue test kills it.",
   "mutants": [
-    {"name":"embed-duplicate-ledger-anchor","origin":"wf10 batch-16b fix-r1","file":"internal/sketchfront/testdata/mutants.json","from":"l.user.WriteString(\\\"//go:embed \\\" + strings.Join","to":"//go:embed ","rule":"Every ledger edit applies exactly once at HEAD, including literal template edits.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}},
-    {"name":"g16fix2-store-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/closure/stdcache_test.go","from":"\"linux/amd64\", \"linux/arm64\"}","to":"\"linux/amd64\"}","rule":"The closure sweep's std store builds for gobind.Platforms: its copy storePlatforms equals gobind's list, as sets. The edited file is a test file of another package, which this suite's coverage does not instrument.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}},
-    {"name":"g16fix2-gobind-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/gobind/load.go","from":"{\"linux\", \"amd64\"}, {\"linux\", \"arm64\"}}","to":"{\"linux\", \"amd64\"}}","rule":"A platform dropped from gobind.Platforms is dropped from the closure's storePlatforms too.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}},
     {
       "name": "spec1a-history-skips-a-file",
       "origin": "wf10 lang-2 SPEC1a",
@@ -43,6 +40,86 @@
       "rule": "Code in a fenced block is not prose: Go's words in a habit message stay.",
       "killers": ["internal/residue:TestSpecTextRules"],
       "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
-    }
+    },
+    {
+      "name": "residue-std-read-unlisted",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n",
+      "to": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n\t_ = fc.l.pkg.Std()\n",
+      "rule": "The standard library gets no special treatment: a new read of std membership in the compiler has no row of std-privileges.txt.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-name-through-constant",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "const mutantQueue = \"queue\"\n\nfunc mutantIsQueue(p *check.Package) bool { return p.Path == mutantQueue }\n\n// typeOf is x's checked type.\n",
+      "rule": "A comparison with a std package path through a package-level constant is a comparison with the path.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-table-key",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "var mutantTable = map[string]bool{\"queue.Queue\": true}\n\n// typeOf is x's checked type.\n",
+      "rule": "A table keyed by a std name is a decision by name.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-debt-grows",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/testdata/std-privileges.txt",
+      "from": "language\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\t-\n",
+      "to": "debt\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\tNP6\n",
+      "rule": "The debt list only shrinks: a row may not join it.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-scan-skips-package",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/std_membership_test.go",
+      "from": "\"internal/sketch/format\", \"internal/sketchfront\", \"internal/tsproj\",\n",
+      "to": "\"internal/sketch/format\", \"internal/sketchfront\",\n",
+      "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "spec1a-glossary-status-label",
+      "origin": "wf10 batch-17 fix-gen M4",
+      "file": "GLOSSARY.md",
+      "from": "in a machine, the step graph",
+      "to": "in a machine (designed), the step graph",
+      "rule": "A GLOSSARY entry carries no status label; the status is in docs/spec/status.json.",
+      "killers": ["internal/residue:TestGlossaryCarriesNoStatus"],
+      "anchor": {"tests": ["internal/residue:TestGlossaryCarriesNoStatus"]}
+    },
+    {"name":"embed-duplicate-ledger-anchor","origin":"wf10 batch-16b fix-r1","file":"internal/sketchfront/testdata/mutants.json","from":"l.user.WriteString(\\\"//go:embed \\\" + strings.Join","to":"//go:embed ","rule":"Every ledger edit applies exactly once at HEAD, including literal template edits.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}},
+    {"name":"ledger-killer-alias","origin":"wf10 fu-mutants-xpkg","file":"runtime/explore/sched/testdata/mutants.json","from":"\"killers\": [\n        \"runtime/explore/sched:TestDependencyTableTotal\"","to":"\"killers\": [\n        \"sched:TestDependencyTableTotal\"","rule":"Every ledger killer names a test the mutant runner can run: DIR:Test, DIR[TAG]:Test, an ergo suite, or examples:PROGRAM.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}},
+    {"name":"ledger-killer-example-package","origin":"wf10 fu-mutants-xpkg","file":"runtime/v1/rpc/testdata/mutants.json","from":"\"examples:limiter (its loopback package:","to":"\"examples:limiter/loopback (its loopback package:","rule":"An examples killer names a program (a directory of examples with an ergo.mod), not a package inside one.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}},
+    {"name":"g16fix2-store-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/closure/stdcache_test.go","from":"\"linux/amd64\", \"linux/arm64\"}","to":"\"linux/amd64\"}","rule":"The closure sweep's std store builds for gobind.Platforms: its copy storePlatforms equals gobind's list, as sets. The edited file is a test file of another package, which this suite's coverage does not instrument.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}},
+    {"name":"g16fix2-gobind-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/gobind/load.go","from":"{\"linux\", \"amd64\"}, {\"linux\", \"arm64\"}}","to":"{\"linux\", \"amd64\"}}","rule":"A platform dropped from gobind.Platforms is dropped from the closure's storePlatforms too.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}},
+    {"name":"gs3-fast-lists-unnamed","origin":"wf10 GS3","file":"scripts/examples/fast-tier.txt","from":"adventure\ncatalog\n","to":"adventure\nbackups\ncatalog\n","rule":"A fast-tier example program is named by a mutant ledger row as a killer; one no row names runs in the full tier only.","killers":["internal/residue:TestFastTierExamplesAreLedgerKillers"],"anchor":{"tests":["internal/residue:TestFastTierExamplesAreLedgerKillers"]}},
+    {"name":"gs3-fast-drops-killer","origin":"wf10 GS3","file":"scripts/examples/fast-tier.txt","from":"\nchat\ncounter-gui\n","to":"\ncounter-gui\n","rule":"A default example program a ledger row names as a killer stays in the fast tier, so narrowing the tier loses no kill.","killers":["internal/residue:TestFastTierExamplesAreLedgerKillers"],"anchor":{"tests":["internal/residue:TestFastTierExamplesAreLedgerKillers"]}},
+    {"name":"gs5-std-in-fast-tier","origin":"wf10 GS5","file":"internal/gobind/bind_test.go","from":"func TestGoStdBindingsMatchToolchain(t *testing.T) {\n\tneedsBuild(t)\n","to":"func TestGoStdBindingsMatchToolchain(t *testing.T) {\n","rule":"internal/gobind's std-binding test, which compiles the standard library for both platforms, runs in the full tier only (needsBuild first).","killers":["internal/residue:TestGobindStdBuildIsFullTier"],"anchor":{"tests":["internal/residue:TestGobindStdBuildIsFullTier"]}},
+    {"name":"cs11-map-borrow-allowed","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\t\t\twhat = \"a borrow\"\n","to":"\n","rule":"compiler/ keys no Map by a borrow.","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"cs11-map-record-allowed","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\treturn \"a record\"\n","to":"\t\treturn \"\"\n","rule":"compiler/ keys no Map by a record it declares (a node, a type or a symbol as a value).","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"cs11-map-union-allowed","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\t\treturn \"a union\"\n","to":"\t\t\treturn \"\"\n","rule":"compiler/ keys no Map by a union it declares.","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"cs11-map-id-allowed","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\t\treturn \"a dense id\"\n","to":"\t\t\treturn \"\"\n","rule":"compiler/ keys no Map by a dense id: a per-id result is a dense side table.","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"cs11-map-import-unresolved","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\t\t\tif q, ok := k.X.(*syntax.Ident); ok && folders[q.Name] != \"\" {","to":"\t\t\t\tif q, ok := k.X.(*syntax.Ident); ok && folders[q.Name] != \"\" && false {","rule":"A key named across an import of the module is judged by its declaration.","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"cs11-map-string-refused","origin":"wf10 compile-speed CS11","file":"internal/residue/compiler_maps_test.go","from":"\t\tcase \"string\":\n\t\t\treturn \"\"\n","to":"\t\tcase \"string\":\n\t\t\treturn \"a defined type\"\n","rule":"A type compiler/ defines over string (a path, a name) may key a Map.","killers":["internal/residue:TestCompilerMapKeyRule"],"anchor":{"tests":["internal/residue:TestCompilerMapKeyRule"]}},
+    {"name":"mn-lines-unjoined","origin":"wf10 FK residue","file":"internal/residue/mutant_names_test.go","from":"\t\tgroup = append(group, text)\n","to":"\t\tgroup = append(group, text)\n\t\tflush()\n","rule":"A comment's lines are read as one text: a mutant named on the line after the word mutant is still checked.","killers":["internal/residue:TestMutantNameRule"]},
+    {"name":"mn-prefix-unread","origin":"wf10 FK residue","file":"internal/residue/mutant_names_test.go","from":"\tif prefix, ok := strings.CutSuffix(name, \"*\"); ok {\n","to":"\tif prefix, ok := strings.CutSuffix(name, \"*\"); ok && false {\n","rule":"A name ending in * names the ledger rows with that prefix (gs1-key-*), and only them.","killers":["internal/residue:TestMutantNameRule"]},
+    {"name":"tempdir-remove-ignored","origin":"wf10 GS18","file":"internal/residue/tempdir_test.go","from":"\t\t\t\t\t\t\tremoved[id.Name] = true\n","to":"\t\t\t\t\t\t\t_ = id\n","rule":"A test function that removes the temporary directory it made (os.RemoveAll of its variable, in a deferred closure too) is no leak.","killers":["internal/residue:TestTempLeakRule"]},
+    {"name":"tempdir-place-ignored","origin":"wf10 GS18","file":"internal/residue/tempdir_test.go","from":"&& len(call.Args) > 0 && inSystemTemp(call.Args[0])\n","to":"&& len(call.Args) > 0\n","rule":"Only a file made in the system temporary directory counts; one made under a test's own directory is that directory's.","killers":["internal/residue:TestTempLeakRule"]},
+    {"name":"tempdir-any-removal","origin":"wf10 GS18","file":"internal/residue/tempdir_test.go","from":"(m.name != \"\" && m.name != \"_\" && removed[m.name])","to":"len(removed) > 0","rule":"Removing some other directory does not remove the one the function made.","killers":["internal/residue:TestTempLeakRule"]},
+    {"name":"gs18-cmd-cache-kept","origin":"wf10 GS18","file":"cmd/ergo/main_test.go","from":"\t\tdefer os.RemoveAll(cache)\n","to":"\t\t_ = cache\n","rule":"cmd/ergo's tests remove the private cache they make in /tmp (68 GB of leaked directories, 2026-11-13).","killers":["internal/residue:TestTestsRemoveTheirTemporaryFiles"]}
   ]
 }

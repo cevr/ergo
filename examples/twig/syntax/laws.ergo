@@ -1,0 +1,47 @@
+// The rules of twig's text as laws.
+
+// PrintParsesBack: the text of a program reads back as the program: for
+// the samples of seed, Print(Parse(Print(p))) is Print(p). Print writes
+// the fewest parentheses, so a parser that binds an operator too tight,
+// too loose or to the wrong side reads another tree, which prints as
+// another text.
+law PrintParsesBack(seed int) {
+	for p in Samples(seed) {
+		let text = Print(p)
+		let back = Parse(text) catch {
+		case Failure:
+			return false
+		}
+		if Print(back) != text {
+			return false
+		}
+	}
+	true
+}
+
+// TokensStandInOrder: the tokens of a text stand in order, each after the
+// one before it, and End is last, after them all.
+law TokensStandInOrder(src string) {
+	let toks = Lex(src) catch {
+	case LexError:
+		return true
+	}
+	let mut line = 0
+	let mut col = 0
+	for i, t in toks {
+		let after = t.At.Line > line || (t.At.Line == line && t.At.Col > col)
+		if !after {
+			return false
+		}
+		match t.Kind {
+		case End:
+			if i != len(toks)-1 {
+				return false
+			}
+		case Ident, Keyword, IntTok, FloatTok, StrTok, Punct:
+		}
+		line = t.At.Line
+		col = t.At.Col
+	}
+	true
+}

@@ -52,8 +52,8 @@ func TestTypedNilCausePanicInReleaseKeepsCleanup(t *testing.T) {
 type nilCauseScheduler struct{ started <-chan struct{} }
 type nilCauseTimer struct{ started <-chan struct{} }
 
-func (s nilCauseScheduler) NewTimer(time.Duration) Timer { return nilCauseTimer(s) }
-func (s nilCauseTimer) C() <-chan time.Time {
+func (s nilCauseScheduler) NewTimer(Span) Timer { return nilCauseTimer(s) }
+func (s nilCauseTimer) C() <-chan Instant {
 	<-s.started
 	panic((*Cause)(nil))
 }

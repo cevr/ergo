@@ -100,8 +100,8 @@ var externPlaceRows = map[string]externPlaceRow{
 	// Types.
 	"ArrayType.Elt":        {guardType, "func f(xs []@Upper) {}\n"},
 	"CompositeLit.Type":    {guardType, "func main() {\n\t_ = @Upper{}\n}\n"},
-	"ContextEntry.Key":     {guardType, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nlet W = context { @Upper: P }\n"},
-	"ContextEntry.Keys":    {guardType, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nlet W = context { C, @Upper: P }\n"},
+	"ContextEntry.Key":     {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { @Upper: P }\n"},
+	"ContextEntry.Keys":    {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { C, @Upper: P }\n"},
 	"ErrorRow.Types":       {guardType, "func f() fails @Upper {}\n"},
 	"Field.Type":           {guardType, "func f(x @Upper) {}\n"},
 	"FuncDecl.Type":        {guardType, "func f(x @Upper) {}\n"},
@@ -113,9 +113,10 @@ var externPlaceRows = map[string]externPlaceRow{
 	"MapType.Key":          {guardType, "func f(m Map[@Upper, int]) {}\n"},
 	"MapType.Value":        {guardType, "func f(m Map[int, @Upper]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @Upper {}\n"},
-	"ProvidesClause.Names": {guardType, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nfunc f() { with context provides @Upper { C: P } { C.M() } }\n"},
+	"ProvidesClause.Names": {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nfunc f() { with context provides @Upper { C: P } { C.M() } }\n"},
 	"StarExpr.X":           {guardType, "func f(p *@Upper) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @Upper\n"},
+	"TypeDecl.Implements":  {guardType, "type T {} implements @Upper\n"},
 	// A where reads only its subject and literals (refine.go): an extern
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @Upper > 0\n"},
@@ -132,9 +133,13 @@ var externPlaceRows = map[string]externPlaceRow{
 		"func upper(s string) string { s }\n"},
 	"AsPattern.X": {guardBinder, "func main() {\n\tlet f = upper\n\tlet m = match f {\n\tcase @Upper as g: g(\"x\")\n\tcase _: \"y\"\n\t}\n\t_ = m\n}\n" +
 		"func upper(s string) string { s }\n"},
-	"SelectorExpr.Sel":         {guardBinder, "func main() {\n\t_ = \"x\".@Upper\n}\n"},
+	"SelectorExpr.Sel": {guardBinder, "func main() {\n\t_ = \"x\".@Upper\n}\n"},
+	// A nested alternative binds as any pattern does (syntax/orpattern.go).
+	"CaseClause.Written":       {guardBinder, "func main() {\n\tlet f = (1, 2)\n\tlet m = match f {\n\tcase (@Upper | 3, _): 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	"OrPattern.Alts":           {guardBinder, "func main() {\n\tlet f = (1, 2)\n\tlet m = match f {\n\tcase (@Upper | 3, _): 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	"CatchArm.Written":         {guardBinder, "type Bang { N int }\nfunc load() int fails Bang { 1 }\nfunc f() int {\n\tload() catch {\n\tcase Bang{N: @Upper | 2}: 0\n\t}\n}\n"},
 	"AsPattern.Name":           {guardBinder, "type A {}\ntype B {}\ntype U = A | B\nfunc f(u U) string {\n\tmatch u {\n\tcase A: \"a\"\n\tcase _ as @Upper: \"b\"\n\t}\n}\n"},
-	"ContextDecl.Name":         {guardBinder, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nlet @Upper = context { C: P }\n"},
+	"ContextDecl.Name":         {guardBinder, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet @Upper = context { C: P }\n"},
 	"ExternSpec.Target":        {guardBinder, "extern go strings.@Upper func Upper(s string) string\n"},
 	"Field.Names":              {guardBinder, "func f(@Upper int) int { Upper }\n"},
 	"Field.Key":                {guardBinder, "type R { Field string \"@Upper\" }\n"},

@@ -49,8 +49,11 @@ var ArgClauses = []ArgClause{
 	{"actor.child", "kind", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
 	{"actor.child", "next", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
 	{"actor.child", "out", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
+	{"actor.changesOf", "changed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task for each state, after changesOf returned"},
+	{"actor.changesOf", "overflowed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task before a state an overflow dropped others for, after changesOf returned"},
 	{"actor.feed", "run", "escaping", "ActorFeed admits it as a source that the actor's runner starts on a task of its own, after feed returned"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
+	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
 	// http: a streamed client body (httpStreamURL) is read by a goroutine
 	// of its own, which hands each part over an unbuffered channel to the
 	// caller's task, where accepts and put run; the goroutine is joined
@@ -62,6 +65,10 @@ var ArgClauses = []ArgClause{
 	{"http.IntoFile", "fetch", "non-escaping", "HTTPIntoFile calls fetch once, on the caller's task, before it renames or removes the file and returns; it keeps nothing"},
 	{"http.fetchInto", "accepts", "non-escaping", "HTTPFetchInto calls accepts through httpStreamURL on the caller's task, once per hop's head, before it returns; it keeps nothing"},
 	{"http.fetchInto", "put", "non-escaping", "HTTPFetchInto calls put through httpStreamURL on the caller's task, one part at a time, and joins the reader before it returns; it keeps nothing"},
+	{"http.fetchLocal", "handle", "non-escaping", "HTTPFetchLocal calls handle through httpLocalExchange on the caller's task, once per hop, before it returns; it keeps nothing"},
+	{"http.fetchLocalInto", "accepts", "non-escaping", "HTTPFetchLocalInto calls accepts on the caller's task, once per final answer, before it returns; it keeps nothing"},
+	{"http.fetchLocalInto", "put", "non-escaping", "HTTPFetchLocalInto calls put on the caller's task, at most once, before it returns; it keeps nothing"},
+	{"http.fetchLocalInto", "handle", "non-escaping", "HTTPFetchLocalInto calls handle through httpLocalExchange on the caller's task, once per hop, before it returns; it keeps nothing"},
 	{"http.Net.SendInto", "put", "non-escaping", "an operation: its std providers are Ergo bodies the checker holds to the clause (Client.SendInto through sendInto, reviewed above; InMemory's Handler.SendInto); a user's provider is checked the same way"},
 	{"http.Network.SendURLInto", "put", "non-escaping", "an operation: its std provider Remote.SendURLInto is an Ergo body the checker holds to the clause, through fetchInto (reviewed above); a user's provider is checked the same way"},
 	// rpc: rpcCalls starts each Request's handle on a child task of its
@@ -78,5 +85,6 @@ var ArgClauses = []ArgClause{
 	{"tasks.Transform", "f", "escaping", "TasksTransform calls f on child tasks, up to limit of them at once (lang audit B, F1, probes race and race2); it waits for every call before it returns, but the calls run at the same time"},
 	{"tasks.Go", "set", "lent", "TasksGo adds a member to set under its lock and keeps set only in that member's task, which set's own Wait, Stop or Close drains (v1.DrainsLends) before set is released"},
 	{"tasks.Go", "body", "escaping", "TasksGo runs body as a member of set, on a task of its own, after Go returned"},
+	{"time.timeAsleep", "t", "lent", "TimeAsleep reads t's task pointer to compare it with the clock's sleepers, under the clock's lock, on the caller's goroutine, and keeps nothing (FK4-g2-g1)"},
 	{"timeout.After", "f", "escaping", "After runs f on a child task (rt.AfterSpan); joining it orders the runs but does not make a caller-owned resource's task-affine operations safe on that child"},
 }

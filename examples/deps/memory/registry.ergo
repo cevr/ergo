@@ -9,7 +9,7 @@ import slices
 // releases sorted newest first when it is built. Its field is unexported,
 // so only NewRegistry builds one, and ergo test builds each provider of
 // the resolve.Index laws with it.
-type Registry { byName Map[string, []resolve.Release] }
+type Registry { byName Map[string, []resolve.Release] } implements resolve.Index
 
 // NewRegistry is the registry of releases. Of two releases of one
 // version, the first counts.

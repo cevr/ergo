@@ -24,7 +24,10 @@ import (
 //     row that holds it, or a call whose row holds it, makes f impure);
 //   - its frame's footprint is empty (Info.Footprints: no capability, no
 //     task start, no opaque call), so it has no interruption point
-//     (runtime.md, I1); and
+//     (runtime.md, I1);
+//   - its body converts no value of the program into a Go interface
+//     (goAdapterAt): the adapter's callbacks run on the converting task
+//     (gointerface.go); and
 //   - every call in its body, outside the bodies of function literals
 //     (each a frame of its own that takes its caller's environment as its
 //     parameter), is a built-in operation (len, a conversion), a call of a
@@ -158,6 +161,10 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	ok := true
 	syntax.Inspect(d.Body, func(n syntax.Node) bool {
 		if !ok {
+			return false
+		}
+		if x, isExpr := n.(syntax.Expr); isExpr && goAdapterAt(info, x) {
+			ok = false // its adapter runs on this frame's task (gointerface.go)
 			return false
 		}
 		switch n := n.(type) {

@@ -1,0 +1,333 @@
+// The laws of the surfaces. Each surface runs on a context of its own: a
+// durable actor of Dispatch over a memory event log (module domain), a runner whose first
+// stage fails its first tries, and a manual clock that no one moves, so a
+// failed stage waits for a retry. After each request the surface settles
+// its context, so the runner's tries are part of what the next request
+// sees.
+
+import actor
+import flag
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import github.com/cevr/ergo/modules/mcp
+import json
+import runners pipeline/memory
+import rpc
+import pipeline/pipeline
+import pipeline/pipeline/pipelinecli
+import pipeline/pipeline/pipelinemcp
+import pipeline/pipeline/pipelinerpc
+import pipeline/board
+import pipeline/run
+import pipeline/screen
+import pipeline/view
+import strings
+import time
+import ui
+
+// Names are the runs the requests name.
+let Names = []string{"build", "docs", "lint"}
+
+// RequestOf is the request of the act k at place i: a submit (of -1 to 9
+// stages, so some are refused), a cancel, a retry of stage 0 to 2, a
+// resend of the first command, the board, or a run's state.
+func RequestOf(i int, k int) Request {
+	let name = Names[((k/8)%3+3)%3]
+	let small = ((k/24)%3 + 3) % 3
+	match ((k % 8) + 8) % 8 {
+	case 0, 1:
+		pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: "c\(i)", Run: name, Stages: ((k/24)%11+11)%11 - 1}}
+	case 2:
+		pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: "c\(i)", Run: name, Why: "stop"}}
+	case 3, 4:
+		pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: "c\(i)", Run: name, Stage: small}}
+	case 5:
+		pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: "c0", Run: name, Stages: 2}}
+	case 6:
+		pipelinerpc.BoardRequest
+	case _:
+		pipelinerpc.RunOfRequest{Id: name}
+	}
+}
+
+// requests are the requests of the acts.
+func requests(acts []int) []Request {
+	let mut out = []Request{}
+	for i, k in acts {
+		out = out.Append(RequestOf(i, k))
+	}
+	out
+}
+
+// settled is out with a line when m has stopped.
+func settled(out []string, m pipeline.Model) []string {
+	let _ = pipeline.Settle(m) catch {
+	case pipeline.Unavailable:
+		return out.Append("the context stopped")
+	}
+	out
+}
+
+// onModel is the model's answers: each request on m.
+func onModel(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: m } {
+		for r in rs {
+			out = settled(out.Append(Call(r)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// Loopback is the generated client of m, which the generated server
+// serves in this process (rpc.Loopback): every call crosses Effect RPC's
+// HTTP wire and the contract's codecs both ways. It binds m, a program
+// implementation, so it stands in this file of laws (lint with-at-entry).
+func Loopback(m pipeline.Model) pipelinerpc.Client {
+	pipelinerpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { pipeline.Pipeline: m } {
+			try pipelinerpc.Handle(tag, payload)
+		}
+	}))
+}
+
+// overWire is the wire's answers: each request through the client of m.
+func overWire(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: Loopback(m) } {
+		for i in 0..len(rs) {
+			let r = rs[i]
+			out = settled(out.Append(Call(r)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// asLines is the command line's answers: each request asLines as a
+// command line, parsed back, and sent to m.
+func asLines(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: m } {
+		for r in rs {
+			let back = pipelinecli.Parse(pipelinecli.Print(r)) catch {
+			case flag.Failure as f:
+				out = out.Append("unparsed: \(flag.Describe(f))")
+				continue
+			}
+			out = settled(out.Append(Call(back)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// onScreen is the screen's answers: each request typed into the screen's
+// form and asked by its button, on ui.TestHost over m, read once the
+// screen settled. The reply of a command is the screen's notice, a board
+// is what a refresh loads, a run what "show" loads.
+func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs Scheduler {
+	let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
+	let mut h = ui.NewTestHost(a, view.View(m), clock, 8) catch {
+	case ui.BadPatch:
+		return []string{"the screen did not start"}
+	}
+	let mut out = []string{}
+	for r in rs {
+		out = settled(out.Append(asked(&h, r)), m)
+	}
+	out = out.Append(asked(&h, pipelinerpc.BoardRequest))
+	a.Stop()
+	out
+}
+
+// byTools is the MCP server's answers: each request as the tools/call
+// message of its tool (pipelinemcp.Arguments), answered by mcp.Handle over
+// the generated tools of m; a tool's text is its value or its failure.
+func byTools(rs []Request, m pipeline.Model) []string {
+	let server = mcp.Server{Name: "pipeline", Version: "1", Tools: pipelinemcp.Tools(m)}
+	let mut out = []string{}
+	for r in rs {
+		out = settled(out.Append(toolText(server, r)), m)
+	}
+	out.Append(toolText(server, pipelinerpc.BoardRequest))
+}
+
+// toolText is the text of the tools/call answer to r.
+func toolText(server mcp.Server, r Request) string {
+	let (name, arguments) = pipelinemcp.Arguments(r)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let called = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return "not a tool result"
+		}
+		if len(called.Content) != 1 {
+			return "not one text block"
+		}
+		called.Content[0].Text
+	case mcp.Refused as e:
+		"refused: \(e.Message)"
+	case mcp.Silent:
+		"no answer"
+	}
+}
+
+// typing is the acts that fill the form's fields.
+func typing(id string, name string, n string, why string) []ui.Act {
+	[]ui.Act{ui.TypeInto{Label: "id", Text: id}, ui.TypeInto{Label: "run", Text: name}, ui.TypeInto{Label: "number", Text: n}, ui.TypeInto{Label: "why", Text: why}}
+}
+
+// asked is the screen's answer to r: the form filled, its button pressed,
+// the screen settled, and what it then holds as text, in Call's form.
+func asked[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], r Request) string {
+	let acts = match r {
+	case pipelinerpc.SubmitRequest as x:
+		typing(x.C.ID, x.C.Run, "\(x.C.Stages)", "").Append(ui.TapOn{Label: "submit"})
+	case pipelinerpc.CancelRequest as x:
+		typing(x.C.ID, x.C.Run, "", x.C.Why).Append(ui.TapOn{Label: "cancel"})
+	case pipelinerpc.RetryRequest as x:
+		typing(x.C.ID, x.C.Run, "\(x.C.Stage)", "").Append(ui.TapOn{Label: "retry"})
+	case pipelinerpc.BoardRequest:
+		[]ui.Act{ui.TapOn{Label: "refresh"}}
+	case pipelinerpc.RunOfRequest as x:
+		typing("", x.Id, "", "").Append(ui.TapOn{Label: "show"})
+	}
+	ui.Play(h, acts.Append(ui.SettleAll)) catch {
+	case _:
+		return "the screen failed"
+	}
+	let sh = screen.ShownOf(ui.StateOf(h))
+	match r {
+	case pipelinerpc.SubmitRequest, pipelinerpc.CancelRequest, pipelinerpc.RetryRequest:
+		replyText(sh.Notice)
+	case pipelinerpc.BoardRequest:
+		match sh.Board {
+		case ui.Ready[screen.Lines] as b:
+			rpc.Encode(viewOf(b.Value))
+		case ui.Loading, ui.Failed[pipeline.Unavailable]:
+			"no board"
+		}
+	case pipelinerpc.RunOfRequest:
+		match sh.Run {
+		case ui.Ready[run.Run] as x:
+			rpc.Encode(x.Value)
+		case ui.Failed[pipeline.NoSuchRun] as e:
+			rpc.Tagged("NoSuchRun", rpc.Encode(e.Error))
+		case ui.Loading:
+			"no run"
+		}
+	}
+}
+
+// replyText is the notice n as Call writes a reply.
+func replyText(n screen.Notice) string {
+	match n {
+	case screen.Quiet:
+		"no reply"
+	case screen.Said as s:
+		match s.Reply {
+		case screen.Took as t:
+			rpc.Encode(t.Receipt)
+		case screen.Refused as x:
+			match x.Why {
+			case screen.WrongState as e:
+				rpc.Tagged("WrongState", rpc.Encode(e.Cause))
+			case screen.WrongStage as e:
+				rpc.Tagged("WrongStage", rpc.Encode(e.Cause))
+			case screen.Closed as e:
+				rpc.Tagged("Closed", rpc.Encode(e.Cause))
+			case screen.BadLength as e:
+				rpc.Tagged("BadLength", rpc.Encode(e.Cause))
+			case screen.NoSuchRun as e:
+				rpc.Tagged("NoSuchRun", rpc.Encode(e.Cause))
+			case screen.Unavailable as e:
+				rpc.Tagged("Unavailable", rpc.Encode(e.Cause))
+			}
+		}
+	}
+}
+
+// viewOf is the board whose lines are l. The runs the requests name hold
+// no ", ", so the lines split back into the columns.
+func viewOf(l screen.Lines) board.View {
+	board.View{Queued: column(l.Queued), Running: column(l.Running), Failing: column(l.Failing), Passed: column(l.Passed), Stopped: column(l.Stopped)}
+}
+
+func column(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	strings.Split(s, ", ")
+}
+
+// Surface is a road from a list of requests to the answers.
+type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{} | ThroughScreen{} | ThroughTools{}
+
+// answers plays rs on the surface s, on a context of its own whose first
+// stage fails its first failing tries.
+func answers(s Surface, rs []Request, failing int) []string fails domain.Conflict | domain.Reused | domain.Unkept {
+	let mut table = Map[int, int]{}
+	table[0] = ((failing % 3) + 3) % 3
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+		let m = try pipeline.Open(memory.New[pipeline.Entry]())
+		let out = match s {
+		case ThroughModel:
+			onModel(rs, m)
+		case ThroughWire:
+			overWire(rs, m)
+		case ThroughLine:
+			asLines(rs, m)
+		case ThroughScreen:
+			onScreen(rs, m, clock)
+		case ThroughTools:
+			byTools(rs, m)
+		}
+		pipeline.Stop(m)
+		out
+	}
+}
+
+// SurfacesAgree: one list of requests gets the same answers, rejections
+// included, and leaves the same board, through the model, through the
+// generated RPC client over the wire, as command lines that the
+// generated CLI prints and parses, on the screen, and as MCP tool calls
+// that the generated tools answer through module mcp's server.
+law SurfacesAgree(acts []int, failing int) {
+	let rs = requests(acts)
+	let byModel = answers(ThroughModel, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	let byWire = answers(ThroughWire, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	let byLine = answers(ThroughLine, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	let byScreen = answers(ThroughScreen, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	let byTools = answers(ThroughTools, rs, failing) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	byWire == byModel && byLine == byModel && byScreen == byModel && byTools == byModel
+}
+
+// LoopbackTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for the
+// generated client over the wire.
+law LoopbackTakesEachCommandOnce(c pipeline.SubmitRun) {
+	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+		let ok = with context { pipeline.Pipeline: Loopback(m) } { pipeline.DuplicateIsNoop(c) }
+		pipeline.Stop(m)
+		ok
+	}
+}

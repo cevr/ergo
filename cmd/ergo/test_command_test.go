@@ -229,7 +229,7 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	root := physicalTempDir(t)
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	tmp := t.TempDir()
-	source := smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
+	smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
 	stdout, stderr, code := testRunCLI(t, binary, root, xdg, tmp, "build", "main.ergo", "-o", "app", "-work")
 	if code != 0 || stdout != "app\n" {
 		t.Fatalf("build -work: exit %d stdout %q stderr %q", code, stdout, stderr)
@@ -244,13 +244,19 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	if built == tested || filepath.Dir(built) != modules || filepath.Dir(tested) != modules {
 		t.Fatalf("build module %s and test module %s, want two modules of %s", built, tested, modules)
 	}
-	body := regexp.MustCompile(`(?m)^\s*//line ` + regexp.QuoteMeta(source) + `:4\b`)
+	// The body is Go text mapped by //line, or a function of the module's
+	// IR (ergoir.json, a test build's bodies) at the source's line 4.
+	body := regexp.MustCompile(`(?m)^\s*//line main\.ergo:4\b|"name":"ergoTestOnlyTest","pos":\[0,3,1\],"end":\[0,5,1\],"body":\[\{"k":"[a-z]+","pos":\[0,4,`)
 	read := func(dir string) string {
 		data, err := os.ReadFile(filepath.Join(dir, "main.go"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		return string(data)
+		ir, err := os.ReadFile(filepath.Join(dir, "ergoir.json"))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		return string(data) + string(ir)
 	}
 	if body.MatchString(read(built)) || !body.MatchString(read(tested)) {
 		t.Fatalf("the test body's line 4: in the build module %v, in the test module %v; want only the test module", body.MatchString(read(built)), body.MatchString(read(tested)))

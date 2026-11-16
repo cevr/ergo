@@ -17,7 +17,7 @@ func TestErgoRunE1Witnesses(t *testing.T) {
 }
 
 type Both {
-	Check() bool,
+	..Valid,
 	Name() string,
 }
 
@@ -32,11 +32,11 @@ type Lesser[K] {
 	Less(other K) bool,
 }
 
-type Card { Number string }
+type Card { Number string } implements Valid, Both
 
-type Num { V int }
+type Num { V int } implements Scaler, Lesser[Num]
 
-type Box[T] { V T }
+type Box[T] { V T } implements Valid
 
 type Holder[T Valid] { Item T }
 

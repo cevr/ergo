@@ -104,6 +104,18 @@ func (c *coverage) covering(file string, lo, hi int, header bool, extra []string
 	return out
 }
 
+// named returns the tests of ids that the coverage pass ran (a test of a
+// suite in this run) and that pass on the unmutated tree.
+func (c *coverage) named(ids []string) map[string]bool {
+	out := map[string]bool{}
+	for _, id := range ids {
+		if t := c.test(id); t != nil && !t.Failed {
+			out[id] = true
+		}
+	}
+	return out
+}
+
 // order puts the known killers first, in the ledger's order, then the other
 // tests cheapest first.
 func (c *coverage) order(covering map[string]bool, known []string) []string {

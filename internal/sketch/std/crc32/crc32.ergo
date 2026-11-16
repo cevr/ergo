@@ -5,11 +5,11 @@
 // (runtime/v1/digest.go).
 
 // Checksum is the IEEE CRC-32 of the bytes of s, as Go's ChecksumIEEE.
-extern go ergo.local/prototype/runtime/v1.Crc32Checksum func Checksum(s string) uint32
+extern go ergo.local/prototype/runtime/v1/digest.Crc32Checksum func Checksum(s string) uint32
 
 // Update is the checksum crc carried over the bytes of s, as Go's Update
 // with IEEETable: a checksum of a text read in parts.
-extern go ergo.local/prototype/runtime/v1.Crc32Update func Update(crc uint32, s string) uint32
+extern go ergo.local/prototype/runtime/v1/digest.Crc32Update func Update(crc uint32, s string) uint32
 
 // UpdateChains: the checksum of a, carried over b, is the checksum of a +
 // b.

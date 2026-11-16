@@ -44,7 +44,7 @@ func Address(name string) string needs Resolver | Scheduler {
 }
 ```
 
-The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`, and its context `Listing` binds `hosts.Resolver` to `Static`:
+The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`; the binary's context `Memory` binds `hosts.Resolver` to `Static`:
 
 ```go
 import lookup/hosts
@@ -52,9 +52,9 @@ import lookup/memory
 import time
 
 // This binary is the only place that chooses the providers. Memory binds
-// the memory providers and a time.Manual, so a test needs no host; main
+// the static resolver and a time.Manual, so a test needs no host; main
 // replaces the Manual with the host's scheduler, which needs Ambient.
-let Memory = context { Scheduler: time.NewManual(0), memory.Listing }
+let Memory = context { Scheduler: time.NewManual(0), hosts.Resolver: memory.Static }
 let Missing = context { Memory, replace hosts.Resolver: memory.Empty }
 
 func main() needs Console | Ambient {
@@ -72,7 +72,7 @@ test NotFoundIsHandled {
 }
 ```
 
-From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. `Memory` embeds the context of another package, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
+From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. The binary is the one place that chooses providers, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
 
 ## Designed, not built yet
 
@@ -210,7 +210,7 @@ An agent reads the same checked model as the compiler. A signature tells it what
 
 ```console
 $ ergo diagnostics fetch.ergo
-fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it
+fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it; write: func fetch(id string) string fails EntryNotFound | TransportDown needs Entries | Transport
 ```
 
 One formatter gives one layout, so edits make small, stable diffs. `ergo inspect` is designed to answer questions about a definition (its failures, its needs, its calls and a machine's graph) as JSON, and MCP will serve the same model.
@@ -233,7 +233,7 @@ Ergo keeps Go's spelling, runtime, garbage collector and single binaries. It rem
 
 ## Status
 
-Ergo is a prototype. The opening program builds, runs and passes its tests. The sections after it show the designed language, and parts of them are not built. The parser and `ergo fmt` accept all of the designed language except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks a v1 program ([#196](https://github.com/cevr/ergo/issues/196)): one file, or a package folder of one or more files with the local packages it imports (a folder is a package, and `ergo.mod` marks the module root). It checks types, unions and `match`, error and needs rows, contexts, generics, tasks, machines, tests and laws. `ergo build`, `ergo run` and `ergo test` lower every construct that the checker accepts, except the few that the [support table](docs/spec/support.md) lists with their owners. `ergo test` runs tests and property tests ([testing](docs/testing.md)). When a source checks, `ergo check` also runs its pure tests and laws, machine laws included, in the checker's process with no Go build, gives the same verdicts as `ergo test` for the same seed, and lists each one it skips (a capability, a task, Go code) with the reason ([check-time evaluation](docs/testing.md#check-time-evaluation); `examples/pure-eval`, `examples/router-model`). `ergo test` runs laws too: each top-level law, and each member law against every provider the package declares ([#162](https://github.com/cevr/ergo/issues/162) law-run-1); a law of a generic operation type is checked and not run yet. A pure function compiles to a plain Go function with no hidden argument. The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: the `tasks` package, resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` (apart from `ergo inspect machine`) and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
+Ergo is a prototype. The opening program builds, runs and passes its tests. The sections after it show the designed language, and parts of them are not built. The parser and `ergo fmt` accept all of the designed language except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks a v1 program ([#196](https://github.com/cevr/ergo/issues/196)): one file, or a package folder of one or more files with the local packages it imports (a folder is a package, and `ergo.mod` marks the module root). It checks types, unions and `match`, error and needs rows, contexts, generics, tasks, machines, tests and laws. `ergo build`, `ergo run` and `ergo test` lower every construct that the checker accepts, except the few that the [support table](docs/spec/support.md) lists with their owners. `ergo test` runs tests and property tests ([testing](docs/testing.md)). When a source checks, `ergo check` also runs its tests and laws, machine laws included, in the checker's process with no Go build and no host effect (capabilities run through the providers a `with` binds), gives the same verdicts as `ergo test` for the same seed, and lists each one it skips (a task, a host provider, Go code it has no native for) with the reason ([check-time evaluation](docs/testing.md#check-time-evaluation); `examples/pure-eval`, `examples/router-model`). `ergo test` runs laws too: each top-level law, and each member law against every provider the package declares ([#162](https://github.com/cevr/ergo/issues/162) law-run-1); a law of a generic operation type is checked and not run yet. A pure function compiles to a plain Go function with no hidden argument. The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: the `tasks` package, resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` (apart from `ergo inspect machine`) and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
 
 ## Learn more
 

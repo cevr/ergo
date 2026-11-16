@@ -150,7 +150,7 @@ func signalOf(line string) (scene.Signal, int) fails Bad {
 }
 
 // show prints the lines of now that differ from shown, and is now.
-func show(shown []string, now []string) []string {
+func show(shown []string, now []string) []string needs Console {
 	for k, l in now {
 		if k >= len(shown) || shown[k] != l {
 			Console.Println("  " + l)

@@ -6,20 +6,17 @@
 // package declares the contract it needs, Subscribers, with its laws; the
 // provider lives in memory.
 
-import strings
-
 // Name is a valid name: at least two bytes. The where derives ParseName,
 // which fails Unsatisfied for a shorter text.
 type Name string where len(it) >= 2
 
-// Email is a valid email address: a local part, an @, and a domain with a
-// dot that has text on both sides, none of them holding a space or an @
-// (upstream's pattern ^[^\s@]+@[^\s@]+\.[^\s@]+$). Only ParseEmail builds
-// one.
-type Email { text string }
-
-// Text is the address as it was typed.
-func Text(e Email) string { e.text }
+// Email is a valid email address: upstream's pattern
+// ^[^\s@]+@[^\s@]+\.[^\s@]+$, a local part, an @, and a domain with a dot
+// that has text on both sides, none of them holding a space or an @. The
+// pattern's \s is ASCII, so the class spells out the other spaces of
+// JavaScript's \s, upstream's. The where derives ParseEmail, which fails
+// Unsatisfied for any other text.
+type Email string where matches(it, "[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+@[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+\\.[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+")
 
 // The reasons a field is invalid.
 type TooShort {}
@@ -29,33 +26,6 @@ type Taken {}
 
 // EmailWhy is why an email field is invalid.
 type EmailWhy = Required | Malformed | Taken
-
-// ParseEmail is the address text, or why it is none.
-func ParseEmail(text string) Email fails Required | Malformed {
-	if text == "" {
-		return Required
-	}
-	let halves = match strings.Cut(text, "@") {
-	case Some[strings.Halves] as h:
-		h.Value
-	case None:
-		return Malformed
-	}
-	let domain = halves.After
-	if !plain(halves.Before) || !plain(domain) {
-		return Malformed
-	}
-	// some dot of the domain has text before and after it
-	if len(domain) < 3 || !strings.Contains(domain[1:len(domain)-1], ".") {
-		return Malformed
-	}
-	Email{text: text}
-}
-
-// plain reports whether s is not empty and holds no space and no @.
-func plain(s string) bool {
-	s != "" && !strings.Contains(s, "@") && len(strings.Fields(s)) == 1 && strings.Fields(s)[0] == s
-}
 
 // Verdict is what the checks say of a field: nothing yet (an optional
 // field left empty), a check of the subscribers under way for Value,
@@ -81,11 +51,12 @@ func NameField(text string) Field[Name, TooShort] {
 // EmailField is the email field for text: a valid address is Checking,
 // until the subscribers answer; else it is invalid.
 func EmailField(text string) Field[Email, EmailWhy] {
+	if text == "" {
+		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: Required}}
+	}
 	let e = ParseEmail(text) catch {
-	case Required as r:
-		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: r}}
-	case Malformed as m:
-		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: m}}
+	case Unsatisfied:
+		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: Malformed}}
 	}
 	Field[Email, EmailWhy]{Text: text, Verdict: Checking[Email]{Value: e}}
 }

@@ -46,6 +46,8 @@ type Context struct {
 // OpenContext binds text under the declaring package and key for the code
 // at s and every task it starts until the region ends. s is the scope of
 // the code at the with. Lowering supplies pkg from the binding type.
+//
+//ergo:wait none
 func (s *Scope) OpenContext(pkg, key, text string) *Context {
 	s = s.current()
 	if s.ended {
@@ -58,6 +60,8 @@ func (s *Scope) OpenContext(pkg, key, text string) *Context {
 
 // End ends the context region c at the normal end of its block: the values
 // in force before it are restored. Tasks already started keep theirs.
+//
+//ergo:wait none
 func (c *Context) End() {
 	s := c.s
 	n := len(s.withs)
@@ -104,12 +108,16 @@ func contextOf(t *rt.Task) []Binding {
 }
 
 // ContextBound reports whether key is bound in the reading package for t.
+//
+//ergo:wait none
 func ContextBound(t *rt.Task, pkg ContextPackage, key string) bool {
 	return t.Value(contextKey{string(pkg), key}) != nil
 }
 
 // ContextValue is the text bound to key for the task t, the innermost
 // binding, or "" when none is.
+//
+//ergo:wait none
 func ContextValue(t *rt.Task, pkg ContextPackage, key string) string {
 	v, _ := t.Value(contextKey{string(pkg), key}).(string)
 	return v
@@ -136,6 +144,8 @@ func (*HeldContextDefect) String() string {
 // InForce is the Go function the prelude's InForce binds. The lowering
 // never calls it: it writes each call in place, and the program's Go
 // function of InForce panics too.
+//
+//ergo:wait none
 func InForce() { panic("InForce is lowered at each call") }
 
 // HeldLive raises HeldContextDefect when w, the scope of the innermost

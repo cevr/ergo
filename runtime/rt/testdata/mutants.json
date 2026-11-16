@@ -8,7 +8,7 @@
       "from": "if returned && release != nil {",
       "to": "if false && returned && release != nil {",
       "rule": "Gap 47: a discarded successful result is released once",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-failed-candidate",
@@ -17,7 +17,7 @@
       "from": "returned = err == nil",
       "to": "returned = true",
       "rule": "A failed body has no valid result",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-unmasked",
@@ -26,7 +26,7 @@
       "from": "m := t.Mask()\n\t\t\t\ts.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)\n\t\t\t\tm.Unmask()",
       "to": "s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)",
       "rule": "R9: result releases are masked",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "L8-B5-scoped-defect-lost",
@@ -35,7 +35,7 @@
       "from": "err = c.Err()",
       "to": "_ = c.Err()",
       "rule": "R9: a result-release defect joins the failed exit",
-      "killers": ["rt:TestScopedResultReleaseModel"]
+      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
     },
     {
       "name": "X5-new-task-runs-unpicked",
@@ -44,7 +44,7 @@
       "from": "\te.v.mu.Unlock()\n\t<-x.baton\n}\n\n// schedEnd",
       "to": "\te.v.mu.Unlock()\n\t_ = x\n}\n\n// schedEnd",
       "rule": "Explored schedules: a new task does not run until the strategy picks it",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-wake-does-not-enable",
@@ -53,7 +53,7 @@
       "from": "m != nil && m.parked {\n\t\treturn false",
       "to": "m != nil && (m.parked || x.blocked) {\n\t\treturn false",
       "rule": "Explored schedules: a waker enables the task it wakes",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-two-batons",
@@ -62,7 +62,7 @@
       "from": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif next != x {",
       "to": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif false && next != x {",
       "rule": "Explored schedules: one task holds the baton",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-stop-without-point",
@@ -71,7 +71,7 @@
       "from": "\tPoint(owner, Op{OpStop, &h.task})\n",
       "to": "",
       "rule": "Explored schedules: a stop is a scheduling point",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-clock-moves-while-enabled",
@@ -80,7 +80,7 @@
       "from": "v.parked < v.live ||",
       "to": "v.parked < v.live-1 ||",
       "rule": "Explored schedules: the clock moves only when no task is enabled",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-spawn-path-by-goroutine",
@@ -89,7 +89,7 @@
       "from": "e.add(child, px.path+\".\"+strconv.Itoa(px.kids))",
       "to": "e.add(child, px.path+\".\"+strconv.FormatUint(child.id, 10))",
       "rule": "Explored schedules: a task's name is its spawn path, the same in every run of a schedule",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-deadlock-as-pass",
@@ -98,7 +98,7 @@
       "from": "e.res.Deadlock = left",
       "to": "e.res.Deadlock = nil",
       "rule": "Explored schedules: no enabled task while tasks remain is a deadlock",
-      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
     {
       "name": "X5-live-hook-body",
@@ -134,7 +134,7 @@
       "from": "if len(t.Tags) > 0 {",
       "to": "if false && len(t.Tags) > 0 {",
       "rule": "Explored schedules: --explore links the tagged runtime",
-      "killers": ["build:TestCacheInputs"]
+      "killers": ["internal/sketch/build:TestCacheInputs"]
     },
     {
       "name": "x8-name-no-count",
@@ -144,8 +144,207 @@
       "to": "\t\t_ = k\n",
       "rule": "The k-th handle of one name in a run is named \"name (k)\".",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
+    },
+    {
+      "name": "gx4-member-stays-in-domain",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "to": "\tt.detach()\n\treturn v, err",
+      "rule": "rt Group (GX4): a member that returned leaves its auto clock's domain.",
+      "killers": ["runtime/rt:TestGroupMembersLeave"]
+    },
+    {
+      "name": "gx4-member-stays-linked",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "to": "\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "rule": "rt Group (GX4): a member that returned leaves the task tree.",
+      "killers": ["runtime/rt:TestGroupMembersLeave"]
+    },
+    {
+      "name": "gx4-group-counted-live",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\t\tm.v.live--\n",
+      "to": "",
+      "rule": "rt Group (GX4): a group runs nothing, so it is no live member of its clock's domain.",
+      "killers": [
+        "runtime/rt:TestGroupMembersLeave"
+      ]
+    },
+    {
+      "name": "gx4-member-on-own-goroutine",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tv, err := Run(t, body)\n",
+      "to": "\tvar v T\n\tvar err error\n\tran := make(chan struct{})\n\tgo func() { v, err = Run(t, body); close(ran) }()\n\t<-ran\n",
+      "rule": "std http Serve (GX4): a request's task runs on the goroutine that read the request.",
+      "killers": [
+        "runtime/v1/http:TestHTTPHandlerRunsOnTheConnection"
+      ]
+    },
+    {
+      "name": "gx5-exit-builds-cause",
+      "origin": "wf10 GX5",
+      "file": "runtime/rt/run.go",
+      "from": "\tif p == nil && (err == nil || err == Interrupted) {\n",
+      "to": "\tif false {\n",
+      "rule": "runtime.md, task exits (GX5): a stopped task's exit of nothing or of the interruption alone builds no Cause.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing"
+      ]
+    },
+    {
+      "name": "gx5-live-timer-fresh",
+      "origin": "wf10 GX5",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif _, ok := s.(Live); ok {\n\t\treturn sleepLive(t, d)\n\t}\n",
+      "to": "",
+      "rule": "rt Sleep (GX5): a live sleep reuses the host timer of an ended one.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing"
+      ]
+    },
+    {
+      "name": "bs2-anytext-no-error",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\tcase error:\n\t\treturn methodText(v, \"Error\", x.Error)\n",
+      "to": "\tcase error:\n\t\treturn \"error\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes an error as fmt's %v does, by its Error method.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-anytext-int",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\tcase int:\n\t\treturn strconv.FormatInt(int64(x), 10)\n",
+      "to": "",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes every Go integer kind as fmt's %v does.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-anytext-nil-pointer",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\t\t\tif nilPointer(v) {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): an Error method that panics on a nil pointer writes <nil>, as fmt does.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-typename-generic",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\t\tcase ']':\n\t\t\tbrackets++\n",
+      "to": "\t\tcase ']':\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.TypeName gives reflect's Type.Name, a generic type's name with its arguments.",
+      "killers": [
+        "runtime/rt:TestTypeStringMatchesReflect"
+      ]
+    },
+    {
+      "name": "ert-abort-ignored",
+      "origin": "wf10 EXPLORE-rt r2",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\te.res.Stopped = why\n\te.release()\n\treturn true\n",
+      "to": "\te.res.Stopped = why\n\treturn true\n",
+      "rule": "AbortExplore ends the active explored run and frees the explorer, even when a task waits where the scheduler cannot see.",
+      "killers": [
+        "runtime/rt[ergoexplore]:TestExploreAbortReleasesTheRun"
+      ]
+    },
+    {"name":"sb8-no-flush-wait","origin":"wf10 SB8","file":"runtime/rt/task.go","from":"\tif waitFlush.pending.Load() {\n\t\twaitFlush.flush()\n\t}\n","to":"","rule":"stdlib.md io 10: a task's wait of the runtime (Done) flushes held standard output.","killers":["runtime/v1:TestStdoutFlushModel"]},
+    {
+      "name": "pace-ignores-user-gogc",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\tif gogcSet {\n\t\treturn 0, false\n\t}\n",
+      "to": "",
+      "rule": "GOGC in the environment turns the heap pacing off: the user's setting wins",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-floor-above-limit",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "if limit > 0 && limit/4 < floor {",
+      "to": "if false && limit > 0 && limit/4 < floor {",
+      "rule": "A memory limit lowers the floor to a quarter of the limit",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-never-returns-to-100",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "if live+(live+roots)*basePercent/100 >= floor || heapMinimum",
+      "to": "if heapMinimum",
+      "rule": "Above the floor the pace is Go's GOGC=100: the goal stays within max(floor, Go's goal)",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-ignores-roots",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "ceilDiv((floor-live)*100, live+roots)",
+      "to": "ceilDiv((floor-live)*100, max(live, 1))",
+      "rule": "Go's goal scales the stacks and globals with the percent, so the percent accounts for them",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-ignores-heap-minimum",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "p := ceilDiv(floor*100, heapMinimum)",
+      "to": "p := ceilDiv(floor*100, 1)",
+      "rule": "Go scales its minimum heap with the percent, so a percent above floor*100/4MiB overshoots the floor",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-not-rearmed",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\truntime.AddCleanup(&paceSentinel{}, (*pacer).cycle, p)\n",
+      "to": "\t_ = runtime.AddCleanup[paceSentinel, *pacer]\n",
+      "rule": "The pace is recomputed after every cycle, so a live heap that grows past the floor returns to Go's pace",
+      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
+    },
+    {
+      "name": "pace-overrides-program-percent",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "p.set != -2 && int64(old) != p.set",
+      "to": "false && p.set != -2 && int64(old) != p.set",
+      "rule": "A percent the program sets itself wins: the pacer stops",
+      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
+    },
+    {
+      "name": "pace-cgroup-leaf-only",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\t\tif dir == \"/\" {\n\t\t\treturn limit\n\t\t}\n",
+      "to": "\t\tif true {\n\t\t\treturn limit\n\t\t}\n",
+      "rule": "The cgroup limit is the smallest memory.max of the process's cgroup and every cgroup above it",
+      "killers": ["runtime/rt:TestPaceReadsTheCgroupTree"]
+    },
+    {
+      "name": "pace-not-started",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/v1/exit.go",
+      "from": "\tstartPace()\n\tstatus := report(",
+      "to": "\tstatus := report(",
+      "rule": "Emitted main paces the program's heap",
+      "killers": ["runtime/v1:TestMainPacesTheHeap"]
     }
   ]
 }

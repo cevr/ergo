@@ -30,20 +30,26 @@ import (
 // Exit causes). It is a record of a v1 package, so the lowering binds
 // os.Exit to this Go type (docs/spec/stdlib.md, Types 4).
 type Exit struct {
-	Code    int
+	Code    Code
 	Message string
 }
+
+// Code is os.Code, an exit status, which os.ergo's declaration names as
+// its Go type (docs/spec/stdlib.md, The body contract). The refinement
+// (1..125) is the checker's; reportExit holds a Code outside it to 1.
+type Code int
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
 // writes a record's. report writes it when Exit is not main's only reason.
 func (e Exit) Error() string {
-	return "os.Exit{Code:" + strconv.Itoa(e.Code) + " Message:" + e.Message + "}"
+	return "os.Exit{Code:" + strconv.Itoa(int(e.Code)) + " Message:" + e.Message + "}"
 }
 
 // OSArgs is the body of os.Host's Args: the arguments after the program
 // name, in a fresh slice. A process started with no argv at all has none.
 //
 //ergo:host
+//ergo:wait none
 func OSArgs() []string {
 	if len(os.Args) < 2 {
 		return []string{}
@@ -55,6 +61,7 @@ func OSArgs() []string {
 // the empty string.
 //
 //ergo:host
+//ergo:wait none
 func OSHasEnv(key string) bool {
 	_, ok := os.LookupEnv(key)
 	return ok
@@ -64,6 +71,7 @@ func OSHasEnv(key string) bool {
 // key is unset, so os.Host's Getenv asks OSHasEnv first.
 //
 //ergo:host
+//ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
 // OSEnviron is the body of config.Host's Environ: each variable of the
@@ -72,6 +80,7 @@ func OSGetenv(key string) string { return os.Getenv(key) }
 // value Go's os.Getenv reads.
 //
 //ergo:host
+//ergo:wait none
 func OSEnviron(prefix string) []string {
 	names := []string{}
 	seen := map[string]bool{}
@@ -114,6 +123,7 @@ func (e NoWorkdir) Error() string { return "os.NoWorkdir{Message:" + e.Message +
 // stat.
 //
 //ergo:host
+//ergo:wait none
 func OSGetwd() (string, error) {
 	dot, err := os.Stat(".")
 	if err != nil {
@@ -208,6 +218,7 @@ func fsReason(err error) string {
 // text.
 //
 //ergo:host
+//ergo:wait none
 func FSReadFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -216,58 +227,100 @@ func FSReadFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// FSMapFile is the body of fs.Host's MapFile: the whole file at path as
-// text, read through a read-only shared mapping of the file, not copied.
+// Mapped is fs.Mapped: the text of a file read through a read-only shared
+// mapping of it (FSMapFile), or a text held in memory (FSMapText). Close
+// unmaps it. Its methods take no hidden argument.
+//
+// Safety invariant (unsafe.String in FSMapFile): the bytes text points at
+// never change and stay mapped while anything reads text. The mapping is
+// PROT_READ, so no store through it is possible; Close alone unmaps it,
+// once. The checker keeps every read before Close: text reaches the
+// program only as an fs.Text, a borrow of its Mapped that no record,
+// collection, result, send or escaping frame holds and whose every use is
+// a use of the Mapped, so no use follows Close (types.md, Borrows 8;
+// TestMappedTextModel). fs.Clone copies a text into a string that may
+// outlive it. TestFSMappedKeepsItsInvariant checks the protection, the
+// text, and that Close unmaps.
+//
+// The host keeps one fact out of the program's reach: a file truncated by
+// another process while it is mapped faults on the next read of a missing
+// page (SIGBUS). The mapping is registered with rt (MapRegister), so a
+// task that reads it panics on the fault instead of crashing, and the
+// defect names the file (rt.MappedFault; TestMappedTruncationIsADefect).
+type Mapped struct {
+	text string
+	data []byte // the mapping; nil for a text in memory or an unmapped one
+	id   uint64 // the rt registration of data
+}
+
+// Text is the mapped text.
+//
+//ergo:wait none
+func (m *Mapped) Text() string { return m.text }
+
+// Close unmaps the mapping, once: a second Close does nothing.
+//
+//ergo:host
+//ergo:wait none
+func (m *Mapped) Close() {
+	if m.data == nil {
+		return
+	}
+	rt.MapUnregister(m.id)
+	data := m.data
+	m.data, m.text = nil, ""
+	fsUnmap(data)
+}
+
+// FSMapFile is the body of fs.MapFile: the Mapped of the whole file at
+// path, read through a read-only shared mapping of the file, not copied.
 // A large file costs no read and no heap: the text is the page cache's
 // bytes, faulted in as they are first read.
 //
-// Safety invariant (unsafe.String): the bytes the string points at never
-// change and stay mapped while the program runs. The mapping is
-// PROT_READ, so no store through it is possible, and it is never
-// unmapped: no Munmap is called and the slice that names it is dropped
-// here, so nothing can unmap it. So the string is immutable for as long
-// as anything reads it, as Go requires of a string. The host keeps one
-// fact out of the program's reach: a file truncated by another process
-// while it is mapped faults on the next read of a missing page (SIGBUS),
-// which Go reports as a fatal fault. TestFSMapFileKeepsItsInvariant checks
-// the protection and that the text outlives a collection.
-//
-// An empty file maps nothing and is "". A directory fails as FSReadFile
-// fails for it, and any other file that is not regular (a pipe, a
-// device) is read as FSReadFile reads it.
+// An empty file maps nothing and its text is "". A directory fails as
+// FSReadFile fails for it, and any other file that is not regular (a
+// pipe, a device) is read as FSReadFile reads it, into memory.
 //
 //ergo:host
-func FSMapFile(path string) (string, error) {
+//ergo:wait none
+func FSMapFile(path string) (*Mapped, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", fsErr(path, err)
+		return nil, fsErr(path, err)
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return "", fsErr(path, err)
+		return nil, fsErr(path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return FSReadFile(path)
+		text, err := FSReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return &Mapped{text: text}, nil
 	}
 	size := info.Size()
 	if size == 0 {
-		return "", nil
+		return &Mapped{}, nil
 	}
 	if int64(int(size)) != size {
-		return "", Failed{Path: path, Reason: "file too large"}
+		return nil, Failed{Path: path, Reason: "file too large"}
 	}
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := fsMap(f, int(size))
 	if err != nil {
-		return "", Failed{Path: path, Reason: err.Error()}
+		return nil, Failed{Path: path, Reason: err.Error()}
 	}
-	return unsafe.String(&data[0], len(data)), nil
+	m := &Mapped{text: unsafe.String(&data[0], len(data)), data: data}
+	m.id = rt.MapRegister(uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), path)
+	return m, nil
 }
 
 // FSReadDir is the body of fs.Host's ReadDir: the names of the entries of
 // the directory at path, sorted by name (Go's os.ReadDir sorts them).
 //
 //ergo:host
+//ergo:wait none
 func FSReadDir(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -284,6 +337,7 @@ func FSReadDir(path string) ([]string, error) {
 // links.
 //
 //ergo:host
+//ergo:wait none
 func FSStat(path string) (Info, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -312,6 +366,7 @@ type HostRoot struct{ root *os.Root }
 // (#197), the handle may be used only while this frame is alive.
 //
 //ergo:host
+//ergo:wait none
 func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 	s = s.current()
 	if s.ended {
@@ -332,6 +387,8 @@ func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 func (r *HostRoot) hostRooted() {}
 
 // Name is the directory given to FSOpenRoot (os.Root.Name).
+//
+//ergo:wait none
 func (r *HostRoot) Name(_ *rt.Task) string { return r.root.Name() }
 
 // rootErrEscapes is the text of os.Root's unexported errPathEscapes; the
@@ -359,6 +416,7 @@ func (r *HostRoot) in(path string, f func(*os.Root) error) error {
 // ReadFile is the whole file at path below the root.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
@@ -373,6 +431,7 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 // root, sorted by name.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 	var names []string
 	err := r.in(path, func(root *os.Root) error {
@@ -399,6 +458,7 @@ func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 // is the last element of path as given.
 //
 //ergo:host
+//ergo:wait none
 func (r *HostRoot) Stat(_ *rt.Task, path string) (Info, error) {
 	var info Info
 	err := r.in(path, func(root *os.Root) error {
@@ -432,6 +492,7 @@ var beforeRename func(tmp string) error
 // the link names, so the rename replaces that file, not the link.
 //
 //ergo:host
+//ergo:wait none
 func FSWriteFile(path string, text string) error {
 	return writeFile(path, text, 0, false)
 }
@@ -443,6 +504,7 @@ func FSWriteFile(path string, text string) error {
 // no reader outside perm can open it at any point.
 //
 //ergo:host
+//ergo:wait none
 func FSWriteFileMode(path string, text string, perm int) error {
 	return writeFile(path, text, fs.FileMode(perm)&fs.ModePerm, true)
 }
@@ -569,6 +631,7 @@ func fillSibling(f *os.File, text string, mode fs.FileMode, keep bool) error {
 // host's reason.
 //
 //ergo:host
+//ergo:wait none
 func FSMkdirAll(path string) error {
 	err := os.MkdirAll(path, 0o777)
 	switch {
@@ -586,6 +649,7 @@ func FSMkdirAll(path string) error {
 // mode. Its row is FSMkdirAll's.
 //
 //ergo:host
+//ergo:wait none
 func FSMkdirAllMode(path string, perm int) error {
 	err := mkdirAllExact(path, fs.FileMode(perm)&fs.ModePerm)
 	switch {
@@ -629,6 +693,7 @@ func mkdirAllExact(path string, perm fs.FileMode) error {
 // O_CREATE makes it. The file is not synced.
 //
 //ergo:host
+//ergo:wait none
 func FSAppendFile(path string, text string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -648,6 +713,7 @@ func FSAppendFile(path string, text string) error {
 // bits perm. A symbolic link is followed.
 //
 //ergo:host
+//ergo:wait none
 func FSChmod(path string, perm int) error {
 	if err := os.Chmod(path, fs.FileMode(perm)&fs.ModePerm); err != nil {
 		return fsErr(path, err)
@@ -661,6 +727,7 @@ func FSChmod(path string, perm int) error {
 // other failure names from.
 //
 //ergo:host
+//ergo:wait none
 func FSRename(from string, to string) error {
 	err := os.Rename(from, to)
 	switch {
@@ -679,6 +746,7 @@ func FSRename(from string, to string) error {
 // file, a symbolic link (not what it names) or an empty directory.
 //
 //ergo:host
+//ergo:wait none
 func FSRemove(path string) error {
 	if err := os.Remove(path); err != nil {
 		return fsErr(path, err)
@@ -704,25 +772,29 @@ type ReadFailed struct {
 func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason + "}" }
 
 // IOPrint is the body of io.Host's Print: text on standard output, as it
-// is, in one write.
+// is, in one write; buffered when standard output is not a terminal
+// (writeStdout).
 //
 //ergo:host
+//ergo:wait none
 func IOPrint(text string) {
-	_, _ = os.Stdout.WriteString(text)
+	writeStdout(text)
 }
 
 // IOEprint is the body of io.Errors' Eprint: text on standard error, as it
-// is, in one write.
+// is, in one write, after what standard output holds (stderrSink).
 //
 //ergo:host
+//ergo:wait none
 func IOEprint(text string) {
-	_, _ = os.Stderr.WriteString(text)
+	_, _ = io.WriteString(stderrSink{}, text)
 }
 
 // IOIsTerminal is the body of io.Host's IsTerminal: whether standard
 // output is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOIsTerminal() bool {
 	return fileIsTerminal(os.Stdout)
 }
@@ -731,6 +803,7 @@ func IOIsTerminal() bool {
 // input is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOStdinIsTerminal() bool {
 	return fileIsTerminal(os.Stdin)
 }
@@ -739,6 +812,7 @@ func IOStdinIsTerminal() bool {
 // standard error is a terminal.
 //
 //ergo:host
+//ergo:wait none
 func IOStderrIsTerminal() bool {
 	return fileIsTerminal(os.Stderr)
 }
@@ -749,6 +823,7 @@ func IOStderrIsTerminal() bool {
 // the next read (stdlib.md, io 3).
 //
 //ergo:host
+//ergo:wait caller
 func IOReadAll(t *rt.Task) (string, error) {
 	return stdinReader().readAll(t)
 }
@@ -764,9 +839,39 @@ func IOReadAll(t *rt.Task) (string, error) {
 // line read after the stop stays for the next read.
 //
 //ergo:host
+//ergo:wait caller
 func IOLines(t *rt.Task) iter.Seq[string] {
 	return stdinReader().lines(t)
 }
+
+// IORead is the body of io.In's Read (In as a Source) on t, the caller's task: the
+// next chunk of standard input, at most max bytes (io.DefaultChunk when
+// max is not positive), from where the last read stopped, or "" at the
+// end. It takes what the shared reader holds, or what the next host read
+// lands, and does not wait to fill max. A stop of t ends the wait and
+// raises rt.Interrupted; the bytes read meanwhile stay for the next read.
+//
+//ergo:host
+//ergo:wait caller
+func IORead(t *rt.Task, max int) (string, error) {
+	if max <= 0 {
+		max = ioDefaultChunk
+	}
+	t.Check()
+	chunk, err, ok := stdinReader().take(t, func(b []byte, _ bool) int { return min(len(b), max) })
+	switch {
+	case !ok:
+		panic(rt.Interrupted)
+	case err == io.EOF:
+		return "", nil
+	case err != nil:
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(chunk), nil
+}
+
+// ioDefaultChunk is std io's DefaultChunk.
+const ioDefaultChunk = 65536
 
 // lineReader is one buffered reader that every read of its input goes
 // through, lines, the whole rest and term's keys alike, so a read starts
@@ -782,28 +887,41 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 // reader goroutine with a select on its channel and ctx.Done(); Effect's
 // Terminal.readInput, a stream that interruption ends.
 type lineReader struct {
-	mu      sync.Mutex
-	r       io.Reader
-	chunk   []byte        // the read goroutine's buffer, used by it alone while reading
-	buf     []byte        // the bytes read and not taken
+	mu    sync.Mutex
+	r     io.Reader
+	chunk []byte // the read goroutine's buffer, used by it alone while reading
+	buf   []byte // the bytes read and not taken
+	// sink is the text of the ReadAll that waits, if one does: a read lands
+	// there, in place of buf, so its bytes are copied once.
+	sink    *strings.Builder
 	err     error         // the read error after buf (io.EOF at the end), taken once
 	reading bool          // a read goroutine is out
 	landed  chan struct{} // closed when the read out lands
 }
 
+// readChunk is the most one read of the host takes. A terminal or a pipe
+// gives what it holds, so a line or a key does not wait for it to fill; a
+// file gives it whole, so ReadAll makes one read goroutine per 64 KiB.
+const readChunk = 64 << 10
+
 func newLineReader(r io.Reader) *lineReader {
-	return &lineReader{r: r, chunk: make([]byte, 4096)}
+	return &lineReader{r: r, chunk: make([]byte, readChunk)}
 }
 
 // take is the next item at the front of the input, as cut finds it, or
 // the read error once the bytes before it are taken (io.EOF at the end).
 // cut(b, end) is the length of the item at the front of b, or -1 when b
 // holds only its start and more input may come; when end is true no more
-// comes, and cut takes what b holds. ok is false when stop closes first:
-// then nothing is taken.
-func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int) (item []byte, err error, ok bool) {
+// comes, and cut takes what b holds. ok is false when a stop of t comes
+// first: then nothing is taken. t is nil for a take no stop ends. t's stop
+// is asked for only when take must wait on the host: Done is a wait of the
+// runtime, where held standard output is flushed (stdlib.md io 11), so a
+// prompt shows before the read, and a line already read flushes nothing.
+func (l *lineReader) take(t *rt.Task, cut func(b []byte, end bool) int) (item []byte, err error, ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	var stop <-chan struct{}
+	asked := false
 	for {
 		if len(l.buf) > 0 {
 			if n := cut(l.buf, l.err != nil); n > 0 {
@@ -818,6 +936,9 @@ func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int
 		if l.err != nil {
 			err, l.err = l.err, nil
 			return nil, err, true
+		}
+		if !asked && t != nil {
+			stop, asked = t.Done(), true
 		}
 		if !l.reading {
 			l.reading = true
@@ -841,7 +962,11 @@ func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int
 func (l *lineReader) read() {
 	n, err := l.r.Read(l.chunk)
 	l.mu.Lock()
-	l.buf = append(l.buf, l.chunk[:n]...)
+	if l.sink != nil {
+		growWrite(l.sink, l.chunk[:n])
+	} else {
+		l.buf = append(l.buf, l.chunk[:n]...)
+	}
 	if err != nil {
 		l.err = err
 	}
@@ -850,20 +975,21 @@ func (l *lineReader) read() {
 	l.mu.Unlock()
 }
 
+// growWrite writes p to b, growing b by doubling (append's growth is 1.25
+// for a large buffer).
+func growWrite(b *strings.Builder, p []byte) {
+	if b.Cap()-b.Len() < len(p) {
+		b.Grow(max(len(p), b.Cap()))
+	}
+	b.Write(p)
+}
+
 // lineLen is the length of the first line of b with its line feed, as
 // take's cut: the rest of b at the end of the input.
 func lineLen(b []byte, end bool) int {
 	if i := bytes.IndexByte(b, '\n'); i >= 0 {
 		return i + 1
 	}
-	if end {
-		return len(b)
-	}
-	return -1
-}
-
-// restLen is the whole of b at the end of the input, as take's cut.
-func restLen(b []byte, end bool) int {
 	if end {
 		return len(b)
 	}
@@ -889,25 +1015,63 @@ func stdinReader() *lineReader {
 	return stdin
 }
 
-// readAll is the rest of the input, read on t. A stop of t leaves what it
-// read in the buffer and raises rt.Interrupted.
+// readAll is the rest of the input, read on t, and the end of the input
+// after it, so the next read starts there. A stop of t puts back what it
+// read, in front of what the buffer holds, and raises rt.Interrupted. A
+// read failure after some bytes fails the whole: the bytes are dropped.
+//
+// The text is built in a strings.Builder, whose String is its own bytes
+// with no copy: each landed read is copied into it once and the result is
+// handed over, never copied again. It grows by doubling, and once to a
+// regular file's size when the input is one, as os.ReadFile does, so a
+// file costs one allocation of its size and a pipe at most about twice
+// its size (io.ReadAll: twice, the chunks and the final copy).
 func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	t.Check()
-	rest, err, ok := l.take(t.Done(), restLen)
-	switch {
-	case !ok:
-		panic(rt.Interrupted)
-	case err == io.EOF:
-		return "", nil
-	case err != nil:
-		return "", ReadFailed{Reason: fsReason(err)}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var all strings.Builder
+	if f, ok := l.r.(*os.File); ok {
+		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			// A hint: the offset may be past 0, so this may be more than
+			// the rest, never less unless the file grows.
+			all.Grow(len(l.buf) + int(info.Size()) + 1)
+		}
 	}
-	// The end of the input follows the rest: take it now, so the next
-	// read starts after it, as the old line loop did.
-	if _, err, _ := l.take(nil, restLen); err != nil && err != io.EOF {
-		return "", ReadFailed{Reason: fsReason(err)}
+	growWrite(&all, l.buf)
+	l.buf = nil
+	l.sink = &all
+	defer func() { l.sink = nil }()
+	for {
+		if l.err != nil {
+			err := l.err
+			l.err = nil
+			if err != io.EOF {
+				return "", ReadFailed{Reason: fsReason(err)}
+			}
+			return all.String(), nil
+		}
+		if !l.reading {
+			l.reading = true
+			l.landed = make(chan struct{})
+			go l.read()
+		}
+		landed := l.landed
+		l.mu.Unlock()
+		select {
+		case <-landed:
+			l.mu.Lock()
+		case <-t.Done():
+			// Every landed read went to all, so buf is empty: what this
+			// ReadAll read is the whole buffer again (the deferred
+			// funcs drop the sink, then unlock).
+			l.mu.Lock()
+			if all.Len() > 0 {
+				l.buf = []byte(all.String())
+			}
+			panic(rt.Interrupted)
+		}
 	}
-	return string(rest), nil
 }
 
 // lines is the rest of the input, as IOLines gives it, read on t.
@@ -915,7 +1079,7 @@ func (l *lineReader) lines(t *rt.Task) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
 			t.Check()
-			line, err, ok := l.take(t.Done(), lineLen)
+			line, err, ok := l.take(t, lineLen)
 			switch {
 			case !ok:
 				panic(rt.Interrupted)

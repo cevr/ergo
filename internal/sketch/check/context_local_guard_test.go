@@ -30,7 +30,7 @@ const (
 
 // contextGuardPrelude is what every guard program names.
 const contextGuardPrelude = `type Greeter { Greet(name string) string }
-type Plain {}
+type Plain {} implements Greeter
 func Greet(_ Plain, name string) string { name }
 type Bang {}
 type Box { F int }
@@ -97,6 +97,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"StarExpr.X":           {guardType, "func f(p *@w) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @w\n"},
+	"TypeDecl.Implements":  {guardType, "type T {} implements @w\n"},
 	// A where reads only its subject and literals (refine.go): a context
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},
@@ -116,8 +117,12 @@ var contextPlaceRows = map[string]externPlaceRow{
 
 	// Names that are not a use of the context: a binder, a member, text. A
 	// catch arm's name that names no type binds the failure.
-	"CatchArm.Types":           {guardBinder, "func load() int fails Bang { 1 }\nfunc f() int {\n\t$W\n\tload() catch {\n\tcase @w: 0\n\t}\n}\n"},
-	"CaseClause.List":          {guardBinder, "func main() {\n\tlet f = 1\n\tlet m = match f {\n\tcase @w: 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	"CatchArm.Types":  {guardBinder, "func load() int fails Bang { 1 }\nfunc f() int {\n\t$W\n\tload() catch {\n\tcase @w: 0\n\t}\n}\n"},
+	"CaseClause.List": {guardBinder, "func main() {\n\tlet f = 1\n\tlet m = match f {\n\tcase @w: 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	// A nested alternative binds as any pattern does (syntax/orpattern.go).
+	"CaseClause.Written":       {guardBinder, "func main() {\n\tlet f = (1, 2)\n\tlet m = match f {\n\tcase (@w | 3, _): 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	"OrPattern.Alts":           {guardBinder, "func main() {\n\tlet f = (1, 2)\n\tlet m = match f {\n\tcase (@w | 3, _): 1\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
+	"CatchArm.Written":         {guardBinder, "type Bang { N int }\nfunc load() int fails Bang { 1 }\nfunc f() int {\n\t$W\n\tload() catch {\n\tcase Bang{N: @w | 2}: 0\n\t}\n}\n"},
 	"AsPattern.X":              {guardBinder, "func main() {\n\tlet f = 1\n\tlet m = match f {\n\tcase @w as g: g\n\tcase _: 2\n\t}\n\t_ = m\n}\n"},
 	"SelectorExpr.Sel":         {guardBinder, "func main() {\n\t$W\n\t_ = \"x\".@w\n}\n"},
 	"AsPattern.Name":           {guardBinder, "type A {}\ntype B {}\ntype U = A | B\nfunc f(u U) string {\n\tmatch u {\n\tcase A: \"a\"\n\tcase _ as @w: \"b\"\n\t}\n}\n"},

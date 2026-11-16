@@ -1,12 +1,28 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"runtime-type-std-only","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","to":"\tif !c.pkg.trusted || !c.pkg.std {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","rule":"stdlib.md The body contract: any package the root trusts names its runtime Go type as std does.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-untrusted","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","to":"\tif false {\n\t\tif c.pkg.module == \"\" {\n\t\t\treturn fmt.Sprintf(\"extern go %s names a Go type","rule":"interop.md Trusted Go: a type names a runtime Go type only in a package the root trusts.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-arity","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\tif gt.Arity != arity {","to":"\tif false {","rule":"stdlib.md The body contract: the declaration has the Go type's type parameters.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-fields","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\t\tif st == nil || !gt.Struct || !slices.Equal(fields, gt.Fields) {","to":"\t\tif st == nil || !gt.Struct || !slices.Equal(fields, fields) {","rule":"stdlib.md The body contract: a record that names a Go struct has its fields in order.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"runtime-type-open","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\t\tif len(spec.Union) > 0 || !Sealed(n) {","to":"\t\tif len(spec.Union) > 0 {","rule":"stdlib.md The body contract: an operation type that names a Go type is sealed, so only the runtime's value implements it.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"door-open-without-trust","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","to":"\tif false && !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","rule":"interop.md Trusted Go: a package binds the runtime only when the root module trusts its Go.","killers":["check:TestExternTargetDomain","internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]},
+    {"name":"door-trusted-unknown-body","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !BodyOf(f).Known {","to":"\tif false && !BodyOf(f).Known {","rule":"interop.md Trusted Go: a trusted package binds a runtime/v1 body the body table has.","killers":["check:TestTrustedDoorRefusals"]},
+    {"name":"door-trusted-rt","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !v1.Owns(path) {\n\t\treturn fmt.Sprintf(\"extern go %s: a trusted package","to":"\tif false && !v1.Owns(path) {\n\t\treturn fmt.Sprintf(\"extern go %s: a trusted package","rule":"interop.md Trusted Go: runtime/rt is the prelude's; a trusted package binds runtime/v1 bodies.","killers":["check:TestTrustedDoorRefusals"]},
+    {"name":"door-closed-for-trusted","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/extern.go","from":"\tif !c.pkg.trusted {\n\t\tif c.pkg.module == \"\" {","to":"\tif !c.pkg.std {\n\t\tif c.pkg.module == \"\" {","rule":"STD-NOPRIV Q2: one trust rule for every module, std's by the same rule.","killers":["std:TestStdCopyAgrees","internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]},
+    {"name":"capture-without-charge","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/expr.go","from":"\tif captured {\n\t\tc.chargeAs(at, goForeign()","to":"\tif false && captured {\n\t\tc.chargeAs(at, goForeign()","rule":"types.md Capabilities 4: the site that builds a Go-backed provider holds go.Foreign (README Gap 17).","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {"name":"capture-in-constraint","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/check/typeops.go","from":"\tif why := c.implements(t, it, true); why != \"\" {\n\t\tif c.clauseUnmet(t, it) {","to":"\tif why := c.implementsCapturing(t, it, true, new(bool)); why != \"\" {\n\t\tif c.clauseUnmet(t, it) {","rule":"types.md Capabilities 4: a constraint is no build and captures nothing.","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {"name":"body-fact-std-only","origin":"wf10 STD-NOPRIV NP4b","file":"internal/sketch/check/body.go","from":"\tif f == nil || f.Decl == nil || f.Decl.Extern == nil {\n\t\treturn Body{}","to":"\tif f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || f.Pkg.Path == \"main\" {\n\t\treturn Body{}","rule":"GLOSSARY Body contract: an extern's facts follow the body its declaration binds, for an extern of any package.","killers":["check:TestBodyFactsFollowTheBody"]},
+    {"name":"opbody-fact-std-only","origin":"wf10 STD-NOPRIV NP4b","file":"internal/sketch/check/body.go","from":"\tif _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) {","to":"\tif _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) || o.Pkg.Path == \"main\" {","rule":"GLOSSARY Body contract: an operation's facts follow the runtime method it binds, for a type of any package that binds the runtime.","killers":["check:TestBodyFactsFollowTheBody"]},
     {"name":"chk1b-export-subst-row-lost","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"c.types.substRow = c.substRow","to":"// omit the row substitution callback","rule":"A round-tripped deferred generic row keeps its checker's substitution callback.","killers":["check:TestStdSnapshotRestoresDeferredRows"]},
-    {"name":"chk1b-export-corruption-accepted","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"if sum := sha256.Sum256(seg.data); sum != seg.sum {","to":"if sum := sha256.Sum256(seg.data); false && sum != seg.sum {","rule":"Corrupt bytes cannot become changed checked std state: a corrupt segment's package is checked from source.","killers":["check:TestStdSnapshotInstall"]},
+    {"name":"chk1b-export-corruption-accepted","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"if sum := sha256.Sum256(data); sum != seg.sum {","to":"if sum := sha256.Sum256(data); false && sum != seg.sum {","rule":"Corrupt bytes cannot become changed checked std state: a corrupt segment's package is checked from source.","killers":["check:TestStdSnapshotInstall"]},
     {"name":"chk1b-header-corruption-accepted","origin":"wf10 CHK1b r2","file":"internal/sketch/check/export.go","from":"if sum := sha256.Sum256(h); !bytes.Equal(want, sum[:]) {","to":"if sum := sha256.Sum256(h); false && !bytes.Equal(want, sum[:]) {","rule":"A corrupt snapshot header installs nothing.","killers":["check:TestStdSnapshotInstall"]},
     {"name":"chk1b-install-rechecks-std","origin":"wf10 CHK1b","file":"internal/sketch/check/check.go","from":"if pkg, ok := snap.load(path, s.decoded); ok {","to":"if pkg, ok := snap.load(path, s.decoded); false && ok {","rule":"With an installed snapshot, a std import decodes the package instead of checking it from source.","killers":["check:TestStdSnapshotInstall"]},
     {"name":"chk1b-lazy-deps-skipped","origin":"wf10 CHK1b r2","file":"internal/sketch/check/export.go","from":"\tfor _, dep := range s.segs[i].deps {","to":"\tfor _, dep := range s.segs[i].deps[:0] {","rule":"A segment decodes after the earlier segments it names, so its references resolve to the same objects.","killers":["check:TestStdSnapshotInstall"]},
     {"name":"chk1b-install-decodes-eagerly","origin":"wf10 CHK1b r2 (audit-3 F3)","file":"internal/sketch/check/export.go","from":"\timp.snap = snap\n\timp.mu.Unlock()","to":"\timp.snap = snap\n\timp.mu.Unlock()\n\tfor p := range snap.byPath {\n\t\tsnap.load(p, imp.decoded)\n\t}","rule":"A process decodes only the std packages its imports reach (packages decoded == import closure).","killers":["check:TestStdDecodeGrowsWithImports"]},
+    {"name":"chk1c-stack-not-grown","origin":"wf10 CHK1c r2","file":"internal/sketch/check/export.go","from":"\tgrowStack(0)\n\tsnap, base, err := openSnapshot(r, size)","to":"\tsnap, base, err := openSnapshot(r, size)","rule":"The install grows the stack once, while few frames are on it, so the decode and the first check copy no stack (stack moves after the install == 0) and read no stack maps of their frames.","killers":["check:TestInstallGrowsTheStackOnce"]},
+    {"name":"chk1c-stack-pad-small","origin":"wf10 CHK1c r2","file":"internal/sketch/check/export.go","from":"var pad [120 << 10]byte","to":"var pad [4 << 10]byte","rule":"growStack grows the stack to what the decode and a first check need, so they move it no more.","killers":["check:TestInstallGrowsTheStackOnce"]},
+    {"name":"chk1c-snapshot-read-whole","origin":"wf10 CHK1c","file":"internal/sketch/check/export.go","from":"data, err := s.readAt(0, min(uint64(size), uint64(len(snapshotMagic)+sha256.Size+binary.MaxVarintLen64)))","to":"data, err := s.readAt(0, uint64(size))","rule":"A process reads only the snapshot bytes its imports reach (bytes read == header + base + the import closure's segments), never the whole file.","killers":["check:TestStdDecodeGrowsWithImports"]},
     {"name":"chk1b-install-overwrites-live","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"if !installed {","to":"if false && !installed {","rule":"A snapshot must not replace an already used universe.","killers":["check:TestStdSnapshotInstall"]},
     {"name":"chk1b-export-lock-copied","origin":"wf10 CHK1b","file":"internal/sketch/exportgen/exportgen.go","from":"if f.Name() == \"_\" || isLock(f.Type()) {","to":"if f.Name() == \"_\" {","rule":"A lock is not exported as checker model data.","anchor":{"tests":["check:TestExportCodecsAreCurrent"]},"killers":["check:TestExportCodecsAreCurrent"]},
     {"name":"chk1b-export-skip-fields-lost","origin":"wf10 CHK1b","file":"internal/sketch/exportgen/exportgen.go","from":"if _, skip := skipFields[key]; skip {","to":"if _, skip := skipFields[key]; false && skip {","rule":"Rebuilt callbacks are not encoded as function values.","anchor":{"tests":["check:TestExportCodecsAreCurrent"]},"killers":["check:TestExportCodecsAreCurrent"]},
@@ -418,7 +434,7 @@
       "rule": "capInsert: capInsert returns n with (k, t) added, provided by e, and whether it was added; when over is set, an element already there whose entry is not e is copied with e (changed).",
       "killers": [
         "check:TestCapSetPut",
-        "examples:checkout",
+        "examples:lookup",
         "lower:TestCheckIsCanonical"
       ]
     },
@@ -695,8 +711,7 @@
       "from": "\t\tif f == nil || !f.inferErrors && !f.inferUses {",
       "to": "\t\tif f == nil || !f.inferErrors || !f.inferUses {",
       "rule": "refuseRows: refuseRows reports the functions of a component whose inferred rows did not reach a fixpoint within the bound (S108: soundness by refusal).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConvergeRefusalNamesItsFile"]
     },
     {
       "name": "t6-3-negate-if-extern.go:64",
@@ -721,24 +736,13 @@
       ]
     },
     {
-      "name": "t6-5-false-true-rows.go:806",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/rows.go",
-      "from": "\t\t\treturn false",
-      "to": "\t\t\treturn true",
-      "rule": "converge: converge joins the inferred rows of a cyclic component to their fixpoint, silently, with the worklist settling shares (worklist.go: callees first on demand, the smallest body first among the roots; round 8 review M1 and O1): a body is checked again only when a body it references grew.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-6-and-or-decl.go:1909",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
       "file": "internal/sketch/check/decl.go",
       "from": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil && free[tp] {",
       "to": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil || free[tp] {",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-7-negate-if-variantindex.go:155",
@@ -759,6 +763,7 @@
       "to": "\t\t\t\tif !(rs == nil) {",
       "rule": "widenUnknown: widenUnknown returns dst, the type an inferred receiver holds (the first branch of a join, the binding of a type parameter), with the known part of src's rows joined into each of dst's unknown rows, in dst and in its results.",
       "killers": [
+        "check:TestWidenUnknownNestedResult",
         "lower:TestCheckCorpusBuildsPart4"
       ]
     },
@@ -772,16 +777,6 @@
       "killers": [
         "check:TestContextOwnershipReleaseNeeds"
       ]
-    },
-    {
-      "name": "t6-10-drop-continue-tests.go:191",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
-      "file": "internal/sketch/check/tests.go",
-      "from": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\tcontinue\n\t\t\t\t}",
-      "to": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\t_ = 0\n\t\t\t\t}",
-      "rule": "checkTest: ",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
     },
     {
       "name": "t6-11-negate-if-variantindex.go:151",
@@ -812,8 +807,7 @@
       "from": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif len(m.rows.rows) > before {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "to": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif !(len(m.rows.rows) > before) {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-14-drop-continue-decl.go:688",
@@ -827,24 +821,13 @@
       ]
     },
     {
-      "name": "t6-15-lt-le-context.go:615",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/context.go",
-      "from": "\t\t\treturn contexts[i].file.index < contexts[j].file.index",
-      "to": "\t\t\treturn contexts[i].file.index <= contexts[j].file.index",
-      "rule": "checkContexts: checkContexts checks the named contexts: their entries, in a closed build context (README Gap 6: a named context requires nothing from the with site and lets no failure escape).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-16-false-true-unify.go:356",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/unify.go",
       "from": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn false\n\t\t\t}",
       "to": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "nifySig: nifySig unifies two signatures: parameters and results in mode, and rows by the row rule.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestInferVariantThenUnion"]
     },
     {
       "name": "t6-17-ne-eq-authority.go:598",
@@ -919,8 +902,7 @@
       "from": "\t\t}\n\t\treturn false\n\t}",
       "to": "\t\t}\n\t\treturn true\n\t}",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-24-negate-if-match.go:479",
@@ -1050,8 +1032,7 @@
       "from": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn false\n}\n",
       "to": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn true\n}\n",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-36-false-true-operators.go:334",
@@ -1071,8 +1052,7 @@
       "from": "\t\t\tif c.identical(v, want) || isOrigin(v, want) {",
       "to": "\t\t\tif !(c.identical(v, want) || isOrigin(v, want)) {",
       "rule": "updateBaseText: updateBaseText is the diagnostic for a base of type got in an update of the type want.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestRecordUpdateRules"]
     },
     {
       "name": "t6-38-negate-if-variantindex.go:246",
@@ -1122,8 +1102,8 @@
       "name": "l6-2 a constant outside the where is admitted",
       "origin": "wf10 v1-lang-B L6",
       "file": "internal/sketch/check/refine.go",
-      "from": "\tif r.Holds(v) {\n\t\treturn true\n\t}",
-      "to": "\tif r.Holds(v) || true {\n\t\treturn true\n\t}",
+      "from": "if r.Holds(v) && (r.Pattern",
+      "to": "if true || r.Holds(v) && (r.Pattern",
       "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
       "killers": [
         "check:TestFixtures"
@@ -1199,8 +1179,8 @@
       "name": "l6-9 a refined type whose zero fails its where is defaultable",
       "origin": "wf10 v1-lang-B L6",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {",
-      "to": "if r := RefinementOf(t); r != nil && r.Holds(big.NewInt(0)) && false {",
+      "from": "r != nil && (!r.Holds(big.NewInt(0)) ||",
+      "to": "r != nil && (false && !r.Holds(big.NewInt(0)) ||",
       "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
       "killers": [
         "check:TestFixtures"
@@ -1977,17 +1957,7 @@
         "check:TestTakesInferenceModel"
       ]
     },
-    {
-      "name": "L8-A3 a bodiless generic outside the table treated as moving",
-      "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/takes.go",
-      "from": "\t\tif path, name := f.Decl.Extern.Split(); path == runtimeModule+\"/v1\" && v1.MovesOnly(name) {",
-      "to": "\t\tif path, name := f.Decl.Extern.Split(); path != \"\" || name != \"\" || v1.MovesOnly(name) {",
-      "rule": "plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.",
-      "killers": [
-        "check:TestTakesInferenceModel"
-      ]
-    },
+    {"name":"L8-A3 a bodiless generic outside the table treated as moving","origin":"wf10 L8 A3 (#197)","file":"internal/sketch/check/takes.go","from":"\t\tif BodyOf(f).MovesOnly {\n\t\t\treturn nil","to":"\t\tif true {\n\t\t\treturn nil","rule":"plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.","killers":["check:TestTakesInferenceModel"]},
     {
       "name": "L8-A3 a function with an inferred clause admitted as a value",
       "origin": "wf10 L8 A3 (#197)",
@@ -2487,7 +2457,7 @@
       "from": "Machine: tn, Pkg: c.pkg, file: fi}",
       "to": "Machine: tn, file: fi}",
       "rule": "Every law records the package that declares it, a machine's law too.",
-      "killers": ["eval:TestMachineLawsAgreeWithModel"]
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
       "name": "F8-row-arg-keeps-named-row-whole",
@@ -2500,30 +2470,7 @@
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
     {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
-    {
-      "name": "16b-g-ops-into-go-interface",
-      "origin": "wf10 batch-16b gate fix (r3 On base)",
-      "file": "internal/sketch/check/typeops.go",
-      "from": "if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {",
-      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {",
-      "rule": "An Ergo operation type's value is not a Go interface's value: its operations take Ergo's calling convention, so the checker refuses what Go would refuse.",
-      "killers": [
-        "check:TestImportGoUses"
-      ]
-    },
-    {"name":"h2fp-lit-dropped","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\tdefault:\n\t\t\tchanged = fillHoles(root, acc, w, a.node, nil) || changed","to":"\t\tdefault:\n\t\t\t_ = a","rule":"A call of a known function joins the footprint of the argument it runs in place of its non-escaping parameter: dropping it is unsound purity (H2-fp; rows.md, Footprints 3).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-escaping-known","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"func fpParam(t Type) bool { return nonEscaping(t) }","to":"func fpParam(t Type) bool { _, ok := t.(*Signature); return ok }","rule":"An escaping parameter's argument may run after the call or on another task: its call stays unknown code (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-callee-own-dropped","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\tif t.comp != root {\n\t\tfor _, c := range t.final.Caps {","to":"\tif false && t.comp != root {\n\t\tfor _, c := range t.final.Caps {","rule":"A known call joins the callee's own footprint as well as its arguments' (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-capture-lost","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\tif i < 0 {\n\t\t\tadd(h)","to":"\t\tif i < 0 {\n\t\t\t_ = h","rule":"A literal's call of a parameter of the function it is written in is a hole of every frame that runs the literal (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-one-pass","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\tfor changed := true; changed; {","to":"\tfor changed := true; changed; changed = false {","rule":"Holes of a recursive component grow to a fixpoint: a mutually recursive pair that passes its parameter on runs it (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-own-opaque-hidden","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\twf.Opaque = f.OpaqueRest || len(w.cur) > 0","to":"\t\t\twf.Opaque = f.OpaqueRest","rule":"A function that runs its parameter's argument is opaque when read alone: every reader of its own footprint (lowering, durable steps, check-time evaluation) sees unknown code (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-hole-opaque","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\t\tn.holes[v] = true\n\t\t\t\treturn","to":"\t\t\t\tn.opaque = true\n\t\t\t\treturn","rule":"A call of a non-escaping parameter is a hole the caller's argument fills, not unknown code (H2-fp; the base behaviour).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"h2fp-imported-named-unknown","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\t\t\t\treturn fp.funcArg(f)\n","to":"\t\t\t\t\t\t_ = f\n\t\t\t\t\t\treturn nil\n","rule":"A function of an imported package passed by name is a known argument: its recorded footprint fills the hole (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
-    {"name":"ckra-member-kept-out","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/unify.go","from":"\t\tin.unifyRow(xu.Row, ar)\n\t\treturn true","to":"\t\tin.unifyRow(xu.Row, newRow().with(in.c.types, ar.Elems()[0]))\n\t\treturn true","rule":"Inference binds an error row parameter to the whole row of the argument's type argument, every member (CK-rowarg; types.md, Generics 6).","killers":["lower:TestRowParamBindsFromTypeArg"]},
-    {"name":"ckra-one-member-second-type","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/decl.go","from":"\ttargs = c.slotArgs(orig, targs)\n","to":"\t_ = c.slotArgs\n","rule":"A row of one member as a type parameter's argument is that member's type: X[int, A] is one type whether A was written as a type or as a row (CK-rowarg; rows.md, Error rows 8; the base behaviour).","killers":["lower:TestRowParamBindsFromTypeArg"]},
-    {"name":"ckra-type-arg-unbound","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/unify.go","from":"\t\t\tar = newRow().with(in.c.types, y)\n","to":"\t\t\treturn false\n","rule":"An error type as the argument's type argument binds the row parameter to a row of that one type (CK-rowarg; types.md, Generics 6).","killers":["lower:TestRowParamBindsFromTypeArg"]},
-    {"name":"ckif-needs-dropped","origin":"wf10 CK CK-rowarg part 3 (InForce)","file":"internal/sketch/std/prelude.ergo","from":"func InForce[R]() Context[R] needs R\n","to":"func InForce[R]() Context[R]\n","rule":"InForce needs its row: a function that takes the providers in force shows them in its own row, and a call where no with and no row provides them is S102 (rows.md, Context values, InForce; Q16).","killers":["check:TestContextValueDiagnostics"],"anchor":{"tests":["check:TestContextValueDiagnostics"]}},
-    {"name":"bodies-from-source","origin":"wf10 CHK1","file":"runtime/v1/files.go","from":"\tf, ok := bodyTable[name]\n\tif !ok {","to":"\tif decls, err := sourceDecls(); err == nil {\n\t\treturn decls.body(name)\n\t}\n\tf, ok := bodyTable[name]\n\tif !ok {","rule":"A check reads no runtime/v1 Go source: BodyOf answers from the generated table (the counted check budget).","killers":["check:TestCheckWorkGrowsWithImports"]},
+    {"name":"bodies-from-source","origin":"wf10 CHK1","file":"runtime/v1/files.go","from":"\ti, ok := slices.BinarySearchFunc(bodyTable, name,","to":"\tif decls, err := sourceDecls(); err == nil {\n\t\treturn decls.body(name)\n\t}\n\ti, ok := slices.BinarySearchFunc(bodyTable, name,","rule":"A check reads no runtime/v1 Go source: BodyOf answers from the generated table (the counted check budget).","killers":["check:TestCheckWorkGrowsWithImports"]},
     {"name":"nondet1-entry-order","origin":"wf10 NONDET1","file":"internal/sketch/check/info.go","from":"\tif a.pkg != b.pkg {","to":"\tif false && a.pkg != b.pkg {","rule":"A with's acquisitions, so its builder's installs and adapters, come in one order defined by the source: two packages' entries never tie.","killers":["lower:TestLoweringIsAFunctionOfInput"]},
     {"name":"ps3-open-type-accepted","origin":"wf10 PS3","file":"internal/sketch/check/cells.go","from":"\treturn nil\n}\n\n// cellRefusal","to":"\tif it.obj != nil {\n\t\treturn it.obj.Pkg\n\t}\n\treturn nil\n}\n\n// cellRefusal","rule":"A cell converts only to an operation type sealed by an unexported operation.","killers":["check:TestProviderCellDiagnostics"]},
     {"name":"ps3-foreign-site-accepted","origin":"wf10 PS3","file":"internal/sketch/check/cells.go","from":"\tif p != c.pkg {","to":"\tif false && p != c.pkg {","rule":"A cell is made only in the package that seals its operation type.","killers":["check:TestProviderCellDiagnostics"]},
@@ -2678,7 +2625,7 @@
       "rule": "resources R43 (the mHold rule): a nested form that made the value on some paths and lent a name on others decides the statement's ownership per path.",
       "killers": ["lower:TestOwnershipGrammarRun"]
     },
-    {"name":"rel-needs-no-second-check","origin":"wf10 REL-needs","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 {","to":"if true || len(seeds) == 0 && len(edges) == 0 {","rule":"A release's needs are charged to the frame that owns the value (the base gap: a release reached a nil service).","killers":["check:TestReleaseNeedsModel","lower:TestReleaseNeedsRun"]},
+    {"name":"rel-needs-no-second-check","origin":"wf10 REL-needs","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","to":"if true || len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","rule":"A release's needs are charged to the frame that owns the value (the base gap: a release reached a nil service).","killers":["check:TestReleaseNeedsModel","lower:TestReleaseNeedsRun"]},
     {"name":"b18-rel-needs-own-not-walked","origin":"batch-18 integration (REL-needs x OWGEN FU2)","file":"internal/sketch/check/releaseneeds.go","from":"\t\twalk(d.Own)\n","to":"","rule":"The release of a record with a written Close charges its parts' Closes, which the Close's function runs after its body (Drop.Own, R3).","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-fields-not-walked","origin":"wf10 REL-needs","file":"internal/sketch/check/releaseneeds.go","from":"for _, f := range d.Fields {","to":"for _, f := range d.Fields[:0] {","rule":"The release of a record charges the Closes of its fields.","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-elem-not-walked","origin":"wf10 REL-needs","file":"internal/sketch/check/releaseneeds.go","from":"\t\twalk(d.Elem)","to":"\t\twalk(nil)","rule":"The release of a slice charges the Close of its elements.","killers":["check:TestReleaseNeedsModel"]},
@@ -2692,10 +2639,9 @@
     {"name":"rel-needs-reporting-pass-only","origin":"wf10 REL-needs","file":"internal/sketch/check/expr.go","from":"if s, ok := c.relSeeds[x]; ok && op.mode != modeInvalid {","to":"if s, ok := c.relSeeds[x]; ok && op.mode != modeInvalid && c.silent == 0 {","rule":"A release charge reaches an inferred row in the silent passes of row inference, as a call's does.","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-def-reporting-pass-only","origin":"wf10 REL-needs","file":"internal/sketch/check/info.go","from":"\t\tif v, ok := o.(*Var); ok {\n\t\t\tc.relHit[id] = true","to":"\t\tif v, ok := o.(*Var); ok && c.silent == 0 {\n\t\t\tc.relHit[id] = true","rule":"An owned local's release charge reaches an inferred row in the silent passes.","killers":["check:TestReleaseNeedsModel"]},
     {"name":"rel-needs-text-unnamed","origin":"wf10 REL-needs","file":"internal/sketch/check/releaseneeds.go","from":"what := fmt.Sprintf(\"%s.Close, run by the release of %s here,\", need.close.Receiver, pt)","to":"what := fmt.Sprint(\"\", need.close.Receiver == nil, pt == nil)","rule":"The release-need S102 names the Close, the released type and the capability.","killers":["check:TestReleaseNeedRows"]},
-    {"name":"g3-encode-not-charged","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/wirecall.go","from":"\tc.chargeWire(x, v.typ, false)","to":"\t_ = v","rule":"encode is charged the needs of each Wire it calls, as a written call is (types.md, Codecs 8).","killers":["check:TestReleaseNeedsModel"]},
-    {"name":"g3-decode-not-charged","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/wirecall.go","from":"\tc.chargeWire(x, t, true)","to":"\t_ = t","rule":"decode is charged the needs of each ParseX it calls, as a written call is (types.md, Codecs 8).","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"g3-encode-not-charged","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/wirecall.go","from":"\tc.chargeWire(x, v.typ, false)","to":"\t_ = v","rule":"encode is charged the needs of each Wire it calls, as a written call is (types.md, Codecs 9).","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"g3-decode-not-charged","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/wirecall.go","from":"\tc.chargeWire(x, t, true)","to":"\t_ = t","rule":"decode is charged the needs of each ParseX it calls, as a written call is (types.md, Codecs 9).","killers":["check:TestReleaseNeedsModel"]},
     {"name":"g3-late-edge-missing","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/rows.go","from":"\t\t\t\t\tw.refs[pf] = true","to":"\t\t\t\t\t_ = pf","rule":"A ParseX whose needs row is inferred is checked before the bodies that decode its type, so their rows take its final needs.","killers":["check:TestReleaseNeedsModel"]},
-    {"name":"g3-instance-needs-admitted","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/typeops.go","from":"if r := c.wireInstanceNeeds(t); r != \"\" {","to":"if r := c.wireInstanceNeeds(t); false && r != \"\" {","rule":"A wire type parameter carries no capability row, so it is not bound to a type whose codec needs one.","killers":["check:TestReleaseNeedRows"]},
     {"name":"g3-late-needs-admitted","origin":"wf10 REL-needs (v1 audit 3 G3)","file":"internal/sketch/check/wirecall.go","from":"\t\trow := c.types.resolve(c.funcSig(w.parse).Uses)\n\t\tif row.Empty() {","to":"\t\trow := c.types.resolve(c.funcSig(w.parse).Uses)\n\t\tif true || row.Empty() {","rule":"An inferred ParseX that needs a capability, reached where no row can take it (a package let, a type parameter), is S108.","killers":["check:TestReleaseNeedRows"]},
     {"name":"g7-part-needs-admitted","origin":"wf10 REL-needs (v1 audit 3 G7)","file":"internal/sketch/check/typeops.go","from":"if why := c.releaseWider(v, m); why != \"\" {","to":"if why := c.releaseWider(v, m); false && why != \"\" {","rule":"A value converts to an operation type only when its whole release needs no capability the operation type's Close lacks.","killers":["check:TestReleaseNeedsModel"]},
     {"name":"bc-conv-admitted","origin":"wf10 BORROW-conv","file":"internal/sketch/check/borrowconv.go","from":"\t\tif !w.bindsBorrow(x, to) {","to":"\t\tif false && !w.bindsBorrow(x, to) {","rule":"A conversion from a borrow stands only as a one-name let's value or a with's context entry (Borrows 6).","killers":["check:TestBorrowConvModel"]},
@@ -2714,11 +2660,11 @@
     {"name":"bc-typearg-literal-admitted","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowconv.go","from":"if t := w.info.Types[x]; t != nil && typeArgBorrow(t) {","to":"if t := w.info.Types[x]; t != nil && false && typeArgBorrow(t) {","rule":"A literal of a generic type is never built over a borrow (Borrows 7).","killers":["check:TestBorrowConvModel"]},
     {"name":"bc-typearg-sig-descends","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowconv.go","from":"\t\tcase *Signature, *RowArg:","to":"\t\tcase *RowArg:","rule":"A function type that takes a borrow holds none, so it may be a type argument (Borrows 7).","killers":["check:TestBorrowConvModel"]},
     {"name":"bc-typearg-admitted","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowconv.go","from":"\t\tif why := w.keepsTParam(inst.Func, tp); why != \"\" {","to":"\t\tif why := w.keepsTParam(inst.Func, tp); false && why != \"\" {","rule":"A borrow instantiates a type parameter only of a body that keeps no value of it (Borrows 7).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-capture","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tif esc {","to":"\t\t\tif false && esc {","rule":"A generic body that captures a value of T in a frame that may outlive the call keeps T (Borrows 7).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-recursion","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\tif why := k.w.keepsTParam(g, u); why != \"\" {","to":"\t\tif why := k.w.keepsTParam(g, u); false && why != \"\" {","rule":"A generic body that passes a value of T to a body that keeps it keeps T (Borrows 7).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-generic-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\tif u, ok := pt.(*TypeParam); ok && len(g.Sig.TParams) > 0 {","to":"\tif u, ok := pt.(*TypeParam); false && ok && len(g.Sig.TParams) > 0 {","rule":"A generic body that passes a value of T to a body that keeps none keeps none (Borrows 7).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-funcvalue-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tif _, ok := sig.Params[i].Type.(*TypeParam); ok || isPointer(sig.Params[i].Type) {","to":"\t\t\tif false {","rule":"A value of T passed to a function value's parameter of T is a lend (Borrows 7).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-signature-tracked","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\tif _, ok := under(t).(*Signature); ok {\n\t\treturn false\n\t}\n\tfound := false","to":"\tfound := false","rule":"A function value holds no value of T: capturing it keeps nothing (Borrows 7).","killers":["check:TestBorrowConvModel"]},
+    {"name":"bc-keep-capture","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tif esc {","to":"\t\t\tif false && esc {","rule":"A generic body that captures a value of T in a frame that may outlive the call keeps T (Borrows 7).","killers":["check:TestLentMarkModel"]},
+    {"name":"bc-keep-recursion","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\tif why := k.w.keepsTParam(g, u); why != \"\" {","to":"\t\tif why := k.w.keepsTParam(g, u); false && why != \"\" {","rule":"A generic body that passes a value of T to a body that keeps it keeps T (Borrows 7).","killers":["check:TestLentMarkModel"]},
+    {"name":"bc-keep-generic-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\tif u, ok := pt.(*TypeParam); ok && len(g.Sig.TParams) > 0 {","to":"\tif u, ok := pt.(*TypeParam); false && ok && len(g.Sig.TParams) > 0 {","rule":"A generic body that passes a value of T to a body that keeps none keeps none (Borrows 7).","killers":["check:TestLentMarkModel"]},
+    {"name":"bc-keep-funcvalue-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tif _, ok := sig.Params[i].Type.(*TypeParam); ok || isPointer(sig.Params[i].Type) {","to":"\t\t\tif false {","rule":"A value of T passed to a function value's parameter of T is a lend (Borrows 7).","killers":["check:TestLentMarkModel"]},
+    {"name":"bc-keep-signature-tracked","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\tif _, ok := under(t).(*Signature); ok {\n\t\treturn false\n\t}\n\tfound := false","to":"\tfound := false","rule":"A function value holds no value of T: capturing it keeps nothing (Borrows 7).","killers":["check:TestLentMarkModel"]},
     {"name":"bc-keep-receiver-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\tif p.X != child {\n\t\t\treturn \"\"\n\t\t}","to":"\t\tif p.X == child {\n\t\t\treturn \"it stores a value of it\"\n\t\t}","rule":"An operation called on a value of T keeps nothing (Borrows 7).","killers":["check:TestBorrowConvModel"]},
     {"name":"bc-keep-deref-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\tcase *syntax.StarExpr, *syntax.UnaryExpr:","to":"\tcase *syntax.UnaryExpr:","rule":"A read or write through a borrow parameter of T keeps nothing (Borrows 7).","killers":["check:TestBorrowConvModel"]},
     {"name":"bc-keep-assign-through-refused","origin":"wf10 BORROW-conv (v1-audit-3 G4)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tcase *syntax.StarExpr:\n\t\t\t\tif _, ok := unparen(l.X).(*syntax.Ident); !ok {","to":"\t\t\tcase *syntax.StarExpr:\n\t\t\t\tif _, ok := unparen(l.X).(*syntax.Ident); ok {","rule":"A value of T written through a borrow parameter goes into a caller's local and keeps nothing (Borrows 7).","killers":["check:TestBorrowConvModel"]},
@@ -2733,13 +2679,201 @@
     {"name":"insops-call-site","origin":"wf10 INS-ops r1","file":"internal/sketch/check/inserted_ops_test.go","from":"CallSite{File: \\\"main.ergo\\\", Line: @LINE","to":"CallSite{Path: \\\"main.ergo\\\", Line: @LINE","rule":"inserted.md: a left-out final CallSite is the literal CallSite{File, Line, Column} (Call sites 2).","anchor":{"tests":["check:TestInsertedOpsAgree"]},"killers":["check:TestInsertedOpsAgree"]},
     {"name":"insops-zero","origin":"wf10 INS-ops r1","file":"internal/sketch/check/inserted_ops_test.go","from":"{\"Port\", \"0\"}","to":"{\"Port\", \"1\"}","rule":"inserted.md: a let with no value holds its type's zero; a refined type's zero is its base's, which its where may refuse (Refinements 8).","anchor":{"tests":["check:TestInsertedOpsAgree"]},"killers":["check:TestInsertedOpsAgree"]},
     {"name":"insops-release-variant","origin":"wf10 b18-fix-sound (verify soundness M2; INS-ops)","file":"internal/sketch/check/releaseneeds.go","from":"\t\t\twalk(v)\n","to":"\t\t\t_ = v\n","rule":"inserted.md: a union's release stands for a match arm that binds its active variant and closes it (R3, Gap 36), so it is charged the variants' Close.","killers":["check:TestInsertedOpsAgree"]},
-    {"name":"bc-keep-return-admitted","origin":"wf10 BORROW-conv r2 (INS-3)","file":"internal/sketch/check/borrowtargs.go","from":"\tcase *syntax.ReturnStmt:\n\t\treturn \"it returns a value of it\"","to":"\tcase *syntax.ReturnStmt:\n\t\treturn \"\"","rule":"A body that returns its T keeps it: the written instance returns a *T (Borrows 7, INS-3).","killers":["check:TestBorrowConvModel"]},
-    {"name":"bc-keep-tail-admitted","origin":"wf10 BORROW-conv r2 (INS-3)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t// returns one, which keeps it already.)\n\t\treturn \"it returns a value of it\"","to":"\t\t// returns one, which keeps it already.)\n\t\treturn \"\"","rule":"A body whose block value (tail, if arm) is a T keeps it (Borrows 7, INS-3).","killers":["check:TestBorrowConvModel"]},
+    {"name":"bc-keep-return-admitted","origin":"wf10 BORROW-conv r2 (INS-3)","file":"internal/sketch/check/borrowtargs.go","from":"\tcase *syntax.ReturnStmt:\n\t\treturn \"it returns a value of it\"","to":"\tcase *syntax.ReturnStmt:\n\t\treturn \"\"","rule":"A body that returns its T keeps it: the written instance returns a *T (Borrows 7, INS-3).","killers":["check:TestLentMarkModel"]},
+    {"name":"bc-keep-tail-admitted","origin":"wf10 BORROW-conv r2 (INS-3)","file":"internal/sketch/check/borrowtargs.go","from":"\t\t// returns one, which keeps it already.)\n\t\treturn \"it returns a value of it\"","to":"\t\t// returns one, which keeps it already.)\n\t\treturn \"\"","rule":"A body whose block value (tail, if arm) is a T keeps it (Borrows 7, INS-3).","killers":["check:TestLentMarkModel"]},
     {"name":"bc-dependent-instance-reported","origin":"wf10 BORROW-conv r2","file":"internal/sketch/check/borrowconv.go","from":"\t\tif _, _, _, why := w.borrowInstance(unparen(a)); why != \"\" {","to":"\t\tif _, _, _, why := w.borrowInstance(unparen(a)); false && why != \"\" {","rule":"A call whose borrow comes from a refused instance in its argument reports nothing more: one diagnostic per root cause (Borrows 7).","killers":["check:TestDifferentialNested"]},
-    {"name":"seal-ui-host-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/run.ergo","from":"type Host[E] {\n\t// Show applies one pass's changes.","to":"type Host[E] {\n\truntimeOnly(),\n\t// Show applies one pass's changes.","rule":"ui.Host takes a program provider: cmd/<name>/main.ergo binds a desktop or terminal host, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
-    {"name":"seal-ui-measure-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/text.ergo","from":"\t},\n}\n\n// Monospace measures","to":"\t},\n\truntimeOnly(),\n}\n\nfunc runtimeOnly(_ Monospace) {}\n\n// Monospace measures","rule":"ui.Measure takes a program provider: the host's text measurement, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
-    {"name":"seal-ui-clipboard-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/text.ergo","from":"type Clipboard {\n\t// Read is","to":"type Clipboard {\n\truntimeOnly(),\n\t// Read is","rule":"ui.Clipboard takes a program provider: the desktop host's or a test's, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
-    {"name":"seal-ui-location-open","origin":"wf10 corpus H7","file":"internal/sketch/std/ui/location.ergo","from":"type Location {\n\t// Current is","to":"type Location {\n\truntimeOnly(),\n\t// Current is","rule":"ui.Location takes a program provider: the host's history or a MemoryHistory, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"cf1-wrapper-pair-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"if !c.wireStructuralPart(v) {","to":"if false {","rule":"A wrapper must not bypass an alternative's independent Parse/Wire representation.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-members-list-pair-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"!ok || !c.wireStructuralPart(s.Fields[0].Type)","to":"!ok","rule":"Members must not inspect the elements of a slice whose codec declares another representation.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-members-entry-pair-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"!c.wireStructuralPart(list.Elem) || !c.wireStructuralPart(entry.Fields[0].Type)","to":"false","rule":"Members must not bypass an entry parser or key refinement.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-number-base-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"!c.identical(p.Base, Typ[String])","to":"!isString(p.Base)","rule":"Reader.Number returns an ordinary string; a decorated pair base must not be admitted and unchecked-cast.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-conflicting-forms","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"form != WireDefault && form != WireNumberText && c.wirePair(t) != nil","to":"false","rule":"A structural form and an independent Parse/Wire form cannot silently disagree.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-bare-pair-guess","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"return \"\" // a pair's base, not its record fields, selects its events","to":"// mutant: infer a pair's kind from the wrong structure","rule":"A by-name pair's representation must not be guessed from its variant's record field.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-shape-unchecked","origin":"wf10 CF1 q119","file":"internal/sketch/check/wire.go","from":"if why := c.wireFormReason(t); why != \"\" {","to":"if why := \"\"; why != \"\" {","rule":"Declared wire forms must satisfy the structural protocol before admission.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-form-service-row","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"!sig.Uses.Empty() ||","to":"false ||","rule":"Representation metadata cannot conceal a required service.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-wrapper-payload-shape","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"if empty != 1 || payload != 1 {","to":"if false {","rule":"Omittable and nullable forms have exactly one empty and one single-payload variant.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-bare-kind-collision","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"if kinds[kind] {","to":"if false {","rule":"A bare union cannot have two variants of the same event kind.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-number-record-shape","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"len(s.Fields) != 1 || !isString(s.Fields[0].Type)","to":"len(s.Fields) == 0 || !isString(s.Fields[0].Type)","rule":"NumberText uses a single-field record and a string pair.","killers":["check:TestWireFormShapes"]},
+    {"name":"cf1-members-entry-shape","origin":"wf10 CF1 q119","file":"internal/sketch/check/wireform.go","from":"len(entry.Fields) != 2 || !isString(entry.Fields[0].Type)","to":"len(entry.Fields) < 2 || !isString(entry.Fields[0].Type)","rule":"Members entries contain only a key and a value.","killers":["check:TestWireFormShapes"]},
+    {"name":"builtin-delete-key-unchecked","origin":"wf10 OPT7","file":"internal/sketch/check/builtin.go","from":"\t\tif !isMap(s.Params[0].Type) || s.Params[1].Type != k || !isMap(s.Results[0]) {","to":"\t\tif !isMap(s.Params[0].Type) || !isMap(s.Results[0]) {","rule":"A binding of Go's delete takes a key of the Map's key type (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"stz-carried-never","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\treturn h.err == \"\" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0","to":"\treturn false","rule":"interop.md Checking 6: an import go of a package whose binding declares nothing is its own use in the package of main.","killers":["check:TestImportGoUses"]},
+    {"name":"stz-carried-any","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\treturn h.err == \"\" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0","to":"\treturn h.err == \"\"","rule":"interop.md Checking 6: only a package whose binding declares nothing is carried; an unused import of any other is S110.","killers":["check:TestImportGoKeywordPath"]},
+    {"name":"stz-carried-outside-main","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\tif !entry {\n\t\tc.errorf(pn.spec, CodeType, \"Go package %s declares nothing","to":"\tif false {\n\t\tc.errorf(pn.spec, CodeType, \"Go package %s declares nothing","rule":"interop.md Checking 6: a carried import outside the package of main is S108.","killers":["check:TestImportGoUses"]},
+    {
+      "name": "fureaddir-go-method-value-admitted",
+      "origin": "wf10 FU-readdir r2",
+      "file": "internal/sketch/check/gobinding.go",
+      "from": "\t\tif !called {\n\t\t\t// A Go method is an extern",
+      "to": "\t\tif false {\n\t\t\t// A Go method is an extern",
+      "rule": "A Go method (a struct's or an interface's) is a call-only extern: its method value is S108 with the literal to pass (grammar.md, Extern), never Go's method value in place of Ergo's function shape.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fugb-host-receiver-counted",
+      "origin": "wf10 fu-gobound-recv",
+      "file": "internal/sketch/check/info.go",
+      "from": "\treturn c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Recv == nil\n",
+      "to": "\treturn true\n",
+      "rule": "A Go-bound method's signature lists no receiver, so its parameter i is the call's argument i: sync.Once's o.Do(f) passes f to Do's non-escaping callback.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-go-iface-method-value-admitted",
+      "origin": "wf10 FU-readdir r2",
+      "file": "internal/sketch/check/gobinding.go",
+      "from": "\t\tif !called {\n\t\t\t// A Go method is an extern",
+      "to": "\t\tif !called && fn != nil {\n\t\t\t// A Go method is an extern",
+      "rule": "An operation of a Go interface type (io/fs.DirEntry's Name) is a Go method too: its method value is S108 as a struct method's is.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {"name":"try1-covers-only-operand","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"\t\t\tif len(l) > 0 {\n\t\t\t\tcv.roots[e.Y]","to":"\t\t\tif false && len(l) > 0 {\n\t\t\t\tcv.roots[e.Y]","rule":"grammar.md Expressions 1 (q105): a try covers every call evaluated after it to the end of the enclosing expression, not its operand only.","killers":["lower:TestTryCoversToTheRight"]},
+    {"name":"try1-covers-before","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"\t\t\tif len(l) > 0 {\n\t\t\t\tcv.roots[e.Y] = append([]*syntax.TryExpr(nil), l...)\n\t\t\t\tc.pkg.Info.TryCovers[e.Y] = l[0]","to":"\t\t\tif len(r) > 0 {\n\t\t\t\tcv.roots[e.X] = append([]*syntax.TryExpr(nil), r...)\n\t\t\t\tc.pkg.Info.TryCovers[e.X] = r[0]","rule":"grammar.md Expressions 1 (q105): a fallible call evaluated before the try is S105.","killers":["lower:TestTryCoversToTheRight"]},
+    {"name":"try1-operand-redundant-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"if cv.right[tr] && !cv.used[tr] {","to":"if false && cv.right[tr] && !cv.used[tr] {","rule":"rows.md Error rows 6: a try in operand position with nothing fallible after it is S108.","killers":["lower:TestTryCoversToTheRight"]},
+    {"name":"try1-unary-ends-spine","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"\t\tcase *syntax.UnaryExpr:\n\t\t\treturn walk(e.X)","to":"\t\tcase *syntax.UnaryExpr:\n\t\t\treturn nil","rule":"grammar.md Expressions 1 (q105): a try under a unary operator still covers the rest of the expression (-try f() + g()).","killers":["lower:TestTryCoversToTheRight"]},
+    {"name":"try1-nearest-try","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/handlers.go","from":"\t\t\tt.tried = saved","to":"\t\t\tt.tried = saved || t.tried","rule":"rows.md Error rows 6: a failure belongs to the nearest try that covers it, so an enclosing try with nothing else is redundant.","killers":["lower:TestTryCoversToTheRight"]},
+    {"name":"try1-failure-shares-header-key","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/ownership.go","from":"\tw.info.TryReleases[key] = out\n","to":"\tw.info.TryReleases[key] = out\n\tw.info.Releases[key] = out\n","rule":"resources R43, R7: a try that starts a header (match try f() {) keys the header's temporaries in Releases; its failure edge's releases (Info.TryReleases) never run on the normal path.","killers":["lower:TestOwnershipRunModel","lower:TestStaticReleaseAgrees"]},
+    {
+      "name": "16b-g-ops-into-go-interface",
+      "origin": "wf10 batch-16b gate fix (r3 On base)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {",
+      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {",
+      "rule": "An Ergo operation type's value is not a Go interface's value: its operations take Ergo's calling convention, so the checker refuses what Go would refuse.",
+      "killers": [
+        "check:TestImportGoUses",
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {"name":"h2fp-lit-dropped","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\tdefault:\n\t\t\tchanged = fillHoles(root, acc, w, a.node, nil) || changed","to":"\t\tdefault:\n\t\t\t_ = a","rule":"A call of a known function joins the footprint of the argument it runs in place of its non-escaping parameter: dropping it is unsound purity (H2-fp; rows.md, Footprints 3).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-escaping-known","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"func fpParam(t Type) bool { return nonEscaping(t) }","to":"func fpParam(t Type) bool { _, ok := t.(*Signature); return ok }","rule":"An escaping parameter's argument may run after the call or on another task: its call stays unknown code (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-callee-own-dropped","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\tif t.comp != root {\n\t\tfor _, c := range t.final.Caps {","to":"\tif false && t.comp != root {\n\t\tfor _, c := range t.final.Caps {","rule":"A known call joins the callee's own footprint as well as its arguments' (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-capture-lost","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\tif i < 0 {\n\t\t\tadd(h)","to":"\t\tif i < 0 {\n\t\t\t_ = h","rule":"A literal's call of a parameter of the function it is written in is a hole of every frame that runs the literal (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-one-pass","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\tfor changed := true; changed; {","to":"\tfor changed := true; changed; changed = false {","rule":"Holes of a recursive component grow to a fixpoint: a mutually recursive pair that passes its parameter on runs it (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-own-opaque-hidden","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\twf.Opaque = f.OpaqueRest || len(w.cur) > 0","to":"\t\t\twf.Opaque = f.OpaqueRest","rule":"A function that runs its parameter's argument is opaque when read alone: every reader of its own footprint (lowering, durable steps, check-time evaluation) sees unknown code (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-hole-opaque","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\t\tn.holes[v] = true\n\t\t\t\treturn","to":"\t\t\t\tn.opaque = true\n\t\t\t\treturn","rule":"A call of a non-escaping parameter is a hole the caller's argument fills, not unknown code (H2-fp; the base behaviour).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"h2fp-imported-named-unknown","origin":"wf10 CK H2-fp","file":"internal/sketch/check/footprint.go","from":"\t\t\t\t\t\treturn fp.funcArg(f)\n","to":"\t\t\t\t\t\t_ = f\n\t\t\t\t\t\treturn nil\n","rule":"A function of an imported package passed by name is a known argument: its recorded footprint fills the hole (H2-fp).","killers":["check:TestFootprintThroughParamsProperty"]},
+    {"name":"ckra-member-kept-out","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/unify.go","from":"\t\tin.unifyRow(xu.Row, ar)\n\t\treturn true","to":"\t\tin.unifyRow(xu.Row, newRow().with(in.c.types, ar.Elems()[0]))\n\t\treturn true","rule":"Inference binds an error row parameter to the whole row of the argument's type argument, every member (CK-rowarg; types.md, Generics 6).","killers":["lower:TestRowParamBindsFromTypeArg"]},
+    {"name":"ckra-one-member-second-type","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/decl.go","from":"\ttargs = c.slotArgs(orig, targs)\n","to":"\t_ = c.slotArgs\n","rule":"A row of one member as a type parameter's argument is that member's type: X[int, A] is one type whether A was written as a type or as a row (CK-rowarg; rows.md, Error rows 8; the base behaviour).","killers":["lower:TestRowParamBindsFromTypeArg"]},
+    {"name":"ckra-type-arg-unbound","origin":"wf10 CK CK-rowarg","file":"internal/sketch/check/unify.go","from":"\t\t\tar = newRow().with(in.c.types, y)\n","to":"\t\t\treturn false\n","rule":"An error type as the argument's type argument binds the row parameter to a row of that one type (CK-rowarg; types.md, Generics 6).","killers":["lower:TestRowParamBindsFromTypeArg"]},
+    {"name":"ckif-needs-dropped","origin":"wf10 CK CK-rowarg part 3 (InForce)","file":"internal/sketch/std/prelude.ergo","from":"func InForce[R]() Context[R] needs R\n","to":"func InForce[R]() Context[R]\n","rule":"InForce needs its row: a function that takes the providers in force shows them in its own row, and a call where no with and no row provides them is S102 (rows.md, Context values, InForce; Q16).","killers":["check:TestContextValueDiagnostics"],"anchor":{"tests":["check:TestContextValueDiagnostics"]}},
+    {"name":"tporder-hint-dropped","origin":"wf10 CK tparam-order","file":"internal/sketch/check/call.go","from":"\t\tgroup = groupedConstraint(f, tp)\n","to":"\t\tgroup = \"\"\n","rule":"A constraint failure at a name that a later name's constraint covers in one group says so and writes the repair (types.md, Generics 2; the GP report of show[S, E comparable]).","killers":["check:TestTypeParamGroups"]},
+    {"name":"tporder-hint-last","origin":"wf10 CK tparam-order","file":"internal/sketch/check/call.go","from":"\t\tfor i, id := range field.Names[:len(field.Names)-1] {\n","to":"\t\tfor i, id := range field.Names {\n","rule":"The group hint is only for a name before the constraint; the last name of a group has its constraint written right after it (types.md, Generics 2).","killers":["check:TestTypeParamGroups"]},
+    {"name":"tporder-owner-dropped","origin":"wf10 CK tparam-order","file":"internal/sketch/check/call.go","from":"\t\towner = f.Name + \"'s \"\n","to":"\t\towner = \"\"\n","rule":"An inferred call's constraint failure names the callee's parameter, f's T, so a caller with a parameter of the same name reads which one fails (types.md, Generics 2).","killers":["check:TestTypeParamGroups"]},
+    {"name":"tporder-instance-unnamed","origin":"wf10 CK tparam-order","file":"internal/sketch/check/expr.go","from":"\t\t\tc.unsatisfied(op.expr, targs[i], cons, op.fn, tp, why)\n","to":"\t\t\tc.unsatisfied(op.expr, targs[i], cons, nil, tp, why)\n","rule":"An uncalled written instantiation's constraint failure names the function's parameter and its group, as a call's does (types.md, Generics 2).","killers":["check:TestTypeParamGroups"]},
+    {
+      "name": "convgo-tparam-ops",
+      "origin": "wf10 CONV-go (16b r4 M1)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "return param || asInterface(v) != nil",
+      "to": "return asInterface(v) != nil || param && false",
+      "rule": "A type parameter's operations are its witness's, Ergo's calling convention: its value does not convert to a Go interface with methods (one rule with the operation type's value).",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-borrow-ops",
+      "origin": "wf10 CONV-go (16b r4 M1)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if p, ok := v.(*Pointer); ok {\n\t\tv = p.Elem\n\t}\n\tif isHostNamed(v) || sealedStd(v) != nil {",
+      "to": "if isHostNamed(v) || sealedStd(v) != nil {",
+      "rule": "A borrow of an operation type's value has its operations: it does not convert to a Go interface with methods either.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-go-error-reason",
+      "origin": "wf10 CONV-go (spec: every refused case names its reason)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "return assignment{}, \"go.Error holds a Go error, which a Go call or go.Error{Text: s} makes\"",
+      "to": "return assignment{}, \"\"",
+      "rule": "A value refused as go.Error (Go's error) is told why: go.Error is an error value, not an interface an Error function provides.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "fixts-sealed-user-as-std",
+      "origin": "wf10 batch-17 round 2 TS-1",
+      "file": "internal/sketch/check/authority.go",
+      "from": "if _, runtime := GoTypeOf(n); !runtime || !Sealed(n) {",
+      "to": "if _, runtime := GoTypeOf(n); !(runtime || true) || !Sealed(n) {",
+      "rule": "Sealing is the visibility rule: a sealed operation type the program declares has no runtime Go type, so its value converts to another operation type as a plain interface; only a std sealed type takes the runtime adapter (sealedStd).",
+      "killers": [
+        "check:TestImportGoUses"
+      ]
+    },
+    {"name":"law-ptr-no-borrow-provider","origin":"wf10 fu-law-ptr","file":"internal/sketch/check/laws.go","from":"a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)\n\t\tif !a.ok() || a.conv.Kind != ConvOperations {","to":"a, _ = c.providerAssignability(p, slot)\n\t\tif !a.ok() || a.conv.Kind != ConvOperations {","rule":"types.md, Laws 10: a named type whose operations take *P provides the slot by its address, so its laws run (fu-law-ptr).","anchor":{"tests":["lower:TestLawRunFindsTheBrokenProvider"]},"killers":["lower:TestLawRunFindsTheBrokenProvider"]},
+    {"name":"ex1-drop-element","origin":"wf10 EX1 r1","file":"internal/sketch/check/clausefix.go","from":"\tfor _, e := range missing.Elems() {","to":"\tfor _, e := range missing.Elems()[:max(1, len(missing.Elems())-1)] {","rule":"The clause names every element the body needs (q137). The fix loop heals a short clause in its next round, so the write: text row kills it.","killers":["check:TestExplicitClauseText"]},
+    {"name":"lawctx-covers-none","origin":"wf10 EX-entry r2","file":"internal/sketch/check/lawcontexts.go","from":"\t\t\t\t\treturn c.builtByContext(b[0], under)","to":"\t\t\t\t\treturn false","rule":"A provider with no generator that a running named context builds runs under that context and is no skip.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawctx-covers-any-type","origin":"wf10 EX-entry r2","file":"internal/sketch/check/lawcontexts.go","from":"c.identical(info.Types[e.Provider], p.Type)","to":"true","rule":"A context covers only the provider of the type its entry builds.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawctx-covers-unrun-context","origin":"wf10 EX-entry r2","file":"internal/sketch/check/lawcontexts.go","from":"\t\tif lc.Unrun != \"\" {\n\t\t\tcontinue\n\t\t}","to":"\t\tif false {\n\t\t\tcontinue\n\t\t}","rule":"A context that does not run covers no provider: the provider stays a skip.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawctx-covers-runnable","origin":"wf10 EX-entry r2","file":"internal/sketch/check/lawcontexts.go","from":"\tif p.Unrun == \"\" {\n\t\treturn false\n\t}","to":"\tif false {\n\t\treturn false\n\t}","rule":"A provider that runs keeps its own run beside the run under a context that builds it.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawfix-context-everywhere","origin":"wf10 EX-entry r2","file":"internal/sketch/check/laws.go","from":"\tif law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {","to":"\tif true {","rule":"A law whose slot is a parameter runs under no context, so its skip names the constructor, not the context form.","killers":["lower:TestLawRunOtherPackage"]},
+    {"name":"lawfix-constructor-everywhere","origin":"wf10 EX-entry r2","file":"internal/sketch/check/laws.go","from":"\tif law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {","to":"\tif false {","rule":"A member law's skip for a provider with no generator names the explicit context form, not a row-free constructor that would pick providers away from the entry.","killers":["lower:TestLawRunSkips","lower:TestLawRunState"]},
+    {"name":"lawrel-needs-ignored","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if needs := c.providerNeeds(a); len(needs) > 0 {","to":"if needs := c.providerNeeds(a); false && len(needs) > 0 {","rule":"A law case has no capability outside its context, so a context whose provider's Close needs one does not run.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawrel-package-let","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if name := packageRoot(info, a.Entry.Provider); name != \"\" {","to":"if name := packageRoot(info, a.Entry.Provider); false && name != \"\" {","rule":"A context whose resource provider names a package let does not run: a case's release would close it for every later case.","killers":["lower:TestLawRunSkips"]},
+    {"name":"lawrel-witnessed","origin":"wf10 EX-entry r4","file":"internal/sketch/check/lawcontexts.go","from":"if closeWitnessed(a.Close) != \"\" {","to":"if false {","rule":"A context whose provider's generic Close takes witnesses does not run: a case has no instance to pass (#197).","killers":["lower:TestLawRunSkips"]},
+    {"name":"escidx-dot-call-no-shift","origin":"wf10 ESC-idx","file":"internal/sketch/check/escaping.go","from":"\tif k.RecvIsParam() {","to":"\tif false {","rule":"types.md Function values 2 (196m): a dot call x.f(a) of a function binds x to its first parameter, so a is its second.","killers":["check:TestCloseRefusals","check:TestFootprintsPureTaskBody","check:TestRowVariableWitnesses"]},
+    {"name":"escidx-borrows-first-param","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/borrows.go","from":"\tif k := w.info.Calls[call]; recvBorrow(w.info, k) {","to":"\tif k := w.info.Calls[call]; k != nil && k.Kind == CallFunc && k.Recv != nil && k.Func != nil && k.Func.Sig != nil && len(k.Func.Sig.Params) > 0 && isPointer(k.Func.Sig.Params[0].Type) {","rule":"types.md Borrows 2: a call's receiver is a borrow it takes when it binds a borrow parameter (check.argParam): a binding method's first written argument is not its receiver.","killers":["lower:TestGoMethodReceiverBorrows"]},
+    {"name":"escidx-implicit-borrow-first-param","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/escaping.go","from":"\tif !recvBorrow(info, k) || isPointer(info.Types[k.Recv]) {","to":"\tif k == nil || k.Kind != CallFunc || k.Recv == nil || k.Func == nil || k.Func.Sig == nil || len(k.Func.Sig.Params) == 0 || !isPointer(k.Func.Sig.Params[0].Type) || isPointer(info.Types[k.Recv]) {","rule":"types.md Function values 3: a binding method borrows no receiver, so t.In(loc) on a captured let mut t writes nothing.","killers":["lower:TestEveryGoBoundFunctionLowers"]},
+    {"name":"escidx-recv-borrow-binding","origin":"wf10 ESC-idx r2","file":"internal/sketch/check/escaping.go","from":"\treturn h != nil && h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","to":"\treturn h != nil && !h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])","rule":"types.md Borrows 2: a borrow passed to a binding method's pointer receiver is a borrow the call takes; a value receiver takes a copy.","killers":["lower:TestGoMethodReceiverBorrows"]},
+    {"name":"ex2-selfcalls-twice","origin":"wf10 EX2 r1","file":"internal/sketch/check/selfcalls.go","from":"\tif len(pending) == 0 || !c.opts.Infer {","to":"\tif len(pending) == 0 {","rule":"With every row written, a body with a waiting x.f() call is typed once, by the reporting pass (EXPLICIT EX2).","killers":["check:TestCheckOnePass"]},
+    {"name":"ex2-init-twice","origin":"wf10 EX2 r1","file":"internal/sketch/check/rows.go","from":"\tif !c.opts.Infer {\n\t\t// Without inference no row restarts","to":"\tif false {\n\t\t// Without inference no row restarts","rule":"With every row written, a function a package var's initializer reaches is checked once (EXPLICIT EX2).","killers":["check:TestCheckOnePass"]},
+    {"name":"rel2-with-hit-not-skipped","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif keyed && c.withHit[withNeedKey{op, k}] {","to":"\tif false && keyed && c.withHit[withNeedKey{op, k}] {","rule":"A with release need the second check charged where the with is typed is reported once, not again by the ownership pass (resources.md, Context ownership 6).","killers":["check:TestContextOwnershipReleaseNeeds","check:TestReleaseNeedRows"]},
+    {"name":"rel2-with-first-check-reports","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif keyed && c.withHit == nil {","to":"\tif false && keyed && c.withHit == nil {","rule":"A with's provider release need is charged where the with is typed, so a literal's or an inferred row takes it (one rule, q137; Context ownership 6).","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-with-no-second-check","origin":"wf10 REL-needs r2","file":"internal/sketch/check/decl.go","from":"if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {","to":"if len(seeds) == 0 && len(edges) == 0 {","rule":"A package whose only release need is a with provider's is checked a second time, which charges it.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-seedcap-imported","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif !c.namesLocal(t) {\n\t\treturn t\n\t}\n","to":"\tif !c.namesLocal(t) {\n\t\treturn nil\n\t}\n","rule":"Another package's capability (Console) that a with release needs is charged by the second check.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-seedcap-local","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"!ok || len(t.TArgs) == 0 {\n\t\t\t\treturn tn.Type\n","to":"!ok || len(t.TArgs) == 0 {\n\t\t\t\treturn nil\n","rule":"This package's capability that a with release needs is named again by the second check and charged.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel5-same-named","origin":"wf10 REL-needs r5","file":"internal/sketch/check/withown.go","from":"\t\tif oa.Name != ob.Name ||","to":"\t\tif false && oa.Name != ob.Name ||","rule":"The second check charges a rebuilt capability only when it is the type the first check found, by declaration name and package.","killers":["check:TestSameAcrossTellsCapabilitiesApart"]},
+    {"name":"rel5-same-row","origin":"wf10 REL-needs r5","file":"internal/sketch/check/withown.go","from":"\t\tif !ok || len(ra.Row.Elems()) != len(rb.Row.Elems()) {","to":"\t\tif !ok {","rule":"A rebuilt row argument is the first check's only with the same elements, not a subset of another's.","killers":["check:TestSameAcrossTellsCapabilitiesApart"]},
+    {"name":"rel3-seedtype-generic","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\treturn c.instantiate(n, args)\n","to":"\t\t_ = n\n\t\treturn nil\n","rule":"A with release that needs an instance of this package's generic capability is charged by the second check, so its S102 carries the clause ergo fix writes (q137).","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-slice","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Slice{Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is a slice of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-array","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Array{Len: t.Len, Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is an array of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-seedtype-map","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\t\treturn &Map{Key: k, Elem: e}\n","to":"\t\t\treturn nil\n","rule":"A generic capability instance whose argument is a map of this package's type is named again by the second check.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel3-names-local","origin":"wf10 REL-needs r3","file":"internal/sketch/check/withown.go","from":"\t\tif n, ok := t.(*Named); ok && c.local(n) {\n\t\t\treturn true","to":"\t\tif n, ok := t.(*Named); ok && c.local(n) {\n\t\t\treturn false","rule":"A capability of this package is named again in the second check, not carried over as the first check's type.","killers":["check:TestReleaseNeedsModel","check:TestReleaseNeedRows"]},
+    {"name":"rel2-provider-parts","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\tif a.Drop != nil {\n\t\treturn c.dropNeeds(a.Drop)","to":"\tif false && a.Drop != nil {\n\t\treturn c.dropNeeds(a.Drop)","rule":"A with provider's release charges the Close of each of its parts (R3, R5), not only its own.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"rel2-with-what-part","origin":"wf10 REL-needs r2","file":"internal/sketch/check/withown.go","from":"\t\tof = a.Drop.Type\n","to":"\t\tof = need.close.Receiver\n","rule":"A with release's S102 names the provider's type, whose release reaches the Close.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-pending-what-lost","origin":"wf10 REL-needs r2 (merge of EX2 and REL-needs r1)","file":"internal/sketch/check/clausefix.go","from":"\t\t\twhat := p.what\n","to":"\t\t\twhat := \"\"\n","rule":"A release's S102 with the clause to write still names the Close and the released type.","killers":["check:TestReleaseNeedRows"]},
+    {"name":"rel2-local-context-law-nine","origin":"wf10 REL-needs r2 (rows.md law 9)","file":"internal/sketch/check/context_local.go","from":"func (c *checker) chargeLocal(at syntax.Node, w *Context) {\n","to":"func (c *checker) chargeLocal(at syntax.Node, w *Context) {\n\tif t := c.fn.t; t.declUses == nil && !t.context {\n\t\tt.declUses = newRow()\n\t\tdefer func() { t.declUses = nil }()\n\t}\n","rule":"A local context's needs are charged as its literal's at the with, in a function literal with no expected type too (law 9).","killers":["check:TestLocalContextLawNine"]},
+    {"name":"rel2-second-check-mode","origin":"wf10 REL-needs r2 (merge of EX2 and REL-needs r1)","file":"internal/sketch/check/decl.go","from":"\tn.opts, n.derive = c.opts, c.derive\n","to":"\tn.derive = c.derive\n","rule":"The second check runs in the first's mode: under the clause writer's inference, rows stay inferred.","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"entry-assign-unchecked","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/typeops.go","from":"\tif ts.Entry && !vs.Entry {","to":"\tif false && ts.Entry && !vs.Entry {","rule":"types.md Function values 6: no value but an entry's send is assignable to an entry func type.","killers":["check:TestChildTakesAnEntrySend"]},
+    {"name":"entry-not-in-identity","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/intern.go","from":"\t\tif t.Entry {\n\t\t\ts += \"e\"","to":"\t\tif false && t.Entry {\n\t\t\ts += \"e\"","rule":"entry is part of a function type's identity: a function that takes an entry send is not a plain one.","killers":["check:TestChildTakesAnEntrySend"]},
+    {"name":"entry-from-written-type","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/decl.go","from":"\t\t\tne.Entry = ft.Entry","to":"\t\t\tne.Entry = false","rule":"A parameter written entry func(…) has the entry type: Start's send reaches actor.Child.","killers":["check:TestChildTakesAnEntrySend"]},
+    {"name":"entry-placement-unchecked","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/decl.go","from":"\t\tif x.Entry && (ctx == nil || !ctx.param) {","to":"\t\tif false && x.Entry && (ctx == nil || !ctx.param) {","rule":"entry func(…) is written only as a parameter's type.","killers":["check:TestChildTakesAnEntrySend"]},
+    {"name":"unify-row-value-param","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/unify.go","from":"\t\tif x.Row != nil && slices.ContainsFunc(","to":"\t\tif false && x.Row != nil && slices.ContainsFunc(","rule":"A function argument for a parameter of a row parameter's value type (func(f F) E) unifies by the argument's row.","killers":["check:TestFailureMapInfers"]},
+    {"name":"work-entry-reads-std-name","origin":"wf10 STD-NOPRIV NP3b","file":"internal/sketch/check/work.go","from":"\tif !ok || len(st.Fields) != 1 {","to":"\tif !ok || len(st.Fields) != 1 || n.Obj.Name != \"Work\" {","rule":"STD1b: a machine's work entry reads a work record's shape, not std machines.Work's name.","killers":["lower:TestWorkIsAnOrdinaryRecord"]},
+    {"name":"durable-clause-ignored-outside-std","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"\tidx := pureParams(f)\n\tif len(idx) == 0 {","to":"\tidx := pureParams(f)\n\tif len(idx) == 0 || f.Pkg == nil || !f.Pkg.std {","rule":"rows.md Footprints 6: a pure parameter is checked for a function of any package, a user's durable runner as std's.","killers":["check:TestPureRunnerAnyPackage"]},
+    {"name":"pure-forward-any-param","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"\t\t\tif fld.Pure && slices.Contains(fld.Names, v.id) {","to":"\t\t\tif slices.Contains(fld.Names, v.id) {","rule":"rows.md Footprints 6: only a parameter written pure forwards its callers' check.","killers":["check:TestDurableStepIsPure"]},
+    {"name":"pure-see-through-off","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"\tbody := f.Decl.Body.List\n\tif len(body) != 1 {","to":"\tbody := f.Decl.Body.List\n\tif true {","rule":"rows.md Footprints 6: a call of a function whose body is one expression is seen through (machines.Start(X{}, input)).","killers":["check:TestPureRunnerAnyPackage","check:TestDurableStepIsPure"]},
+    {"name":"pure-placement-unchecked","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"\t\t\t\t\tif fd == nil {","to":"\t\t\t\t\tif false {","rule":"grammar.md Declarations 16: pure stands only on a parameter of a function declaration.","killers":["check:TestPureClauseRefusals"]},
+    {"name":"pure-kind-unchecked","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"pureKind(f.Sig.Params[i].Type); !ok {","to":"pureKind(f.Sig.Params[i].Type); false && !ok {","rule":"rows.md Footprints 6: pure stands before a function type or a machine.","killers":["check:TestPureClauseRefusals"]},
+    {"name":"pure-value-taken","origin":"wf10 STD-NOPRIV NP3a","file":"internal/sketch/check/durable.go","from":"!called[id] && len(pureParams(f)) > 0 {","to":"false && !called[id] && len(pureParams(f)) > 0 {","rule":"rows.md Footprints 6: a function with a pure parameter is only called.","killers":["check:TestPureClauseRefusals"]},
+    {"name":"ex3-takes-inferred","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/takes.go","from":"\treturn c.opts.Infer && f != nil && f.Pkg == c.pkg","to":"\treturn f != nil && f.Pkg == c.pkg","rule":"Every check path infers no takes clause: an unwritten one takes nothing (q137).","killers":["check:TestTakesInferenceModel"]},
+    {"name":"ex3-lent-call-admits","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/borrowtargs.go","from":"\tif isLent(tp) {","to":"\tif true {","rule":"A borrow binds only a type parameter whose signature writes lent (types.md, Borrows 7).","killers":["check:TestBorrowConvModel"]},
+    {"name":"ex3-lent-call-refuses","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/borrowtargs.go","from":"\tif isLent(tp) {","to":"\tif false {","rule":"A borrow binds a type parameter whose signature writes lent (types.md, Borrows 7).","killers":["check:TestBorrowConvModel"]},
+    {"name":"ex3-lent-decl-unchecked","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/borrowtargs.go","from":"\t\t\tif k.why != \"\" {\n\t\t\t\tw.c.errorf(id","to":"\t\t\tif false {\n\t\t\t\tw.c.errorf(id","rule":"The body of a lent type parameter keeps no value of it (types.md, Borrows 7).","killers":["check:TestLentMarkModel"]},
+    {"name":"ex3-lent-type-admitted","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/borrowtargs.go","from":"\tcase *syntax.TypeDecl:\n\t\tlist = d.TypeParams\n","to":"\tcase *syntax.TypeDecl:\n\t\treturn\n","rule":"A type declaration cannot mark a type parameter lent (types.md, Borrows 7).","killers":["check:TestLentDeclarations"]},
+    {"name":"ex3-lent-unsatisfied","origin":"wf10 EXPLICIT EX3 r1","file":"internal/sketch/check/typeops.go","from":"\tcase SetAll, SetLent:","to":"\tcase SetAll:","rule":"lent admits every type, a borrow included (types.md, Borrows 7).","killers":["check:TestBorrowConvModel"]},
+    {"name":"ex3-lent-modifier-ignored","origin":"wf10 EXPLICIT EX3 r2","file":"internal/sketch/check/borrowtargs.go","from":"\treturn tp.Lent || typeSet(tp) == SetLent","to":"\treturn typeSet(tp) == SetLent","rule":"A type parameter whose bracket writes lent before its constraint, [T lent Counter], is lent (types.md, Borrows 7).","killers":["check:TestBorrowConvModel"]},
+    {"name":"ex3-lent-mark-text","origin":"wf10 EXPLICIT EX3 r2","file":"internal/sketch/check/borrowtargs.go","from":"\treturn \"[\" + tp.Name + \" lent \" + tp.Constraint.String() + \"]\"","to":"\treturn \"[\" + tp.Name + \" lent]\"","rule":"The refusal of a borrow names the mark to write with the constraint kept, [T lent Counter].","killers":["check:TestLentDeclarations"]},
+    {"name":"mapped-text-after-close-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\tcase ownMoved:\n\t\tw.report(x, textAfterText","to":"\tcase ownMoved:\n\t\treturn true\n\t\tw.report(x, textAfterText","rule":"A use of a text after its Mapped is handed off on every path is refused (Borrows 8).","killers":["check:TestMappedTextModel"]},
+    {"name":"mapped-text-maybe-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\tcase ownMaybe:\n\t\tw.report(x, textMaybeText","to":"\tcase ownMaybe:\n\t\treturn true\n\t\tw.report(x, textMaybeText","rule":"A use of a text after its Mapped is handed off on one path is refused (Borrows 8).","killers":["check:TestMappedTextModel"]},
+    {"name":"mapped-text-concat-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\t\tcase syntax.EQL, syntax.NEQ,","to":"\t\tcase syntax.ADD, syntax.EQL, syntax.NEQ,","rule":"A text is an operand of a comparison, never of +, whose Go result may alias it (Borrows 8).","killers":["check:TestMappedTextModel"]},
+    {"name":"mapped-text-transform-refused","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\tp, ok := v1.EndsRunsBeforeReturn(name)","to":"\tp, ok := v1.EndsRunsBeforeReturn(name + \"-\")","rule":"tasks.Transform's f, whose runs all end before Transform returns, may capture a text (Borrows 8).","killers":["check:TestMappedTextModel"]},
+    {"name":"mapped-text-escaping-capture-open","origin":"wf10 MAPPED","file":"internal/sketch/check/escaping.go","from":"\t\tif w.textEscapingFrom(v) != nil {","to":"\t\tif false && w.textEscapingFrom(v) != nil {","rule":"A frame that may outlive the call or run on another task never captures a text (Borrows 8).","killers":["check:TestMappedTextModel"]},
+    {"name":"mapped-text-placement-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\tc.errorf(x, CodeType, textPlaceText)\n\treturn false","to":"\treturn true","rule":"fs.Text is written only as a parameter's type (Borrows 8).","killers":["check:TestMappedTextRows"]},
+    {"name":"mapped-text-conversion-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\t\t\tif IsMappedText(k.Type) || IsMappedText(w.info.Types[call.Args[0]]) {","to":"\t\t\tif false {","rule":"No conversion makes a text of a string (Borrows 8).","killers":["check:TestMappedTextRows"]},
+    {"name":"mapped-text-temporary-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"spec.Values[0]); at != nil {","to":"spec.Values[0]); false && at != nil {","rule":"A let never keeps the text of a temporary Mapped (Borrows 8).","killers":["check:TestMappedTextRows"]},
+    {"name":"mapped-text-mut-owner-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"ok && (v.mut || isPointer(v.Type))","to":"ok && false && (v.mut || isPointer(v.Type))","rule":"A text is read only from a Mapped whose owner no assignment replaces (Borrows 8).","killers":["check:TestMappedTextRows"]},
+    {"name":"mapped-text-mut-let-open","origin":"wf10 MAPPED","file":"internal/sketch/check/mappedtext.go","from":"\t\tif v.mut {\n\t\t\tw.c.errorf(p.Names[0], CodeType, textMutText","to":"\t\tif false {\n\t\t\tw.c.errorf(p.Names[0], CodeType, textMutText","rule":"A let mut never holds a text (Borrows 8).","killers":["check:TestMappedTextRows"]},
+    {"name":"mapped-text-capture-open","origin":"wf10 MAPPED","file":"internal/sketch/check/lend.go","from":"\t\t\tw.textCapture(key, id, r, dest, seen)\n","to":"","rule":"A closure that captures a text holds a lend of its Mapped's owner (Borrows 8, R31).","killers":["check:TestMappedTextRows"]},
     {
       "name": "fkg2-empty-not-marked",
       "origin": "wf10 FKG2",
@@ -2893,6 +3027,201 @@
       "killers": [
         "check:TestEveryRow"
       ]
-    }
+    },
+    {"name":"i20-implements-hidden-record","origin":"wf10 I20 batch-20pre","file":"internal/sketch/check/implements.go","from":"(id.Name == n.Obj.Name || c.hidesNoOps(id.Name))","to":"(id.Name == n.Obj.Name)","rule":"An implements clause names operation types, so a package type that is not one hides no prelude operation type there (types.md, Interface assignability 1): std json's Stream implements the prelude Reader.","killers":["check:TestStdDecodeGrowsWithImports"]},
+    {"name":"exc1-undeclared-conversion","origin":"wf10 EXC1","file":"internal/sketch/check/typeops.go","from":"if why := c.undeclared(v, t, \"conversion\"); why != \"\" {","to":"if why := c.undeclared(v, t, \"conversion\"); false && why != \"\" {","rule":"A value goes into an operation type (an argument, a result, a context entry, a law provider) only when its type declares it, not when its functions match (types.md, Interface assignability 1).","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-undeclared-constraint","origin":"wf10 EXC1","file":"internal/sketch/check/typeops.go","from":"if why := c.undeclared(t, constraint, \"constraint\"); why != \"\" {","to":"if why := c.undeclared(t, constraint, \"constraint\"); false && why != \"\" {","rule":"A type argument meets a method-set constraint only when it declares it (types.md, Generics 2).","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-undeclared-go-interface","origin":"wf10 EXC1","file":"internal/sketch/check/implements.go","from":"if isHostNamed(e) && isHostNamed(op) {","to":"if isHostNamed(op) {","rule":"An Ergo value converts to a Go interface only when its type declares it (interop.md, Go calls Ergo 1).","killers":["check:TestImportGoUses"]},
+    {"name":"exc1-clause-unchecked","origin":"wf10 EXC1","file":"internal/sketch/check/implements.go","from":"if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != \"\" {","to":"if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); false && why != \"\" {","rule":"A clause whose type misses an operation or fails wider is S106 at the clause (Interface assignability 1).","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-include-depth-two","origin":"wf10 EXC1","file":"internal/sketch/check/implements.go","from":"if it := asInterface(n); it != nil {\n\t\t\tfor _, inc := range it.includes {\n\t\t\t\tadd(inc)","to":"if it := asInterface(n); it != nil && n == out[0] {\n\t\t\tfor _, inc := range it.includes {\n\t\t\t\tadd(inc)","rule":"A clause declares what its operation types include at any depth (Interface assignability 1).","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-include-no-resource","origin":"wf10 EXC1","file":"internal/sketch/check/resource.go","from":"case c.implementsCloser(t):","to":"case slices.ContainsFunc(t.origin().impls, func(o *Named) bool { return o.origin() == c.closer() }):","rule":"A type that implements Closer through an including operation type is a resource (resources R1).","killers":["check:TestResourceTypeModel"]},
+    {"name":"exc1-close-by-name","origin":"wf10 EXC1","file":"internal/sketch/check/resource.go","from":"case c.implementsCloser(t):","to":"case c.implementsCloser(t) || c.closeFunc(t) != nil:","rule":"The name Close grants nothing: a type that declares no Closer is plain data (resources R1; owner q167).","killers":["check:TestResourceTypeModel"]},
+    {"name":"exc1-close-fallible-accepted","origin":"wf10 EXC1","file":"internal/sketch/check/resource.go","from":"if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible {","to":"if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 0 {","rule":"A clause naming Closer over a Close with a failure row is S106 (resources R2).","killers":["check:TestResourceTypeModel"]},
+    {"name":"exc1-clause-names-record","origin":"wf10 EXC1","file":"internal/sketch/check/implements.go","from":"if !ok || asInterface(op) == nil || op.origin().Obj.Decl == nil && !op.origin().foreign {","to":"if !ok {","rule":"An implements clause names operation types only (grammar.md, Declarations 15).","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-clause-twice","origin":"wf10 EXC1","file":"internal/sketch/check/implements.go","from":"if slices.ContainsFunc(n.impls, func(o *Named) bool { return c.identical(o, op) }) {","to":"if false {","rule":"A clause names each operation type once.","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-unmet-witness-repeats","origin":"wf10 EXC1","file":"internal/sketch/check/info.go","from":"if c.clauseUnmet(targs[i], it) {","to":"if false {","rule":"An unmet clause is S106 at the type only; a constraint use adds nothing.","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-unmet-use-repeats","origin":"wf10 EXC1","file":"internal/sketch/check/typeops.go","from":"if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {","to":"if false {","rule":"An unmet clause is S106 at the type only; a conversion adds nothing.","killers":["check:TestDeclaredRelationModel"]},
+    {"name":"exc1-generic-go-clause-receiver","origin":"wf10 batch-19 combine (EXC1 x CONV-go)","file":"internal/sketch/check/implements.go","from":"checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))","to":"checkReceiver := true","rule":"A generic type's implements clause naming a Go interface leaves the receiver's take to each instance's conversion.","killers":["internal/sketch/lower:TestValuesIntoGoInterfaces"]},
+    {"name":"provider-ergo-row-unchecked","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/check/provider.go","from":"\t\t\t\tif !f.Sig.Errors.Empty() || !f.Sig.Uses.Empty() {\n","to":"\t\t\t\tif false {\n","rule":"patterns.md Provider plans 3: an Ergo field type's NewF and Call have no row; the provider answers on the caller's task.","killers":["check:TestProviderDerive"]},
+    {"name":"provider-ergo-shape-unchecked","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/check/provider.go","from":"\tif !plainPair(cs.TParams) || len(cs.Params) != 2 || len(cs.Results) != 1 || !ownInstance(cs.Params[0].Type, field, cs.TParams) || cs.Params[1].Type != Type(cs.TParams[0]) || optionElem(cs.Results[0]) != Type(cs.TParams[1]) {\n","to":"\tif cs == nil {\n","rule":"patterns.md Provider plans 3: an Ergo field type's Call is func Call[A, G](r F[A, G], a A) Option[G].","killers":["check:TestProviderDerive"]},
+    {"name":"provider-ergo-unexported-admitted","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/check/script.go","from":"\t\t\t} else if !isExported(field.Obj.Name) {\n","to":"\t\t\t} else if false {\n","rule":"patterns.md Provider plans 3: an Ergo field type is exported, since every package that uses an instance names it.","killers":["check:TestProviderDerive"]},
+    {"name":"provider-ergo-field-refused","origin":"wf10 STD-NOPRIV NP3e-2","file":"internal/sketch/check/script.go","from":"\t\t\t} else if !isExported(field.Obj.Name) {\n","to":"\t\t\t} else if true {\n","rule":"patterns.md Provider plans 3: a field type declared in Ergo with its NewF and Call is a field type, as a runtime one is.","killers":["check:TestProviderDerive"]},
+    {"name":"provider-plan-unread","origin":"wf10 STD-NOPRIV NP3e","file":"internal/sketch/check/script.go","from":"\t\tif bad != \"\" {\n\t\t\tcontinue // the parser's S001\n","to":"\t\tif bad != \"\" || true {\n\t\t\tcontinue // the parser's S001\n","rule":"patterns.md Provider plans 1 and 2: the checker reads each direct Provider plan, std's and a user's alike.","killers":["check:TestProviderDerive"]},
+    {"name":"provider-generic-any-plan","origin":"wf10 STD-NOPRIV NP3e","file":"internal/sketch/syntax/derive.go","from":"\treturn ok && id.Name == \"Provider\"\n","to":"\treturn ok && (id.Name == \"Provider\" || true)\n","rule":"patterns.md Derivation 1: a derived type has type parameters only on a direct Provider call (S001).","killers":["check:TestProviderDerive"]},
+    {"name":"provider-field-unchecked","origin":"wf10 STD-NOPRIV NP3e","file":"internal/sketch/check/script.go","from":"\t\t\t\twhy = providerFieldRefusal(field)\n","to":"\t\t\t\twhy = \"\"\n","rule":"patterns.md Provider plans 3: a field type must name a runtime Go type with NewV and V.Call.","killers":["check:TestProviderRuntimeField"]},
+    {"name":"provider-by-name","origin":"wf10 STD-NOPRIV NP3e","file":"internal/sketch/check/script.go","from":"n.Obj.Provider == nil || len(n.TArgs) != 1 {","to":"n.Obj.Provider == nil || n.Obj.Name != \"Script\" || len(n.TArgs) != 1 {","rule":"patterns.md Provider plans 2: every derived provider's instance is a record of its capability's operations, not only testing.Script.","killers":["check:TestProviderDerive"]},
+    {"name":"context-literal-std-only","origin":"wf10 STD-NOPRIV NP3d","file":"internal/sketch/check/expr.go","from":"isContext && t.(*Named).Obj.Pkg != c.pkg {","to":"isContext && t.(*Named).Obj.Pkg != c.pkg && !c.pkg.std {","rule":"rows.md Context values: only Context's declaring package writes its literal (construction authority); std gets no exception.","killers":["check:TestContextValueDiagnostics"]},
+    {"name":"onexit-std-only","origin":"wf10 STD-NOPRIV NP3d","file":"internal/sketch/check/withown.go","from":"\treturn call != nil && call.Kind == CallFunc && BodyOf(call.Func).FrameRelease\n","to":"\treturn call != nil && call.Kind == CallFunc && BodyOf(call.Func).FrameRelease && call.Func.Pkg.std\n","rule":"stdlib.md The body contract: a trusted package that binds a frame-release body gets the exit-action rule as std does.","killers":["check:TestExitActionFollowsTheBody"]},
+    {"name":"onexit-by-name","origin":"wf10 STD-NOPRIV NP3d","file":"internal/sketch/check/withown.go","from":"\treturn call != nil && call.Kind == CallFunc && BodyOf(call.Func).FrameRelease\n","to":"\treturn call != nil && call.Kind == CallFunc && call.Func != nil && call.Func.Name == \"OnExit\" && call.Func.Pkg != nil && (call.Func.Pkg.Path == \"scope\" || BodyOf(call.Func).FrameRelease)\n","rule":"stdlib.md The body contract: the exit-action rule follows the body fact //ergo:release frame, never the name scope.OnExit.","killers":["check:TestExitActionFollowsTheBody"]},
+    {"name":"runtime-type-basic","origin":"wf10 STD-NOPRIV os-code","file":"internal/sketch/check/body.go","from":"\t\tif b == nil || b.Kind == Duration || gt.Basic != b.Name {","to":"\t\tif b == nil || b.Kind == Duration {","rule":"stdlib.md The body contract: a defined basic type that names a Go type is over the same Go basic type.","killers":["check:TestRuntimeTypeDeclarations"]},
+    {"name":"seal-ui-host-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/run.ergo","from":"type Host[E] {\n\t// Show applies one pass's changes.","to":"type Host[E] {\n\truntimeOnly(),\n\t// Show applies one pass's changes.","rule":"ui.Host takes a program provider: cmd/<name>/main.ergo binds a desktop or terminal host, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"seal-ui-measure-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/text.ergo","from":"\t},\n}\n\n// Monospace measures","to":"\t},\n\truntimeOnly(),\n}\n\nfunc runtimeOnly(_ Monospace) {}\n\n// Monospace measures","rule":"ui.Measure takes a program provider: the host's text measurement, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"seal-ui-clipboard-open","origin":"wf10 fu-uc-red","file":"internal/sketch/std/ui/text.ergo","from":"type Clipboard {\n\t// Read is","to":"type Clipboard {\n\truntimeOnly(),\n\t// Read is","rule":"ui.Clipboard takes a program provider: the desktop host's or a test's, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"seal-ui-location-open","origin":"wf10 corpus H7","file":"internal/sketch/std/ui/location.ergo","from":"type Location {\n\t// Current is","to":"type Location {\n\truntimeOnly(),\n\t// Current is","rule":"ui.Location takes a program provider: the host's history or a MemoryHistory, which cmd/<name>/main.ergo binds, so std declares no private operation on it.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"cs-iface-omits-row","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\t\tif d.TypeParams == nil {\n\t\t\t\tcut(d.Body)\n\t\t\t}\n","to":"\t\t\tif d.TypeParams == nil {\n\t\t\t\tcut(d.Body)\n\t\t\t}\n\t\t\tif d.Type.Results != nil {\n\t\t\t\tfor _, r := range d.Type.Results.List {\n\t\t\t\t\tif _, ok := r.Type.(*syntax.ErrorRow); ok {\n\t\t\t\t\t\tcut(r)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n","rule":"A function's written failure row is in its package's interface: an importer's check reads it.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-iface-omits-inferred-row","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"if fn.inferErrors && fn.errVar != nil {","to":"if false && fn.inferErrors && fn.errVar != nil {","rule":"A row the checker infers from a body the interface cuts is in the interface: an importer reads it through a value (let Step = helper).","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-iface-omits-law","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\tcase *syntax.TestDecl:\n\t\t\tcut(d.Body)\n","to":"\t\tcase *syntax.TestDecl:\n\t\t\tcut(d.Body)\n\t\tcase *syntax.TypeDecl:\n\t\t\tif it, ok := d.Spec.(*syntax.InterfaceType); ok {\n\t\t\t\tfor _, l := range it.Laws {\n\t\t\t\t\tcut(l)\n\t\t\t\t}\n\t\t\t}\n","rule":"The text of an operation type's laws is in its package's interface: an importer's test build runs them on its own providers.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-iface-omits-invariant","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\tcase *syntax.TestDecl:\n\t\t\tcut(d.Body)\n","to":"\t\tcase *syntax.TestDecl:\n\t\t\tcut(d.Body)\n\t\tcase *syntax.TypeDecl:\n\t\t\tif d.Where != nil {\n\t\t\t\tcut(d.Where)\n\t\t\t}\n","rule":"A refined type's where is in its package's interface: an importer's constants are checked against it.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-iface-omits-constraint","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\t\tif d.TypeParams == nil {\n\t\t\t\tcut(d.Body)\n\t\t\t}\n","to":"\t\t\tif d.TypeParams == nil {\n\t\t\t\tcut(d.Body)\n\t\t\t}\n\t\t\tif d.TypeParams != nil {\n\t\t\t\tfor _, p := range d.TypeParams.List {\n\t\t\t\t\tcut(p.Type)\n\t\t\t\t}\n\t\t\t}\n","rule":"A generic function's constraints are in its package's interface: an importer's type arguments are checked against them.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-iface-shallow","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\tparts = append(parts, q.Path, q.Interface)","to":"\t\tparts = append(parts, q.Path)","rule":"A package's interface holds its imports' interfaces: a type an import declares reaches an importer's importer through it (let Sig = a.Sig).","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-eval-key-omits-dep-body","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"\t\t\tparts = append(parts, q.Path, q.Implementation)","to":"\t\t\tparts = append(parts, q.Path)","rule":"The implementation fingerprint, which keys evaluation, changes with any body of the import closure.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"cs-fingerprint-reads-position","origin":"wf10 CS5a","file":"internal/sketch/check/fingerprint.go","from":"parts = append(parts, f.Name, syntax.TokenText(f.Src))","to":"parts = append(parts, f.Name, f.Src)","rule":"A source fingerprint reads tokens, not positions or comments: a comment edit leaves every package reusable.","killers":["check:TestIncrementalCheckDecides"]},
+    {"name":"exm1-own-recv-dropped","origin":"wf10 EXM1","file":"internal/sketch/check/decl.go","from":"\t\t\tsig.TakesSelf = true // own Close(): the operation keeps its receiver\n","to":"\t\t\t_ = sig\n","rule":"own before an operation keeps the value it is called on, as a bare takes does (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-own-group-first","origin":"wf10 EXM1","file":"internal/sketch/check/decl.go","from":"c.ownParams(field, sig, max(1, len(field.Names)))","to":"c.ownParams(field, sig, 1)","rule":"own marks every name of its group: a, b own File takes both (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-own-fn-taken","origin":"wf10 EXM1","file":"internal/sketch/check/resource.go","from":"\t\tif _, fn := under(p.Type).(*Signature); fn || isInvalid(p.Type) {\n","to":"\t\tif isInvalid(p.Type) {\n","rule":"own on a function value lets the callee keep it (escaping) and takes nothing (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-own-fn-nonescaping","origin":"wf10 EXM1","file":"internal/sketch/check/decl.go","from":"ok && !ft.Escaping.IsValid() && field.Own == nil {","to":"ok && !ft.Escaping.IsValid() {","rule":"A parameter written own func(…) is escaping, as escaping func(…) is (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-literal-mode-inherited","origin":"wf10 EXM1","file":"internal/sketch/check/call.go","from":"\tif !syntax.WritesTakes(x.Type) && expected != nil","to":"\tif x.Type.Takes == nil && expected != nil","rule":"A function literal that writes own on a value parameter has its own takes; it does not take its expected type's (L8 A3, Gap 39; q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-takes-gone-silent","origin":"wf10 EXM1","file":"internal/sketch/check/resource.go","from":"\t\tc.errorf(u, CodeType, \"takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close(); ergo fix rewrites it\")\n","to":"","rule":"A takes clause is S108 naming own: the spelling is retired (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-escaping-gone-silent","origin":"wf10 EXM1","file":"internal/sketch/check/decl.go","from":"\t\t\tc.errorf(x, CodeType, \"escaping is gone: write own before the parameter's function type, as in f own func() int; ergo fix rewrites it\")\n","to":"","rule":"escaping before a function type is S108 naming own: the spelling is retired (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"dread-decode-not-lent","origin":"wf10 REF DREAD","file":"internal/sketch/check/wirecall.go","from":"\tc.encodeLend = true\n\tc.assign(&r, rt, \"argument\")","to":"\tc.assign(&r, rt, \"argument\")","rule":"decode[T] keeps no reader, so a reader cell is lent to it as its Reader (types.md, Interface assignability 6), as encode borrows a writer cell.","killers":["check:TestProviderCellDiagnostics"]},
+    {"name":"keeps-converts","origin":"STD-NOPRIV NP3c r2","file":"internal/sketch/check/typeops.go","from":"if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {","to":"if tn, ok := t.(*Named); ok && false && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {","rule":"resources R13: Keeping[T] is the release's contract; no value converts to it (its sealed drain is the runtime's, so the lowering has no Go method for it).","killers":["check:TestStdProtocolOpen","lower:TestSealedStdConvertsToItsOperationTypes"]},
+    {"name":"clause-foreign-refused","origin":"STD-NOPRIV NP3c r2 (EXC1 merge)","file":"internal/sketch/check/implements.go","from":"\t\t\tif why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != \"\" {","to":"\t\t\t_ = foreign\n\t\t\tif why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, nil); why != \"\" {","rule":"README Gap 17: a clause admits a method that needs go.Foreign beyond the operation's row; the conversion's build charges go.Foreign.","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {"name":"clause-closer-swallows-r5","origin":"STD-NOPRIV NP3c r2 (EXC1 merge)","file":"internal/sketch/check/implements.go","from":"\tif cl := c.closer(); cl != nil && asInterface(cl) == it {\n\t\treturn false\n\t}\n","to":"","rule":"resources R5: a conversion to Closer whose release needs a capability is refused at the use, even when the type declares implements Closer (its clause checks only Close's shape).","killers":["check:TestReleaseNeedsModel"]},
+    {"name":"exec-ended-unexported","origin":"STD-NOPRIV IA2 (a)","file":"internal/sketch/std/exec/exec.ergo","from":"func Ended(s Streams, r Result) Running {","to":"func ended(s Streams, r Result) Running {","rule":"stdlib.md exec 12: exec.Ended is exported, so a module's own Runner gives the Running its Start returns (no std privilege).","killers":["check:TestStdProtocolOpen"]},
+    {"name":"keeps-read-by-name","origin":"STD-NOPRIV NP3c r2","file":"internal/sketch/check/drop.go","from":"\t_, elem := keepsOf(it, w.c.keeps())\n\tif elem == nil {","to":"\t_, elem := keepsOf(it, w.c.keeps())\n\tfor _, m := range it.Methods {\n\t\tif m.Name == \"drain\" && elem == nil && m.Sig != nil && len(m.Sig.Results) == 1 {\n\t\t\tif s, ok := m.Sig.Results[0].(*Slice); ok {\n\t\t\t\telem = s.Elem\n\t\t\t}\n\t\t}\n\t}\n\tif elem == nil {","rule":"resources.md R13 (STD-NOPRIV NP3c; EXC1): a type keeps values when it includes the prelude's Keeping; an operation of Keeping's name and shape that the type lists itself is ordinary.","killers":["check:TestNoReleaseRefused"]},
+    {"name":"keeps-std-only","origin":"STD-NOPRIV NP3c r2","file":"internal/sketch/check/drop.go","from":"\t_, elem := keepsOf(it, w.c.keeps())\n\tif elem == nil {","to":"\t_, elem := keepsOf(it, w.c.keeps())\n\tif n, ok := t.(*Named); !ok || n.origin().Obj == nil || !n.origin().Obj.Pkg.Std() {\n\t\telem = nil\n\t}\n\tif elem == nil {","rule":"resources.md R13 (STD-NOPRIV NP3c): the keeping rule reads the Keeping include, not the package: a copy of std queue in a user package has the release std's has.","killers":["internal/sketch/std:TestQueueCopyKeepsItsValues"]},
+    {"name":"keeps-seq-unread","origin":"STD-NOPRIV NP3c r2","file":"internal/sketch/check/ownership.go","from":"\t_, kept := keepsOf(it, c.keeps())\n\tif kept == nil {","to":"\t_, kept := keepsOf(it, c.keeps())\n\tif true || kept == nil {","rule":"resources.md R13, R35: a keeping type's operation that gives a Seq of its kept values yields owned values, so it is ranged over only by a for-in.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"cx1c-foreign-write-admitted","origin":"wf10 REF CX1c","file":"internal/sketch/check/wirewrite.go","from":"ok && f.Decl != nil && !ownMethod(c.pkg, c.funcSig(f), f) {","to":"ok && f.Decl != nil && false {","rule":"A WireWrite of a type of another package is refused: no codec calls it (types.md, Codecs 10).","killers":["check:TestWireWriteDiagnostics"]},
+    {"name":"cx1c-shape-unchecked","origin":"wf10 REF CX1c","file":"internal/sketch/check/wirewrite.go","from":"\t\tif _, why := wireWriteShape(n, f, &s); why != \"\" {","to":"\t\tif _, why := wireWriteShape(n, f, &s); false && why != \"\" {","rule":"A WireWrite that is no write of its type (a result, a row, a provider that is no Writer cell) is refused.","killers":["check:TestWireWriteDiagnostics"]},
+    {"name":"cx1c-provider-not-writer","origin":"wf10 REF CX1c","file":"internal/sketch/check/wirewrite.go","from":"\t\t\tif conv.Table[m.Name] == nil {\n","to":"\t\t\tif false {\n","rule":"The provider a WireWrite takes is the cell provider of an operation type that provides the whole prelude Writer.","killers":["check:TestWireWriteDiagnostics"]},
+    {
+      "name": "fkre-1 \\s holds \\v",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "{Lo: '\\t', Hi: '\\n'}, {Lo: '\\f'",
+      "to": "{Lo: '\\t', Hi: '\\v'}, {Lo: '\\f'",
+      "rule": "types.md, Refinements 11: \\s is Go's ASCII class, without \\v.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-2 a negated class is not negated",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\tif negate {\n\t\trs = complementRanges(rs)",
+      "to": "\tif negate && false {\n\t\trs = complementRanges(rs)",
+      "rule": "types.md, Refinements 11: [^…] is every rune the class does not hold.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-3 a bounded repeat takes one more",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\tfor i := n.min; i < n.max; i++ {",
+      "to": "\tfor i := n.min; i <= n.max; i++ {",
+      "rule": "types.md, Refinements 11: {n,m} and ? repeat at most m times.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-4 minimisation merges accepting and rejecting states",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\t\t} else if s.Accept {\n\t\t\tclass[q] = 1\n",
+      "to": "\t\t} else if s.Accept {\n\t\t\tclass[q] = 0\n",
+      "rule": "types.md, Refinements 11: the minimal automaton accepts exactly the values the pattern matches.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-5 Reach counts runes, not bytes",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\t\t\t\tfor w := 1; w <= 4 && w <= k && !out[k][q]; w++ {",
+      "to": "\t\t\t\tfor w := 1; w <= 1 && w <= k && !out[k][q]; w++ {",
+      "rule": "types.md, Refinements 9 and 11: a length is in bytes, and a rune past ASCII takes 2 to 4 of them.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-6 a constant skips the pattern",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine.go",
+      "from": "(r.Pattern == nil || r.Pattern.Match(constant.StringVal(val)))",
+      "to": "(r.Pattern == nil || true)",
+      "rule": "types.md, Refinements 6 and 11: a string constant enters N only when the pattern matches it.",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-7 the zero value skips the pattern",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "|| r.Pattern != nil && !r.Pattern.Match(\"\")) {",
+      "to": "|| false) {",
+      "rule": "types.md, Refinements 8 and 11: N is defaultable only when the pattern matches \"\".",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-8 every where with a pattern is empty",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "&& reach[k][0] {",
+      "to": "&& reach[k][0] && false {",
+      "rule": "types.md, Refinements 2 and 11: a where is S108 empty only when no value of its lengths matches the pattern.",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-9 a raw literal's offset misses its quote",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "return lit.Pos() + 1 + syntax.Pos(off)",
+      "to": "return lit.Pos() + syntax.Pos(off)",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-10 an interpreted literal's offset misses its quote",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "at, decoded := 1, 0",
+      "to": "at, decoded := 0, 0",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-11 an interpreted literal counts a wide rune as one byte",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "\t\t\tdecoded += len(string(r))",
+      "to": "\t\t\tdecoded++",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal, past a rune of two bytes.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-12 a pattern under || is admitted",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\t\t\tif x == r.allowed {",
+      "to": "\t\t\tif true {",
+      "rule": "types.md, Refinements 11: a pattern stands only as a top-level conjunct of the where.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {"name":"cs-snap-map-order","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\tslices.SortFunc(order, func(a, b int) int { return bytes.Compare(ranks[a], ranks[b]) })\n","to":"","rule":"A snapshot writes a map's entries in rank order, never in Go's map order (Law ExportIsDeterministic).","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-tree-unreached","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export.go","from":"write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })","to":"write(s.paths[i], func() { e.encPtrPackage(pkg) })","rule":"Each std package's files are reached before the package is written, so every node of a file has a tree-order id before a map keyed by nodes is ranked.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-check-map-order","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/info.go","from":"range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Calls)))","to":"range slices.Collect(maps.Keys(c.pkg.Info.Calls))","rule":"finishInfo visits the calls in source order, so the type table's ids depend on the source alone (D16), and two checks of std export the same bytes.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-shallow","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"const rankDepth = 2","to":"const rankDepth = 0","rule":"A key with no id yet is ranked by its fields as well as its type.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-key-only","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"ranks[i] = e.rank(e.rank(nil, reflect.ValueOf(k).Elem(), rankDepth), reflect.ValueOf(v).Elem(), rankDepth)","to":"ranks[i] = e.rank(nil, reflect.ValueOf(k).Elem(), rankDepth); _ = v","rule":"An entry's rank includes its value, which tells apart keys alike to rankDepth.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-slice-len","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\t\tfor i := range v.Len() {\n\t\t\tb = e.rank(b, v.Index(i), depth)\n\t\t}\n\t\treturn b\n\tcase reflect.Array:","to":"\t\treturn b\n\tcase reflect.Array:","rule":"A rank reads a slice's elements, not its length alone.","killers":["check:TestExportIsDeterministic"]},
+    {"name":"cs-snap-rank-no-node-id","origin":"wf10 compile-speed CS1b","file":"internal/sketch/check/export_order.go","from":"\t\tif id, ok := e.nodes.Has(x); ok {","to":"\t\tif id, ok := e.nodes.Has(x); ok && false {","rule":"A syntax node is ranked by its tree-order id.","killers":["check:TestExportIsDeterministic"]}
   ]
 }

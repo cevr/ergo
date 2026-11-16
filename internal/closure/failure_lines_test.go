@@ -44,7 +44,7 @@ func TestFailedRunNamesItsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := filepath.Join(t.TempDir(), "long.out")
-	runErr := runProtected(sandbox{Root: f.root, Scratch: []string{scratchDir}}, "internal/long", f.pkg, testEnv(f.pkg, longFailureVariable+"=1"), output, self, "-test.run=^TestLongFailureTarget$", "-test.count=1")
+	runErr := runProtected(sandbox{Root: f.root, Scratch: []string{scratchDir}}, "internal/long", f.pkg, testEnv(f.pkg, "TMPDIR="+scratchDir, longFailureVariable+"=1"), output, self, "-test.run=^TestLongFailureTarget$", "-test.count=1")
 	if runErr == nil {
 		t.Fatal("the failing target's run succeeded")
 	}

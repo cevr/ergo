@@ -14,7 +14,7 @@ type Shelf { Jobs Map[int, jobs.Job], Last int }
 // Table is a jobs.Store in memory. Its state is in a sync.Ref, so every
 // copy of a Table is the same store, and each change is one atomic
 // update: requests served at once never lose a change.
-type Table { shelf sync.Ref[Shelf] }
+type Table { shelf sync.Ref[Shelf] } implements jobs.Store
 
 // NewTable is an empty Table.
 func NewTable() Table { Table{shelf: sync.NewRef[Shelf](Shelf{Jobs: Map[int, jobs.Job]{}, Last: 0})} }
@@ -42,7 +42,9 @@ func Get(t Table, id int) jobs.Job fails jobs.NotFound {
 // All is every job by ascending id.
 func All(t Table) []jobs.Job {
 	let s = t.shelf.Get()
-	let mut all = []jobs.Job{}
+	// Every key has its job, so the slice takes them all: room for them
+	// first, as the match hides the one append per key from the lowering.
+	let mut all = slices.WithCapacity[jobs.Job](len(s.Jobs))
 	for id in slices.Sorted(maps.Keys(s.Jobs)) {
 		match s.Jobs.Get(id) {
 		case Some[jobs.Job] as j:

@@ -1,0 +1,16 @@
+import io
+import json
+
+// Count is the tally of a log's events, read one at a time: only the
+// event being counted is in memory, never the log (json.Elements).
+func Count(e json.Elements[Event]) Tally fails json.Malformed | io.ReadFailed | WireWrongKind | WireMissingField | WireUnknownTag {
+	let mut t = Empty
+	for {
+		match try e.Next() {
+		case Some[Event] as s:
+			t = Add(t, s.Value)
+		case None:
+			return t
+		}
+	}
+}

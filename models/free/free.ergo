@@ -1,0 +1,577 @@
+// The package free is the design model of an early free with reuse against
+// Go's concurrent mark (IR-G FREE1r, the runtime half of FREE1), checked by
+// `ergo test models/free`. FREE1 gives storage that the compiler proves
+// dead and unaliased back to the allocator at its last use, and the next
+// allocation of its size class reuses it, with no collector work. Free and
+// reuse race with mark workers that may still hold the object, so the
+// protocol is a model before it is code (IR-G RTM0, owner q78).
+//
+// Three objects (A, B, C) of one size class, each with one pointer field.
+// An object is Free (in the allocator's free space), Allocated, or Listed
+// (freed by the mutator, on the reusable list of its class). The mutator
+// allocates, publishes a pointer from one object to another, unlinks it,
+// drops a stack root, frees an object it holds alone, and reuses a listed
+// object: the reuse rewrites the object's type bits in two steps
+// (ReuseBegin, ReuseEnd), so a mark worker that scans it between them
+// reads a layout that is half old, half new. A dropped root leaves a stale
+// word on the stack until it is overwritten, and the stack scan is
+// conservative: a stale word marks the object it points to, if allocated.
+//
+// The collector: Start (all objects white), ScanStack (grey every
+// allocated object a root or a stale word holds), Scan (a worker blackens
+// a grey object and greys its pointer's target), Terminate (no grey
+// object left), Sweep (a white allocated object goes back to Free) and
+// SweepDone. During the mark a pointer write shades the old and the new
+// target (Go's hybrid barrier) and new objects are black; an object
+// allocated during the sweep is black too (Go's sweep generation). Start
+// and Terminate stop the world, so they wait for a reuse in progress
+// (mallocgc is not preemptible); mark workers do not, so a scan can meet
+// a reuse in progress. (The first design run without that wait refuted
+// Safe: a reuse begun before Start and scanned after it.)
+//
+// The design's two rules:
+//   - a free while the collector marks is a no-op: the object stays
+//     allocated and the collector frees it as today;
+//   - Start empties the reusable lists: a listed object becomes plain
+//     garbage, so no list holds an object the mark may reach.
+//
+// Invariants, checked after each step; a step that breaks one enters
+// Broken with its name:
+//   - NoScanDuringRewrite: no worker scans an object whose type bits are
+//     being rewritten;
+//   - ListedUnreachable: no object is on a reusable list and reachable
+//     from a root;
+//   - ReturnedOnce: a freed object is never returned twice (listed twice,
+//     or listed and swept);
+//   - LiveNotSwept: the sweep never frees an object a root reaches or one
+//     being reused.
+//
+// The scope is 3 objects and every interleaving of the actions above. It
+// is the claim: "proved" means proved in this scope.
+//
+// Mutants, each a machine whose law Breaks must hold: a run that breaks
+// the invariant named (a step that breaks another one is not taken):
+//   - FreeDuringMark: the no-op rule removed (FREE1's free-during-mark;
+//     NoScanDuringRewrite);
+//   - ListsKept: Start keeps the lists (NoScanDuringRewrite);
+//   - FreeTwice: a listed object is freed again (FREE1's free-twice;
+//     ReturnedOnce);
+//   - FreeWithAlias: the free ignores a pointer from another object
+//     (FREE1's free-with-live-alias; ListedUnreachable);
+//   - ReuseWhite: a reuse during the sweep leaves the object white
+//     (LiveNotSwept).
+//
+// Witnesses, each a machine whose law Reached must hold, so the
+// invariants are not vacuous: a listed object is reused; a free during the
+// mark is a no-op; a stale word keeps garbage through a mark; Start
+// empties a list that held an object.
+
+type Obj = A{} | B{} | C{}
+
+func ix(o Obj) int {
+	match o {
+	case A:
+		return 0
+	case B:
+		return 1
+	case C:
+		return 2
+	}
+}
+
+// Kinds of an object.
+let FreeKind = 0
+let Allocated = 1
+let Listed = 2
+
+// Colors.
+let White = 0
+let Grey = 1
+let Black = 2
+
+// Phases.
+let Off = 0
+let Mark = 1
+let Sweeping = 2
+
+let Objects = 3
+
+type World {
+	Kind         []int,
+	Color        []int,
+	Ptr          []int,
+	Root         []bool,
+	Stale        []bool,
+	Rewriting    []bool,
+	Phase        int,
+	StackScanned bool,
+	// The ghosts: a broken invariant's event, and the witnesses' events.
+	ScanRewrite bool,
+	Doubled     bool,
+	LiveSwept   bool,
+	Reused      bool,
+	NoOpFree    bool,
+	StaleKept   bool,
+	Emptied     bool,
+}
+
+type St = Live{W World} | Broken{Why string} | Seen{What string}
+
+type Act =
+	| Alloc{O Obj}
+	| Publish{From Obj, To Obj}
+	| Unlink{From Obj}
+	| Drop{O Obj}
+	| Overwrite{O Obj}
+	| Free{O Obj}
+	| ReuseBegin{O Obj}
+	| ReuseEnd{O Obj}
+	| Start{}
+	| ScanStack{}
+	| Scan{O Obj}
+	| Terminate{}
+	| Sweep{O Obj}
+	| SweepDone{}
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let FreeDuringMarkMutant = 1
+let ListsKeptMutant = 2
+let FreeTwiceMutant = 3
+let FreeWithAliasMutant = 4
+let ReuseWhiteMutant = 5
+
+func first() St {
+	Live{W: World{
+		Kind:         []int{0, 0, 0},
+		Color:        []int{0, 0, 0},
+		Ptr:          []int{-1, -1, -1},
+		Root:         []bool{false, false, false},
+		Stale:        []bool{false, false, false},
+		Rewriting:    []bool{false, false, false},
+		Phase:        Off,
+		StackScanned: false,
+		ScanRewrite:  false,
+		Doubled:      false,
+		LiveSwept:    false,
+		Reused:       false,
+		NoOpFree:     false,
+		StaleKept:    false,
+		Emptied:      false,
+	}}
+}
+
+// reach is whether a root reaches object o through allocated objects'
+// pointers. A chain has at most Objects links.
+func reach(w World, o int) bool {
+	let mut seen = []bool{false, false, false}
+	for i in 0..Objects {
+		if w.Root[i] && w.Kind[i] != FreeKind {
+			seen[i] = true
+		}
+	}
+	for _ in 0..Objects {
+		for i in 0..Objects {
+			if seen[i] && w.Kind[i] == Allocated && w.Ptr[i] >= 0 && w.Kind[w.Ptr[i]] != FreeKind {
+				seen[w.Ptr[i]] = true
+			}
+		}
+	}
+	seen[o]
+}
+
+// shade greys object o if it is allocated and white.
+func shade(w World, o int) World {
+	let mut v = w
+	if o >= 0 && v.Kind[o] != FreeKind && v.Color[o] == White {
+		v.Color[o] = Grey
+	}
+	v
+}
+
+// aliased is whether another allocated object points to o.
+func aliased(w World, o int) bool {
+	for i in 0..Objects {
+		if i != o && w.Kind[i] == Allocated && w.Ptr[i] == o {
+			return true
+		}
+	}
+	false
+}
+
+func anyGrey(w World) bool {
+	for i in 0..Objects {
+		if w.Kind[i] != FreeKind && w.Color[i] == Grey {
+			return true
+		}
+	}
+	false
+}
+
+func rewriting(w World) bool {
+	for i in 0..Objects {
+		if w.Rewriting[i] {
+			return true
+		}
+	}
+	false
+}
+
+func anyWhite(w World) bool {
+	for i in 0..Objects {
+		if w.Kind[i] != FreeKind && w.Color[i] == White {
+			return true
+		}
+	}
+	false
+}
+
+// newColor is the color of an object allocated or reused in phase p.
+func newColor(p int) int {
+	if p == Off {
+		return White
+	}
+	Black
+}
+
+// broken is the name of the first invariant w breaks, or "".
+func broken(w World) string {
+	if w.ScanRewrite {
+		return "NoScanDuringRewrite"
+	}
+	for i in 0..Objects {
+		if w.Kind[i] == Listed && reach(w, i) {
+			return "ListedUnreachable"
+		}
+	}
+	if w.Doubled {
+		return "ReturnedOnce"
+	}
+	if w.LiveSwept {
+		return "LiveNotSwept"
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the
+// design), or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	let mut v = w
+	// The witnesses' events say what this step did, so they do not
+	// multiply the states.
+	v.Reused = false
+	v.NoOpFree = false
+	v.StaleKept = false
+	v.Emptied = false
+	match a {
+	case Alloc as x:
+		let o = ix(x.O)
+		if v.Kind[o] != FreeKind {
+			return None
+		}
+		v.Kind[o] = Allocated
+		v.Root[o] = true
+		v.Stale[o] = false
+		v.Ptr[o] = -1
+		v.Color[o] = newColor(v.Phase)
+	case Publish as x:
+		let f = ix(x.From)
+		let t = ix(x.To)
+		if f == t || v.Kind[f] != Allocated || !v.Root[f] || v.Rewriting[f] || v.Kind[t] != Allocated || !v.Root[t] || v.Ptr[f] == t {
+			return None
+		}
+		if v.Phase == Mark {
+			v = shade(shade(v, v.Ptr[f]), t)
+		}
+		v.Ptr[f] = t
+	case Unlink as x:
+		let f = ix(x.From)
+		if v.Kind[f] != Allocated || !v.Root[f] || v.Ptr[f] < 0 {
+			return None
+		}
+		if v.Phase == Mark {
+			v = shade(v, v.Ptr[f])
+		}
+		v.Ptr[f] = -1
+	case Drop as x:
+		let o = ix(x.O)
+		if v.Kind[o] != Allocated || !v.Root[o] || v.Rewriting[o] {
+			return None
+		}
+		v.Root[o] = false
+		v.Stale[o] = true
+	case Overwrite as x:
+		let o = ix(x.O)
+		if !v.Stale[o] {
+			return None
+		}
+		v.Stale[o] = false
+	case Free as x:
+		// The mutator frees an object it holds alone (OWN1's proof): its
+		// root, and no pointer from another object.
+		let o = ix(x.O)
+		if m == FreeTwiceMutant && v.Kind[o] == Listed {
+			v.Doubled = true
+			return Some[World]{Value: v}
+		}
+		if v.Kind[o] != Allocated || !v.Root[o] || v.Rewriting[o] {
+			return None
+		}
+		if m != FreeWithAliasMutant && aliased(v, o) {
+			return None
+		}
+		v.Root[o] = false
+		v.Stale[o] = true
+		if v.Phase == Mark && m != FreeDuringMarkMutant {
+			v.NoOpFree = true
+		} else {
+			v.Kind[o] = Listed
+		}
+	case ReuseBegin as x:
+		let o = ix(x.O)
+		if v.Kind[o] != Listed {
+			return None
+		}
+		v.Kind[o] = Allocated
+		v.Root[o] = true
+		v.Rewriting[o] = true
+		v.Ptr[o] = -1
+		// A grey object is in a worker's queue: the reuse's mark bit does
+		// not take it out, so a worker still scans it.
+		if v.Color[o] != Grey {
+			v.Color[o] = if m == ReuseWhiteMutant { White } else { newColor(v.Phase) }
+		}
+	case ReuseEnd as x:
+		let o = ix(x.O)
+		if !v.Rewriting[o] {
+			return None
+		}
+		v.Rewriting[o] = false
+		v.Reused = true
+	case Start:
+		// The cycle starts with the world stopped: it waits for every
+		// allocation in progress, so no reuse is half done (mallocgc is
+		// not preemptible).
+		if v.Phase != Off || rewriting(v) {
+			return None
+		}
+		v.Phase = Mark
+		v.StackScanned = false
+		for i in 0..Objects {
+			v.Color[i] = White
+			if v.Kind[i] == Listed && m != ListsKeptMutant {
+				v.Kind[i] = Allocated
+				v.Emptied = true
+			}
+		}
+	case ScanStack:
+		if v.Phase != Mark || v.StackScanned {
+			return None
+		}
+		for i in 0..Objects {
+			if v.Root[i] || v.Stale[i] {
+				v = shade(v, i)
+			}
+		}
+		v.StackScanned = true
+	case Scan as x:
+		let o = ix(x.O)
+		if v.Phase != Mark || v.Kind[o] == FreeKind || v.Color[o] != Grey {
+			return None
+		}
+		if v.Rewriting[o] {
+			v.ScanRewrite = true
+		}
+		v = shade(v, v.Ptr[o])
+		v.Color[o] = Black
+	case Terminate:
+		// Mark termination stops the world too.
+		if v.Phase != Mark || !v.StackScanned || anyGrey(v) || rewriting(v) {
+			return None
+		}
+		v.Phase = Sweeping
+	case Sweep as x:
+		let o = ix(x.O)
+		if v.Phase != Sweeping || v.Kind[o] == FreeKind || v.Color[o] != White {
+			return None
+		}
+		if v.Kind[o] == Listed {
+			v.Doubled = true
+		}
+		if reach(v, o) || v.Rewriting[o] {
+			v.LiveSwept = true
+		}
+		// A stale word to a free slot is ignored by the scan; the
+		// model forgets it, so equal heaps are one state.
+		v.Kind[o] = FreeKind
+		v.Ptr[o] = -1
+		v.Stale[o] = false
+	case SweepDone:
+		if v.Phase != Sweeping || anyWhite(v) {
+			return None
+		}
+		v.Phase = Off
+		for i in 0..Objects {
+			if v.Kind[i] != FreeKind && !reach(v, i) && v.Stale[i] && v.Color[i] == Black {
+				v.StaleKept = true
+			}
+		}
+		// Colors mean nothing between cycles; Start whitens them.
+		for i in 0..Objects {
+			v.Color[i] = White
+		}
+	}
+	Some[World]{Value: v}
+}
+
+// stepWith steps under the mutant m. With only set, a step enters Broken
+// only when it breaks that invariant, and a step that breaks another one
+// is not taken, so a mutant's law shows the invariant it is meant to
+// break, not the first one its run meets.
+func stepWith(m int, only string, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value)
+			if why == "" {
+				Enter[St]{Next: Live{W: n.Value}}
+			} else if only == "" || why == only {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Ignore
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string] { stepWith(NoMutant, "", s, a) }
+func stepFreeDuringMark(s St, a Act) Decision[St, string] {
+	stepWith(FreeDuringMarkMutant, "NoScanDuringRewrite", s, a)
+}
+func stepListsKept(s St, a Act) Decision[St, string] {
+	stepWith(ListsKeptMutant, "NoScanDuringRewrite", s, a)
+}
+func stepFreeTwice(s St, a Act) Decision[St, string] { stepWith(FreeTwiceMutant, "ReturnedOnce", s, a) }
+func stepFreeWithAlias(s St, a Act) Decision[St, string] {
+	stepWith(FreeWithAliasMutant, "ListedUnreachable", s, a)
+}
+func stepReuseWhite(s St, a Act) Decision[St, string] { stepWith(ReuseWhiteMutant, "LiveNotSwept", s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type FreeDuringMark machine[St, Act] {
+	initial: first(),
+	step:    stepFreeDuringMark,
+
+	law Breaks reaches Broken,
+}
+
+type ListsKept machine[St, Act] {
+	initial: first(),
+	step:    stepListsKept,
+
+	law Breaks reaches Broken,
+}
+
+type FreeTwice machine[St, Act] {
+	initial: first(),
+	step:    stepFreeTwice,
+
+	law Breaks reaches Broken,
+}
+
+type FreeWithAlias machine[St, Act] {
+	initial: first(),
+	step:    stepFreeWithAlias,
+
+	law Breaks reaches Broken,
+}
+
+type ReuseWhite machine[St, Act] {
+	initial: first(),
+	step:    stepReuseWhite,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses. Each is the design's step that enters Seen when the
+// witness holds in the state the step reaches.
+let ReusedWitness = 1
+let NoOpFreeWitness = 2
+let StaleKeptWitness = 3
+let EmptiedWitness = 4
+
+func witnessed(k int, v World) bool {
+	if k == ReusedWitness {
+		return v.Reused
+	}
+	if k == NoOpFreeWitness {
+		return v.NoOpFree
+	}
+	if k == StaleKeptWitness {
+		return v.StaleKept
+	}
+	v.Emptied
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, n.Value) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepReused(s St, a Act) Decision[St, string]    { stepWitness(ReusedWitness, s, a) }
+func stepNoOpFree(s St, a Act) Decision[St, string]  { stepWitness(NoOpFreeWitness, s, a) }
+func stepStaleKept(s St, a Act) Decision[St, string] { stepWitness(StaleKeptWitness, s, a) }
+func stepEmptied(s St, a Act) Decision[St, string]   { stepWitness(EmptiedWitness, s, a) }
+
+type Reuses machine[St, Act] {
+	initial: first(),
+	step:    stepReused,
+
+	law Reached reaches Seen,
+}
+
+type FreesDuringMark machine[St, Act] {
+	initial: first(),
+	step:    stepNoOpFree,
+
+	law Reached reaches Seen,
+}
+
+type KeepsStaleGarbage machine[St, Act] {
+	initial: first(),
+	step:    stepStaleKept,
+
+	law Reached reaches Seen,
+}
+
+type EmptiesLists machine[St, Act] {
+	initial: first(),
+	step:    stepEmptied,
+
+	law Reached reaches Seen,
+}

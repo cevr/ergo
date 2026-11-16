@@ -4,22 +4,27 @@ import "strings"
 
 // ---------------------------------------------------------------- expressions
 
-// parseExpr parses `[ try ] CatchExpr` (#196 sketch: Expression). try
-// stands only here, at the start of an expression, and covers the whole
-// expression to its right, a catch included.
+// parseExpr parses `[ try ] CatchExpr` (#196 sketch: Expression). A try at
+// the start covers the whole expression to its right, a catch included; a
+// try may also start any operand (parseUnary, q105).
 func (p *parser) parseExpr() Expr {
 	p.enter()
 	defer p.leave()
 	if p.tok.tok == TRY {
 		pos := p.tok.pos
 		p.next()
-		switch p.tok.tok {
-		case SEMICOLON, RBRACE, RPAREN, RBRACK, COMMA, COLON, EOF, CATCH:
-			p.errorAt(pos, 3, "try needs an operand")
-		}
+		p.tryOperand(pos)
 		return &TryExpr{Try: pos, X: p.parseCatchExpr()}
 	}
 	return p.parseCatchExpr()
+}
+
+// tryOperand reports a try with no operand after it.
+func (p *parser) tryOperand(pos Pos) {
+	switch p.tok.tok {
+	case SEMICOLON, RBRACE, RPAREN, RBRACK, COMMA, COLON, EOF, CATCH:
+		p.errorAt(pos, 3, "try needs an operand")
+	}
 }
 
 // parseCatchExpr parses `Range [ catch { cases } ]`.
@@ -99,7 +104,16 @@ func (p *parser) parseUnary() Expr {
 		p.leave()
 		return &StarExpr{Star: pos, X: x}
 	case TRY:
-		p.errorf("unexpected \"try\": try stands at the start of an expression")
+		// try in operand position (q105) wraps its operand only: it never
+		// groups, so the tree is the tree of the source without it. What
+		// it covers to its right is the checker's rule (check/cover.go).
+		pos := p.tok.pos
+		p.enter()
+		p.next()
+		p.tryOperand(pos)
+		x := p.parseUnary()
+		p.leave()
+		return &TryExpr{Try: pos, X: x}
 	}
 	return p.parsePrimaryExpr()
 }
@@ -117,7 +131,7 @@ func (p *parser) parseCatch(x Expr) *CatchExpr {
 	for p.tok.tok == CASE {
 		arm := &CatchArm{Case: p.tok.pos}
 		p.next()
-		arm.Types = p.parseCaseList()
+		arm.Types, arm.Written = p.parseCaseList()
 		arm.Colon = p.want(COLON)
 		arm.Body = p.parseStmtList()
 		c.Arms = append(c.Arms, arm)
@@ -668,7 +682,7 @@ func (p *parser) parseMatch() Stmt {
 	for p.tok.tok == CASE {
 		c := &CaseClause{Case: p.tok.pos}
 		p.next()
-		c.List = p.parseCaseList()
+		c.List, c.Written = p.parseCaseList()
 		if len(c.List) == 1 {
 			if id, ok := c.List[0].(*Ident); ok && id.Name == "_" {
 				c.List = nil
@@ -720,9 +734,13 @@ func literalCases(clauses []*CaseClause) bool {
 }
 
 // parseCaseList parses `Pattern {, Pattern}` up to the colon. A case item
-// that goes on as an expression is S001 with a pointer to if.
-func (p *parser) parseCaseList() []Expr {
-	var list []Expr
+// that goes on as an expression is S001 with a pointer to if. A pattern
+// may nest alternatives (`(A | B, C)`); the list is then their expansion
+// and written the list as written (orpattern.go).
+func (p *parser) parseCaseList() (list, written []Expr) {
+	saved := p.orAllowed
+	p.orAllowed = true
+	defer func() { p.orAllowed = saved }()
 	for {
 		list = append(list, p.parsePattern())
 		switch {
@@ -730,11 +748,13 @@ func (p *parser) parseCaseList() []Expr {
 			p.next()
 			continue
 		case p.tok.tok == COLON:
-			return list
+			return p.expandCase(list)
+		case p.tok.tok == OR:
+			p.errorf("the alternatives of a case are separated by commas: case A, B:; | separates alternatives inside a tuple, a record pattern or parentheses")
 		case p.tok.tok.Precedence() > 0, p.tok.tok == LPAREN, p.tok.tok == PERIOD, p.tok.tok == LBRACK, p.tok.tok == DOTDOT:
 			p.errorf("a case lists patterns, not expressions; test a condition with `if`")
 		}
-		return list
+		return p.expandCase(list)
 	}
 }
 

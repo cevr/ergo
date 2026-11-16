@@ -8,9 +8,9 @@ import (
 
 // uiForgotSource holds the three ways to forget a boundary around a read
 // that can stop (stdlib.md, UI, Boundaries): an exported view whose row is
-// spelled empty, a read in a container's block of such a view, and an
-// unexported view, whose row is inferred, given to ui.Render, which takes
-// a view that cannot fail.
+// spelled empty, a read in a container's block of such a view, and a
+// view whose row lists the failure (every function writes its rows, q137)
+// given to ui.Render, which takes a view that cannot fail.
 const uiForgotSource = `import ui
 
 type NotFound { ID int }
@@ -28,7 +28,7 @@ func await(a ui.Async[User, NotFound]) User fails NotFound | ui.Pending {
 	}
 }
 
-func bare(f *ui.Frame[int], s State) {
+func bare(f *ui.Frame[int], s State) fails NotFound | ui.Pending {
 	let u = try await(s.User)
 	ui.Text(f, u.Name)
 }
@@ -66,8 +66,8 @@ func TestUIForgottenBoundary(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S101 24:10 {NotFound | ui.Pending} escapes function Spelled, whose error row {} does not list it",
-		"S101 29:2 {NotFound | ui.Pending} escapes function InColumn, whose error row {} does not list it",
+		"S101 24:10 {NotFound | ui.Pending} escapes function Spelled, whose error row {} does not list it; write: func Spelled(f *ui.Frame[int], s State) fails NotFound | ui.Pending",
+		"S101 29:2 {NotFound | ui.Pending} escapes function InColumn, whose error row {} does not list it; write: func InColumn(f *ui.Frame[int], s State) fails NotFound | ui.Pending",
 		"S108 38:24 cannot use func(*ui.Frame[int], State) fails NotFound | ui.Pending as func(*ui.Frame[int], State) in argument: its error row {NotFound | ui.Pending} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -88,7 +88,7 @@ type Store {
 	Name(id int) string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Name(_ Mem, id int) string { "m\(id)" }
 
@@ -133,8 +133,8 @@ func TestUIViewNeeds(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S102 13:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it",
-		"S102 32:10 this call requires Store, which is not in the capability row of function main and no with provides it",
+		"S102 13:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f *ui.Frame[int], s int) needs Store",
+		"S102 32:10 this call requires Store, which is not in the capability row of function main and no with provides it; write: func main() needs Store",
 		"S108 35:8 cannot use func(*ui.Frame[int], int) needs Store as func(*ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

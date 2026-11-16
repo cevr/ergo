@@ -58,6 +58,10 @@ func Call[T any](ctx context.Context, span string, body func(*rt.Task) (T, error
 	// runOn is the root task's run under the defect owner (guarded), as
 	// main's: v is written by the body before runOn returns.
 	var v T
+	// The call's standard output reaches Go's before Call returns: Go's
+	// own writes are direct, and the buffer (SB8) would put the call's
+	// lines after them, or lose them when no Ergo main ends the process.
+	defer flushStdout()
 	err := runOn(t, func(t *rt.Task) error {
 		var err error
 		v, err = body(t)

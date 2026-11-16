@@ -16,8 +16,8 @@ import (
 
 // CheckSchemaVersion versions the check envelope and the snapshot
 // qualification every qualified projection carries. Version 10 dropped the
-// edition field (#205).
-const CheckSchemaVersion = 10
+// edition field (#205); version 11 added a diagnostic's fix (Fix).
+const CheckSchemaVersion = 11
 
 // MaxCheckDiagnostics bounds the diagnostics a check envelope lists. The
 // envelope says when it dropped the rest.
@@ -45,6 +45,37 @@ type Diagnostic struct {
 	File    string `json:"file,omitempty"`
 	Message string `json:"message"`
 	Span    Span   `json:"span"`
+	Fix     *Fix   `json:"fix,omitempty"`
+}
+
+// Fix is the edit that writes the clause an S101 or S102 names (q137):
+// Text inserted at the byte offset InsertAt of the diagnostic's file, after
+// adding Imports; when Open is not zero, "(" goes at Open and ")" at
+// InsertAt before Text, so a lone result of function type does not take
+// the clause as its own row. Row is the
+// whole clause; Text is empty when an element cannot be spelled.
+// Signature is the header with the clause written. ergo fix applies it.
+//
+// A lint finding's fix (LINT1) has the same shape: Rule names its rule,
+// Text replaces the Replace bytes from InsertAt (0 for an insertion),
+// Unused names the imports the edit may leave unused (ergo fix removes one
+// when the fixed file's check reports it unused), and Clause, Function,
+// Row and Signature are empty.
+type Fix struct {
+	Clause   string   `json:"clause,omitempty"`
+	Function string   `json:"function,omitempty"`
+	Row      []string `json:"row,omitempty"`
+	Rule     string   `json:"rule,omitempty"`
+	InsertAt int      `json:"insertAt"`
+	Replace  int      `json:"replace,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Open     int      `json:"open,omitempty"`
+	// Owns are the further offsets an "own" clause fix inserts Text at,
+	// one per parameter it marks after the first (EXM1).
+	Owns      []int    `json:"owns,omitempty"`
+	Imports   []string `json:"imports,omitempty"`
+	Unused    []string `json:"unused,omitempty"`
+	Signature string   `json:"signature,omitempty"`
 }
 
 // Target is Ergo's only compilation target.
@@ -126,6 +157,7 @@ type Evaluation struct {
 // runs the same cases (ergo test draws the same ones for the same seed).
 type Obligation struct {
 	Arguments   []Argument     `json:"arguments,omitempty"`
+	Cached      bool           `json:"cached,omitempty"`
 	Case        int            `json:"case,omitempty"`
 	Cases       int            `json:"cases"`
 	Evidence    string         `json:"evidence,omitempty"`

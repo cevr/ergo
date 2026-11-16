@@ -1,0 +1,11 @@
+> start /
+  address: / (0 behind)
+  screen: Welcome Home
+  field: ""
+  history: []
+  results: loading ""
+> visit /people/3
+  address: /people/3 (1 behind)
+  screen: person 3: Carol Davis, Manager
+> key GX
+? line 2: a key is GH, GP, GF or GN

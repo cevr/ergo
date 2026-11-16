@@ -144,8 +144,7 @@ func seconds(f field) int fails BadNumber {
 		if len(f.text) > 9 {
 			return bad
 		}
-		let whole = try digits(f, "time taken")
-		whole * 1000000
+		1000000 * try digits(f, "time taken")
 	case Some as h:
 		let frac = h.Value.After
 		if h.Value.Before == "" || len(h.Value.Before) > 9 || frac == "" || len(frac) > 6 {

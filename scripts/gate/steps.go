@@ -167,6 +167,20 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
+// sweepStdVariable names the directory of the closure sweep's std store
+// (internal/closure, stdStoreVariable). Each step's TMPDIR is its own
+// (stepTempDir), and the store lived under it: every sweep step filled a
+// store of its own, 781 MB each, ten at once in a merge tier's sandbox
+// (7.7 GB of its 12 GB; ENOSPC in the sweeps, fu-gate-sandbox). The sweeps
+// of a run share sweepStdDir, beside the steps' directories: in the merge
+// tier's sandbox, inside its scratch temporary directory.
+const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
+
+// sweepStdDir is the one std store directory of the run's sweeps.
+func sweepStdDir() string {
+	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
+}
+
 // sweepStep runs the closure sweep over selection, one package directory,
 // whose expected seconds are weight (sweepWeight). The sweep runs a
 // package's test binary in runs of at most a set recorded test time each
@@ -182,7 +196,7 @@ func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
 		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,
@@ -192,6 +206,12 @@ func sweepStep(selection string, weight float64) *Step {
 
 // buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
 const buildCLIStep = "build bin/ergo"
+
+// buildCLI is the step buildCLIStep. A whole-gate replay runs it too
+// (rebuildOutputs), so bin/ergo matches the tree after a replay.
+func buildCLI(root string) *Step {
+	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast}
+}
 
 // cliTestPackages are the test packages whose tests run the ergo CLI. A
 // test process built cmd/ergo for itself, so a package in n shards built it
@@ -219,6 +239,19 @@ var cliTestEnvironment = []string{"ERGO_TEST_CLI=bin/ergo"}
 const corpusGcPackage = "internal/sketch/lower"
 
 var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
+
+// sizesStep is the full tier's size receipt (binsize plan, BS0): the
+// command internal/sizes/cmd/sizes builds the fixtures as `ergo build` does,
+// default and stripped, with a Go hello control, prints one JSON receipt per
+// fixture, and fails a fixture over its budget (internal/sizes/budgets.json).
+// It is a command and not a test, so a checker edit reaches no extra test
+// package in the fast tier. Its Weight is its measured seconds with an
+// empty Go build cache (71.1 s at GOMAXPROCS=1 with its own compile, 2026-11-10).
+const (
+	sizesStep    = "sizes"
+	sizesCommand = "./internal/sizes/cmd/sizes"
+	sizesWeight  = 71.1
+)
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
@@ -267,6 +300,11 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
 	// 2026-11-10).
 	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
+	// Every GOOS the toolchain lists vets, or names why it cannot
+	// (scripts/vetgoos; FU-freebsd). Full tier: it compiles std for 18
+	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,
+	// 2026-11-15), far past the fast tier's 2 s.
+	add(&Step{Name: "go vet every GOOS", Argv: []string{"go", "run", "./scripts/vetgoos"}, Weight: 600, Class: classHeavy})
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
@@ -281,13 +319,13 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
-	// The explored build's worker and children laws (runtime/v1
-	// explore_on.go, explore_laws.go): their tests alone, since the rest
-	// of runtime/v1 runs untagged. The tagged tests have no row of their
-	// own, so the step weighs runtime/v1's record, an upper bound that
-	// starts it early.
+	// runtime/v1 in the explored build (explore_on.go, explore_laws.go):
+	// the whole package, so a new test cannot skip the controlled
+	// scheduler; its waits go through the scheduler (runtime.md, Explored
+	// schedules). The tagged run has no row of its own, so the step weighs
+	// runtime/v1's record.
 	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
-	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource)$", "./runtime/v1"}, Weight: v1, Class: classHeavy})
+	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1"}, Weight: v1, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
@@ -342,6 +380,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		others += packageSeconds(durations[pkg])
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier
@@ -385,8 +424,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	// It writes bin/ (Step.Writes): no closure sweep runs beside it.
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}, Class: classFast})
+	// It writes bin/ (Step.Writes): no closure sweep runs beside it, and
+	// no key holds what it writes there (gateOutputs).
+	add(buildCLI(root))
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err
@@ -544,23 +584,50 @@ func examplesStep(root string) (*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	var env []string
+	if dir := cacheDirectory(); dir != "" {
+		env = []string{examplesCacheVariable + "=" + filepath.Join(dir, "examples")}
+	}
 	return &Step{
-		Name:  examplesStepName,
-		Class: classFast,
-		Needs: []string{"build bin/ergo"},
-		Argv:  []string{"go", "run", examplesRunner},
+		Name:   examplesStepName,
+		Class:  classFast,
+		Weight: examplesWeight,
+		Needs:  []string{"build bin/ergo"},
+		Argv:   []string{"go", "run", examplesRunner},
+		Env:    env,
 		Inputs: &Inputs{
 			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
 			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
 			Tools:     []string{"go", "sh"},
-			Installed: []string{"examples"},
+			Installed: []string{"examples", "modules"},
 			Built:     []string{"bin/ergo"},
 		},
 	}, nil
 }
 
-// examplesStepName names the examples step.
+// examplesCacheVariable names the examples runner's verdict cache
+// (scripts/examples, cache.go). The step keeps it in the gate's cache
+// directory: a program whose inputs (its folder, bin/ergo, the runner, Go,
+// the environment) are unchanged replays its recorded pass instead of
+// building and testing again (gate-speed GS1). In the merge tier's sandbox
+// the gate cache is an empty scratch directory, so every program runs.
+const examplesCacheVariable = "ERGO_EXAMPLES_CACHE"
+
+// examplesStepName names the examples step in both tiers; the fast tier
+// narrows its programs (fastExamples).
 const examplesStepName = "examples (default)"
+
+// examplesWeight and fastExamplesWeight are the examples step's expected
+// seconds when every program builds again (a compiler edit) at the gate's
+// 2-CPU share: 434 s for the 51 default programs and 134 s for the fast
+// tier's 16 (gate-speed GS1 and GS3 receipts). The step runs no recorded
+// tests, so without them it weighed unrecordedWeight and started at 101 s
+// of the batch-18 fast tier, behind steps of seconds. A host's own record
+// (stepTimesFile) replaces them after one run.
+const (
+	examplesWeight     = 434.0
+	fastExamplesWeight = 134.0
+)
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"
@@ -746,8 +813,12 @@ func packageSeconds(measured map[string]float64) float64 {
 // wf10, section 1.1, measured). Their shards are processes, so they need no
 // t.Parallel audit; each shard is a step with its own TMPDIR (stepTempDir).
 // The shard count is the measured work over shardTargetSeconds, at most the
-// CPU budget.
-var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
+// CPU budget. The IR tests (internal/experimental/irspike) run in the full
+// tier with ergo's patched compile since IRT0b; their agreement and text
+// checks are split by example target (1046 s and 1261 s whole at
+// GOMAXPROCS=1), so the shards spread them and no step's timeout holds
+// them all.
+var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./internal/sketch/check", "./internal/sketch/lower"}
 
 // testedPackages are the module's packages that have tests, as "./dir".
 func testedPackages(root string) ([]string, error) {

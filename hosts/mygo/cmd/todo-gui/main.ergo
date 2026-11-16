@@ -1,0 +1,81 @@
+// todo-gui is examples/todo-gui in a MyGo window: the example's model and
+// view (a required Ergo module, hosts/mygo/go.mod) on the desktop driver.
+// It is the only place that chooses: the window and the live clock, or,
+// with -headless, a window with no screen that plays a script from
+// standard input and prints what the example's own binary prints.
+//
+//	todo-gui                 open the window
+//	todo-gui -headless < s   play the script s through the window's input
+
+import actor
+import ergo.local/prototype/examples/todogui/script
+import ergo.local/prototype/examples/todogui/todo
+import ergo.local/prototype/examples/todogui/view
+import ergo.local/prototype/hosts/mygo/desktop
+import go ergo.local/prototype/hosts/mygo/screen
+import io
+import os
+import time
+import ui
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) > 0 && args[0] == "-headless" {
+		try headless()
+		return
+	}
+	with context { Scheduler: NewLiveScheduler() } {
+		let w = screen.Open("To do", 420, 520) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		desktop.Run(w, a, view.View) catch {
+		case ui.Closed:
+		case actor.Stopped:
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+		}
+	}
+}
+
+// headless plays the script on standard input through a window with no
+// screen: a tap is a press and a release at the node's place, a typed text
+// is a tap on the field, Backspaces and the text. It prints the list after
+// each step.
+func headless() fails os.Exit needs Ambient | go.Foreign {
+	let text = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "todo-gui: cannot read the script"}
+	}
+	let steps = script.Parse(text) catch {
+	case script.BadLine as b:
+		return os.Exit{Code: 2, Message: "todo-gui: line \(b.Line) is no step: \(b.Text)"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0) } {
+		let w = screen.Headless(420, 520) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		let mut d = desktop.New(w, a, view.View, 64) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+		}
+		for i, act in steps {
+			desktop.Play(&d, []ui.Act{act}) catch {
+			case ui.NoNode as n:
+				out.Println("\(i + 1): no node \(n.Label)")
+				continue
+			case ui.Closed, actor.Stopped:
+				return os.Exit{Code: 1, Message: "todo-gui: the window closed"}
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+			}
+			out.Println("\(i + 1): \(todo.Summary(desktop.StateOf(&d)))")
+		}
+	}
+}

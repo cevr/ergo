@@ -50,7 +50,7 @@ func Parse(n int, line string) Command fails BadCommand {
 	case ("open", 2):
 		OpenCmd{ID: w[1], Floor: 0}
 	case ("open", 3):
-		OpenCmd{ID: w[1], Floor: -(try parseSize(n, w[2]))}
+		OpenCmd{ID: w[1], Floor: -try parseSize(n, w[2])}
 	case ("grant", 4):
 		Grant{Key: w[1], ID: w[2], Size: try parseSize(n, w[3])}
 	case ("reclaim", 4):

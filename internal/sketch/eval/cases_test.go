@@ -93,10 +93,12 @@ func (m caseImports) Import(path string) (*check.Package, error) {
 	return check.Std.Import(path)
 }
 
-// TestCaseProviderIdentity guards the least-owner cross-package binding. Neither
-// provider package sees the law; the root is the first package that sees both.
-// Mutant imported-provider-wrong dispatches the binding to the other provider's
-// method. Local-only laws cannot observe that package identity mistake.
+// TestCaseProviderIdentity guards the cross-package binding. Each provider
+// package declares implements contract.Reader, so its own run binds the
+// imported law (Laws 10, EXC1); package a also imports a package, sorted first, with a
+// function of the same short name. Mutant imported-provider-wrong dispatches
+// the binding to that package's Read. Local-only laws cannot observe that
+// package identity mistake.
 func TestCaseProviderIdentity(t *testing.T) {
 	for seed := 0; seed < 8; seed++ {
 		imp := caseImports{}
@@ -113,28 +115,31 @@ func TestCaseProviderIdentity(t *testing.T) {
 			return p
 		}
 		makePkg("contract", `type Reader { Read() int, law Holds() { Read() == 0 } }`)
-		makePkg("a", `type P {}
-func Read(p P) int { 0 }`)
-		makePkg("b", `type P {}
+		makePkg("alt", `type Q {}
+func Read(q Q) int { 1 }`)
+		a := makePkg("a", fmt.Sprintf(`import alt
+import contract
+type P {} implements contract.Reader
+func Read(p P) int { 0 }
+func q() alt.Q { alt.Q }
+law Own() { %d >= 0 }`, seed))
+		b := makePkg("b", `import contract
+type P {} implements contract.Reader
 func Read(p P) int { 1 }`)
-		src := fmt.Sprintf(`import contract
-import a
-import b
-func useA() contract.Reader { a.P }
-func useB() contract.Reader { b.P }
-law Own() { %d >= 0 }
-`, seed)
-		root := makePkg("main", src)
-		r, err := Run(root, DefaultBudget())
-		if err != nil {
-			t.Fatal(err)
-		}
 		seen := map[string]Status{}
-		for _, x := range r.Results {
-			seen[x.Name] = x.Status
+		var all []Result
+		for _, p := range []*check.Package{a, b} {
+			r, err := Run(p, DefaultBudget())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, x := range r.Results {
+				seen[p.Path+": "+x.Name] = x.Status
+			}
+			all = append(all, r.Results...)
 		}
-		if seen["law contract.Reader.Holds for a.P"] != Passed || seen["law contract.Reader.Holds for b.P"] != Refuted {
-			t.Fatalf("seed %d: bindings %+v", seed, r.Results)
+		if seen["a: law contract.Reader.Holds for P"] != Passed || seen["b: law contract.Reader.Holds for P"] != Refuted {
+			t.Fatalf("seed %d: bindings %+v", seed, all)
 		}
 	}
 }

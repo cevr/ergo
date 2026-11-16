@@ -8,10 +8,12 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree: the result is kept under -work, by default a
-// private directory removed at the end): every
+// coverage (once per tree and scope: the result is kept under -work, by
+// default a private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
-// example program, each in its own process, with coverage of check and
+// example program whose binary, or the tool it runs, compiles a package of
+// a selected mutant (scope.go), each in its own process, logging each test
+// as it ends and a receipt of the work, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
 // main packages included). Then, for each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover
@@ -35,6 +37,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -128,6 +131,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
+	cfg.Sources = ergoSources
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	start := time.Now()
@@ -224,6 +228,17 @@ func addScope(cfg *Config, s scope) {
 	}
 }
 
+// ergoSources validate every .ergo mutant, whichever suites judge it: the
+// compiler built from the unmutated checkout formats and checks the
+// mutated file's package folder (a std folder checked as a folder has
+// diagnostics of its own, such as S108; only new ones count).
+var ergoSources = []SourceCheck{{
+	Ext:    ".ergo",
+	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
+	Format: []string{"{bin:ergo}", "fmt", "--check", "{file}"},
+	Check:  []string{"{bin:ergo}", "check", "{dir}"},
+}}
+
 // ergoSuites are the suites that judge the checker's and the lowering's
 // mutants: their own tests, the std tests (laws and guards), and the
 // default example programs, the end-to-end layer.
@@ -262,6 +277,11 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	var tools []Tool
 	var suites []Suite
 	add := func(pkg string) {
+		// A package of a nested module is no package of the checkout's
+		// module: -coverpkg cannot name it.
+		if nestedModule(absRoot, strings.TrimPrefix(pkg, "./")) != "" {
+			return
+		}
 		if !slices.Contains(cover, pkg) {
 			cover = append(cover, pkg)
 		}
@@ -277,6 +297,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if rel == "internal/sketch/check" || rel == "internal/sketch/lower" {
+			if len(j.Ledger.Env) > 0 {
+				return nil, nil, nil, fmt.Errorf("ledger %s: env is for a package ledger's own suite; check and lower share the ergo suites", j.Path)
+			}
 			if tools == nil {
 				c, t, s := ergoSuites()
 				tools, suites = t, append(suites, s...)
@@ -286,25 +309,45 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			}
 			continue
 		}
-		add("./" + rel)
-		for _, m := range j.Ledger.Mutants {
-			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+		// Only a Go package is covered, and only a package with tests is a
+		// suite: an example's ledger (examples/fetchpool) edits .ergo
+		// files and is judged by the killers it names alone.
+		if goFiles(absRoot, rel, false) {
+			add("./" + rel)
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		for _, m := range j.Ledger.Mutants {
+			if dir := filepath.ToSlash(filepath.Dir(m.File)); goFiles(absRoot, dir, false) {
+				add("./" + dir)
+			}
+		}
+		if goFiles(absRoot, rel, true) {
+			// The ledger's env reaches every run of its own suite (the
+			// coverage pass and the mutant pass), and enters the tree key
+			// with it.
+			suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
+		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
 	// only the tests the ledgers name: its other tests judge nothing here,
 	// and some need a harness of their own (runtime/v1's ergoexplore tests
 	// hang without the explored worker). No row is left to run by hand.
+	// An id whose suite or test does not exist is an error, not a killer
+	// left out: before, v1:, sched: and rt-explore: killers were skipped
+	// and their rows judged without them (MUT-names). Only the selected rows bring suites: a run of one row builds and runs the killers that row names.
+	var unresolved []error
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
-			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
+			if j.Select != nil && !j.Select.MatchString(m.Name) {
+				continue
+			}
+			for _, id := range killerIDs(m) {
 				name, test := splitID(id)
 				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
 				if i < 0 {
 					s, need, ok := namedSuite(absRoot, name)
 					if !ok {
-						continue // no such suite: the runner reports what runs
+						unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no suite (an ergo suite, a module directory or DIR[TAGS])", j.Path, m.Name, id))
+						continue
 					}
 					for _, t := range need {
 						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
@@ -315,13 +358,30 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 					suites = append(suites, s)
 					i = len(suites) - 1
 				}
+				if !hasTest(absRoot, &suites[i], test) {
+					unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no test of suite %s", j.Path, m.Name, id, name))
+					continue
+				}
 				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
+				}
+				if !slices.Contains(suites[i].Named, test) {
+					suites[i].Named = append(suites[i].Named, test)
 				}
 			}
 		}
 	}
+	if len(unresolved) > 0 {
+		return nil, nil, nil, errors.Join(unresolved...)
+	}
 	return cover, tools, suites, nil
+}
+
+// goFiles says whether the module directory dir holds a Go file: a test
+// file with tests, a non-test one without.
+func goFiles(root, dir string, tests bool) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.go"))
+	return slices.ContainsFunc(files, func(f string) bool { return strings.HasSuffix(f, "_test.go") == tests })
 }
 
 // namedSuite resolves the suite of a killer id that no ledger's scope
@@ -354,7 +414,50 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
 		return Suite{}, nil, false
 	}
+	if mod := nestedModule(root, dir); mod != "" {
+		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
+	}
 	return Suite{Name: name, Package: "./" + dir, Tags: tags}, nil, true
+}
+
+// nestedModule is the directory of the innermost Go module below root that
+// holds dir (dir itself or a parent with a go.mod), or "" when dir is in
+// the checkout's own module. go test from the checkout's root refuses such
+// a package ("main module does not contain package").
+func nestedModule(root, dir string) string {
+	for d := dir; d != "." && d != "/" && d != ""; d = path.Dir(d) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(d), "go.mod")); err == nil {
+			return d
+		}
+	}
+	return ""
+}
+
+// hasTest reports whether test is a test of suite s in the checkout at
+// root: a top-level func of a _test.go file in a Go suite's directory, or
+// an example program of the examples suite. A Go suite's runner lists its
+// binary's tests and keeps only those Only names, so a name that matches
+// none ran nothing.
+func hasTest(root string, s *Suite, test string) bool {
+	switch {
+	case s.Package != "":
+		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package), "*_test.go"))
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err == nil && regexp.MustCompile(`(?m)^func `+regexp.QuoteMeta(test)+`\(`).Match(data) {
+				return true
+			}
+		}
+		return false
+	case s.Name == "examples":
+		dir := filepath.Join(root, "examples", test)
+		if mod, ok := strings.CutPrefix(test, "modules/"); ok {
+			dir, test = filepath.Join(root, "modules", mod), mod // a module of modules/ (MK0)
+		}
+		info, err := os.Stat(dir)
+		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir()
+	}
+	return test != ""
 }
 
 // defaultExamples lists the example programs tagged default.
@@ -407,7 +510,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			if m.Gap != "" {
 				closed = append(closed, fmt.Sprintf("%s: killed by %s; the ledger says: %s", r.Name, r.Killer, m.Gap))
 			}
-			if len(m.Killers) > 0 && !slices.Contains(m.Killers, r.Killer) {
+			if len(m.Killers) > 0 && !slices.Contains(killerIDs(&Mutant{Killers: m.Killers}), r.Killer) {
 				moved = append(moved, fmt.Sprintf("%s: killed by %s, not by its known killers %s", r.Name, r.Killer, strings.Join(m.Killers, " ")))
 			}
 			if len(r.Killers) == 1 && len(r.Ran) == r.Covering {
@@ -474,7 +577,8 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 			case Killed:
 				killers := slices.Clone(r.Killers)
 				for _, k := range m.Killers {
-					if cov.test(k) != nil && !slices.Contains(killers, k) {
+					suite, name := splitID(k)
+					if cov.test(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
 						killers = append(killers, k)
 					}
 				}

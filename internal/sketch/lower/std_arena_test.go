@@ -90,6 +90,21 @@ test ArenaReuseNeverAliases(xs []int, k int, v int) {
 	}
 }
 
+test ArenaFreeSlotNamesNothing(xs []int, k int, v int) {
+	if len(xs) == 0 {
+		return
+	}
+	let (start, refs) = filled(xs)
+	let i = (k%len(xs) + len(xs)) % len(xs)
+	let mut a = start
+	let _ = try a.Free(refs[i])
+	let (other, otherRefs) = filled(xs)
+	let mut b = other
+	let _ = try b.Free(otherRefs[i])
+	let fresh = b.Put(v)
+	assert stale(a, fresh) && stale(a, refs[i])
+}
+
 test ArenaNullIsStale(xs []int) {
 	let (a, refs) = filled(xs)
 	assert stale(a, arena.Null[int]()) && stale(arena.New[int](), arena.Null[int]())
@@ -174,11 +189,12 @@ test ArenaModelAgrees(seed int, count int) {
 // stdArenaLawStatements is the statement of each arena law, as the ledger
 // writes it, by ledger key.
 var stdArenaLawStatements = map[string]string{
-	"arena GetAfterPut":       `GetAfterPut(xs []int) { let (start, refs) = filled(xs) let mut a = start let mut ok = Len(a) == len(xs) for i, r in refs { let v = a.Get(r) catch { case Stale: return false } ok = ok && v == xs[i] && Has(a, r) } ok }`,
-	"arena FreeThenStale":     `FreeThenStale(xs []int, k int) { if len(xs) == 0 { return true } let (start, refs) = filled(xs) let mut a = start let i = (k%len(xs) + len(xs)) % len(xs) let v = a.Free(refs[i]) catch { case Stale: return false } let mut ok = v == xs[i] && stale(a, refs[i]) && Len(a) == len(xs)-1 for j, r in refs { if j != i { let w = a.Get(r) catch { case Stale: return false } ok = ok && w == xs[j] } } ok }`,
-	"arena ReuseNeverAliases": `ReuseNeverAliases(xs []int, k int, v int) { if len(xs) == 0 { return true } let (start, refs) = filled(xs) let mut a = start let i = (k%len(xs) + len(xs)) % len(xs) let slots = Cap(a) let _ = a.Free(refs[i]) catch { case Stale: return false } let fresh = a.Put(v) let got = a.Get(fresh) catch { case Stale: return false } let mut ok = Cap(a) == slots && got == v && stale(a, refs[i]) for r in refs { ok = ok && r != fresh } ok }`,
-	"arena NullIsStale":       `NullIsStale(xs []int) { let (a, refs) = filled(xs) let mut ok = stale(a, Null[int]()) && stale(New[int](), Null[int]()) for r in refs { ok = ok && r != Null[int]() } ok }`,
-	"arena ModelAgrees":       `ModelAgrees(seed int, count int) { let n = (count%64 + 64) % 64 let mut x = (seed%2147483648 + 2147483648) % 2147483648 let mut a = New[int]() let mut model = Map[Ref[int], int]{} let mut refs = []Ref[int]{} for i in 0..n { x = (x*1103515245 + 12345) % 2147483648 let op = (x / 8) % 5 if op == 0 || len(refs) == 0 { let r = a.Put(i) if model.Get(r) != None { return false } model[r] = i refs = refs.Append(r) } else { let r = refs[(x/65536)%len(refs)] let want = model.Get(r) let mut failed = false let mut got = i match op { case 1: got = a.Get(r) catch { case Stale: failed = true i } case 2: a.Set(r, -i) catch { case Stale: failed = true } got = -i case 3: let mut seen = i a.Update(r, func(v *int) { seen = *v *v = *v + i }) catch { case Stale: failed = true } got = seen case _: got = a.Free(r) catch { case Stale: failed = true i } } match want { case Some[int] as w: if failed || (op != 2 && got != w.Value) { return false } match op { case 2: model[r] = -i case 3: model[r] = w.Value + i case 4: model = model.Delete(r) case _: } case None: if !failed || Has(a, r) { return false } } } if Len(a) != len(model) { return false } } for r, v in model { let got = a.Get(r) catch { case Stale: return false } if got != v { return false } } true }`,
+	"arena GetAfterPut":          `GetAfterPut(xs []int) { let (start, refs) = filled(xs) let mut a = start let mut ok = Len(a) == len(xs) for i, r in refs { let v = a.Get(r) catch { case Stale: return false } ok = ok && v == xs[i] && Has(a, r) } ok }`,
+	"arena FreeThenStale":        `FreeThenStale(xs []int, k int) { if len(xs) == 0 { return true } let (start, refs) = filled(xs) let mut a = start let i = (k%len(xs) + len(xs)) % len(xs) let v = a.Free(refs[i]) catch { case Stale: return false } let mut ok = v == xs[i] && stale(a, refs[i]) && Len(a) == len(xs)-1 for j, r in refs { if j != i { let w = a.Get(r) catch { case Stale: return false } ok = ok && w == xs[j] } } ok }`,
+	"arena ReuseNeverAliases":    `ReuseNeverAliases(xs []int, k int, v int) { if len(xs) == 0 { return true } let (start, refs) = filled(xs) let mut a = start let i = (k%len(xs) + len(xs)) % len(xs) let slots = Cap(a) let _ = a.Free(refs[i]) catch { case Stale: return false } let fresh = a.Put(v) let got = a.Get(fresh) catch { case Stale: return false } let mut ok = Cap(a) == slots && got == v && stale(a, refs[i]) for r in refs { ok = ok && r != fresh } ok }`,
+	"arena FreeSlotNamesNothing": `FreeSlotNamesNothing(xs []int, k int, v int) { if len(xs) == 0 { return true } let (start, refs) = filled(xs) let i = (k%len(xs) + len(xs)) % len(xs) let mut a = start let _ = a.Free(refs[i]) catch { case Stale: return false } let (other, otherRefs) = filled(xs) let mut b = other let _ = b.Free(otherRefs[i]) catch { case Stale: return false } let fresh = b.Put(v) stale(a, fresh) && stale(a, refs[i]) }`,
+	"arena NullIsStale":          `NullIsStale(xs []int) { let (a, refs) = filled(xs) let mut ok = stale(a, Null[int]()) && stale(New[int](), Null[int]()) for r in refs { ok = ok && r != Null[int]() } ok }`,
+	"arena ModelAgrees":          `ModelAgrees(seed int, count int) { let n = (count%64 + 64) % 64 let mut x = (seed%2147483648 + 2147483648) % 2147483648 let mut a = New[int]() let mut model = Map[Ref[int], int]{} let mut refs = []Ref[int]{} for i in 0..n { x = (x*1103515245 + 12345) % 2147483648 let op = (x / 8) % 5 if op == 0 || len(refs) == 0 { let r = a.Put(i) if model.Get(r) != None { return false } model[r] = i refs = refs.Append(r) } else { let r = refs[(x/65536)%len(refs)] let want = model.Get(r) let mut failed = false let mut got = i match op { case 1: got = a.Get(r) catch { case Stale: failed = true i } case 2: a.Set(r, -i) catch { case Stale: failed = true } got = -i case 3: let mut seen = i a.Update(r, func(v *int) { seen = *v *v = *v + i }) catch { case Stale: failed = true } got = seen case _: got = a.Free(r) catch { case Stale: failed = true i } } match want { case Some[int] as w: if failed || (op != 2 && got != w.Value) { return false } match op { case 2: model[r] = -i case 3: model[r] = w.Value + i case 4: model = model.Delete(r) case _: } case None: if !failed || Has(a, r) { return false } } } if Len(a) != len(model) { return false } } for r, v in model { let got = a.Get(r) catch { case Stale: return false } if got != v { return false } } true }`,
 }
 
 // TestStdArenaLawsRun runs the probe's tests with --seed 1; lawledger.Run

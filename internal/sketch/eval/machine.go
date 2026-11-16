@@ -490,7 +490,7 @@ func (in *interp) machineStep(fr *frame, m machine, s, e Value) (Value, bool) {
 		ice("the step of machine %s returned %T, not a Decision", m.tn.Name, d)
 	}
 	switch r.t.Obj.Name {
-	case "Enter", "Stay", "Emit":
+	case "Enter", "Stay", "Emit", "Tell":
 		for i, f := range structOf(r.t).Fields {
 			if f.Name == "Next" {
 				return r.fields[i], true
@@ -548,7 +548,7 @@ func (in *interp) keyOf(fr *frame, k *explore.Key, t check.Type, v Value) {
 			in.keyOf(fr, k, u.Elem, x)
 		}
 	case *check.Map:
-		m := v.(mapV).b.m
+		m := v.(mapV).b.plain()
 		n := int64(len(m))
 		mustCharge(in, fr, n*int64(bits.Len64(uint64(n))+1))
 		explore.Map(k, m, func(sub *explore.Key, a, b Value) {

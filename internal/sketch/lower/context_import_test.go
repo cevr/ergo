@@ -10,7 +10,7 @@ import (
 // Deep embeds W in lib itself.
 const importedContextLib = `type Store { Get() string }
 type Log { Say(s string) }
-type Conn { n int }
+type Conn { n int } implements Store, Closer
 
 func Get(c Conn) string { "lib \(c.n)" }
 
@@ -20,7 +20,7 @@ func Close(c Conn) needs Console {
 
 func open(n int) Conn { Conn{n: n} }
 
-type Quiet {}
+type Quiet {} implements Log
 
 func Say(_ Quiet, s string) {}
 
@@ -49,7 +49,7 @@ func TestRunImportedContext(t *testing.T) {
 	imp := pkgImporter{"lib": lib.Package}
 	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/ctx/main.ergo", `import lib
 
-type Mine {}
+type Mine {} implements lib.Store
 
 func Get(_ Mine) string { "mine" }
 

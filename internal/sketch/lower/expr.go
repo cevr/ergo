@@ -20,6 +20,12 @@ import (
 // for an untried fallible expression, the name of its error variable.
 type operand struct {
 	val, err string
+	// fail is the label the failing returns of an inlined call jump to,
+	// when the site asked for it (failJump), and failOut and failAt where
+	// the call's code ended; the site places the label (placeFail).
+	fail    string
+	failOut *strings.Builder
+	failAt  int
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -30,6 +36,20 @@ func unparen(x syntax.Expr) syntax.Expr {
 		}
 		x = p.X
 	}
+}
+
+// tried is the operand of the try that starts x (through parentheses),
+// or x itself when no try starts it. A lowering that looks for a shape
+// that cannot fail itself (an assert's comparison, a matched Get) looks
+// through the try, so that try a.b(c) == d and (try a).b(c) == d lower
+// alike (q105: parentheses carry no meaning), and lowers the shape's
+// operands under fc.tries, as fc.try would. A try on a catch (fc.try's
+// partial catch) has no such shape.
+func tried(x syntax.Expr) syntax.Expr {
+	if t, ok := unparen(x).(*syntax.TryExpr); ok {
+		return unparen(t.X)
+	}
+	return x
 }
 
 // typeOf is x's checked type.
@@ -242,7 +262,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return v
 	case check.ConvOperations:
 		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
-			if hostSourced(conv.From) {
+			if !goAdapterConv(conv) {
 				// A Go value to a Go interface: Go's own implicit conversion.
 				return val
 			}
@@ -277,10 +297,35 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // expr lowers x; in a statement header, a composite literal value is
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if fc.l.info.TryCovers[x] != nil {
+		return fc.covered(x)
+	}
+	return fc.expr1(x)
+}
+
+// covered lowers x, the right operand that a try in operand position on
+// its left covers (check.Info.TryCovers, q105): as under the try, every
+// failure evaluated in it leaves the frame, after the left operand.
+func (fc *funcCtx) covered(x syntax.Expr) operand {
+	fc.tries++
+	o := fc.expr1(x)
+	fc.tries--
+	if o.err != "" {
+		fc.propagateFailed(o)
+		o.err, o.fail = "", ""
+	}
+	return o
+}
+
+func (fc *funcCtx) expr1(x syntax.Expr) operand {
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
-		// The value rule's copy (values.go).
-		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+		// The value rule's copy (values.go), deep for Go (V8).
+		if fc.l.vals.deep[x] {
+			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
+		} else {
+			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+		}
 	}
 	o.val = fc.guardHeader(o.val)
 	return fc.ownTemp(x, o) // a temporary its statement owns (R43)
@@ -317,9 +362,6 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
-		if lit := fc.l.info.Works[x]; lit != nil {
-			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
-		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
@@ -585,7 +627,36 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 			return fc.equalOp(x, parts) // structural equality (equal.go)
 		}
 	}
+	if x.Op == syntax.MUL && fc.roundsProduct(x) {
+		return fc.goType(fc.typeOf(x)) + "(" + parts[0] + " * " + parts[1] + ")"
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
+}
+
+// floatLowering selects how a float product lowers. "" (the default) puts
+// every product of floats that is not a constant under an explicit
+// conversion to its type, T(a * b): Go may fuse a product and a sum into
+// one fused multiply-add, rounding once (arm64, ppc64, s390x, riscv64;
+// across statements too), and an explicit conversion rounds to the type's
+// precision and stops that (the Go spec, Arithmetic operators: "An
+// explicit floating-point type conversion rounds to the precision of the
+// target type, preventing fusion"). So a program's float results are the
+// same on every host (types.md, Numeric types; corpus-wave Q5). "fuse" is
+// the reference, Go's own form, which a host may fuse: set it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.floatLowering=fuse
+// to count what the rounding costs.
+var floatLowering string
+
+// roundsProduct reports a product x of floats that floatLowering puts
+// under a conversion: it is not a constant (Go folds a constant exactly).
+func (fc *funcCtx) roundsProduct(x syntax.Expr) bool {
+	return floatLowering != "fuse" && !fc.isConst(x) && isFloatType(fc.typeOf(x))
+}
+
+// isFloatType reports float32, float64 or a type defined over one.
+func isFloatType(t check.Type) bool {
+	b, ok := underOf(t).(*check.Basic)
+	return ok && (b.Kind == check.Float32 || b.Kind == check.Float64)
 }
 
 // rangeValue lowers a..b, which the checker types as the prelude's
@@ -913,9 +984,21 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if len(x.Indices) != 1 {
 		ice(x, "an index with %d indices", len(x.Indices))
 	}
-	unchecked := fc.uncheckedIndex(x) // bounds.go
-	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	unchecked := fc.provedIndex(x) // bounds.go
 	if unchecked {
+		fc.indexFact(x) // facts.go
+		unchecked = fc.uncheckedOK()
+	}
+	var parts []string
+	if fc.arrayReadInPlace(x) {
+		// The index writes no storage, so the array is read where it is,
+		// after the index's statements: no copy of the whole array.
+		parts = []string{fc.value(x.X), fc.value(x.Indices[0])}
+	} else {
+		parts = fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	}
+	if unchecked {
+		fc.l.took("bounds-unchecked")
 		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
 			return "(*" + fc.l.rt() + ".AddrAt(" + parts[0] + ", " + parts[1] + "))"
 		}
@@ -924,9 +1007,77 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	return parts[0] + "[" + parts[1] + "]"
 }
 
+// arrayLowering "spill" selects the reference lowering of an array index
+// whose index writes statements: the array is bound to a temporary first,
+// a copy of all its elements (the test hook of arrayReadInPlace).
+var arrayLowering string
+
+// arrayReadInPlace reports an index a[i] of an array whose index i can
+// write no array: Ergo reads a before i, and when i calls a function,
+// operands binds a's value to a temporary first, a copy of the whole array
+// per read (the HP lane's hash table: 128 KB a probe). When nothing in i
+// can write a, a read after i's statements reads the same value, so a is
+// read where it is. A hand-off or a part hand-over in either operand keeps
+// operands' order for its frame rule.
+func (fc *funcCtx) arrayReadInPlace(x *syntax.IndexExpr) bool {
+	if arrayLowering == "spill" {
+		return false
+	}
+	if _, ok := fc.typeOf(x.X).(*check.Array); !ok {
+		return false
+	}
+	list := []syntax.Expr{x.X, x.Indices[0]}
+	if fc.partsFrom(list) != len(list) || fc.handsOff(x.X) || fc.handsOff(x.Indices[0]) {
+		return false
+	}
+	return fc.writesNothing(x.Indices[0])
+}
+
+// writesNothing reports that x can write no array another operand reads
+// (arrayReadInPlace). Only a call writes, and a call of a named function
+// writes another frame's array only through a pointer it is passed (a
+// named function captures nothing; an escaping literal cannot capture a
+// let mut that is written after, types.md Bindings): so x writes nothing
+// when each call in it is a conversion, len, or a call of a named function
+// with no pointer parameter, its receiver included, and x holds no function
+// literal, which may write a let mut it captures. A call of a function
+// value, an operation or a builtin that writes is refused.
+func (fc *funcCtx) writesNothing(x syntax.Expr) bool {
+	ok := true
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if !ok {
+			return false
+		}
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			ok = false
+		case *syntax.CallExpr:
+			c := fc.l.info.Calls[n]
+			switch {
+			case c != nil && (c.Kind == check.CallConversion || c.Kind == check.CallLen):
+			case c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:
+				ok = false
+			default:
+				for _, p := range c.Func.Sig.Params {
+					if _, ptr := p.Type.(*check.Pointer); ptr {
+						ok = false
+					}
+				}
+			}
+		}
+		return ok
+	})
+	return ok
+}
+
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
 func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
-	if fc.uncheckedSlice(x) { // bounds.go
+	proved := fc.provedSlice(x) // bounds.go
+	if proved {
+		fc.cutFact(x) // facts.go
+	}
+	if proved && fc.uncheckedOK() {
+		fc.l.took("bounds-unchecked")
 		// The subject is a local (bounds.go, subject), so its Go text is a
 		// name, read again for a missing high bound. A cut of a constant
 		// length, s[a:a+n], passes n itself, so gc knows the result's
@@ -992,12 +1143,87 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 		fc.tries--
 		return o
 	}
-	o := fc.expr(x.X)
+	o := fc.asked(x.X)
 	fc.tries--
 	if o.err != "" {
-		fc.propagate(o.err)
+		fc.propagateFailed(o)
 	}
 	return operand{val: o.val}
+}
+
+// asked lowers x as the operand of a catch or a try that places its
+// inlined failing returns (failJump, inline.go).
+func (fc *funcCtx) asked(x syntax.Expr) operand {
+	saved := fc.failJump
+	fc.failJump = unparen(x)
+	defer func() { fc.failJump = saved }()
+	return fc.expr(x)
+}
+
+// placeFail places the label of o's inlined failing returns (failJump),
+// and reports whether the site writes its handler under it, past a jump
+// around it (failAround): only when direct (the site declares nothing
+// before its handler). Otherwise the label goes where the call's code
+// ended, the join of the reference. Every writer between the call and its
+// site places the label first (ownTemp, covered), so nothing was written
+// since the call.
+func (fc *funcCtx) placeFail(o operand, direct bool) bool {
+	if o.fail == "" {
+		return false
+	}
+	if o.failOut != fc.out || fc.out.Len() != o.failAt {
+		ice(nil, "code written between an inlined call and the site that places its failure label %s", o.fail)
+	}
+	if direct {
+		fc.l.stats.FailsAround++
+		return true
+	}
+	fc.l.stats.FailsJoined++
+	fc.line(o.fail + ":")
+	return false
+}
+
+// joinFail places o's failure label at the join, before a writer that
+// stands between the call and its site writes, and returns o without it.
+func (fc *funcCtx) joinFail(o operand) operand {
+	fc.placeFail(o, false)
+	o.fail = ""
+	return o
+}
+
+// propagateFailed leaves the frame with o's error when it failed, the
+// success path jumping around the test when o's failures jump to their
+// own label (failJump).
+func (fc *funcCtx) propagateFailed(o operand) {
+	past := fc.failAround(o, true)
+	if past != "" {
+		fc.l.stats.TriesAround++
+	}
+	fc.propagate(o.err)
+	fc.failPast(past)
+}
+
+// failAround writes, when placeFail let the site do so, the jump that
+// takes the success path around the handler and the label of the
+// handler, and returns the label after the handler, which failPast
+// writes ("" when the failures meet the success path at the join).
+func (fc *funcCtx) failAround(o operand, direct bool) string {
+	if !fc.placeFail(o, direct) {
+		return ""
+	}
+	past := fc.temp("past")
+	fc.line("goto " + past)
+	fc.line(o.fail + ":")
+	return past
+}
+
+// failPast writes the label after a handler (failAround), on an empty
+// statement: the handler may end a switch case, where the next token is
+// a case, and Go labels only a statement.
+func (fc *funcCtx) failPast(past string) {
+	if past != "" {
+		fc.line(past + ": ;")
+	}
 }
 
 // propagate leaves the frame with err when it is not nil (rows.md, Error
@@ -1026,7 +1252,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if plain && catchBinding(fc.l.info, x) == nil {
 		fc.rawErr = x.X
 	}
-	o := fc.expr(x.X)
+	var o operand
+	if plain {
+		o = fc.expr(x.X)
+	} else {
+		o = fc.asked(x.X)
+	}
 	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
@@ -1035,7 +1266,16 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
-	if m.Result != nil {
+	alias := fc.simpleCatch(x) && fc.catchAlias(x, m, o)
+	// With no value to declare, the handler is jumped around (failJump).
+	past := fc.failAround(o, alias || m.Result == nil)
+	defer fc.failPast(past)
+	if past != "" && alias {
+		fc.l.stats.AliasesAround++
+	}
+	if alias {
+		// The catch's value is its operand's (forms.go): no arm yields.
+	} else if m.Result != nil {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
 		fc.armHeldVar(x, result)
@@ -1090,6 +1330,24 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 		arms = append(arms, ar)
 	}
+	if !bind && len(arms) == 1 && len(arms[0].types) == 1 && fc.soleFailure(x) {
+		// The row is the arm's one variant (forms.go): a non-nil error is
+		// it, so the arm runs with no type switch and no defect arm.
+		fc.line("if " + o.err + " != nil {")
+		fc.depth++
+		fc.arm(x.Arms[0], result, m.Result)
+		fc.depth--
+		if result != "" && o.val != "" {
+			fc.line("} else {")
+			fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		}
+		fc.line("}")
+		if alias {
+			return operand{val: o.val}
+		}
+		fc.markFresh(result)
+		return operand{val: result}
+	}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
 	narrowed := ""
@@ -1137,7 +1395,11 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 	}
 	fc.line("}")
+	if alias {
+		return operand{val: o.val}
+	}
 	fc.armValueEnd(x, result)
+	fc.markFresh(result)
 	return operand{val: result}
 }
 
@@ -1217,7 +1479,16 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		if len(params) != len(sig.Params) {
 			ice(n, "a literal declares %d parameters and its signature has %d", len(params), len(sig.Params))
 		}
+		ip := fc.l.inPlace[n]
 		for i, p := range sig.Params {
+			if ip != nil {
+				// The held value's address: s is (*p), and the let that
+				// binds it is not written (refown.go, inPlaceLit).
+				name := fc.scope.alloc("p")
+				inner.locals[ip.held] = "(*" + name + ")"
+				parts = append(parts, name+" *"+fc.goType(p.Type))
+				continue
+			}
 			name := fc.scope.alloc("_p")
 			if params[i] != nil {
 				name = inner.declare(params[i])
@@ -1227,6 +1498,10 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		var result check.Type
 		if len(sig.Results) == 1 {
 			result = sig.Results[0]
+		}
+		if ip != nil {
+			result, list = ip.result, list[1:]
+			inner.inPlaceTail = ip.tail
 		}
 		inner.frame.result = result
 		inner.frame.unit = result == nil

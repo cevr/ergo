@@ -1,0 +1,66 @@
+# the browse case's script on the window: keys, buttons and the text field
+show
+runs
+down 7
+show
+pagedown
+pagedown
+show
+sort magnitude
+show
+sort magnitude
+home
+show
+filter
+type o
+show
+type r
+show
+backspace
+backspace
+type ΩΡ
+show
+escape
+show
+filter
+type lyra
+enter
+mark
+end
+extend
+show
+shot
+sort distance
+show
+edit magnitude
+type 9
+enter
+backspace
+backspace
+backspace
+backspace
+backspace
+type -1.5
+enter
+show
+edit ascension
+backspace
+backspace
+type 7m
+enter
+edit name
+backspace
+backspace
+backspace
+backspace
+backspace
+backspace
+backspace
+backspace
+enter
+escape
+escape
+show
+runs
+sort sideways
+fly

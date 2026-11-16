@@ -92,7 +92,8 @@ func TestGoTestStepsHaveHangDeadlines(t *testing.T) {
 // its selection runs (-run names it, -skip the package's other tests).
 // Dealt by wall time, internal/sketch/lower's first shard took 948 CPU-s
 // where the others took 293 to 458 (gate16b-fix3). A test that grows until
-// no dealing balances the shards fails here: split it.
+// no dealing balances the shards fails here: split it. A shard of one test
+// is exempt: no dealing splits a test.
 func TestShardsBalanceTheirRecordedCPU(t *testing.T) {
 	root := checkoutRoot(t)
 	t.Setenv(cpuVariable, "4")
@@ -126,19 +127,25 @@ func TestShardsBalanceTheirRecordedCPU(t *testing.T) {
 			t.Fatal(err)
 		}
 		var costs []float64
-		total := 0.0
+		total, alone := 0.0, 0.0
 		for _, step := range group {
-			cost := 0.0
+			cost, ran := 0.0, 0
 			for _, name := range names {
 				if runsTest(step.Argv, name) {
 					cost += rows[name]
+					ran++
 				}
+			}
+			if ran == 1 {
+				alone = max(alone, cost)
 			}
 			costs = append(costs, cost)
 			total += cost
 		}
 		mean := total / float64(len(costs))
-		if heaviest := slices.Max(costs); heaviest > 1.5*mean {
+		// A shard of one test is as light as dealing can make it: cmd/ergo's
+		// TestPackageNeverWritesUnderHome runs the whole package again (GS16).
+		if heaviest := slices.Max(costs); heaviest > 1.5*mean && heaviest > alone {
 			t.Errorf("%s: its heaviest shard costs %.1f CPU-s, over 1.5 times the mean %.1f (%v)", pkg, heaviest, mean, roundAll(costs))
 		}
 	}

@@ -1,0 +1,49 @@
+import dense
+import vt/vt
+
+// The screen's styles are a dense.Counted[vt.Style]: each style in use
+// has an id, and the id's count is the cells that hold it, plus one if
+// the pen holds it. When a count falls to 0 the style leaves the set and
+// its id is free for the next new style (Ghostty's RefCountedSet). A cell
+// holds a dense.Opt of the id: no id is the default style, which is never
+// counted.
+
+// noStyle is the default style's id.
+let noStyle = dense.NoID[vt.Style]()
+
+// intern is the id of st in t, with no new holder: no id for the
+// default style.
+func intern(t *dense.Counted[vt.Style], st vt.Style) dense.Opt[vt.Style] {
+	if st == vt.Default {
+		return noStyle
+	}
+	dense.OptOf(t.Add(st))
+}
+
+// retain counts one more holder of id.
+func retain(t *dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.Use(held.Value)
+	case None:
+	}
+}
+
+// release counts one holder of id less; at 0 its style leaves the set.
+func release(t *dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.Release(held.Value)
+	case None:
+	}
+}
+
+// styleAt is the style of id.
+func styleAt(t dense.Counted[vt.Style], id dense.Opt[vt.Style]) vt.Style {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		dense.Member(t, held.Value)
+	case None:
+		vt.Default
+	}
+}

@@ -4,14 +4,13 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 )
 
 // The bodies of std json (docs/spec/stdlib.md, json; S-json). Std json's
 // Text is the Ergo record text, which writes into a byte buffer; this file
 // holds only its value appenders (a buffer in, the buffer with the value's
-// JSON text added out), its buffer pool, and Cursor, which reads a text
+// JSON text added out) and Cursor, which reads a text
 // JSONOpen has validated whole (phase 1), so its reads never meet a syntax
 // error.
 
@@ -32,6 +31,8 @@ const JSONDefaultDepth = 10000
 // nested no deeper than maxDepth lists and objects (JSONDefaultDepth when
 // maxDepth <= 0), and gives a Cursor at its start. It is phase 1 of
 // decode: no value is built from a text that fails here.
+//
+//ergo:wait none
 func JSONOpen(text string, maxBytes int, maxDepth int) (*Cursor, error) {
 	if maxBytes > 0 && len(text) > maxBytes {
 		return nil, JSONMalformed{Offset: maxBytes, Reason: "the text is longer than MaxBytes " + strconv.Itoa(maxBytes)}
@@ -298,6 +299,8 @@ func (c *Cursor) at() {
 
 // Path is the place of the value last read or begun: member names joined
 // by dots, list indexes in brackets ("hosts[2].port"), "" for the root.
+//
+//ergo:wait none
 func (c *Cursor) Path() string {
 	var b []byte
 	for _, f := range c.frames {
@@ -492,11 +495,15 @@ func (c *Cursor) begin(open byte, list bool) bool {
 	return true
 }
 
+//ergo:wait none
 func (c *Cursor) BeginList() bool { return c.begin('[', true) }
 
+//ergo:wait none
 func (c *Cursor) BeginObject() bool { return c.begin('{', false) }
 
 // TakeNull consumes null only. A false probe changes no path or list index.
+//
+//ergo:wait none
 func (c *Cursor) TakeNull() bool {
 	c.ws()
 	if c.i >= len(c.s) || c.s[c.i] != 'n' {
@@ -535,6 +542,8 @@ func (c *Cursor) readTag() (string, bool) {
 
 // More reports whether the innermost list or object has a value left; in
 // an object it takes the member's key, which Key gives.
+//
+//ergo:wait none
 func (c *Cursor) More() bool {
 	c.ws()
 	if c.i < len(c.s) && c.s[c.i] == ',' {
@@ -555,6 +564,8 @@ func (c *Cursor) More() bool {
 }
 
 // Key is the key of the member More reached.
+//
+//ergo:wait none
 func (c *Cursor) Key() string {
 	if n := len(c.frames); n > 0 {
 		return c.frames[n-1].key
@@ -563,6 +574,8 @@ func (c *Cursor) Key() string {
 }
 
 // Skip passes the next value whole.
+//
+//ergo:wait none
 func (c *Cursor) Skip() {
 	c.at()
 	c.skip()
@@ -618,6 +631,8 @@ func (c *Cursor) skip() {
 
 // End closes the innermost list or object, passing what is left of it;
 // Path is its place again.
+//
+//ergo:wait none
 func (c *Cursor) End() {
 	for c.More() {
 		c.skip()
@@ -636,32 +651,39 @@ func (c *Cursor) End() {
 // box per read.
 
 // Wrong reports that the last value read was not of the kind asked for.
+//
+//ergo:wait none
 func (c *Cursor) Wrong() bool { return c.wrong }
 
+//ergo:wait none
 func (c *Cursor) Bool() bool {
 	v, ok := c.readBool()
 	c.wrong = !ok
 	return v
 }
 
+//ergo:wait none
 func (c *Cursor) Int() int64 {
 	v, ok := c.readInt()
 	c.wrong = !ok
 	return v
 }
 
+//ergo:wait none
 func (c *Cursor) Uint() uint64 {
 	v, ok := c.readUint()
 	c.wrong = !ok
 	return v
 }
 
+//ergo:wait none
 func (c *Cursor) Float() float64 {
 	v, ok := c.readFloat()
 	c.wrong = !ok
 	return v
 }
 
+//ergo:wait none
 func (c *Cursor) String() string {
 	v, ok := c.readString()
 	c.wrong = !ok
@@ -681,6 +703,8 @@ const (
 
 // Kind is the kind of the next value, which it leaves: the text is
 // validated, so its first byte decides.
+//
+//ergo:wait none
 func (c *Cursor) Kind() int {
 	c.ws()
 	if c.i >= len(c.s) {
@@ -704,6 +728,8 @@ func (c *Cursor) Kind() int {
 }
 
 // Number is the spelling of the next number, unparsed.
+//
+//ergo:wait none
 func (c *Cursor) Number() string {
 	c.at()
 	v, ok := c.number()
@@ -711,30 +737,9 @@ func (c *Cursor) Number() string {
 	return v
 }
 
+//ergo:wait none
 func (c *Cursor) Tag() string {
 	v, ok := c.readTag()
 	c.wrong = !ok
 	return v
-}
-
-// jsonPool keeps the buffers std json's Encode writes into (JSONTake,
-// JSONRecycle), as encoding/json keeps its encodeState: a buffer is used
-// again. It holds arrays of one size, as pointers, so a Put boxes no slice
-// header (no allocation). A buffer that grew out of its array is not kept.
-var jsonPool = sync.Pool{New: func() any { return new([jsonPoolSize]byte) }}
-
-const jsonPoolSize = 1024
-
-// JSONTake is an empty buffer from the pool, for std json's Encode only:
-// JSONRecycle puts it back.
-func JSONTake() []byte { return jsonPool.Get().(*[jsonPoolSize]byte)[:0] }
-
-// JSONRecycle puts b's array back in the pool when b still has it, and
-// gives b. Its caller uses b no more (std json's finish, at the end of
-// Encode), so the pool holds an array only after its one use has ended.
-func JSONRecycle(b []byte) []byte {
-	if cap(b) == jsonPoolSize {
-		jsonPool.Put((*[jsonPoolSize]byte)(b[:jsonPoolSize]))
-	}
-	return b
 }

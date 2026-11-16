@@ -18,10 +18,10 @@ type BootFailed { Why string }
 
 // Lease is an engine held. It is a resource: its release (Close) gives the
 // engine back to the Engines that booted it.
-type Lease { Engine Engine, back func() }
+type Lease { Engine Engine, back func() } implements Closer
 
 // NewLease is a lease of e whose release calls back.
-func NewLease(e Engine, back escaping func()) Lease { Lease{Engine: e, back: back} }
+func NewLease(e Engine, back own func()) Lease { Lease{Engine: e, back: back} }
 
 // Close gives the engine back.
 func Close(l Lease) { l.back() }

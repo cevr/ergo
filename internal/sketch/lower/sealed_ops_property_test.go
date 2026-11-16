@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -74,7 +75,10 @@ func stdOpTypes(t *testing.T) []stdOpType {
 			}
 			for _, d := range f.Decls {
 				td, ok := d.(*syntax.TypeDecl)
-				if !ok || td.Extern != nil {
+				// A binding's host type is Go's (gostd); a type that names
+				// a runtime Go type (STD-NOPRIV NP4c), of runtime/v1 or one
+				// of its leaves (runtime/v1/exec), is std's own.
+				if !ok || td.Extern != nil && !strings.HasPrefix(td.Extern.Target.Value, runtimeImport+".") && !strings.HasPrefix(td.Extern.Target.Value, runtimeImport+"/") {
 					continue
 				}
 				it, ok := td.Spec.(*syntax.InterfaceType)
@@ -109,6 +113,15 @@ func stdOpTypes(t *testing.T) []stdOpType {
 				if td.TypeParams != nil {
 					o.tparams = qualify(f.Src[td.TypeParams.Opening : td.TypeParams.Closing+1])
 				}
+				for _, inc := range it.Includes {
+					// An included operation type is a member as written:
+					// `..Closer` is the release (resources R1).
+					text := ".." + qualify(f.Src[inc.Type.Pos():inc.Type.End()])
+					o.members = append(o.members, text)
+					if text == "..Closer" {
+						o.resource = true
+					}
+				}
 				for _, m := range it.Methods {
 					if len(m.Names) != 1 || !exportedName(m.Names[0].Name) {
 						continue
@@ -133,22 +146,27 @@ func stdOpTypes(t *testing.T) []stdOpType {
 }
 
 // sealedCase is one conversion of a sealed std protocol's value into an
-// operation type: its name, its source, and whether the checker must admit
-// it (a generated operation type with the source's members) or may refuse
-// it (an operation type the std declares, which the member match decides).
+// operation type: its name, its source, and whether the target is the
+// program's own (a generated operation type with the source's members),
+// which the checker must refuse: std declares none of a program's
+// operation types (EXC1, q170). A target std declares is admitted exactly
+// when the source includes it. A must case is a sealed operation type the
+// program declares, which includes the target: it converts as a plain
+// interface would.
 type sealedCase struct {
 	name, src string
+	program   bool
 	must      bool
 }
 
 // sealedSource is the Go-free program of one conversion: target is the
 // operation type's text, decl its declaration when the program declares it.
 func sealedSource(s stdOpType, imports []string, decl, target string) string {
-	takes := ""
+	mode := ""
 	if s.resource {
-		takes = " takes s"
+		mode = "own "
 	}
-	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + s.ref(s.tpnames) + ") " + target + takes + " { s }\n"
+	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + mode + s.ref(s.tpnames) + ") " + target + " { s }\n"
 	var b strings.Builder
 	seen := map[string]bool{}
 	for _, list := range [][]string{s.imports, imports} {
@@ -168,13 +186,16 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 // TestSealedStdConvertsToItsOperationTypes is the generated property of
 // the conversion of a sealed std operation type's value (check.Sealed, on a std type), whose
 // Go form is the runtime's own type, into an operation type: every pair
-// the checker's member match admits lowers to Go that type-checks
-// (lower/sealedops.go). The pairs are every sealed std protocol of the
+// the checker admits (the source includes the target, EXC1) lowers to Go
+// that type-checks (lower/sealedops.go), and every program operation type
+// is refused, since std declares none of them. The pairs are every sealed std protocol of the
 // prelude and the std packages crossed with (1) a generated operation type
 // of the program with all its exported members, (2) one with each member
 // alone, and (3) every other operation type the prelude and std declare,
-// instantiated with the source's type parameters where it is generic.
-// Replay one case with ERGO_SEALED_CASE=<name>; a failure prints the
+// instantiated with the source's type parameters where it is generic;
+// and a sealed operation type the program declares, crossed with (1) and
+// (2): it has no runtime Go type, so it converts as a plain interface
+// (check.sealedStd names std types only). Replay one case with ERGO_SEALED_CASE=<name>; a failure prints the
 // case's Ergo source and Go.
 func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	all := stdOpTypes(t)
@@ -203,14 +224,25 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 		if len(s.tpnames) > 0 {
 			opRef += "[" + strings.Join(s.tpnames, ", ") + "]"
 		}
+		// A member whose result is a mapped text is no program's to
+		// declare (types.md, Borrows 8: fs.Text is written only as a
+		// parameter's type), so its operation type may be refused.
+		writable := func(members []string) bool {
+			for _, m := range members {
+				if _, result, ok := strings.Cut(m, ")"); ok && strings.Contains(result, "fs.Text") {
+					return false
+				}
+			}
+			return true
+		}
 		if len(s.members) > 0 {
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), must: true})
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), program: writable(s.members)})
 		}
 		// A resource (R1: it has Close) converts only to an operation type
 		// with a release (R22, releasable): each member goes with Close.
 		var release []string
 		for _, m := range s.members {
-			if strings.HasPrefix(m, "Close(") {
+			if strings.HasPrefix(m, "Close(") || m == "..Closer" {
 				release = []string{m}
 			}
 		}
@@ -218,7 +250,11 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			if len(s.members) == 1 || len(release) > 0 && m == release[0] {
 				continue
 			}
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + m[:strings.IndexAny(m, "([")], src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: true})
+			name := m
+			if i := strings.IndexAny(m, "(["); i >= 0 {
+				name = m[:i]
+			}
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + name, src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), program: writable([]string{m})})
 		}
 		for _, o := range all {
 			if o.path == s.path && o.name == s.name {
@@ -241,6 +277,27 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	if sealedSeen < 10 {
 		t.Fatalf("the property found %d sealed std protocols; the enumeration lost them", sealedSeen)
 	}
+	// A sealed operation type the program declares (Sealed: an unexported
+	// operation) has no runtime Go type: sealing is the visibility rule, so
+	// its value converts as a plain interface would (check.sealedStd's Std
+	// term; batch-17 round 2 TS-1), and so, as every program operation type
+	// under EXC1, only into an operation type it includes: a member subset
+	// it does not include is the one refusal of the declared relation.
+	user := []string{"Next() int", "Add(n int) int", "Name() string"}
+	for i, members := range append([][]string{user}, [][]string{{user[0]}, {user[1]}, {user[2]}}...) {
+		name := "main.Counter/all"
+		if i > 0 {
+			name = "main.Counter/" + members[0][:strings.Index(members[0], "(")]
+		}
+		own := []string{"..Op"}
+		for _, m := range user {
+			if !slices.Contains(members, m) {
+				own = append(own, m)
+			}
+		}
+		decl := "type Counter {\n" + strings.Join(own, ",\n") + ",\nreset(),\n}\n\ntype C { n int } implements Counter\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
+		cases = append(cases, sealedCase{name: name, src: "\n" + decl + "\ntype Op {\n" + strings.Join(members, ",\n") + ",\n}\n\nfunc Conv(s Counter) Op { s }\n", must: true})
+	}
 	var programs []*lowered
 	admitted := map[string]bool{}
 	for _, c := range cases {
@@ -255,6 +312,11 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			if c.must {
 				t.Errorf("%s: the checker refuses a conversion into an operation type with the source's own members: %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
 			}
+			if c.program && (len(o.diags) != 1 || !strings.Contains(o.diags[0].Message, "does not include")) {
+				t.Errorf("%s: want the one refusal of the declared relation, got %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
+			}
+		case c.program:
+			t.Errorf("%s: a sealed std value converts into the program's own operation type, which std cannot declare\n%s", c.name, c.src)
 		case o.panicked != nil:
 			t.Errorf("%s: lowering panicked: %v\n%s\nreplay: ERGO_SEALED_CASE=%q", c.name, o.panicked, c.src, c.name)
 		case len(o.refused) > 0:
@@ -268,9 +330,11 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	// The known pair: a std runtime type into a prelude operation type.
 	// json.Text into the Writer was it until LR3, where Text became a
 	// provider cell, which converts to the Writer only as encode's operand
-	// (types.md, Interface assignability 6).
-	if only == "" && !admitted["rand.Stream->prelude.Random"] {
-		t.Errorf("rand.Stream into the prelude's Random is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
+	// (types.md, Interface assignability 6); rand.Stream into Random was
+	// it until EXC1, where a pair needs the source to include the target
+	// and Stream does not include Random. exec.Running includes Closer.
+	if only == "" && !admitted["exec.Running->prelude.Closer"] {
+		t.Errorf("exec.Running into the prelude's Closer is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
 	}
 	t.Logf("%d sealed std protocols, %d cases, %d admitted", sealedSeen, len(cases), len(admitted))
 	typecheckGo(t, programs)

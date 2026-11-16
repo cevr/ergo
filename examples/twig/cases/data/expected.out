@@ -1,0 +1,21 @@
+[1, 2, 3, 4]
+4
+4
+{name: "twig", tags: ["small", "tree"], depth: 3}
+tree
+01234
+2!
+6
+tab	here "quoted" \
+[1, [1, [1, [1, [1, [1, [1, [1, [...]]]]]]]]]
+false
+false
+true
+true
+3
+-1
+3.5
+-2
+4.5
+-9223372036854775808
+true

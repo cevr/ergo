@@ -1,0 +1,2 @@
+raytrace: W must be a count
+usage: raytrace W H SPP SEED OBJECTS WORKERS TILE

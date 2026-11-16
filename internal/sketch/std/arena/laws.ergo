@@ -109,6 +109,33 @@ law ReuseNeverAliases(xs []int, k int, v int) {
 	ok
 }
 
+// FreeSlotNamesNothing: a free slot names no value, even through a Ref
+// of another store at the same index. Two stores fill the same values;
+// one frees slot i, the other frees it and reuses it. The reused slot's
+// Ref is stale in the store whose slot i is free, so it never reads that
+// slot's cleared storage (generation parity: a free slot's is even, a
+// Ref's odd).
+law FreeSlotNamesNothing(xs []int, k int, v int) {
+	if len(xs) == 0 {
+		return true
+	}
+	let (start, refs) = filled(xs)
+	let i = (k%len(xs) + len(xs)) % len(xs)
+	let mut a = start
+	let _ = a.Free(refs[i]) catch {
+	case Stale:
+		return false
+	}
+	let (other, otherRefs) = filled(xs)
+	let mut b = other
+	let _ = b.Free(otherRefs[i]) catch {
+	case Stale:
+		return false
+	}
+	let fresh = b.Put(v)
+	stale(a, fresh) && stale(a, refs[i])
+}
+
 // NullIsStale: Null names no value, in any store.
 law NullIsStale(xs []int) {
 	let (a, refs) = filled(xs)

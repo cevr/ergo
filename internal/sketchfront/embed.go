@@ -44,19 +44,21 @@ func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]c
 	if pkg == nil {
 		return nil, fmt.Errorf("the declaring package is not loaded")
 	}
-	for dir := pkg.dir; dir != l.root; dir = filepath.Dir(dir) {
+	root := l.root
+	if pkg.mod != nil {
+		root = pkg.mod.dir
+	}
+	for dir := pkg.dir; dir != root; dir = filepath.Dir(dir) {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return nil, fmt.Errorf("the package is outside the module")
 		}
-		entries, err := l.fsys.ReadDir(parent)
+		info, err := l.fsys.Lstat(dir)
 		if err != nil {
 			return nil, err
 		}
-		for _, e := range entries {
-			if e.Name() == filepath.Base(dir) && e.Type()&fs.ModeSymlink != 0 {
-				return nil, fmt.Errorf("a symbolic link in the package path may leave the module")
-			}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return nil, fmt.Errorf("a symbolic link in the package path may leave the module")
 		}
 	}
 	all := strings.HasPrefix(pattern, "all:")
@@ -156,7 +158,7 @@ func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]c
 			}
 			pkg.assets[name] = data
 		}
-		rel, _ := filepath.Rel(l.root, filepath.Join(pkg.dir, filepath.FromSlash(name)))
+		rel := l.relIn(pkg.mod, filepath.Join(pkg.dir, filepath.FromSlash(name)))
 		l.texts[filepath.ToSlash(rel)] = string(data)
 		out = append(out, check.EmbedFile{Path: name, Data: slices.Clone(data)})
 	}

@@ -162,6 +162,16 @@ func sortedDown(n int) []int {
 	slices.Sort(xs)
 }
 
+func reversedDown(n int) []int {
+	let mut xs = []int{}
+	for i in 0..n {
+		xs = xs.Append(i)
+	}
+	slices.Reverse(xs)
+}
+
+func sortedSeq(n int) []int { slices.Sorted(slices.Values(reversedDown(n))) }
+
 func keptText(n int) string {
 	let mut b = strings.NewBuilder()
 	b.WriteByte(byte(n + 65))
@@ -211,7 +221,7 @@ func tally(n int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(len(tagged(3).S))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S))")
 }
 `
 
@@ -253,6 +263,14 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "sortedDown"); !strings.Contains(body, "SlicesSortOwned[") {
 		t.Errorf("sortedDown does not sort its dead slice in place:\n%s", body)
 	}
+	// Reverse's owned form (SB4), and Sorted's Sort of the fresh slice
+	// Collect returns, through the same rule (no std-only extern).
+	if body := goFunc(t, code, "reversedDown"); !strings.Contains(body, "SlicesReverseOwned[") {
+		t.Errorf("reversedDown does not reverse its dead slice in place:\n%s", body)
+	}
+	if body := regexp.MustCompile(`(?s)\nfunc Sorted\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
+		t.Errorf("slices.Sorted does not sort the slice it collects in place:\n%s", body)
+	}
 	if body := goFunc(t, code, "keptText"); strings.Count(body, "ergoCloneBuilder(") != 1 {
 		t.Errorf("keptText should copy the builder it writes after String, once:\n%s", body)
 	}
@@ -274,8 +292,10 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	// A literal given to a Ref's Update or to sync.Modify takes the held
 	// value over: the call is the runtime body's owned form, told that
-	// the literal returns a fresh value (refown.go).
-	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateOwned[") || !strings.Contains(body, "RefModifyOwned[") || strings.Count(body, ", true)") != 2 {
+	// the literal returns a fresh value (refown.go). tally's literals hold
+	// the value in one let mut from first to last, so both take the
+	// in-place form, with no copy of the Map in or out (inPlaceLit, ST G1).
+	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateInPlace[") || !strings.Contains(body, "RefModifyInPlace[") || strings.Count(body, ", true)") != 2 {
 		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):

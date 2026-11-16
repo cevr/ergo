@@ -85,7 +85,7 @@ func TestStdHostMintRule(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatalf("outside: %v", ds)
 	}
-	const base = `type Host { root string }
+	const base = `type Host { root string } implements Reader
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
 
@@ -127,7 +127,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 				bad := false
 				for _, d := range ds {
-					if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 						t.Errorf("%s: %s\n%s", name, d.Message, decl)
 						bad = true
 					}

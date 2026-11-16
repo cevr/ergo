@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"go/version"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,6 +29,12 @@ type GoModule struct {
 	// Main is the path of the main module a source emits: no source may
 	// require or replace it.
 	Main string
+	// Go is the go directive's version, "" for none. The emitted go.mod
+	// states the highest of the sources' and the runtime's: a go.mod
+	// beside ergo.mod that needs a newer Go (because a module it requires
+	// does) needs it in the emitted module too, or go build asks for an
+	// update it may not make (-mod=readonly).
+	Go string
 }
 
 // GoRequire is one require directive and the source that states it.
@@ -114,6 +121,7 @@ func MergeGoModules(holds func(dir string, files []File) string, sources ...GoMo
 		if s.Sum != "" {
 			out.Sum += s.Sum
 		}
+		out.Go = newerGo(out.Go, s.Go)
 	}
 	version := map[string]GoRequire{}
 	mainRequired := false // the main module's replacement is then reported with it
@@ -216,6 +224,14 @@ func MergeGoModules(holds func(dir string, files []File) string, sources ...GoMo
 	return out, conflicts
 }
 
+// newerGo is the later of two go directive versions; "" is none.
+func newerGo(a, b string) string {
+	if a == "" || b != "" && version.Compare("go"+b, "go"+a) > 0 {
+		return b
+	}
+	return a
+}
+
 // replacementTarget is a replacement's new path and version.
 func replacementTarget(r GoReplace) string {
 	if r.NewVersion != "" {
@@ -233,7 +249,7 @@ func goModFileAt(module string, m GoModule) []byte {
 		m = RuntimeGoModule()
 	}
 	var b strings.Builder
-	b.WriteString("module " + module + "\n\ngo " + goVersion + "\n")
+	b.WriteString("module " + module + "\n\ngo " + newerGo(goVersion, m.Go) + "\n")
 	for _, r := range m.Require {
 		b.WriteString("\nrequire " + GoModWord(r.Path) + " " + GoModWord(r.Version) + "\n")
 	}

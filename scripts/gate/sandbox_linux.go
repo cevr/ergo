@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-// sandboxReadyTimeout bounds bwrap's start, until its first process says
-// ready.
-const sandboxReadyTimeout = 5 * time.Minute
-
 // sandbox is a running merge-tier sandbox: a holder process that owns the
 // user and pid namespaces, and bwrap, whose first process holds the mounts.
 // Closing the holder's input ends both, and the kernel stops every process
@@ -159,8 +155,12 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 	}()
 	// bwrap, given a pid namespace and --unshare-pid, does not exit when
 	// its first process fails (a mount that cannot be made, measured: it
-	// waits until killed), so the gate watches that process itself.
-	deadline := time.After(sandboxReadyTimeout)
+	// waits until killed), so the gate watches that process itself. bwrap
+	// that ends closes the info and output pipes, which ends the reader.
+	// So each way the start can end is an event, and the wait has no fixed
+	// bound (AGENTS.md: no fixed time limits): its 5 minutes failed an
+	// export still running on a loaded host as if it hung. A start that
+	// truly hangs holds the gate until a stop signal ends it (stop.go).
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for waiting := true; waiting; {
@@ -171,8 +171,6 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 			if pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {
 				err, waiting = errors.New("the sandbox's first process ended before the export finished"), false
 			}
-		case <-deadline:
-			err, waiting = fmt.Errorf("the export took over %s", sandboxReadyTimeout), false
 		}
 	}
 	if err == nil {

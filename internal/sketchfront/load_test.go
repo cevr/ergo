@@ -129,8 +129,9 @@ func TestLoaderOrderIsTheNames(t *testing.T) {
 	}
 }
 
-// TestLoaderModuleFile (196b Q1): ergo.mod holds one line, module NAME,
-// and NAME is an import path that does not start with a std path.
+// TestLoaderModuleFile (196b Q1; MD3): ergo.mod holds one line, module
+// NAME, and NAME is an import path that does not start with a std path;
+// and lines trust go MODULE, each module once. Rows of diagnostic text.
 func TestLoaderModuleFile(t *testing.T) {
 	for _, c := range []struct {
 		text, module, problem string
@@ -142,18 +143,55 @@ func TestLoaderModuleFile(t *testing.T) {
 		{"module log\n", "", "starts with the std package log"},
 		{"module strings/x\n", "", "starts with the std package strings"},
 		{"module prelude\n", "", "starts with the std package prelude"},
-		{"module app\nmodule b\n", "", "one line, module NAME, and nothing else"},
-		{"go 1.22\n", "", "one line, module NAME, and nothing else"},
+		{"module app\nmodule b\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"go 1.22\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"trust go example.com/x\nmodule app\ntrust go example.com/y\n", "app", ""},
+		{"module app\ntrust example.com/x\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"module app\ntrust go example.com/x\ntrust go example.com/x\n", "", "trusts the Go of module example.com/x twice"},
+		{"module app\ntrust go a//b\n", "", "is not an import path"},
 		{"module 1app\n", "", "is not an import path"},
 		{"module a//b\n", "", "is not an import path"},
 		{"module a/\n", "", "is not an import path"},
+		// Trusted Go (NP4e, respelled `trust go MODULE` by the 2026-11-14 ruling).
+		{"module app\ntrust go log\n", "", "starts with the std package log"},
 	} {
-		module, d := parseModule(c.text)
+		module, _, d := parseModule(c.text)
 		switch {
 		case c.problem == "" && (d != nil || module != c.module):
 			t.Errorf("%q: module %q diagnostic %+v, want %q", c.text, module, d, c.module)
 		case c.problem != "" && (d == nil || d.Code != "S108" || !strings.Contains(d.Message, c.problem)):
 			t.Errorf("%q: diagnostic %+v, want S108 %q", c.text, d, c.problem)
+		}
+	}
+}
+
+// TestTrustLineOpensTheRuntimeDoor (STD-NOPRIV NP4e; docs/spec/interop.md,
+// Trusted Go): a module's package binds runtime/v1 bodies that take hidden
+// arguments (the task and the context package of ContextBound, the frame of
+// OnExit) when the root's ergo.mod trusts the module, and is refused with
+// the line to write when it does not. The same declarations in std check
+// and lower equal to a copy (TestStdCopyAgrees). Mutants:
+// loader-ignores-trust (TrustsGo reports false), door-names-no-line.
+func TestTrustLineOpensTheRuntimeDoor(t *testing.T) {
+	files := map[string]string{
+		"main.ergo": "import app/ctx\n\nfunc main() needs Console {\n\tctx.Finally(func() needs Console { Console.Println(\"bye\") })\n\tConsole.Println(if ctx.Bound(\"k\") { \"bound\" } else { \"free\" })\n}\n",
+		"ctx/ctx.ergo": "extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool\n" +
+			"extern go ergo.local/prototype/runtime/v1.OnExit func onExit[R](body func() needs R) needs R\n\n" +
+			"func Bound(key string) bool { contextBound(key) }\n\n" +
+			"func Finally[R](body func() needs R) needs R { onExit(body) }\n",
+	}
+	for _, c := range []struct{ mod, want string }{
+		{"module app\ntrust go app\n", ""},
+		{"module app\n", "ctx/ctx.ergo S108 1:1 extern go ergo.local/prototype/runtime/v1.ContextBound binds the Ergo runtime, which a package binds only when the root module trusts its Go; write the line `trust go app` in the root module's ergo.mod"},
+	} {
+		files["ergo.mod"] = c.mod
+		a, err := CheckDir(writeTree(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := diagnosticLines(a)
+		if c.want == "" && got != "" || !strings.Contains(got, c.want) {
+			t.Errorf("ergo.mod %q:\n%s\nwant %q", c.mod, got, c.want)
 		}
 	}
 }
@@ -175,7 +213,7 @@ func TestLoaderImportReasons(t *testing.T) {
 		// A nested ergo.mod ends the module (M1 of round 1): a folder under
 		// it, or the folder that holds it, is another module's.
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/sub/x\n\n" + main, "sub/ergo.mod": "module other\n", "sub/x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",
-			`unknown package "app/sub/x": the folder sub is module other (sub/ergo.mod); a program imports std and its own module only`},
+			`unknown package "app/sub/x": the folder sub is module other (sub/ergo.mod); import its packages by that module's path, which go.mod requires`},
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/x\n\n" + main, "x/ergo.mod": "module other\n", "x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",
 			`unknown package "app/x": the folder x is module other (x/ergo.mod)`},
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/x\n\n" + main, "x/ergo.mod": "go 1.22\n", "x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",

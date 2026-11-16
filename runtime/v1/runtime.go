@@ -26,9 +26,7 @@
 package v1
 
 import (
-	"fmt"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -41,11 +39,12 @@ import (
 type Console struct{}
 
 // Println writes line and a line feed to standard output in one write, so
-// lines from concurrent writers do not interleave within a line.
+// lines from concurrent writers do not interleave within a line; buffered
+// when standard output is not a terminal (writeStdout).
 //
 //ergo:host
 func (Console) Println(line string) {
-	_, _ = os.Stdout.WriteString(line + "\n")
+	writeStdout(line + "\n")
 }
 
 // Sleep is the Go body of the prelude's `extern go
@@ -53,6 +52,9 @@ func (Console) Println(line string) {
 // duration)`. The hidden task is the task running the call. The primitive
 // observes its stop before and during the wait, and respects its mask.
 // Interruption follows the same exit path as Wait and queue operations.
+//
+//ergo:wait caller
+//ergo:bridge ergo.local/prototype/runtime/rt.Sleep LiveScheduler
 func Sleep(t *rt.Task, d time.Duration) {
 	if err := rt.Sleep(t, rt.Live{}, d); err != nil {
 		raise(err)
@@ -64,7 +66,7 @@ func Sleep(t *rt.Task, d time.Duration) {
 //
 //ergo:host
 func Fail(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	_, _ = stderrSink{}.Write([]byte("error: " + rt.Text(err) + "\n"))
 	os.Exit(1)
 }
 
@@ -125,12 +127,7 @@ func (d *MachineTimerDefect) String() string {
 // with In in. The state's text is its Go type's name and fields, as
 // fmt's %+v writes them: Idle{n:1}.
 func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *MachineTimerDefect {
-	v := any(s)
-	name := ""
-	if t := reflect.TypeOf(v); t != nil {
-		name = t.Name()
-	}
-	return &MachineTimerDefect{Machine: machine, State: name + fmt.Sprintf("%+v", v), In: in}
+	return &MachineTimerDefect{Machine: machine, State: rt.TypedText(s), In: in}
 }
 
 // MachineFiringOn is the Go body of std machines' firingOn (FKG1): it sets
@@ -141,13 +138,19 @@ func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *Mach
 // the signal from time.Clock's reading; outside the mark it makes it from
 // the zero time, since the runner then reads only In. The mark is a field
 // of the task, so it costs no allocation.
+//
+//ergo:wait none
 func MachineFiringOn(t *rt.Task) { t.SetFiring(true) }
 
 // MachineFiringOff clears t's firing mark (MachineFiringOn).
+//
+//ergo:wait none
 func MachineFiringOff(t *rt.Task) { t.SetFiring(false) }
 
 // MachineFiringNow reports whether t runs a state's After for a timer that
 // fires (MachineFiringOn).
+//
+//ergo:wait none
 func MachineFiringNow(t *rt.Task) bool { return t.Firing() }
 
 // TextList is a list's text from its elements' texts: [a b c].

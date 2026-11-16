@@ -641,7 +641,7 @@ func IsStdEvery(t Type) bool {
 		return false
 	}
 	tn := n.origin().Obj
-	return tn != nil && tn.Name == "Every" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == workPath
+	return tn != nil && tn.Name == "Every" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == "machines"
 }
 
 // EveryClock is std time.Clock, the capability that an Every timer's

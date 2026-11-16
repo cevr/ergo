@@ -216,14 +216,19 @@ func TestStdExternsHaveBodies(t *testing.T) {
 				continue // written at its call, Go's builtin (builtinCall)
 			}
 			target, name := f.Decl.Extern.Split()
-			if target != runtimeImport {
+			if !v1.Owns(target) {
 				t.Errorf("%s.%s binds %s.%s, not a runtime/v1 body", path, f.Name, target, name)
 				continue
 			}
-			body, err := v1.BodyOf(name)
+			body, err := v1.BodyIn(target, name)
 			if err != nil {
 				t.Errorf("%s.%s: %v", path, f.Name, err)
 				continue
+			}
+			if body.Wait == "" {
+				// STD-NOPRIV NP4d: the policy is written on the body, and a
+				// body with none is not taken as one that does not wait.
+				t.Errorf("%s.%s binds %s, whose Go declaration states no %s (runtime/v1 WaitKinds)", path, f.Name, name, v1.WaitMark+"KIND")
 			}
 			if hasHidden(body.Hidden, v1.CallerScheduler) {
 				found := false

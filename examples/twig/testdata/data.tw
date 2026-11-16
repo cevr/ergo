@@ -1,0 +1,50 @@
+// Lists and records are shared, not copied; strings are built and cut.
+let xs = [1, 2, 3]
+let ys = xs
+push(ys, 4)
+print(xs)
+print(len(xs))
+
+let total = 0
+for x in xs {
+	if x == 2 {
+		continue
+	}
+	if x == 4 {
+		break
+	}
+	total = total + x
+}
+print(total)
+
+let p = {name: "twig", tags: ["small", "tree"], depth: 2}
+p.depth = p.depth + 1
+print(p)
+print(p.tags[1])
+
+let s = ""
+let i = 0
+while i < 5 {
+	s = s + str(i)
+	i = i + 1
+}
+print(s)
+print(s[2] + "!")
+print(len("héllo"))
+print("tab\there \"quoted\" \\")
+
+let loop = [1]
+push(loop, loop)
+print(loop)
+
+print(1 == 1.0)
+print([1] == [1])
+print(xs == ys)
+print(nil == nil)
+print(7 / 2)
+print(-7 % 3)
+print(7.0 / 2.0)
+print(int(-2.9))
+print(float(3) * 1.5)
+print(9223372036854775807 + 1)
+print("a" < "b" and not (2 <= 1))

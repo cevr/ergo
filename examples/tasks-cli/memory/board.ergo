@@ -6,7 +6,7 @@ import taskscli/tasks
 // Board is a tasks.Board in memory: the items by ID. They are in a
 // sync.Ref, so every copy of a Board is the same board: a Board bound in a
 // context keeps its items from one call to the next. NewBoard makes one.
-type Board { items sync.Ref[Map[int, tasks.Task]] }
+type Board { items sync.Ref[Map[int, tasks.Task]] } implements tasks.Board
 
 // NewBoard is an empty Board.
 func NewBoard() Board { Board{items: sync.NewRef[Map[int, tasks.Task]](Map[int, tasks.Task]{})} }

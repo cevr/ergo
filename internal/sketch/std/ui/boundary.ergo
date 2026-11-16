@@ -35,12 +35,13 @@ func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fa
 }
 
 // mark is where a pass stood when a group started: the lengths of the
-// pass's lists, the identity counts taken, the parent and its last child,
-// and the row a group in an Each started in.
-type mark { nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, each CallSite, key Key }
+// pass's lists, the identity counts taken (the nodes' and the component
+// groups', group.ergo), the parent and its last child, and the row a group
+// in an Each started in.
+type mark { nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, ngroups int, ngroupLog int, parent int, last int, each CallSite, key Key }
 
 func markOf[E](f *Frame[E]) mark {
-	mark{nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
+	mark{nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, ngroups: len(f.groups), ngroupLog: f.ngroupLog, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
 }
 
 // cut takes the pass back to m: the specs, cells, key and frame
@@ -64,6 +65,8 @@ func cut[E](f *Frame[E], m mark) {
 		}
 	}
 	f.nseen = m.nseen
+	cutGroups(f, m.ngroups, m.ngroupLog)
+	f.cuts = f.cuts + 1
 	f.ncells = m.ncells
 	let mut v = m.nloads
 	for i in m.nloads..f.nloads {

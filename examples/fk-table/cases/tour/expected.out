@@ -1,0 +1,71 @@
+> start /?search=raptor&sorting=Length:Ascending&diet=Carnivore&period=Cretaceous
+  address: /?search=raptor&sorting=Length:Ascending&diet=Carnivore&period=Cretaceous
+  controls: search "raptor", Length ascending, diet Carnivore, period Cretaceous
+  showing 1 of 22
+  rows: Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg)
+> search
+  address: /?sorting=Length%3AAscending&diet=Carnivore&period=Cretaceous
+  controls: search "", Length ascending, diet Carnivore, period Cretaceous
+  showing 5 of 22
+  rows: Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1300 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1700 kg); Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8400 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7000 kg)
+> sort Length
+  address: /?sorting=Length%3ADescending&diet=Carnivore&period=Cretaceous
+  controls: search "", Length descending, diet Carnivore, period Cretaceous
+  rows: Spinosaurus (Cretaceous, Carnivore, 15 m, 7000 kg); Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8400 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1700 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1300 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg)
+> sort Length
+  address: /?diet=Carnivore&period=Cretaceous
+  controls: search "", unsorted, diet Carnivore, period Cretaceous
+  rows: Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8400 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7000 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1300 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1700 kg)
+> sort Weight
+  address: /?sorting=Weight%3AAscending&diet=Carnivore&period=Cretaceous
+  controls: search "", Weight ascending, diet Carnivore, period Cretaceous
+  rows: Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1300 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1700 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7000 kg); Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8400 kg)
+> period Triassic
+  address: /?sorting=Weight%3AAscending&diet=Carnivore&period=Triassic
+  controls: search "", Weight ascending, diet Carnivore, period Triassic
+  showing 2 of 22
+  rows: Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg)
+> diet all
+  address: /?sorting=Weight%3AAscending&period=Triassic
+  controls: search "", Weight ascending, diet all, period Triassic
+  showing 3 of 22
+  rows: Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg)
+> search SAURUS
+  address: /?search=SAURUS&sorting=Weight%3AAscending&period=Triassic
+  controls: search "SAURUS", Weight ascending, diet all, period Triassic
+  showing 2 of 22
+  rows: Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg)
+> search zzz
+  address: /?search=zzz&sorting=Weight%3AAscending&period=Triassic
+  controls: search "zzz", Weight ascending, diet all, period Triassic
+  showing 0 of 22
+  no dinosaur matches
+> search
+  address: /?sorting=Weight%3AAscending&period=Triassic
+  controls: search "", Weight ascending, diet all, period Triassic
+  showing 3 of 22
+  rows: Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg)
+> period all
+  address: /?sorting=Weight%3AAscending
+  controls: search "", Weight ascending, diet all, period all
+  showing 22 of 22
+  rows: Compsognathus (Jurassic, Carnivore, 1 m, 3 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Oviraptor (Cretaceous, Omnivore, 1.6 m, 33 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg); Dilophosaurus (Jurassic, Carnivore, 7 m, 400 kg); Gallimimus (Cretaceous, Omnivore, 6 m, 440 kg); Pachycephalosaurus (Cretaceous, Herbivore, 4.5 m, 450 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1300 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1700 kg); Allosaurus (Jurassic, Carnivore, 9.7 m, 2300 kg); Parasaurolophus (Cretaceous, Herbivore, 9.5 m, 2500 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3500 kg); Iguanodon (Cretaceous, Herbivore, 10 m, 3500 kg); Therizinosaurus (Cretaceous, Herbivore, 10 m, 5000 kg); Triceratops (Cretaceous, Herbivore, 9 m, 6000 kg); Ankylosaurus (Cretaceous, Herbivore, 6.5 m, 6000 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7000 kg); Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8400 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12000 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56000 kg)
+> visit /?sorting=Height:Upward&diet=carnivore&period=Jurassic&search=a+b
+  address: /?sorting=Height:Upward&diet=carnivore&period=Jurassic&search=a+b
+  controls: search "a b", unsorted, diet all, period Jurassic
+  showing 0 of 22
+  no dinosaur matches
+> visit /?period=Jurassic&sorting=Name:Descending
+  address: /?period=Jurassic&sorting=Name:Descending
+  controls: search "", Name descending, diet all, period Jurassic
+  showing 6 of 22
+  rows: Stegosaurus (Jurassic, Herbivore, 9 m, 3500 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12000 kg); Dilophosaurus (Jurassic, Carnivore, 7 m, 400 kg); Compsognathus (Jurassic, Carnivore, 1 m, 3 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56000 kg); Allosaurus (Jurassic, Carnivore, 9.7 m, 2300 kg)
+> visit /somewhere/else
+  address: /somewhere/else
+  page: not found: /somewhere/else
+> diet Omnivore
+  address: /?diet=Omnivore
+  controls: search "", unsorted, diet Omnivore, period all
+  showing 2 of 22
+  rows: Gallimimus (Cretaceous, Omnivore, 6 m, 440 kg); Oviraptor (Cretaceous, Omnivore, 1.6 m, 33 kg)
+> stop

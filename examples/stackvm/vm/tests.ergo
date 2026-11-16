@@ -69,5 +69,5 @@ test DecodeRefusesBadCode {
 }
 
 test CountdownHalts {
-	assert (try Run(Countdown(3), 100)).Steps == 19
+	assert try Run(Countdown(3), 100).Steps == 19
 }

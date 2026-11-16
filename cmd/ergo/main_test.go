@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/testinputs"
 )
@@ -27,27 +29,68 @@ var testCLI struct {
 	output      []byte
 }
 
+// TestMain runs the tests under observation: process tests run the CLI and
+// the programs it builds, which Go's test cache sees only through
+// observation. The preparation runs in the test process alone
+// (testinputs.MainFunc), so the observing process, which can replace
+// itself, makes no directory it would leave behind.
+//
+// Every CLI the tests start gets a private emission cache, so no test
+// writes the developer's $XDG_CACHE_HOME or $HOME/.cache; it is removed
+// when the tests end. As an init that never removed it, it left one
+// directory per test process in /tmp (7,404 of them, 68 GB, on 2026-11-13;
+// a go command without GOCACHE puts its build cache there; GS18).
 func TestMain(m *testing.M) {
 	// The CLI under test builds with the go command on PATH, as in the
 	// gate, and never downloads its pinned Go (internal/toolchain).
 	if _, set := os.LookupEnv("ERGO_GO"); !set {
 		os.Setenv("ERGO_GO", "system")
 	}
-	// The CLI builds in the process's own environment, before any test
-	// overrides Go variables with t.Setenv.
-	testCLI.environment = os.Environ()
-	// Process tests run the CLI and the programs it builds, which Go's test
-	// cache sees only through observation.
-	code := testinputs.Main(m)
-	if testCLI.dir != "" {
-		_ = os.RemoveAll(testCLI.dir)
-	}
-	os.Exit(code)
+	os.Exit(testinputs.MainFunc(m, func() int {
+		// This package's tests resolve the emission cache through
+		// XDG_CACHE_HOME, as a user's command does: a private one, the
+		// tests pass their own to the CLIs they start, and
+		// TestPackageNeverWritesUnderHome checks that nothing reaches HOME.
+		// So the private ERGO_CACHE that testinputs sets, which would come
+		// first, is taken off again.
+		if err := os.Unsetenv(build.RootVariable); err != nil {
+			return 1
+		}
+		cache, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
+		if err == nil {
+			err = os.Setenv("XDG_CACHE_HOME", cache)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cmd/ergo tests: private cache directory:", err)
+			return 2
+		}
+		defer os.RemoveAll(cache)
+		// The CLI builds in the process's own environment, before any test
+		// overrides Go variables with t.Setenv.
+		testCLI.environment = os.Environ()
+		defer func() {
+			if testCLI.dir != "" {
+				_ = os.RemoveAll(testCLI.dir)
+			}
+		}()
+		return m.Run()
+	}))
 }
+
+// testCLIVariable names a CLI the gate's coverage record built from this
+// package's sources with coverage (scripts/gate, recordedCLIs; gate-speed
+// GS11). A test uses it instead of building its own: the record reads
+// which code of the CLI a test ran from its counters, where a build of its
+// own would read every source file and tie the test to every edit.
+const testCLIVariable = "ERGO_TEST_CLI"
 
 func buildTestCLI(t *testing.T) string {
 	t.Helper()
 	testCLI.once.Do(func() {
+		if path := os.Getenv(testCLIVariable); path != "" {
+			testCLI.path = path
+			return
+		}
 		testCLI.dir, testCLI.err = os.MkdirTemp("", "ef-test-cli-")
 		if testCLI.err != nil {
 			return
@@ -117,8 +160,8 @@ func runTestCLIDir(t *testing.T, binary, directory string, input string, args ..
 	return nil, nil, -1
 }
 
-// sketchMissingNeeds is a source whose exported Greet uses Console
-// without declaring it (an exported function spells its rows): one
+// sketchMissingNeeds is a source whose Greet uses Console
+// without declaring it (every function spells its rows, q137): one
 // located S102 on line 2.
 const sketchMissingNeeds = "func Greet() {\n\tConsole.Println(\"é\")\n}\n\nfunc main() needs Console {\n\tGreet()\n}\n"
 
@@ -131,7 +174,7 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 	}
 
 	textOutput, textError, code := runTestCLI(t, binary, "diagnostics", path)
-	if code != 1 || string(textOutput) != path+":2:2: error S102: this call requires Console, which is not in the capability row of function Greet and no with provides it\n" || string(textError) != "diagnostics failed policy\n" {
+	if code != 1 || string(textOutput) != path+":2:2: error S102: this call requires Console, which is not in the capability row of function Greet and no with provides it; write: func Greet() needs Console\n" || string(textError) != "diagnostics failed policy\n" {
 		t.Fatalf("unexpected diagnostics text: code=%d stdout=%q stderr=%q", code, textOutput, textError)
 	}
 
@@ -177,8 +220,6 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 		want string
 	}{
 		{[]string{"diagnostics", path, "--unknown"}, "unknown option --unknown"},
-		{[]string{"diagnostics", path, "--lint-config", "lint.json"}, "unknown option --lint-config"},
-		{[]string{"diagnostics", path, "--rules", "rules.json"}, "unknown option --rules"},
 		{[]string{"diagnostics", path, "--target", "llvm"}, "EF110: unsupported target llvm; the only target is go"},
 		{[]string{"diagnostics", path, "--target"}, "--target requires a value"},
 		{[]string{"diagnostics", path, clean}, "incorrect arguments for diagnostics"},
@@ -197,8 +238,9 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 	}
 }
 
-// The other file commands report an invalid invocation with exit 1, and
-// their options are the ones the command table names.
+// The other file commands report an invalid invocation with exit 2, as
+// diagnostics does, and their options are the ones the command table
+// names; an -o that names a directory is a failed build, exit 1.
 func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 	binary := buildTestCLI(t)
 	root := t.TempDir()
@@ -225,9 +267,13 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"build", path, "-o", root + string(filepath.Separator)}, "names a directory"},
 		{[]string{"build", path, "-o", root}, "is a directory"},
 	} {
+		want := 2
+		if strings.Contains(c.want, "directory") {
+			want = 1
+		}
 		stdout, stderr, code := runTestCLIDir(t, binary, root, "", c.args...)
-		if code != 1 || len(stdout) != 0 || !strings.Contains(string(stderr), c.want) {
-			t.Fatalf("ergo %v: code=%d stdout=%q stderr=%q; want exit 1 and %q", c.args, code, stdout, stderr, c.want)
+		if code != want || len(stdout) != 0 || !strings.Contains(string(stderr), c.want) {
+			t.Fatalf("ergo %v: code=%d stdout=%q stderr=%q; want exit %d and %q", c.args, code, stdout, stderr, want, c.want)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "dist")); err == nil {

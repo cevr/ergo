@@ -5,7 +5,7 @@ import scope
 import task
 
 type A { Use() }
-type First {}
+type First {} implements A, Closer
 func Use(_ First) {}
 func Close(_ First) {}
 

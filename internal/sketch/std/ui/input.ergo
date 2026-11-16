@@ -36,7 +36,7 @@ type KeyPress { Name string, Mods Mods }
 // of each, None for an event the program ignores (a move with no button
 // down). label names it to a test host and to assistive technology; body
 // is what it shows.
-func Area[E, F, R](f *Frame[E], label string, style Style, on escaping func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Area[E, F, R](f *Frame[E], label string, style Style, on own func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, AreaNode{Label: label, Style: style}, None, None, at)
 	f.specs[i].onPoint = Some{Value: on}
@@ -53,7 +53,7 @@ func Area[E, F, R](f *Frame[E], label string, style Style, on escaping func(p Po
 // calls in the order the pass made them, and the first that gives a signal
 // takes it, so a dialog written before the page it covers takes its keys
 // first.
-func OnKey[E](f *Frame[E], on escaping func(k KeyPress) Option[E]) {
+func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
 	if f.nkeys < len(f.keys) {
 		f.keys[f.nkeys] = on
 	} else {
@@ -66,7 +66,7 @@ func OnKey[E](f *Frame[E], on escaping func(k KeyPress) Option[E]) {
 // frame, and on makes the signal of each from the frame's time (since the
 // host started). A pass that makes no Animate asks for no frame, so a
 // settled screen costs nothing.
-func Animate[E](f *Frame[E], on escaping func(at duration) E) {
+func Animate[E](f *Frame[E], on own func(at duration) E) {
 	if f.nanims < len(f.anims) {
 		f.anims[f.nanims] = on
 	} else {

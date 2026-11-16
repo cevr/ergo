@@ -1,0 +1,146 @@
+import fk-domains/search/route
+
+// The planner's laws (plan §20.4). The catalog's size is drawn, up to
+// 100,000 listings, so no law holds only at the original's 556.
+
+// fresh is the input of a catalog of n with nothing loaded and the window
+// showing wanted.
+func fresh(n int, wanted []int, whole bool) Input {
+	let mut ranges = []Load{}
+	for _ in 0..Count(n) {
+		ranges = ranges.Append(NotLoaded)
+	}
+	Input{Size: n, Ranges: ranges, Whole: NotLoaded, Checked: 0, InFlight: false, Wanted: wanted, NeedsWhole: whole}
+}
+
+// settle is st after r loaded: the whole catalog, or the range of r.
+func settle(st Input, r Range) Input {
+	if r.Offset == 0 && r.Limit == st.Size && Count(st.Size) > 1 {
+		return Input{..st, Whole: Loaded, Checked: st.Size}
+	}
+	let mut ranges = st.Ranges
+	ranges[IndexOf(r.Offset)] = Loaded
+	Input{..st, Ranges: ranges, Checked: st.Checked + r.Limit}
+}
+
+// rows are the listings start to start+count-1 that a catalog of n holds.
+func rows(n int, start int, count int) []int {
+	let mut out = []int{}
+	for i in start..start+count {
+		if i >= 0 && i < n {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+
+// RangesNeverOverlap: the ranges cut the catalog into pieces that follow
+// each other from 0 to its end, and IndexOf finds each listing's piece.
+law RangesNeverOverlap(n int where 1 <= n && n <= 100000) {
+	let mut at = 0
+	for k in 0..Count(n) {
+		let r = RangeAt(n, k)
+		if r.Offset != at || r.Limit < 1 || IndexOf(r.Offset) != k || IndexOf(End(r)-1) != k {
+			return false
+		}
+		at = End(r)
+	}
+	at == n
+}
+
+// PlanCoversWindow: loading what the planner asks for, until it asks for
+// nothing, loads every listing the window shows, one range at a time.
+law PlanCoversWindow(n int where 1 <= n && n <= 20000, start int where 0 <= start && start <= 20000, count int where 1 <= count && count <= 80) {
+	let wanted = rows(n, start, count)
+	let mut st = fresh(n, wanted, false)
+	for _ in 0..Count(n)+1 {
+		match Next(st).Next {
+		case None:
+			break
+		case Some[Range] as r:
+			st = settle(st, r.Value)
+		}
+	}
+	for i in wanted {
+		match st.Ranges[IndexOf(i)] {
+		case Loaded:
+		case NotLoaded, Loading, Failed:
+			return false
+		}
+	}
+	true
+}
+
+// FirstIsFourThenFiftySix: a cold search of a catalog of more than a page
+// asks for the top four, then the rest of the first page (the original's
+// {0,4} then {4,56}, fact 3 of §20.1).
+law FirstIsFourThenFiftySix(n int where 61 <= n && n <= 100000, count int where 5 <= count && count <= 80) {
+	let st = fresh(n, rows(n, 0, count), false)
+	let first = Next(st).Next
+	let want = Range{Offset: 0, Limit: 4}
+	if first != (Some[Range]{Value: want}) {
+		return false
+	}
+	Next(settle(st, want)).Next == Some[Range]{Value: Range{Offset: 4, Limit: 56}}
+}
+
+// PriceOrderLoadsWhole: a price order or the available filter asks for
+// the whole catalog in one range; the other orders ask for the top four.
+law PriceOrderLoadsWhole(order int, availableOnly bool, n int where 5 <= n && n <= 100000) {
+	let o = pick(route.Orders, order)
+	let whole = NeedsWhole(o, availableOnly)
+	let expected = match o {
+	case route.PriceAscending, route.PriceDescending:
+		true
+	case route.Relevance, route.Length, route.Alphabetical:
+		availableOnly
+	}
+	let next = Next(fresh(n, rows(n, 0, 10), whole)).Next
+	whole == expected && next == Some[Range]{Value: if whole { Range{Offset: 0, Limit: n} } else { Range{Offset: 0, Limit: 4} }}
+}
+
+func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+
+// PlanEnds: scrolling a window of 30 rows down the whole catalog, at most
+// 30 rows a step so that no row is skipped, loads
+// it in at most ceil(n/60)+2 requests, and asks for no range twice.
+law PlanEnds(n int where 1 <= n && n <= 20000, step int where 1 <= step && step <= 30) {
+	let mut st = fresh(n, []int{}, false)
+	let mut asked = 0
+	let mut at = 0
+	for at < n+step {
+		st = Input{..st, Wanted: rows(n, at, 30)}
+		for _ in 0..Count(n)+1 {
+			match Next(st).Next {
+			case None:
+				break
+			case Some[Range] as r:
+				match st.Ranges[IndexOf(r.Value.Offset)] {
+				case NotLoaded:
+				case Loaded, Loading, Failed:
+					return false
+				}
+				asked = asked + 1
+				st = settle(st, r.Value)
+			}
+		}
+		at = at + step
+	}
+	asked <= (n+59)/60+2 && st.Checked == n
+}
+
+// StepWorkIsFlat: the planner takes the same steps for the same window
+// and the same loads around it at 556, 1,000, 10,000 and 100,000
+// listings: its work does not grow with the catalog.
+law StepWorkIsFlat(start int where 0 <= start && start <= 400, count int where 1 <= count && count <= 80, loaded int where 0 <= loaded && loaded <= 9) {
+	let sizes = []int{556, 1000, 10000, 100000}
+	let mut steps = []int{}
+	for n in sizes {
+		let mut st = fresh(n, rows(n, start, count), false)
+		for k in 0..loaded {
+			st = settle(st, RangeAt(n, k))
+		}
+		steps = steps.Append(Next(st).Steps)
+	}
+	steps[0] == steps[1] && steps[1] == steps[2] && steps[2] == steps[3]
+}

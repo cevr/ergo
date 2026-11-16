@@ -69,11 +69,11 @@ func M(_ S) fails B { return B }
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
 	{"M5", "generic-constraint-inferred-ok", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
-	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t Task[T, E]) T fails E takes t { return t.Wait() }`},
+	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t own Task[T, E]) T fails E { return t.Wait() }`},
 	// D3a: a record field holds no Task, so the field is a function type.
 	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
 func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
@@ -118,7 +118,7 @@ func F() int {
 func F() { Id[int] }`},
 	{"M10", "function-value-before-tail", "S110", `func Id[T](x T) T { return x }
 func F() { Id[int]; _ = 0 }`},
-	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t Task[T, E]) T fails E takes t { return t.Wait() }
+	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t own Task[T, E]) T fails E { return t.Wait() }
 func F() { _ = Await[int] }`},
 	{"M11", "index-negative", "S108", `func F(xs []int) int { return xs[-1] }`},
 	{"M11", "slice-bounds", "S108", `func F(xs []int) []int { return xs[3:1] }`},
@@ -129,20 +129,20 @@ func F() { _ = Await[int] }`},
 	{"M12", "float-rounding-arithmetic", "S108", `func F() int { return 1 / int(float32(16777216) + 1 - float32(16777216)) }`},
 	{"M12", "float64-exact-enough", "", `func F() int { return 1 / int(float64(16777217) - float64(16777216)) }`},
 	{"M13", "embedded-collision-replaced", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
 let W = context { replace I: S, A, B }
 func F() { with W { I.M() } }`},
 	{"M13", "embedded-collision-inline-replaced", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
 func F() { with context { replace I: S, A, B } { I.M() } }`},
 	{"M13", "embedded-collision-unresolved", "S111", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
@@ -151,14 +151,14 @@ func F() { with W { I.M() } }`},
 	// Two replaces of one capability in one context are S111 since check-v1
 	// (round-3 review M2): a with binds each capability to one provider.
 	{"M13", "context-double-replace", "S111", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let Base = context { I: S }
 let W = context { replace I: S, replace I: S, Base }
 func F() { with W { I.M() } }`},
 	{"M14", "named-context-internal-capability", "", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {
@@ -169,7 +169,7 @@ let W = context { A: S, B: Make() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-internal-cycle", "S108", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements A, B
 func M(_ S) {}
 func N(_ S) {}
 func MakeA() A needs B {
@@ -184,7 +184,7 @@ let W = context { A: MakeA(), B: MakeB() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-caller-capability", "S102", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B
 func N(_ S) {}
 func Make() B needs A {
 	A.M()
@@ -193,7 +193,7 @@ func Make() B needs A {
 let W = context { B: Make() }
 func F() needs A { with W { B.N() } }`},
 	{"M14", "named-context-self-cycle", "S108", `type A { M() }
-type S {}
+type S {} implements A
 func M(_ S) {}
 func MakeA() A needs A {
 	A.M()
@@ -204,7 +204,7 @@ func F() { with W { A.M() } }`},
 	{"M14", "named-context-three-cycle", "S108", `type A { M() }
 type B { N() }
 type C { O() }
-type S {}
+type S {} implements A, B, C
 func M(_ S) {}
 func N(_ S) {}
 func O(_ S) {}
@@ -224,7 +224,7 @@ let W = context { A: MakeA(), B: MakeB(), C: MakeC() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-needs-embedded", "", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {
@@ -236,7 +236,7 @@ let W = context { B: Make(), Base }
 func F() { with W { B.N() } }`},
 	{"M14", "inline-context-stays-open", "S102", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {
@@ -294,6 +294,13 @@ func F(m Map[int, S]) { G(&m[0]) }`},
 	{"M18", "unknown-context-cascade-in-context", "S104", `func F() { with(context{ Missing }) { Console.Println("x") } }`},
 	{"M18", "unknown-context-cascade-named", "S104", `let W = context { Missing }
 func F() { with W { Console.Println("x") } }`},
+	{"N1", "pointer-receiver-parameter", "", `type I { M() }
+type S {} implements I
+func M(s *S) {}
+func F(s *S) {
+	let x I = s
+	x.M()
+}`},
 	{"N1", "pointer-receiver-value", "S108", `type I { M() }
 type S {}
 func M(s *S) {}
@@ -375,12 +382,14 @@ func TestReviewCases(t *testing.T) {
 	for _, c := range reviewCases {
 		t.Run(c.finding+"/"+c.name, func(t *testing.T) {
 			src := c.src
+			checkSrc := check.CheckSource
 			if src == "" {
 				src = largeSCC(100, true)
+				checkSrc = checkSourceInfer // class G is the inference engine's
 			} else {
 				src = src + "\n"
 			}
-			_, diags := check.CheckSource(src)
+			_, diags := checkSrc(src)
 			got := codesOf(diags)
 			if got != c.want {
 				t.Errorf("want %q, got %q\n\t%s", c.want, got, describe(diags))
@@ -416,7 +425,7 @@ func largeSCC(n int, values bool) string {
 // whatever the cycle's length (M1).
 func TestInferenceConverges(t *testing.T) {
 	for _, n := range []int{10, 100, 400} {
-		pkg, diags := check.CheckSource(largeSCC(n, false))
+		pkg, diags := checkSourceInfer(largeSCC(n, false))
 		if codesOf(diags) != "S102" {
 			t.Fatalf("n=%d: want one S102, got %s", n, describe(diags))
 		}
