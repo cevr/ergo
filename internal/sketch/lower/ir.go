@@ -405,6 +405,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if drop {
 		name = fd.dropped
 	}
+	if n := b.knownVariantName(fd); n != "" {
+		name = n // a known-callback variant (ir_kcb.go)
+	}
 	if fd.method != nil {
 		name = fd.method.name + "." + name
 	}
@@ -418,7 +421,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	census := name
 	for _, g := range gates {
 		switch g {
-		case "known-callback variant", "variant with no result", "copy for a known record":
+		case "variant with no result":
 			// A variant is a body of its own beside the function's: the
 			// census names it apart, so the function's IR body and the
 			// variant's fallback are two records, not one function with
@@ -483,7 +486,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
 
 	b.part(func() { b.fn.Body = append(b.fn.Body, b.openOwn(f, params)...) }) // ir_own.go
-	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
+	// A known variant has no entry poll (known.go): fc.plain marks one.
+	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls && fc.plain == nil {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go

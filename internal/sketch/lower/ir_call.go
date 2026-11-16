@@ -26,7 +26,7 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		irNo("untried fallible call")
 	}
 	pre, e, effect := b.callParts(x, stmt)
-	if e != nil && e.K == "vcall" {
+	if e != nil && e.K == "vcall" && !b.plainCallee(x) { // a known callback's is plain (ir_kcb.go)
 		// A function value returns its (value, error) pair (ir_closure.go).
 		vpre, v := b.valueResult(x, e, stmt)
 		return append(pre, vpre...), v
@@ -148,6 +148,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if !fd.pure && b.env < 0 {
 			irNo("call of an impure function from a pure one")
 		}
+		// Before the operands: a known site's literals are built plain.
+		known := b.knownCall(x, c, fd) // ir_kcb.go
 		args := x.Args
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
@@ -172,6 +174,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 				at = 1
 			}
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
+		}
+		if known != "" && fd.method != nil {
+			return pre, &irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+		} else if known != "" {
+			return pre, &irExpr{K: "call", Pos: p, Name: known, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
 		}
 		if fd.method != nil {
 			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
@@ -227,7 +234,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}, true
 	case check.CallFuncValue:
 		pre, e := b.valueCall(x, c, p) // ir_closure.go
-		return pre, e, true
+		// A known callback's call is pure (ir_kcb.go).
+		return pre, e, !b.plainCallee(x)
 	}
 	irNo("call kind %d", c.Kind)
 	return nil, nil, false

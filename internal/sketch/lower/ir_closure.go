@@ -60,9 +60,6 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	var endNode syntax.Node
 	if x != nil {
 		list, ft, end, endNode = x.Body.List, x.Type, x.Body.Rbrace, x.Body
-		if b.fc.plainLits[x] {
-			irNo("function literal of a known callback")
-		}
 	} else {
 		n = site.Trailing
 		list, end, endNode = site.Trailing.List, site.Trailing.Rbrace, site.Trailing
@@ -98,6 +95,9 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	}
 	if l.bodyNeedsFrame(list) || l.ownsParams(params) {
 		irNo("function literal that is a frame")
+	}
+	if x != nil && b.fc.plainLits[x] {
+		return b.plainLitIR(x, sig, params, ids, list, end) // a known callback (ir_kcb.go)
 	}
 	p := b.pos(n, n.Pos())
 	typ := b.sigType(sig, n)
@@ -204,7 +204,7 @@ func (b *irBuilder) valueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	}
 	if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
 		if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.fc.plain[v] {
-			irNo("call of a known callback")
+			return b.plainCall(x, p) // ir_kcb.go
 		}
 	}
 	if b.env < 0 {
