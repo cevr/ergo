@@ -190,7 +190,7 @@
       "origin": "wf10 S2b (SL6)",
       "file": "compiler/syntax/readers.ergo",
       "from": "\tBinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}",
-      "to": "\tBinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, b)}",
+      "to": "\tBinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, a)}",
       "rule": "View reads each operand from its own word.",
       "killers": [
         "internal/sketch/syntax:TestParseAgreesWithGo"
