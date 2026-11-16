@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,36 @@ func (x *Exchange) Write(t *rt.Task, text string) error {
 		return HTTPWriteFailed{Reason: err.Error()}
 	}
 	return nil
+}
+
+// Send writes status, header and body as the whole response, with its
+// length, straight from body's buffer (std http SendBytes, GX9):
+// no string of the body is made. The header rules are the buffered
+// form's (an empty body has no content type, none is sniffed). A
+// response that has started is a defect, as Begin's is. A write the
+// connection refuses is dropped, as the buffered form's is: the client
+// went away, and the request ends with it.
+//
+//ergo:wait none
+func (x *Exchange) Send(status int, header []HTTPField, body []byte) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.started || x.ended {
+		panic("http.SendBytes: the response has already started")
+	}
+	x.started, x.ended = true, true
+	h := x.w.Header()
+	for _, f := range header {
+		h.Add(f.Name, f.Value)
+	}
+	if len(body) == 0 {
+		h["Content-Type"] = nil
+	}
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	x.w.WriteHeader(status)
+	if len(body) > 0 {
+		_, _ = x.w.Write(body)
+	}
 }
 
 // End closes the stream: every later Write fails.

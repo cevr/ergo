@@ -353,7 +353,7 @@ func (c *checker) constructorWhy(n *Named) (string, bool) {
 	}
 	switch tn.ctorState {
 	case 1:
-		return n.String() + "'s constructor New" + tn.Name + " takes a value that holds a " + n.String(), true
+		return n.String() + "'s constructor " + syntax.ConstructorName(tn.Name) + " takes a value that holds a " + n.String(), true
 	case 0:
 		c.planConstructor(tn)
 	}
@@ -396,7 +396,7 @@ func (c *checker) planConstructor(tn *TypeName) {
 	}
 	for _, f := range tn.Pkg.Funcs {
 		sig := f.Sig
-		if f.Name != "New"+tn.Name || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], n) {
+		if f.Name != syntax.ConstructorName(tn.Name) || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], n) {
 			continue
 		}
 		if rowHolds(sig.Errors) || rowHolds(sig.Uses) {

@@ -342,11 +342,37 @@ func (c *checker) planLaws() {
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
 			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
-				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func " + syntax.ConstructorName(b[0].Type.Obj.Name) + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
 		// A run under a named context is planned later (lawContext).
 	}
+}
+
+// pairUngeneratable is why the round-trip law of a by-name pair over t
+// does not run, or "" (types.md, Codecs 7; GX11). The law draws x from t's
+// own generator: the values t's package makes, by its constructor New<T>,
+// or any value of a record or union that every package may build field by
+// field. A generator that only t's own authority makes, a record of an
+// unexported field built field by field or a defined type over a basic
+// type drawn as its base, makes values t's ParseX may refuse, so it is not
+// t's own: the law does not run, and the test build reports why, rather
+// than draw the base type, whose values ParseX almost never reads.
+func (c *checker) pairUngeneratable(t Type) string {
+	n, ok := t.(*Named)
+	if !ok {
+		return ""
+	}
+	if _, built := c.constructorWhy(n); built {
+		return ""
+	}
+	switch n.Underlying().(type) {
+	case *Struct, *Union:
+		if c.ungeneratableFrom(n, nil) == "" {
+			return ""
+		}
+	}
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare " + syntax.ConstructorName(n.Obj.Name) + ", or make " + n.String() + " a record or union of exported fields"
 }
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
@@ -376,6 +402,12 @@ func (c *checker) planLaw(law *Law) {
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
+		}
+		if law.Decl.Pair != nil {
+			if why := c.pairUngeneratable(v.Type); why != "" {
+				law.Unrun = why
+				return
+			}
 		}
 	}
 	if law.Owner != nil {
@@ -689,7 +721,7 @@ func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
 		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
 	}
-	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
+	return "; a func " + syntax.ConstructorName(p.Type.Obj.Name) + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
 }
 
 // lawClosures are, for pkg and each package it sees, the packages each

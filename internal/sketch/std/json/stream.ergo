@@ -1043,6 +1043,11 @@ func String(r Stream) string fails WireWrongKind {
 	o.v
 }
 
+// StringBytes is into with the next string's bytes added, as String reads
+// them (the prelude Reader's StringBytes, GX12). The tokenizer has made the
+// string already, so this adds its bytes.
+func StringBytes(r Stream, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
+
 func BeginList(r Stream) fails WireWrongKind {
 	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
 		let mut s = v

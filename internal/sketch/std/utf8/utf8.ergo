@@ -23,6 +23,10 @@ extern go ergo.local/prototype/runtime/v1.UTF8RuneText func RuneText(r rune) str
 // utf8.AppendRune; a rune that is not valid adds those of U+FFFD.
 extern go ergo.local/prototype/runtime/v1.UTF8AppendRune func AppendRune(p []byte, r rune) []byte
 
+// String is the text whose bytes are b, Go's string(b) (GX9, GX10): a
+// buffer an appender wrote, made text once.
+extern go ergo.local/prototype/runtime/v1.UTF8String func String(b []byte) string
+
 // ValidString reports whether s is all valid UTF-8.
 extern go ergo.local/prototype/runtime/v1.UTF8ValidString func ValidString(s string) bool
 

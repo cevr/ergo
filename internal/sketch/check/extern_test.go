@@ -326,6 +326,7 @@ func Int(_ Mine, n int64)       {}
 func Uint(_ Mine, n uint64)     {}
 func Float(_ Mine, f float64)   {}
 func String(_ Mine, s string)   {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int)   {}
 func EndList(_ Mine)            {}
 func BeginObject(_ Mine, n int) {}
@@ -342,6 +343,7 @@ func setComma(_ Mine, due bool)  {}
 func html(_ Mine) bool           { false }
 func keyBody(_ Mine, k string)   {}
 func stringBody(_ Mine, s string) {}
+func bytesBody(_ Mine, b []byte) {}
 func intBody(_ Mine, n int64)    {}
 func uintBody(_ Mine, n uint64)  {}
 func boolBody(_ Mine, b bool)    {}
@@ -366,6 +368,7 @@ func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
 func Float(_ Mine) float64           { 0.0 }
 func String(_ Mine) string           { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
 func BeginList(_ Mine) bool          { false }
 func BeginObject(_ Mine) bool        { false }
 func Tag(_ Mine) string              { "" }
@@ -608,6 +611,7 @@ func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
 func Float(_ Mine, f float64) {}
 func String(_ Mine, s string) {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int) {}
 func EndList(_ Mine) {}
 func BeginObject(_ Mine, n int) {}
@@ -632,6 +636,7 @@ func Int(_ Mine) int64 fails WireWrongKind { 0 }
 func Uint(_ Mine) uint64 fails WireWrongKind { 0 }
 func Float(_ Mine) float64 fails WireWrongKind { 0.0 }
 func String(_ Mine) string fails WireWrongKind { "" }
+func StringBytes(_ Mine, into []byte) []byte fails WireWrongKind { into }
 func BeginList(_ Mine) fails WireWrongKind {}
 func BeginObject(_ Mine) fails WireWrongKind {}
 func Tag(_ Mine) string fails WireMissingField { "" }

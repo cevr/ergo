@@ -875,6 +875,18 @@
     {"name":"wg1-filelock-unlock-keeps","origin":"wf10 SEMWS WG1","file":"runtime/v1/host.go","from":"\tif held {\n\t\t_ = syscall.Close(fd)\n\t}","to":"\tif held {\n\t\t_ = fd\n\t}","rule":"FSUnlockFile closes the lock's descriptor, which gives the lock back.","killers":["runtime/v1:TestFSLockFileExcludes"]},
     {"name":"wg1-filelock-by-descriptor","origin":"wf10 SEMWS WG1","file":"runtime/v1/host.go","from":"\tfileLocks.next++\n\tfileLocks.held[fileLocks.next] = fd\n\treturn fileLocks.next, nil","to":"\tfileLocks.held[fd] = fd\n\treturn fd, nil","rule":"A lock's number is never given again, so a second unlock cannot close a later lock's reused descriptor.","killers":["runtime/v1:TestFSLockFileExcludes"]},
     {"name":"c1p-since-not-stored","origin":"wf10 std-spike C1 perf","file":"runtime/rt/clock.go","from":"\tv.at.Store(int64(i))\n","to":"","rule":"stdlib.md time: a Manual's Now is the time Advance has moved it to.","killers":["runtime/v1:TestManualClockModel"]},
-    {"name":"c1p-advance-keeps-history","origin":"wf10 std-spike C1 perf","file":"runtime/rt/clock.go","from":"func (v *Virtual) setNow(i Instant) {\n","to":"var nowHistory []Instant\n\nfunc (v *Virtual) setNow(i Instant) {\n\tnowHistory = append(nowHistory, i)\n","rule":"C1 item d: an Advance that wakes no sleeper allocates nothing and keeps nothing live.","killers":["runtime/v1:TestManualClockAllocatesNothing"]}
+    {"name":"c1p-advance-keeps-history","origin":"wf10 std-spike C1 perf","file":"runtime/rt/clock.go","from":"func (v *Virtual) setNow(i Instant) {\n","to":"var nowHistory []Instant\n\nfunc (v *Virtual) setNow(i Instant) {\n\tnowHistory = append(nowHistory, i)\n","rule":"C1 item d: an Advance that wakes no sleeper allocates nothing and keeps nothing live.","killers":["runtime/v1:TestManualClockAllocatesNothing"]},
+    {"name":"gx12-cursor-bytes-via-string","origin":"wf10 GX12","file":"runtime/v1/json.go","from":"func (c *Cursor) strBytes(dst []byte) []byte {\n\tc.i++","to":"func (c *Cursor) strBytes(dst []byte) []byte {\n\treturn append(dst, c.str()...)\n\tc.i++","rule":"stdlib.md json (GX12): the Reader's StringBytes reads into the lent buffer with no string made.","killers":["runtime/v1:TestCursorStringBytesAllocatesNothing"]},
+    {
+      "name": "gx10-quoted-bytes-runes",
+      "origin": "wf10 GX10",
+      "file": "runtime/v1/json_bytes.go",
+      "from": "r, size := utf8.DecodeRune(s[i:])",
+      "to": "r, size := rune(s[i]), 1",
+      "rule": "stdlib.md, json (GX10): JSONAppendQuotedBytes quotes the string its bytes spell as JSONAppendQuoted does.",
+      "killers": [
+        "runtime/v1:TestJSONAppendQuotedBytesIsQuoted"
+      ]
+    }
   ]
 }

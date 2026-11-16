@@ -32,6 +32,7 @@ func Int(t *tape, n int64) { t.raw("i") }
 func Uint(t *tape, n uint64) { t.raw("u") }
 func Float(t *tape, f float64) { t.raw("f") }
 func String(t *tape, s string) { t.raw(s) }
+func StringBytes(t *tape, b []byte) { t.raw("s") }
 func BeginList(t *tape, n int) { t.raw("[") }
 func EndList(t *tape) { t.raw("]") }
 func BeginObject(t *tape, n int) { t.raw("{") }

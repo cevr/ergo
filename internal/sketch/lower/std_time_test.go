@@ -126,6 +126,7 @@ const stdTimeOutput = "1.5s\n" +
 // holds it: Now's monotonic part is Read's Mono, so Sub of two Nows is the
 // difference of the two Reads.
 const stdTimeLawsProbe = `import queue
+import utf8
 import task
 import time
 
@@ -140,6 +141,21 @@ func within(n int64, lo int64, hi int64) int64 {
 }
 
 func anyYear(n int64) int64 { within(n, -62135596800, 253402300799) }
+
+test TimeWireIsFormat(sec int64, nsec int64, near bool, pre []byte) {
+	let s = if near { anyYear(sec) } else { sec }
+	let t = time.Unix(s, within(nsec, 0, 999999999))
+	assert utf8.String(time.Wire(t, pre)) == utf8.String(pre) + t.Format(time.RFC3339Nano)
+}
+
+test TimeTimeRoundTrips(x time.Time) {
+	let back = time.ParseTime(time.Wire(x, []byte{})) catch {
+	case _:
+		assert false
+		return
+	}
+	assert back == x
+}
 
 test TimeFormatParseRoundTrip(sec int64, nsec int64) {
 	let t = time.Unix(anyYear(sec), within(nsec, 0, 999999999))
@@ -232,6 +248,8 @@ test TaskSleepAdvancesNow(n int64) {
 // the law's source text as the ledger writes it, by ledger key;
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var stdTimeLawStatements = map[string]string{
+	"time WireIsFormat":              `WireIsFormat(sec int64, nsec int64, near bool, pre []byte) { let s = if near { anyYear(sec) } else { sec } let t = Time{sec: s, nsec: within(nsec, 0, 999999999), mono: 0, hasMono: false} utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano) }`,
+	"time TimeRoundTrips":            `TimeRoundTrips(x Time) { try ParseTime(x.Wire([]byte{})) == x }`,
 	"task SleepAdvancesNow":          `SleepAdvancesNow(n int64) { let m = time.NewManual(0) let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775) let woke = queue.New[duration](1) let t = with context { Scheduler: m, time.Clock: m } { Go() { let before = time.Clock.Now() Scheduler.Sleep(d) try woke.Push(time.Clock.Now().Sub(before)) } } for m.Sleepers() == 0 && woke.Len() == 0 { } m.Advance(d) try t.Wait() try woke.Pop() >= d }`,
 	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
 	"time DateRoundTrip":             `DateRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let c = t.Calendar() Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t }`,

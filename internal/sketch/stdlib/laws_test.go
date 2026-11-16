@@ -248,35 +248,28 @@ func lawStatement(f *syntax.File, d *syntax.LawDecl) string {
 		}
 		return fmt.Sprintf("%s(v %s) { %s (%s) && try %s(it) == v }", d.Name.Name, td.Name.Name, binding, syntax.WhereText(f.Src, td.Where), syntax.ParseName(td.Name.Name))
 	}
-	if d.Pair != nil {
-		return pairStatement(f, d)
+	if w := d.Pair; w != nil {
+		return pairStatement(d, w)
 	}
 	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
 }
 
-// pairStatement is the statement of the round-trip law d the parser
-// derived from a by-name pair: over a drawn x of an open X, else over a
-// drawn b through ParseX, with catch and try only when ParseX fails.
-func pairStatement(f *syntax.File, d *syntax.LawDecl) string {
-	param := d.Params.List[0]
-	x := strings.TrimSuffix(d.Name.Name, "RoundTrips")
-	_, fails := d.Body.List[len(d.Body.List)-1].(*syntax.ExprStmt).X.(*syntax.TryExpr)
-	held := "Parse" + x + "(x.Wire()) == x"
-	if fails {
+// pairStatement is the round-trip law the parser derives for the by-name
+// pair whose Wire is w (types.md, Codecs 7), as source: its nodes carry
+// Wire's position, not a source slice of their own. It states the form
+// syntax/pair.go builds: over a drawn x, with an empty buffer for the
+// append form, and with try when ParseX fails.
+func pairStatement(d *syntax.LawDecl, w *syntax.FuncDecl) string {
+	x := w.Type.Params.List[0].Type.(*syntax.Ident).Name
+	into := ""
+	if len(w.Type.Params.List) == 2 {
+		into = "[]byte{}"
+	}
+	held := fmt.Sprintf("%s(x.Wire(%s)) == x", syntax.ParseName(x), into)
+	if _, fails := d.Body.List[0].(*syntax.ExprStmt).X.(*syntax.TryExpr); fails {
 		held = "try " + held
 	}
-	if open, ok := param.Type.(*syntax.Ident); ok && param.Names[0].Name == "x" {
-		// An open X: the law draws x itself. Its type node is built at
-		// the Wire's position, so it is read by name, not from the source.
-		return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, open.Name, held)
-	}
-	// B is parsed again from the Wire's own tokens: its source text.
-	b := spaces.ReplaceAllString(f.Src[param.Type.Pos():param.Type.End()], " ")
-	drawn := "Parse" + x + "(b)"
-	if fails {
-		drawn += " catch { case _: return true }"
-	}
-	return fmt.Sprintf("%s(b %s) { let x = %s %s }", d.Name.Name, b, drawn, held)
+	return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, x, held)
 }
 
 // sourceLaws are the laws of the std sources by ledger key, "pkg Law" for
@@ -326,7 +319,7 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 // end, at the Wire's func keyword before it, so TestStdLawLedger panicked
 // (slice bounds out of range) on any std file declaring ParseX and Wire
 // together. The statement of a derived law is the law pair.go derives,
-// in its open form and in its drawn form with catch and try.
+// over a drawn x of X (GX11), with try when ParseX fails.
 //
 // Mutant lint4-ledger-pair-sliced (lawStatement slices every law).
 func TestPairLawStatement(t *testing.T) {
@@ -386,8 +379,8 @@ func Wire(p Port) []string { []string{"p"} }
 	}
 	want := map[string]string{
 		"ModeRoundTrips":  "ModeRoundTrips(x Mode) { try ParseMode(x.Wire()) == x }",
-		"LevelRoundTrips": "LevelRoundTrips(b int) { let x = ParseLevel(b) ParseLevel(x.Wire()) == x }",
-		"PortRoundTrips":  "PortRoundTrips(b []string) { let x = ParsePort(b) catch { case _: return true } try ParsePort(x.Wire()) == x }",
+		"LevelRoundTrips": "LevelRoundTrips(x Level) { ParseLevel(x.Wire()) == x }",
+		"PortRoundTrips":  "PortRoundTrips(x Port) { try ParsePort(x.Wire()) == x }",
 	}
 	if !maps.Equal(got, want) {
 		t.Errorf("the derived pair laws' statements are\n%q\nwant\n%q", got, want)

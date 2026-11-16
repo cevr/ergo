@@ -143,6 +143,11 @@ type Writer {
 	Uint(n uint64),
 	Float(f float64),
 	String(s string),
+	// StringBytes writes the string whose UTF-8 bytes are b, as String
+	// does (GX10): a by-name pair's append form writes its text through
+	// it, so no string of the text is made. The writer reads b during the
+	// call only and keeps none of it.
+	StringBytes(b []byte),
 	BeginList(n int),
 	EndList(),
 	BeginObject(n int),
@@ -175,6 +180,11 @@ type Reader {
 	Uint() uint64 fails WireWrongKind,
 	Float() float64 fails WireWrongKind,
 	String() string fails WireWrongKind,
+	// StringBytes reads the next string as String does and gives into with
+	// its UTF-8 bytes added (GX12): an append-form pair's decode lends a
+	// buffer and gives its ParseX the bytes, so no string of the text is
+	// made. The reader keeps none of into.
+	StringBytes(into []byte) []byte fails WireWrongKind,
 	BeginList() fails WireWrongKind,
 	BeginObject() fails WireWrongKind,
 	Tag() string fails WireMissingField,

@@ -3626,6 +3626,7 @@ func (e *encoder) encFieldsWirePair(v *WirePair) {
 	e.encPtrFunc(v.Parse)
 	e.encPtrFunc(v.Wire)
 	e.encType(v.Base)
+	e.encT14(v.Append)
 }
 
 func (e *encoder) encWirePair(v WirePair) { e.encFieldsWirePair(&v) }
@@ -14521,6 +14522,7 @@ func (d *decoder) decFieldsWirePair(v *WirePair) {
 	v.Parse = d.decPtrFunc()
 	v.Wire = d.decPtrFunc()
 	v.Base = d.decType()
+	v.Append = d.decT14()
 }
 
 func (d *decoder) decWirePair() (v WirePair) {

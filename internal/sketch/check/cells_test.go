@@ -55,6 +55,7 @@ func Int(s *src) int64 fails WireWrongKind { s.at = s.at + 1
 func Uint(s *src) uint64 fails WireWrongKind { 1 }
 func Float(s *src) float64 fails WireWrongKind { 1.0 }
 func String(s *src) string fails WireWrongKind { "" }
+func StringBytes(s *src, into []byte) []byte fails WireWrongKind { into }
 func BeginList(s *src) fails WireWrongKind {}
 func BeginObject(s *src) fails WireWrongKind {}
 func Tag(s *src) string fails WireMissingField { "" }

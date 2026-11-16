@@ -334,6 +334,7 @@ func textBenches() []textBench {
 		{"RuneText", "UTF8RuneText", func() { textSink = UTF8RuneText('世') }, func() { textSink = string(rune('世')) }},
 		{"AppendRune", "UTF8AppendRune", func() { textSink = len(UTF8AppendRune(buf[:0], '世')) }, func() { textSink = len(utf8.AppendRune(buf[:0], '世')) }},
 		{"ValidString", "UTF8ValidString", func() { textSink = UTF8ValidString(s) }, func() { textSink = utf8.ValidString(s) }},
+		{"String", "UTF8String", func() { textSink = UTF8String(buf[:8]) }, func() { textSink = string(buf[:8]) }},
 		{"ValidRune", "UTF8ValidRune", func() { textSink = UTF8ValidRune(0xD800) }, func() { textSink = utf8.ValidRune(0xD800) }},
 		{"RuneLen", "UTF8RuneLen", func() { textSink = UTF8RuneLen('世') }, func() { textSink = utf8.RuneLen('世') }},
 		{"ToValidUTF8", "StringsToValidUTF8", func() { textSink = StringsToValidUTF8(bad, "\uFFFD") }, func() { textSink = strings.ToValidUTF8(bad, "\uFFFD") }},
