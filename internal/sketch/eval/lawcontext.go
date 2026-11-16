@@ -8,8 +8,9 @@ import (
 )
 
 // contextLaw runs a member law under a named context that binds its owner
-// (types.md, Laws 10; LawRun.Contexts), as ergo test does: 100 cases, each
-// drawing the law's parameters from the stream of the run's name, then
+// (types.md, Laws 10; LawRun.Contexts), as ergo test does: by the one rule
+// (testplan.Context), each case listing or drawing the law's parameters
+// (from the stream of the run's name), then
 // building the context as a with of it does, then running the law's body
 // against the provider the context bound to the owner. The provider is
 // the one the program uses, made by its constructor with its own
@@ -58,18 +59,33 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			return
 		}
 	}
+	// The one rule, as ergo test runs it (lawContextRun's listedRun).
+	p := testplan.Context(law.Params, types)
+	out.TotalCases = p.Count
 	out.Evidence, out.Seed = "tested", in.budget.Seed
+	if p.Listed {
+		out.Evidence = "proved"
+	}
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
-	for k := 0; k < testplan.Cases; k++ {
+	for k := 0; k < p.Count; k++ {
 		out.Case = k + 1
 		mustCharge(in, fr, 1)
 		r.Start(k + 1)
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
+		var listed []testplan.Value
+		if p.Listed {
+			listed = p.At(k)
+		}
 		shows := make([]func() Argument, 0, len(law.Params))
 		for i, v := range law.Params {
-			a := in.generate(cf, r, types[i], testplan.Depth, nil)
+			var a Value
+			if p.Listed {
+				a = in.listValue(cf, listed[i])
+			} else {
+				a = in.generate(cf, r, types[i], testplan.Depth, nil)
+			}
 			shows = append(shows, func() Argument { return Argument{Name: v.Name, Value: in.argument(cf, types[i], a)} })
 			cf.bind(v, a)
 		}
