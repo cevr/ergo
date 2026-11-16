@@ -1,5 +1,5 @@
 // The host's provider: a pool over Go's database/sql (runtime/v1/sql).
-// Open needs Ambient, as every host provider's constructor does, so only
+// Open lists Ambient in its row, as every host constructor does, so only
 // the program's entry chooses the database; a test binds sqltest.Script.
 
 import time

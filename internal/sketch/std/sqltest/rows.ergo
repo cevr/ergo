@@ -59,6 +59,6 @@ law RowsReadEachRow(a string, n int64, s string) {
 		case sql.Mismatch:
 			return false
 		}
-		slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a + " ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2)
+		slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a+" ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2)
 	}
 }
