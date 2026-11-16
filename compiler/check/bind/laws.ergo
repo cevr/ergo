@@ -1,0 +1,188 @@
+// The laws of package bind, over packages assembled from the fragments
+// below by a law's seeded picks: one file per group of picks.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+let fragments = []string{
+	"type P { X int, Y []int }\n",
+	"type U = A | B{x int}\n",
+	"func F(a int, b string) int { let c = a + 1; c }\n",
+	"let (x, y) = (1, 2)\n",
+	"func g(v int) int {\n\tmatch v {\n\tcase 0:\n\t\t1\n\tcase _:\n\t\tv\n\t}\n}\n",
+	"func h(xs []int) int { let mut s = 0; for i, v in xs { s = s + i + v }; s }\n",
+	"type R int where 0 <= it && it < 9\n",
+	"func k(m Map[string, int]) int { m[\"a\"] }\n",
+	"func s(a int) int {\n\tif a > 0 {\n\t\tlet a = 2\n\t\treturn a\n\t}\n\ta\n}\n",
+	"type Ops {\n\tGet(k string) int,\n\tlaw Same(k string) { Get(k) == Get(k) },\n}\n",
+	"func o(v U) int {\n\tmatch v {\n\tcase A:\n\t\t0\n\tcase B as b:\n\t\tb.x\n\t}\n}\n",
+	"func c(n int) func() int { func() int { let m = n; m + F(n, \"\") } }\n",
+	"func one() int { 1 }\n",
+	"func two() int { 2 }\n",
+}
+
+// packageOf is the files the picks assemble: a new file at each pick
+// divisible by 5, at most four.
+func packageOf(picks []int) []File { packageIn(picks, func(src string) string { src }) }
+
+// packageIn is packageOf with each file's source passed through layout.
+func packageIn(picks []int, layout func(string) string) []File {
+	let mut files = []File{}
+	let mut src = ""
+	for k in picks {
+		let n = len(fragments)
+		if k%5 == 0 && src != "" && len(files) < 3 {
+			files = files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+			src = ""
+		}
+		src = src + fragments[((k%n)+n)%n]
+	}
+	files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+}
+
+// ParentsInvertChildren: each row's parent is the row whose children hold
+// it, a file's root has none, and the column writes one entry per row
+// that is a child: the rows less the files (C0/plan.md §2.7's guard).
+law ParentsInvertChildren(picks []int) {
+	let files = packageOf(picks)
+	let ps = BuildParents(files)
+	let mut ok = true
+	let mut rows = 0
+	let mut parsed = 0
+	let mut kids = []uint32{}
+	for f, file in files {
+		// Every assembly of the fragments parses, so the law is never
+		// vacuous.
+		if file.Parsed.Failed {
+			return false
+		}
+		parsed = parsed + 1
+		let t = file.Parsed.Tree
+		rows = rows + syntax.NumNodes(t)
+		for i in 0..syntax.NumNodes(t) {
+			let me = PNodeOf(ps, f, syntax.NodeAt(t, i))
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			for c in kids {
+				ok = ok && ParentOf(ps, PNodeOf(ps, f, syntax.NodeAt(t, int(c)))) == dense.OptOf(me)
+			}
+		}
+		ok = ok && dense.Unpack(ParentOf(ps, PNodeOf(ps, f, syntax.Root(t)))) == None
+	}
+	ok && Written(ps) == rows-parsed
+}
+
+// UsesNameTheirDeclarations: a use that resolves in the package names a
+// Name row of its own text, a local's row comes before the use in the use's
+// file, and a package declaration's row is the store's row for that name.
+// Each assembly takes fragment 2 (F, whose c resolves), so the law is never
+// vacuous.
+law UsesNameTheirDeclarations(picks []int) {
+	let files = packageOf(picks.Append(2))
+	let s = Collect("p", files)
+	let ps = BuildParents(files)
+	let u = BindUses(s, ps, files)
+	let mut ok = true
+	let mut resolved = 0
+	for f, file in files {
+		let p = file.Parsed
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let id = syntax.NodeAt(p.Tree, i)
+			match ResolutionOf(u, ps, PNodeOf(ps, f, id)) {
+			case Declared as d:
+				resolved = resolved + 1
+				let (df, dn) = RowOf(ps, d.At)
+				let dp = files[df].Parsed
+				let did = syntax.NodeAt(dp.Tree, dn)
+				let t = text(p, id)
+				ok = ok && text(dp, did) == t
+				let pkg = match store.Lookup(s, t) {
+				case Some[dense.ID[store.Decl]] as x:
+					let row = store.DeclOf(s, x.Value)
+					int(row.File) == df && int(row.Node) == dense.Index(did)
+				case None:
+					false
+				}
+				ok = ok && (pkg || (df == f && dn < i))
+			case _:
+			}
+		}
+	}
+	ok && resolved > 0
+}
+
+// relaid is src with other layout: a comment line ahead of it (every
+// position moves), a newline for each written semicolon (the scanner
+// inserts it back), a comment and a blank line after each line, and two
+// spaces for one (no fragment has a space in a string).
+func relaid(src string) string {
+	let lines = strings.ReplaceAll(src, "; ", "\n")
+	"// moved\n\n" + strings.ReplaceAll(strings.ReplaceAll(lines, " ", "  "), "\n", "\n// note\n\n")
+}
+
+// PrintsIgnoreLayout: a package and the same package relaid give every
+// declaration the same prints, every declaration has a print, and two declarations have one Fp exactly
+// when their declarations' source texts are one text.
+law PrintsIgnoreLayout(picks []int) {
+	let files = packageOf(picks)
+	let moved = packageIn(picks, relaid)
+	let s = Collect("p", files)
+	let t = Collect("p", moved)
+	let n = store.NumDecls(s)
+	let mut ok = n == store.NumDecls(t)
+	for i in 0..n {
+		if !ok {
+			break
+		}
+		let a = store.PrintsOf(s, store.DeclAt(s, i))
+		ok = a == store.PrintsOf(t, store.DeclAt(t, i)) && a.Fp != store.Print{Hi: uint64(0), Lo: uint64(0)}
+		for j in 0..i {
+			let b = store.PrintsOf(s, store.DeclAt(s, j))
+			ok = ok && (a.Fp == b.Fp) == (topText(s, files, i) == topText(s, files, j))
+		}
+	}
+	ok
+}
+
+// topText is the token texts of the top-level declaration that holds
+// declaration i's name (the fragments write no layout but newlines).
+func topText(s store.Store, files []File, i int) string {
+	let d = store.DeclOf(s, store.DeclAt(s, i))
+	let p = files[int(d.File)].Parsed
+	let mut top = syntax.NodeAt(p.Tree, int(d.Node))
+	for t in topDecls(p) {
+		if syntax.NodePos(p, t) <= syntax.NodePos(p, top) && syntax.NodeEnd(p, top) <= syntax.NodeEnd(p, t) {
+			top = t
+		}
+	}
+	let mut out = strings.NewBuilder()
+	let mut j = syntax.TokStartingAt(p, syntax.NodePos(p, top))
+	for j >= 0 && syntax.TokPos(p, j) < syntax.NodeEnd(p, top) {
+		out.WriteString(syntax.TokText(p, j) + " ")
+		j = j + 1
+	}
+	out.String()
+}
+
+let bodies = []string{"{ n }", "{ n + 1 }", "{ let m = n; m }", "{\n\treturn n\n}"}
+
+// IfpCutsBodies: two functions that differ in their bodies alone have one
+// interface print, unless the function is generic (an importer
+// instantiates its body), and one Fp only when the bodies are one body; a
+// test's body is cut as a function's is.
+law IfpCutsBodies(i int, j int) {
+	let a = bodies[((i%4)+4)%4]
+	let b = bodies[((j%4)+4)%4]
+	let plain = func(body string) store.Prints { firstPrints("func f(n int) int " + body + "\n") }
+	let generic = func(body string) store.Prints { firstPrints("func f[T](n T) T " + body + "\n") }
+	let atTest = func(body string) store.Prints { firstPrints("test t(n int) " + body + "\n") }
+	plain(a).Ifp == plain(b).Ifp && atTest(a).Ifp == atTest(b).Ifp && (generic(a).Ifp == generic(b).Ifp) == (a == b) && (plain(a).Fp == plain(b).Fp) == (a == b)
+}
+
+// firstPrints is the prints of the first top-level row of src (a test
+// is no declaration of the store, so the row's prints are read directly).
+func firstPrints(src string) store.Prints {
+	let p = syntax.Parse(src)
+	printsOf(p, topDecls(p)[0])
+}

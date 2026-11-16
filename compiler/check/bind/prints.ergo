@@ -1,0 +1,94 @@
+import compiler/check/store
+import compiler/syntax
+import dense
+import sha256
+import strings
+
+// The fingerprints of a declaration (C0/plan.md §3, the Decl rows' fp
+// and ifp): a SHA-256 prefix over the declaration's tokens, each its kind
+// and its text, so positions, layout and comments do not count. A
+// semicolon counts by its kind alone: one the scanner inserts at a newline
+// and one written are the same token. The interface print cuts what an
+// importer cannot see, the body of a function with no type parameters and
+// the body of a test, and writes one cut token in its place.
+
+// printsOf is the prints of the top-level declaration row d.
+func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
+	let hi = syntax.NodeEnd(p, d)
+	let (cutLo, cutHi) = cutOf(p, d)
+	let mut all = strings.NewBuilder()
+	let mut iface = strings.NewBuilder()
+	let mut cut = false
+	let mut j = firstToken(p, syntax.NodePos(p, d))
+	for j >= 0 && syntax.TokPos(p, j) < hi {
+		let at = syntax.TokPos(p, j)
+		let k = syntax.TokKind(p, j)
+		let t = if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) }
+		writeToken(&all, k, t)
+		if at >= cutLo && at < cutHi {
+			if !cut {
+				iface.WriteString("cut;")
+				cut = true
+			}
+		} else {
+			writeToken(&iface, k, t)
+		}
+		j = j + 1
+	}
+	store.Prints{Fp: printOf(all.String()), Ifp: printOf(iface.String())}
+}
+
+// firstToken is the first token at or after offset at (a node starts at
+// a token, so this is that token).
+func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
+
+// writeToken writes a token as its kind, its text's length and its text,
+// so no two token runs write the same bytes.
+func writeToken(b *strings.Builder, k uint8, t string) {
+	b.WriteString("\(k):\(len(t)):")
+	b.WriteString(t)
+}
+
+// cutOf is the span an importer cannot see in row d, or an empty span.
+func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
+	match syntax.ViewOf(p.Tree, d) {
+	case syntax.FuncDecl as fd:
+		if dense.Unpack(fd.TypeParams) != None {
+			return (0, 0)
+		}
+		match dense.Unpack(fd.Body) {
+		case Some[dense.ID[syntax.Node]] as body:
+			(syntax.NodePos(p, body.Value), syntax.NodeEnd(p, body.Value))
+		case None:
+			(0, 0)
+		}
+	case syntax.TestDecl as td:
+		(syntax.NodePos(p, td.Body), syntax.NodeEnd(p, td.Body))
+	case _:
+		(0, 0)
+	}
+}
+
+// printOf is the first 16 bytes of text's SHA-256, as two big-endian words.
+func printOf(text string) store.Print {
+	let sum = sha256.Sum(text)
+	let mut hi = uint64(0)
+	let mut lo = uint64(0)
+	for i in 0..8 {
+		hi = hi<<8 | uint64(sum[i])
+		lo = lo<<8 | uint64(sum[i+8])
+	}
+	store.Print{Hi: hi, Lo: lo}
+}
+
+// setPrints gives the declarations from index from on, all of top-level
+// row d, d's prints.
+func setPrints(s *store.Store, p syntax.Parsed, d dense.ID[syntax.Node], from int) {
+	if store.NumDecls(*s) == from {
+		return
+	}
+	let pr = printsOf(p, d)
+	for i in from..store.NumDecls(*s) {
+		store.SetPrints(s, store.DeclAt(*s, i), pr)
+	}
+}

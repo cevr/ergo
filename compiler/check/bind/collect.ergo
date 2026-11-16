@@ -1,0 +1,209 @@
+// Package bind collects one package's declarations into its store and
+// resolves its names (capstone S3b; C0/plan.md §2.2, §2.3 and §7.2). It
+// reads the files as compiler/syntax rows and writes compiler/check/store
+// tables; it types nothing.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+// File is one parsed file of the package, with its name for dumps.
+type File { Name string, Parsed syntax.Parsed }
+
+// text is the text of a Name row.
+func text(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, id) {
+	case syntax.Name as n:
+		syntax.TokText(p, n.Tok)
+	case _:
+		"_"
+	}
+}
+
+// nodeText is the text of the one-token node id (an import path is one
+// path word or one string).
+func nodeText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let j = syntax.TokStartingAt(p, syntax.NodePos(p, id))
+	if j < 0 { "" } else { syntax.TokText(p, j) }
+}
+
+// parseName is the name of the parse function a refinement of the type
+// name derives (syntax/refine.go ParseName): ParsePort for Port,
+// parsePort for port.
+func parseName(name string) string {
+	if len(name) > 0 && name[0] >= 65 && name[0] <= 90 {
+		return "Parse" + name
+	}
+	"parse" + strings.ToUpper(name[0:1]) + name[1:len(name)]
+}
+
+// declare puts a package-level declaration named by the Name row id of
+// file f.
+func declare(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], kind int) {
+	declareAs(s, p, f, id, text(p, id), kind)
+}
+
+// declareAs puts a package-level declaration of name text at the Name row
+// id of file f: a derived declaration stands at its origin's name.
+func declareAs(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], text string, kind int) {
+	let n = store.Name(s, text)
+	if text == "_" {
+		return
+	}
+	let t = store.Unset(s)
+	let o = if kind == 1 {
+		store.FuncObj{Row: store.Func{Name: n, Sig: t}}
+	} else if kind == 2 {
+		store.VarObj{Row: store.Var{Name: n, Type: t}}
+	} else if kind == 3 {
+		store.TypeNameObj{Row: store.TypeName{Name: n, Type: t}}
+	} else if kind == 5 {
+		store.ContextObj{Row: store.Context{Name: n}}
+	} else {
+		store.PkgNameObj{Row: store.PkgName{Name: n, Import: uint32(0)}}
+	}
+	let _ = store.Declare(s, n, f, dense.Index(id), o)
+}
+
+// Collect is the store of the package at path with each file's
+// package-level declarations, in file order then source order, each with
+// the prints of the top-level declaration it comes from (prints.ergo).
+func Collect(path string, files []File) store.Store {
+	let mut s = store.New(path, []string{})
+	for f, file in files {
+		for d in topDecls(file.Parsed) {
+			let from = store.NumDecls(s)
+			collectDecl(&s, file.Parsed, f, d)
+			setPrints(&s, file.Parsed, d, from)
+		}
+	}
+	// A let with a pattern declares its names once every type is
+	// declared, so a type name in it tests the value (D-B3 rule 1).
+	for f, file in files {
+		let p = file.Parsed
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.VarDecl as vd:
+				match syntax.ViewOf(p.Tree, vd.Spec) {
+				case syntax.VarSpec as vs:
+					match dense.Unpack(vs.Pattern) {
+					case Some[dense.ID[syntax.Node]] as pat:
+						let from = store.NumDecls(s)
+						patternNames(&s, p, f, pat.Value)
+						setPrints(&s, p, d, from)
+					case None:
+					}
+				case _:
+				}
+			case _:
+			}
+		}
+	}
+	s
+}
+
+// topDecls is the top-level declaration rows of a parsed file, none when
+// it failed to parse.
+func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	if p.Failed {
+		return out
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			out = out.Append(syntax.Item(p.Tree, root.Decls, i))
+		}
+	case _:
+	}
+	out
+}
+
+// patternNames declares the names a package-level pattern binds, in
+// source order (patterns.go patternNames): a name that is not a package
+// type (which tests; a prelude name never tests at a let), the values of
+// a record pattern, the elements of a tuple and an as pattern's name.
+func patternNames(s *store.Store, p syntax.Parsed, f int, x dense.ID[syntax.Node]) {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		if store.KindOfName(*s, text(p, x)) != 3 {
+			declare(s, p, f, x, 2)
+		}
+	case syntax.ParenExpr as e:
+		patternNames(s, p, f, e.X)
+	case syntax.TupleExpr as e:
+		for i in 0..syntax.Len(e.Elts) {
+			patternNames(s, p, f, syntax.Item(p.Tree, e.Elts, i))
+		}
+	case syntax.CompositeLit as e:
+		for i in 0..syntax.Len(e.Elts) {
+			let el = syntax.Item(p.Tree, e.Elts, i)
+			match syntax.ViewOf(p.Tree, el) {
+			case syntax.KeyValueExpr as kv:
+				patternNames(s, p, f, kv.Value)
+			case _:
+				patternNames(s, p, f, el)
+			}
+		}
+	case syntax.AsPattern as e:
+		patternNames(s, p, f, e.X)
+		declare(s, p, f, e.Name, 2)
+	case _:
+	}
+}
+
+// collectDecl puts the declarations of one top-level declaration row.
+func collectDecl(s *store.Store, p syntax.Parsed, f int, d dense.ID[syntax.Node]) {
+	match syntax.ViewOf(p.Tree, d) {
+	case syntax.FuncDecl as fd:
+		declare(s, p, f, fd.Name, 1)
+	case syntax.TypeDecl as td:
+		declare(s, p, f, td.Name, 3)
+		// A refinement of a type with no type parameters derives its
+		// parse function, at the type's name (syntax/refine.go).
+		if dense.Unpack(td.Where) != None && dense.Unpack(td.TypeParams) == None {
+			declareAs(s, p, f, td.Name, parseName(text(p, td.Name)), 1)
+		}
+		match dense.Unpack(td.Spec) {
+		case Some[dense.ID[syntax.Node]] as spec:
+			match syntax.ViewOf(p.Tree, spec.Value) {
+			case syntax.InterfaceType as it:
+				for i in 0..syntax.Len(it.Members) {
+					match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, i)) {
+					case syntax.VariantSpec as vs:
+						declare(s, p, f, vs.Name, 3)
+					case _:
+					}
+				}
+			case _:
+			}
+		case None:
+		}
+	case syntax.VarDecl as vd:
+		match syntax.ViewOf(p.Tree, vd.Spec) {
+		case syntax.VarSpec as vs:
+			for i in 0..syntax.Len(vs.Names) {
+				declare(s, p, f, syntax.Item(p.Tree, vs.Names, i), 2)
+			}
+		case _:
+		}
+	case syntax.ContextDecl as cd:
+		declare(s, p, f, cd.Name, 5)
+	case syntax.ImportDecl as id:
+		match syntax.ViewOf(p.Tree, id.Spec) {
+		case syntax.ImportSpec as is:
+			// An import binds its name, or its path's last element, in
+			// the package scope; the Go checker records no Def for it.
+			match dense.Unpack(is.Name) {
+			case Some[dense.ID[syntax.Node]] as n:
+				declare(s, p, f, n.Value, 8)
+			case None:
+				let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
+				declareAs(s, p, f, is.Path, path[strings.LastIndex(path, "/")+1:len(path)], 8)
+			}
+		case _:
+		}
+	case _:
+	}
+}

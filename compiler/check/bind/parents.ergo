@@ -1,0 +1,69 @@
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// Parents is the package's parent column (C0/plan.md §2.7): for each row
+// of each file, laid end to end in file order (a PNode is the file's base
+// plus the row), the row whose child it is, or none for a file's root. It
+// is built once per package before the bodies are bound, and read only
+// after, where the Go checker rebuilt a parent map per body (C0a: 423,362
+// entries in 7,156 rebuilds).
+type Parents {
+	base    []uint32,
+	ids     dense.Count[store.PNode],
+	up      dense.Col[store.PNode, dense.Opt[store.PNode]],
+	written int,
+}
+
+// PNodeOf is the package-wide id of row id of file f.
+func PNodeOf(ps Parents, f int, id dense.ID[syntax.Node]) dense.ID[store.PNode] {
+	dense.IDAt(ps.ids, int(ps.base[f])+dense.Index(id))
+}
+
+// RowOf is the file and the row index of n.
+func RowOf(ps Parents, n dense.ID[store.PNode]) (int, int) {
+	let i = dense.Index(n)
+	let mut f = len(ps.base) - 1
+	for f > 0 && int(ps.base[f]) > i {
+		f = f - 1
+	}
+	(f, i - int(ps.base[f]))
+}
+
+// ParentOf is the row whose child n is, or none for a file's root.
+func ParentOf(ps Parents, n dense.ID[store.PNode]) dense.Opt[store.PNode] { dense.Of(ps.up, n) }
+
+// Written is the count of parent entries written: the package's rows
+// less its files, one per row that is a child (the column's guard).
+func Written(ps Parents) int { ps.written }
+
+// BuildParents is the parent column of the package's files; a file that
+// failed to parse has no rows.
+func BuildParents(files []File) Parents {
+	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.NewCol[store.PNode, dense.Opt[store.PNode]](), written: 0}
+	for file in files {
+		ps.base = ps.base.Append(uint32(dense.Total(ps.ids)))
+		let n = if file.Parsed.Failed { 0 } else { syntax.NumNodes(file.Parsed.Tree) }
+		for _ in 0..n {
+			let _ = dense.Next(&ps.ids)
+			dense.Push(&ps.up, dense.NoID[store.PNode]())
+		}
+	}
+	let mut kids = []uint32{}
+	for f, file in files {
+		if file.Parsed.Failed {
+			continue
+		}
+		let t = file.Parsed.Tree
+		let base = int(ps.base[f])
+		for i in 0..syntax.NumNodes(t) {
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			let me = dense.OptOf(dense.IDAt(ps.ids, base+i))
+			for c in kids {
+				dense.SetOf(&ps.up, dense.IDAt(ps.ids, base+int(c)), me)
+				ps.written = ps.written + 1
+			}
+		}
+	}
+	ps
+}

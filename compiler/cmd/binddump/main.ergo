@@ -1,0 +1,105 @@
+// binddump collects one package with compiler/check/bind and prints its
+// package-level declarations, one per line, unsorted:
+//
+//	binddump FILE...   "FILE OFFSET KIND NAME" per declaration
+//
+// It is the Ergo side of S3b's collect agreement; godefs (run-dir probe)
+// prints the Go checker's.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import fs
+import io
+import os
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut files = []bind.File{}
+	let uses = len(args) > 0 && args[0] == "-uses"
+	let locals = len(args) > 0 && args[0] == "-locals"
+	let paths = if uses || locals { args[1:len(args)] } else { args }
+	for path in paths {
+		let src = fs.Files.ReadFile(path) catch {
+		case fs.NotFound:
+			return os.Exit{Code: 1, Message: "binddump: no file \(path)"}
+		case fs.Denied:
+			return os.Exit{Code: 1, Message: "binddump: cannot read \(path)"}
+		case fs.Failed as e:
+			return os.Exit{Code: 1, Message: "binddump: cannot read \(path): \(e.Reason)"}
+		}
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
+	}
+	let s = bind.Collect("main", files)
+	let mut b = strings.NewBuilder()
+	if uses {
+		let ps = bind.BuildParents(files)
+		let u = bind.BindUses(s, ps, files)
+		for f, file in files {
+			let p = file.Parsed
+			if p.Failed {
+				continue
+			}
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				let at = syntax.NodePos(p, id)
+				match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, f, id)) {
+				case bind.NotUse:
+				case bind.Outside:
+					b.WriteString("\(file.Name) \(at) -> outside \(syntax.TokText(p, syntax.TokStartingAt(p, at)))\n")
+				case bind.Declared as d:
+					let (df, dn) = bind.RowOf(ps, d.At)
+					let dp = files[df].Parsed
+					b.WriteString("\(file.Name) \(at) -> \(files[df].Name) \(syntax.NodePos(dp, syntax.NodeAt(dp.Tree, dn)))\n")
+				}
+			}
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	if locals {
+		let ps = bind.BuildParents(files)
+		let u = bind.BindUses(s, ps, files)
+		for f, file in files {
+			let p = file.Parsed
+			if p.Failed {
+				continue
+			}
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				let kind = match bind.DefOf(u, bind.PNodeOf(ps, f, id)) {
+				case bind.NoDef:
+					""
+				case bind.Local:
+					"local"
+				case bind.Law:
+					"law"
+				}
+				if kind != "" {
+					let at = syntax.NodePos(p, id)
+					b.WriteString("\(file.Name) \(at) \(kind) \(syntax.TokText(p, syntax.TokStartingAt(p, at)))\n")
+				}
+			}
+		}
+	}
+	for d in store.Decls(s) {
+		if store.KindName(int(d.Kind)) == "pkg" {
+			continue
+		}
+		let p = files[int(d.File)].Parsed
+		let at = syntax.NodePos(p, syntax.NodeAt(p.Tree, int(d.Node)))
+		b.WriteString("\(files[int(d.File)].Name) \(at) \(store.KindName(int(d.Kind))) \(store.Text(s, d.Name))\n")
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
