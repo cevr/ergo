@@ -49,6 +49,7 @@ scope	differs	lower: no exported function a caller can take as a value	follow-up
 sha256	same
 slices	same
 strconv	same
+stream	same
 strings	same
 sync	same
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call

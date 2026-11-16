@@ -45,6 +45,7 @@ var (
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))
 	_ = declarePrograms("TestStdCacheLawsRun", testBuildProgram("stdcache", stdCacheLawsProbe))
 	_ = declarePrograms("TestStdLogLawsRun", testBuildProgram("stdlog", stdLogLawsProbe))
+	_ = declarePrograms("TestStdStreamLawsRun", testBuildProgram("stdstream", stdStreamLawsProbe))
 	_ = declarePrograms("TestStdLogMatchesSlog", entryProgram("logSlog", logSlogProgram))
 	_ = declarePrograms("TestStdActorLawsRun", testBuildProgram("stdactor", actorLawsProbe))
 	_ = declarePrograms("TestStdScheduleLawsRun", testBuildProgram("stdschedule", stdScheduleLawsProbe))
