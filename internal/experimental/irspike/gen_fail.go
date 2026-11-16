@@ -368,7 +368,10 @@ func (g *fgen) tail() {
 	switch {
 	case len(cs) > 0 && g.n(3) == 0:
 		c := cs[g.n(len(cs))]
-		if slices.Equal(c.row, f.row) && g.n(2) == 0 {
+		// An untried call of a callee with one failure type in a function
+		// with the same row always: the flat convention's wrapper is
+		// called only from such a return (IR-FORMS IRF-2).
+		if slices.Equal(c.row, f.row) && (len(f.row) == 1 || g.n(2) == 0) {
 			fmt.Fprintf(&g.b, "\t%s\n", g.args(c)) // untried: its value and error pass on
 			return
 		}
@@ -418,6 +421,11 @@ func (g *fgen) main() {
 			continue
 		}
 		fmt.Fprintf(&g.b, "\t\tlet r%s = %s catch {\n%s\t\t}\n\t\tConsole.Println(\"%s \\(r%s)\")\n", f.name, call, strings.Join(arms, ""), f.name, f.name)
+		if len(f.row) == 1 && len(f.needs) == 0 {
+			// The same call through a function value: the flat
+			// convention's wrapper, its failure included (IR-FORMS IRF-2).
+			fmt.Fprintf(&g.b, "\t\tlet h%s = %s\n\t\tlet q%s = h%s(%s) catch {\n%s\t\t}\n\t\tConsole.Println(\"%s by value \\(q%s)\")\n", f.name, f.name, f.name, f.name, strings.Join(as, ", "), strings.Join(arms, ""), f.name, f.name)
+		}
 	}
 	g.b.WriteString("\t}\n}\n\n")
 	g.b.WriteString("func both(n int) int fails E1 | E2 {\n\tif n == 0 {\n\t\treturn E1{Code: 0}\n\t}\n\tif n == 1 {\n\t\treturn E2{Why: \"passed on\"}\n\t}\n\tn\n}\n\n")

@@ -81,20 +81,20 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.result != nil {
 			irNo("bare return")
 		}
-		return []*irStmt{{K: "ret", Pos: p}}
+		return []*irStmt{b.formed(&irStmt{K: "ret", Pos: p}, "unit")}
 	}
 	if call := b.fallibleCall(x); call != nil {
 		if _, implicit := b.l.info.Implicit[x]; implicit {
 			// The value converts (a variant into the result's union):
 			// the call's failure leaves first, then the value returns.
 			pre, v := b.try(call)
-			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
+			return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: b.implicit(x, v)}, "val"))
 		}
 		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
 			// A function value's pair: its failure leaves, then the
 			// frame returns with no value (ir_closure.go).
 			pre, _ := b.try(call)
-			return append(pre, &irStmt{K: "ret", Pos: p})
+			return append(pre, b.formed(&irStmt{K: "ret", Pos: p}, "unit"))
 		}
 		if b.hostFails(call) {
 			// A Go call's error becomes go.Error (bind) before it
@@ -109,7 +109,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e}, "tuple"))
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
@@ -117,15 +117,15 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.fc.frame.fallible {
 			k = "fail"
 		}
-		return append(pre, &irStmt{K: k, Pos: p, X: e})
+		return append(pre, b.formed(&irStmt{K: k, Pos: p, X: e}, "fail:"+failKey(b.l.info.Types[x])))
 	}
 	if b.result == nil {
 		// A no-value call returned for its effect (retExpr).
-		return append(b.discard(x), &irStmt{K: "ret", Pos: p})
+		return append(b.discard(x), b.formed(&irStmt{K: "ret", Pos: p}, "unit"))
 	}
 	pre, e := b.value(x)
 	e = b.assignedTo(x, e, b.result) // a variant joins the result's union (ir_union.go)
-	return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+	return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e}, "val"))
 }
 
 // isFailure reports a value x of an error type that the frame does not
@@ -239,6 +239,11 @@ func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
 	if pre, val, ok := b.unfoldAt(call); ok {
 		return pre, val // a fallible law's right side, which cannot fail (ir_unfold.go)
 	}
+	if fl := b.flatCall(call); fl != nil {
+		if _, with := b.isWith(call); !with {
+			return b.flatTry(call, fl) // ir_forms_flat.go
+		}
+	}
 	pre, v, e := b.bind(call)
 	p := b.pos(call, call.Pos())
 	pre = append(pre, b.propagate(e, p))
@@ -271,6 +276,11 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		return upre, v, e
 	}
 	pre, x := b.rawCall(call)
+	return b.bindCall(pre, x, call)
+}
+
+// bindCall is bind's binding of x, the Go form of call, after pre.
+func (b *irBuilder) bindCall(pre []*irStmt, x *irExpr, call *syntax.CallExpr) (_ []*irStmt, v, e int) {
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
@@ -349,7 +359,7 @@ func (b *irBuilder) propagate(e int, p irPos) *irStmt {
 	if !b.fc.frame.fallible {
 		k = "panic"
 	}
-	return &irStmt{K: "if", Pos: p, End: p, X: b.notNil(e, p), Then: []*irStmt{{K: k, Pos: p, X: errLocal}}}
+	return &irStmt{K: "if", Pos: p, End: p, X: b.notNil(e, p), Then: []*irStmt{b.formed(&irStmt{K: k, Pos: p, X: errLocal}, "fail:error")}}
 }
 
 func (b *irBuilder) notNil(e int, p irPos) *irExpr {
@@ -380,7 +390,16 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		}
 		src = x.X
 		bindSrc = func() ([]*irStmt, int, int) { return b.bindMatch(x.X, m) }
+	} else if _, with := b.isWith(call); !with {
+		if pre, v, ok := b.flatCatch(x, partial, call, m); ok {
+			return pre, v // ir_forms_flat.go
+		}
 	}
+	return b.catchWith(x, partial, m, src, bindSrc)
+}
+
+// catchWith is catch of src, bound by bindSrc into its value and error.
+func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match, src syntax.Expr, bindSrc func() ([]*irStmt, int, int)) ([]*irStmt, *irExpr) {
 	type arm struct {
 		types []string
 		as    *check.Var
@@ -459,7 +478,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			if b.st.report.CatchDefects > n {
 				b.st.report.CatchTreeDefects++
 			}
-			return []*irStmt{d}
+			return []*irStmt{b.formed(d, "fail:error")} // ir_forms_flat.go
 		}
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
@@ -478,7 +497,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
-	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
+	sw.Else = []*irStmt{b.formed(b.catchDefault(x, k, partial, e, sw.ElsePos), "fail:error")} // ir_catch_defect.go; ir_forms_flat.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
 	} else if !patterned {
