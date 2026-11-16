@@ -218,6 +218,8 @@ func stdGoUTF8Cases(r *rand.Rand, n int) []bodyCase {
 			func(s string) string { return strconv.FormatBool(utf8.ValidString(s)) }),
 		bodyRows("utf8.ValidRune", imp, "x rune", `"\(utf8.ValidRune(x))"`, np4fRuneEdges, n, r, np4fGenRune, np4fRuneArg,
 			func(v rune) string { return strconv.FormatBool(utf8.ValidRune(v)) }),
+		bodyRows("utf8.RuneLen", imp, "x rune", `"\(utf8.RuneLen(x))"`, np4fRuneEdges, n, r, np4fGenRune, np4fRuneArg,
+			func(v rune) string { return strconv.Itoa(utf8.RuneLen(v)) }),
 	}
 }
 

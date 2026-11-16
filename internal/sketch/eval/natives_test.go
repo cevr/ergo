@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -296,7 +297,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return strings.ContainsRune(s, rn) }},
 		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return strings.ToValidUTF8(s, u) }},
 		{name: "utf8.RuneText", args: []Value{rn}, v1: func() any { return v1.UTF8RuneText(rn) }},
-		{name: "utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(v1.UTF8RuneLen(rn)) }},
+		{name: "unicode/utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(utf8.RuneLen(rn)) }},
 		{name: "utf8.DecodeRuneInString", args: []Value{s}, v1: func() any { return v1.UTF8DecodeRuneInString(s) }},
 		{name: "utf8.AppendRune", args: []Value{bytesValue(s), rn}, v1: func() any { return v1.UTF8AppendRune([]byte(s), rn) }},
 		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return strconv.Itoa(int(d)) }},

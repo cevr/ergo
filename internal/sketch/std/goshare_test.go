@@ -43,7 +43,7 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 var stdGoShareCeiling = map[string]int{
 	"provider":    54,
 	"host":        19,
-	"library":     75,
+	"library":     74,
 	"language":    21,
 	"computation": 59,
 	"type":        76,

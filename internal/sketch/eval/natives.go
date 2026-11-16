@@ -162,7 +162,7 @@ func registerNatives() {
 	})
 	goPure("unicode/utf8.ValidString", func(a []Value) Value { return utf8.ValidString(str(a[0])) })
 	goPure("unicode/utf8.ValidRune", func(a []Value) Value { return utf8.ValidRune(rune(a[0].(int32))) })
-	pure("utf8.RuneLen", func(a []Value) Value { return int64(utf8.RuneLen(rune(a[0].(int32)))) })
+	goPure("unicode/utf8.RuneLen", func(a []Value) Value { return int64(utf8.RuneLen(rune(a[0].(int32)))) })
 	natives["utf8.DecodeRuneInString"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 2); ab != nil {
 			return nil, ab
