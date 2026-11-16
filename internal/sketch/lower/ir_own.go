@@ -150,7 +150,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
 	deref := func(i int) *irExpr { return &irExpr{K: "deref", Pos: p, X: local(i)} }
 	// The deferred release: env, live, kept, err, then the slots.
-	h := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, result: nil}
+	h := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, own: o}
 	h.fn = &irFunc{Name: helper, Pos: p, End: p}
 	liveL, keptL, errL := 1, -1, -1
 	h.next = 2
@@ -212,7 +212,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		if s.helper == "" {
 			continue
 		}
-		f := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, next: 2}
+		f := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, next: 2, own: o}
 		c, _ := f.closeCall(s, 0, 1, p)
 		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
 		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
@@ -227,10 +227,14 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // slot points at, with the environment the local env (the emitter's
 // providerRelease of a program's Close): a method call or a function
 // call, the receiver taken by address or through a pointer as Close's
-// parameter needs. ok is false for a Close the IR does not call: Go's own
-// (a host value's), an operation's, a generic or a std one.
+// parameter needs; a std operation type's Close is stdCloseCall's. ok is
+// false for a Close the IR does not call: Go's own (a host value's; no
+// static frame of a program owns one yet), a generic or a std function.
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
+	if cl != nil && cl.Func == nil && cl.Op != nil {
+		return b.stdCloseCall(cl, s, slot, p)
+	}
 	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 || len(cl.Func.Sig.TParams) > 0 {
 		return nil, false
 	}
@@ -252,6 +256,27 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: recv, Args: []*irExpr{e}}, true
 	}
 	return &irExpr{K: "call", Pos: p, Name: fd.name, Args: []*irExpr{e, recv}}, true
+}
+
+// stdCloseCall is the release of a value of a std operation type at slot
+// (fs.Mapped): its runtime method, as the emitter's opCall writes it
+// through runtimeCall, for a Close that takes nothing and returns nothing
+// (no hidden argument, no operand) on a Go pointer. Any other keeps the
+// Go-text release.
+func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (*irExpr, bool) {
+	n, ok := cl.Receiver.(*check.Named)
+	if !ok || !b.l.runtimeNamed(n, b.own.site) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
+		return nil, false
+	}
+	name := n.Obj.Name + "." + cl.Op.Name
+	if _, bound := runtimeBindings()[name]; !bound {
+		return nil, false
+	}
+	body, err := runtimeBody(name)
+	if err != nil || len(body.Hidden) != 0 || len(body.Params) != 0 || len(body.Results) != 0 {
+		return nil, false
+	}
+	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}, true
 }
 
 // ownBodyChecks stops a static frame this form does not build: a try's
