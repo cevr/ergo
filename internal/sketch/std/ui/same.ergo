@@ -29,6 +29,7 @@ func Same[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at CallSit
 	match skippable(f, i, key) {
 	case Some[memoRun[E]] as run:
 		f.specs[i].skip = true
+		f.sameKeeps = f.sameKeeps + 1
 		replay(f, run.Value)
 		return
 	case None:

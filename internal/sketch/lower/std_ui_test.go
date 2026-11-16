@@ -1398,6 +1398,84 @@ func slowCount(c ui.Counter, s ui.Stats) int {
 	}
 }
 
+func lawKeyedReorderKeepsRows(seed int, steps int) bool {
+	let orders = reorders(seed, steps)
+	let mut r = seeded(steps)
+	let view = func(f *ui.Frame[int], k int) {
+		reorderTable(f, seed, steps, k)
+	}
+	let mut f = ui.NewFrame[int]()
+	let mut m = ui.NewMirror[int](ui.Root(&f))
+	for k in 0..len(orders) {
+		let mut want = []string{}
+		for x in orders[k] {
+			want = want.Append("row \(x)")
+		}
+		for _ in 0..draw(&r, 2)+1 {
+			ui.Apply(&m, ui.Render(&f, view, k)) catch {
+			case ui.BadPatch:
+				return false
+			}
+			if shownTexts(ui.MirrorShape(&m)) != want {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func shownTexts(shapes []ui.Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as x:
+			out = out.Append(x.Value)
+		case _:
+		}
+		for x in shownTexts(s.Kids) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func reorders(seed int, steps int) [][]int {
+	let mut r = seeded(seed)
+	let mut order = []int{}
+	for i in 0..draw(&r, 5)+2 {
+		order = order.Append(i)
+	}
+	let mut out = [][]int{order}
+	for _ in 0..(steps%6+6)%6+3 {
+		let mut next = []int{}
+		for x in out[len(out)-1] {
+			next = next.Append(x)
+		}
+		for i in 0..len(next) {
+			let j = i + draw(&r, len(next)-i)
+			let x = next[i]
+			next[i] = next[j]
+			next[j] = x
+		}
+		out = out.Append(next)
+	}
+	out
+}
+
+func reorderTable(f *ui.Frame[int], seed int, steps int, k int) {
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, reorders(seed, steps)[k], func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
+			ui.Same(f, ui.ByInt(x)) {
+				reorderRow(f, x)
+			}
+		}
+	}
+}
+
+func reorderRow(f *ui.Frame[int], x int) {
+	ui.Text(f, "row \(x)")
+}
+
 test UiIncrementalEqualsFresh(seed int, steps int) {
 	assert lawIncrementalEqualsFresh(seed, steps)
 }
@@ -1441,6 +1519,10 @@ test UiCountsSumToPatch(seed int, steps int) {
 test UiSlowNamesItsCounter(seed int) {
 	assert lawSlowNamesItsCounter(seed)
 }
+
+test UiKeyedReorderKeepsRows(seed int, steps int) {
+	assert lawKeyedReorderKeepsRows(seed, steps)
+}
 `
 
 // stdUITreeStatements is the statement of each ui law, as the ledger writes it,
@@ -1457,6 +1539,7 @@ var stdUITreeStatements = map[string]string{
 	"ui MirrorRejectsBadPatches":     `MirrorRejectsBadPatches(a int, b int) { let na = (a%5+5)%5 + 1 let nb = (b%5+5)%5 + 1 let mut xs = []int{} let mut ys = []int{} let mut more = []int{} for i in 0..na { xs = xs.Append(i) more = more.Append(i) } for i in 0..nb { ys = ys.Append(100 + i) } xs = xs.Append(99) more = more.Append(50) more = more.Append(51) let zs = []int{200, 201} let mut f = NewFrame[int]() let root = Root(&f) let first = Render(&f, badPatchView, [][]int{xs, ys, zs}) let second = Render(&f, badPatchView, [][]int{more, ys, zs}) let rows = insertsOf(first, "row 0") let others = insertsOf(first, "row 100") let gones = insertsOf(first, "row 99") let zrows = insertsOf(first, "row 200") let freshes = insertsOf(second, "row 50") let adds = insertsOf(second, "row 51") if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 { return false } let row = rows[0] let other = others[0] let fresh = freshes[0] let lc = row.Parent let rc = other.Parent if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 { return false } let text = TextNode{Value: "x", Style: Plain()} let box = BoxNode{Style: Plain()} // The valid ops before each bad one: a Set, a Move, an Insert, and a // Remove of a row and of a whole column. let good = []Op[int]{ Set[int]{Id: other.Id, Node: TextNode{Value: "changed", Style: Plain()}}, Move[int]{Id: other.Id, Parent: rc, Before: None}, Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node}, Remove[int]{Id: gones[0].Id}, Remove[int]{Id: zrows[0].Parent}, } let bad = []Op[int]{ row, Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text}, Move[int]{Id: row.Id, Parent: rc, Before: None}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}}, Move[int]{Id: fresh.Id, Parent: lc, Before: None}, Remove[int]{Id: root}, Remove[int]{Id: fresh.Id}, Remove[int]{Id: gones[0].Id}, Set[int]{Id: fresh.Id, Node: text}, Set[int]{Id: row.Id, Node: box}, } for op in bad { if !badPatchRejected(root, first, good, op) { return false } } // The second pass fits. let mut m = NewMirror[int](root) Apply(&m, first) catch { case BadPatch: return false } Apply(&m, second) catch { case BadPatch: return false } true }`,
 	"ui CountsSumToPatch":            `CountsSumToPatch(seed int, steps int) { let mut r = seeded(seed) let ps = genRoot(&r).Append(pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}, pText{slot: 3}}, memo: true}}}) let mut f = NewFrame[int]() let mut kept = 0 for _ in 0..(steps%8+8)%8+2 { // The kept Same reads slots 2 and 3, which stay. let mut s = genState(&r) s[2] = 7 s[3] = 9 let ops = pass(&f, ps, s) let c = PassCounts(&f) let mut ins = 0 let mut mov = 0 let mut rem = 0 let mut set = 0 for op in ops { match op { case Insert[int]: ins = ins + 1 case Move[int]: mov = mov + 1 case Remove[int]: rem = rem + 1 case Set[int]: set = set + 1 } } if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) { return false } if c.Ran+c.Kept != Len(&f)-1 || c.Visits != Len(&f)-c.Kept-c.GroupsKept || c.GroupsKept != Skips(&f) { return false } kept = kept + c.Kept } kept > 0 }`,
 	"ui SlowNamesItsCounter":         `SlowNamesItsCounter(seed int) { let mut r = seeded(seed) let n = func() int { draw(&r, 9) } let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()} let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()} let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter} let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"} let mut want = []Slow{} for i, c in all { if CounterText(c) != names[i] { return false } let bound = slowBound(c, b) let count = slowCount(c, s) if bound > 0 && count > bound { want = want.Append(Slow{Counter: c, Count: count, Bound: bound}) } } SlowsOf(s, b) == want }`,
+	"ui KeyedReorderKeepsRows":       `KeyedReorderKeepsRows(seed int, steps int) { let orders = reorders(seed, steps) let mut r = seeded(steps) let view = func(f *Frame[int], k int) { reorderTable(f, seed, steps, k) } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for k in 0..len(orders) { let mut want = []string{} for x in orders[k] { want = want.Append("row \(x)") } for _ in 0..draw(&r, 2)+1 { Apply(&m, Render(&f, view, k)) catch { case BadPatch: return false } if shownTexts(MirrorShape(&m)) != want { return false } } } true }`,
 }
 
 // TestUITreeModel runs the probe's tests with --seed 1; lawledger.Run holds that
