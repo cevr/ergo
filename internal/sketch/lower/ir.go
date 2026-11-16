@@ -234,7 +234,7 @@ func (st *irState) restart() *irState {
 	return st
 }
 
-// The IR format; the derivative's noder/ergoir.go reads the same shape.
+// The IR format; the derivative's cmd/compile/internal/ergoir reads the same shape.
 type irFile struct {
 	V     int      `json:"v"`
 	Files []string `json:"files"`

@@ -1,7 +1,8 @@
 # The hooks of the IR compiler patch in Go's own files (common.md MINIMAL
 # FORK PATCH, owner 2026-11-16: "as minimal as a large patch can be";
 # PATCH-MIN plan, run dir patch-min/plan.md). Our code lives in new files
-# (the -ergoir reader, noder/ergoir*.go), which never conflict with a Go
+# (the -ergoir reader, package cmd/compile/internal/ergoir, and noder's
+# adapter noder/ergoir_hook.go), which never conflict with a Go
 # release; a hunk in a file Go already has is a hook, a cost at every
 # rebase. internal/residue TestPatchHooksBudgeted holds this file to the
 # patch toolchain/ir/lock names: one line per hunk, its exact count, its
@@ -10,7 +11,7 @@
 # edits its line and says why; one that shrinks or drops one updates it.
 #
 # file | +added -deleted | the hunk's first changed line | why gc must call us there
-src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoStub(m, pkg, info, noders) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_flags.go; the -ergoir flags are registered there too, PATCH-MIN M1 and M2)
+src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoStub(m, pkg, info, noders) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_hook.go, calls package ergoir's Stub; the -ergoir flags are registered in ergoir/ergoir_flags.go: PATCH-MIN M1, M2 and M4)
 src/cmd/compile/internal/noder/irgen.go | +5 -0 | if ergoFlag.IR != "" && terr.Code == errors.BadDecl && msg == "generic function is missing function body" { | types2 reports a generic function with no body during the check, before ergoAttach can give it its IR body (FLIP F1); the error is dropped only under -ergoir, and ergoAttach reports any generic function still without one
 src/cmd/compile/internal/noder/irgen.go | +3 -0 | if terr, ok := err.(types2.Error); ok && ergoFlag.IR != "" && terr.Code == errors.BadDecl && terr.Msg == "generic function is missing function body" { | conf.Check also returns that first error after conf.Error saw it, so the check's result must forget it too (FLIP F1); the same one error, only under -ergoir
 total +9 -0
