@@ -199,7 +199,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// their own type parameters (F7 FORK merge of F2).
 	{"type parameter outside its declaration", "G4"},
 	{"owned parameters", "G4"},
-	{"known-callback variant", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
@@ -228,7 +227,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"function type with several results", "G6"},
 	{"call of a function value *", "G6"},
 	{"call of a value of a named function type", "G6"},
-	{"call of a known callback", "G4"},          // known.go's plain variant
 	{"string constant that is not UTF-8", "G6"}, // the IR file is JSON (IRG6 r3)
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
@@ -250,5 +248,4 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"function type with several results", "G6"},
 	{"call of a function value *", "G6"},
 	{"call of a value of a named function type", "G6"},
-	{"call of a known callback", "G4"}, // known.go's plain variant
 }

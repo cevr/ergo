@@ -178,7 +178,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if known != "" && fd.method != nil {
 			return pre, &irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
 		} else if known != "" {
-			return pre, &irExpr{K: "call", Pos: p, Name: known, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
+			// The variant takes the function's type arguments (callText).
+			targs := b.typeArgs(c, x)
+			return pre, &irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}, !fd.pure
 		}
 		if fd.method != nil {
 			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
