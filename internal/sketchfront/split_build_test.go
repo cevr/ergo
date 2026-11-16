@@ -29,16 +29,23 @@ import (
 // layeredProgram is a module of width leaf packages l0 to l<width-1>, a
 // package mid over all of them, and the root package app over mid and
 // the leaves. Each leaf's Work is too large for Ergo's inliner and Go's,
-// so its body is no importer's. nonce goes into every leaf, so no leaf is
-// in Go's build cache; k is the literal a body edit changes.
+// so its body is no importer's. nonce goes into every leaf's Work, which
+// the program calls, so no leaf is in Go's build cache (a leaf's unused
+// Nonce is not lowered, so it alone keeps no leaf out of the cache); k is
+// the literal a body edit changes.
 func layeredProgram(width int, nonce string, k int) map[string]string {
 	files := map[string]string{"ergo.mod": "module layered\n"}
 	var imports, calls []string
+	var mark uint32
+	for _, c := range nonce {
+		mark = mark*31 + uint32(c)
+	}
 	for i := range width {
 		name := fmt.Sprintf("l%d", i)
 		var b strings.Builder
 		fmt.Fprintf(&b, "func Nonce() string { %q }\n\n", nonce)
 		b.WriteString("func Work(n int) int {\n\tlet mut t = 0\n\tfor j in 0..n {\n")
+		fmt.Fprintf(&b, "\t\tif t == %d {\n\t\t\tt = t + 1\n\t\t}\n", mark)
 		lit := 3 + i
 		if i == 0 {
 			lit = k
