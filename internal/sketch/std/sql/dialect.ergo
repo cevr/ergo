@@ -1,0 +1,51 @@
+// Dialects: how a database's errors read as this package's failures.
+
+// HostError is an error a driver gave, as a provider reads it: the
+// SQLSTATE code when the driver reports one (empty otherwise), the
+// constraint it names, if any, and its text.
+type HostError { Code string, Constraint string, Message string }
+
+// Dialect reads a driver's errors as failures. The provider over a driver
+// takes one; Standard reads the SQLSTATE codes every SQL database shares.
+// law-exempt: a dialect's table is its database's; Standard's laws (StandardReadsSQLState, StandardKeepsTheRest) state the shared codes.
+type Dialect {
+	Classify(e HostError) Failure,
+}
+
+// Standard is the dialect of the SQLSTATE codes of the SQL standard, which
+// PostgreSQL, CockroachDB and others report: 23505 a unique violation,
+// 40001 a serialization failure, 40P01 a deadlock, 57014 a statement
+// cancelled by its time limit. Any other code is Other.
+type Standard {} implements Dialect
+
+// Classify is e as a failure, by its SQLSTATE code.
+func Classify(_ Standard, e HostError) Failure {
+	match e.Code {
+	case "23505":
+		Unique{Constraint: e.Constraint}
+	case "40001":
+		Serialization{Message: e.Message}
+	case "40P01":
+		Deadlock{Message: e.Message}
+	case "57014":
+		Timeout{Message: e.Message}
+	case _:
+		Other{Code: e.Code, Message: e.Message}
+	}
+}
+
+// StandardReadsSQLState: the four shared codes read as their failures,
+// with the constraint or the text kept.
+law StandardReadsSQLState(constraint string, message string) {
+	let d = Standard
+	d.Classify(HostError{Code: "23505", Constraint: constraint, Message: message}) == Unique{Constraint: constraint} && d.Classify(HostError{Code: "40001", Constraint: "", Message: message}) == Serialization{Message: message} && d.Classify(HostError{Code: "40P01", Constraint: "", Message: message}) == Deadlock{Message: message} && d.Classify(HostError{Code: "57014", Constraint: "", Message: message}) == Timeout{Message: message}
+}
+
+// StandardKeepsTheRest: any other code is Other, with the code and the
+// text kept.
+law StandardKeepsTheRest(code string, message string) {
+	if code == "23505" || code == "40001" || code == "40P01" || code == "57014" {
+		return true
+	}
+	Standard.Classify(HostError{Code: code, Constraint: "", Message: message}) == Other{Code: code, Message: message}
+}

@@ -45,6 +45,7 @@ import (
 //go:embed tasks/*.ergo
 //go:embed schedule/*.ergo
 //go:embed http/*.ergo
+//go:embed sql/*.ergo sqltest/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 //go:embed lint/*.ergo
