@@ -19,8 +19,8 @@ import (
 // the tokens of its declaration and of every declaration either side
 // reaches, transitively (the functions it calls, the functions those call,
 // the types and package lets they name), and the foreign key of each Go
-// function they reach, an `extern go` target or a function of an `import
-// go` package. So an edit of any body the law reaches makes the entry
+// function they reach (an `import go` function too: its binding is an
+// `extern go` target). So an edit of any body the law reaches makes the entry
 // stale, and an edit of one it does not reach leaves it current. with is
 // the keys' shown forms.
 func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with string) {

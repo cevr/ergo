@@ -16,9 +16,9 @@ import (
 // when the law does not reach what changed. HT is over Ergo bodies only
 // and reaches dup through Twice; UT reaches strings.ToUpper through Up.
 //
-// Mutants: lf6-func-law-bodies-unkeyed (the digest holds the law's own
-// tokens only), lf6-host-func-unkeyed (an import go function has no
-// foreign key).
+// Mutant: lf6-func-law-bodies-unkeyed (the digest holds the law's own
+// tokens only). The toolchain edit holds that an import go function is
+// keyed (LFL's lfl-foreign-key-dropped).
 func TestFuncLawEvidenceKeysReachedBodies(t *testing.T) {
 	funcs := []struct{ name, sig, body string }{
 		{"dup", "(s string) string", "s + s"},
