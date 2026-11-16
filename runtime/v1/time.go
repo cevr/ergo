@@ -64,9 +64,12 @@ func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
+// It takes no lock and builds no time.Time: the start's seconds and
+// nanoseconds plus the clock's time since it, which never falls.
 func (l *Timeline) Read() Reading {
-	n := l.v.Now()
-	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
+	off := int64(l.v.Since())
+	ns := int64(l.start.Nanosecond()) + off
+	return Reading{Sec: l.start.Unix() + ns/1e9, Nsec: ns % 1e9, Mono: off}
 }
 
 // Wait suspends the caller's task t until Advance moves the time to d past

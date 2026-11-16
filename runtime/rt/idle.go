@@ -244,7 +244,7 @@ func (v *Virtual) idle() {
 	}
 	when := v.timers[0].when
 	if when.After(v.now) {
-		v.now = when
+		v.setNow(when)
 	}
 	v.steps++
 	schedTick(v)
