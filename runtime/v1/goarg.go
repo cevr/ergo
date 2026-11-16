@@ -25,6 +25,7 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"io.ReadFull":          {0: {true, "io/io.go: returns ReadAtLeast's result and keeps no reader"}},
 	"io.WriteString":       {0: {true, "io/io.go: one synchronous WriteString or Write call, no retained writer"}},
 	"os.File.Name":         {0: {true, "os/file.go: reads the file's name, retains no receiver"}},
+	"os.StartProcess":      {2: {true, "os/exec_posix.go: startProcess copies attr's Dir, Env, Sys (ensurePidfd copies it when it changes it) and each file's Fd into a syscall.ProcAttr; it keeps no attr past its return (GBX5)"}},
 	"os.File.Read":         {0: {true, "os/file.go: read and error conversion finish before return"}},
 	"os.File.ReadAt":       {0: {true, "os/file.go: pread loop finishes before return"}},
 	"os.File.Write":        {0: {true, "os/file.go: write and error conversion finish before return"}},

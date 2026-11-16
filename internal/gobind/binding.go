@@ -148,12 +148,111 @@ func Merge(platforms []Platform, decls [][]Decl) []Decl {
 		switch {
 		case len(missing) > 0:
 			first = Decl{Kind: first.Kind, Name: name, Go: first.Go, Refused: "platform-specific: Go does not declare it on " + strings.Join(missing, ", ")}
+		case len(differ) > 0 && mergeStruct(&first, platforms, byName, name):
+			// A struct whose fields differ by platform keeps the fields
+			// every platform declares alike (GBX5: syscall.SysProcAttr).
 		case len(differ) > 0:
 			first = Decl{Kind: first.Kind, Name: name, Go: first.Go, Refused: "platform-specific: its Go declaration differs on " + strings.Join(differ, ", ")}
 		}
 		out = append(out, first)
 	}
 	return out
+}
+
+// mergeStruct merges the struct type name, declared on every platform but
+// not alike, into d: the fields every platform maps to the same line stay,
+// and any other field is a member refused as platform-specific (GBX5).
+// It reports false, leaving d as it was, unless each platform's
+// declaration maps as a struct with the same Go line and the same text
+// after its fields (the release clause).
+func mergeStruct(d *Decl, platforms []Platform, byName []map[string]Decl, name string) bool {
+	var all []Decl
+	for i := range byName {
+		di, ok := byName[i][name]
+		if !ok || di.Kind != Type || di.Refused != "" || !strings.HasSuffix(di.Go, " struct") {
+			return false
+		}
+		all = append(all, di)
+	}
+	first := all[0]
+	tail, ok := strings.CutPrefix(first.Ergo, typeText(first.Name, first.Lines))
+	if !ok {
+		return false
+	}
+	for _, di := range all[1:] {
+		if t, ok := strings.CutPrefix(di.Ergo, typeText(di.Name, di.Lines)); !ok || t != tail || di.Go != first.Go {
+			return false
+		}
+	}
+	lineOn := func(di Decl, field string) (Line, bool) {
+		for _, l := range di.Lines {
+			if l.Name == field {
+				return l, true
+			}
+		}
+		return Line{}, false
+	}
+	var kept []Line
+	var members []Member
+	seen := map[string]bool{}
+	refuse := func(field, goText string) {
+		if seen[field] {
+			return
+		}
+		seen[field] = true
+		var on []string
+		for i, di := range all {
+			if _, ok := lineOn(di, field); ok || slices.ContainsFunc(di.Members, func(m Member) bool { return m.Name == field }) {
+				on = append(on, platforms[i].String())
+			}
+		}
+		reason := "platform-specific: its Go declaration differs by platform"
+		if len(on) < len(all) {
+			reason = "platform-specific: Go declares it only on " + strings.Join(on, ", ")
+		}
+		members = append(members, Member{Name: field, Go: goText, Refused: reason})
+	}
+	for _, di := range all {
+		for _, l := range di.Lines {
+			if seen[l.Name] {
+				continue
+			}
+			alike := true
+			for _, dj := range all {
+				if lj, ok := lineOn(dj, l.Name); !ok || lj.Text != l.Text || lj.Go != l.Go {
+					alike = false
+				}
+			}
+			if alike {
+				seen[l.Name] = true
+				kept = append(kept, l)
+				continue
+			}
+			refuse(l.Name, l.Go)
+		}
+		for _, m := range di.Members {
+			if seen[m.Name] {
+				continue
+			}
+			alike := true
+			for _, dj := range all {
+				if !slices.Contains(dj.Members, m) {
+					alike = false
+				}
+			}
+			if alike {
+				seen[m.Name] = true
+				members = append(members, m)
+				continue
+			}
+			refuse(m.Name, m.Go)
+		}
+	}
+	merged := first
+	merged.Lines, merged.Members = kept, members
+	merged.Ergo = typeText(first.Name, kept) + tail
+	*d = merged
+	return true
 }
 
 func same(a, b Decl) bool {
