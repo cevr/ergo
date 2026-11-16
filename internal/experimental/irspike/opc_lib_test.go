@@ -14,8 +14,9 @@ import (
 // inlined at every call instead) is a body the build lowers through IR,
 // and at least one std body is lowered. A library body is positioned in its embedded file as a
 // program's body is in its source (lower/ir.go pos), in a census and in a
-// build alike (mutant opc-lib-gate-in-builds: the library-body gate kept
-// outside a census, so the census reports bodies the build never lowers).
+// build alike (mutant opc-lib-gate-in-builds: the gate of library bodies
+// kept outside a census, so the census reports bodies the build never
+// lowers).
 // The check is in process: the census and the IR report of one lowering
 // each, with no Go build.
 func TestIRLibraryBodiesLowerAsCensused(t *testing.T) {
