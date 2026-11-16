@@ -5814,6 +5814,7 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"np4f-law-compares-self","origin":"wf10 NP4f-0","file":"internal/sketch/lower/std_bodies_test.go","from":"\t\t\tif got != c.wants[j] {","to":"\t\t\tif got != got {","rule":"np4f-plan §6.1: the comparing law compares the new function with the old body, not with itself.","anchor":{"tests":["lower:TestBodyLawFindsADifference"]},"killers":["lower:TestBodyLawFindsADifference"]}
   ]
 }
