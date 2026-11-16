@@ -18,6 +18,7 @@ import (
 //
 //	var kp Some[ID[Style]]
 //	var v Option[ID[Style]]
+//	_ = v
 //	{
 //		if o.n == 0 {
 //			_ = None{}
@@ -26,7 +27,6 @@ import (
 //		kp = Some[ID[Style]]{Value: ID[Style]{n: o.n - 1}}
 //		goto kn
 //	}
-//	_ = v
 //	kn:
 //	{
 //		held := kp
@@ -135,6 +135,10 @@ func (fc *funcCtx) knownTake(x *syntax.CallExpr, ret *inlineRet, fallible bool) 
 	fc.pendingKnown = nil
 	km.taken = true
 	ret.known = km
+	// The result is read only when some return writes the union
+	// (knownGeneral); with none, the code after the inlined block is
+	// unreachable (go vet), so the use goes here.
+	fc.line("_ = " + ret.res)
 	for k, a := range km.tagArm {
 		if km.binds[a] {
 			p := fc.temp("kp")

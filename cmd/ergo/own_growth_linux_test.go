@@ -83,14 +83,14 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		run func(bin string, n int) (*exec.Cmd, string)
 	}
 	programs := []program{
-		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:155:10 in place", func(bin string, n int) (*exec.Cmd, string) {
+		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:154:12 in place", func(bin string, n int) (*exec.Cmd, string) {
 			var b strings.Builder
 			for i := range n {
 				fmt.Fprintf(&b, "Paragraph %d with *em* and `code`.\n\n", i)
 			}
 			return exec.Command(bin), b.String()
 		}},
-		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:289:38 one extender", func(bin string, n int) (*exec.Cmd, string) {
+		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "std/journal/memory/memory.ergo:25:110 one extender", func(bin string, n int) (*exec.Cmd, string) {
 			lines := []string{"route 1 logs disk", "route 2 metrics socket", "route 3 alerts stdout"}
 			topics := []string{"logs", "metrics", "alerts"}
 			for i := range n {

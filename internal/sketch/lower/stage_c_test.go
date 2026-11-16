@@ -4,7 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // ergoRun runs src through the public CLI, including its checker,
@@ -24,6 +27,12 @@ func ergoRun(t *testing.T, src string) (string, error) {
 	cmd := exec.Command(ergoCLI(t), "run", path)
 	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
+	// The first build in the test process's cache builds the IR compiler
+	// and says so first; which test makes it depends on the order the
+	// tests run in, and the note is no output of the program.
+	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
+		out = []byte(rest)
+	}
 	return string(out), err
 }
 

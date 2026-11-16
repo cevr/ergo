@@ -466,7 +466,7 @@
     "TestIRCensusFindsEveryReason": 2.55,
     "TestIRCoverage": 41.93,
     "TestIRFailuresMatchSource": 356.86,
-    "TestIRMatchesSource": 0,
+    "TestIRMatchesSource": 16.58,
     "TestIRTestsRunInTheFullTier": 0.01,
     "TestIRTextChecksPart0": 24.54,
     "TestIRTextChecksPart1": 0.24,
