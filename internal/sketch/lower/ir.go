@@ -215,6 +215,7 @@ type irState struct {
 	// reached are the census bodies reachAll has queued: a restart
 	// queues them again.
 	reached []*check.Func
+	ops     *opFacts // the capability bindings (ir_forms_op.go)
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -371,6 +372,7 @@ type irBuilder struct {
 	params  map[int]bool
 	hoisted map[hoistKey]int
 	entry   []*irStmt
+	ops     *irOpBody // the body's known capability providers (ir_forms_op.go)
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -498,6 +500,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
+	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
 	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
