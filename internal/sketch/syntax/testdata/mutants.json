@@ -65,6 +65,6 @@
     {"name":"orp-let-admitted","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\tif !p.orAllowed {\n","to":"\tif false {\n","rule":"Alternatives stand only in a case's patterns: a let or for pattern is one shape (FK7a).","killers":["check:TestOrPatternMessages"]},
     {"name":"orp-cap-missing","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\tif len(out) > maxAlternatives {\n","to":"\tif false {\n","rule":"A case expands to at most 64 patterns (FK7a).","killers":["check:TestOrPatternMessages"]},
     {"name":"orp-covered-sibling-text","origin":"wf10 FK7a","file":"internal/sketch/check/match.go","from":"o.Pos() == at.Pos() && o.End() == at.End() {","to":"o != nil && false {","rule":"An alternative covered by its sibling says so, not that an earlier case covers it (FK7a).","killers":["check:TestOrPatternMessages"]},
-    {"name":"g1-exit-set-twice","origin":"wf10 FK9-g1c","file":"internal/sketch/syntax/parser.go","from":" || e.Name == \"exit\" && t.Exit != nil {","to":" {","rule":"grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.","killers":["check:TestMachineExitDiagnostics"]}
+    {"name":"g1-exit-set-twice","origin":"wf10 FK9-g1c","file":"internal/sketch/syntax/parser.go","from":" || e.Name == \"exit\" && t.Exit != nil {","to":" {","rule":"grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.","anchor":{"tests":["check:TestMachineExitDiagnostics"]},"killers":["check:TestMachineExitDiagnostics"]}
   ]
 }
