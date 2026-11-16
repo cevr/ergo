@@ -26,6 +26,9 @@ type operand struct {
 	fail    string
 	failOut *strings.Builder
 	failAt  int
+	// failsAlways: every path of the inlined block jumps to fail, so no
+	// success path follows the block (go vet: unreachable code).
+	failsAlways bool
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -1209,6 +1212,13 @@ func (fc *funcCtx) propagateFailed(o operand) {
 // writes ("" when the failures meet the success path at the join).
 func (fc *funcCtx) failAround(o operand, direct bool) string {
 	if !fc.placeFail(o, direct) {
+		return ""
+	}
+	if o.failsAlways {
+		// No success path reaches here: the handler follows the block,
+		// and there is nothing to jump around it (go vet: unreachable
+		// code).
+		fc.line(o.fail + ":")
 		return ""
 	}
 	past := fc.temp("past")
