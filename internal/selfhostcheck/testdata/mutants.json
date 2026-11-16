@@ -342,6 +342,12 @@
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
-    }
+    },
+    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatTree(context.Background(), encode(f), maxBytes)","to":"format.FormatTree(context.Background(), encode(f), 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &goformat.LimitError{Limit: limit}","to":"\t\treturn out, &goformat.LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif len(implements) > 0 {\n","to":"\t\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.at(p.k(f, \"Own\"), \"At\"), \"own\")\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-written-ignored","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(w) > 0 { w } else { p.ks(arm, patterns) }","to":"\tp.ks(arm, patterns)","rule":"An arm prints its patterns as written: nested alternatives are not expanded.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-members-unsorted","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tfor at > 0 && p.start(nodes[at-1]) > p.start(m) {","to":"\t\t\tfor false {","rule":"An operation type's includes, operations and laws print in source order.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]}
   ]
 }
