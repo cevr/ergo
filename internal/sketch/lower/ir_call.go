@@ -54,12 +54,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	// A trailing block is a function literal, the call's last operand:
 	// a call of a function of the program takes it (ir_closure.go).
 	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Std() || c.Func.Pkg.Host()) {
-		if c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() {
-			// timeout.After { … }: the literal is built, the generic std
-			// extern that takes it is not (stdCall).
-			irNo("std call that adapts a function")
+		stdExtern := c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil
+		if !stdExtern {
+			irNo("trailing block")
 		}
-		irNo("trailing block")
+		// timeout.After { … }: stdCall adapts the block, its last operand
+		// (ir_adapt.go).
 	}
 	if c.StartsTask {
 		irNo("task call")

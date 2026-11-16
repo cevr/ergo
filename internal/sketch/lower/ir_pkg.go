@@ -499,7 +499,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("std call into an owning literal")
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
-	case len(body.Params) != len(x.Args):
+	case len(body.Params) != len(x.Args)+trailing(x):
+		irNo("std call with another arity")
+	case x.Trailing != nil && !adapted(body.Params[len(x.Args)]):
 		irNo("std call with another arity")
 	case len(b.l.ownedParams(fd.fn)) > 0:
 		irNo("call that passes owned values")
@@ -547,7 +549,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
-	pre = append(pre, b.adaptOperands(body.Params, x.Args, args, 0, p)...) // ir_adapt.go
+	if x.Trailing != nil {
+		args = append(args, b.closureLit(nil, x)) // the block, the last operand
+	}
+	pre = append(pre, b.adaptOperands(body.Params, x, args, 0, p)...) // ir_adapt.go
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
@@ -684,8 +689,9 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 		case v1.CallSite:
 			src, line, column := b.l.locate(x, x.Pos())
 			site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, c), src, line, column)
-			b.keepImport("var _ = " + b.l.rt() + ".Site")
-			out = append(out, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Site", Args: []*irExpr{{K: "const", Pos: p, T: "string", V: site}}})
+			// rt.Site is a defined string type: Site("…") is a conversion
+			// of the constant (spelling keeps the import).
+			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
 		default:
 			irNo("std call with hidden argument %s", h)
 		}
@@ -731,7 +737,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
-	pre = append(pre, b.adaptOperands(body.Params, x.Args, vals, 1, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, vals, 1, p)...) // ir_adapt.go
 	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}, !body.Pure
 }
 
