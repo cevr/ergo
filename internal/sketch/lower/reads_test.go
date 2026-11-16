@@ -54,7 +54,8 @@ func bump(xs []int) int {
 	readsfix.Bump(xs) + xs[0]
 }
 
-func rev(xs []int) int {
+func rev() int {
+	let xs = []int{1, 2, 3}
 	readsfix.Rev(xs, xs)
 }
 
@@ -67,7 +68,7 @@ func rev2() string {
 
 func main() needs Console {
 	Console.Println("\(bump([]int{1, 2}))")
-	Console.Println("\(rev([]int{1, 2, 3}))")
+	Console.Println("\(rev())")
 	Console.Println(rev2())
 }
 

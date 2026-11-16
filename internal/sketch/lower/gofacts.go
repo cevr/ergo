@@ -67,7 +67,7 @@ func (w *valueWalk) readsOK(a syntax.Expr) (take, guard bool) {
 	switch {
 	case why != "":
 	case w.fresh(a):
-		why = "no copy to skip: the operand is fresh, or a local dead after the call"
+		why = "no copy to skip: the operand is fresh, a local dead after the call, or copied by another rule"
 	case !w.l.takes("host-reads"):
 		if w.l.tests == nil {
 			why = "the reference lowering copies every Go operand"
