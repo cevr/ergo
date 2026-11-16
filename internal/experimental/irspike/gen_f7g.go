@@ -199,6 +199,15 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 		}
 		g.shown(in, g.orderExpr())
 	case 3:
+		if g.n(3) == 0 {
+			// An op-assignment whose value runs statements, one of which
+			// assigns the target: the target is read first (old).
+			init := g.local()
+			a := g.fresh()
+			fmt.Fprintf(&g.b, "%slet mut %s = %s\n%s%s += if tr(%s) > %d {\n%s\t%s = %s * 10\n%s\t1\n%s} else {\n%s\t2\n%s}\n%sConsole.Println(\"%s.%s \\(%s)\")\n",
+				in, a, init, in, a, g.expr(1), g.n(4), in, a, a, in, in, in, in, in, f.name, a, a)
+			return
+		}
 		fmt.Fprintf(&g.b, "%sif %s > %d {\n%s\tConsole.Println(\"%s.then\")\n%s} else if %s < 0 {\n%s\tConsole.Println(\"%s.elif\")\n%s}\n",
 			in, g.traced(), g.n(5), in, f.name, in, g.traced(), in, f.name, in)
 	case 4:
