@@ -250,12 +250,6 @@ func StringsEqualFold(s, t string) bool { return strings.EqualFold(s, t) }
 //ergo:wait none
 func StringsContainsRune(s string, r rune) bool { return strings.ContainsRune(s, r) }
 
-// UTF8RuneCount is utf8.RuneCountInString.
-//
-//ergo:pure
-//ergo:wait none
-func UTF8RuneCount(s string) int { return utf8.RuneCountInString(s) }
-
 // Decoded is utf8.Decoded, the result of DecodeRuneInString: the first
 // rune of a text and its size in bytes. It is a record of a std package,
 // so the lowering binds utf8.Decoded to this Go type (docs/spec/
@@ -288,18 +282,6 @@ func UTF8RuneText(r rune) string { return string(r) }
 //ergo:pure
 //ergo:wait none
 func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
-
-// UTF8ValidString is utf8.ValidString.
-//
-//ergo:pure
-//ergo:wait none
-func UTF8ValidString(s string) bool { return utf8.ValidString(s) }
-
-// UTF8ValidRune is utf8.ValidRune.
-//
-//ergo:pure
-//ergo:wait none
-func UTF8ValidRune(r rune) bool { return utf8.ValidRune(r) }
 
 // UTF8RuneLen is utf8.RuneLen: -1 for a rune that is not valid.
 //

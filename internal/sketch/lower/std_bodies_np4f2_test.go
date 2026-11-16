@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"strconv"
@@ -214,4 +215,45 @@ func np4f2StrconvCases(r *rand.Rand, n int, with func(bodyCase) bodyCase) []body
 			[]string{"", "\"", "\\", "\n\t\x00", "\xff", "é世🙂", "\u2028", "\x7f"}, n, r, np4f2Text, np4fErgoString,
 			func(s string) string { return np4f2Bytes(v1.StrconvQuote(s)) })),
 	}
+}
+
+// np4fGenFloat is a seeded float64: a spread of magnitudes, or any bit pattern.
+func np4fGenFloat(r *rand.Rand) float64 {
+	if r.IntN(4) == 0 {
+		return math.Float64frombits(r.Uint64())
+	}
+	return r.NormFloat64() * math.Pow(10, float64(r.IntN(40)-20))
+}
+
+// np4fFloatArg is f as an Ergo float64 of its exact text (np4fFl).
+func np4fFloatArg(f float64) string { return `np4fFl("` + strconv.FormatFloat(f, 'g', -1, 64) + `")` }
+
+// np4fErgoString is s as an Ergo string literal, every byte outside printable
+// ASCII escaped as \xHH.
+func np4fErgoString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c >= 0x20 && c < 0x7f:
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "\\x%02x", c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// np4fGenRune is a seeded rune: mostly in range, sometimes negative or past
+// U+10FFFF.
+func np4fGenRune(r *rand.Rand) rune {
+	if r.IntN(3) == 0 {
+		return rune(r.Int32() - 1<<30)
+	}
+	return r.Int32N(0x110000 + 16)
 }

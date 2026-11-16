@@ -132,15 +132,15 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 	},
 	"utf8 RuneCountAtMostLen": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return UTF8RuneCount(s) <= len(s) && UTF8RuneCount(s) >= 0, s
+		return utf8.RuneCountInString(s) <= len(s) && utf8.RuneCountInString(s) >= 0, s
 	},
 	"utf8 RuneCountOfConcat": func(r *rand.Rand) (bool, any) {
 		a, b := randomString(r), randomString(r)
-		return UTF8RuneCount(a+b) <= UTF8RuneCount(a)+UTF8RuneCount(b), []string{a, b}
+		return utf8.RuneCountInString(a+b) <= utf8.RuneCountInString(a)+utf8.RuneCountInString(b), []string{a, b}
 	},
 	"utf8 RuneCountAddsRune": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return UTF8RuneCount(s+"é") == UTF8RuneCount(s)+1, s
+		return utf8.RuneCountInString(s+"é") == utf8.RuneCountInString(s)+1, s
 	},
 	"strconv AtoiInvertsItoa": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
@@ -329,12 +329,9 @@ func textBenches() []textBench {
 		{"SplitN", "StringsSplitN", func() { textSink = StringsSplitN(s, ",", 4) }, func() { textSink = strings.SplitN(s, ",", 4) }},
 		{"EqualFold", "StringsEqualFold", func() { textSink = StringsEqualFold(s, strings.ToUpper(s)) }, func() { textSink = strings.EqualFold(s, strings.ToUpper(s)) }},
 		{"ContainsRune", "StringsContainsRune", func() { textSink = StringsContainsRune(s, 'é') }, func() { textSink = strings.ContainsRune(s, 'é') }},
-		{"RuneCount", "UTF8RuneCount", func() { textSink = UTF8RuneCount(s) }, func() { textSink = utf8.RuneCountInString(s) }},
 		{"DecodeRuneInString", "UTF8DecodeRuneInString", func() { textSink = UTF8DecodeRuneInString("世界").Size }, func() { _, textSink = utf8.DecodeRuneInString("世界") }},
 		{"RuneText", "UTF8RuneText", func() { textSink = UTF8RuneText('世') }, func() { textSink = string(rune('世')) }},
 		{"AppendRune", "UTF8AppendRune", func() { textSink = len(UTF8AppendRune(buf[:0], '世')) }, func() { textSink = len(utf8.AppendRune(buf[:0], '世')) }},
-		{"ValidString", "UTF8ValidString", func() { textSink = UTF8ValidString(s) }, func() { textSink = utf8.ValidString(s) }},
-		{"ValidRune", "UTF8ValidRune", func() { textSink = UTF8ValidRune(0xD800) }, func() { textSink = utf8.ValidRune(0xD800) }},
 		{"RuneLen", "UTF8RuneLen", func() { textSink = UTF8RuneLen('世') }, func() { textSink = utf8.RuneLen('世') }},
 		{"ToValidUTF8", "StringsToValidUTF8", func() { textSink = StringsToValidUTF8(bad, "\uFFFD") }, func() { textSink = strings.ToValidUTF8(bad, "\uFFFD") }},
 		{"FormatInt", "StrconvFormatInt", func() { textSink = StrconvFormatInt(-1234567890, 36) }, func() { textSink = strconv.FormatInt(-1234567890, 36) }},
