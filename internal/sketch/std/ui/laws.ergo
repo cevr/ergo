@@ -1105,3 +1105,53 @@ law SameEqualsRecompute(seed int, steps int) {
 	}
 	true
 }
+
+// grArgs are a group's arguments for GroupSkipsEqualArguments: every
+// value its body reads.
+type grArgs { n int, on bool }
+
+func grBody(f *Frame[int], a grArgs) {
+	Text(f, "n \(a.n)")
+	if a.on {
+		Box(f, Plain()) {
+			Text(f, "on")
+		}
+	}
+}
+
+// grGrouped writes grBody through group, as the compiler writes a
+// component call.
+func grGrouped(f *Frame[int], a grArgs) {
+	group(f, a, func() { grBody(f, a) })
+}
+
+// GroupSkipsEqualArguments (P-ui, SP9: the group protocol): over passes
+// whose arguments stay or change, a group writes what running its body
+// writes, and it runs its body exactly on its first pass and when its
+// arguments differ from the last pass's. It is the law the skip rests on
+// (equal arguments write equal nodes); a frame package's group is the
+// compiler's form of a component call only when a law of that package
+// reaches it (lower/uigroup.go, groupLawed), so a user's UI library
+// states its own.
+law GroupSkipsEqualArguments(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut prev = grArgs{n: 0, on: false}
+	for i in 0..(steps%10+10)%10+2 {
+		let a = if i > 0 && draw(&r, 2) == 0 {
+			prev
+		} else {
+			grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0}
+		}
+		if !opsEqual(Render(&f, grGrouped, a), Render(&g, grBody, a)) || !SameShapes(TreeShape(&f), TreeShape(&g)) {
+			return false
+		}
+		let ran = i == 0 || a.n != prev.n || a.on != prev.on
+		if (GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		prev = a
+	}
+	true
+}

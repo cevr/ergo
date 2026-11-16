@@ -1047,6 +1047,50 @@ test UiLocatorAgreesWithAccessTree(seed int) {
 test UiSameEqualsRecompute(seed int, steps int) {
 	assert lawSameEqualsRecompute(seed, steps)
 }
+
+type grArgs { n int, on bool }
+
+func grBody(f *ui.Frame[int], a grArgs) {
+	ui.Text(f, "n \(a.n)")
+	if a.on {
+		ui.Box(f, ui.Plain()) {
+			ui.Text(f, "on")
+		}
+	}
+}
+
+// grGrouped's call of grBody is a component call: the compiler sends it
+// through std ui's group (the ledger's grGrouped calls group itself).
+func grGrouped(f *ui.Frame[int], a grArgs) {
+	grBody(f, a)
+}
+
+func lawGroupSkipsEqualArguments(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let mut f = ui.NewFrame[int]()
+	let mut g = ui.NewFrame[int]()
+	let mut prev = grArgs{n: 0, on: false}
+	for i in 0..(steps%10+10)%10+2 {
+		let a = if i > 0 && draw(&r, 2) == 0 {
+			prev
+		} else {
+			grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0}
+		}
+		if !opsEqual(ui.Render(&f, grGrouped, a), ui.Render(&g, grBody, a)) || !ui.SameShapes(ui.TreeShape(&f), ui.TreeShape(&g)) {
+			return false
+		}
+		let ran = i == 0 || a.n != prev.n || a.on != prev.on
+		if (ui.GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		prev = a
+	}
+	true
+}
+
+test UiGroupSkipsEqualArguments(seed int, steps int) {
+	assert lawGroupSkipsEqualArguments(seed, steps)
+}
 `
 
 // stdUITreeStatements is the statement of each ui law, as the ledger writes it,
@@ -1058,6 +1102,7 @@ var stdUITreeStatements = map[string]string{
 	"ui PressGivesSignal":            `PressGivesSignal(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut ok = true for _ in 0..3 { let _ = pass(&f, ps, genState(&r)) for k in Kids(&f, Root(&f)) { ok = ok && signalsAgree(&f, k, false) } } ok }`,
 	"ui LocatorAgreesWithAccessTree": `LocatorAgreesWithAccessTree(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for _ in 0..3 { let s = genState(&r) let ops = Render(&f, func(g *Frame[int], st []int) { for p in ps { render(g, p, st, 0) catch { case Missing: Unreachable("ui laws: a read is drawn only under a boundary") case Pending: Unreachable("ui laws: a read is drawn only under a boundary") } } extras(g, st[0]) }, s) Apply(&m, ops) catch { case BadPatch: return false } let mut shapes = models(ps, s, 0) for x in extraShapes(s[0]) { shapes = shapes.Append(x) } let want = accessModel(shapes, false, "") let mut locs = []Locator{} for role in []Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Generic} { locs = locs.Append(WithRole{Role: role, Name: ""}) } let w = want[draw(&r, len(want))] locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name}) locs = locs.Append(WithLabel{Label: w.a.Name}) locs = locs.Append(WithPlaceholder{Text: w.a.Name}) locs = locs.Append(WithText{Text: w.a.Name}) for loc in locs { let mut model = []seen{} for x in want { if wants(loc, x) { model = model.Append(x) } } let got = LocateIn(&m, loc) if len(got) != len(model) { return false } for i, id in got { if AccessOf(&m, id) != model[i].a { return false } } if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) { return false } if len(model) > 0 { let x = model[0] let checked = x.a.Checked == (Some{Value: true}) let unchecked = x.a.Checked == (Some{Value: false}) if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked { return false } if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) { return false } if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) { return false } match x.a.Value { case Some[string] as v: if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) { return false } case None: if matches(&m, loc, ToHaveValue{Value: ""}) { return false } } } } } true }`,
 	"ui SameEqualsRecompute":         `SameEqualsRecompute(seed int, steps int) { let mut r = seeded(seed) // revived: a Same in a Box in a boundary whose read, of a slot the // Same's key does not hold, fails and passes in turn, so the Box is // parked and comes back while the Same's key stays. let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}} let ps = genRoot(&r).Append(revived) let qs = unmemo(ps) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut s = genState(&r) let mut again = false let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}} for _ in 0..(steps%8+8)%8+2 { let a = pass(&f, ps, s) let b = pass(&g, qs, s) if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) { return false } if again && Skips(&f) != sameCount(ps, s, 0) { return false } if sent(Handle(&f, key).Signal) != sent(Handle(&g, key).Signal) { return false } let ka = Kids(&f, Root(&f)) let kb = Kids(&g, Root(&g)) if len(ka) != len(kb) { return false } for i in 0..len(ka) { if !signalsMatch(&f, &g, ka[i], kb[i]) { return false } } again = false let pick = draw(&r, 4) if pick == 0 { again = true } else if pick == 1 { let ta = toggles(&f, Root(&f), []Id[int]{}) let tb = toggles(&g, Root(&g), []Id[int]{}) if len(ta) != len(tb) { return false } if len(ta) > 0 { let i = draw(&r, len(ta)) if Handle(&f, Press[int]{Id: ta[i]}) != Handle(&g, Press[int]{Id: tb[i]}) { return false } } } else if pick == 2 { s[draw(&r, slots)] = draw(&r, 64) } else { s[3] = draw(&r, 3) } } true }`,
+	"ui GroupSkipsEqualArguments":    `GroupSkipsEqualArguments(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut prev = grArgs{n: 0, on: false} for i in 0..(steps%10+10)%10+2 { let a = if i > 0 && draw(&r, 2) == 0 { prev } else { grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0} } if !opsEqual(Render(&f, grGrouped, a), Render(&g, grBody, a)) || !SameShapes(TreeShape(&f), TreeShape(&g)) { return false } let ran = i == 0 || a.n != prev.n || a.on != prev.on if (GroupRuns(&f) == 1) != ran { return false } prev = a } true }`,
 }
 
 // TestUITreeModel runs the probe's tests with --seed 1; lawledger.Run holds that

@@ -9,12 +9,13 @@ import (
 )
 
 // Skipping (P-ui; stdlib.md, UI 13). A component call is a statement call
-// of a function the program declares whose first argument is a
-// *ui.Frame[E] and whose other arguments are values of types that compare
+// of a function declared outside the frame's package whose first argument
+// is a frame (*ui.Frame[E], or any frame type with a group: groupFrame)
+// and whose other arguments are values of types that compare
 // with == and hold no pointer, written as names, field selections or
 // constants, with no error or capability row: a view is pure apart from
 // its writes through the frame (UI 1), so equal arguments write equal
-// nodes. The lowering passes such a call through std ui's group, which
+// nodes. The lowering passes such a call through the frame's group, which
 // writes the nodes the last pass's call wrote when its arguments are
 // equal, and runs the call otherwise:
 //
@@ -44,14 +45,16 @@ func SetUISkipForTest(on bool) func() {
 	return func() { uiSkipOff = old }
 }
 
-// uiGroup is the std ui group function a component call x of c goes
-// through, or nil when x is not a component call.
+// uiGroup is the group function a component call x of c goes through,
+// or nil when x is not a component call. A call of a function of the
+// frame's own package is none: those are the library's primitives, which
+// the group writes through (std ui's Text, Box and the group's helpers).
 func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 	if uiSkipOff || rewriteLowering == "reference" || fc.inGroup == x || c.Kind != check.CallFunc || c.Recv != nil || x.Trailing != nil {
 		return nil
 	}
 	fn := c.Func
-	if fn == nil || fn.Pkg == nil || fn.Pkg.Std() || fn.Decl == nil || fn.Decl.Extern != nil || check.GoBuiltin(fn) != "" || userExtern(fn) {
+	if fn == nil || fn.Pkg == nil || fn.Decl == nil || fn.Decl.Extern != nil || check.GoBuiltin(fn) != "" || userExtern(fn) {
 		return nil
 	}
 	sig := fn.Sig
@@ -61,8 +64,8 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 	if _, ok := unparen(x.Args[0]).(*syntax.Ident); !ok {
 		return nil
 	}
-	_, g := groupFrame(fc.typeOf(x.Args[0]))
-	if g == nil {
+	frame, g := fc.l.groupFrame(fc.typeOf(x.Args[0]))
+	if g == nil || fn.Pkg == frame.Obj.Pkg {
 		return nil
 	}
 	for _, a := range x.Args[1:] {
@@ -74,29 +77,89 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 }
 
 // groupFrame is the frame type t points to and its group function, or
-// nils. A frame is a generic type T[E] of a std package that declares a
-// group over it: a function of the shape
+// nils. A frame is a generic type T[E] of any package that declares a
+// group over it (the group protocol, stdlib.md UI 13): a function of the
+// shape
 //
 //	func g[E, A](f *T[E], args A, body func(), at CallSite)
 //
-// The lowering finds it by that checked shape, never by a name (the
-// identity-blind rule, OPT4a): std ui's Frame and group are the one pair
-// today.
-func groupFrame(t check.Type) (*check.Named, *check.Func) {
+// and a top-level law that reaches g, through the functions of the
+// package it names: the law the skip rests on, that equal arguments write
+// equal nodes, which the package's own ergo test runs. The lowering finds
+// the pair by that checked shape and that law, never by a name or by std
+// membership (the identity-blind rule, OPT4a; owner, 2026-11-16: std has
+// no privileges over user code), so a user's UI library gets the Go std
+// ui gets (TestGroupProtocolCopyAgrees). std ui's Frame and group, with
+// the law GroupSkipsEqualArguments, are one such pair.
+func (l *lowerer) groupFrame(t check.Type) (*check.Named, *check.Func) {
 	p, ok := t.(*check.Pointer)
 	if !ok {
 		return nil, nil
 	}
 	n, ok := p.Elem.(*check.Named)
-	if !ok || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.Std() || len(n.TArgs) != 1 {
+	if !ok || n.Obj == nil || n.Obj.Pkg == nil || len(n.TArgs) != 1 {
 		return nil, nil
 	}
-	for _, g := range n.Obj.Pkg.Funcs {
-		if groupShape(g, origin(n)) {
-			return n, g
+	frame := origin(n)
+	g, ok := l.groups[frame]
+	if !ok {
+		for _, h := range n.Obj.Pkg.Funcs {
+			if groupShape(h, frame) && groupLawed(n.Obj.Pkg, h) {
+				g = h
+				break
+			}
+		}
+		if l.groups == nil {
+			l.groups = map[*check.Named]*check.Func{}
+		}
+		l.groups[frame] = g
+	}
+	if g == nil {
+		return nil, nil
+	}
+	return n, g
+}
+
+// groupLawed reports a top-level law of pkg that reaches g: its body
+// names g, or names a function of pkg whose body reaches g. A group with
+// no such law is an ordinary function: the compiler never sends a call
+// through a function whose package has not stated the law it rests on.
+func groupLawed(pkg *check.Package, g *check.Func) bool {
+	if pkg.Info == nil || g.Decl == nil {
+		return false
+	}
+	seen := map[*syntax.FuncDecl]bool{}
+	var reaches func(n syntax.Node) bool
+	reaches = func(n syntax.Node) bool {
+		found := false
+		syntax.Inspect(n, func(m syntax.Node) bool {
+			if found {
+				return false
+			}
+			id, ok := m.(*syntax.Ident)
+			if !ok {
+				return true
+			}
+			f, ok := pkg.Info.Uses[id].(*check.Func)
+			if !ok || f.Pkg != pkg || f.Decl == nil {
+				return true
+			}
+			if f.Decl == g.Decl {
+				found = true
+			} else if !seen[f.Decl] && f.Decl.Body != nil {
+				seen[f.Decl] = true
+				found = reaches(f.Decl.Body)
+			}
+			return !found
+		})
+		return found
+	}
+	for _, law := range pkg.Laws {
+		if law.Owner == nil && law.Machine == nil && law.Decl != nil && law.Decl.Body != nil && reaches(law.Decl.Body) {
+			return true
 		}
 	}
-	return nil, nil
+	return false
 }
 
 // groupShape reports g a group over the frame type frame (groupFrame).
@@ -194,7 +257,7 @@ func pointerFree(t check.Type, seen map[check.Type]bool) bool {
 
 // groupCall is the Go text of the component call x of c through group g.
 func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (string, bool, bool) {
-	frame, _ := groupFrame(fc.typeOf(x.Args[0]))
+	frame, _ := fc.l.groupFrame(fc.typeOf(x.Args[0]))
 	var types, vals []string
 	for _, a := range x.Args[1:] {
 		types = append(types, fc.goType(fc.typeOf(a)))

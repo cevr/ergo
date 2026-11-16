@@ -660,8 +660,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
-	"internal/sketch/lower/uigroup.go:funcCtx.uiGroup",
-	"internal/sketch/lower/uigroup.go:groupFrame",
 	"internal/sketch/lower/values.go:lowerer.ownedForm",
 	"internal/sketch/lower/wirefields.go:jsonWrapper",
 	"internal/sketchfront/inspect.go:InspectGo",

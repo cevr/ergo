@@ -73,8 +73,6 @@ debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	decides by std members
 debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/lower/std.go:funcCtx.graphArg	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/uigroup.go:funcCtx.uiGroup	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/uigroup.go:groupFrame	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the method of a failure type	-
 language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
 language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
