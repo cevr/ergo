@@ -212,6 +212,5 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
-	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
 }

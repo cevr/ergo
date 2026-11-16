@@ -584,10 +584,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..4b753cc
+index 0000000..4ae2239
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,407 @@
+@@ -0,0 +1,415 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -597,6 +597,8 @@ index 0000000..4b753cc
 +package noder
 +
 +import (
++	"go/constant"
++
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
@@ -863,7 +865,13 @@ index 0000000..4b753cc
 +		fun.SetTypeInfo(tv)
 +		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{xs}}
 +		call.SetPos(pos)
-+		ergoValue(call, types2.Typ[types2.Int], nil)
++		// Go's len of a constant string is a constant (its bytes), as the
++		// printed text compiles it.
++		var n constant.Value
++		if v := ergoConstOf(xs); v != nil && v.Kind() == constant.String {
++			n = constant.MakeInt64(int64(len(constant.StringVal(v))))
++		}
++		ergoValue(call, types2.Typ[types2.Int], n)
 +		return call, types2.Typ[types2.Int]
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
@@ -1566,10 +1574,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..efa852a
+index 0000000..ec3e834
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,304 @@
+@@ -0,0 +1,309 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1828,6 +1836,11 @@ index 0000000..efa852a
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
++		if s.Key == nil && s.Val == nil {
++			// for range x: no left-hand side, as Go parses the printed
++			// text (the text view prints no blank names).
++			rc.Lhs, rc.Def = nil, false
++		}
 +		rc.SetPos(pos)
 +		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)

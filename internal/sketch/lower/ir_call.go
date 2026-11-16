@@ -168,7 +168,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
-	case check.CallProviderOp:
+	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
 			irNo("operation call form")
@@ -180,13 +180,16 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
 		}
-		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
-		if !ok {
-			irNo("operation call spelling")
-		}
-		named, ok := b.l.info.Types[sel.X].(*check.Named)
-		if !ok {
-			irNo("capability without a named type")
+		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named == nil {
+			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+			if !ok {
+				irNo("operation call spelling")
+			}
+			named, ok = b.l.info.Types[sel.X].(*check.Named)
+			if !ok {
+				irNo("capability without a named type")
+			}
 		}
 		// The interruption point, before the operands (callText).
 		var pre []*irStmt
