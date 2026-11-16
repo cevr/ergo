@@ -46,7 +46,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"selector on a non-record", "G1"},
 	{"selector that is not a field", "G1"},
 	{"record update or elided literal type", "G1"},
-	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},

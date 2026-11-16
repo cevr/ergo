@@ -175,17 +175,26 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				irNo("record literal without every field")
 			}
 			var values []syntax.Expr
-			for _, e := range x.Elts {
-				kv, ok := e.(*syntax.KeyValueExpr)
-				if !ok {
+			for i, e := range x.Elts {
+				name := ""
+				kv, keyed := e.(*syntax.KeyValueExpr)
+				switch {
+				case keyed:
+					k, ok := kv.Key.(*syntax.Ident)
+					if !ok {
+						irNo("record key")
+					}
+					name = k.Name
+					values = append(values, kv.Value)
+				case i < len(td.fields):
+					// A positional element sets the field of its place (the
+					// emitter's composite).
+					name = td.fields[i].Name
+					values = append(values, e)
+				default:
 					irNo("unkeyed record literal")
 				}
-				k, ok := kv.Key.(*syntax.Ident)
-				if !ok {
-					irNo("record key")
-				}
-				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				values = append(values, kv.Value)
+				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
 		default:
