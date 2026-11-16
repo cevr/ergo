@@ -130,7 +130,16 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	}
 	// The root's top-level rewrite laws take their licence run, a
 	// library's too: their entries are the package's, not a site's.
-	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr)
+	ctext, err := ledgerText(req.Inputs, corpusPath(req.Ledger))
+	if err != nil {
+		return 0, err
+	}
+	cases, err := parseCorpus(ctext)
+	if err != nil {
+		return 0, err
+	}
+	before := cases.format()
+	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases)
 	if err != nil {
 		return 0, err
 	}
@@ -160,6 +169,19 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 			changed++
 		}
 		next[e.Key()] = e
+	}
+	// The corpus keeps a law's cases while its package declares it in
+	// the rewrite's scope, by the ledger's pruning rule.
+	for k := range cases {
+		if !src.declares(lower.LedgerEntry{Law: k}) {
+			delete(cases, k)
+		}
+	}
+	if after := cases.format(); after != before {
+		changed++
+		if err := writeFileAtomic(corpusPath(req.Ledger), []byte(after)); err != nil {
+			return 0, err
+		}
 	}
 	if changed == 0 {
 		return 0, nil
@@ -297,7 +319,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		}
 		// A top-level rewrite law's licence run is the evaluator's, so
 		// it needs no Go tool (licenceEntries).
-		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr)
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil)
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
