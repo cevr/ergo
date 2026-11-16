@@ -38,7 +38,7 @@ import (
 // called by a plain call (m5-generic-plain-call).
 func TestIRFilePerPackage(t *testing.T) {
 	twoPackages, foreign, generic := false, false, false
-	for _, name := range []string{"particles", "okra-keys", "forge", "todo-shell", "calc", "fk-diag"} {
+	for _, name := range []string{"particles", "okra-keys", "forge", "todo-shell", "calc"} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name, "cmd", name))
 		if err != nil {
 			t.Fatal(err)

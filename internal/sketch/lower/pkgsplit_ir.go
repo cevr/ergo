@@ -151,6 +151,13 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 					results, ret = " "+text(k, decl, n.Type.Results), "return "
 				}
 				extra[k].WriteString("\nfunc " + name + "(" + strings.Join(params, ", ") + ")" + results + " {\n\t" + ret + qualified(k, name) + "(" + strings.Join(args, ", ") + ")\n}\n")
+			case *ast.ValueSpec:
+				// A package let of another package: Ergo has no mutable
+				// package state (mutPackageLet), and Go initializes an
+				// imported package first, so a copy reads what the
+				// variable holds (the reader's "global" looks a name up in
+				// the package's own scope only).
+				extra[k].WriteString("\nvar " + name + " = " + qualified(k, name) + "\n")
 			default:
 				return "an IR body uses the variable " + name + " of another package"
 			}
