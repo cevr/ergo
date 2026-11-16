@@ -5814,6 +5814,7 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"gb1-ref-pattern-ice","origin":"wf10 GB1","file":"internal/sketch/lower/body.go","from":"\tif !ok || isGoRef(n) || fc.l.runtimeNamed(n, fc.site) {","to":"\tif !ok || fc.l.runtimeNamed(n, fc.site) {","rule":"A record pattern Some{Value: h} over a fresh Option[go.Ref[T]] lowers: go.Ref[T] is Go's *T, no interface.","killers":["lower:TestOptionRefPatternLowers"]}
   ]
 }

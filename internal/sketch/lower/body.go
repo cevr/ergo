@@ -1479,8 +1479,11 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 		return true // a row value, a Go error
 	}
 	n, ok := t.(*check.Named)
-	if !ok || fc.l.runtimeNamed(n, fc.site) {
-		return false // a std type is the runtime's concrete Go type
+	if !ok || isGoRef(n) || fc.l.runtimeNamed(n, fc.site) {
+		// A std type is the runtime's concrete Go type; go.Ref[T] is Go's
+		// *T, which has no declaration of its own (GB1: a record pattern
+		// Some{Value: c} on an Option[go.Ref[T]] reaches here).
+		return false
 	}
 	td := fc.l.typeDecl(n.Obj, fc.site)
 	if td.kind == kindDefined {
