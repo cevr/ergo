@@ -634,10 +634,25 @@ func (b builder) program(cmdDir, name string) (string, string, error) {
 		return "", "", err
 	}
 	bin := filepath.Join(b.o.work, name)
-	if err := b.exec(work, "go", "build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-ldflags=-checklinkname=0", "-overlay", overlayFile, "-o", bin, "."); err != nil {
+	link, err := opcount.HookedBuild(work, overlayFile, bin)
+	if err != nil {
+		return "", "", err
+	}
+	if err := b.run(link); err != nil {
 		return "", "", err
 	}
 	return bin, goLine, nil
+}
+
+// run runs cmd under the memory limit, logging its words.
+func (b builder) run(cmd *exec.Cmd) error {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	fmt.Fprintf(b.log, "%s\n", strings.Join(cmd.Args, " "))
+	if err := proclimit.Run(cmd, b.o.memory); err != nil {
+		return fmt.Errorf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out.Bytes())
+	}
+	return nil
 }
 
 // goPackage builds the main package rel (from the repository root) as a
