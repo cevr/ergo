@@ -31,8 +31,8 @@ func Draw(seed uint64) uint64 {
 // it as a function of its arguments). Red at base: S102, go.Foreign is
 // not in Draw's row.
 //
-// Mutant it alone catches: ffi-effect-pure (a memory-only call joins the
-// pure tier).
+// Mutant it alone catches: ffi-effect-pure (a call of an effect row
+// joins the pure tier).
 func TestMemoryOnlyChargesNothing(t *testing.T) {
 	f, err := syntax.Parse(memoryOnlySrc)
 	if err != nil {
@@ -66,8 +66,8 @@ func TestMemoryOnlyChargesNothing(t *testing.T) {
 // current and validated; a missing line and a refuted one are diagnostics
 // at the binding that say which.
 //
-// Mutants it alone catches: ffi-effect-unguarded-acts (a memory-only row
-// acts with no guard line), ffi-effect-refuted-acts (a refuted line reads
+// Mutants it alone catches: ffi-effect-unguarded-acts (an effect row acts
+// with no guard line), ffi-effect-refuted-acts (a refuted line reads
 // as a missing one).
 func TestEffectRowsActOnlyValidated(t *testing.T) {
 	saved := check.FactLedger

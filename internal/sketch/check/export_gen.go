@@ -344,6 +344,7 @@ func (e *encoder) encFieldshostPkg(v *hostPkg) {
 	e.encT68(v.goLines)
 	e.encT69(v.reads)
 	e.encT70(v.vouched)
+	e.encT67(v.effect)
 }
 
 func (e *encoder) enchostPkg(v hostPkg) { e.encFieldshostPkg(&v) }
@@ -10968,6 +10969,7 @@ func (d *decoder) decFieldshostPkg(v *hostPkg) {
 	v.goLines = d.decT68()
 	v.reads = d.decT69()
 	v.vouched = d.decT70()
+	v.effect = d.decT67()
 }
 
 func (d *decoder) dechostPkg() (v hostPkg) {

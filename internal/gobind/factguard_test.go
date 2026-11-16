@@ -59,10 +59,10 @@ func TestPureTierActsOnlyValidated(t *testing.T) {
 // ergo bind go writes atomic.Int64.Add with no needs row and an
 // `// ergo:effect none` line exactly when the std ledger holds the row's
 // guard line current and validated; with the line missing it binds the
-// method under needs go.Foreign, with no effect line.
+// method with the go.Foreign row and no effect line.
 //
-// Mutant it alone catches: ffi-effect-bind-unguarded (the binder writes a
-// memory-only row with no guard line).
+// Mutant it alone catches: ffi-effect-bind-unguarded (the binder writes an
+// effect row with no guard line).
 func TestEffectTierActsOnlyValidated(t *testing.T) {
 	pkg, err := importer.ForCompiler(token.NewFileSet(), "source", nil).Import("sync/atomic")
 	if err != nil {
