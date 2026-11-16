@@ -6,9 +6,12 @@
 // the old body and of the new one (README.md).
 
 import bits
+import cmp
+import filepath
 import hex
 import math
 import os
+import slices
 import strconv
 import strings
 import utf8
@@ -21,6 +24,11 @@ func run(kind string, n int) string fails os.Exit {
 	let upper = []string{"PLAIN", "É", "世界", "A\xffB", "", "🙂X", "ASCII TEXT", "\xe4\xb8"}
 	let parts = []string{"alpha", "beta", "gamma", "delta"}
 	let hexes = []string{"00ff10", "DEADbeef", "abc", "zz12"}
+	let paths = []string{"a/b/../c//d.txt", "/usr/local/lib/../share/./doc", "x", "../../a/b/c.go", "", "/", "a/b/", ".hidden"}
+	let ints = []int{3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3, 2, 3, 8, 4, 6, 2, 6, 4, 3, 3, 8, 3, 2, 7}
+	let ints2 = [][]int{ints, slices.Clone(ints).Append(1)}
+	let asc = slices.Ascend(ints)
+	let cfloats = []float64{0.5, -129.5, 1e10, 300.25, -1e19, 42.0, 70000.75, -0.0}
 	let mut acc = 0
 	let mut f = 0.0
 	match kind {
@@ -296,6 +304,190 @@ func run(kind string, n int) string fails os.Exit {
 			acc += len(hex.Decode(hexes[i & 3]) catch {
 			case hex.Malformed as m:
 				"\(m.Offset)"
+			})
+		}
+	case "filepath.Base":
+		for i in 0..n {
+			acc += len(filepath.Base(paths[i & 7]))
+		}
+	case "filepath.Dir":
+		for i in 0..n {
+			acc += len(filepath.Dir(paths[i & 7]))
+		}
+	case "filepath.Ext":
+		for i in 0..n {
+			acc += len(filepath.Ext(paths[i & 7]))
+		}
+	case "filepath.Clean":
+		for i in 0..n {
+			acc += len(filepath.Clean(paths[i & 7]))
+		}
+	case "filepath.IsAbs":
+		for i in 0..n {
+			if filepath.IsAbs(paths[i & 7]) {
+				acc += 1
+			}
+		}
+	case "filepath.Split":
+		for i in 0..n {
+			let sp = filepath.Split(paths[i & 7])
+			acc += len(sp.Dir) + len(sp.File)
+		}
+	case "filepath.Rel":
+		for i in 0..n {
+			acc += len(filepath.Rel(paths[i & 7], paths[(i + 3) & 7]) catch {
+			case filepath.NotRelative:
+				"x"
+			})
+		}
+	case "filepath.Join":
+		for i in 0..n {
+			acc += len(filepath.Join([]string{parts[i & 3], paths[i & 7]}))
+		}
+	case "cmp.Compare":
+		for i in 0..n {
+			acc += cmp.Compare(i & 15, (i * 7) & 15)
+		}
+	case "cmp.CompareFloat":
+		for i in 0..n {
+			acc += cmp.Compare(floats[i & 7], floats[(i + 3) & 7])
+		}
+	case "cmp.CompareString":
+		for i in 0..n {
+			acc += cmp.Compare(words[i & 7], words[(i + 3) & 7])
+		}
+	case "cmp.Less":
+		for i in 0..n {
+			if cmp.Less(floats[i & 7], floats[(i + 5) & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.PadLeft":
+		for i in 0..n {
+			acc += len(strings.PadLeft(words[i & 7], i & 15, runes[i & 7]))
+		}
+	case "strings.PadRight":
+		for i in 0..n {
+			acc += len(strings.PadRight(words[i & 7], i & 15, ' '))
+		}
+	case "slices.Contains":
+		for i in 0..n {
+			if slices.Contains(ints, i & 31) {
+				acc += 1
+			}
+		}
+	case "slices.Index":
+		for i in 0..n {
+			acc += slices.Index(ints, i & 31)
+		}
+	case "slices.Equal":
+		for i in 0..n {
+			if slices.Equal(ints, ints2[i & 1]) {
+				acc += 1
+			}
+		}
+	case "slices.Max":
+		for i in 0..n {
+			match slices.Max(ints2[i & 1]) {
+			case Some[int] as v:
+				acc += v.Value
+			case None:
+				acc += 1
+			}
+		}
+	case "slices.Min":
+		for i in 0..n {
+			match slices.Min(ints2[i & 1]) {
+			case Some[int] as v:
+				acc += v.Value
+			case None:
+				acc += 1
+			}
+		}
+	case "slices.BinarySearch":
+		for i in 0..n {
+			match slices.BinarySearch(asc, i & 31) {
+			case Some[int] as v:
+				acc += v.Value
+			case None:
+				acc += 1
+			}
+		}
+	case "math.ToInt":
+		for i in 0..n {
+			acc += int(math.ToInt(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToInt8":
+		for i in 0..n {
+			acc += int(math.ToInt8(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToInt16":
+		for i in 0..n {
+			acc += int(math.ToInt16(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToInt32":
+		for i in 0..n {
+			acc += int(math.ToInt32(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToInt64":
+		for i in 0..n {
+			acc += int(math.ToInt64(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUint":
+		for i in 0..n {
+			acc += int(math.ToUint(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUint8":
+		for i in 0..n {
+			acc += int(math.ToUint8(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUint16":
+		for i in 0..n {
+			acc += int(math.ToUint16(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUint32":
+		for i in 0..n {
+			acc += int(math.ToUint32(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUint64":
+		for i in 0..n {
+			acc += int(math.ToUint64(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
+			})
+		}
+	case "math.ToUintptr":
+		for i in 0..n {
+			acc += int(math.ToUintptr(cfloats[i & 7]) catch {
+			case math.OutOfRange:
+				0
 			})
 		}
 	case _:
