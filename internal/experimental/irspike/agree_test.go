@@ -171,6 +171,14 @@ var irAgrees = newSplit(split[exampleTarget]{
 	run:   agreeOn,
 })
 
+// countedCases are the example cases that print a count of the lowering's
+// own work, not the program's meaning: catalog's receipt prints heap
+// allocations per decode (testing.AllocsPerRun), which the source and IR
+// lowerings may differ in (B-BUILTINS: the IR's unescape appends to its
+// buffer in place, 8 against the source's 10). Their expected.out holds
+// the build path's counts, the IR's; agreeOn does not compare them.
+var countedCases = map[string]bool{"catalog/receipt": true}
+
 // agreeOn checks the agreement on one target.
 func agreeOn(t *testing.T, target exampleTarget) {
 	src, ir := needsBuild(t)
@@ -208,6 +216,9 @@ func agreeOn(t *testing.T, target exampleTarget) {
 	}
 	cases := 0
 	for _, c := range loadCases(prog) {
+		if countedCases[filepath.Base(prog)+"/"+c.name] {
+			continue
+		}
 		agree(t, filepath.Base(prog)+"/"+c.name, runCase(t, sb, c), runCase(t, ib, c))
 		cases++
 	}
