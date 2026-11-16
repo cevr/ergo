@@ -97,7 +97,8 @@ func (s *irSplit) foreign(p int, name string) {
 // lists count those packages (MONO-SHARED, pkginst.go).
 func (s *irSplit) forwardedInsts(defs splitDefs, finder *splitInsts) []splitInst {
 	var out []splitInst
-	for _, k := range slices.Sorted(maps.Keys(s.uses)) {
+	users := slices.Sorted(maps.Keys(s.uses))
+	for _, k := range users {
 		for _, name := range slices.Sorted(maps.Keys(s.uses[k])) {
 			fn, ok := defs.node[name].(*ast.FuncDecl)
 			if !ok || fn.Type.TypeParams != nil {
