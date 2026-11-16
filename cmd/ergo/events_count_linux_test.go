@@ -47,7 +47,9 @@ import (
 //
 // Mutants (std ledger): sj2s-read-marks-shared and sj2s-queue-regrows put
 // events above both bounds; sj2s-number-built and sj2s-string-built above
-// the allocation bound.
+// the allocation bound. Mutant (cmd/ergo ledger): opc-hooked-build-host-goroot
+// builds the hooked program with the host GOROOT's compile, which refuses
+// the IR bodies.
 func TestEventsStreamCounts(t *testing.T) {
 	needsBuild(t)
 	if err := opcount.Available(); err != nil {
@@ -197,8 +199,10 @@ func buildEventsHooked(t *testing.T, work, dir string) string {
 	overlayFile := filepath.Join(dir, "overlay.json")
 	writeFile(t, overlayFile, string(overlay))
 	bin := filepath.Join(dir, "events-hooked")
-	command := exec.Command("go", "build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-ldflags=-checklinkname=0", "-overlay", overlayFile, "-o", bin, ".")
-	command.Dir = work
+	command, err := opcount.HookedBuild(work, overlayFile, bin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	command.Stdout, command.Stderr = &out, &out
 	if err := proclimit.Run(command, 4<<30); err != nil {
