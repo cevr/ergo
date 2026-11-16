@@ -14,7 +14,12 @@ import go strings
 type Checker { limit int } implements jobs.Checker
 
 // New is a Checker that runs at most limit checks at once (at least one).
-func New(limit int) Checker { Checker{limit: if limit < 1 { 1 } else { limit }} }
+func New(limit int) Checker {
+	if limit < 1 {
+		return Checker{limit: 1}
+	}
+	Checker{limit: limit}
+}
 
 // numbers fails with Go's error when a field of payload is no number of
 // at least 0. It runs on the group's goroutine: it calls only the
