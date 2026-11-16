@@ -1573,6 +1573,33 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "g1-eval-exit-never",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t_, ab = a.call(in, fr, a.leave, s)\n\treturn ab\n",
+      "to": "\treturn ab\n",
+      "rule": "The check-time runner runs a state's exit action as the Go runner does (runtime.md, Machines and actors 18): fk-gallery's tour reads the saved draft back.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "g1-eval-exit-unmasked-has",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t// Both calls are masked: a Stop's end runs them on a stopped runner.\n\tin.mask(1)\n\tdefer in.mask(-1)\n\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n",
+      "to": "\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n\tin.mask(1)\n\tdefer in.mask(-1)\n",
+      "rule": "A Stop's end runs the open entry's exit action on a stopped runner: the whole of it is masked, hasExit included (fk-gallery's law LeavingStudioAlwaysSaves, a site that ends in the studio).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "g1-eval-exit-not-on-enter",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t\tif ab := a.leaveEntry(in, fr, s); ab != nil {\n\t\t\treturn s, true, ab\n\t\t}\n",
+      "to": "",
+      "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (fk-gallery's tour: the save on leaving the studio).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     }
   ]
 }
