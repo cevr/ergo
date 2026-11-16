@@ -635,6 +635,7 @@ var typeTable = []typeRow{
 	{"GoError", GoType{Struct: true, Fields: []string{"err"}, Package: Path}},
 	{"GoNilDefect", GoType{Struct: true, Fields: []string{"Func", "At"}, Package: Path}},
 	{"GoTunnel", GoType{Struct: true, Fields: []string{"Err"}, Package: Path}},
+	{"GoWrite", GoType{Struct: true, Fields: []string{"Index", "Reason"}, Package: Path}},
 	{"GraphOf", GoType{Package: Path}},
 	{"GroupArgs", GoType{Struct: true, Fields: []string{"slots", "free"}, Package: Path}},
 	{"HTTPField", GoType{Struct: true, Fields: []string{"Name", "Value"}, Package: Path + "/http"}},
