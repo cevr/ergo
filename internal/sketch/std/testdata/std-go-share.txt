@@ -88,7 +88,7 @@ filepath	NotRelative	type
 filepath	Parts	type
 filepath	Rel	library	NP4f-3
 filepath	Split	library	NP4f-3
-fs	Clone	library	NP4f-2
+fs	Clone	library	PRIM: a Text converts to nothing (types.md, Borrows 8), so Clone's copy of a borrow into a string is a language operation
 fs	Denied	type
 fs	Escapes	type
 fs	Failed	type
@@ -110,9 +110,6 @@ fs	hostRename	library	NP4f-6
 fs	hostStat	library	NP4f-6
 fs	hostWriteFile	library	NP4f-6
 fs	hostWriteFileMode	library	NP4f-6
-hex	Decode	library	NP4f-2
-hex	Encode	library	NP4f-2
-hex	Malformed	type
 http	BodyFile	type
 http	EncodeQuery	computation	NP4f-7
 http	Exchange	type
@@ -240,47 +237,18 @@ strconv	AppendFloat	library	NP4f-5
 strconv	AppendInt	library	NP4f-5
 strconv	AppendUint	library	NP4f-5
 strconv	Atoi	computation	NP4f-7
-strconv	FormatBool	library	NP4f-2
-strconv	FormatFloat	library	NP4f-2
-strconv	FormatInt	library	NP4f-2
-strconv	Itoa	library	NP4f-2
 strconv	Malformed	type
 strconv	OutOfRange	type
 strconv	ParseBool	library	NP4f-5
 strconv	ParseFloat	library	NP4f-5
 strconv	ParseInt	library	NP4f-5
-strconv	Quote	library	NP4f-2
 strconv	Unquote	library	NP4f-5
 strings	Borrow	provider
-strings	Compare	library	NP4f-2
-strings	Contains	library	NP4f-2
-strings	ContainsRune	library	NP4f-2
-strings	Count	library	NP4f-2
-strings	EqualFold	library	NP4f-2
-strings	Fields	library	NP4f-2
 strings	Give	provider
-strings	HasPrefix	library	NP4f-2
-strings	HasSuffix	library	NP4f-2
 strings	Hint	provider
-strings	Index	library	NP4f-2
-strings	IndexByte	library	NP4f-2
-strings	Join	library	NP4f-2
-strings	LastIndex	library	NP4f-2
 strings	PadLeft	computation	NP4f-3
 strings	PadRight	computation	NP4f-3
-strings	Repeat	library	NP4f-2
-strings	ReplaceAll	library	NP4f-2
 strings	Slice	language	PRIM
-strings	Split	library	NP4f-2
-strings	SplitN	library	NP4f-2
-strings	ToLower	library	NP4f-2
-strings	ToUpper	library	NP4f-2
-strings	ToValidUTF8	library	NP4f-2
-strings	TrimLeft	library	NP4f-2
-strings	TrimPrefix	library	NP4f-2
-strings	TrimRight	library	NP4f-2
-strings	TrimSpace	library	NP4f-2
-strings	TrimSuffix	library	NP4f-2
 strings	builderAppend	language	PRIM
 strings	builderAppendByte	language	PRIM
 strings	builderAppendBytes	language	PRIM

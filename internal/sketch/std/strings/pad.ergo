@@ -1,8 +1,9 @@
 import utf8
+import go strings
 
 // Compare is 0 when a == b, -1 when a sorts before b and +1 when after, by
 // bytes, as Go's strings.Compare.
-extern go ergo.local/prototype/runtime/v1.StringsCompare func Compare(a string, b string) int
+func Compare(a string, b string) int { strings.Compare(a, b) }
 
 // PadLeft is s with copies of pad before it, so that it is width runes
 // wide; s as it is when it is that wide already. Width counts runes, as

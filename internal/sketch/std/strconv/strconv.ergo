@@ -1,10 +1,12 @@
 // Package strconv converts between text and numbers (docs/spec/stdlib.md,
-// strings and strconv). Each extern binds a runtime/v1 body
-// (runtime/v1/text.go) that calls Go's strconv package. Go's one error,
+// strings and strconv). The formatters call Go's strconv through import go,
+// as a user binds it (NP4f); the readers and appenders bind runtime/v1
+// bodies (runtime/v1/text.go) until NP4f-5 and NP4f-7. Go's one error,
 // a *NumError with ErrSyntax or ErrRange, is two failures here, so a
 // caller tells "not a number" from "too big" with a match.
 
 import strings
+import go strconv
 
 // Malformed is the failure of a text that is not in the form the function
 // reads (Go's ErrSyntax).
@@ -15,12 +17,12 @@ extern go ergo.local/prototype/runtime/v1.Malformed type Malformed { Text string
 extern go ergo.local/prototype/runtime/v1.OutOfRange type OutOfRange { Text string }
 
 // Itoa is n in decimal.
-extern go ergo.local/prototype/runtime/v1.StrconvItoa func Itoa(n int) string
+func Itoa(n int) string { strconv.Itoa(n) }
 
 // FormatInt is n in base, 2 to 36, with the digits 0-9 and then a-z, and
 // a "-" for a negative n: Go's strconv.FormatInt. A base outside 2..36 is
 // a defect, as Go's panics.
-extern go ergo.local/prototype/runtime/v1.StrconvFormatInt func FormatInt(n int64, base int) string
+func FormatInt(n int64, base int) string { strconv.FormatInt(n, base) }
 
 // Atoi is the decimal int in s, with an optional sign. Text that is not
 // one fails Malformed; a number out of int's range fails OutOfRange.
@@ -41,12 +43,12 @@ extern go ergo.local/prototype/runtime/v1.StrconvParseFloat func ParseFloat(s st
 extern go ergo.local/prototype/runtime/v1.StrconvParseBool func ParseBool(s string) bool fails Malformed
 
 // FormatBool is "true" or "false".
-extern go ergo.local/prototype/runtime/v1.StrconvFormatBool func FormatBool(b bool) string
+func FormatBool(b bool) string { strconv.FormatBool(b) }
 
 // FormatFloat is f in the format fmt ('e', 'E', 'f', 'g', 'G', 'b', 'x'
 // or 'X') with prec digits; prec -1 is the fewest digits that read back
 // as f exactly.
-extern go ergo.local/prototype/runtime/v1.StrconvFormatFloat func FormatFloat(f float64, fmt byte, prec int) string
+func FormatFloat(f float64, fmt byte, prec int) string { strconv.FormatFloat(f, fmt, prec, 64) }
 
 // AppendInt is out with FormatInt(n, base) appended: Go's
 // strconv.AppendInt. It appends in place when out has room, so a writer
@@ -62,7 +64,7 @@ extern go ergo.local/prototype/runtime/v1.StrconvAppendUint func AppendUint(out 
 extern go ergo.local/prototype/runtime/v1.StrconvAppendFloat func AppendFloat(out []byte, f float64, fmt byte, prec int) []byte
 
 // Quote is s as a double-quoted Go string literal, with Go escapes.
-extern go ergo.local/prototype/runtime/v1.StrconvQuote func Quote(s string) string
+func Quote(s string) string { strconv.Quote(s) }
 
 // Unquote is the value of the Go string, rune or raw string literal s.
 // Text that is not one fails Malformed.

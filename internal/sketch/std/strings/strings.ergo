@@ -1,60 +1,64 @@
 // Package strings works on text (docs/spec/stdlib.md, strings and strconv).
-// Each extern binds a runtime/v1 body (runtime/v1/text.go) that calls Go's
-// strings package; Cut is Ergo over Index and Slice. Lengths and indexes
+// Its functions call Go's strings package through import go, as a user
+// binds it (NP4f), so Go's assembly kernels (IndexByte, Index, Count) stay
+// Go's; Slice binds a runtime/v1 body until PRIM; Cut is Ergo over Index
+// and Slice. Lengths and indexes
 // are bytes, as len(s) is.
+
+import go strings
 
 // Split is the parts of s between each sep. An empty sep splits s after
 // each UTF-8 sequence.
-extern go ergo.local/prototype/runtime/v1.StringsSplit func Split(s string, sep string) []string
+func Split(s string, sep string) []string { strings.Split(s, sep) }
 
 // Join is the elements of xs with sep between each pair.
-extern go ergo.local/prototype/runtime/v1.StringsJoin func Join(xs []string, sep string) string
+func Join(xs []string, sep string) string { strings.Join(xs, sep) }
 
 // HasPrefix reports whether s begins with prefix.
-extern go ergo.local/prototype/runtime/v1.StringsHasPrefix func HasPrefix(s string, prefix string) bool
+func HasPrefix(s string, prefix string) bool { strings.HasPrefix(s, prefix) }
 
 // HasSuffix reports whether s ends with suffix.
-extern go ergo.local/prototype/runtime/v1.StringsHasSuffix func HasSuffix(s string, suffix string) bool
+func HasSuffix(s string, suffix string) bool { strings.HasSuffix(s, suffix) }
 
 // TrimSpace is s with its leading and trailing white space removed.
-extern go ergo.local/prototype/runtime/v1.StringsTrimSpace func TrimSpace(s string) string
+func TrimSpace(s string) string { strings.TrimSpace(s) }
 
 // TrimPrefix is s without prefix, or s when it does not begin with prefix.
-extern go ergo.local/prototype/runtime/v1.StringsTrimPrefix func TrimPrefix(s string, prefix string) string
+func TrimPrefix(s string, prefix string) string { strings.TrimPrefix(s, prefix) }
 
 // TrimSuffix is s without suffix, or s when it does not end with suffix.
-extern go ergo.local/prototype/runtime/v1.StringsTrimSuffix func TrimSuffix(s string, suffix string) string
+func TrimSuffix(s string, suffix string) string { strings.TrimSuffix(s, suffix) }
 
 // TrimLeft is s without its leading runes that cutset holds, as Go's
 // strings.TrimLeft: cutset is a set of runes, not a prefix (TrimPrefix
 // removes a prefix).
-extern go ergo.local/prototype/runtime/v1.StringsTrimLeft func TrimLeft(s string, cutset string) string
+func TrimLeft(s string, cutset string) string { strings.TrimLeft(s, cutset) }
 
 // TrimRight is s without its trailing runes that cutset holds, as Go's
 // strings.TrimRight.
-extern go ergo.local/prototype/runtime/v1.StringsTrimRight func TrimRight(s string, cutset string) string
+func TrimRight(s string, cutset string) string { strings.TrimRight(s, cutset) }
 
 // Fields is the runs of s between white space; none when s is all space.
-extern go ergo.local/prototype/runtime/v1.StringsFields func Fields(s string) []string
+func Fields(s string) []string { strings.Fields(s) }
 
 // Repeat is n copies of s. A negative n is a defect.
-extern go ergo.local/prototype/runtime/v1.StringsRepeat func Repeat(s string, n int) string
+func Repeat(s string, n int) string { strings.Repeat(s, n) }
 
 // ToLower is s with each letter in lower case.
-extern go ergo.local/prototype/runtime/v1.StringsToLower func ToLower(s string) string
+func ToLower(s string) string { strings.ToLower(s) }
 
 // ToUpper is s with each letter in upper case.
-extern go ergo.local/prototype/runtime/v1.StringsToUpper func ToUpper(s string) string
+func ToUpper(s string) string { strings.ToUpper(s) }
 
 // Index is the byte index of the first sub in s, or -1.
-extern go ergo.local/prototype/runtime/v1.StringsIndex func Index(s string, sub string) int
+func Index(s string, sub string) int { strings.Index(s, sub) }
 
 // IndexByte is the byte index of the first c in s, or -1: Index of a
 // one-byte sub, without Index's switch on its length (std-speed-1).
-extern go ergo.local/prototype/runtime/v1.StringsIndexByte func IndexByte(s string, c byte) int
+func IndexByte(s string, c byte) int { strings.IndexByte(s, c) }
 
 // Contains reports whether sub is in s.
-extern go ergo.local/prototype/runtime/v1.StringsContains func Contains(s string, sub string) bool
+func Contains(s string, sub string) bool { strings.Contains(s, sub) }
 
 // Slice is the bytes of s from i up to j. An i or j outside 0..len(s), or
 // an i after j, is a defect, as an index out of range is.
@@ -63,30 +67,36 @@ extern go ergo.local/prototype/runtime/v1.StringsSlice func Slice(s string, i in
 // ReplaceAll is s with each non-overlapping old, from the left, replaced
 // by repl. An empty old matches at the start of s and after each UTF-8
 // sequence, as in Go.
-extern go ergo.local/prototype/runtime/v1.StringsReplaceAll func ReplaceAll(s string, old string, repl string) string
+func ReplaceAll(s string, old string, repl string) string { strings.ReplaceAll(s, old, repl) }
 
 // LastIndex is the byte index of the last sub in s, or -1.
-extern go ergo.local/prototype/runtime/v1.StringsLastIndex func LastIndex(s string, sub string) int
+func LastIndex(s string, sub string) int { strings.LastIndex(s, sub) }
 
 // Count is the number of non-overlapping sub in s. An empty sub counts
 // one more than the UTF-8 sequences of s, as in Go.
-extern go ergo.local/prototype/runtime/v1.StringsCount func Count(s string, sub string) int
+func Count(s string, sub string) int { strings.Count(s, sub) }
 
 // SplitN is Split with at most n parts: the last part is the rest of s.
 // n == 0 gives no parts, and a negative n gives all parts, as in Go.
-extern go ergo.local/prototype/runtime/v1.StringsSplitN func SplitN(s string, sep string, n int) []string
+func SplitN(s string, sep string, n int) []string {
+	// Go's SplitN is nil for n == 0; an Ergo slice is empty.
+	if n == 0 {
+		return []string{}
+	}
+	strings.SplitN(s, sep, n)
+}
 
 // EqualFold reports whether s and t are equal under simple Unicode case
 // folding.
-extern go ergo.local/prototype/runtime/v1.StringsEqualFold func EqualFold(s string, t string) bool
+func EqualFold(s string, t string) bool { strings.EqualFold(s, t) }
 
 // ContainsRune reports whether the UTF-8 encoding of r is in s.
-extern go ergo.local/prototype/runtime/v1.StringsContainsRune func ContainsRune(s string, r rune) bool
+func ContainsRune(s string, r rune) bool { strings.ContainsRune(s, r) }
 
 // ToValidUTF8 is s with each run of invalid UTF-8 bytes replaced by
 // replacement, as Go's strings.ToValidUTF8: a run is replaced once, and
 // an empty replacement drops it.
-extern go ergo.local/prototype/runtime/v1.StringsToValidUTF8 func ToValidUTF8(s string, replacement string) string
+func ToValidUTF8(s string, replacement string) string { strings.ToValidUTF8(s, replacement) }
 
 // Halves is the text before and after a separator.
 type Halves { Before string, After string }
