@@ -262,7 +262,55 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 			b.WriteString("\t\t{State: " + stateOf[k] + ", Signal: " + signalOf[sig] + "},\n")
 		}
 	}
-	b.WriteString("\t},\n}")
+	b.WriteString("\t},\n")
+	// A flat state or signal (flatunion.go) is one Go type for all its
+	// variants: the runner names a value's variant by its tag (MSB1), and
+	// any other value by its Go type, as VariantOf does. The names are
+	// the graph's own (stateOf, signalOf), static text but under the
+	// reference registry.
+	if mt, ok := td.named.Underlying().(*check.MachineType); ok && (l.flatUnionOf(mt.State) != nil || l.flatUnionOf(mt.Signal) != nil) {
+		var cases strings.Builder
+		done := map[string]bool{}
+		nameOf := func(gt string) string {
+			if graphRegistry() {
+				return rt + ".VariantOf[" + gt + "]()"
+			}
+			name, ok := l.variantName(gt)
+			if !ok {
+				ice(td.tn.Decl.Name, "the machine %s has a variant whose Go type %s the lowering cannot name", td.tn.Name, gt)
+			}
+			return strconv.Quote(name)
+		}
+		for i, t := range []check.Type{mt.State, mt.Signal} {
+			if fu := l.flatUnionOf(t); fu != nil {
+				gt := tc.goType(t)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\tcase " + gt + ":\n\t\t\tswitch " + fu.tagExpr(tc, "x") + " {\n")
+				for k, v := range fu.variants {
+					cases.WriteString("\t\t\tcase " + strconv.Itoa(k) + ":\n\t\t\t\treturn " + nameOf(tc.goType(v)) + "\n")
+				}
+				cases.WriteString("\t\t\t}\n")
+				continue
+			}
+			vs := g.States
+			if i == 1 {
+				vs = g.Signals
+			}
+			for _, v := range vs {
+				gt := tc.goType(v.Type)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\tcase " + gt + ":\n\t\t\treturn " + nameOf(gt) + "\n")
+			}
+		}
+		b.WriteString("\tVariant: func(v any) string {\n\t\tswitch x := v.(type) {\n" + cases.String() + "\t\t}\n\t\treturn \"\"\n\t},\n")
+	}
+	b.WriteString("}")
 	if graphRegistry() {
 		return "func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + b.String() + ")\n}\n\n"
 	}
@@ -539,7 +587,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 			ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " {\n" +
 			ind + "\tif " + t + ".Value." + in + " <= 0 {\n" +
-			ind + "\t\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value." + in + "))\n" +
+			ind + "\t\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + fc.variantAny(sig.Params[0].Type, s) + ", " + t + ".Value." + in + "))\n" +
 			ind + "\t}\n" +
 			ind + "\tvar " + when + " " + fc.goType(at) + "\n" +
 			ind + "\tif " + fc.l.rt() + ".MachineFiringNow(" + taskOf(env) + ") {\n" +
@@ -652,7 +700,7 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " && " + t + ".Value.In <= 0 {\n" +
-			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + fc.variantAny(sig.Params[0].Type, s) + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body

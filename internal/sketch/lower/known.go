@@ -164,6 +164,11 @@ type knownStats struct {
 	// Taken is the sites that took each shortcut, by its name in the
 	// registry (shortcuts.go).
 	Taken map[string]int
+	// SlotSites is the calls that went to a slot variant, by the callee's
+	// name, and SlotKept the calls of a callee with one that kept the box
+	// (slot.go).
+	SlotSites map[string]int
+	SlotKept  int
 	// Copies is the form of each Append and owned-form site
 	// (handover.go, the copy report).
 	Copies []CopySite

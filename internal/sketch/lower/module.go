@@ -380,6 +380,9 @@ type lowerer struct {
 	tabEmitted map[*check.Func]bool
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
+	// slotGather holds the scalar locals some read of which may gather a union
+	// value: 1 a read other than a match subject or a return, 2 a return (scalar.go, slot.go).
+	slotGather map[*check.Var]uint8
 	// flatSet are the program's flat unions (flatunion.go), decided at the
 	// first question; flatOff the unions an earlier lowering of the
 	// program bailed on, and flatBails those this lowering bails on.

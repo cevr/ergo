@@ -220,6 +220,15 @@ var shortcuts = []shortcut{
 		mutant:     "own-ref-in-place-cloned-init",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "uni-slot",
+		class:      valueClass,
+		admission:  "slotAdmit",
+		reference:  "slotLowering=off",
+		agreement:  "TestFlatUnionsAgree",
+		mutant:     "uni-slot-shared-by-two-live-results",
+		referenced: func() bool { return slotLowering == "off" },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

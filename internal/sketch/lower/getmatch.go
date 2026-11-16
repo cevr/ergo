@@ -143,6 +143,14 @@ func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) boo
 	arm := func(a getArm) bool {
 		fc.depth++
 		defer func() { fc.depth-- }()
+		for _, v := range []*check.Var{a.as, a.value} {
+			if v != nil {
+				if fc.heapVars == nil {
+					fc.heapVars = map[*check.Var]bool{}
+				}
+				fc.heapVars[v] = true // a Map's entry (scalar.go, settled)
+			}
+		}
 		if a.as != nil {
 			name := fc.declare(a.as)
 			fields := ""

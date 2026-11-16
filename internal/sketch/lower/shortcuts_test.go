@@ -202,6 +202,32 @@ test Step {
 	assert len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items) == 2
 }
 `,
+	"uni-slot": `type Tree = Leaf{N int} | Node{L Tree, R Tree}
+
+func pick(t Tree, d int) Tree {
+	if d > 0 {
+		return pick(t, d - 1)
+	}
+	t
+}
+
+func size(t Tree) int {
+	match pick(t, 2) {
+	case Leaf as l:
+		l.N
+	case Node:
+		2
+	}
+}
+
+func main() needs Console {
+	Console.Println("\(size(Leaf{N: 1}))")
+}
+
+test Size {
+	assert size(Leaf{N: 1}) == 1
+}
+`,
 }
 
 // factsWitness exports a fact of each kind (facts.go).

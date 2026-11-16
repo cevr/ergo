@@ -144,9 +144,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	}
 }
 
-// ownCount runs cmd with stdin under the instructions counter, with
-// GOMAXPROCS=1, and returns its user-space instructions; the run must
-// exit 0.
+// ownCount runs cmd with stdin under the instructions counter
+// (internal/opcount), with GOMAXPROCS=1, and returns its user-space
+// instructions; a refused or failed run fails the test.
 func ownCount(t *testing.T, cmd *exec.Cmd, stdin string) uint64 {
 	t.Helper()
 	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
@@ -155,7 +155,7 @@ func ownCount(t *testing.T, cmd *exec.Cmd, stdin string) uint64 {
 	cmd.Stdout, cmd.Stderr = &out, &out
 	r, err := opcount.Count(cmd, 2<<30)
 	if err != nil {
-		t.Fatalf("%v: %v\n%.2000s", cmd.Args, err, out.Bytes())
+		t.Fatal(err)
 	}
 	if refusal, why := r.Refusal(); refusal != "" {
 		t.Fatalf("%v: %s: %s\n%.2000s", cmd.Args, refusal, why, out.Bytes())

@@ -91,6 +91,11 @@ type funcDecl struct {
 	// dropped is the Go name of the variant with no result once it is
 	// queued (forms.go, droppedName).
 	dropped string
+	// slot is the Go name of the slot variant once it is queued, and
+	// slotOK the callee's slot decision: 1 yes, 2 no (slot.go).
+	slot     string
+	slotOK   int8
+	emitSlot bool // emitBody writes the slot variant
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -991,8 +996,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 // known-callback variant (known.go): its callback parameters plain and no
 // entry poll; with sp, fd's copy for a known record (record.go); with
 // drop, fd's variant with no result (drop.go): each return evaluates its
-// value for its effects and returns nothing.
+// value for its effects and returns nothing. While fd.emitSlot is set it
+// writes fd's slot variant (slot.go): its result written through the slot
+// pointers, its tag returned.
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
+	slot := fd.emitSlot
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -1103,6 +1111,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
+	if slot {
+		if known || sp != nil || drop || owned || fd.extern != "" || fd.method != nil || fd.slot == "" {
+			ice(site, "the slot variant of %s is not a plain function", f.Name)
+		}
+		bodyName = fd.slot
+	}
 
 	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
@@ -1187,6 +1201,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		args = append(args, paramNames[i])
 	}
+	if slot {
+		// The slot pointers, last (slot.go).
+		fc.frame.slot = fc.slotParams(f, &parts)
+	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
 	if sp != nil && sp.prov != nil && params[sp.param] != nil {
@@ -1235,6 +1253,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case slot:
+		results = " uint8"
+		if fd.fallible {
+			results = " (uint8, error)"
+		}
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1259,7 +1282,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {slot, "slot variant (UNI2)"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
@@ -1300,7 +1323,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil && !drop {
+	if !known && sp == nil && !drop && !slot {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	body := fc.out.String()

@@ -251,16 +251,50 @@ func irHash(files []File) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// splitTypeArgs is a type argument list's top-level arguments, as Go
+// writes them (comma and space between them).
+func splitTypeArgs(args string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case '[', '(', '{':
+			depth++
+		case ']', ')', '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, strings.TrimSpace(args[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	return append(out, strings.TrimSpace(args[start:]))
+}
+
 // walk calls name on every package-scope name fn's body spells (a called
 // function, a package variable, the named part of a type) and member on
 // every field and method name; each may respell it.
 func (fn *irFunc) walk(name, member func(*string)) {
-	typ := func(t *string) {
+	var typ func(t *string)
+	typ = func(t *string) {
 		if *t == "" {
 			return
 		}
 		rest := strings.TrimLeft(*t, "[]*")
 		prefix := (*t)[:len(*t)-len(rest)]
+		// A generic instance, Decision[Phase, string], names its generic
+		// type and each argument (MSB2 x CS10: a flat generic union's IR
+		// spells its instance).
+		if at := strings.IndexByte(rest, '['); at > 0 && strings.HasSuffix(rest, "]") {
+			base, args := rest[:at], splitTypeArgs(rest[at+1:len(rest)-1])
+			name(&base)
+			for i := range args {
+				typ(&args[i])
+			}
+			*t = prefix + base + "[" + strings.Join(args, ", ") + "]"
+			return
+		}
 		name(&rest)
 		*t = prefix + rest
 	}
