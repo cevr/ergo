@@ -110,6 +110,36 @@ func Say(s string) { fmt.Println(s) }
 
 func Find(id int) *Handle { return &Handle{id: id} }
 
+// Go's empty interface (GB2): a value in, a borrow written, a value out.
+func Put(key string, v any) { fmt.Println(key, v) }
+
+func Exec(q string, args ...any) error { fmt.Println(q, args); return nil }
+
+func Scan(dest ...any) error {
+	for _, d := range dest {
+		switch p := d.(type) {
+		case *int:
+			*p = 7
+		case *string:
+			*p = "scanned"
+		}
+	}
+	return nil
+}
+
+func Get() any { return "got" }
+
+type Args struct {
+	Stream string
+	Values any
+}
+
+func Send(a Args) { fmt.Println(a.Stream, a.Values) }
+
+type Names []string
+
+type Tags map[string]int
+
 type Retainer interface {
 	Close() error
 	Hold()

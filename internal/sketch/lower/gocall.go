@@ -521,6 +521,11 @@ func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
 		return operand{val: fc.l.rt() + ".GoIs(" + args[0] + ", " + args[1] + ")"}
 	}
 	v, ok := fc.temp("v"), fc.temp("ok")
+	if check.IsGoAny(fc.typeOf(x.Args[0])) {
+		// go.As[T] on a go.Any is Go's type assertion (GB2).
+		fc.line(v + ", " + ok + " := " + args[0] + ".(" + fc.goType(c.Type) + ")")
+		return operand{val: fc.someWhen(x, fc.typeOf(x), ok, v)}
+	}
 	fc.line(v + ", " + ok + " := " + fc.l.rt() + ".GoAs[" + fc.goType(c.Type) + "](" + args[0] + ")")
 	return operand{val: fc.someWhen(x, fc.typeOf(x), ok, v)}
 }
