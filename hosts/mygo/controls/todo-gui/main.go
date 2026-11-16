@@ -185,7 +185,7 @@ func headless(in io.Reader, out io.Writer) error {
 		if c := l.matching(label); c > 1 && (verb == "tap" || verb == "type") {
 			// ui.TestHost's acts are strict (NS7): a label that names
 			// more than one node acts on none.
-			fmt.Fprintf(out, "%d: %d nodes match label %q\n", n, c, label)
+			fmt.Fprintf(out, "%d: %d nodes at label %q\n", n, c, label)
 			continue
 		}
 		var err error
