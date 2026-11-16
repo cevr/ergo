@@ -664,9 +664,14 @@ func genKinds(seed uint32) string {
 		own := []string{"X", "Y"}[:1+r.n(2)]
 		args := make([]string, len(g.params))
 		for j := range args {
-			if r.next() < 0.85 {
+			switch x := r.next(); {
+			case x < 0.7:
 				args[j] = pick(r, own)
-			} else {
+			case x < 0.85:
+				// Not a bare name: walked with the slot's kind, a
+				// conflicted slot's as a type.
+				args[j] = "[]" + pick(r, own)
+			default:
 				args[j] = "int"
 			}
 		}
