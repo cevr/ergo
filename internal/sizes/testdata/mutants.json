@@ -66,6 +66,17 @@
       "killers": [
         "internal/sizes:TestRegistryFactsForbidTheRegistryOnly"
       ]
+    },
+    {
+      "name": "size-hello-packages-off",
+      "origin": "wf10 SIZE-HELLO",
+      "file": "internal/sizes/sizes.go",
+      "from": "if linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {",
+      "to": "if false && linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {",
+      "rule": "A fixture that names its packages fails the budget when it links a Go package outside the list (SIZE-HELLO).",
+      "killers": [
+        "internal/sizes:TestBudgetPackagesNameTheLinkedPackages"
+      ]
     }
   ]
 }

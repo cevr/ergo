@@ -157,6 +157,13 @@ type Fixture struct {
 	GoPackages int `json:"goPackages"`
 	// Forbid are facts: regular expressions no linked symbol may match.
 	Forbid []string `json:"forbid"`
+	// Packages, when set, are the only Go packages whose code the fixture
+	// may link (Receipt.Text's packages, without the linker's own type:,
+	// go: and assembly entries): a package outside the list fails the
+	// budget by name, so a runtime import that pulls a package into every
+	// program (runtime/debug's fmt and reflect, runtime/metrics; SIZE-HELLO)
+	// is a red receipt, not a slow creep of the ceiling.
+	Packages []string `json:"packages,omitempty"`
 }
 
 // Budget is budgets.json: a reason and the budget of each fixture.
@@ -199,6 +206,13 @@ func (b Budget) Check(receipts []Receipt) []string {
 		if r.GoPackages > f.GoPackages {
 			problems = append(problems, fmt.Sprintf("%s: %d Go packages linked, over the ceiling %d", r.Fixture, r.GoPackages, f.GoPackages))
 		}
+		if len(f.Packages) > 0 {
+			for _, pkg := range slices.Sorted(maps.Keys(r.Text)) {
+				if linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {
+					problems = append(problems, fmt.Sprintf("%s: links package %s (%d text bytes), which its budget's packages do not name", r.Fixture, pkg, r.Text[pkg]))
+				}
+			}
+		}
 		for _, pattern := range f.Forbid {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
@@ -222,6 +236,13 @@ func (b Budget) Check(receipts []Receipt) []string {
 		}
 	}
 	return problems
+}
+
+// linkedPackage reports whether pkg, a key of Receipt.Text, is a Go
+// package and not one of the linker's own entries: type: and go: symbols,
+// assembly with no package ("(asm)") and the blank symbol.
+func linkedPackage(pkg string) bool {
+	return pkg != "(asm)" && pkg != "_" && !strings.HasPrefix(pkg, "type:") && !strings.HasPrefix(pkg, "go:")
 }
 
 // differences lists the n packages whose text grew most over the control.

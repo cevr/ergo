@@ -37,6 +37,20 @@ func TestBudgetFactsMatchSymbols(t *testing.T) {
 	}
 }
 
+// TestBudgetPackagesNameTheLinkedPackages checks a fixture's package list
+// against a synthetic receipt that links one package outside it: the
+// problem names that package, and the linker's own entries (type:, go:,
+// assembly) never count.
+// Mutant: size-hello-packages-off (the list accepts every package).
+func TestBudgetPackagesNameTheLinkedPackages(t *testing.T) {
+	budget := Budget{Fixtures: map[string]Fixture{"hello": {ErgoOnly: 1 << 20, ErgoOnlyStripped: 1 << 20, GoPackages: 100, Packages: []string{"main", "runtime"}}}}
+	r := Receipt{Fixture: "hello", Binary: Binary{Text: map[string]uint64{"main": 10, "runtime": 100, "runtime/metrics": 7, "type:": 3, "go:builtin": 2, "(asm)": 5}}}
+	problems := budget.Check([]Receipt{r})
+	if len(problems) != 1 || !strings.Contains(problems[0], "links package runtime/metrics (7 text bytes)") {
+		t.Fatalf("problems %q, want one naming runtime/metrics", problems)
+	}
+}
+
 // TestMeasureReadsEachFile measures the sizes of a synthetic pair of files
 // of different lengths.
 // Mutant: bs0-wrong-file (the stripped size is read from the default file).
