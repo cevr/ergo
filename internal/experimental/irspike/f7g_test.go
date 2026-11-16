@@ -156,6 +156,7 @@ var orderFormRes = map[string]*regexp.Regexp{
 	"call inside an expression":                regexp.MustCompile(`[ (-]tr\(`),
 	"short-circuit operand with a call":        regexp.MustCompile(` > 0 && tr\(`),
 	"step that gives no output":                regexp.MustCompile(`settled\(tr\(`),
+	"call with a call site":                    regexp.MustCompile(`here\(tr\(`),
 	"error row as a type argument":             regexp.MustCompile(`calm\(tr\(`),
 	"for-in over a call":                       regexp.MustCompile(`in span\(`),
 	"loop condition with a call":               regexp.MustCompile(`< tr\(`),
