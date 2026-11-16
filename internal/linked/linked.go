@@ -60,8 +60,9 @@ var Packages = []Package{
 	// internal/hostsyntax calls.
 	{Name: "format", Source: "compiler", Exports: "api"},
 	// The scanner and parser of the compiler written in Ergo (capstone
-	// S2a, S2b): their canonical dumps, which internal/sketch/syntax's
-	// agreement tests compare with the Go scanner's and parser's.
+	// S2a, S2b), which syntax.Parse decodes since S2d: the columns, the
+	// tokens, the failure and the canonical dumps the decoder property
+	// compares.
 	{Name: "syntax", Source: "compiler", Exports: "syntax/dump"},
 }
 

@@ -1,12 +1,11 @@
 package syntax
 
-// The agreement of compiler/syntax's scanner (the Ergo compiler's, capstone
-// S2a) with this one. The Ergo scanner runs in process, linked through the
-// IR as internal/linked/syntax (dump.Scan); this file is in package syntax
-// so it reads this scanner's tokens with no new export.
+// The inputs of the decoder property (decode_view_test.go) and of the
+// parse laws (roundtrip_test.go): every .ergo file of the repository, the
+// positive and superseded corpora, and seeded sources, generated
+// (parse_gen_test.go) or perturbed corpus files.
 
 import (
-	"context"
 	"fmt"
 	"io/fs"
 	"math/rand"
@@ -16,7 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	linked "ergo.local/prototype/internal/linked/syntax"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 
@@ -26,89 +24,6 @@ type agreeInput struct {
 	name string
 	src  string
 	seed int64
-}
-
-// scanList is a scan as both sides print it: the tokens (kind, start,
-// end), the comments (start, end), the line count and the failure.
-type scanList struct {
-	toks     [][3]int
-	comments [][2]int
-	lines    int
-	failed   bool
-	offset   int
-	length   int
-}
-
-// goList is this scanner's scan of src. A failed scan's last two tokens
-// are the ILLEGAL and EOF the scanner appends, which the Ergo scanner does
-// not write.
-func goList(src string) scanList {
-	s := scan(src)
-	var l scanList
-	toks := s.toks
-	if s.err != nil {
-		toks = toks[:len(toks)-2]
-		l.failed, l.offset, l.length = true, s.err.Offset, s.err.Length
-	}
-	for _, t := range toks {
-		l.toks = append(l.toks, [3]int{int(t.tok), int(t.pos), int(t.end)})
-	}
-	for _, c := range s.comments {
-		l.comments = append(l.comments, [2]int{int(c.Slash), int(c.EndPos)})
-	}
-	l.lines = len(s.lines)
-	return l
-}
-
-func (l scanList) String() string {
-	var b strings.Builder
-	for _, t := range l.toks {
-		fmt.Fprintf(&b, "T %d(%s) %d %d\n", t[0], Token(t[0]), t[1], t[2])
-	}
-	for _, c := range l.comments {
-		fmt.Fprintf(&b, "C %d %d\n", c[0], c[1])
-	}
-	fmt.Fprintf(&b, "N %d\n", l.lines)
-	if l.failed {
-		fmt.Fprintf(&b, "E %s %d %d\n", CodeSyntax, l.offset, l.length)
-	} else {
-		b.WriteString("OK\n")
-	}
-	return b.String()
-}
-
-// ergoList reads dump.Scan's text ("T kind start end", "C start end",
-// "N lines", "E code offset length" or "OK").
-func ergoList(dump string) (scanList, error) {
-	var l scanList
-	for _, line := range strings.Split(strings.TrimSuffix(dump, "\n"), "\n") {
-		f := strings.Fields(line)
-		n := make([]int, len(f))
-		for i := 1; i < len(f); i++ {
-			if f[0] == "E" && i == 1 {
-				continue
-			}
-			v, err := strconv.Atoi(f[i])
-			if err != nil {
-				return l, fmt.Errorf("dump line %q", line)
-			}
-			n[i] = v
-		}
-		switch {
-		case len(f) == 4 && f[0] == "T":
-			l.toks = append(l.toks, [3]int{n[1], n[2], n[3]})
-		case len(f) == 3 && f[0] == "C":
-			l.comments = append(l.comments, [2]int{n[1], n[2]})
-		case len(f) == 2 && f[0] == "N":
-			l.lines = n[1]
-		case len(f) == 4 && f[0] == "E" && f[1] == CodeSyntax:
-			l.failed, l.offset, l.length = true, n[2], n[3]
-		case len(f) == 1 && f[0] == "OK":
-		default:
-			return l, fmt.Errorf("dump line %q", line)
-		}
-	}
-	return l, nil
 }
 
 // corpusInputs are every .ergo file of the repository, the positive
@@ -153,7 +68,7 @@ func corpusInputs(t *testing.T) []agreeInput {
 	return out
 }
 
-// pieces are the scan generator's alphabet: every token form, its bad
+// pieces are the perturbation's alphabet: every token form, its bad
 // forms, and the bytes that change a context.
 var pieces = []string{
 	"x", "_y", "héllo", "名前", "a1", "for", "fortune", "go", "goto", "import", "extern", "import go", "extern go",
@@ -169,19 +84,6 @@ var pieces = []string{
 	"<", "<<", "<<=", "<-", "<=", ">", ">>", ">>=", ">=", "&", "&&", "&^", "&^=", "&=", "|", "||", "|=",
 	"+", "++", "+=", "-", "--", "-=", "*", "*=", "/", "/=", "%", "%=", "^", "^=", "@", "#", "$", "?", "\\",
 	" ", " ", "\t", "\n", "\n", "\r\n", "\r", "return", "break", "continue", "takes", "case", "match", "skip",
-}
-
-func generated(seed int64) string {
-	r := rand.New(rand.NewSource(seed))
-	n := 1 + r.Intn(40)
-	var b strings.Builder
-	for range n {
-		b.WriteString(pieces[r.Intn(len(pieces))])
-		if r.Intn(3) == 0 {
-			b.WriteByte(' ')
-		}
-	}
-	return b.String()
 }
 
 // perturbed is a corpus file with a few bytes changed, inserted or
@@ -211,15 +113,6 @@ func perturbed(seed int64, corpus []agreeInput) string {
 	return string(src)
 }
 
-// pickScan is seed's source: generated for an even seed, a perturbed
-// corpus file for an odd one.
-func pickScan(seed int64, corpus []agreeInput) string {
-	if seed%2 == 0 {
-		return generated(seed)
-	}
-	return perturbed(seed, corpus)
-}
-
 // agreeSeeds are the seeded inputs of an agreement test: ERGO_AGREE_SEED
 // replays one seed, ERGO_AGREE_SEEDS sets the count (default 2000).
 func agreeSeeds(t *testing.T, pick func(int64) string) []agreeInput {
@@ -243,43 +136,6 @@ func agreeSeeds(t *testing.T, pick func(int64) string) []agreeInput {
 		out = append(out, agreeInput{name: fmt.Sprintf("seed-%d", i), src: pick(int64(i)), seed: int64(i)})
 	}
 	return out
-}
-
-// TestScanAgreesWithGo (capstone S2a): on every .ergo file of the
-// repository, the positive and superseded corpora, and seeded generated
-// and perturbed sources, the Ergo scanner's tokens (kind, start, end),
-// comments (start, end), line count and failure (code, offset, length)
-// equal this scanner's. A failing seed prints the source, both scans and
-// the replay command. It kills the scan-* rows of
-// compiler/syntax/testdata/mutants.json that name it.
-func TestScanAgreesWithGo(t *testing.T) {
-	corpus := corpusInputs(t)
-	inputs := agreeSeeds(t, func(s int64) string { return pickScan(s, corpus) })
-	if os.Getenv("ERGO_AGREE_SEED") == "" {
-		inputs = append(corpus, inputs...)
-	}
-	failures := 0
-	for _, in := range inputs {
-		out, err := linked.Scan(context.Background(), in.src)
-		if err != nil {
-			t.Fatalf("%s: the Ergo scanner failed: %v\nsource %q", in.name, err, in.src)
-		}
-		got, err := ergoList(out)
-		if err != nil {
-			t.Fatalf("%s: %v", in.name, err)
-		}
-		want := goList(in.src)
-		if got.String() == want.String() {
-			continue
-		}
-		failures++
-		if failures <= 3 {
-			t.Errorf("%s: the scans differ\nsource %q\n--- go\n%s--- ergo\n%s%s", in.name, in.src, firstDiff(want.String(), got.String()), firstDiff(got.String(), want.String()), replay(in, "TestScanAgreesWithGo"))
-		}
-	}
-	if failures > 0 {
-		t.Errorf("%d of %d inputs differ", failures, len(inputs))
-	}
 }
 
 // replay is the command that reruns a seeded input alone, or "".

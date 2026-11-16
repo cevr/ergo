@@ -13,7 +13,7 @@ import (
 )
 
 // Source formats src with the formatter written in Ergo (compiler/format,
-// linked as internal/linked/format): the Go parser parses it, the tree
+// linked as internal/linked/format): syntax.Parse parses it, the tree
 // crosses as its encoding, and the Ergo formatter lays it out. Its
 // signature and failures are format.SourceBounded's: a syntax failure is
 // the parser's *syntax.Error, an output above a positive maxBytes is a

@@ -475,7 +475,7 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "dumper.node", File: "syntax/dump/parse.ergo", Line: 114, End: 403},
 	{Name: "dumper.guard", File: "syntax/dump/parse.ergo", Line: 406, End: 409},
 	{Name: "Parse", File: "syntax/dump/parse.ergo", Line: 416, End: 427},
-	{Name: "Scan", File: "syntax/dump/scan.ergo", Line: 9, End: 31},
+	{Name: "Scan", File: "syntax/dump/scan.ergo", Line: 8, End: 30},
 	{Name: "Parsed.parsedToks", File: "syntax/access.ergo", Line: 6, End: 9},
 	{Name: "Parsed.TokPos", File: "syntax/access.ergo", Line: 12, End: 12},
 	{Name: "Parsed.TokKind", File: "syntax/access.ergo", Line: 15, End: 15},
@@ -790,118 +790,118 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "Tree.lastItem", File: "syntax/span.ergo", Line: 26, End: 26},
 	{Name: "Tree.posOf", File: "syntax/span.ergo", Line: 29, End: 132},
 	{Name: "Tree.endOf", File: "syntax/span.ergo", Line: 135, End: 316},
-	{Name: "Illegal", File: "syntax/token.ergo", Line: 12, End: 12},
-	{Name: "EOF", File: "syntax/token.ergo", Line: 13, End: 13},
-	{Name: "Ident", File: "syntax/token.ergo", Line: 15, End: 15},
-	{Name: "Int", File: "syntax/token.ergo", Line: 16, End: 16},
-	{Name: "Float", File: "syntax/token.ergo", Line: 17, End: 17},
-	{Name: "Duration", File: "syntax/token.ergo", Line: 18, End: 18},
-	{Name: "String", File: "syntax/token.ergo", Line: 19, End: 19},
-	{Name: "Rune", File: "syntax/token.ergo", Line: 20, End: 20},
-	{Name: "Path", File: "syntax/token.ergo", Line: 21, End: 21},
-	{Name: "StringHead", File: "syntax/token.ergo", Line: 22, End: 22},
-	{Name: "StringMid", File: "syntax/token.ergo", Line: 23, End: 23},
-	{Name: "StringTail", File: "syntax/token.ergo", Line: 24, End: 24},
-	{Name: "Add", File: "syntax/token.ergo", Line: 25, End: 25},
-	{Name: "Sub", File: "syntax/token.ergo", Line: 26, End: 26},
-	{Name: "Mul", File: "syntax/token.ergo", Line: 27, End: 27},
-	{Name: "Quo", File: "syntax/token.ergo", Line: 28, End: 28},
-	{Name: "Rem", File: "syntax/token.ergo", Line: 29, End: 29},
-	{Name: "And", File: "syntax/token.ergo", Line: 30, End: 30},
-	{Name: "Or", File: "syntax/token.ergo", Line: 31, End: 31},
-	{Name: "Xor", File: "syntax/token.ergo", Line: 32, End: 32},
-	{Name: "Shl", File: "syntax/token.ergo", Line: 33, End: 33},
-	{Name: "Shr", File: "syntax/token.ergo", Line: 34, End: 34},
-	{Name: "AndNot", File: "syntax/token.ergo", Line: 35, End: 35},
-	{Name: "AddAssign", File: "syntax/token.ergo", Line: 36, End: 36},
-	{Name: "SubAssign", File: "syntax/token.ergo", Line: 37, End: 37},
-	{Name: "MulAssign", File: "syntax/token.ergo", Line: 38, End: 38},
-	{Name: "QuoAssign", File: "syntax/token.ergo", Line: 39, End: 39},
-	{Name: "RemAssign", File: "syntax/token.ergo", Line: 40, End: 40},
-	{Name: "AndAssign", File: "syntax/token.ergo", Line: 41, End: 41},
-	{Name: "OrAssign", File: "syntax/token.ergo", Line: 42, End: 42},
-	{Name: "XorAssign", File: "syntax/token.ergo", Line: 43, End: 43},
-	{Name: "ShlAssign", File: "syntax/token.ergo", Line: 44, End: 44},
-	{Name: "ShrAssign", File: "syntax/token.ergo", Line: 45, End: 45},
-	{Name: "AndNotAssign", File: "syntax/token.ergo", Line: 46, End: 46},
-	{Name: "Land", File: "syntax/token.ergo", Line: 47, End: 47},
-	{Name: "Lor", File: "syntax/token.ergo", Line: 48, End: 48},
-	{Name: "Arrow", File: "syntax/token.ergo", Line: 49, End: 49},
-	{Name: "Inc", File: "syntax/token.ergo", Line: 50, End: 50},
-	{Name: "Dec", File: "syntax/token.ergo", Line: 51, End: 51},
-	{Name: "DotDot", File: "syntax/token.ergo", Line: 52, End: 52},
-	{Name: "Eql", File: "syntax/token.ergo", Line: 53, End: 53},
-	{Name: "Lss", File: "syntax/token.ergo", Line: 54, End: 54},
-	{Name: "Gtr", File: "syntax/token.ergo", Line: 55, End: 55},
-	{Name: "Assign", File: "syntax/token.ergo", Line: 56, End: 56},
-	{Name: "Not", File: "syntax/token.ergo", Line: 57, End: 57},
-	{Name: "Neq", File: "syntax/token.ergo", Line: 58, End: 58},
-	{Name: "Leq", File: "syntax/token.ergo", Line: 59, End: 59},
-	{Name: "Geq", File: "syntax/token.ergo", Line: 60, End: 60},
-	{Name: "Define", File: "syntax/token.ergo", Line: 61, End: 61},
-	{Name: "Ellipsis", File: "syntax/token.ergo", Line: 62, End: 62},
-	{Name: "LParen", File: "syntax/token.ergo", Line: 63, End: 63},
-	{Name: "LBrack", File: "syntax/token.ergo", Line: 64, End: 64},
-	{Name: "LBrace", File: "syntax/token.ergo", Line: 65, End: 65},
-	{Name: "Comma", File: "syntax/token.ergo", Line: 66, End: 66},
-	{Name: "Period", File: "syntax/token.ergo", Line: 67, End: 67},
-	{Name: "RParen", File: "syntax/token.ergo", Line: 68, End: 68},
-	{Name: "RBrack", File: "syntax/token.ergo", Line: 69, End: 69},
-	{Name: "RBrace", File: "syntax/token.ergo", Line: 70, End: 70},
-	{Name: "Semicolon", File: "syntax/token.ergo", Line: 71, End: 71},
-	{Name: "Colon", File: "syntax/token.ergo", Line: 72, End: 72},
-	{Name: "Break", File: "syntax/token.ergo", Line: 73, End: 73},
-	{Name: "Case", File: "syntax/token.ergo", Line: 74, End: 74},
-	{Name: "Continue", File: "syntax/token.ergo", Line: 75, End: 75},
-	{Name: "Else", File: "syntax/token.ergo", Line: 76, End: 76},
-	{Name: "For", File: "syntax/token.ergo", Line: 77, End: 77},
-	{Name: "Func", File: "syntax/token.ergo", Line: 78, End: 78},
-	{Name: "If", File: "syntax/token.ergo", Line: 79, End: 79},
-	{Name: "Import", File: "syntax/token.ergo", Line: 80, End: 80},
-	{Name: "Return", File: "syntax/token.ergo", Line: 81, End: 81},
-	{Name: "Type", File: "syntax/token.ergo", Line: 82, End: 82},
-	{Name: "Try", File: "syntax/token.ergo", Line: 83, End: 83},
-	{Name: "Catch", File: "syntax/token.ergo", Line: 84, End: 84},
-	{Name: "Needs", File: "syntax/token.ergo", Line: 85, End: 85},
-	{Name: "Provides", File: "syntax/token.ergo", Line: 86, End: 86},
-	{Name: "KwContext", File: "syntax/token.ergo", Line: 87, End: 87},
-	{Name: "KwMachine", File: "syntax/token.ergo", Line: 88, End: 88},
-	{Name: "Let", File: "syntax/token.ergo", Line: 89, End: 89},
-	{Name: "Mut", File: "syntax/token.ergo", Line: 90, End: 90},
-	{Name: "In", File: "syntax/token.ergo", Line: 91, End: 91},
-	{Name: "Match", File: "syntax/token.ergo", Line: 92, End: 92},
-	{Name: "Escaping", File: "syntax/token.ergo", Line: 93, End: 93},
-	{Name: "Fails", File: "syntax/token.ergo", Line: 94, End: 94},
-	{Name: "Test", File: "syntax/token.ergo", Line: 95, End: 95},
-	{Name: "Law", File: "syntax/token.ergo", Line: 96, End: 96},
-	{Name: "Assert", File: "syntax/token.ergo", Line: 97, End: 97},
-	{Name: "Extern", File: "syntax/token.ergo", Line: 98, End: 98},
-	{Name: "With", File: "syntax/token.ergo", Line: 99, End: 99},
-	{Name: "Takes", File: "syntax/token.ergo", Line: 100, End: 100},
-	{Name: "As", File: "syntax/token.ergo", Line: 101, End: 101},
-	{Name: "Chan", File: "syntax/token.ergo", Line: 102, End: 102},
-	{Name: "Const", File: "syntax/token.ergo", Line: 103, End: 103},
-	{Name: "Default", File: "syntax/token.ergo", Line: 104, End: 104},
-	{Name: "Defer", File: "syntax/token.ergo", Line: 105, End: 105},
-	{Name: "Fallthrough", File: "syntax/token.ergo", Line: 106, End: 106},
-	{Name: "Go", File: "syntax/token.ergo", Line: 107, End: 107},
-	{Name: "Goto", File: "syntax/token.ergo", Line: 108, End: 108},
-	{Name: "Interface", File: "syntax/token.ergo", Line: 109, End: 109},
-	{Name: "KwMap", File: "syntax/token.ergo", Line: 110, End: 110},
-	{Name: "Package", File: "syntax/token.ergo", Line: 111, End: 111},
-	{Name: "KwRange", File: "syntax/token.ergo", Line: 112, End: 112},
-	{Name: "Select", File: "syntax/token.ergo", Line: 113, End: 113},
-	{Name: "Struct", File: "syntax/token.ergo", Line: 114, End: 114},
-	{Name: "Switch", File: "syntax/token.ergo", Line: 115, End: 115},
-	{Name: "Var", File: "syntax/token.ergo", Line: 116, End: 116},
-	{Name: "Toks.NumToks", File: "syntax/token.ergo", Line: 136, End: 136},
-	{Name: "Toks.TokAt", File: "syntax/token.ergo", Line: 139, End: 139},
-	{Name: "Toks.Kind", File: "syntax/token.ergo", Line: 142, End: 142},
-	{Name: "Toks.Start", File: "syntax/token.ergo", Line: 145, End: 145},
-	{Name: "opLen", File: "syntax/token.ergo", Line: 149, End: 157},
-	{Name: "End", File: "syntax/token.ergo", Line: 162, End: 200},
-	{Name: "segmentEnd", File: "syntax/token.ergo", Line: 205, End: 220},
-	{Name: "numberEnd", File: "syntax/token.ergo", Line: 225, End: 247},
+	{Name: "Illegal", File: "syntax/token.ergo", Line: 11, End: 11},
+	{Name: "EOF", File: "syntax/token.ergo", Line: 12, End: 12},
+	{Name: "Ident", File: "syntax/token.ergo", Line: 14, End: 14},
+	{Name: "Int", File: "syntax/token.ergo", Line: 15, End: 15},
+	{Name: "Float", File: "syntax/token.ergo", Line: 16, End: 16},
+	{Name: "Duration", File: "syntax/token.ergo", Line: 17, End: 17},
+	{Name: "String", File: "syntax/token.ergo", Line: 18, End: 18},
+	{Name: "Rune", File: "syntax/token.ergo", Line: 19, End: 19},
+	{Name: "Path", File: "syntax/token.ergo", Line: 20, End: 20},
+	{Name: "StringHead", File: "syntax/token.ergo", Line: 21, End: 21},
+	{Name: "StringMid", File: "syntax/token.ergo", Line: 22, End: 22},
+	{Name: "StringTail", File: "syntax/token.ergo", Line: 23, End: 23},
+	{Name: "Add", File: "syntax/token.ergo", Line: 24, End: 24},
+	{Name: "Sub", File: "syntax/token.ergo", Line: 25, End: 25},
+	{Name: "Mul", File: "syntax/token.ergo", Line: 26, End: 26},
+	{Name: "Quo", File: "syntax/token.ergo", Line: 27, End: 27},
+	{Name: "Rem", File: "syntax/token.ergo", Line: 28, End: 28},
+	{Name: "And", File: "syntax/token.ergo", Line: 29, End: 29},
+	{Name: "Or", File: "syntax/token.ergo", Line: 30, End: 30},
+	{Name: "Xor", File: "syntax/token.ergo", Line: 31, End: 31},
+	{Name: "Shl", File: "syntax/token.ergo", Line: 32, End: 32},
+	{Name: "Shr", File: "syntax/token.ergo", Line: 33, End: 33},
+	{Name: "AndNot", File: "syntax/token.ergo", Line: 34, End: 34},
+	{Name: "AddAssign", File: "syntax/token.ergo", Line: 35, End: 35},
+	{Name: "SubAssign", File: "syntax/token.ergo", Line: 36, End: 36},
+	{Name: "MulAssign", File: "syntax/token.ergo", Line: 37, End: 37},
+	{Name: "QuoAssign", File: "syntax/token.ergo", Line: 38, End: 38},
+	{Name: "RemAssign", File: "syntax/token.ergo", Line: 39, End: 39},
+	{Name: "AndAssign", File: "syntax/token.ergo", Line: 40, End: 40},
+	{Name: "OrAssign", File: "syntax/token.ergo", Line: 41, End: 41},
+	{Name: "XorAssign", File: "syntax/token.ergo", Line: 42, End: 42},
+	{Name: "ShlAssign", File: "syntax/token.ergo", Line: 43, End: 43},
+	{Name: "ShrAssign", File: "syntax/token.ergo", Line: 44, End: 44},
+	{Name: "AndNotAssign", File: "syntax/token.ergo", Line: 45, End: 45},
+	{Name: "Land", File: "syntax/token.ergo", Line: 46, End: 46},
+	{Name: "Lor", File: "syntax/token.ergo", Line: 47, End: 47},
+	{Name: "Arrow", File: "syntax/token.ergo", Line: 48, End: 48},
+	{Name: "Inc", File: "syntax/token.ergo", Line: 49, End: 49},
+	{Name: "Dec", File: "syntax/token.ergo", Line: 50, End: 50},
+	{Name: "DotDot", File: "syntax/token.ergo", Line: 51, End: 51},
+	{Name: "Eql", File: "syntax/token.ergo", Line: 52, End: 52},
+	{Name: "Lss", File: "syntax/token.ergo", Line: 53, End: 53},
+	{Name: "Gtr", File: "syntax/token.ergo", Line: 54, End: 54},
+	{Name: "Assign", File: "syntax/token.ergo", Line: 55, End: 55},
+	{Name: "Not", File: "syntax/token.ergo", Line: 56, End: 56},
+	{Name: "Neq", File: "syntax/token.ergo", Line: 57, End: 57},
+	{Name: "Leq", File: "syntax/token.ergo", Line: 58, End: 58},
+	{Name: "Geq", File: "syntax/token.ergo", Line: 59, End: 59},
+	{Name: "Define", File: "syntax/token.ergo", Line: 60, End: 60},
+	{Name: "Ellipsis", File: "syntax/token.ergo", Line: 61, End: 61},
+	{Name: "LParen", File: "syntax/token.ergo", Line: 62, End: 62},
+	{Name: "LBrack", File: "syntax/token.ergo", Line: 63, End: 63},
+	{Name: "LBrace", File: "syntax/token.ergo", Line: 64, End: 64},
+	{Name: "Comma", File: "syntax/token.ergo", Line: 65, End: 65},
+	{Name: "Period", File: "syntax/token.ergo", Line: 66, End: 66},
+	{Name: "RParen", File: "syntax/token.ergo", Line: 67, End: 67},
+	{Name: "RBrack", File: "syntax/token.ergo", Line: 68, End: 68},
+	{Name: "RBrace", File: "syntax/token.ergo", Line: 69, End: 69},
+	{Name: "Semicolon", File: "syntax/token.ergo", Line: 70, End: 70},
+	{Name: "Colon", File: "syntax/token.ergo", Line: 71, End: 71},
+	{Name: "Break", File: "syntax/token.ergo", Line: 72, End: 72},
+	{Name: "Case", File: "syntax/token.ergo", Line: 73, End: 73},
+	{Name: "Continue", File: "syntax/token.ergo", Line: 74, End: 74},
+	{Name: "Else", File: "syntax/token.ergo", Line: 75, End: 75},
+	{Name: "For", File: "syntax/token.ergo", Line: 76, End: 76},
+	{Name: "Func", File: "syntax/token.ergo", Line: 77, End: 77},
+	{Name: "If", File: "syntax/token.ergo", Line: 78, End: 78},
+	{Name: "Import", File: "syntax/token.ergo", Line: 79, End: 79},
+	{Name: "Return", File: "syntax/token.ergo", Line: 80, End: 80},
+	{Name: "Type", File: "syntax/token.ergo", Line: 81, End: 81},
+	{Name: "Try", File: "syntax/token.ergo", Line: 82, End: 82},
+	{Name: "Catch", File: "syntax/token.ergo", Line: 83, End: 83},
+	{Name: "Needs", File: "syntax/token.ergo", Line: 84, End: 84},
+	{Name: "Provides", File: "syntax/token.ergo", Line: 85, End: 85},
+	{Name: "KwContext", File: "syntax/token.ergo", Line: 86, End: 86},
+	{Name: "KwMachine", File: "syntax/token.ergo", Line: 87, End: 87},
+	{Name: "Let", File: "syntax/token.ergo", Line: 88, End: 88},
+	{Name: "Mut", File: "syntax/token.ergo", Line: 89, End: 89},
+	{Name: "In", File: "syntax/token.ergo", Line: 90, End: 90},
+	{Name: "Match", File: "syntax/token.ergo", Line: 91, End: 91},
+	{Name: "Escaping", File: "syntax/token.ergo", Line: 92, End: 92},
+	{Name: "Fails", File: "syntax/token.ergo", Line: 93, End: 93},
+	{Name: "Test", File: "syntax/token.ergo", Line: 94, End: 94},
+	{Name: "Law", File: "syntax/token.ergo", Line: 95, End: 95},
+	{Name: "Assert", File: "syntax/token.ergo", Line: 96, End: 96},
+	{Name: "Extern", File: "syntax/token.ergo", Line: 97, End: 97},
+	{Name: "With", File: "syntax/token.ergo", Line: 98, End: 98},
+	{Name: "Takes", File: "syntax/token.ergo", Line: 99, End: 99},
+	{Name: "As", File: "syntax/token.ergo", Line: 100, End: 100},
+	{Name: "Chan", File: "syntax/token.ergo", Line: 101, End: 101},
+	{Name: "Const", File: "syntax/token.ergo", Line: 102, End: 102},
+	{Name: "Default", File: "syntax/token.ergo", Line: 103, End: 103},
+	{Name: "Defer", File: "syntax/token.ergo", Line: 104, End: 104},
+	{Name: "Fallthrough", File: "syntax/token.ergo", Line: 105, End: 105},
+	{Name: "Go", File: "syntax/token.ergo", Line: 106, End: 106},
+	{Name: "Goto", File: "syntax/token.ergo", Line: 107, End: 107},
+	{Name: "Interface", File: "syntax/token.ergo", Line: 108, End: 108},
+	{Name: "KwMap", File: "syntax/token.ergo", Line: 109, End: 109},
+	{Name: "Package", File: "syntax/token.ergo", Line: 110, End: 110},
+	{Name: "KwRange", File: "syntax/token.ergo", Line: 111, End: 111},
+	{Name: "Select", File: "syntax/token.ergo", Line: 112, End: 112},
+	{Name: "Struct", File: "syntax/token.ergo", Line: 113, End: 113},
+	{Name: "Switch", File: "syntax/token.ergo", Line: 114, End: 114},
+	{Name: "Var", File: "syntax/token.ergo", Line: 115, End: 115},
+	{Name: "Toks.NumToks", File: "syntax/token.ergo", Line: 135, End: 135},
+	{Name: "Toks.TokAt", File: "syntax/token.ergo", Line: 138, End: 138},
+	{Name: "Toks.Kind", File: "syntax/token.ergo", Line: 141, End: 141},
+	{Name: "Toks.Start", File: "syntax/token.ergo", Line: 144, End: 144},
+	{Name: "opLen", File: "syntax/token.ergo", Line: 148, End: 156},
+	{Name: "End", File: "syntax/token.ergo", Line: 161, End: 199},
+	{Name: "segmentEnd", File: "syntax/token.ergo", Line: 204, End: 219},
+	{Name: "numberEnd", File: "syntax/token.ergo", Line: 224, End: 246},
 	{Name: "KFile", File: "syntax/tree.ergo", Line: 10, End: 10},
 	{Name: "KImportDecl", File: "syntax/tree.ergo", Line: 11, End: 11},
 	{Name: "KImportSpec", File: "syntax/tree.ergo", Line: 12, End: 12},
@@ -6714,33 +6714,33 @@ var ergoCalls = [...]ergoCall{
 	{Func: 56, Callee: 27, File: 17, Line: 425, Column: 2},
 	{Func: 56, Callee: 62, File: 17, Line: 425, Column: 14},
 	{Func: 56, Callee: 63, File: 17, Line: 426, Column: 2},
-	{Func: 64, Callee: 57, File: 65, Line: 10, Column: 14},
-	{Func: 64, Callee: 5, File: 65, Line: 11, Column: 10},
-	{Func: 64, Callee: 6, File: 65, Line: 13, Column: 14},
-	{Func: 64, Callee: 8, File: 65, Line: 14, Column: 12},
-	{Func: 64, Callee: 9, File: 65, Line: 15, Column: 11},
-	{Func: 64, Callee: 10, File: 65, Line: 16, Column: 15},
-	{Func: 64, Callee: 16, File: 65, Line: 17, Column: 3},
-	{Func: 64, Callee: 14, File: 65, Line: 17, Column: 24},
-	{Func: 64, Callee: 14, File: 65, Line: 17, Column: 53},
-	{Func: 64, Callee: 14, File: 65, Line: 17, Column: 81},
-	{Func: 64, Callee: 12, File: 65, Line: 17, Column: 94},
-	{Func: 64, Callee: 66, File: 65, Line: 20, Column: 14},
-	{Func: 64, Callee: 67, File: 65, Line: 21, Column: 12},
-	{Func: 64, Callee: 16, File: 65, Line: 22, Column: 3},
-	{Func: 64, Callee: 14, File: 65, Line: 22, Column: 24},
-	{Func: 64, Callee: 68, File: 65, Line: 22, Column: 37},
-	{Func: 64, Callee: 14, File: 65, Line: 22, Column: 73},
-	{Func: 64, Callee: 69, File: 65, Line: 22, Column: 86},
-	{Func: 64, Callee: 16, File: 65, Line: 24, Column: 2},
-	{Func: 64, Callee: 14, File: 65, Line: 24, Column: 23},
-	{Func: 64, Callee: 70, File: 65, Line: 24, Column: 36},
-	{Func: 64, Callee: 71, File: 65, Line: 24, Column: 52},
-	{Func: 64, Callee: 16, File: 65, Line: 26, Column: 3},
-	{Func: 64, Callee: 14, File: 65, Line: 26, Column: 50},
-	{Func: 64, Callee: 14, File: 65, Line: 26, Column: 81},
-	{Func: 64, Callee: 16, File: 65, Line: 28, Column: 3},
-	{Func: 64, Callee: 63, File: 65, Line: 30, Column: 2},
+	{Func: 64, Callee: 57, File: 65, Line: 9, Column: 14},
+	{Func: 64, Callee: 5, File: 65, Line: 10, Column: 10},
+	{Func: 64, Callee: 6, File: 65, Line: 12, Column: 14},
+	{Func: 64, Callee: 8, File: 65, Line: 13, Column: 12},
+	{Func: 64, Callee: 9, File: 65, Line: 14, Column: 11},
+	{Func: 64, Callee: 10, File: 65, Line: 15, Column: 15},
+	{Func: 64, Callee: 16, File: 65, Line: 16, Column: 3},
+	{Func: 64, Callee: 14, File: 65, Line: 16, Column: 24},
+	{Func: 64, Callee: 14, File: 65, Line: 16, Column: 53},
+	{Func: 64, Callee: 14, File: 65, Line: 16, Column: 81},
+	{Func: 64, Callee: 12, File: 65, Line: 16, Column: 94},
+	{Func: 64, Callee: 66, File: 65, Line: 19, Column: 14},
+	{Func: 64, Callee: 67, File: 65, Line: 20, Column: 12},
+	{Func: 64, Callee: 16, File: 65, Line: 21, Column: 3},
+	{Func: 64, Callee: 14, File: 65, Line: 21, Column: 24},
+	{Func: 64, Callee: 68, File: 65, Line: 21, Column: 37},
+	{Func: 64, Callee: 14, File: 65, Line: 21, Column: 73},
+	{Func: 64, Callee: 69, File: 65, Line: 21, Column: 86},
+	{Func: 64, Callee: 16, File: 65, Line: 23, Column: 2},
+	{Func: 64, Callee: 14, File: 65, Line: 23, Column: 23},
+	{Func: 64, Callee: 70, File: 65, Line: 23, Column: 36},
+	{Func: 64, Callee: 71, File: 65, Line: 23, Column: 52},
+	{Func: 64, Callee: 16, File: 65, Line: 25, Column: 3},
+	{Func: 64, Callee: 14, File: 65, Line: 25, Column: 50},
+	{Func: 64, Callee: 14, File: 65, Line: 25, Column: 81},
+	{Func: 64, Callee: 16, File: 65, Line: 27, Column: 3},
+	{Func: 64, Callee: 63, File: 65, Line: 29, Column: 2},
 	{Func: 72, Callee: 66, File: 73, Line: 7, Column: 14},
 	{Func: 72, Callee: 68, File: 73, Line: 7, Column: 40},
 	{Func: 72, Callee: 67, File: 73, Line: 7, Column: 61},
@@ -8961,20 +8961,20 @@ var ergoCalls = [...]ergoCall{
 	{Func: 633, Callee: 84, File: 629, Line: 312, Column: 10},
 	{Func: 633, Callee: 425, File: 629, Line: 312, Column: 22},
 	{Func: 633, Callee: 631, File: 629, Line: 315, Column: 2},
-	{Func: 634, Callee: 95, File: 635, Line: 136, Column: 28},
-	{Func: 636, Callee: 97, File: 635, Line: 139, Column: 43},
-	{Func: 637, Callee: 82, File: 635, Line: 142, Column: 52},
-	{Func: 638, Callee: 82, File: 635, Line: 145, Column: 56},
-	{Func: 639, Callee: 117, File: 635, Line: 171, Column: 10},
-	{Func: 639, Callee: 640, File: 635, Line: 174, Column: 10},
-	{Func: 639, Callee: 641, File: 635, Line: 184, Column: 10},
-	{Func: 639, Callee: 642, File: 635, Line: 197, Column: 10},
-	{Func: 639, Callee: 623, File: 635, Line: 199, Column: 10},
-	{Func: 643, Callee: 607, File: 635, Line: 228, Column: 41},
-	{Func: 643, Callee: 609, File: 635, Line: 231, Column: 9},
-	{Func: 643, Callee: 609, File: 635, Line: 233, Column: 10},
-	{Func: 643, Callee: 609, File: 635, Line: 240, Column: 16},
-	{Func: 643, Callee: 203, File: 635, Line: 246, Column: 2},
+	{Func: 634, Callee: 95, File: 635, Line: 135, Column: 28},
+	{Func: 636, Callee: 97, File: 635, Line: 138, Column: 43},
+	{Func: 637, Callee: 82, File: 635, Line: 141, Column: 52},
+	{Func: 638, Callee: 82, File: 635, Line: 144, Column: 56},
+	{Func: 639, Callee: 117, File: 635, Line: 170, Column: 10},
+	{Func: 639, Callee: 640, File: 635, Line: 173, Column: 10},
+	{Func: 639, Callee: 641, File: 635, Line: 183, Column: 10},
+	{Func: 639, Callee: 642, File: 635, Line: 196, Column: 10},
+	{Func: 639, Callee: 623, File: 635, Line: 198, Column: 10},
+	{Func: 643, Callee: 607, File: 635, Line: 227, Column: 41},
+	{Func: 643, Callee: 609, File: 635, Line: 230, Column: 9},
+	{Func: 643, Callee: 609, File: 635, Line: 232, Column: 10},
+	{Func: 643, Callee: 609, File: 635, Line: 239, Column: 16},
+	{Func: 643, Callee: 203, File: 635, Line: 245, Column: 2},
 	{Func: 644, Callee: 88, File: 645, Line: 102, Column: 10},
 	{Func: 644, Callee: 547, File: 645, Line: 104, Column: 10},
 	{Func: 644, Callee: 548, File: 645, Line: 105, Column: 10},
@@ -10014,17 +10014,17 @@ func Tokens_1(src string) []uint32 {
 //line syntax/dump/columns.ergo:15:10
 	var v_1 int
 	/*line syntax/dump/columns.ergo:15:10*/ {
-//line syntax/token.ergo#ergo-inline-0:136:28
-//line syntax/token.ergo#ergo-inline-0:136:28
+//line syntax/token.ergo#ergo-inline-0:135:28
+//line syntax/token.ergo#ergo-inline-0:135:28
 
-		/*line syntax/token.ergo#ergo-inline-0:136:28*/
+		/*line syntax/token.ergo#ergo-inline-0:135:28*/
 		{
-			/*line syntax/token.ergo#ergo-inline-0:136:28*/ var c Count[Tok] = t.ids
-			/*line syntax/token.ergo#ergo-inline-0:136:28*/ v_1 = int(c.n)
-			/*line syntax/token.ergo#ergo-inline-0:136:28*/
+			/*line syntax/token.ergo#ergo-inline-0:135:28*/ var c Count[Tok] = t.ids
+			/*line syntax/token.ergo#ergo-inline-0:135:28*/ v_1 = int(c.n)
+			/*line syntax/token.ergo#ergo-inline-0:135:28*/
 		}
 
-		/*line syntax/token.ergo#ergo-inline-0:136:28*/
+		/*line syntax/token.ergo#ergo-inline-0:135:28*/
 	}
 //line syntax/dump/columns.ergo:15:10
 //line syntax/dump/columns.ergo:16:2
@@ -10039,53 +10039,53 @@ func Tokens_1(src string) []uint32 {
 //line syntax/dump/columns.ergo:18:12
 		var v_5 ID[Tok]
 		/*line syntax/dump/columns.ergo:18:12*/ {
-//line syntax/token.ergo#ergo-inline-2:139:43
-//line syntax/token.ergo#ergo-inline-2:139:43
+//line syntax/token.ergo#ergo-inline-2:138:43
+//line syntax/token.ergo#ergo-inline-2:138:43
 
-			/*line syntax/token.ergo#ergo-inline-2:139:43*/
+			/*line syntax/token.ergo#ergo-inline-2:138:43*/
 			{
-				/*line syntax/token.ergo#ergo-inline-2:139:43*/ var c_1 Count[Tok] = t.ids
-				/*line syntax/token.ergo#ergo-inline-2:139:43*/ if (i_1 < int(0)) || (i_1 >= int(c_1.n)) {
-					/*line syntax/token.ergo#ergo-inline-2:139:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
-					/*line syntax/token.ergo#ergo-inline-2:139:43*/
+				/*line syntax/token.ergo#ergo-inline-2:138:43*/ var c_1 Count[Tok] = t.ids
+				/*line syntax/token.ergo#ergo-inline-2:138:43*/ if (i_1 < int(0)) || (i_1 >= int(c_1.n)) {
+					/*line syntax/token.ergo#ergo-inline-2:138:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
+					/*line syntax/token.ergo#ergo-inline-2:138:43*/
 				}
-				/*line syntax/token.ergo#ergo-inline-2:139:43*/ v_5 = ID[Tok]{n: uint32(i_1)}
-				/*line syntax/token.ergo#ergo-inline-2:139:43*/
+				/*line syntax/token.ergo#ergo-inline-2:138:43*/ v_5 = ID[Tok]{n: uint32(i_1)}
+				/*line syntax/token.ergo#ergo-inline-2:138:43*/
 			}
 
-			/*line syntax/token.ergo#ergo-inline-2:139:43*/
+			/*line syntax/token.ergo#ergo-inline-2:138:43*/
 		}
 //line syntax/dump/columns.ergo:18:12
 //line syntax/dump/columns.ergo:19:3
 //line syntax/dump/columns.ergo:19:11
 		var v_7 uint8
 		/*line syntax/dump/columns.ergo:19:11*/ {
-//line syntax/token.ergo#ergo-inline-4:142:45
+//line syntax/token.ergo#ergo-inline-4:141:45
 			t_2 := t.kind
-//line syntax/token.ergo#ergo-inline-4:142:52
+//line syntax/token.ergo#ergo-inline-4:141:52
 			var v_8 int
-			/*line syntax/token.ergo#ergo-inline-4:142:52*/ {
-				/*line syntax/token.ergo#ergo-inline-4:142:52*/ v_8 = int(v_5.n)
-				/*line syntax/token.ergo#ergo-inline-4:142:52*/
+			/*line syntax/token.ergo#ergo-inline-4:141:52*/ {
+				/*line syntax/token.ergo#ergo-inline-4:141:52*/ v_8 = int(v_5.n)
+				/*line syntax/token.ergo#ergo-inline-4:141:52*/
 			}
-			/*line syntax/token.ergo#ergo-inline-4:142:52*/ v_7 = /*line syntax/token.ergo#ergo-inline-4:142:45*/ t_2[v_8]
-			/*line syntax/token.ergo#ergo-inline-4:142:52*/
+			/*line syntax/token.ergo#ergo-inline-4:141:52*/ v_7 = /*line syntax/token.ergo#ergo-inline-4:141:45*/ t_2[v_8]
+			/*line syntax/token.ergo#ergo-inline-4:141:52*/
 		}
 //line syntax/dump/columns.ergo:19:11
 //line syntax/dump/columns.ergo:20:3
 //line syntax/dump/columns.ergo:20:15
 		var v_9 int
 		/*line syntax/dump/columns.ergo:20:15*/ {
-//line syntax/token.ergo#ergo-inline-6:145:44
+//line syntax/token.ergo#ergo-inline-6:144:44
 			t_3 := t.start
-//line syntax/token.ergo#ergo-inline-6:145:56
+//line syntax/token.ergo#ergo-inline-6:144:56
 			var v_10 int
-			/*line syntax/token.ergo#ergo-inline-6:145:56*/ {
-				/*line syntax/token.ergo#ergo-inline-6:145:56*/ v_10 = int(v_5.n)
-				/*line syntax/token.ergo#ergo-inline-6:145:56*/
+			/*line syntax/token.ergo#ergo-inline-6:144:56*/ {
+				/*line syntax/token.ergo#ergo-inline-6:144:56*/ v_10 = int(v_5.n)
+				/*line syntax/token.ergo#ergo-inline-6:144:56*/
 			}
-			/*line syntax/token.ergo#ergo-inline-6:145:56*/ v_9 = int( /*line syntax/token.ergo#ergo-inline-6:145:48*/ t_3[v_10])
-			/*line syntax/token.ergo#ergo-inline-6:145:56*/
+			/*line syntax/token.ergo#ergo-inline-6:144:56*/ v_9 = int( /*line syntax/token.ergo#ergo-inline-6:144:48*/ t_3[v_10])
+			/*line syntax/token.ergo#ergo-inline-6:144:56*/
 		}
 //line syntax/dump/columns.ergo:20:15
 //line syntax/dump/columns.ergo:21:3
@@ -17362,116 +17362,116 @@ func Parse_1(env *Env, src string) string {
 	/*line syntax/dump/parse.ergo:426:2*/
 }
 
-//line syntax/dump/scan.ergo:9:1
+//line syntax/dump/scan.ergo:8:1
 func Scan_1(env *Env, src string) string {
-//line syntax/dump/scan.ergo:10:2
-//line syntax/dump/scan.ergo:10:14
+//line syntax/dump/scan.ergo:9:2
+//line syntax/dump/scan.ergo:9:14
 	v := NewBuilder()
+//line syntax/dump/scan.ergo:9:2
+//line syntax/dump/scan.ergo:10:2
+//line syntax/dump/scan.ergo:10:10
+	v_1 := Scan_2(src)
 //line syntax/dump/scan.ergo:10:2
 //line syntax/dump/scan.ergo:11:2
-//line syntax/dump/scan.ergo:11:10
-	v_1 := Scan_2(src)
-//line syntax/dump/scan.ergo:11:2
-//line syntax/dump/scan.ergo:12:2
 	var t Toks = v_1.Toks
-//line syntax/dump/scan.ergo:13:2
-//line syntax/dump/scan.ergo:13:14
+//line syntax/dump/scan.ergo:12:2
+//line syntax/dump/scan.ergo:12:14
 	var v_2 int
-	/*line syntax/dump/scan.ergo:13:14*/ {
-//line syntax/token.ergo#ergo-inline-360:136:28
-//line syntax/token.ergo#ergo-inline-360:136:28
+	/*line syntax/dump/scan.ergo:12:14*/ {
+//line syntax/token.ergo#ergo-inline-360:135:28
+//line syntax/token.ergo#ergo-inline-360:135:28
 
-		/*line syntax/token.ergo#ergo-inline-360:136:28*/
+		/*line syntax/token.ergo#ergo-inline-360:135:28*/
 		{
-			/*line syntax/token.ergo#ergo-inline-360:136:28*/ var c Count[Tok] = t.ids
-			/*line syntax/token.ergo#ergo-inline-360:136:28*/ v_2 = int(c.n)
-			/*line syntax/token.ergo#ergo-inline-360:136:28*/
+			/*line syntax/token.ergo#ergo-inline-360:135:28*/ var c Count[Tok] = t.ids
+			/*line syntax/token.ergo#ergo-inline-360:135:28*/ v_2 = int(c.n)
+			/*line syntax/token.ergo#ergo-inline-360:135:28*/
 		}
 
-		/*line syntax/token.ergo#ergo-inline-360:136:28*/
+		/*line syntax/token.ergo#ergo-inline-360:135:28*/
 	}
-//line syntax/dump/scan.ergo:13:14
+//line syntax/dump/scan.ergo:12:14
 	t_1 := (Range[int]{Start: int(0), End: v_2})
-	/*line syntax/dump/scan.ergo:13:14*/ for i := t_1.Start; i < t_1.End; i++ {
-		/*line syntax/dump/scan.ergo:13:14*/ var i_1 int = i
-//line syntax/dump/scan.ergo:14:3
-//line syntax/dump/scan.ergo:14:12
+	/*line syntax/dump/scan.ergo:12:14*/ for i := t_1.Start; i < t_1.End; i++ {
+		/*line syntax/dump/scan.ergo:12:14*/ var i_1 int = i
+//line syntax/dump/scan.ergo:13:3
+//line syntax/dump/scan.ergo:13:12
 		var v_5 ID[Tok]
-		/*line syntax/dump/scan.ergo:14:12*/ {
-//line syntax/token.ergo#ergo-inline-362:139:43
-//line syntax/token.ergo#ergo-inline-362:139:43
+		/*line syntax/dump/scan.ergo:13:12*/ {
+//line syntax/token.ergo#ergo-inline-362:138:43
+//line syntax/token.ergo#ergo-inline-362:138:43
 
-			/*line syntax/token.ergo#ergo-inline-362:139:43*/
+			/*line syntax/token.ergo#ergo-inline-362:138:43*/
 			{
-				/*line syntax/token.ergo#ergo-inline-362:139:43*/ var c_1 Count[Tok] = t.ids
-				/*line syntax/token.ergo#ergo-inline-362:139:43*/ if (i_1 < int(0)) || (i_1 >= int(c_1.n)) {
-					/*line syntax/token.ergo#ergo-inline-362:139:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
-					/*line syntax/token.ergo#ergo-inline-362:139:43*/
+				/*line syntax/token.ergo#ergo-inline-362:138:43*/ var c_1 Count[Tok] = t.ids
+				/*line syntax/token.ergo#ergo-inline-362:138:43*/ if (i_1 < int(0)) || (i_1 >= int(c_1.n)) {
+					/*line syntax/token.ergo#ergo-inline-362:138:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
+					/*line syntax/token.ergo#ergo-inline-362:138:43*/
 				}
-				/*line syntax/token.ergo#ergo-inline-362:139:43*/ v_5 = ID[Tok]{n: uint32(i_1)}
-				/*line syntax/token.ergo#ergo-inline-362:139:43*/
+				/*line syntax/token.ergo#ergo-inline-362:138:43*/ v_5 = ID[Tok]{n: uint32(i_1)}
+				/*line syntax/token.ergo#ergo-inline-362:138:43*/
 			}
 
-			/*line syntax/token.ergo#ergo-inline-362:139:43*/
+			/*line syntax/token.ergo#ergo-inline-362:138:43*/
 		}
-//line syntax/dump/scan.ergo:14:12
-//line syntax/dump/scan.ergo:15:3
-//line syntax/dump/scan.ergo:15:11
+//line syntax/dump/scan.ergo:13:12
+//line syntax/dump/scan.ergo:14:3
+//line syntax/dump/scan.ergo:14:11
 		var v_7 uint8
-		/*line syntax/dump/scan.ergo:15:11*/ {
-//line syntax/token.ergo#ergo-inline-364:142:45
+		/*line syntax/dump/scan.ergo:14:11*/ {
+//line syntax/token.ergo#ergo-inline-364:141:45
 			t_2 := t.kind
-//line syntax/token.ergo#ergo-inline-364:142:52
+//line syntax/token.ergo#ergo-inline-364:141:52
 			var v_8 int
-			/*line syntax/token.ergo#ergo-inline-364:142:52*/ {
-				/*line syntax/token.ergo#ergo-inline-364:142:52*/ v_8 = int(v_5.n)
-				/*line syntax/token.ergo#ergo-inline-364:142:52*/
+			/*line syntax/token.ergo#ergo-inline-364:141:52*/ {
+				/*line syntax/token.ergo#ergo-inline-364:141:52*/ v_8 = int(v_5.n)
+				/*line syntax/token.ergo#ergo-inline-364:141:52*/
 			}
-			/*line syntax/token.ergo#ergo-inline-364:142:52*/ v_7 = /*line syntax/token.ergo#ergo-inline-364:142:45*/ t_2[v_8]
-			/*line syntax/token.ergo#ergo-inline-364:142:52*/
+			/*line syntax/token.ergo#ergo-inline-364:141:52*/ v_7 = /*line syntax/token.ergo#ergo-inline-364:141:45*/ t_2[v_8]
+			/*line syntax/token.ergo#ergo-inline-364:141:52*/
 		}
-//line syntax/dump/scan.ergo:15:11
-//line syntax/dump/scan.ergo:16:3
-//line syntax/dump/scan.ergo:16:15
+//line syntax/dump/scan.ergo:14:11
+//line syntax/dump/scan.ergo:15:3
+//line syntax/dump/scan.ergo:15:15
 		var v_9 int
-		/*line syntax/dump/scan.ergo:16:15*/ {
-//line syntax/token.ergo#ergo-inline-366:145:44
+		/*line syntax/dump/scan.ergo:15:15*/ {
+//line syntax/token.ergo#ergo-inline-366:144:44
 			t_3 := t.start
-//line syntax/token.ergo#ergo-inline-366:145:56
+//line syntax/token.ergo#ergo-inline-366:144:56
 			var v_10 int
-			/*line syntax/token.ergo#ergo-inline-366:145:56*/ {
-				/*line syntax/token.ergo#ergo-inline-366:145:56*/ v_10 = int(v_5.n)
-				/*line syntax/token.ergo#ergo-inline-366:145:56*/
+			/*line syntax/token.ergo#ergo-inline-366:144:56*/ {
+				/*line syntax/token.ergo#ergo-inline-366:144:56*/ v_10 = int(v_5.n)
+				/*line syntax/token.ergo#ergo-inline-366:144:56*/
 			}
-			/*line syntax/token.ergo#ergo-inline-366:145:56*/ v_9 = int( /*line syntax/token.ergo#ergo-inline-366:145:48*/ t_3[v_10])
-			/*line syntax/token.ergo#ergo-inline-366:145:56*/
+			/*line syntax/token.ergo#ergo-inline-366:144:56*/ v_9 = int( /*line syntax/token.ergo#ergo-inline-366:144:48*/ t_3[v_10])
+			/*line syntax/token.ergo#ergo-inline-366:144:56*/
 		}
-//line syntax/dump/scan.ergo:16:15
-//line syntax/dump/scan.ergo:17:3
+//line syntax/dump/scan.ergo:15:15
+//line syntax/dump/scan.ergo:16:3
 		t_4 := &v
-//line syntax/dump/scan.ergo:17:24
+//line syntax/dump/scan.ergo:16:24
 		v_11 := ergo.StrconvItoa(int(v_7))
-//line syntax/dump/scan.ergo:17:3
+//line syntax/dump/scan.ergo:16:3
 		t_5 := (("T " + v_11) + " ")
-//line syntax/dump/scan.ergo:17:53
+//line syntax/dump/scan.ergo:16:53
 		v_12 := ergo.StrconvItoa(v_9)
-//line syntax/dump/scan.ergo:17:3
+//line syntax/dump/scan.ergo:16:3
 		t_6 := ((t_5 + v_12) + " ")
-//line syntax/dump/scan.ergo:17:94
+//line syntax/dump/scan.ergo:16:94
 		v_13 := End(src, v_7, v_9)
-//line syntax/dump/scan.ergo:17:3
-//line syntax/dump/scan.ergo:17:81
+//line syntax/dump/scan.ergo:16:3
+//line syntax/dump/scan.ergo:16:81
 		v_14 := ergo.StrconvItoa(v_13)
-//line syntax/dump/scan.ergo:17:3
+//line syntax/dump/scan.ergo:16:3
 		(t_4).WriteString(((t_6 + v_14) + "\n"))
-		/*line syntax/dump/scan.ergo:17:3*/
+		/*line syntax/dump/scan.ergo:16:3*/
 	}
-//line syntax/dump/scan.ergo:19:2
+//line syntax/dump/scan.ergo:18:2
 	var c_2 Comments = v_1.Comments
-//line syntax/dump/scan.ergo:20:2
-//line syntax/dump/scan.ergo:20:14
+//line syntax/dump/scan.ergo:19:2
+//line syntax/dump/scan.ergo:19:14
 	var v_15 int
-	/*line syntax/dump/scan.ergo:20:14*/ {
+	/*line syntax/dump/scan.ergo:19:14*/ {
 //line syntax/comments.ergo#ergo-inline-368:29:36
 //line syntax/comments.ergo#ergo-inline-368:29:36
 
@@ -17484,14 +17484,14 @@ func Scan_1(env *Env, src string) string {
 
 		/*line syntax/comments.ergo#ergo-inline-368:29:36*/
 	}
-//line syntax/dump/scan.ergo:20:14
+//line syntax/dump/scan.ergo:19:14
 	t_7 := (Range[int]{Start: int(0), End: v_15})
-	/*line syntax/dump/scan.ergo:20:14*/ for i_2 := t_7.Start; i_2 < t_7.End; i_2++ {
-		/*line syntax/dump/scan.ergo:20:14*/ var i_3 int = i_2
-//line syntax/dump/scan.ergo:21:3
-//line syntax/dump/scan.ergo:21:12
+	/*line syntax/dump/scan.ergo:19:14*/ for i_2 := t_7.Start; i_2 < t_7.End; i_2++ {
+		/*line syntax/dump/scan.ergo:19:14*/ var i_3 int = i_2
+//line syntax/dump/scan.ergo:20:3
+//line syntax/dump/scan.ergo:20:12
 		var v_18 ID[Cmt]
-		/*line syntax/dump/scan.ergo:21:12*/ {
+		/*line syntax/dump/scan.ergo:20:12*/ {
 //line syntax/comments.ergo#ergo-inline-370:32:51
 //line syntax/comments.ergo#ergo-inline-370:32:51
 
@@ -17508,12 +17508,12 @@ func Scan_1(env *Env, src string) string {
 
 			/*line syntax/comments.ergo#ergo-inline-370:32:51*/
 		}
-//line syntax/dump/scan.ergo:21:12
-//line syntax/dump/scan.ergo:22:3
+//line syntax/dump/scan.ergo:20:12
+//line syntax/dump/scan.ergo:21:3
 		t_8 := &v
-//line syntax/dump/scan.ergo:22:37
+//line syntax/dump/scan.ergo:21:37
 		var v_20 int
-		/*line syntax/dump/scan.ergo:22:37*/ {
+		/*line syntax/dump/scan.ergo:21:37*/ {
 //line syntax/comments.ergo#ergo-inline-372:35:55
 //line syntax/comments.ergo#ergo-inline-372:35:59
 			var v_21 uint32
@@ -17525,14 +17525,14 @@ func Scan_1(env *Env, src string) string {
 			/*line syntax/comments.ergo#ergo-inline-372:35:59*/ v_20 = int(v_21)
 			/*line syntax/comments.ergo#ergo-inline-372:35:59*/
 		}
-//line syntax/dump/scan.ergo:22:37
-//line syntax/dump/scan.ergo:22:24
+//line syntax/dump/scan.ergo:21:37
+//line syntax/dump/scan.ergo:21:24
 		v_22 := ergo.StrconvItoa(v_20)
-//line syntax/dump/scan.ergo:22:37
+//line syntax/dump/scan.ergo:21:37
 		t_9 := (("C " + v_22) + " ")
-//line syntax/dump/scan.ergo:22:86
+//line syntax/dump/scan.ergo:21:86
 		var v_23 int
-		/*line syntax/dump/scan.ergo:22:86*/ {
+		/*line syntax/dump/scan.ergo:21:86*/ {
 //line syntax/comments.ergo#ergo-inline-374:38:53
 //line syntax/comments.ergo#ergo-inline-374:38:57
 			var v_24 uint32
@@ -17544,49 +17544,49 @@ func Scan_1(env *Env, src string) string {
 			/*line syntax/comments.ergo#ergo-inline-374:38:57*/ v_23 = int(v_24)
 			/*line syntax/comments.ergo#ergo-inline-374:38:57*/
 		}
-//line syntax/dump/scan.ergo:22:86
-//line syntax/dump/scan.ergo:22:73
+//line syntax/dump/scan.ergo:21:86
+//line syntax/dump/scan.ergo:21:73
 		v_25 := ergo.StrconvItoa(v_23)
-//line syntax/dump/scan.ergo:22:86
-//line syntax/dump/scan.ergo:22:3
+//line syntax/dump/scan.ergo:21:86
+//line syntax/dump/scan.ergo:21:3
 		(t_8).WriteString(((t_9 + v_25) + "\n"))
-		/*line syntax/dump/scan.ergo:22:3*/
+		/*line syntax/dump/scan.ergo:21:3*/
 	}
-//line syntax/dump/scan.ergo:24:2
+//line syntax/dump/scan.ergo:23:2
 	t_10 := &v
-//line syntax/dump/scan.ergo:24:52
+//line syntax/dump/scan.ergo:23:52
 	v_26 := LinesOf(src)
-//line syntax/dump/scan.ergo:24:2
-//line syntax/dump/scan.ergo:24:36
+//line syntax/dump/scan.ergo:23:2
+//line syntax/dump/scan.ergo:23:36
 	v_27 := (v_26).NumLines()
-//line syntax/dump/scan.ergo:24:2
-//line syntax/dump/scan.ergo:24:23
+//line syntax/dump/scan.ergo:23:2
+//line syntax/dump/scan.ergo:23:23
 	v_28 := ergo.StrconvItoa(v_27)
-//line syntax/dump/scan.ergo:24:2
+//line syntax/dump/scan.ergo:23:2
 	(t_10).WriteString((("N " + v_28) + "\n"))
-//line syntax/dump/scan.ergo:25:2
+//line syntax/dump/scan.ergo:24:2
 	if v_1.Failed {
-//line syntax/dump/scan.ergo:26:3
+//line syntax/dump/scan.ergo:25:3
 		t_11 := &v
-		/*line syntax/dump/scan.ergo:26:3*/ t_12 := (("E " + CodeSyntax) + " ")
-//line syntax/dump/scan.ergo:26:50
+		/*line syntax/dump/scan.ergo:25:3*/ t_12 := (("E " + CodeSyntax) + " ")
+//line syntax/dump/scan.ergo:25:50
 		v_29 := ergo.StrconvItoa(v_1.Offset)
-//line syntax/dump/scan.ergo:26:3
+//line syntax/dump/scan.ergo:25:3
 		t_13 := ((t_12 + v_29) + " ")
-//line syntax/dump/scan.ergo:26:81
+//line syntax/dump/scan.ergo:25:81
 		v_30 := ergo.StrconvItoa(v_1.Length)
-//line syntax/dump/scan.ergo:26:3
+//line syntax/dump/scan.ergo:25:3
 		(t_11).WriteString(((t_13 + v_30) + "\n"))
-		/*line syntax/dump/scan.ergo:26:3*/
+		/*line syntax/dump/scan.ergo:25:3*/
 	} else {
-//line syntax/dump/scan.ergo:28:3
+//line syntax/dump/scan.ergo:27:3
 		(&v).WriteString("OK\n")
-		/*line syntax/dump/scan.ergo:28:3*/
+		/*line syntax/dump/scan.ergo:27:3*/
 	}
-//line syntax/dump/scan.ergo:30:2
+//line syntax/dump/scan.ergo:29:2
 	v_31 := (v).StringOwned(env)
-	/*line syntax/dump/scan.ergo:30:2*/ return v_31
-	/*line syntax/dump/scan.ergo:30:2*/
+	/*line syntax/dump/scan.ergo:29:2*/ return v_31
+	/*line syntax/dump/scan.ergo:29:2*/
 }
 
 //line syntax/columns.ergo:62:5
@@ -17769,316 +17769,316 @@ const punct string = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x
 //line syntax/scan.ergo:449:5
 const kwTable string = "\x00e\x00Q\x00M\x00\x00\x00\x00\x00\x00E\x00f\x00j\x00g\x00\x00\x00\x00\x00Y\x00\x00\x00k\x00\x00P\x00\x00\x00\x00\x00\x00d^\x00L@\x00\x00\x00B\x00b\x00c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00G\x00\x00\x00\x00`\x00_\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00N\x00\x00\x00\x00\x00\x00\x00J\x00\x00\x00\x00D\x00>\x00\x00\x00\x00\x00F\x00\x00hT\x00\x00\x00\x00\x00\x00Z\x00\x00\x00V\x00\x00\x00\x00\x00\x00]\x00\x00\x00\x00\x00\x00R\x00\x00\x00\x00\x00\x00\x00\x00\x00K\x00\x00\x00\x00\x00\x00H\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00C\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00i\x00O\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00X\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00?I\x00A\x00\x00\x00\x00\x00\x00S\x00\x00\x00\x00\x00a\x00\x00\x00\x00\x00\x00\x00\x00WU\x00"
 
-//line syntax/token.ergo:12:5
+//line syntax/token.ergo:11:5
 const Illegal uint8 = uint8(0)
 
-//line syntax/token.ergo:13:5
+//line syntax/token.ergo:12:5
 const EOF uint8 = uint8(1)
 
-//line syntax/token.ergo:15:5
+//line syntax/token.ergo:14:5
 const Ident uint8 = uint8(3)
 
-//line syntax/token.ergo:16:5
+//line syntax/token.ergo:15:5
 const Int uint8 = uint8(4)
 
-//line syntax/token.ergo:17:5
+//line syntax/token.ergo:16:5
 const Float uint8 = uint8(5)
 
-//line syntax/token.ergo:18:5
+//line syntax/token.ergo:17:5
 const Duration uint8 = uint8(6)
 
-//line syntax/token.ergo:19:5
+//line syntax/token.ergo:18:5
 const String_1 uint8 = uint8(7)
 
-//line syntax/token.ergo:20:5
+//line syntax/token.ergo:19:5
 const Rune uint8 = uint8(8)
 
-//line syntax/token.ergo:21:5
+//line syntax/token.ergo:20:5
 const Path uint8 = uint8(9)
 
-//line syntax/token.ergo:22:5
+//line syntax/token.ergo:21:5
 const StringHead uint8 = uint8(10)
 
-//line syntax/token.ergo:23:5
+//line syntax/token.ergo:22:5
 const StringMid uint8 = uint8(11)
 
-//line syntax/token.ergo:24:5
+//line syntax/token.ergo:23:5
 const StringTail uint8 = uint8(12)
 
-//line syntax/token.ergo:25:5
+//line syntax/token.ergo:24:5
 const Add_1 uint8 = uint8(13)
 
-//line syntax/token.ergo:26:5
+//line syntax/token.ergo:25:5
 const Sub uint8 = uint8(14)
 
-//line syntax/token.ergo:27:5
+//line syntax/token.ergo:26:5
 const Mul uint8 = uint8(15)
 
-//line syntax/token.ergo:28:5
+//line syntax/token.ergo:27:5
 const Quo uint8 = uint8(16)
 
-//line syntax/token.ergo:29:5
+//line syntax/token.ergo:28:5
 const Rem uint8 = uint8(17)
 
-//line syntax/token.ergo:30:5
+//line syntax/token.ergo:29:5
 const And uint8 = uint8(18)
 
-//line syntax/token.ergo:31:5
+//line syntax/token.ergo:30:5
 const Or_1 uint8 = uint8(19)
 
-//line syntax/token.ergo:32:5
+//line syntax/token.ergo:31:5
 const Xor uint8 = uint8(20)
 
-//line syntax/token.ergo:33:5
+//line syntax/token.ergo:32:5
 const Shl uint8 = uint8(21)
 
-//line syntax/token.ergo:34:5
+//line syntax/token.ergo:33:5
 const Shr uint8 = uint8(22)
 
-//line syntax/token.ergo:35:5
+//line syntax/token.ergo:34:5
 const AndNot uint8 = uint8(23)
 
-//line syntax/token.ergo:36:5
+//line syntax/token.ergo:35:5
 const AddAssign uint8 = uint8(24)
 
-//line syntax/token.ergo:37:5
+//line syntax/token.ergo:36:5
 const SubAssign uint8 = uint8(25)
 
-//line syntax/token.ergo:38:5
+//line syntax/token.ergo:37:5
 const MulAssign uint8 = uint8(26)
 
-//line syntax/token.ergo:39:5
+//line syntax/token.ergo:38:5
 const QuoAssign uint8 = uint8(27)
 
-//line syntax/token.ergo:40:5
+//line syntax/token.ergo:39:5
 const RemAssign uint8 = uint8(28)
 
-//line syntax/token.ergo:41:5
+//line syntax/token.ergo:40:5
 const AndAssign uint8 = uint8(29)
 
-//line syntax/token.ergo:42:5
+//line syntax/token.ergo:41:5
 const OrAssign uint8 = uint8(30)
 
-//line syntax/token.ergo:43:5
+//line syntax/token.ergo:42:5
 const XorAssign uint8 = uint8(31)
 
-//line syntax/token.ergo:44:5
+//line syntax/token.ergo:43:5
 const ShlAssign uint8 = uint8(32)
 
-//line syntax/token.ergo:45:5
+//line syntax/token.ergo:44:5
 const ShrAssign uint8 = uint8(33)
 
-//line syntax/token.ergo:46:5
+//line syntax/token.ergo:45:5
 const AndNotAssign uint8 = uint8(34)
 
-//line syntax/token.ergo:47:5
+//line syntax/token.ergo:46:5
 const Land uint8 = uint8(35)
 
-//line syntax/token.ergo:48:5
+//line syntax/token.ergo:47:5
 const Lor uint8 = uint8(36)
 
-//line syntax/token.ergo:49:5
+//line syntax/token.ergo:48:5
 const Arrow uint8 = uint8(37)
 
-//line syntax/token.ergo:50:5
+//line syntax/token.ergo:49:5
 const Inc uint8 = uint8(38)
 
-//line syntax/token.ergo:51:5
+//line syntax/token.ergo:50:5
 const Dec uint8 = uint8(39)
 
-//line syntax/token.ergo:52:5
+//line syntax/token.ergo:51:5
 const DotDot uint8 = uint8(40)
 
-//line syntax/token.ergo:53:5
+//line syntax/token.ergo:52:5
 const Eql uint8 = uint8(41)
 
-//line syntax/token.ergo:54:5
+//line syntax/token.ergo:53:5
 const Lss uint8 = uint8(42)
 
-//line syntax/token.ergo:55:5
+//line syntax/token.ergo:54:5
 const Gtr uint8 = uint8(43)
 
-//line syntax/token.ergo:56:5
+//line syntax/token.ergo:55:5
 const Assign uint8 = uint8(44)
 
-//line syntax/token.ergo:57:5
+//line syntax/token.ergo:56:5
 const Not uint8 = uint8(45)
 
-//line syntax/token.ergo:58:5
+//line syntax/token.ergo:57:5
 const Neq uint8 = uint8(46)
 
-//line syntax/token.ergo:59:5
+//line syntax/token.ergo:58:5
 const Leq uint8 = uint8(47)
 
-//line syntax/token.ergo:60:5
+//line syntax/token.ergo:59:5
 const Geq uint8 = uint8(48)
 
-//line syntax/token.ergo:61:5
+//line syntax/token.ergo:60:5
 const Define uint8 = uint8(49)
 
-//line syntax/token.ergo:62:5
+//line syntax/token.ergo:61:5
 const Ellipsis uint8 = uint8(50)
 
-//line syntax/token.ergo:63:5
+//line syntax/token.ergo:62:5
 const LParen uint8 = uint8(51)
 
-//line syntax/token.ergo:64:5
+//line syntax/token.ergo:63:5
 const LBrack uint8 = uint8(52)
 
-//line syntax/token.ergo:65:5
+//line syntax/token.ergo:64:5
 const LBrace uint8 = uint8(53)
 
-//line syntax/token.ergo:66:5
+//line syntax/token.ergo:65:5
 const Comma uint8 = uint8(54)
 
-//line syntax/token.ergo:67:5
+//line syntax/token.ergo:66:5
 const Period uint8 = uint8(55)
 
-//line syntax/token.ergo:68:5
+//line syntax/token.ergo:67:5
 const RParen uint8 = uint8(56)
 
-//line syntax/token.ergo:69:5
+//line syntax/token.ergo:68:5
 const RBrack uint8 = uint8(57)
 
-//line syntax/token.ergo:70:5
+//line syntax/token.ergo:69:5
 const RBrace uint8 = uint8(58)
 
-//line syntax/token.ergo:71:5
+//line syntax/token.ergo:70:5
 const Semicolon uint8 = uint8(59)
 
-//line syntax/token.ergo:72:5
+//line syntax/token.ergo:71:5
 const Colon uint8 = uint8(60)
 
-//line syntax/token.ergo:73:5
+//line syntax/token.ergo:72:5
 const Break uint8 = uint8(62)
 
-//line syntax/token.ergo:74:5
+//line syntax/token.ergo:73:5
 const Case uint8 = uint8(63)
 
-//line syntax/token.ergo:75:5
+//line syntax/token.ergo:74:5
 const Continue uint8 = uint8(64)
 
-//line syntax/token.ergo:76:5
+//line syntax/token.ergo:75:5
 const Else uint8 = uint8(65)
 
-//line syntax/token.ergo:77:5
+//line syntax/token.ergo:76:5
 const For uint8 = uint8(66)
 
-//line syntax/token.ergo:78:5
+//line syntax/token.ergo:77:5
 const Func uint8 = uint8(67)
 
-//line syntax/token.ergo:79:5
+//line syntax/token.ergo:78:5
 const If uint8 = uint8(68)
 
-//line syntax/token.ergo:80:5
+//line syntax/token.ergo:79:5
 const Import uint8 = uint8(69)
 
-//line syntax/token.ergo:81:5
+//line syntax/token.ergo:80:5
 const Return uint8 = uint8(70)
 
-//line syntax/token.ergo:82:5
+//line syntax/token.ergo:81:5
 const Type uint8 = uint8(71)
 
-//line syntax/token.ergo:83:5
+//line syntax/token.ergo:82:5
 const Try uint8 = uint8(72)
 
-//line syntax/token.ergo:84:5
+//line syntax/token.ergo:83:5
 const Catch uint8 = uint8(73)
 
-//line syntax/token.ergo:85:5
+//line syntax/token.ergo:84:5
 const Needs uint8 = uint8(74)
 
-//line syntax/token.ergo:86:5
+//line syntax/token.ergo:85:5
 const Provides uint8 = uint8(75)
 
-//line syntax/token.ergo:87:5
+//line syntax/token.ergo:86:5
 const KwContext uint8 = uint8(76)
 
-//line syntax/token.ergo:88:5
+//line syntax/token.ergo:87:5
 const KwMachine uint8 = uint8(77)
 
-//line syntax/token.ergo:89:5
+//line syntax/token.ergo:88:5
 const Let uint8 = uint8(78)
 
-//line syntax/token.ergo:90:5
+//line syntax/token.ergo:89:5
 const Mut uint8 = uint8(79)
 
-//line syntax/token.ergo:91:5
+//line syntax/token.ergo:90:5
 const In_1 uint8 = uint8(80)
 
-//line syntax/token.ergo:92:5
+//line syntax/token.ergo:91:5
 const Match uint8 = uint8(81)
 
-//line syntax/token.ergo:93:5
+//line syntax/token.ergo:92:5
 const Escaping uint8 = uint8(82)
 
-//line syntax/token.ergo:94:5
+//line syntax/token.ergo:93:5
 const Fails uint8 = uint8(83)
 
-//line syntax/token.ergo:95:5
+//line syntax/token.ergo:94:5
 const Test uint8 = uint8(84)
 
-//line syntax/token.ergo:96:5
+//line syntax/token.ergo:95:5
 const Law uint8 = uint8(85)
 
-//line syntax/token.ergo:97:5
+//line syntax/token.ergo:96:5
 const Assert uint8 = uint8(86)
 
-//line syntax/token.ergo:98:5
+//line syntax/token.ergo:97:5
 const Extern uint8 = uint8(87)
 
-//line syntax/token.ergo:99:5
+//line syntax/token.ergo:98:5
 const With uint8 = uint8(88)
 
-//line syntax/token.ergo:100:5
+//line syntax/token.ergo:99:5
 const Takes uint8 = uint8(89)
 
-//line syntax/token.ergo:101:5
+//line syntax/token.ergo:100:5
 const As uint8 = uint8(90)
 
-//line syntax/token.ergo:102:5
+//line syntax/token.ergo:101:5
 const Chan uint8 = uint8(93)
 
-//line syntax/token.ergo:103:5
+//line syntax/token.ergo:102:5
 const Const uint8 = uint8(94)
 
-//line syntax/token.ergo:104:5
+//line syntax/token.ergo:103:5
 const Default uint8 = uint8(95)
 
-//line syntax/token.ergo:105:5
+//line syntax/token.ergo:104:5
 const Defer uint8 = uint8(96)
 
-//line syntax/token.ergo:106:5
+//line syntax/token.ergo:105:5
 const Fallthrough uint8 = uint8(97)
 
-//line syntax/token.ergo:107:5
+//line syntax/token.ergo:106:5
 const Go uint8 = uint8(98)
 
-//line syntax/token.ergo:108:5
+//line syntax/token.ergo:107:5
 const Goto uint8 = uint8(99)
 
-//line syntax/token.ergo:109:5
+//line syntax/token.ergo:108:5
 const Interface uint8 = uint8(100)
 
-//line syntax/token.ergo:110:5
+//line syntax/token.ergo:109:5
 const KwMap uint8 = uint8(101)
 
-//line syntax/token.ergo:111:5
+//line syntax/token.ergo:110:5
 const Package uint8 = uint8(102)
 
-//line syntax/token.ergo:112:5
+//line syntax/token.ergo:111:5
 const KwRange uint8 = uint8(103)
 
-//line syntax/token.ergo:113:5
+//line syntax/token.ergo:112:5
 const Select uint8 = uint8(104)
 
-//line syntax/token.ergo:114:5
+//line syntax/token.ergo:113:5
 const Struct uint8 = uint8(105)
 
-//line syntax/token.ergo:115:5
+//line syntax/token.ergo:114:5
 const Switch uint8 = uint8(106)
 
-//line syntax/token.ergo:116:5
+//line syntax/token.ergo:115:5
 const Var uint8 = uint8(107)
 
 //line syntax/tree.ergo:10:5
@@ -18574,17 +18574,17 @@ func Parse_2(src string) Parsed {
 	var v_1 int
 	/*line syntax/parse.ergo:79:10*/ {
 		/*line syntax/parse.ergo:79:10*/ var t Toks = v.Toks
-//line syntax/token.ergo#ergo-inline-385:136:28
-//line syntax/token.ergo#ergo-inline-385:136:28
+//line syntax/token.ergo#ergo-inline-385:135:28
+//line syntax/token.ergo#ergo-inline-385:135:28
 
-		/*line syntax/token.ergo#ergo-inline-385:136:28*/
+		/*line syntax/token.ergo#ergo-inline-385:135:28*/
 		{
-			/*line syntax/token.ergo#ergo-inline-385:136:28*/ var c Count[Tok] = t.ids
-			/*line syntax/token.ergo#ergo-inline-385:136:28*/ v_1 = int(c.n)
-			/*line syntax/token.ergo#ergo-inline-385:136:28*/
+			/*line syntax/token.ergo#ergo-inline-385:135:28*/ var c Count[Tok] = t.ids
+			/*line syntax/token.ergo#ergo-inline-385:135:28*/ v_1 = int(c.n)
+			/*line syntax/token.ergo#ergo-inline-385:135:28*/
 		}
 
-		/*line syntax/token.ergo#ergo-inline-385:136:28*/
+		/*line syntax/token.ergo#ergo-inline-385:135:28*/
 	}
 //line syntax/parse.ergo:79:10
 //line syntax/parse.ergo:82:2
@@ -18683,12 +18683,12 @@ func Parse_2(src string) Parsed {
 	/*line syntax/parse.ergo:155:2*/
 }
 
-//line syntax/token.ergo:129:1
+//line syntax/token.ergo:128:1
 type Toks struct {
-	/*line syntax/token.ergo:129:1*/ ids Count[Tok]
-	/*line syntax/token.ergo:129:1*/ kind []uint8
-	/*line syntax/token.ergo:129:1*/ start []uint32
-	/*line syntax/token.ergo:129:1*/
+	/*line syntax/token.ergo:128:1*/ ids Count[Tok]
+	/*line syntax/token.ergo:128:1*/ kind []uint8
+	/*line syntax/token.ergo:128:1*/ start []uint32
+	/*line syntax/token.ergo:128:1*/
 }
 
 //line syntax/scan.ergo:56:1
@@ -18723,102 +18723,102 @@ func Scan_2(src string) Scanned {
 	/*line syntax/scan.ergo:83:2*/
 }
 
-//line syntax/token.ergo:136:1
+//line syntax/token.ergo:135:1
 func (t Toks) NumToks() int {
-//line syntax/token.ergo:136:28
-//line syntax/token.ergo:136:28
+//line syntax/token.ergo:135:28
+//line syntax/token.ergo:135:28
 	var v int
-	/*line syntax/token.ergo:136:28*/ {
-		/*line syntax/token.ergo:136:28*/ var c Count[Tok] = t.ids
-		/*line syntax/token.ergo:136:28*/ v = int(c.n)
-		/*line syntax/token.ergo:136:28*/
+	/*line syntax/token.ergo:135:28*/ {
+		/*line syntax/token.ergo:135:28*/ var c Count[Tok] = t.ids
+		/*line syntax/token.ergo:135:28*/ v = int(c.n)
+		/*line syntax/token.ergo:135:28*/
 	}
-	/*line syntax/token.ergo:136:28*/ return v
-	/*line syntax/token.ergo:136:28*/
+	/*line syntax/token.ergo:135:28*/ return v
+	/*line syntax/token.ergo:135:28*/
 }
 
-//line syntax/token.ergo:119:1
+//line syntax/token.ergo:118:1
 type Tok struct {
-	/*line syntax/token.ergo:119:1*/
+	/*line syntax/token.ergo:118:1*/
 }
 
-//line syntax/token.ergo:139:1
+//line syntax/token.ergo:138:1
 func (t Toks) TokAt(i int) ID[Tok] {
-//line syntax/token.ergo:139:43
-//line syntax/token.ergo:139:43
+//line syntax/token.ergo:138:43
+//line syntax/token.ergo:138:43
 	var v ID[Tok]
-	/*line syntax/token.ergo:139:43*/ {
-		/*line syntax/token.ergo:139:43*/ var c Count[Tok] = t.ids
-		/*line syntax/token.ergo:139:43*/ if (i < int(0)) || (i >= int(c.n)) {
-			/*line syntax/token.ergo:139:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
-			/*line syntax/token.ergo:139:43*/
+	/*line syntax/token.ergo:138:43*/ {
+		/*line syntax/token.ergo:138:43*/ var c Count[Tok] = t.ids
+		/*line syntax/token.ergo:138:43*/ if (i < int(0)) || (i >= int(c.n)) {
+			/*line syntax/token.ergo:138:43*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:230:3"))
+			/*line syntax/token.ergo:138:43*/
 		}
-		/*line syntax/token.ergo:139:43*/ v = ID[Tok]{n: uint32(i)}
-		/*line syntax/token.ergo:139:43*/
+		/*line syntax/token.ergo:138:43*/ v = ID[Tok]{n: uint32(i)}
+		/*line syntax/token.ergo:138:43*/
 	}
-	/*line syntax/token.ergo:139:43*/ return v
-	/*line syntax/token.ergo:139:43*/
+	/*line syntax/token.ergo:138:43*/ return v
+	/*line syntax/token.ergo:138:43*/
 }
 
-//line syntax/token.ergo:142:1
+//line syntax/token.ergo:141:1
 func (t Toks) Kind(id ID[Tok]) uint8 {
-//line syntax/token.ergo:142:45
+//line syntax/token.ergo:141:45
 	t_1 := t.kind
-//line syntax/token.ergo:142:52
+//line syntax/token.ergo:141:52
 	var v int
-	/*line syntax/token.ergo:142:52*/ {
-		/*line syntax/token.ergo:142:52*/ v = int(id.n)
-		/*line syntax/token.ergo:142:52*/
+	/*line syntax/token.ergo:141:52*/ {
+		/*line syntax/token.ergo:141:52*/ v = int(id.n)
+		/*line syntax/token.ergo:141:52*/
 	}
-	/*line syntax/token.ergo:142:52*/ return /*line syntax/token.ergo:142:45*/ t_1[v]
-	/*line syntax/token.ergo:142:52*/
+	/*line syntax/token.ergo:141:52*/ return /*line syntax/token.ergo:141:45*/ t_1[v]
+	/*line syntax/token.ergo:141:52*/
 }
 
-//line syntax/token.ergo:145:1
+//line syntax/token.ergo:144:1
 func (t Toks) Start(id ID[Tok]) int {
-//line syntax/token.ergo:145:44
+//line syntax/token.ergo:144:44
 	t_1 := t.start
-//line syntax/token.ergo:145:56
+//line syntax/token.ergo:144:56
 	var v int
-	/*line syntax/token.ergo:145:56*/ {
-		/*line syntax/token.ergo:145:56*/ v = int(id.n)
-		/*line syntax/token.ergo:145:56*/
+	/*line syntax/token.ergo:144:56*/ {
+		/*line syntax/token.ergo:144:56*/ v = int(id.n)
+		/*line syntax/token.ergo:144:56*/
 	}
-	/*line syntax/token.ergo:145:56*/ return int( /*line syntax/token.ergo:145:48*/ t_1[v])
-	/*line syntax/token.ergo:145:56*/
+	/*line syntax/token.ergo:144:56*/ return int( /*line syntax/token.ergo:144:48*/ t_1[v])
+	/*line syntax/token.ergo:144:56*/
 }
 
-//line syntax/token.ergo:162:1
+//line syntax/token.ergo:161:1
 func End(src string, kind uint8, start int) int {
-//line syntax/token.ergo:163:2
+//line syntax/token.ergo:162:2
 	if kind == EOF {
-//line syntax/token.ergo:164:3
+//line syntax/token.ergo:163:3
 		return start
-		/*line syntax/token.ergo:164:3*/
+		/*line syntax/token.ergo:163:3*/
 	}
-//line syntax/token.ergo:166:2
+//line syntax/token.ergo:165:2
 	if kind == Semicolon {
-//line syntax/token.ergo:168:3
+//line syntax/token.ergo:167:3
 		var v int
-//line syntax/token.ergo:168:10
-		if (start < len(src)) && ( /*line syntax/token.ergo:168:33*/ src[start] == uint8(59)) {
-//line syntax/token.ergo:168:53
+//line syntax/token.ergo:167:10
+		if (start < len(src)) && ( /*line syntax/token.ergo:167:33*/ src[start] == uint8(59)) {
+//line syntax/token.ergo:167:53
 			v = (start + int(1))
-			/*line syntax/token.ergo:168:53*/
+			/*line syntax/token.ergo:167:53*/
 		} else {
-//line syntax/token.ergo:168:72
+//line syntax/token.ergo:167:72
 			v = start
-			/*line syntax/token.ergo:168:72*/
+			/*line syntax/token.ergo:167:72*/
 		}
-		/*line syntax/token.ergo:168:72*/ return v
-		/*line syntax/token.ergo:168:72*/
+		/*line syntax/token.ergo:167:72*/ return v
+		/*line syntax/token.ergo:167:72*/
 	}
-//line syntax/token.ergo:170:2
+//line syntax/token.ergo:169:2
 	if (kind == Ident) || ((kind >= Break) && (kind <= Var)) {
-//line syntax/token.ergo:171:3
-//line syntax/token.ergo:171:10
+//line syntax/token.ergo:170:3
+//line syntax/token.ergo:170:10
 		var v_1 int
-		/*line syntax/token.ergo:171:10*/ {
+		/*line syntax/token.ergo:170:10*/ {
 //line syntax/scan.ergo#ergo-inline-392:401:2
 			if /*line syntax/scan.ergo#ergo-inline-392:401:5*/ src[start] < uint8(128) {
 //line syntax/scan.ergo#ergo-inline-392:402:3
@@ -18841,89 +18841,89 @@ func End(src string, kind uint8, start int) int {
 		}
 		/*line syntax/scan.ergo#ergo-inline-392:404:2*/ inl:
 		;
-//line syntax/token.ergo:171:10
+//line syntax/token.ergo:170:10
 		return v_1
-		/*line syntax/token.ergo:171:10*/
+		/*line syntax/token.ergo:170:10*/
 	}
-//line syntax/token.ergo:173:2
+//line syntax/token.ergo:172:2
 	if ((kind == Int) || (kind == Float)) || (kind == Duration) {
-//line syntax/token.ergo:174:3
-//line syntax/token.ergo:174:10
+//line syntax/token.ergo:173:3
+//line syntax/token.ergo:173:10
 		v_5 := numberEnd(src, start)
-//line syntax/token.ergo:174:3
+//line syntax/token.ergo:173:3
 		return v_5
-		/*line syntax/token.ergo:174:3*/
+		/*line syntax/token.ergo:173:3*/
 	}
-//line syntax/token.ergo:176:2
-	if (kind == String_1) && ( /*line syntax/token.ergo:176:23*/ src[start] == uint8(96)) {
-//line syntax/token.ergo:177:3
+//line syntax/token.ergo:175:2
+	if (kind == String_1) && ( /*line syntax/token.ergo:175:23*/ src[start] == uint8(96)) {
+//line syntax/token.ergo:176:3
 		var i int = (start + int(1))
-//line syntax/token.ergo:178:3
-		for /*line syntax/token.ergo:178:7*/ src[i] != uint8(96) {
-//line syntax/token.ergo:179:4
+//line syntax/token.ergo:177:3
+		for /*line syntax/token.ergo:177:7*/ src[i] != uint8(96) {
+//line syntax/token.ergo:178:4
 			i = (i + int(1))
-			/*line syntax/token.ergo:179:4*/
+			/*line syntax/token.ergo:178:4*/
 		}
-//line syntax/token.ergo:181:3
+//line syntax/token.ergo:180:3
 		return (i + int(1))
-		/*line syntax/token.ergo:181:3*/
+		/*line syntax/token.ergo:180:3*/
 	}
-//line syntax/token.ergo:183:2
+//line syntax/token.ergo:182:2
 	if (((kind == String_1) || (kind == StringHead)) || (kind == StringMid)) || (kind == StringTail) {
-//line syntax/token.ergo:184:3
-//line syntax/token.ergo:184:10
+//line syntax/token.ergo:183:3
+//line syntax/token.ergo:183:10
 		v_6 := segmentEnd(src, start)
-//line syntax/token.ergo:184:3
+//line syntax/token.ergo:183:3
 		return v_6
-		/*line syntax/token.ergo:184:3*/
+		/*line syntax/token.ergo:183:3*/
 	}
-//line syntax/token.ergo:186:2
+//line syntax/token.ergo:185:2
 	if kind == Rune {
-//line syntax/token.ergo:187:3
+//line syntax/token.ergo:186:3
 		var i_1 int = (start + int(1))
-//line syntax/token.ergo:188:3
-		for /*line syntax/token.ergo:188:7*/ src[i_1] != uint8(39) {
-//line syntax/token.ergo:189:4
-			if /*line syntax/token.ergo:189:7*/ src[i_1] == uint8(92) {
-//line syntax/token.ergo:190:5
+//line syntax/token.ergo:187:3
+		for /*line syntax/token.ergo:187:7*/ src[i_1] != uint8(39) {
+//line syntax/token.ergo:188:4
+			if /*line syntax/token.ergo:188:7*/ src[i_1] == uint8(92) {
+//line syntax/token.ergo:189:5
 				i_1 = (i_1 + int(1))
-				/*line syntax/token.ergo:190:5*/
+				/*line syntax/token.ergo:189:5*/
 			}
-//line syntax/token.ergo:192:4
+//line syntax/token.ergo:191:4
 			i_1 = (i_1 + int(1))
-			/*line syntax/token.ergo:192:4*/
+			/*line syntax/token.ergo:191:4*/
 		}
-//line syntax/token.ergo:194:3
+//line syntax/token.ergo:193:3
 		return (i_1 + int(1))
-		/*line syntax/token.ergo:194:3*/
+		/*line syntax/token.ergo:193:3*/
 	}
-//line syntax/token.ergo:196:2
+//line syntax/token.ergo:195:2
 	if kind == Path {
-//line syntax/token.ergo:197:3
-//line syntax/token.ergo:197:10
+//line syntax/token.ergo:196:3
+//line syntax/token.ergo:196:10
 		v_7 := pathEnd(src, start)
-//line syntax/token.ergo:197:3
+//line syntax/token.ergo:196:3
 		return v_7
-		/*line syntax/token.ergo:197:3*/
+		/*line syntax/token.ergo:196:3*/
 	}
-//line syntax/token.ergo:199:2
+//line syntax/token.ergo:198:2
 	t_2 := start
-	/*line syntax/token.ergo:199:2*/ a := kind
-	/*line syntax/token.ergo:199:2*/ i_2 := 0
-	/*line syntax/token.ergo:199:2*/ i_2 = i_2*256 + int(a)
-	/*line syntax/token.ergo:199:2*/ var v_8 int
-	/*line syntax/token.ergo:199:2*/ if tabopLenK[i_2].Ready() {
-		/*line syntax/token.ergo:199:2*/ v_8 = tabopLenV[i_2]
-		/*line syntax/token.ergo:199:2*/
+	/*line syntax/token.ergo:198:2*/ a := kind
+	/*line syntax/token.ergo:198:2*/ i_2 := 0
+	/*line syntax/token.ergo:198:2*/ i_2 = i_2*256 + int(a)
+	/*line syntax/token.ergo:198:2*/ var v_8 int
+	/*line syntax/token.ergo:198:2*/ if tabopLenK[i_2].Ready() {
+		/*line syntax/token.ergo:198:2*/ v_8 = tabopLenV[i_2]
+		/*line syntax/token.ergo:198:2*/
 	} else {
-		/*line syntax/token.ergo:199:2*/ v_8 = tabopLenFill(i_2, a)
-		/*line syntax/token.ergo:199:2*/
+		/*line syntax/token.ergo:198:2*/ v_8 = tabopLenFill(i_2, a)
+		/*line syntax/token.ergo:198:2*/
 	}
-//line syntax/token.ergo:199:10
+//line syntax/token.ergo:198:10
 	v_9 := v_8
-//line syntax/token.ergo:199:2
+//line syntax/token.ergo:198:2
 	return (t_2 + v_9)
-	/*line syntax/token.ergo:199:2*/
+	/*line syntax/token.ergo:198:2*/
 }
 
 //line syntax/parse.ergo:12:1
@@ -31550,103 +31550,103 @@ func identRest(src string, i int) int {
 	/*line syntax/scan.ergo:374:2*/
 }
 
-//line syntax/token.ergo:225:1
+//line syntax/token.ergo:224:1
 func numberEnd(src string, start int) int {
-//line syntax/token.ergo:226:2
+//line syntax/token.ergo:225:2
 	var n int = len(src)
-//line syntax/token.ergo:227:2
+//line syntax/token.ergo:226:2
 	var end int = start
-//line syntax/token.ergo:228:2
-	b := (( /*line syntax/token.ergo:228:5*/ src[start] == uint8(48)) && ((start + int(1)) < n))
-	/*line syntax/token.ergo:228:2*/ if b {
-//line syntax/token.ergo:228:41
-		v := isBase( /*line syntax/token.ergo:228:48*/ src[(start + int(1))])
-//line syntax/token.ergo:228:2
+//line syntax/token.ergo:227:2
+	b := (( /*line syntax/token.ergo:227:5*/ src[start] == uint8(48)) && ((start + int(1)) < n))
+	/*line syntax/token.ergo:227:2*/ if b {
+//line syntax/token.ergo:227:41
+		v := isBase( /*line syntax/token.ergo:227:48*/ src[(start + int(1))])
+//line syntax/token.ergo:227:2
 		b = v
-		/*line syntax/token.ergo:228:2*/
+		/*line syntax/token.ergo:227:2*/
 	}
-	/*line syntax/token.ergo:228:2*/ if b {
-//line syntax/token.ergo:229:3
+	/*line syntax/token.ergo:227:2*/ if b {
+//line syntax/token.ergo:228:3
 		end = (start + int(2))
-		/*line syntax/token.ergo:229:3*/
+		/*line syntax/token.ergo:228:3*/
 	} else {
-//line syntax/token.ergo:231:3
-//line syntax/token.ergo:231:9
+//line syntax/token.ergo:230:3
+//line syntax/token.ergo:230:9
 		v_1 := digits(src, start)
-//line syntax/token.ergo:231:3
+//line syntax/token.ergo:230:3
 		end = v_1
-//line syntax/token.ergo:232:3
-		if ((end < n) && ( /*line syntax/token.ergo:232:17*/ src[end] == uint8(46))) && (!(((end + int(1)) < n) && ( /*line syntax/token.ergo:232:51*/ src[(end+int(1))] == uint8(46)))) {
-//line syntax/token.ergo:233:4
-//line syntax/token.ergo:233:10
+//line syntax/token.ergo:231:3
+		if ((end < n) && ( /*line syntax/token.ergo:231:17*/ src[end] == uint8(46))) && (!(((end + int(1)) < n) && ( /*line syntax/token.ergo:231:51*/ src[(end+int(1))] == uint8(46)))) {
+//line syntax/token.ergo:232:4
+//line syntax/token.ergo:232:10
 			v_2 := digits(src, (end + int(1)))
-//line syntax/token.ergo:233:4
+//line syntax/token.ergo:232:4
 			end = v_2
-			/*line syntax/token.ergo:233:4*/
+			/*line syntax/token.ergo:232:4*/
 		}
-//line syntax/token.ergo:235:3
-		if ((end > start) && (end < n)) && (( /*line syntax/token.ergo:235:33*/ src[end] == uint8(101)) || ( /*line syntax/token.ergo:235:52*/ src[end] == uint8(69))) {
-//line syntax/token.ergo:236:4
+//line syntax/token.ergo:234:3
+		if ((end > start) && (end < n)) && (( /*line syntax/token.ergo:234:33*/ src[end] == uint8(101)) || ( /*line syntax/token.ergo:234:52*/ src[end] == uint8(69))) {
+//line syntax/token.ergo:235:4
 			var exp int = (end + int(1))
-//line syntax/token.ergo:237:4
-			if (exp < n) && (( /*line syntax/token.ergo:237:19*/ src[exp] == uint8(43)) || ( /*line syntax/token.ergo:237:38*/ src[exp] == uint8(45))) {
-//line syntax/token.ergo:238:5
+//line syntax/token.ergo:236:4
+			if (exp < n) && (( /*line syntax/token.ergo:236:19*/ src[exp] == uint8(43)) || ( /*line syntax/token.ergo:236:38*/ src[exp] == uint8(45))) {
+//line syntax/token.ergo:237:5
 				exp = (exp + int(1))
-				/*line syntax/token.ergo:238:5*/
+				/*line syntax/token.ergo:237:5*/
 			}
-//line syntax/token.ergo:240:4
-//line syntax/token.ergo:240:16
+//line syntax/token.ergo:239:4
+//line syntax/token.ergo:239:16
 			v_3 := digits(src, exp)
+//line syntax/token.ergo:239:4
 //line syntax/token.ergo:240:4
-//line syntax/token.ergo:241:4
 			if v_3 > exp {
-//line syntax/token.ergo:242:5
+//line syntax/token.ergo:241:5
 				end = v_3
-				/*line syntax/token.ergo:242:5*/
+				/*line syntax/token.ergo:241:5*/
 			}
-			/*line syntax/token.ergo:242:5*/
+			/*line syntax/token.ergo:241:5*/
 		}
-		/*line syntax/token.ergo:242:5*/
+		/*line syntax/token.ergo:241:5*/
 	}
-//line syntax/token.ergo:246:2
+//line syntax/token.ergo:245:2
 	v_4 := identRest(src, end)
-	/*line syntax/token.ergo:246:2*/ return v_4
-	/*line syntax/token.ergo:246:2*/
+	/*line syntax/token.ergo:245:2*/ return v_4
+	/*line syntax/token.ergo:245:2*/
 }
 
-//line syntax/token.ergo:205:1
+//line syntax/token.ergo:204:1
 func segmentEnd(src string, start int) int {
-//line syntax/token.ergo:206:2
+//line syntax/token.ergo:205:2
 	var i int = (start + int(1))
-//line syntax/token.ergo:207:2
+//line syntax/token.ergo:206:2
 	for {
+//line syntax/token.ergo:207:3
+		var c uint8 = /*line syntax/token.ergo:207:11*/ src[i]
 //line syntax/token.ergo:208:3
-		var c uint8 = /*line syntax/token.ergo:208:11*/ src[i]
-//line syntax/token.ergo:209:3
 		if c == uint8(92) {
-//line syntax/token.ergo:210:4
-			if /*line syntax/token.ergo:210:7*/ src[(i+int(1))] == uint8(40) {
-//line syntax/token.ergo:211:5
+//line syntax/token.ergo:209:4
+			if /*line syntax/token.ergo:209:7*/ src[(i+int(1))] == uint8(40) {
+//line syntax/token.ergo:210:5
 				return (i + int(2))
-				/*line syntax/token.ergo:211:5*/
+				/*line syntax/token.ergo:210:5*/
 			}
-//line syntax/token.ergo:213:4
+//line syntax/token.ergo:212:4
 			i = (i + int(1))
-			/*line syntax/token.ergo:213:4*/
+			/*line syntax/token.ergo:212:4*/
 		} else {
-//line syntax/token.ergo:214:10
+//line syntax/token.ergo:213:10
 			if c == uint8(34) {
-//line syntax/token.ergo:215:4
+//line syntax/token.ergo:214:4
 				return (i + int(1))
-				/*line syntax/token.ergo:215:4*/
+				/*line syntax/token.ergo:214:4*/
 			}
-			/*line syntax/token.ergo:215:4*/
+			/*line syntax/token.ergo:214:4*/
 		}
-//line syntax/token.ergo:217:3
+//line syntax/token.ergo:216:3
 		i = (i + int(1))
-		/*line syntax/token.ergo:217:3*/
+		/*line syntax/token.ergo:216:3*/
 	}
-	/*line syntax/token.ergo:217:3*/
+	/*line syntax/token.ergo:216:3*/
 }
 
 //line syntax/scan.ergo:664:1
@@ -31701,18 +31701,18 @@ func pathEnd(src string, start int) int {
 	/*line syntax/scan.ergo:686:2*/
 }
 
-//line syntax/token.ergo:149:1
+//line syntax/token.ergo:148:1
 func opLen(kind uint8) int {
-	/*line syntax/token.ergo:150:2*/ if (((kind == uint8(50)) || (kind == uint8(32))) || (kind == uint8(33))) || (kind == uint8(34)) {
-		/*line syntax/token.ergo:151:3*/ return 3
+	/*line syntax/token.ergo:149:2*/ if (((kind == uint8(50)) || (kind == uint8(32))) || (kind == uint8(33))) || (kind == uint8(34)) {
+		/*line syntax/token.ergo:150:3*/ return 3
 	}
-	/*line syntax/token.ergo:153:2*/ if (((((((kind == uint8(23)) || (kind == uint8(21))) || (kind == uint8(22))) || ((kind >= uint8(24)) && (kind <= uint8(28)))) || ((kind >= uint8(29)) && (kind <= uint8(31)))) || ((kind >= uint8(35)) && (kind <= uint8(40)))) || ((kind >= uint8(46)) && (kind <= uint8(49)))) || (kind == uint8(41)) {
-		/*line syntax/token.ergo:154:3*/ return 2
+	/*line syntax/token.ergo:152:2*/ if (((((((kind == uint8(23)) || (kind == uint8(21))) || (kind == uint8(22))) || ((kind >= uint8(24)) && (kind <= uint8(28)))) || ((kind >= uint8(29)) && (kind <= uint8(31)))) || ((kind >= uint8(35)) && (kind <= uint8(40)))) || ((kind >= uint8(46)) && (kind <= uint8(49)))) || (kind == uint8(41)) {
+		/*line syntax/token.ergo:153:3*/ return 2
 	}
-	/*line syntax/token.ergo:156:2*/ return 1
+	/*line syntax/token.ergo:155:2*/ return 1
 }
 
-//line syntax/token.ergo:150
+//line syntax/token.ergo:149
 
 //line syntax/span.ergo:13:1
 func (k tokens) tokPos(j int) int {

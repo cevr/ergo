@@ -8,8 +8,8 @@ import strconv
 func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
 
 // Tokens is the scan of src alone, for a host that reads tokens and no
-// tree (syntax.TokenText, WhereText): kind, start and end per token, a
-// failed scan's ILLEGAL and EOF included.
+// tree (syntax.TokenText, WhereText): kind, start and end per token. A
+// failed scan's tokens stop at the failure, with no ILLEGAL and no EOF.
 func Tokens(src string) []uint32 {
 	let t = syntax.Scan(src).Toks
 	let n = syntax.NumToks(t)

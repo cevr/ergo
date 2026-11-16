@@ -2,10 +2,12 @@
 // decided grammar of #196 (docs/spec/grammar.md is normative). Since
 // capstone S2d the scanner and parser are compiler/syntax's, in Ergo,
 // linked into the binary (internal/linked/syntax); Parse decodes their
-// rows into this AST (decode.go). The Go scanner and parser stay as the
-// test-only reference (ref_*_test.go) until S2e. The parser accepts that
-// grammar and nothing else; an old Go-shaped spelling is a diagnostic, and a
-// Go habit's message names the Ergo form (habits.go).
+// rows into this AST (decode.go). Since S2e no Go parser is left: the
+// parse laws (roundtrip_test.go) and the decoder property
+// (decode_view_test.go) hold Parse to the formatter and to the view. The
+// parser accepts that grammar and nothing else; an old Go-shaped spelling
+// is a diagnostic, and a Go habit's message names the Ergo form
+// (habits.go).
 //
 // A decided form that means the same as a Go-shaped node becomes that node
 // (`let` a VarDecl, `match` a SwitchStmt or TypeSwitchStmt, `fails` an

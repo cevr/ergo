@@ -1,5 +1,5 @@
 // Package hostsyntax is the self-hosting pilot's Go input boundary: it
-// calls Ergo's Go parser and exports only the parser's facts, as an encoding that
+// calls syntax.Parse and exports only the parser's facts, as an encoding that
 // Ergo code decodes (compiler/tree). It makes no layout decision and does
 // not import the formatter.
 //
@@ -33,7 +33,7 @@ import (
 // Header starts every encoding of this version.
 const Header = "ergotree1\n"
 
-// Parse parses src with the Go parser and returns its encoding.
+// Parse parses src with syntax.Parse and returns its encoding.
 func Parse(src string) string {
 	f, err := syntax.Parse(src)
 	if err != nil {

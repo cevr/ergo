@@ -14,8 +14,9 @@ import (
 // parser builds it (rows, the extra pool, token and comment columns,
 // carried across the linked package as syntax.Columns packs them), built
 // into this package's nodes for the Go checker. The nodes are the ones
-// Parse builds, every field (TestDecodeAgreesWithGo): the rows keep what
-// the source says, and the decoder adds what this parser derives from it
+// the Go parser built before S2d, every field: the rows keep what the
+// source says (TestDecodeAgreesWithView reads them through the view as
+// well), and the decoder adds what the Go parser derived from it
 // (an or-pattern case's expansion, a refinement's parse function and law,
 // a codec pair's round-trip law, a machine's entries by name).
 

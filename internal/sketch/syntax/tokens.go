@@ -55,7 +55,8 @@ type token struct {
 }
 
 // scanTokens is the scan of src by compiler/syntax's scanner (the linked
-// dump.Tokens), a failed scan's ILLEGAL and EOF included.
+// dump.Tokens): a failed scan's tokens stop at the failure, with no
+// ILLEGAL and no EOF.
 func scanTokens(src string) []token {
 	words, err := linked.Tokens(context.Background(), src)
 	if err != nil {

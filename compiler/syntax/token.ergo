@@ -6,9 +6,8 @@
 
 import dense
 
-// The kinds of a token: the Go scanner's Token numbers
-// (internal/sketch/syntax/token.go), so the two scanners agree on the
-// number (ScanAgreesWithGo).
+// The kinds of a token: the Token numbers of the Go AST
+// (internal/sketch/syntax/token.go), which the decoder reads as they are.
 let Illegal = uint8(0)
 let EOF = uint8(1)
 let Comment = uint8(2)
@@ -157,8 +156,8 @@ func opLen(kind uint8) int {
 }
 
 // End is the end of the token of kind kind that starts at start in src:
-// the token scanned again (Zig's tokenizer). It is the Go scanner's end
-// for every token (ScanAgreesWithGo checks each one).
+// the token scanned again (Zig's tokenizer), the end the Go scanner
+// gave every token (law EndRescans).
 func End(src string, kind uint8, start int) int {
 	if kind == EOF {
 		return start

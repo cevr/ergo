@@ -410,9 +410,9 @@ func guard(d *dumper, depth int, id dense.ID[syntax.Node]) {
 
 // Parse is the canonical dump of one parse of src: "G pos end n" per
 // comment group and a line per node ("depth Kind pos end fields"), or
-// the diagnostic "E code offset length line column msg". The Go parser
-// agreement (internal/sketch/syntax, TestParseAgreesWithGo) prints the
-// Go tree in the same form.
+// the diagnostic "E code offset length line column msg". The decoder
+// property (internal/sketch/syntax, TestDecodeAgreesWithView) prints the
+// decoded Go tree in the same form.
 func Parse(src string) string {
 	let p = syntax.Parse(src)
 	if p.Failed {

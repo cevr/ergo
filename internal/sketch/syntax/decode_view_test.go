@@ -1,13 +1,14 @@
 package syntax
 
-// The agreement of compiler/syntax's parser (the Ergo compiler's, capstone
-// S2b) with this one. Both sides print the canonical dump below: one line
-// per node in field order, with its Pos and End, its positions and its
-// scalars; the Ergo side is compiler/syntax/dump.Parse, linked through the
-// IR as internal/linked/syntax and run in process. The declarations this
-// parser derives (refine.go, pair.go) and the expansion of or-patterns
-// (orpattern.go) are left out, since compiler/syntax builds the written
-// tree only.
+// The decoder property (capstone S2e): compiler/syntax's rows read two
+// ways print the same canonical dump. One reading is the view
+// (compiler/syntax/dump.Parse, linked through the IR as
+// internal/linked/syntax and run in process); the other is this package's
+// decoder (decode.go), whose Go tree the dumper below prints: one line per
+// node in field order, with its Pos and End, its positions and its scalars.
+// The declarations the decoder derives (refine.go, pair.go) and the
+// expansion of or-patterns (orpattern.go) are left out, since the view
+// holds the written tree only.
 
 import (
 	"context"
@@ -405,12 +406,15 @@ func (d *dumper) node(depth int, n Node) {
 	}
 }
 
-// goParseDump is the canonical dump of the Go parser's tree of src, or of
-// its diagnostic.
-func goParseDump(src string) string {
-	f, err := parseGo(src)
+// decodedDump is the canonical dump of the decoded tree of src, or of its
+// diagnostic.
+func decodedDump(src string) string {
+	f, err := ParseRows(src)
 	if err != nil {
-		e := err.(*Error)
+		e, ok := err.(*Error)
+		if !ok {
+			return fmt.Sprintf("decoder failure %v\n", err)
+		}
 		return fmt.Sprintf("E %s %d %d %d %d %s\n", e.Code, e.Offset, e.Length, e.Line, e.Column, strconv.Quote(e.Message))
 	}
 	d := &dumper{groups: map[*CommentGroup]int{}}
@@ -422,17 +426,17 @@ func goParseDump(src string) string {
 	return d.b.String()
 }
 
-// TestParseAgreesWithGo (capstone S2b): on every .ergo file of the
+// TestDecodeAgreesWithView (capstone S2e): on every .ergo file of the
 // repository, the positive and superseded corpora (the files that do not
 // parse give the same diagnostic, every field) and seeded sources
-// (generated programs and perturbed corpus files), the dump of the Ergo
-// parser's tree through its view equals the dump of this parser's tree. A
-// failing seed prints the source, both dumps and the replay command. It
-// kills the parse, tree, view, comments and skip rows of
-// compiler/syntax/testdata/mutants.json that name it.
-func TestParseAgreesWithGo(t *testing.T) {
+// (generated programs and perturbed corpus files, a third of them with
+// CRLF line ends), the dump of the parse through the view equals the dump
+// of the decoded tree. A failing seed prints the source, both dumps and the
+// replay command. It kills the decode rows of testdata/mutants.json and the
+// view rows of compiler/syntax/testdata/mutants.json that name it.
+func TestDecodeAgreesWithView(t *testing.T) {
 	corpus := corpusInputs(t)
-	inputs := agreeSeeds(t, func(s int64) string { return pickParse(s, corpus) })
+	inputs := agreeSeeds(t, func(s int64) string { return pickDecode(s, corpus) })
 	if os.Getenv("ERGO_AGREE_SEED") == "" {
 		inputs = append(corpus, inputs...)
 	}
@@ -442,7 +446,7 @@ func TestParseAgreesWithGo(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: the Ergo parser failed: %v\nsource %q", in.name, err, in.src)
 		}
-		want := goParseDump(in.src)
+		want := decodedDump(in.src)
 		if got == want {
 			continue
 		}
@@ -452,7 +456,7 @@ func TestParseAgreesWithGo(t *testing.T) {
 			if len(src) > 600 && in.seed < 0 {
 				src = src[:600] + "…"
 			}
-			t.Errorf("%s: the parses differ\nsource %q\n--- go\n%s--- ergo\n%s%s", in.name, src, firstDiff(want, got), firstDiff(got, want), replay(in, "TestParseAgreesWithGo"))
+			t.Errorf("%s: the decoded tree and the view differ\nsource %q\n--- decoded\n%s--- view\n%s%s", in.name, src, firstDiff(want, got), firstDiff(got, want), replay(in, "TestDecodeAgreesWithView"))
 		}
 	}
 	if failures > 0 {

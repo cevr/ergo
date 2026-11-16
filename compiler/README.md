@@ -10,7 +10,7 @@ The binary holds these packages through `internal/linked` (`docs/tooling.md`, Li
 - `format/` (pure but for the parser it is handed): the formatter rewritten from `internal/sketch/format`. `format.ergo` holds the contract (`Layouter` with its laws), the failures (`OutputLimit`, `InvalidTree`) and the entries `Source` (parse with the given parser, validate, print) and `Print`; `printer.ergo` and `nodes.ergo` print each node family; `span.ergo` gives each node's Pos/End and the token table; `layout.ergo` is the line/cell state and its pure transition over the closed `Command` union; `comments.ergo`, `align.ergo` (column sections, render, the size limit decided before any text is built) and `text.ergo` (byte and rune helpers); `laws.ergo` checks Idempotent, ShapeKept, CommentsKept and Bounded on an outcome.
 - `api/` (pure): the linked package's root, primitive in and out. `Project(encoding)` is the tree's projection; `FormatTree(encoding, limit)` the formatter's outcome; `Laws(src, srcTree, out, outTree)` the source laws over two trees Go parsed; `Steps(commands, limit)` the layout state's outcome.
 - `syntax/` (pure): the scanner and parser on SELFLAYOUT's layout (capstone S2a, S2b), moved here from their run dirs. The scanner writes token columns (`token.ergo`: a one-byte kind and a start, `End` by a second scan; `scan.ergo`: dispatch on the first byte, keywords by length and compare), `comments.ergo` and `lines.ergo`; the parser (`parse*.ergo`, `diag.ergo`) writes `Tree`, 13-byte rows with one `extra` pool (`tree.ergo`), and `view.ergo` reads a row as the closed unions `Expr`, `Stmt`, `Decl`, `Type` and writes one back (`View`, `Put`). `skip "reason"` is a statement only before a string literal: `skip` is no scanner keyword. The laws are in `scan_laws.ergo` and `tree_laws.ergo`. `columns.ergo` packs a parse into one `[]uint32` (header, token columns, rows, `extra`, comments, groups) for a host to read.
-- `syntax/dump/` (pure): `Scan(src)` and `Parse(src)`, the canonical dumps of one scan and one parse (the parse through the view), and `Columns(src)` and `Failure(src)`, the packed parse and its failure. They are the linked package `internal/linked/syntax` (the row `syntax` of `linked.Packages`), which `internal/sketch/syntax`'s `TestScanAgreesWithGo` and `TestParseAgreesWithGo` compare in process with the Go scanner and parser. `internal/sketch/syntax/decode.go` (`ParseRows`) builds the Go nodes from `Columns`, every field the Go parser sets (`TestDecodeAgreesWithGo`; capstone S2d).
+- `syntax/dump/` (pure): `Scan(src)` and `Parse(src)`, the canonical dumps of one scan and one parse (the parse through the view), and `Columns(src)` and `Failure(src)`, the packed parse and its failure. They are the linked package `internal/linked/syntax` (the row `syntax` of `linked.Packages`), which `syntax.Parse` reads since S2d: `internal/sketch/syntax/decode.go` (`ParseRows`) builds the Go nodes from `Columns`, every field the Go parser set, and `TestDecodeAgreesWithView` compares their dump with `Parse`'s. With the Go parser deleted (S2e), `TestFormatParseRoundTrip` and `TestFormatIsTheCorpusFixpoint` hold the parser to the formatter.
 - `cmd/parsedump`, `cmd/scandump`: print the dumps of the named files, one `F path` line before each, and with `-n` the counts the receipts use.
 
 ## Run
@@ -19,7 +19,10 @@ The binary holds these packages through `internal/linked` (`docs/tooling.md`, Li
 ergo check compiler/api
 ergo test compiler/format
 ergo test compiler/syntax
-go test -count=1 -run '^Test(Scan|Parse)AgreesWithGo$' ./internal/sketch/syntax
+go test -count=1 -run '^Test(DecodeAgreesWithView|FormatParseRoundTrip|FormatIsTheCorpusFixpoint)ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(BridgeAgrees|FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
+go run ./scripts/linked
+```
+ ./internal/sketch/syntax
 ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(BridgeAgrees|FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
 go run ./scripts/linked
 ```

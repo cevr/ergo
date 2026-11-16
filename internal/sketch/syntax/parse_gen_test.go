@@ -1,7 +1,7 @@
 package syntax
 
-// A seeded generator of Ergo programs for the parse agreement
-// (TestParseAgreesWithGo). It writes declarations from the grammar's forms with
+// A seeded generator of Ergo programs for the decoder property
+// (TestDecodeAgreesWithView) and the round trip (TestFormatParseRoundTrip). It writes declarations from the grammar's forms with
 // random expressions, types, patterns and statements inside, and now and
 // then a stray token, so both valid trees and diagnostics are reached.
 
