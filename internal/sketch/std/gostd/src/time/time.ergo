@@ -65,7 +65,7 @@ extern go time.LoadLocation func LoadLocation(name string) go.Ref[Location] fail
 extern go time.LoadLocationFromTZData func LoadLocationFromTZData(name string, data []byte) go.Ref[Location] fails go.Error needs go.Foreign
 
 // ergo:go var Local *Location
-// ergo:refused Local: a Go variable is host state; call a function
+extern go time.Local let Local go.Ref[Location]
 
 // ergo:go type Location struct
 extern go time.Location type Location {}
@@ -375,7 +375,7 @@ extern go time.Timer.Stop func (t *Timer) Stop() bool needs go.Foreign
 extern go time.Tuesday let Tuesday Weekday
 
 // ergo:go var UTC *Location
-// ergo:refused UTC: a Go variable is host state; call a function
+extern go time.UTC let UTC go.Ref[Location]
 
 // ergo:go func Unix(sec int64, nsec int64) Time
 extern go time.Unix func Unix(sec int64, nsec int64) Time needs go.Foreign

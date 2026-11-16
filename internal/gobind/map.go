@@ -260,6 +260,18 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
+		if v1.GoReadOnlyVars[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
+			// A reviewed variable no Go code of its package writes after
+			// init (GBX3): a read-only let, a pointer never nil, so a
+			// go.Ref. The table holds no interface variable.
+			t, err := (&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)
+			if err != nil {
+				d.Refused = err.Error()
+				return d
+			}
+			d.Ergo = "let " + o.Name() + " " + t
+			return d
+		}
 		if !isError(o.Type()) && !resourceType(o.Type()) {
 			d.Refused = "a Go variable is host state; call a function"
 			return d

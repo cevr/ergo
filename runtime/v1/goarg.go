@@ -60,6 +60,23 @@ var GoWrites = map[string]GoWrite{
 	"sort.Strings":          {0, "sort/sort.go: slices.Sort(x)"},
 }
 
+// GoReadOnlyVars are the reviewed Go package variables of Go's standard
+// library that no Go code of their package writes after its init, each
+// with its source reason (go1.27; GBX3, docs/spec/interop.md, Go package
+// variables). A binding declares each as a read-only let; a pointer one is
+// never nil, so it is a go.Ref. No entry is of an interface type (os.Interrupt,
+// io.Discard): Ergo holds a Go interface value only through an operation.
+var GoReadOnlyVars = map[string]string{
+	"encoding/base64.StdEncoding":    "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it",
+	"encoding/base64.URLEncoding":    "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it",
+	"encoding/base64.RawStdEncoding": "encoding/base64/base64.go: = StdEncoding.WithPadding(NoPadding) at init; never assigned",
+	"encoding/base64.RawURLEncoding": "encoding/base64/base64.go: = URLEncoding.WithPadding(NoPadding) at init; never assigned",
+	"hash/crc32.IEEETable":           "hash/crc32/crc32.go: = simpleMakeTable(IEEE) at init; the package reads it only",
+	"time.UTC":                       "time/zoneinfo.go: = &utcLoc; the package never assigns it",
+	"time.Local":                     "time/zoneinfo.go: = &localLoc; the package never assigns it (it fills localLoc lazily, behind a sync.Once)",
+	"os.Args":                        "os/proc.go: set once by the runtime's init (runtime_args); the package never assigns it",
+}
+
 // GoArgLent reports a reviewed, reasoned resource lend, never a default.
 func GoArgLent(target string, index int) bool {
 	c := GoArgClauses[target][index]

@@ -6,7 +6,7 @@ import go io/fs
 import go time
 
 // ergo:go var Args []string
-// ergo:refused Args: a Go variable is host state; call a function
+extern go os.Args let Args []string
 
 // ergo:go func Chdir(dir string) error
 extern go os.Chdir func Chdir(dir string) fails go.Error needs go.Foreign

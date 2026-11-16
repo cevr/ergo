@@ -60,16 +60,16 @@ extern go encoding/base64.NewEncoding func NewEncoding(encoder string) Option[go
 extern go encoding/base64.NoPadding let NoPadding rune
 
 // ergo:go var RawStdEncoding *Encoding
-// ergo:refused RawStdEncoding: a Go variable is host state; call a function
+extern go encoding/base64.RawStdEncoding let RawStdEncoding go.Ref[Encoding]
 
 // ergo:go var RawURLEncoding *Encoding
-// ergo:refused RawURLEncoding: a Go variable is host state; call a function
+extern go encoding/base64.RawURLEncoding let RawURLEncoding go.Ref[Encoding]
 
 // ergo:go var StdEncoding *Encoding
-// ergo:refused StdEncoding: a Go variable is host state; call a function
+extern go encoding/base64.StdEncoding let StdEncoding go.Ref[Encoding]
 
 // ergo:go const StdPadding rune
 extern go encoding/base64.StdPadding let StdPadding rune
 
 // ergo:go var URLEncoding *Encoding
-// ergo:refused URLEncoding: a Go variable is host state; call a function
+extern go encoding/base64.URLEncoding let URLEncoding go.Ref[Encoding]
