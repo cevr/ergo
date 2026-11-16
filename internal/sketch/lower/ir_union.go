@@ -171,12 +171,12 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		if k < 0 {
 			irNo("value of another type")
 		}
-		return &irExpr{K: "mcall", Pos: e.Pos, Name: ofName(k), X: &irExpr{K: "zero", Pos: e.Pos, T: gt}, Args: []*irExpr{e}}
+		return b.variantForm(e, gt, k, layoutFlat, ofName(k)) // ir_forms.go
 	}
 	if n, ok := to.(*check.Named); !ok || b.l.typeDecl(n.Obj, site).kind != kindUnion {
 		irNo("value of another type")
 	}
-	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+	return b.variantForm(e, gt, unionTag(to, from), layoutIface, "")
 }
 
 // bareRecord is the value of a record with no fields written bare, `A`,
