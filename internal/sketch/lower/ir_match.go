@@ -80,6 +80,9 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
+	if out, ok := b.viewMatch(s, ret, to); ok { // ir_view.go
+		return out
+	}
 	st := b.l.info.Types[x]
 	if st == nil {
 		irNo("expression without a type")
@@ -210,6 +213,13 @@ func (b *irBuilder) tagOf(s int, p irPos) *irExpr {
 
 // valueMatch is the match s on a literal subject: an expression switch.
 func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*irStmt {
+	pre, sw, hasDefault := b.valueArms(s, func(cl *syntax.CaseClause) []*irStmt { return b.arm(cl.Body, ret, to) })
+	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
+}
+
+// valueArms is valueMatch's subject and switch, each case's body built by
+// arm; a view's match at its site builds its cases so (ir_view.go).
+func (b *irBuilder) valueArms(s *syntax.SwitchStmt, arm func(*syntax.CaseClause) []*irStmt) ([]*irStmt, *irStmt, bool) {
 	if s.Tag == nil {
 		irNo("match without a subject")
 	}
@@ -252,7 +262,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 				irNo("value case that is not a literal")
 			}
 		}
-		c.Body = b.arm(cl.Body, ret, to)
+		c.Body = arm(cl)
 		if def {
 			// The emitter writes default: for the whole case.
 			if hasDefault {
@@ -263,7 +273,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 		}
 		sw.Cases = append(sw.Cases, c)
 	}
-	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
+	return pre, sw, hasDefault
 }
 
 // arm is a case's body: it yields as an if's branch does.

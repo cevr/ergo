@@ -352,6 +352,9 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// at, when set, is the position of every node built: a view's body
+	// built at its match site takes the site's (ir_view.go).
+	at *irPos
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -530,6 +533,9 @@ func (st *irState) intrinsic(f *check.Func) {
 // sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
 // the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
+	if b.at != nil {
+		return *b.at
+	}
 	if _, ok := b.l.sourceOf(n); !ok {
 		if _, ok := b.l.stdFileOf(n); !ok {
 			irNo("node outside the program's and std's sources")
