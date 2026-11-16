@@ -26,6 +26,7 @@ import "slices"
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
 //
+//ergo:pure
 //ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
