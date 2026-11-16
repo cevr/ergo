@@ -110,6 +110,9 @@ fs	hostRename	library	NP4f-6
 fs	hostStat	library	NP4f-6
 fs	hostWriteFile	library	NP4f-6
 fs	hostWriteFileMode	library	NP4f-6
+hex	Decode	library	LF2b (FK2): the string is copied for DecodeString and the result copied back (strings.FromBytes), 1.495x the body
+hex	Encode	library	LF2b (FK2): the string's bytes are copied for EncodeToString (strings.Bytes), 1.038x the body; a view of a string as []byte removes the copy
+hex	Malformed	type
 http	BodyFile	type
 http	EncodeQuery	computation	NP4f-7
 http	Exchange	type
@@ -246,6 +249,7 @@ strconv	Unquote	library	NP4f-5
 strings	Borrow	provider
 strings	Give	provider
 strings	Hint	provider
+strings	Join	library	LF2 (FK2): a []string argument to import go is cloned before the call, 1.659x the body
 strings	PadLeft	computation	NP4f-3
 strings	PadRight	computation	NP4f-3
 strings	Slice	language	PRIM

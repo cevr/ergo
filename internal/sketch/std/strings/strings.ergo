@@ -12,7 +12,7 @@ import go strings
 func Split(s string, sep string) []string { strings.Split(s, sep) }
 
 // Join is the elements of xs with sep between each pair.
-func Join(xs []string, sep string) string { strings.Join(xs, sep) }
+extern go ergo.local/prototype/runtime/v1.StringsJoin func Join(xs []string, sep string) string
 
 // HasPrefix reports whether s begins with prefix.
 func HasPrefix(s string, prefix string) bool { strings.HasPrefix(s, prefix) }

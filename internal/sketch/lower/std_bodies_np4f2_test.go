@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"errors"
 	"math"
 	"math/rand/v2"
 	"strconv"
@@ -9,16 +8,14 @@ import (
 	"testing"
 
 	v1 "ergo.local/prototype/runtime/v1"
-	"ergo.local/prototype/runtime/v1/digest"
 )
 
-// TestNP4f2MovesKeepMeaning is NP4f-2's comparing law: strings' 24
-// wrappers, strconv's 5 formatters and hex's 2 functions moved from
-// runtime/v1 externs to import go calls (hex.Decode with its offset found
-// in Ergo), and each still answers what its old Go body answers, on edges
-// (the empty text and separator, invalid UTF-8, case folds such as K and
-// the Kelvin sign, every float format and precision, odd and non-hex
-// texts) and seeded values. Every answer is printed as its bytes, so
+// TestNP4f2MovesKeepMeaning is NP4f-2's comparing law: strings' wrappers
+// (all but Join) and strconv's 5 formatters moved from runtime/v1 externs
+// to import go calls, and each still answers what its old Go body answers,
+// on edges (the empty text and separator, invalid UTF-8, case folds such
+// as K and the Kelvin sign, every float format and precision) and seeded
+// values. Every answer is printed as its bytes, so
 // invalid UTF-8 and line breaks compare exactly. NP4f-3 deletes it with
 // the old bodies. Mutants np4f2-* are killed here.
 //
@@ -29,7 +26,7 @@ func TestNP4f2MovesKeepMeaning(t *testing.T) {
 	seed := bodySeed(t)
 	r := rand.New(rand.NewPCG(seed, 0x4f2))
 	const n = 24
-	imp := []string{"strings", "strconv", "hex"}
+	imp := []string{"strings", "strconv"}
 	with := func(c bodyCase) bodyCase {
 		c.decls = np4f2Decls
 		return c
@@ -71,10 +68,6 @@ func TestNP4f2MovesKeepMeaning(t *testing.T) {
 		pair("Compare", `"\(strings.Compare(s, t))"`, func(v two) string { return strconv.Itoa(v1.StringsCompare(v.s, v.t)) }),
 		pair("ToValidUTF8", `bs(strings.ToValidUTF8(s, t))`, func(v two) string { return np4f2Bytes(v1.StringsToValidUTF8(v.s, v.t)) }),
 	}
-	type join struct {
-		xs  []string
-		sep string
-	}
 	type rep struct {
 		s string
 		n int
@@ -92,26 +85,7 @@ func TestNP4f2MovesKeepMeaning(t *testing.T) {
 		s string
 		r rune
 	}
-	list := func(xs []string) string {
-		parts := make([]string, len(xs))
-		for i, x := range xs {
-			parts[i] = text(x)
-		}
-		return "[]string{" + strings.Join(parts, ", ") + "}"
-	}
-	genList := func(r *rand.Rand) []string {
-		xs := make([]string, r.IntN(5))
-		for i := range xs {
-			xs[i] = np4f2Text(r)
-		}
-		return xs
-	}
 	cases = append(cases,
-		with(bodyRows("strings.Join", imp, "xs []string, sep string", `bs(strings.Join(xs, sep))`,
-			[]join{{nil, ","}, {[]string{""}, ","}, {[]string{"a", "b"}, ""}, {[]string{"a", "", "b"}, "\xff"}}, n, r,
-			func(r *rand.Rand) join { return join{genList(r), np4f2Text(r)} },
-			func(v join) string { return list(v.xs) + ", " + text(v.sep) },
-			func(v join) string { return np4f2Bytes(v1.StringsJoin(v.xs, v.sep)) })),
 		with(bodyRows("strings.Repeat", imp, "s string, k int", `bs(strings.Repeat(s, k))`,
 			[]rep{{"", 0}, {"", 5}, {"ab", 0}, {"ab", 3}, {"\xff", 2}}, n, r,
 			func(r *rand.Rand) rep { return rep{np4f2Text(r), r.IntN(5)} },
@@ -139,7 +113,6 @@ func TestNP4f2MovesKeepMeaning(t *testing.T) {
 			func(v has) string { return strconv.FormatBool(v1.StringsContainsRune(v.s, v.r)) })),
 	)
 	cases = append(cases, np4f2StrconvCases(r, n, with)...)
-	cases = append(cases, np4f2HexCases(r, n, with)...)
 	compareBodies(t, "TestNP4f2MovesKeepMeaning", seed, cases)
 }
 
@@ -237,39 +210,5 @@ func np4f2StrconvCases(r *rand.Rand, n int, with func(bodyCase) bodyCase) []body
 		with(bodyRows("strconv.Quote", imp, "s string", `bs(strconv.Quote(s))`,
 			[]string{"", "\"", "\\", "\n\t\x00", "\xff", "é世🙂", "\u2028", "\x7f"}, n, r, np4f2Text, np4fErgoString,
 			func(s string) string { return np4f2Bytes(v1.StrconvQuote(s)) })),
-	}
-}
-
-func np4f2HexCases(r *rand.Rand, n int, with func(bodyCase) bodyCase) []bodyCase {
-	imp := []string{"strings", "strconv", "hex"}
-	hexText := func(r *rand.Rand) string {
-		const digits = "0123456789abcdefABCDEFxg \xff"
-		b := make([]byte, r.IntN(9))
-		for i := range b {
-			if r.IntN(8) == 0 {
-				b[i] = digits[r.IntN(len(digits))]
-			} else {
-				b[i] = digits[r.IntN(22)]
-			}
-		}
-		return string(b)
-	}
-	return []bodyCase{
-		with(bodyRows("hex.Encode", imp, "s string", `bs(hex.Encode(s))`,
-			[]string{"", "\x00", "\xff\x10", "é"}, n, r, np4f2Text, np4fErgoString,
-			func(s string) string { return np4f2Bytes(digest.HexEncode(s)) })),
-		with(bodyRows("hex.Decode", imp, "s string", `bs(hex.Decode(s) catch {
-	case hex.Malformed as m:
-		"bad \(m.Offset)"
-	})`,
-			[]string{"", "0", "00", "0g", "g0", "abc", "ABcd", "zz1", "123", "12 3", "1\xff"}, n, r, hexText, np4fErgoString,
-			func(s string) string {
-				out, err := digest.HexDecode(s)
-				var m digest.HexMalformed
-				if errors.As(err, &m) {
-					return np4f2Bytes("bad " + strconv.Itoa(m.Offset))
-				}
-				return np4f2Bytes(out)
-			})),
 	}
 }

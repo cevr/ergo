@@ -2,45 +2,22 @@
 // stdlib.md, encodings and digests; G3 std-digest). It is Go's
 // encoding/hex over Ergo's strings, which hold bytes (types.md, Strings
 // 1), so no byte-slice type is needed; Effect's Encoding.encodeHex and
-// decodeHex. Encode and Decode call Go's encoding/hex through import go,
-// as a user binds it (NP4f); Decode finds the offset of a Malformed in
-// Ergo.
-
-import go encoding/hex
-import strings
+// decodeHex. Each extern binds a pure runtime/v1 body (runtime/v1/
+// digest.go).
 
 // Malformed is the failure of a text that is not hexadecimal: Offset is
 // the index of the first byte that is not a hex digit, or the length of
 // the text when every byte is one and the length is odd (Go's
 // InvalidByteError and ErrLength).
-type Malformed { Offset int }
+extern go ergo.local/prototype/runtime/v1/digest.HexMalformed type Malformed { Offset int }
 
 // Encode is the lower-case hexadecimal text of the bytes of s, two digits
 // a byte, as Go's hex.EncodeToString.
-func Encode(s string) string { hex.EncodeToString(strings.Bytes(s)) }
+extern go ergo.local/prototype/runtime/v1/digest.HexEncode func Encode(s string) string
 
 // Decode is the bytes that the hexadecimal text s writes; upper- and
 // lower-case digits both read. A text that is not one fails Malformed.
-func Decode(s string) string fails Malformed {
-	let b = hex.DecodeString(s) catch {
-	case go.Error:
-		return Malformed{Offset: firstNonDigit(s)}
-	}
-	strings.FromBytes(b)
-}
-
-// firstNonDigit is the index of the first byte of s that is not a hex
-// digit, or len(s) when every byte is one (Go reads the digits before the
-// length).
-func firstNonDigit(s string) int {
-	for i in 0..len(s) {
-		let c = s[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return i
-		}
-	}
-	len(s)
-}
+extern go ergo.local/prototype/runtime/v1/digest.HexDecode func Decode(s string) string fails Malformed
 
 // DecodeInvertsEncode: decoding an encoding gives the bytes back, for any
 // bytes, valid UTF-8 or not.
