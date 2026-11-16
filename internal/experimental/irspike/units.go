@@ -187,6 +187,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Go type spelling *", "G4"},
 	{"witness parameter", "G4"},
 	{"generic body", "G4"},
+	// F1's admit of a type parameter the body does not declare: the
+	// merged head's newer std (ui's TestHost functions, machines.Attempt)
+	// reaches it through generic instances whose declared types name
+	// their own type parameters (F7 FORK merge of F2).
+	{"type parameter outside its declaration", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
 	{"copy for a known record", "G4"},
