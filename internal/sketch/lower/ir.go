@@ -36,8 +36,11 @@ type IRReport struct {
 	Fallback map[string]int `json:"fallback"`
 	// Memo counts the loop-invariant pure calls the IR bodies compute
 	// once per entry of their loop (ir_memo.go).
-	Memo int    `json:"memo,omitempty"`
-	Hash string `json:"hash"`
+	Memo int `json:"memo,omitempty"`
+	// Forms are the decisions of the passes over the IR bodies, by
+	// position (ir_forms_report.go): ergo inspect forms.
+	Forms []FormSite `json:"forms,omitempty"`
+	Hash  string     `json:"hash"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -200,6 +203,7 @@ func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Packa
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
 	sort.Strings(l.ir.report.IR)
+	sortFormSites(l.ir.report.Forms) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
 
@@ -334,6 +338,9 @@ type irBuilder struct {
 	// the body's memoized calls (ir_memo.go).
 	memos     []*irMemo
 	memoSites int
+	// forms are the body's form sites (ir_forms_report.go), kept with its
+	// IR body.
+	forms []FormSite
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
@@ -530,6 +537,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	st.report.Memo += b.memoSites
+	st.report.Forms = append(st.report.Forms, b.forms...) // ir_forms_report.go
 	return true
 }
 
