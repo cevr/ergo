@@ -663,6 +663,7 @@ func (e *encoder) encFieldsLawDecl(v *LawDecl) {
 	e.encPtrBlockStmt(v.Body)
 	e.encPtrLawReach(v.Reach)
 	e.encPtrLawRewrite(v.Rewrite)
+	e.encPtrLawEquation(v.Equation)
 	e.encPtrTypeDecl(v.Derived)
 	e.encPtrFuncDecl(v.Pair)
 }
@@ -1328,6 +1329,23 @@ func (e *encoder) encPtrLawRewrite(v *LawRewrite) {
 	e.uint(e.id(v))
 }
 
+func (e *encoder) encFieldsLawEquation(v *LawEquation) {
+	e.encPos(v.LhsLbrace)
+	e.encPos(v.LhsRbrace)
+	e.encPos(v.RhsLbrace)
+	e.encPos(v.RhsRbrace)
+}
+
+func (e *encoder) encLawEquation(v LawEquation) { e.encFieldsLawEquation(&v) }
+
+func (e *encoder) encPtrLawEquation(v *LawEquation) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
 func (e *encoder) encT16(v []*MachineEntry) {
 	if v == nil {
 		e.uint(0)
@@ -1474,62 +1492,64 @@ func objTag(x any) uint64 {
 		return 38
 	case *LawDecl:
 		return 39
-	case *LawReach:
+	case *LawEquation:
 		return 40
-	case *LawRewrite:
+	case *LawReach:
 		return 41
-	case *MachineEntry:
+	case *LawRewrite:
 		return 42
-	case *MachineType:
+	case *MachineEntry:
 		return 43
-	case *MapType:
+	case *MachineType:
 		return 44
-	case *NeedsClause:
+	case *MapType:
 		return 45
-	case *OrPattern:
+	case *NeedsClause:
 		return 46
-	case *ParenExpr:
+	case *OrPattern:
 		return 47
-	case *ProvidesClause:
+	case *ParenExpr:
 		return 48
-	case *RangeStmt:
+	case *ProvidesClause:
 		return 49
-	case *ReturnStmt:
+	case *RangeStmt:
 		return 50
-	case *SelectorExpr:
+	case *ReturnStmt:
 		return 51
-	case *SliceExpr:
+	case *SelectorExpr:
 		return 52
-	case *StarExpr:
+	case *SliceExpr:
 		return 53
-	case *StructType:
+	case *StarExpr:
 		return 54
-	case *SwitchStmt:
+	case *StructType:
 		return 55
-	case *TakesClause:
+	case *SwitchStmt:
 		return 56
-	case *TestDecl:
+	case *TakesClause:
 		return 57
-	case *TryExpr:
+	case *TestDecl:
 		return 58
-	case *TupleExpr:
+	case *TryExpr:
 		return 59
-	case *TypeDecl:
+	case *TupleExpr:
 		return 60
-	case *TypeGuard:
+	case *TypeDecl:
 		return 61
-	case *TypeSwitchStmt:
+	case *TypeGuard:
 		return 62
-	case *UnaryExpr:
+	case *TypeSwitchStmt:
 		return 63
-	case *VarDecl:
+	case *UnaryExpr:
 		return 64
-	case *VarSpec:
+	case *VarDecl:
 		return 65
-	case *VariantSpec:
+	case *VarSpec:
 		return 66
-	case *Word:
+	case *VariantSpec:
 		return 67
+	case *Word:
+		return 68
 	}
 	return 0
 }
@@ -1615,6 +1635,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsKeyValueExpr(x)
 	case *LawDecl:
 		e.encFieldsLawDecl(x)
+	case *LawEquation:
+		e.encFieldsLawEquation(x)
 	case *LawReach:
 		e.encFieldsLawReach(x)
 	case *LawRewrite:
@@ -2448,6 +2470,7 @@ func (d *decoder) decFieldsLawDecl(v *LawDecl) {
 	v.Body = d.decPtrBlockStmt()
 	v.Reach = d.decPtrLawReach()
 	v.Rewrite = d.decPtrLawRewrite()
+	v.Equation = d.decPtrLawEquation()
 	v.Derived = d.decPtrTypeDecl()
 	v.Pair = d.decPtrFuncDecl()
 }
@@ -3213,6 +3236,26 @@ func (d *decoder) decPtrLawRewrite() *LawRewrite {
 	return x.(*LawRewrite)
 }
 
+func (d *decoder) decFieldsLawEquation(v *LawEquation) {
+	v.LhsLbrace = d.decPos()
+	v.LhsRbrace = d.decPos()
+	v.RhsLbrace = d.decPos()
+	v.RhsRbrace = d.decPos()
+}
+
+func (d *decoder) decLawEquation() (v LawEquation) {
+	d.decFieldsLawEquation(&v)
+	return v
+}
+
+func (d *decoder) decPtrLawEquation() *LawEquation {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*LawEquation)
+}
+
 func (d *decoder) decT16() []*MachineEntry {
 	n := d.uint()
 	if n == 0 {
@@ -3365,60 +3408,62 @@ func newObj(tag uint64) any {
 	case 39:
 		return new(LawDecl)
 	case 40:
-		return new(LawReach)
+		return new(LawEquation)
 	case 41:
-		return new(LawRewrite)
+		return new(LawReach)
 	case 42:
-		return new(MachineEntry)
+		return new(LawRewrite)
 	case 43:
-		return new(MachineType)
+		return new(MachineEntry)
 	case 44:
-		return new(MapType)
+		return new(MachineType)
 	case 45:
-		return new(NeedsClause)
+		return new(MapType)
 	case 46:
-		return new(OrPattern)
+		return new(NeedsClause)
 	case 47:
-		return new(ParenExpr)
+		return new(OrPattern)
 	case 48:
-		return new(ProvidesClause)
+		return new(ParenExpr)
 	case 49:
-		return new(RangeStmt)
+		return new(ProvidesClause)
 	case 50:
-		return new(ReturnStmt)
+		return new(RangeStmt)
 	case 51:
-		return new(SelectorExpr)
+		return new(ReturnStmt)
 	case 52:
-		return new(SliceExpr)
+		return new(SelectorExpr)
 	case 53:
-		return new(StarExpr)
+		return new(SliceExpr)
 	case 54:
-		return new(StructType)
+		return new(StarExpr)
 	case 55:
-		return new(SwitchStmt)
+		return new(StructType)
 	case 56:
-		return new(TakesClause)
+		return new(SwitchStmt)
 	case 57:
-		return new(TestDecl)
+		return new(TakesClause)
 	case 58:
-		return new(TryExpr)
+		return new(TestDecl)
 	case 59:
-		return new(TupleExpr)
+		return new(TryExpr)
 	case 60:
-		return new(TypeDecl)
+		return new(TupleExpr)
 	case 61:
-		return new(TypeGuard)
+		return new(TypeDecl)
 	case 62:
-		return new(TypeSwitchStmt)
+		return new(TypeGuard)
 	case 63:
-		return new(UnaryExpr)
+		return new(TypeSwitchStmt)
 	case 64:
-		return new(VarDecl)
+		return new(UnaryExpr)
 	case 65:
-		return new(VarSpec)
+		return new(VarDecl)
 	case 66:
-		return new(VariantSpec)
+		return new(VarSpec)
 	case 67:
+		return new(VariantSpec)
+	case 68:
 		return new(Word)
 	}
 	return nil
@@ -3505,6 +3550,8 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsKeyValueExpr(x)
 	case *LawDecl:
 		d.decFieldsLawDecl(x)
+	case *LawEquation:
+		d.decFieldsLawEquation(x)
 	case *LawReach:
 		d.decFieldsLawReach(x)
 	case *LawRewrite:

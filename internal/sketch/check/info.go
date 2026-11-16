@@ -1098,6 +1098,10 @@ type Law struct {
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
+	// FuncRewrite is the checked form of a top-level rewrite law over
+	// functions (Decl.Equation; funcrewrite.go), nil for any other law or
+	// one outside the rewrite's scope.
+	FuncRewrite *FuncRewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

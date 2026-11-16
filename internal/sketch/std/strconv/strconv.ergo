@@ -71,7 +71,7 @@ extern go ergo.local/prototype/runtime/v1.StrconvUnquote func Unquote(s string) 
 // The round trips of strconv (docs/spec/stdlib.md, Std laws).
 
 // AtoiInvertsItoa: reading the decimal text of n gives n.
-law AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }
+law AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) } == { n }
 
 // ItoaInvertsAtoi: a text Atoi reads, written back and read again, gives
 // the same number (the sign and leading zeros are normalized).
@@ -85,10 +85,10 @@ law ItoaInvertsAtoi(s string) {
 
 // UnquoteInvertsQuote: unquoting a quoted text gives the text, invalid
 // UTF-8 included.
-law UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }
+law UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) } == { s }
 
 // ParseBoolInvertsFormat: reading the text of b gives b.
-law ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }
+law ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) } == { b }
 
 // FormatFloatRoundTrips: the shortest text of a float that is not NaN
 // reads back as the same float.
@@ -101,7 +101,7 @@ law FormatFloatRoundTrips(f float64) {
 
 // ParseIntInvertsFormat: Itoa's text of n, read in base 10 at 64 bits,
 // is n.
-law ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }
+law ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) } == { int64(n) }
 
 // ParseIntInvertsFormatInt: FormatInt's text of n in a base 2 to 36, read
 // in that base at 64 bits, is n.

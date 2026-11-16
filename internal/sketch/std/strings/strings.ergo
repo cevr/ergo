@@ -158,7 +158,7 @@ law CutRebuilds(s string, sep string) {
 }
 
 // TrimSpaceIsIdempotent: trimming twice is trimming once.
-law TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }
+law TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) } == { TrimSpace(s) }
 
 // TrimLeftRightKeepEnds: TrimLeft keeps a suffix of s and TrimRight a
 // prefix, and trimming twice is trimming once.
@@ -169,7 +169,7 @@ law TrimLeftRightKeepEnds(s string, cutset string) {
 }
 
 // ToLowerIsIdempotent: lower case twice is lower case once.
-law ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }
+law ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) } == { ToLower(s) }
 
 // IndexFinds: Index points at the first sub, and LastIndex points at the
 // last one: no sub ends before the first's end, and none starts after the
