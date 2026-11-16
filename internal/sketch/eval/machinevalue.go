@@ -57,8 +57,8 @@ func (in *interp) machineValue(fr *frame, at syntax.Node, p *machinePlan, conv c
 		set("Initial", v)
 	}
 	set("Step", &funcRef{fn: step})
-	// Exit (FK9-g1): a fold runs no exit action; until the `exit` entry
-	// (g1c), every state's is None.
+	// Exit (FK9-g1): the exit function, or None for every state; a fold
+	// runs no exit action, so only a program that calls Exit reads it.
 	for _, name := range []string{"After", "Work", "Exit"} {
 		set(name, in.machineOption(to, n, name, conv.Table[name]))
 	}
