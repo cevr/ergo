@@ -193,244 +193,194 @@ func pushList(t *Tree, l List) {
 
 // View is node id's row read by its kind.
 func ViewOf(t Tree, id dense.ID[Node]) View {
-	let i = uint32(dense.Index(id))
-	let k = t.kind[int(i)]
-	let tok = t.tok[int(i)]
-	let a = t.a[int(i)]
-	let b = t.b[int(i)]
+	let k = t.kind[dense.Index(id)]
 	if k == KIdent {
-		return Name{Tok: int(tok)}
+		return NameOf(t, id)
 	}
 	if k == KBasicLit {
-		return BasicLit{Tok: int(tok)}
+		return BasicLitOf(t, id)
 	}
 	if k == KSelectorExpr {
-		return SelectorExpr{X: nid(t, a), Sel: nid(t, b)}
+		return SelectorExprOf(t, id)
 	}
 	if k == KCallExpr {
-		return CallExpr{Fun: nid(t, fixed(t, i, 5, 0)), Lparen: otok(fixed(t, i, 5, 1)), Args: listAt(t, i, 0, items(t, i, 5)), Rparen: otok(fixed(t, i, 5, 2)), Trailing: onid(t, fixed(t, i, 5, 3)), TrailingFunc: flag(fixed(t, i, 5, 4))}
+		return CallExprOf(t, id)
 	}
 	if k == KBinaryExpr {
-		return BinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}
+		return BinaryExprOf(t, id)
 	}
 	if k == KUnaryExpr {
-		return UnaryExpr{Op: int(tok), X: nid(t, a)}
+		return UnaryExprOf(t, id)
 	}
 	if k == KStarExpr {
-		return StarExpr{Star: int(tok), X: nid(t, a)}
+		return StarExprOf(t, id)
 	}
 	if k == KTryExpr {
-		return TryExpr{Try: int(tok), X: nid(t, a)}
+		return TryExprOf(t, id)
 	}
 	if k == KExprStmt {
-		return ExprStmt{X: nid(t, a)}
+		return ExprStmtOf(t, id)
 	}
 	if k == KDeclStmt {
-		return DeclStmt{Decl: nid(t, a)}
+		return DeclStmtOf(t, id)
 	}
 	if k == KAssignStmt {
-		return AssignStmt{Lhs: nid(t, a), Tok: int(tok), Rhs: nid(t, b)}
+		return AssignStmtOf(t, id)
 	}
 	if k == KReturnStmt {
-		return ReturnStmt{Return: int(tok), Result: onid(t, a)}
+		return ReturnStmtOf(t, id)
 	}
 	if k == KBranchStmt {
-		return BranchStmt{Tok: int(tok)}
+		return BranchStmtOf(t, id)
 	}
 	if k == KAssertStmt {
-		return AssertStmt{Assert: int(tok), X: nid(t, a)}
+		return AssertStmtOf(t, id)
 	}
 	if k == KSkipStmt {
-		return SkipStmt{Skip: int(tok), Reason: int(a)}
+		return SkipStmtOf(t, id)
 	}
 	if k == KBlockStmt {
-		return BlockStmt{Lbrace: int(tok), List: listAt(t, i, 0, items(t, i, 1)), Rbrace: int(fixed(t, i, 1, 0))}
+		return BlockStmtOf(t, id)
 	}
 	if k == KIfStmt {
-		return IfStmt{If: int(tok), Cond: nid(t, fixed(t, i, 4, 0)), Body: nid(t, fixed(t, i, 4, 1)), ElsePos: otok(fixed(t, i, 4, 2)), Else: onid(t, fixed(t, i, 4, 3))}
+		return IfStmtOf(t, id)
 	}
 	if k == KSwitchStmt {
-		return SwitchStmt{Switch: int(tok), Tag: nid(t, fixed(t, i, 3, 0)), Lbrace: int(fixed(t, i, 3, 1)), Clauses: listAt(t, i, 0, items(t, i, 3)), Rbrace: int(fixed(t, i, 3, 2))}
+		return SwitchStmtOf(t, id)
 	}
 	if k == KTypeSwitchStmt {
-		return TypeSwitchStmt{Switch: int(tok), Subject: nid(t, fixed(t, i, 3, 0)), Lbrace: int(fixed(t, i, 3, 1)), Clauses: listAt(t, i, 0, items(t, i, 3)), Rbrace: int(fixed(t, i, 3, 2))}
+		return TypeSwitchStmtOf(t, id)
 	}
 	if k == KForStmt {
-		return ForStmt{For: int(tok), Cond: onid(t, a), Body: nid(t, b)}
+		return ForStmtOf(t, id)
 	}
 	if k == KRangeStmt {
-		return RangeStmt{For: int(tok), Key: onid(t, fixed(t, i, 5, 0)), Value: nid(t, fixed(t, i, 5, 1)), Range: int(fixed(t, i, 5, 2)), X: nid(t, fixed(t, i, 5, 3)), Body: nid(t, fixed(t, i, 5, 4))}
+		return RangeStmtOf(t, id)
 	}
 	if k == KCaseClause {
-		let nl = int(fixed(t, i, 2, 0))
-		return CaseClause{Case: int(tok), List: listAt(t, i, 0, nl), Colon: int(fixed(t, i, 2, 1)), Body: listAt(t, i, nl, items(t, i, 2)-nl)}
+		return CaseClauseOf(t, id)
 	}
 	if k == KCatchArm {
-		let nl = int(fixed(t, i, 2, 0))
-		return CatchArm{Case: int(tok), Types: listAt(t, i, 0, nl), Colon: int(fixed(t, i, 2, 1)), Body: listAt(t, i, nl, items(t, i, 2)-nl)}
+		return CatchArmOf(t, id)
 	}
 	if k == KCompositeLit {
-		return CompositeLit{Type: onid(t, fixed(t, i, 4, 0)), Lbrace: int(tok), DotDot: otok(fixed(t, i, 4, 1)), Base: onid(t, fixed(t, i, 4, 2)), Elts: listAt(t, i, 0, items(t, i, 4)), Rbrace: int(fixed(t, i, 4, 3))}
+		return CompositeLitOf(t, id)
 	}
 	if k == KKeyValueExpr {
-		return KeyValueExpr{Key: nid(t, a), Colon: int(tok), Value: nid(t, b)}
+		return KeyValueExprOf(t, id)
 	}
 	if k == KFuncLit {
-		return FuncLit{Type: nid(t, a), Body: nid(t, b)}
+		return FuncLitOf(t, id)
 	}
 	if k == KParenExpr {
-		return ParenExpr{Lparen: int(tok), X: nid(t, a), Rparen: int(b)}
+		return ParenExprOf(t, id)
 	}
 	if k == KIndexExpr {
-		return IndexExpr{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Indices: listAt(t, i, 0, items(t, i, 2)), Rbrack: int(fixed(t, i, 2, 1))}
+		return IndexExprOf(t, id)
 	}
 	if k == KMapType {
-		return MapType{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Key: nid(t, item(t, i, 0)), Value: nid(t, item(t, i, 1)), Rbrack: int(fixed(t, i, 2, 1))}
+		return MapTypeOf(t, id)
 	}
 	if k == KSliceExpr {
-		return SliceExpr{X: nid(t, fixed(t, i, 6, 0)), Lbrack: int(tok), Low: onid(t, fixed(t, i, 6, 1)), High: onid(t, fixed(t, i, 6, 2)), Max: onid(t, fixed(t, i, 6, 3)), Slice3: flag(fixed(t, i, 6, 4)), Rbrack: int(fixed(t, i, 6, 5))}
+		return SliceExprOf(t, id)
 	}
 	if k == KCatchExpr {
-		return CatchExpr{X: nid(t, fixed(t, i, 2, 0)), Catch: int(tok), Arms: listAt(t, i, 0, items(t, i, 2)), Rbrace: int(fixed(t, i, 2, 1))}
+		return CatchExprOf(t, id)
 	}
 	if k == KContextLit {
-		return ContextLit{Context: int(tok), Provides: onid(t, fixed(t, i, 3, 0)), Needs: onid(t, fixed(t, i, 3, 1)), Body: nid(t, fixed(t, i, 3, 2))}
+		return ContextLitOf(t, id)
 	}
 	if k == KArrayType {
-		return ArrayType{Lbrack: int(tok), Len: otok(b), Elt: nid(t, a)}
+		return ArrayTypeOf(t, id)
 	}
 	if k == KFuncType {
-		return FuncType{Escaping: otok(fixed(t, i, 7, 0)), Entry: otok(fixed(t, i, 7, 1)), Func: otok(fixed(t, i, 7, 2)), Params: nid(t, fixed(t, i, 7, 3)), Results: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Takes: onid(t, fixed(t, i, 7, 6))}
+		return FuncTypeOf(t, id)
 	}
 	if k == KStructType {
-		return StructType{Fields: nid(t, a)}
+		return StructTypeOf(t, id)
 	}
 	if k == KInterfaceType {
-		return InterfaceType{Lbrace: otok(fixed(t, i, 2, 0)), Members: listAt(t, i, 0, items(t, i, 2)), Rbrace: otok(fixed(t, i, 2, 1))}
+		return InterfaceTypeOf(t, id)
 	}
 	if k == KErrorRow {
-		return ErrorRow{Error: int(tok), Types: listAt(t, i, 0, items(t, i, 0))}
+		return ErrorRowOf(t, id)
 	}
 	if k == KMachineType {
-		return MachineType{Machine: int(tok), State: nid(t, fixed(t, i, 4, 0)), Signal: nid(t, fixed(t, i, 4, 1)), Rbrack: int(fixed(t, i, 4, 2)), Members: listAt(t, i, 0, items(t, i, 4)), Rbrace: int(fixed(t, i, 4, 3))}
+		return MachineTypeOf(t, id)
 	}
 	if k == KTupleExpr {
-		return TupleExpr{Lparen: otok(fixed(t, i, 2, 0)), Elts: listAt(t, i, 0, items(t, i, 2)), Rparen: otok(fixed(t, i, 2, 1))}
+		return TupleExprOf(t, id)
 	}
 	if k == KAsPattern {
-		return AsPattern{X: nid(t, a), As: int(tok), Name: nid(t, b)}
+		return AsPatternOf(t, id)
 	}
 	if k == KOrPattern {
-		return OrPattern{Alts: listAt(t, i, 0, items(t, i, 0))}
+		return OrPatternOf(t, id)
 	}
 	if k == KInterpolatedString {
-		return InterpolatedString{Parts: listAt(t, i, 0, items(t, i, 0))}
+		return InterpolatedStringOf(t, id)
 	}
 	if k == KField {
-		return Field{
-			Doc:      otok(fixed(t, i, 10, 0)),
-			Names:    listAt(t, i, 0, items(t, i, 10)),
-			Type:     onid(t, fixed(t, i, 10, 1)),
-			Key:      onid(t, fixed(t, i, 10, 2)),
-			Any:      onid(t, fixed(t, i, 10, 3)),
-			Lent:     onid(t, fixed(t, i, 10, 4)),
-			Dots:     otok(fixed(t, i, 10, 5)),
-			Where:    onid(t, fixed(t, i, 10, 6)),
-			WherePos: otok(fixed(t, i, 10, 7)),
-			PurePos:  otok(fixed(t, i, 10, 8)),
-			Own:      otok(fixed(t, i, 10, 9)),
-		}
+		return FieldOf(t, id)
 	}
 	if k == KFieldList {
-		return FieldList{Opening: otok(fixed(t, i, 2, 0)), List: listAt(t, i, 0, items(t, i, 2)), Closing: otok(fixed(t, i, 2, 1))}
+		return FieldListOf(t, id)
 	}
 	if k == KNeedsClause {
-		return NeedsClause{Needs: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+		return NeedsClauseOf(t, id)
 	}
 	if k == KTakesClause {
-		return TakesClause{Takes: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+		return TakesClauseOf(t, id)
 	}
 	if k == KProvidesClause {
-		return ProvidesClause{Provides: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+		return ProvidesClauseOf(t, id)
 	}
 	if k == KMachineEntry {
-		return MachineEntry{Doc: otok(b), Name: int(tok), Value: nid(t, a)}
+		return MachineEntryOf(t, id)
 	}
 	if k == KVariantSpec {
-		return VariantSpec{Name: nid(t, fixed(t, i, 3, 0)), TypeArgs: onid(t, fixed(t, i, 3, 1)), Fields: nid(t, fixed(t, i, 3, 2))}
+		return VariantSpecOf(t, id)
 	}
 	if k == KContextBody {
-		return ContextBody{Lbrace: int(tok), Entries: listAt(t, i, 0, items(t, i, 1)), Rbrace: int(fixed(t, i, 1, 0))}
+		return ContextBodyOf(t, id)
 	}
 	if k == KContextEntry {
-		return ContextEntry{Doc: otok(fixed(t, i, 5, 0)), Replace: otok(fixed(t, i, 5, 1)), Key: nid(t, fixed(t, i, 5, 2)), Keys: listAt(t, i, 0, items(t, i, 5)), Assign: otok(fixed(t, i, 5, 3)), Value: onid(t, fixed(t, i, 5, 4))}
+		return ContextEntryOf(t, id)
 	}
 	if k == KExternSpec {
-		return ExternSpec{Extern: int(tok), Go: int(a), Target: nid(t, b)}
+		return ExternSpecOf(t, id)
 	}
 	if k == KImportDecl {
-		return ImportDecl{Doc: otok(b), Import: int(tok), Spec: nid(t, a)}
+		return ImportDeclOf(t, id)
 	}
 	if k == KImportSpec {
-		return ImportSpec{NamePos: otok(tok), Name: onid(t, a), Path: nid(t, b)}
+		return ImportSpecOf(t, id)
 	}
 	if k == KVarDecl {
-		return VarDecl{Doc: otok(fixed(t, i, 4, 0)), Extern: onid(t, fixed(t, i, 4, 1)), Var: int(tok), Mut: otok(fixed(t, i, 4, 2)), Spec: nid(t, fixed(t, i, 4, 3))}
+		return VarDeclOf(t, id)
 	}
 	if k == KVarSpec {
-		return VarSpec{Names: listAt(t, i, 0, items(t, i, 4)), Pattern: onid(t, fixed(t, i, 4, 0)), Type: onid(t, fixed(t, i, 4, 1)), Assign: otok(fixed(t, i, 4, 2)), Value: onid(t, fixed(t, i, 4, 3))}
+		return VarSpecOf(t, id)
 	}
 	if k == KTypeDecl {
-		return TypeDecl{
-			Doc:           otok(fixed(t, i, 10, 0)),
-			Extern:        onid(t, fixed(t, i, 10, 1)),
-			Type:          int(tok),
-			Name:          nid(t, fixed(t, i, 10, 2)),
-			TypeParams:    onid(t, fixed(t, i, 10, 3)),
-			Spec:          onid(t, fixed(t, i, 10, 4)),
-			WherePos:      otok(fixed(t, i, 10, 5)),
-			Where:         onid(t, fixed(t, i, 10, 6)),
-			DerivePos:     otok(fixed(t, i, 10, 7)),
-			Derive:        onid(t, fixed(t, i, 10, 8)),
-			ImplementsPos: otok(fixed(t, i, 10, 9)),
-			Implements:    listAt(t, i, 0, items(t, i, 10)),
-		}
+		return TypeDeclOf(t, id)
 	}
 	if k == KFuncDecl {
-		return FuncDecl{
-			Doc:        otok(fixed(t, i, 7, 0)),
-			Extern:     onid(t, fixed(t, i, 7, 1)),
-			Func:       int(tok),
-			Recv:       onid(t, fixed(t, i, 7, 2)),
-			Name:       nid(t, fixed(t, i, 7, 3)),
-			TypeParams: onid(t, fixed(t, i, 7, 4)),
-			Type:       nid(t, fixed(t, i, 7, 5)),
-			Body:       onid(t, fixed(t, i, 7, 6)),
-		}
+		return FuncDeclOf(t, id)
 	}
 	if k == KContextDecl {
-		return ContextDecl{Doc: otok(fixed(t, i, 6, 0)), Let: int(tok), Context: int(fixed(t, i, 6, 1)), Name: nid(t, fixed(t, i, 6, 2)), Provides: onid(t, fixed(t, i, 6, 3)), Needs: onid(t, fixed(t, i, 6, 4)), Body: nid(t, fixed(t, i, 6, 5))}
+		return ContextDeclOf(t, id)
 	}
 	if k == KTestDecl {
-		return TestDecl{Doc: otok(fixed(t, i, 4, 0)), Test: int(tok), Name: nid(t, fixed(t, i, 4, 1)), Params: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
+		return TestDeclOf(t, id)
 	}
 	if k == KLawDecl {
-		return LawDecl{
-			Doc:     otok(fixed(t, i, 8, 0)),
-			Law:     int(tok),
-			Name:    nid(t, fixed(t, i, 8, 1)),
-			Params:  onid(t, fixed(t, i, 8, 2)),
-			Body:    onid(t, fixed(t, i, 8, 3)),
-			Reach:   onid(t, fixed(t, i, 8, 4)),
-			Rewrite: flag(fixed(t, i, 8, 5)),
-			When:    otok(fixed(t, i, 8, 6)),
-			Eq:      otok(fixed(t, i, 8, 7)),
-		}
+		return LawDeclOf(t, id)
 	}
 	if k == KLawReach {
-		return LawReach{Never: otok(fixed(t, i, 6, 0)), Word: int(tok), Path: flag(fixed(t, i, 6, 1)), Lbrack: otok(fixed(t, i, 6, 2)), Targets: listAt(t, i, 0, items(t, i, 6)), Rbrack: otok(fixed(t, i, 6, 3)), Invariant: flag(fixed(t, i, 6, 4)), Pred: onid(t, fixed(t, i, 6, 5))}
+		return LawReachOf(t, id)
 	}
-	File{Decls: listAt(t, i, 0, items(t, i, 0)), EOF: int(tok)}
+	FileOf(t, id)
 }
 
 // ---------------------------------------------------------------- Put
