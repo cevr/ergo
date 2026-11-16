@@ -1,0 +1,7 @@
+start fetch (2)
+queue parse (2)
+start store (1)
+finish fetch
+finish store
+start parse (2)
+finish parse
