@@ -7,7 +7,7 @@ import (
 )
 
 // GenerateWitness is a program of calls that pass witnesses (F7 lane B):
-// json.Encode of drawn records (a wire codec witness) and a generic
+// json.Encode of drawn records (a codec witness) and a generic
 // function over a method set, at two record types whose Score bodies are
 // drawn, called from functions w0..w(n-1) on drawn values. A witness of
 // the wrong instance, one dropped or one passed in the wrong place

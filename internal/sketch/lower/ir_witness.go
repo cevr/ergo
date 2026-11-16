@@ -2,9 +2,9 @@ package lower
 
 // IR builder: the witnesses a call passes (F7 lane B). See ir_call.go.
 //
-// A call of a function whose type parameter a method set (or wire)
-// constrains passes, after the environment, one witness per such
-// parameter (witness.go, wire.go): a struct of function fields the
+// A call of a function whose type parameter a method set (or the codec
+// constraint) constrains passes, after the environment, one witness per
+// such parameter (witness.go; a codec's in the codec lowering): a struct of function fields the
 // emitter writes as a literal at the call. A witness whose type arguments
 // name no type parameter of the caller holds only closures that take
 // their environment as a parameter (envClosure, callerEnv) and package
