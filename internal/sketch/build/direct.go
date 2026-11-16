@@ -55,8 +55,9 @@ import (
 // cache; Gleam's and Mix's incremental compilers, which also skip the host
 // build tool and call the host compiler per module.
 
-// directSchema versions every key and plan this file writes.
-const directSchema = "ergo-go-direct-3"
+// directSchema versions every key and plan this file writes (4: the
+// compile runs in the package's folder, FT6).
+const directSchema = "ergo-go-direct-4"
 
 // GoBuildVariable set to "go" in the environment selects go build, the
 // reference path, for every build of the process.
@@ -772,7 +773,13 @@ func (d *direct) compile(p *goPackage) error {
 	}
 	defer release()
 	cmd := exec.Command(d.plan.Compile.Path, args...)
-	cmd.Dir = d.module.Dir
+	// In the package's folder, as go build runs it: the compile reads a
+	// relative source name of the package's IR file (ergoIR) from its
+	// working folder, and -trimpath rewrites only names under p.Dir, so
+	// the folder makes a frame of an IR body read ProgramModule/<pkg>/
+	// <file>, as the runtime's source map expects (test-speed FT6: the
+	// test build's root package is not the module's folder).
+	cmd.Dir = p.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
 	stage.Add(stage.GoCompiles, 1)
 	stage.Add(stage.Processes, 1)
