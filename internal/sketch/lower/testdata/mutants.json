@@ -273,9 +273,9 @@
       "name": "http-serve-row",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
-      "from": "func Serve[R](l Listener, limits Limits, handle escaping func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler",
-      "to": "func Serve[R](l Listener, limits Limits, handle escaping func(Request) Response needs R | Streaming) fails InvalidLimits needs Scheduler",
-      "rule": "The function handler's capability row reaches the serving caller.",
+      "from": "Response needs R) fails InvalidLimits needs R | Scheduler",
+      "to": "Response needs R) fails InvalidLimits needs Scheduler",
+      "rule": "The function handler's capability row reaches the serving caller: the runtime binding serve lists the R its handle needs (rows.md, Capability rows 8; CK-EXTROW). Dropping R from Serve's own row is S102 at the handler call already.",
       "killers": ["lower:TestHTTPHandlerRows"], "anchor": {"tests": ["lower:TestHTTPHandlerRows"]}
     },
     {
