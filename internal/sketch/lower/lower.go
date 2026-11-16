@@ -67,6 +67,12 @@ type Unit struct {
 	// Rewrite is the evidence of the law runs the run build may rewrite
 	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
 	Rewrite RewriteEvidence
+	// Rewrites is ergo build's -rewrites switch for the rewrites over
+	// functions of the IR path (ir_rewrite.go): "" or "on" (proved and
+	// validated laws), "proved" (proved laws only), "off" (the reference:
+	// every site keeps its left side). The test build ignores it: it
+	// shadows every matched site.
+	Rewrites string
 	// AllLaws asks RewriteChecks for every rewrite and post law of the
 	// unit, not only those its run build's sites use: std's ledger
 	// (FreshStdLedger) holds each law proved once, for every program.
@@ -85,6 +91,11 @@ type Unit struct {
 // source paths cannot be anchored or are admitted twice, or whose imports
 // are not distinct user packages with flat units.
 func (u Unit) Validate() error {
+	switch u.Rewrites {
+	case "", "on", "proved", "off":
+	default:
+		return fmt.Errorf("lower: -rewrites=%s; want on, proved or off", u.Rewrites)
+	}
 	seen := map[string]bool{}
 	if err := u.validateFiles(seen); err != nil {
 		return err

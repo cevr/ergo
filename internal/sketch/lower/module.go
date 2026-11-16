@@ -140,7 +140,11 @@ func Lower(u Unit) ([]File, error) {
 // ledger: it names the ledgers and the rewrites applied (ledger.go).
 func (l *lowerer) withRecord(u Unit, files []File) []File {
 	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
-		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
+		var levels map[string]int
+		if l.ir != nil {
+			levels = l.ir.funcApplied // the IR path's rewrites over functions
+		}
+		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied, levels)})
 	}
 	return files
 }
@@ -457,6 +461,7 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l.canon.funcRw = newFuncRewrites(u, tests != nil)
 	if tests == nil && u.Rewrite != nil {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}

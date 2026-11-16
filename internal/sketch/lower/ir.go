@@ -195,7 +195,7 @@ func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Packa
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
 		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
 	}
-	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	files := l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...))
 	sort.Strings(l.ir.report.IR)
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
@@ -215,6 +215,9 @@ type irState struct {
 	// reached are the census bodies reachAll has queued: a restart
 	// queues them again.
 	reached []*check.Func
+	// funcApplied counts the rewrites over functions the IR bodies
+	// applied, by level (ir_rewrite.go).
+	funcApplied map[string]int
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -352,6 +355,15 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// keep is the depth of call trees kept as written (ir_rewrite.go): an
+	// AsWritten argument, a law side being lowered. params are a law's
+	// parameters bound to the site's operands while a side is lowered.
+	keep   int
+	params map[*check.Var]*irExpr
+	// rwRows are the rewrite sites this body applied (their report rows),
+	// rwLevels the rewrites applied by level (ir_rewrite.go).
+	rwRows   []string
+	rwLevels map[string]int
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -502,6 +514,9 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
 		*ok = false
+		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
+	} else if *ok {
+		st.rewritesDone(b, true, "")
 	}
 	if st.census != nil {
 		file := ""

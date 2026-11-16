@@ -25,6 +25,15 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if b.fallibleCall(x) != nil {
 		irNo("untried fallible call")
 	}
+	if b.asWrittenCall(x) {
+		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
+		b.keep++
+		defer func() { b.keep-- }()
+	} else if !stmt {
+		if pre, e, ok := b.rewriteAt(x); ok { // ir_rewrite.go
+			return pre, e
+		}
+	}
 	pre, e, effect := b.callParts(x, stmt)
 	if e != nil && e.K == "vcall" {
 		// A function value returns its (value, error) pair (ir_closure.go).

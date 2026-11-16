@@ -130,6 +130,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.Ident:
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
+			if e, bound := b.params[o]; bound {
+				// A law's parameter, bound to a site's operand while a
+				// side of the law is lowered (ir_rewrite.go).
+				c := *e
+				return &c
+			}
 			if i, known := b.locals[o]; known {
 				return &irExpr{K: "local", Pos: p, I: i}
 			}

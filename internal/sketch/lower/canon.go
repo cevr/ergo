@@ -101,6 +101,9 @@ type canonical struct {
 	sourced map[*check.Package]bool
 	nodeSrc map[syntax.Node]int // each node of the program's sources: its source file
 	lists   map[*check.Package]*declLists
+	// funcRw is the rewrites over functions of the IR path (ir_rewrite.go):
+	// here, so a lowering that runs again from the start keeps them.
+	funcRw *funcRewrites
 }
 
 // declLists are one sourced package's checker lists in canonical order.
