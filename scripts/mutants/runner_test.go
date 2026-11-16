@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // seedVariable replays one seed of TestRunnerMatchesModel.
@@ -60,6 +62,15 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // verdicts are the model's too. Mutants of the runner it catches include
 // fk7a-format-ignored, fk12a-refusal-ignored and fk12a-declared-ignored
 // (this package's ledger).
+//
+// GT-BOUND: a row its named tests kill is judged with no coverage (seed
+// 1's third pass selects two such rows and measures nothing), and a named
+// kill stands though a covering test is red; spins is hung (its only test
+// blocks until its -test.timeout); data-command is killed by a command
+// killer; seed 2 stops a run after four verdicts and the next run takes
+// them from the journal, runs nothing on those rows and removes the
+// journal at its end (gtb-named-skipped, gtb-panic-ignored,
+// gtb-journal-unread, gtb-journal-kept, gtb-command-words).
 //
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
@@ -145,6 +156,7 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "two", name: "TestGrow", calls: []string{"two.Grow"}, asserts: []string{"two.Grow"}},
 		fakeTest{suite: "two", name: "TestPlain", calls: []string{"two.Plain"}, asserts: []string{"two.Plain"}, plainOnly: true},
 		fakeTest{suite: "one", name: "TestWord", reads: true},
+		fakeTest{suite: "two", name: "TestSpin", calls: []string{"two.Spin"}},
 	)
 	return m
 }
@@ -161,7 +173,7 @@ func (m fakeModule) source(pkg string) string {
 	if pkg == "one" {
 		b.WriteString("var greeting = \"hello\"\n\nvar farewell = \"bye\"\n\nfunc Greet() string { return greeting + farewell }\n")
 	} else {
-		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n")
+		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n\nfunc Spin() int { return 3 }\n")
 	}
 	return b.String()
 }
@@ -191,6 +203,10 @@ func (m fakeModule) testSource(pkg string) string {
 				continue
 			case "two.Plain":
 				fmt.Fprintf(&b, "\tif two.Plain() != 7 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
+				continue
+			case "two.Spin":
+				// A changed Spin blocks it until its -test.timeout.
+				b.WriteString("\tif two.Spin() != 3 {\n\t\tselect {}\n\t}\n")
 				continue
 			}
 			if slices.Contains(ft.asserts, fn) {
@@ -378,23 +394,41 @@ func (m fakeModule) model(target string, invalid bool) expect {
 	return e
 }
 
-// named adds the ledger's named killers to e: the runner runs a named test
-// whether or not it covers the lines, so a mutant whose named test does not
-// kill it survives rather than being uncovered. A named test that fails on
-// the unmutated tree leaves the mutant unjudged.
-func (m fakeModule) named(e expect, killers []string) expect {
+// named adds the ledger's named killers of a mutant of target to e: the
+// runner runs a named test whether or not it covers the lines, so a mutant
+// whose named test does not kill it survives rather than being uncovered.
+// A named test that fails on the unmutated tree leaves the mutant
+// unjudged. A named test that kills it judges it before any coverage
+// (phase A), so a covering test that fails on the unmutated tree no longer
+// matters: the kill rests on a test that passes there.
+func (m fakeModule) named(e expect, target string, killers []string) expect {
+	broken, kills := false, false
 	for _, id := range killers {
 		i := slices.IndexFunc(m.tests, func(ft fakeTest) bool { return ft.id() == id })
-		if i >= 0 && m.tests[i].broken {
-			e.status, e.killers = Unjudged, nil
-		}
-		if i < 0 || m.tests[i].broken || slices.Contains(e.covering, id) || e.status == Unjudged {
+		if i < 0 {
 			continue
 		}
-		e.covering = append(e.covering, id)
-		if e.status == Uncovered {
-			e.status = Survived
+		if m.tests[i].broken {
+			broken = true
+			continue
 		}
+		if !slices.Contains(e.covering, id) {
+			e.covering = append(e.covering, id)
+		}
+		kills = kills || slices.Contains(m.tests[i].asserts, target)
+	}
+	switch {
+	case broken:
+		e.status, e.killers = Unjudged, nil
+	case kills:
+		e.status, e.killers = Killed, nil
+		for _, ft := range m.tests {
+			if !ft.broken && slices.Contains(ft.asserts, target) {
+				e.killers = append(e.killers, ft.id())
+			}
+		}
+	case e.status == Uncovered:
+		e.status = Survived
 	}
 	return e
 }
@@ -453,7 +487,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 			mu.Killers = append(mu.Killers, ids[r.IntN(len(ids))])
 		}
 		mutants = append(mutants, mu)
-		want[mu.Name] = m.named(m.model(fn, false), mu.Killers)
+		want[mu.Name] = m.named(m.model(fn, false), fn, mu.Killers)
 	}
 	extra := []struct {
 		mu   *Mutant
@@ -474,6 +508,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// suites build, and the mutant is invalid, not killed (GT-COMPILE).
 		{&Mutant{Name: "gen-does-not-compile", File: "gen/g.go", From: "return 1 }", To: "return \"x\" }", Killers: []string{"two:TestBuildsGen"}},
 			expect{status: Invalid, detail: "does not compile: gen/g.go:3:"}},
+		// Its only covering test blocks until its -test.timeout: no kill,
+		// and a hung row (GT-BOUND).
+		{&Mutant{Name: "spins", File: "two/f.go", From: "func Spin() int { return 3 }", To: "func Spin() int { return 4 }"},
+			expect{status: Hung, covering: []string{"two:TestSpin"}, detail: "two:TestSpin fail (a timeout, no kill)"}},
 		{&Mutant{Name: "plain-only", File: "two/f.go", From: "func Plain() int { return 7 }", To: "func Plain() int { return 8 }"}, m.model("two.Plain", false)},
 		// A mutant of a file that is not Go (std's .ergo sources) is in no
 		// block: the tests that read it (one:TestWord, its test log) and
@@ -485,6 +523,9 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestGreet", "one:TestWord"}}},
 		{&Mutant{Name: "data-broken-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestBroken", "one:TestWord"}},
 			expect{status: Unjudged}},
+		// A command killer runs in the mutated copy, as a test does.
+		{&Mutant{Name: "data-command", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"command:word"}},
+			expect{status: Killed, killers: []string{"command:word", "one:TestWord"}, covering: []string{"command:word", "one:TestWord"}}},
 		{&Mutant{Name: "data-unnamed", File: "one/word.txt", From: "hi", To: "ho"},
 			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
 		// Source mutants (Config.Sources): TestSrc fails on any of them, as
@@ -525,36 +566,96 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 	// directory: the second takes two's stored segment and measures one
 	// again (one's TestBroken fails on the unmutated tree, so its segment
 	// is never stored), and its verdicts are the model's too.
-	store, passes := "", 1
+	base := pass{seed: seed, all: all, repo: repo, memory: memoryLimit, mutants: mutants, want: want}
 	if seed == 1 {
-		store, passes = t.TempDir(), 2
-	}
-	for pass := 1; pass <= passes; pass++ {
-		var log strings.Builder
-		checkPass(t, seed, all, repo, store, memoryLimit, mutants, want, &log)
-		if pass == 2 && !strings.Contains(log.String(), "coverage: 1 of 2 suites' segments reused") {
-			t.Errorf("seed %d: the second pass over the store did not reuse two's segment alone:\n%s", seed, log.String())
+		base.store = t.TempDir()
+		for n := 1; n <= 2; n++ {
+			var log strings.Builder
+			base.check(t, &log)
+			if n == 2 && !strings.Contains(log.String(), "coverage: 1 of 2 suites' segments reused") {
+				t.Errorf("seed %d: the second pass over the store did not reuse two's segment alone:\n%s", seed, log.String())
+			}
 		}
+		// Rows their named tests kill need no coverage at all (phase A).
+		named := base
+		named.sel = regexp.MustCompile(`^(literal-named|data-named)$`)
+		var log strings.Builder
+		named.check(t, &log)
+		if !strings.Contains(log.String(), "coverage: not measured") || strings.Contains(log.String(), "coverage receipt") {
+			t.Errorf("seed %d: a pass whose named tests kill every row measured coverage:\n%s", seed, log.String())
+		}
+		return
+	}
+	// A run stopped after a few verdicts (as a server restart stops one)
+	// leaves them in its journal; the next run of the tree takes them,
+	// judges only the rest, and removes the journal when it is complete.
+	base.journal = t.TempDir()
+	first := base
+	first.cancelAfter = 4
+	judged := map[string]bool{}
+	for _, r := range first.check(t, io.Discard) {
+		if r.Status != "" {
+			judged[r.Name] = true
+		}
+	}
+	if len(judged) < first.cancelAfter {
+		t.Fatalf("seed %d: the stopped pass judged %d rows, want at least %d", seed, len(judged), first.cancelAfter)
+	}
+	second := base
+	second.resumed = judged
+	var log strings.Builder
+	second.check(t, &log)
+	if !strings.Contains(log.String(), fmt.Sprintf("resume: %d of %d rows", len(judged), len(mutants))) {
+		t.Errorf("seed %d: the second pass did not resume the %d rows the first judged:\n%s", seed, len(judged), log.String())
+	}
+	if left, _ := os.ReadDir(base.journal); len(left) != 0 {
+		t.Errorf("seed %d: a complete run left its journal: %v", seed, left)
 	}
 }
 
-// checkPass runs the runner once over repo and checks every verdict with
+// pass is one run of the runner over the fake module: its coverage store
+// and journal, the rows it selects, and, for a run stopped early, the
+// number of verdicts after which it stops; resumed are the rows an
+// earlier stopped run judged, which this one must not run again.
+type pass struct {
+	seed                 uint64
+	all                  bool
+	repo, store, journal string
+	memory               uint64
+	mutants              []*Mutant
+	want                 map[string]expect
+	sel                  *regexp.Regexp
+	cancelAfter          int
+	resumed              map[string]bool
+}
+
+// check runs the runner once over the repo and checks every verdict with
 // the model's.
-func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLimit uint64, mutants []*Mutant, want map[string]expect, log io.Writer) {
+func (p pass) check(t *testing.T, log io.Writer) []Result {
 	t.Helper()
+	seed, all, repo, store, memoryLimit, mutants, want := p.seed, p.all, p.repo, p.store, p.memory, p.mutants, p.want
 	logPath := filepath.Join(t.TempDir(), "ran.log")
 	t.Setenv("FAKE_LOG", logPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cfg := Config{
-		Root:       repo,
-		Work:       filepath.Join(t.TempDir(), "work"),
-		Cover:      []string{"./one", "./two"},
-		Suites:     []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}}},
+		Root:  repo,
+		Work:  filepath.Join(t.TempDir(), "work"),
+		Cover: []string{"./one", "./two"},
+		Suites: []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}},
+			// A killer that is not a go test (Ledger.Commands).
+			{Name: commandSuite, Commands: map[string][]string{"word": {"grep", "-qx", "hi", "{root}/one/word.txt"}}, Only: []string{}, Named: []string{"word"}}},
 		Workers:    2,
 		Procs:      1,
+		Tests:      2,
 		Memory:     memoryLimit,
 		All:        all,
 		CoverStore: store,
-		Log:        log, // the engine's logf writes under its lock
+		JournalDir: p.journal,
+		// The floor stops TestSpin's block (spins): the fake tests take
+		// milliseconds, so it never stops one that would end.
+		TestFloor: 20 * time.Second,
+		Log:       log, // the engine's logf writes under its lock
 		Sources: []SourceCheck{{
 			Ext:    ".src",
 			Tool:   Tool{Name: "src", Package: "./cmd/src"},
@@ -562,12 +663,27 @@ func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLi
 			Check:  []string{"{bin:src}", "check", "{dir}"},
 		}},
 	}
-	results, _, err := Run(context.Background(), cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}}})
-	if err != nil {
+	if p.cancelAfter > 0 {
+		cfg.Progress = func(results []Result) {
+			if len(slices.DeleteFunc(results, func(r Result) bool { return r.Status == "" })) >= p.cancelAfter {
+				cancel()
+			}
+		}
+	}
+	results, _, err := Run(ctx, cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}, Select: p.sel}})
+	if err != nil && ctx.Err() == nil {
 		t.Fatalf("seed %d: run: %v", seed, err)
 	}
-	if len(results) != len(mutants) {
-		t.Fatalf("seed %d: %d results for %d mutants", seed, len(results), len(mutants))
+	byName := map[string]*Mutant{}
+	selected := 0
+	for _, mu := range mutants {
+		byName[mu.Name] = mu
+		if p.sel == nil || p.sel.MatchString(mu.Name) {
+			selected++
+		}
+	}
+	if len(results) != selected {
+		t.Fatalf("seed %d: %d results for %d mutants", seed, len(results), selected)
 	}
 	ran := map[string][]string{}
 	logText, _ := os.ReadFile(logPath)
@@ -577,14 +693,20 @@ func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLi
 		}
 	}
 	for i, res := range results {
-		mu := mutants[i]
+		if res.Status == "" && p.cancelAfter > 0 {
+			continue // not judged before the stop
+		}
+		mu := byName[res.Name]
+		if mu == nil {
+			t.Fatalf("seed %d: result %d names no mutant: %+v", seed, i, res)
+		}
 		w := want[mu.Name]
 		bad := func(format string, args ...any) {
 			t.Errorf("seed %d (replay: %s=%d), mutant %s: %s\n  model: %+v\n  runner: status %s killer %s (%s) killers %v ran %v\n  %s", seed, seedVariable, seed, mu.Name,
 				fmt.Sprintf(format, args...), w, res.Status, res.Killer, res.Reason, res.Killers, res.Ran, firstLine(res.Detail))
 		}
-		if res.Name != mu.Name {
-			bad("result %d is %s", i, res.Name)
+		if p.resumed[mu.Name] && len(ran[mu.Name]) > 0 {
+			bad("an earlier run judged it, and this one ran %v on it again", ran[mu.Name])
 		}
 		if res.Status != w.status {
 			bad("status %s, model %s", res.Status, w.status)
@@ -610,6 +732,7 @@ func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLi
 	if status := git(t, repo, "status", "--porcelain"); status != "" {
 		t.Errorf("seed %d: the checkout differs from HEAD after the run:\n%s", seed, status)
 	}
+	return results
 }
 
 func sameSet(a, b []string) bool {

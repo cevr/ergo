@@ -132,6 +132,11 @@ func planScope(suites []Suite, suiteDeps, toolDeps map[string][]string, pkgs []s
 	}
 	for i := range suites {
 		su := &suites[i]
+		if su.Commands != nil {
+			// A command runs only where a row names it (phase A, judge.go).
+			s.skipped = append(s.skipped, su.Name)
+			continue
+		}
 		ok := reaches(suiteDeps[su.Name])
 		for _, tool := range toolsOf(su) {
 			ok = ok || reaches(toolDeps[tool])

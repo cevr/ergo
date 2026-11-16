@@ -19,8 +19,11 @@ type ledgerFile struct {
 	About string `json:"about"`
 	// Env is the NAME=VALUE switches the runner gives the ledger's own
 	// suite (scripts/mutants Ledger.Env).
-	Env     []string `json:"env"`
-	Mutants []struct {
+	Env []string `json:"env"`
+	// Commands are the killers that are not a go test, command:NAME
+	// (scripts/mutants Ledger.Commands).
+	Commands map[string][]string `json:"commands"`
+	Mutants  []struct {
 		Name    string   `json:"name"`
 		Origin  string   `json:"origin"`
 		File    string   `json:"file"`
@@ -104,6 +107,10 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 			for _, k := range tests {
 				if !strings.Contains(k, ":") {
 					t.Errorf("%s: mutant %q: test %q is not SUITE:NAME", path, m.Name, k)
+				} else if name, ok := strings.CutPrefix(k, "command:"); ok {
+					if name, _, _ = strings.Cut(name, " "); ledger.Commands[name] == nil {
+						t.Errorf("%s: %s: killer %q: the ledger has no command %q", path, m.Name, k, name)
+					}
 				} else if why := killerMissing(root, k, testFiles); why != "" {
 					t.Errorf("%s: %s: killer %q: %s", path, m.Name, k, why)
 				}
