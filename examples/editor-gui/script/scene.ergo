@@ -65,6 +65,8 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 			return s
 		case ui.BadPatch as b:
 			return b
+		case ui.Ambiguous as x:
+			io.Stdout.Println("? \(x.Count) nodes match " + x.At)
 		case ui.Mismatch as x:
 			io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 		}
@@ -162,7 +164,7 @@ func Texts(shapes []ui.Shape[screen.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
 		}
 		for t in Texts(s.Kids) {
 			out = out.Append(t)

@@ -333,13 +333,13 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		child.Stderr = io.MultiWriter(stderr...)
 	}
 	err = runEntryProcess(child, limit, proclimit.Watch(child))
-	// Each run that printed its ok line held, whatever later runs did.
-	verdicts.Record(out.String())
 	if opts.trace {
 		if perr := printSteps(os.Stdout, tracePath); perr != nil {
 			return perr
 		}
 	}
+	// Each run that printed its ok line held, whatever later runs did.
+	verdicts.Record(out.String())
 	if err != nil {
 		return err
 	}

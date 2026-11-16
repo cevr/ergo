@@ -81,6 +81,9 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 				return os.Exit{Code: 1, Message: "counter-gui: the counter stopped"}
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "counter-gui: \(b.Why)"}
+			case ui.Ambiguous as x:
+				io.Stdout.Println("\(i + 1): \(x.Count) nodes match \(x.At)")
+				continue
 			case ui.Mismatch as m:
 				io.Stdout.Println("\(i + 1): want \(m.Want), got \(m.Got)")
 				continue
