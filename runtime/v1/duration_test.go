@@ -199,7 +199,7 @@ var durationLaws = map[string]func(r *rand.Rand) (bool, any){
 }
 
 var durationLawStatements = map[string]string{
-	"time DurationTextRoundTrips": `DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) == d }`,
+	"time DurationTextRoundTrips": `DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) } == { d }`,
 	"time DivideInvertsTimes":     `DivideInvertsTimes(d duration, n int) { let small = Divide(d, 1000000) let k = n % 1000 if k == 0 { return true } Divide(Times(small, k), k) == small }`,
 	"time TimesKeepsTheSign":      `TimesKeepsTheSign(d duration, n int) { let p = Times(d, n) if d == 0ns || n == 0 { return p == 0ns } (p > 0ns) == ((d > 0ns) == (n > 0)) }`,
 	"time CountIsWholeUnits":      `CountIsWholeUnits(d duration, unit duration) { if d < 0ns || unit <= 0ns { return true } let c = Count(d, unit) Times(unit, c) <= d && d-Times(unit, c) < unit }`,

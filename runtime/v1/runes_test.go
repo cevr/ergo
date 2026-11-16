@@ -348,7 +348,7 @@ var runesLawStatements = map[string]string{
 	"math FMARoundsOnce":                `FMARoundsOnce(k int) { let d = float64((k%1000+1000)%1000+1) * 9.313225746154785e-10 FMA(1.0+d, 1.0-d, -1.0) == -(d * d) }`,
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
-	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }`,
+	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) } == { OnesCount64(x) }`,
 	"bits LenAndLeadingZeros":           `LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }`,
 }
 
