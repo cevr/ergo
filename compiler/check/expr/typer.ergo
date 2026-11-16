@@ -646,6 +646,9 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 		out
 	case syntax.FuncLit as fl:
 		funcLit(s, k, t, fl, w)
+	case syntax.BlockStmt:
+		block(s, k, t, x)
+		None
 	case _:
 		walk(s, k, t, x)
 		None
