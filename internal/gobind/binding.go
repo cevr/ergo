@@ -140,6 +140,9 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		for _, v := range d.Vouched {
 			body.WriteString("// ergo:reads " + v.Param + " (vouched: " + v.Reason + ")\n")
 		}
+		if d.Effect != "" {
+			body.WriteString("// ergo:effect none (vouched: " + d.Effect + ")\n")
+		}
 		body.WriteString("extern go " + d.Target(path) + " " + d.Ergo + "\n")
 		for _, m := range d.Members {
 			body.WriteString("\n// ergo:go " + m.Go + "\n")

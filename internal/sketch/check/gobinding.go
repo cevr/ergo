@@ -238,6 +238,7 @@ type hostPkg struct {
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
 	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -452,7 +453,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, readsMarker) {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -478,6 +479,10 @@ func (h *hostPkg) load() {
 				case "// ergo:context":
 					h.context[fn] = true
 				default:
+					if rest, ok := strings.CutPrefix(text, effectMarker); ok {
+						h.effectLine(fn, rest)
+						continue
+					}
 					h.readsLine(fn, strings.TrimPrefix(text, readsMarker))
 				}
 			}

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -57,6 +58,11 @@ type Decl struct {
 	// one `// ergo:reads p (vouched: reason)` line each. A vouched fact
 	// acts only on a current validated line of the ledger (LAWFFI LF2).
 	Vouched []Vouch
+	// Effect is the reason of the function's memory-only row
+	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
+	// binding writes no needs row and an `// ergo:effect none (vouched:
+	// <reason>)` line.
+	Effect  string
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -122,6 +128,9 @@ type mapper struct {
 	// readable are the parameters of a function that may carry a derived
 	// `reads` fact (readsShape), set by funcDecl.
 	readable []readable
+	// effect is the reason of the memory-only row the last funcDecl
+	// bound by (GBX6), or "".
+	effect string
 }
 
 // readable is a parameter, or a method's receiver, that may carry a
@@ -242,7 +251,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context = text, variadic, ctx
+		d.Ergo, d.Variadic, d.Context, d.Effect = text, variadic, ctx, m.effect
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -441,6 +450,12 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// whatever its package (it needs the task, which a pure frame
 		// does not have).
 		needs = " needs go.Foreign"
+	}
+	m.effect = ""
+	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
+		// A memory-only call needs no capability (GBX6): its row is
+		// what is left, and the binding says why.
+		needs, m.effect = "", e.Reason
 	}
 	if sm.usedNeeds {
 		if needs == "" {
@@ -1116,5 +1131,12 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 // (check.SyncActs; LAWFFI LF2d).
 func syncActs(target string) bool {
 	ok, _, _ := check.SyncActs(target)
+	return ok
+}
+
+// effectActs reports a function whose memory-only row acts
+// (check.EffectActs; np4f-plan GBX6).
+func effectActs(target string) bool {
+	ok, _, _ := check.EffectActs(target)
 	return ok
 }

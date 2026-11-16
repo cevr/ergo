@@ -35,6 +35,9 @@ fact go math pure members validated by guard with go1.27.4 h1:TeaA0HUewaw/yJxdcX
 fact go math/bits pure members validated by guard with go1.27.4 h1:R7ox5+ztDc8L2KVyvxuWclU9EU0N+UENQ9lFO84uqDo=
 fact go math/rand.Rand.Shuffle sync callbacks validated by guard with go1.27.4 h1:jZWHuOxC4PTuLJVXhafy6CWPFfUsRBocPR2EIsrXxpg=
 fact go math/rand.Shuffle sync callbacks validated by guard with go1.27.4 h1:+NWZlS8JCynAhR33VFEWdZHvyXAJFTzyICIF726I4G0=
+fact go math/rand/v2.NewPCG effect none validated by guard with go1.27.4 h1:/ubYuc8iW1zWGxrsCoL0g356wMAEDY5nCV9VI8LF3mg=
+fact go math/rand/v2.PCG.Seed effect none validated by guard with go1.27.4 h1:XqzdiW0xmh0ITMvVQt/cTp3AtFHuT5VZAtPe9HenNBo=
+fact go math/rand/v2.PCG.Uint64 effect none validated by guard with go1.27.4 h1:DHlnwUTU9nkfGwU5R+WlKBAuOHLk4RskbSxIkgTMEjI=
 fact go math/rand/v2.Rand.Shuffle sync callbacks validated by guard with go1.27.4 h1:DUFi4FYJkSnI/jRnhTQpuiNXq0jL4KciVigm5FzM/qE=
 fact go math/rand/v2.Shuffle sync callbacks validated by guard with go1.27.4 h1:l5UDGnhnN4lB+WuspG7lxLoUPt6kaJk8xaSPjyAKeZw=
 fact go os.Expand sync callbacks validated by guard with go1.27.4 h1:j53n/Pcx9EUaCtaEX1s/vf8kbd+RiX2yEz+zBS0Y34E=
@@ -81,6 +84,17 @@ fact go strings.TrimFunc sync callbacks validated by guard with go1.27.4 h1:8pKl
 fact go strings.TrimLeftFunc sync callbacks validated by guard with go1.27.4 h1:26GYS/52mwE0/fTJG7gwX+i/q2hqYOTLeYT2EaCywXM=
 fact go strings.TrimRightFunc sync callbacks validated by guard with go1.27.4 h1:TGW80P65AGiKeFIhm5xr3/BttZFr4iqt/7Y15Afa1lc=
 fact go sync.Once.Do sync callbacks validated by guard with go1.27.4 h1:3EHzr9yICD2xGWQm2C7kWjgsVeg++3vBEc3fgQPNknU=
+fact go sync/atomic.Bool.CompareAndSwap effect none validated by guard with go1.27.4 h1:u53sBPObZMqK1iFrCfNbjU/dH2oBFtob0GzKx4IsEaY=
+fact go sync/atomic.Bool.Load effect none validated by guard with go1.27.4 h1:wNqNPPIMaBTb3DOzXmNz+qn6erjya1cfVaY7qGie9gk=
+fact go sync/atomic.Bool.Store effect none validated by guard with go1.27.4 h1:cn62JvUs2EUz8Vg/lBDbmcX832y5kiBrfDA1h9sgT0w=
+fact go sync/atomic.Bool.Swap effect none validated by guard with go1.27.4 h1:ynD5Xss4SmG1sazWxvh2HzhkFZR2qjLpINj+z+yjtcM=
+fact go sync/atomic.Int64.Add effect none validated by guard with go1.27.4 h1:bXfAAL4rUj+DkL0GeYKYrV1oOqvJunzjAgf88/Ed/WU=
+fact go sync/atomic.Int64.And effect none validated by guard with go1.27.4 h1:6WQTAzrcVFUYi43A1+nTKxFGuW+W7VKBXYm3Bf5fGJY=
+fact go sync/atomic.Int64.CompareAndSwap effect none validated by guard with go1.27.4 h1:dpx1qp64tBKEf8RwTTfxGDae2Wf1aHeqDPRRegbP18Y=
+fact go sync/atomic.Int64.Load effect none validated by guard with go1.27.4 h1:RXsurSshrT5wEo8ea7jhxTKKuuZQqxYhMnzkOmigFkc=
+fact go sync/atomic.Int64.Or effect none validated by guard with go1.27.4 h1:yExzr7HM6M7DTYvpYaSU/0HMB0q9hUzVoxFFjRNAisc=
+fact go sync/atomic.Int64.Store effect none validated by guard with go1.27.4 h1:4oFCf6itVIdBAU5CtxiaM53yStTi7qpLU86J+PzMlY4=
+fact go sync/atomic.Int64.Swap effect none validated by guard with go1.27.4 h1:Y1JhFbrqnsiUhGrPPbNX5aPWOk4JRsT9lxePHViK674=
 fact go unicode pure members validated by guard with go1.27.4 h1:xrgHefhY5L5swJnkimY6OhFgKm95mni5O5fTGHr8NXU=
 fact go unicode/utf16 pure members validated by guard with go1.27.4 h1:K4aT3aUE7yWhZc1b6BS8ydNOtgVDCAJ1L9aTgSqJp8Q=
 fact go unicode/utf8 pure members validated by guard with go1.27.4 h1:5gjyDHvaVojxyercf1zdUm+G09IguET6X0RIacP+gjo=
