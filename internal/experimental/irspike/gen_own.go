@@ -8,8 +8,9 @@ import (
 
 // ownFuncs are the functions GenerateOwn writes besides the owN: give
 // returns the value it owns (v1.ReturnStatic), keep owns its taken
-// parameter, guarded owns two in a frame with an error row.
-var ownFuncs = []string{"give", "Res.keep", "guarded"}
+// parameter, guarded owns two in a frame with an error row, and Res's
+// checked Close runs masked (v1.Release).
+var ownFuncs = []string{"give", "Res.keep", "guarded", "Res.Close"}
 
 // GenerateOwn is a program of owned values in static frames (FLIP F7
 // wave 2): a resource Res whose Close prints its id, and functions
@@ -30,7 +31,10 @@ type Res { id int, bad bool } implements Closer
 func Close(r Res) needs Console {
 	Console.Println("close \(r.id)")
 	if r.bad {
-		Unreachable("close \(r.id)")
+		// A defect in a checked Close (an index out of range).
+		let none = []int{}
+		let v = none[r.id]
+		Console.Println("never \(v)")
 	}
 }
 

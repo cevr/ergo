@@ -47,7 +47,8 @@ func TestIROwnedMatchSource(t *testing.T) {
 		for _, f := range ownFuncs {
 			// A function no owN calls is not lowered: its declaration is
 			// the one use of its name.
-			if strings.Count(text, f[strings.LastIndex(f, ".")+1:]+"(") > 1 {
+			// Res's checked Close runs at each release: no call names it.
+			if f == "Res.Close" || strings.Count(text, f[strings.LastIndex(f, ".")+1:]+"(") > 1 {
 				want = append(want, f)
 			}
 		}
@@ -61,7 +62,7 @@ func TestIROwnedMatchSource(t *testing.T) {
 			}
 		}
 		if len(missing) > 0 {
-			t.Fatalf("seed %d: no IR body for %v (fallback %v)\n%s\n%s", seed, missing, rep.Fallback, replay, text)
+			t.Fatalf("seed %d: no IR body for %v (IR %v, fallback %v)\n%s\n%s", seed, missing, rep.IR, rep.Fallback, replay, text)
 		}
 		// A release inside a body calls its slot's helper (ir_own.go
 		// slotRelease), named <f>Free.
