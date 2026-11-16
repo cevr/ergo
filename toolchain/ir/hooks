@@ -10,6 +10,5 @@
 # edits its line and says why; one that shrinks or drops one updates it.
 #
 # file | +added -deleted | the hunk's first changed line | why gc must call us there
-src/cmd/compile/internal/base/flag.go | +3 -0 | ErgoIR string "help:\"experimental: read typed function bodies | the -ergoir, -ergoirtext and -ergoirshape flags: cmd/go keys its build cache on -gcflags, and base.Flag's fields are the compile's flags (PATCH-MIN move M1 takes them to a flag.Var in our file: 0 lines)
-src/cmd/compile/internal/noder/unified.go | +7 -0 | if base.Flag.ErgoIR != "" { | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax (ergoAttach), and the text and shape views are written
-total +10 -0
+src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoStub(m, pkg, info, noders) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_flags.go; the -ergoir flags are registered there too, PATCH-MIN M1 and M2)
+total +1 -0

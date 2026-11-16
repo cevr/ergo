@@ -1,20 +1,6 @@
-diff --git a/src/cmd/compile/internal/base/flag.go b/src/cmd/compile/internal/base/flag.go
-index c8f1b2d..dbdb46e 100644
---- a/src/cmd/compile/internal/base/flag.go
-+++ b/src/cmd/compile/internal/base/flag.go
-@@ -101,6 +101,9 @@ type CmdFlags struct {
- 	Dynlink            *bool        "help:\"support references to Go symbols defined in other shared libraries\"" // &Ctxt.Flag_dynlink, set below
- 	EmbedCfg           func(string) "help:\"read go:embed configuration from `file`\""
- 	Env                func(string) "help:\"add `definition` of the form key=value to environment\""
-+	ErgoIR             string       "help:\"experimental: read typed function bodies from Ergo IR `file`\""
-+	ErgoIRText         string       "help:\"with -ergoir: print the Go files that hold IR bodies, as compiled, into `dir`\""
-+	ErgoIRShape        string       "help:\"write the structure of every function body, as compiled, to `file`\""
- 	GenDwarfInl        int          "help:\"generate DWARF inline info records\"" // 0=disabled, 1=funcs, 2=funcs+formals/locals
- 	GoVersion          string       "help:\"required version of the runtime\""
- 	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..57c87db
+index 0000000..ab9e7d6
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
 @@ -0,0 +1,247 @@
@@ -145,16 +131,16 @@ index 0000000..57c87db
 +
 +// ergoAttach gives every function the IR file names its checked body.
 +func ergoAttach(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder) {
-+	data, err := os.ReadFile(base.Flag.ErgoIR)
++	data, err := os.ReadFile(ergoFlag.IR)
 +	if err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +	var f ergoFile
 +	if err := json.Unmarshal(data, &f); err != nil {
-+		base.Fatalf("ergoir: %s: %v", base.Flag.ErgoIR, err)
++		base.Fatalf("ergoir: %s: %v", ergoFlag.IR, err)
 +	}
 +	if f.V != 1 {
-+		base.Fatalf("ergoir: %s: version %d, want 1", base.Flag.ErgoIR, f.V)
++		base.Fatalf("ergoir: %s: version %d, want 1", ergoFlag.IR, f.V)
 +	}
 +	c := &ergoChecker{m: &m, pkg: pkg, info: info}
 +	for _, name := range f.Files {
@@ -1257,6 +1243,49 @@ index 0000000..79650fa
 +	}
 +	return types2.Implements(t, ergoError().Underlying().(*types2.Interface))
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_flags.go b/src/cmd/compile/internal/noder/ergoir_flags.go
+new file mode 100644
+index 0000000..bf5126c
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_flags.go
+@@ -0,0 +1,37 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import (
++	"flag"
++
++	"cmd/compile/internal/types2"
++)
++
++// ergoFlag holds the -ergoir flags. They are registered on the command
++// line flag set from this file, so Go's own base.CmdFlags is not edited
++// (PATCH-MIN M1): base.ParseFlags parses flag.CommandLine, and cmd/go keys
++// its build cache on the -gcflags that carry them.
++var ergoFlag struct{ IR, Text, Shape string }
++
++func init() {
++	flag.StringVar(&ergoFlag.IR, "ergoir", "", "experimental: read typed function bodies from Ergo IR `file`")
++	flag.StringVar(&ergoFlag.Text, "ergoirtext", "", "with -ergoir: print the Go files that hold IR bodies, as compiled, into `dir`")
++	flag.StringVar(&ergoFlag.Shape, "ergoirshape", "", "write the structure of every function body, as compiled, to `file`")
++}
++
++// ergoStub is the reader's one call from writePkgStub (PATCH-MIN M2):
++// after types2 checked the package and before the unified writer encodes
++// it, the IR bodies are attached as typed syntax and the text and shape
++// views are written.
++func ergoStub(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder) {
++	if ergoFlag.IR != "" {
++		bodiless := ergoBodiless(noders)
++		ergoAttach(m, pkg, info, noders)
++		ergoTextOut(pkg, info, noders, bodiless) // ergoir_text.go
++	} else if ergoFlag.Shape != "" {
++		ergoShapeOut(info, noders, nil)
++	}
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fold.go b/src/cmd/compile/internal/noder/ergoir_fold.go
 new file mode 100644
 index 0000000..348e00d
@@ -1846,7 +1875,7 @@ index 0000000..5e66492
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..c686264
+index 0000000..fcb5e15
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
 @@ -0,0 +1,621 @@
@@ -1902,13 +1931,13 @@ index 0000000..c686264
 +			attached[fd] = true
 +		}
 +	}
-+	if base.Flag.ErgoIRShape != "" {
++	if ergoFlag.Shape != "" {
 +		ergoShapeOut(info, noders, attached)
 +	}
-+	if base.Flag.ErgoIRText == "" {
++	if ergoFlag.Text == "" {
 +		return
 +	}
-+	if err := os.MkdirAll(base.Flag.ErgoIRText, 0o755); err != nil {
++	if err := os.MkdirAll(ergoFlag.Text, 0o755); err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +	for _, p := range noders {
@@ -1930,7 +1959,7 @@ index 0000000..c686264
 +		if err != nil {
 +			base.Fatalf("ergoir: %s: %v", name, err)
 +		}
-+		if err := os.WriteFile(filepath.Join(base.Flag.ErgoIRText, filepath.Base(name)), []byte(text), 0o644); err != nil {
++		if err := os.WriteFile(filepath.Join(ergoFlag.Text, filepath.Base(name)), []byte(text), 0o644); err != nil {
 +			base.Fatalf("ergoir: %v", err)
 +		}
 +	}
@@ -2473,7 +2502,7 @@ index 0000000..c686264
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..d2707a5
+index 0000000..1bfc233
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 @@ -0,0 +1,440 @@
@@ -2535,7 +2564,7 @@ index 0000000..d2707a5
 +			b.WriteString("end\n")
 +		}
 +	}
-+	if err := os.WriteFile(base.Flag.ErgoIRShape, []byte(b.String()), 0o644); err != nil {
++	if err := os.WriteFile(ergoFlag.Shape, []byte(b.String()), 0o644); err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +}
@@ -3309,20 +3338,14 @@ index 0000000..9a3cbd3
 +	return nil, nil, false
 +}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
-index 9ec2e40..e04cee0 100644
+index 9ec2e40..f02b73d 100644
 --- a/src/cmd/compile/internal/noder/unified.go
 +++ b/src/cmd/compile/internal/noder/unified.go
-@@ -320,6 +320,13 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+@@ -320,6 +320,7 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
  // and returns the result.
  func writePkgStub(m posMap, noders []*noder) string {
  	pkg, info, otherInfo := checkFiles(m, noders)
-+	if base.Flag.ErgoIR != "" {
-+		bodiless := ergoBodiless(noders)
-+		ergoAttach(m, pkg, info, noders)
-+		ergoTextOut(pkg, info, noders, bodiless) // ergoir_text.go
-+	} else if base.Flag.ErgoIRShape != "" {
-+		ergoShapeOut(info, noders, nil)
-+	}
++	ergoStub(m, pkg, info, noders) // -ergoir (ergoir_flags.go)
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)
  
