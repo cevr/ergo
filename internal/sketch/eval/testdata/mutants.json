@@ -389,12 +389,12 @@
       "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
-      "name": "machine-replay-unmetered",
-      "origin": "wf10/l7-eval/EV4",
+      "name": "vtlaws-search-replays",
+      "origin": "wf10 MX-VTLAWS",
       "file": "internal/sketch/eval/machine.go",
-      "from": "\tg.Step = func(s, e Value) (Value, bool) {\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\treturn in.machineStep(fr, m, s, e)\n\t}\n",
-      "to": "\tmemo := map[string][2]any{}\n\tg.Step = func(s, e Value) (Value, bool) {\n\t\tkey := describe(s) + \"|\" + describe(e)\n\t\tif c, hit := memo[key]; hit {\n\t\t\treturn c[0], c[1].(bool)\n\t\t}\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\tv, ok := in.machineStep(fr, m, s, e)\n\t\tmemo[key] = [2]any{v, ok}\n\t\treturn v, ok\n\t}\n",
-      "rule": "Every step call is metered, a replay's too: the explorer rebuilds each state it expands by stepping its run again, so its work exceeds its edges (plan section 5).",
+      "from": "\tr := explore.SearchHeld(l.g, l.targets[0], budget)\n",
+      "to": "\tr := explore.Search(l.g, l.targets[0], budget)\n",
+      "rule": "Check time's search holds its frontier, so a whole search steps each edge once: its step calls are the states times the signals, not that plus a replayed run per state (docs/testing.md, Budgets).",
       "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
