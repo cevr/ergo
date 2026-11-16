@@ -125,9 +125,9 @@ func TestIROrderMatchesSource(t *testing.T) {
 // body: a try over two calls, a try inside an expression, a catch arm
 // that continues, and a catch arm whose value is an if.
 var tryForms = [...]*regexp.Regexp{
-	regexp.MustCompile(`try f\d+\([^\n]*\) \* 2 \+ f\d+\(`),
-	regexp.MustCompile(`[(\[{-]\(?try f\d+\(`),
-	regexp.MustCompile(`case E\d:\n\s+continue\n`),
+	regexp.MustCompile(`try chk\([^\n]*\) \* 2 \+ chk\(`),
+	regexp.MustCompile(`[(\[{-]\(?try chk\(`),
+	regexp.MustCompile(`case E1:\n\s+continue\n`),
 	regexp.MustCompile(`case E\d as x:\n\s+if `),
 }
 

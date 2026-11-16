@@ -26,6 +26,7 @@ const orderKinds = 10
 // is an impure call whose value a for-in ranges over.
 func (g *fgen) orderDecls() {
 	g.b.WriteString("type Pt { A int, B int }\n\n")
+	g.b.WriteString("func chk(n int) int fails E1 {\n\tif n % 2 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tn\n}\n\n")
 	g.b.WriteString("func tr(n int) int needs Console {\n\tConsole.Println(\"tr \\(n)\")\n\tn\n}\n\n")
 	g.b.WriteString("func span(n int) []int needs Console {\n\tConsole.Println(\"span \\(n)\")\n\t[]int{n, n + 1}\n}\n\n")
 }
@@ -106,57 +107,55 @@ func (g *fgen) orderStmt(in string, budget, k int) bool {
 	return true
 }
 
+// shown is let, then a print of the new local where the function has
+// Console: GenerateFail's locals reach the output only through a rare
+// sink, so a value the IR computes wrong would otherwise go unseen.
+func (g *fgen) shown(in, rhs string) {
+	g.let(in, rhs)
+	if slices.Contains(g.cur.needs, "Console") {
+		v := g.locals[len(g.locals)-1]
+		fmt.Fprintf(&g.b, "%sConsole.Println(\"%s.%s \\(%s)\")\n", in, g.cur.name, v, v)
+	}
+}
+
 // tryStmt writes statement kind k (7 to 9) of orderStmt, the try forms:
 // one try over an expression of two fallible calls (try of a non-call),
 // a try inside an expression, after an operand that may be a defect, and
 // catch arms that yield an if's value or continue a loop.
 func (g *fgen) tryStmt(in string, budget, k int) bool {
 	f := g.cur
-	tried := g.callable(func(c ffunc) bool { return !c.unit && len(c.row) > 0 && f.within(c.row) })
-	caught := g.callable(func(c ffunc) bool { return !c.unit && len(c.row) > 0 })
+	// chk fails E1 on an even argument (orderDecls): about half the calls
+	// fail, so the failure paths run.
+	chk := func() string { return "chk(" + g.expr(1) + ")" }
 	switch {
-	case k == 7 && len(tried) > 0 && len(f.row) > 0:
-		a, b := tried[g.n(len(tried))], tried[g.n(len(tried))]
-		g.let(in, fmt.Sprintf("try %s * 2 + %s", g.args(a), g.args(b)))
-	case k == 8 && len(tried) > 0 && len(f.row) > 0:
-		c := tried[g.n(len(tried))]
+	case k == 7 && f.fails("E1"):
+		g.shown(in, fmt.Sprintf("try %s * 2 + %s", chk(), chk()))
+	case k == 8 && f.fails("E1"):
 		switch g.n(3) {
 		case 0:
-			g.let(in, fmt.Sprintf("%s + (try %s)", g.indexed(2), g.args(c)))
+			g.shown(in, fmt.Sprintf("%s + (try %s)", g.indexed(2), chk()))
 		case 1:
-			g.let(in, fmt.Sprintf("-(try %s)", g.args(c)))
+			g.shown(in, fmt.Sprintf("-(try %s)", chk()))
 		default:
-			g.let(in, fmt.Sprintf("([]int{try %s, %s})[0]", g.args(c), g.local()))
+			g.shown(in, fmt.Sprintf("([]int{try %s, %s})[0]", chk(), g.local()))
 		}
-	case k == 9 && len(caught) > 0:
-		c := caught[g.n(len(caught))]
+	case k == 9:
 		if budget > 0 && g.n(2) == 0 {
 			// A catch arm that continues the loop: the catch has no
 			// value on that path.
 			v := fmt.Sprintf("x%d", len(g.locals))
-			fmt.Fprintf(&g.b, "%sfor %s in []int{%d, %d} {\n", in, v, g.n(9), g.n(9))
+			fmt.Fprintf(&g.b, "%sfor %s in []int{%d, %d, %d} {\n", in, v, g.n(9), g.n(9), g.n(9))
 			saved := len(g.locals)
 			g.locals = append(g.locals, v)
-			arms := fmt.Sprintf("%s\t\tcase %s:\n%s\t\t\tcontinue\n", in, c.row[0], in)
-			for _, e := range c.row[1:] {
-				arms += fmt.Sprintf("%s\t\tcase %s:\n%s\t\t\t%d\n", in, e, in, g.n(50))
-			}
-			g.let(in+"\t", fmt.Sprintf("%s catch {\n%s%s\t}", g.args(c), arms, in))
+			g.shown(in+"\t", fmt.Sprintf("chk(%s) catch {\n%s\t\tcase E1:\n%s\t\t\tcontinue\n%s\t}", v, in, in, in))
 			g.sinkFrom(in+"\t", saved)
 			g.locals = g.locals[:saved]
 			fmt.Fprintf(&g.b, "%s}\n", in)
 			return true
 		}
-		// Arms whose value is an if expression.
-		var arms string
-		for _, e := range c.row {
-			field := "x.Code"
-			if e == "E2" {
-				field = "len(x.Why)"
-			}
-			arms += fmt.Sprintf("%s\tcase %s as x:\n%s\t\tif %s > %d {\n%s\t\t\t%d\n%s\t\t} else {\n%s\t\t\t%s\n%s\t\t}\n", in, e, in, field, g.n(6), in, g.n(50), in, in, field, in)
-		}
-		g.let(in, fmt.Sprintf("%s catch {\n%s%s}", g.args(c), arms, in))
+		// An arm whose value is an if expression.
+		arm := fmt.Sprintf("%s\tcase E1 as x:\n%s\t\tif x.Code > %d {\n%s\t\t\t%d\n%s\t\t} else {\n%s\t\t\tx.Code + 100\n%s\t\t}\n", in, in, g.n(6)-3, in, g.n(50), in, in, in)
+		g.shown(in, fmt.Sprintf("%s catch {\n%s%s}", chk(), arm, in))
 	default:
 		return false
 	}
@@ -170,7 +169,7 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 	f := g.cur
 	switch k {
 	case 2:
-		g.let(in, g.orderExpr())
+		g.shown(in, g.orderExpr())
 	case 3:
 		fmt.Fprintf(&g.b, "%sif %s > %d {\n%s\tConsole.Println(\"%s.then\")\n%s} else if %s < 0 {\n%s\tConsole.Println(\"%s.elif\")\n%s}\n",
 			in, g.traced(), g.n(5), in, f.name, in, g.traced(), in, f.name, in)
