@@ -9,14 +9,14 @@
 # TestPinArchivesMatchLocalBuild checks that a local build makes these
 # exact sets.
 go go1.27.4
-patch sha256:395fc0f1b7fa87a9dcede93b3cbf80aff125afee7e2075af344eef3ab4348d7e
-set std-go1.27.4-linux-amd64-v1-8ec1efe1ad9dc9a8 sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
-set runtime-go1.27.4-linux-amd64-v1-004d5afe89f9c425 sha256:be8ade81beb0c3269f4cb48a517c9631935d0c52bb21d2ddff8c8b373ff415bc
-set std-go1.27.4-linux-amd64-v1-acef955dffee8d69 sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
-set runtime-go1.27.4-linux-amd64-v1-3a29bdacf0327d35 sha256:0f06be57017b54bccda9457c7ce71ae28e0ae3e2d8fbb36a7f8be2e194bdd01a
-set tools-go1.27.4-linux-amd64-dd2f22d74642b613 sha256:cd36b486f931a8d9e605b0e9bdc1da3e868bd3aa43b4f779fad919cf802406a3
-set std-go1.27.4-darwin-arm64-v8.0-2bcc3c9bdfcf9e87 sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
-set runtime-go1.27.4-darwin-arm64-v8.0-ed356d56b92bed03 sha256:74bec7910e76a7969945f5038bed5594ca38fd5cbf404d1435e97f720a22e218
-set std-go1.27.4-darwin-arm64-v8.0-21873e30306e20d9 sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
-set runtime-go1.27.4-darwin-arm64-v8.0-88527f271f400be9 sha256:aec50fb2c71dbc842855236ed3a958da1b5833b1df00ba9abb7ae0e1138870e4
-set tools-go1.27.4-darwin-arm64-daed37a2eaacafe3 sha256:e1f2649b21934b2aebaaebca042dc46224f9ce9afc58acfe819b95d5e220709b
+patch sha256:2be309743cffdf4d5998ba85d535cd4e2311477ee05be0829211cbb8e74a0242
+set std-go1.27.4-linux-amd64-v1-ce2e4b011f79a6fe sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
+set runtime-go1.27.4-linux-amd64-v1-b35742cb957a1157 sha256:1ce3b69c14777587b54f416b35a7a9ec69f056dd13009337007daf2d65f43a4e
+set std-go1.27.4-linux-amd64-v1-04b7e742d0ddf5e1 sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
+set runtime-go1.27.4-linux-amd64-v1-49cb24eb7141d4df sha256:11d5f0c289f570d318c3ac81bc8d633343efb9ef927fd0bcb71cc34664ec599d
+set tools-go1.27.4-linux-amd64-7733dff45b09741f sha256:7e781ece278c1c1cc34037a11ea695bac8418bcb96d3bfc8a1b9f6e5d0125076
+set std-go1.27.4-darwin-arm64-v8.0-fb9093b67f0bc339 sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
+set runtime-go1.27.4-darwin-arm64-v8.0-f6775d2b345081e4 sha256:ae8c1d1caaa99821df30b2fd1da9440ad203a93408f725e32298cad01a8f5ce1
+set std-go1.27.4-darwin-arm64-v8.0-99dab204beb1180a sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
+set runtime-go1.27.4-darwin-arm64-v8.0-57d0cc7d87586bd5 sha256:b49c59a62df4cddf7ade1c78e1d3eed715546e062879290010c9a933041ada50
+set tools-go1.27.4-darwin-arm64-0caf5cfbc2790629 sha256:ddf8f148f4caf61a72239e2cb5a76f50d895878081ac6dd30d2f7af48f435ecd
