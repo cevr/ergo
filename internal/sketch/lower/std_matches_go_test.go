@@ -15,7 +15,9 @@ import (
 // np4f-plan §6.1, kept for good by the orchestrator's ruling of
 // 2026-11-16): each function std binds to Go's library through import go
 // answers what Go's own function answers, on edges and seeded values. The
-// table grows with each NP4f unit. Mutants np4f1-*, np4f2-*, stdsh-log,
+// table grows with each NP4f unit; a function NP4f moved into an Ergo body
+// (cmp, slices, strings.PadLeft) is held to Go's function too. Mutants
+// np4f1-*, np4f2-*, np4f3-*, stdsh-log,
 // stdsh-exp and math-fma-* (a moved function with its Go call changed) are
 // killed here.
 //
@@ -27,6 +29,7 @@ func TestStdMatchesGo(t *testing.T) {
 	r := rand.New(rand.NewPCG(seed, 0x60))
 	const n = 24
 	cases := append(stdGoNumberCases(r, n), stdGoTextCases(r, n)...)
+	cases = append(cases, stdGo3Cases(r, n)...)
 	compareBodies(t, "TestStdMatchesGo", seed, cases)
 }
 
