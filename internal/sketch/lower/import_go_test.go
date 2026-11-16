@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -333,6 +334,10 @@ func TestHostCopyElisionAgrees(t *testing.T) {
 				src.WriteString("import go " + pkg + "\n")
 			}
 		}
+		if strings.Contains(body.String(), "task.Go") {
+			src.WriteString("import task\n")
+		}
+		src.WriteString("\ntype Index { keys []int }\n")
 		src.WriteString("\n" + body.String() + "func main() needs Console | go.Foreign {\n" + strings.Join(calls, "") + "}\n")
 		elided := mustLower(t, fmt.Sprintf("elide_%d", seed), src.String())
 		restore := SetHostCopyAlwaysForTest(true)
@@ -365,6 +370,7 @@ func TestHostCopyElisionAgrees(t *testing.T) {
 			}
 		}
 	}
+	hostReadsFalseFact(t)
 }
 
 // copyElisionCase is the Ergo function case<k> and the line the value
@@ -389,6 +395,26 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 	wrote := fmt.Sprintf("%d,%d,%d", written[0], written[1], written[2])
 	show := func(v string) string { return "\\(" + v + "[0]),\\(" + v + "[1]),\\(" + v + "[2])" }
 	head := fmt.Sprintf("func case%d() string needs go.Foreign {\n", k)
+	// The reads shapes (LF1): sort.SearchInts and bytes.IndexFunc only
+	// read their slice (a checked fact), so the run build passes a live
+	// slice with no copy where nothing else can reach it.
+	q := r.IntN(9)
+	at := sort.SearchInts(sorted, q)
+	ss := fmt.Sprintf("[]int{%d, %d, %d}", sorted[0], sorted[1], sorted[2])
+	switch r.IntN(12) {
+	case 7: // a local read after the call
+		return head + "\tlet xs = " + ss + fmt.Sprintf("\n\tlet i = sort.SearchInts(xs, %d)\n", q) + "\t\"\\(i)|\\(xs[0]),\\(xs[2])\"\n}\n\n", fmt.Sprintf("%d|%d,%d", at, sorted[0], sorted[2])
+	case 8: // a value another binding shares
+		return head + "\tlet xs = " + ss + "\n\tlet ys = xs" + fmt.Sprintf("\n\tlet i = sort.SearchInts(ys, %d)\n", q) + "\t\"\\(i)|\\(xs[1])|\\(ys[2])\"\n}\n\n", fmt.Sprintf("%d|%d|%d", at, sorted[1], sorted[2])
+	case 9: // a field
+		return head + "\tlet ix = Index{keys: " + ss + fmt.Sprintf("}\n\tlet i = sort.SearchInts(ix.keys, %d)\n", q) + "\t\"\\(i)|\\(ix.keys[1])\"\n}\n\n", fmt.Sprintf("%d|%d", at, sorted[1])
+	case 10: // a task captures the place
+		return head + "\tlet xs = " + ss + fmt.Sprintf("\n\tlet t = task.Go() { sort.SearchInts(xs, %d) }\n", q) + "\tlet i = t.Wait()\n\t\"\\(i)|\\(xs[0])\"\n}\n\n", fmt.Sprintf("%d|%d", at, sorted[0])
+	case 11: // a callback that writes the same place: Go scans the slice as it was
+		bs := []byte{byte('a' + a), byte('a' + b), byte('a' + c)}
+		return head + fmt.Sprintf("\tlet mut bs = []byte{%d, %d, %d}\n", bs[0], bs[1], bs[2]) +
+			"\tlet i = bytes.IndexFunc(bs, func(r rune) bool {\n\t\tbs[1] = 122\n\t\tr == 122\n\t})\n\t\"\\(i)|\\(bs[1])\"\n}\n\n", "-1|122"
+	}
 	switch r.IntN(7) {
 	case 0: // Go writes a copy, read after: Ergo's xs is unchanged
 		return head + "\tlet xs = " + xs + "\n\tlet ys = " + writer + "(xs)\n\t\"" + show("xs") + "|" + show("ys") + "\"\n}\n\n", orig + "|" + wrote

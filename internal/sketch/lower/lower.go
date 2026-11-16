@@ -79,6 +79,9 @@ type Unit struct {
 	// Copies, when set, receives the form of each Append and owned-form
 	// site the lowering decides (handover.go; ergo build -report copies).
 	Copies *CopyReport
+	// NoViews is ergo build -views=off: no Go call takes a view of a
+	// string's bytes, in the run build or the test build (view.go).
+	NoViews bool
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

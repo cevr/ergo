@@ -10,6 +10,7 @@ extern go hash/crc32.Castagnoli let Castagnoli int
 extern go hash/crc32.Checksum func Checksum(data []byte, tab own *Table) uint32
 
 // ergo:go func ChecksumIEEE(data []byte) uint32
+// ergo:reads data (vouched: it calls the function variable updateIEEE, assembly or a table loop that only loads)
 extern go hash/crc32.ChecksumIEEE func ChecksumIEEE(data []byte) uint32
 
 // ergo:go const IEEE untyped int
@@ -37,4 +38,5 @@ extern go hash/crc32.Size let Size int
 extern go hash/crc32.Table type Table [256]uint32
 
 // ergo:go func Update(crc uint32, tab *Table, p []byte) uint32
+// ergo:reads p (vouched: it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads)
 extern go hash/crc32.Update func Update(crc uint32, tab own *Table, p []byte) uint32

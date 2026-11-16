@@ -35,16 +35,20 @@
 extern go sync/atomic.Bool type Bool {}
 
 // ergo:go func (*Bool).CompareAndSwap(old bool, new bool) (swapped bool)
-extern go sync/atomic.Bool.CompareAndSwap func (x *Bool) CompareAndSwap(old bool, new bool) bool needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Bool.CompareAndSwap func (x *Bool) CompareAndSwap(old bool, new bool) bool
 
 // ergo:go func (*Bool).Load() bool
-extern go sync/atomic.Bool.Load func (x *Bool) Load() bool needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Bool.Load func (x *Bool) Load() bool
 
 // ergo:go func (*Bool).Store(val bool)
-extern go sync/atomic.Bool.Store func (x *Bool) Store(val bool) needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Bool.Store func (x *Bool) Store(val bool)
 
 // ergo:go func (*Bool).Swap(new bool) (old bool)
-extern go sync/atomic.Bool.Swap func (x *Bool) Swap(new bool) bool needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Bool.Swap func (x *Bool) Swap(new bool) bool
 
 // ergo:go func CompareAndSwapInt32(addr *int32, old int32, new int32) (swapped bool)
 // ergo:refused CompareAndSwapInt32: parameter 1: a pointer to an unnamed type int32
@@ -92,25 +96,32 @@ extern go sync/atomic.Int32.Swap func (x *Int32) Swap(new int32) int32 needs go.
 extern go sync/atomic.Int64 type Int64 {}
 
 // ergo:go func (*Int64).Add(delta int64) (new int64)
-extern go sync/atomic.Int64.Add func (x *Int64) Add(delta int64) int64 needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.Add func (x *Int64) Add(delta int64) int64
 
 // ergo:go func (*Int64).And(mask int64) (old int64)
-extern go sync/atomic.Int64.And func (x *Int64) And(mask int64) int64 needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.And func (x *Int64) And(mask int64) int64
 
 // ergo:go func (*Int64).CompareAndSwap(old int64, new int64) (swapped bool)
-extern go sync/atomic.Int64.CompareAndSwap func (x *Int64) CompareAndSwap(old int64, new int64) bool needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.CompareAndSwap func (x *Int64) CompareAndSwap(old int64, new int64) bool
 
 // ergo:go func (*Int64).Load() int64
-extern go sync/atomic.Int64.Load func (x *Int64) Load() int64 needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.Load func (x *Int64) Load() int64
 
 // ergo:go func (*Int64).Or(mask int64) (old int64)
-extern go sync/atomic.Int64.Or func (x *Int64) Or(mask int64) int64 needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.Or func (x *Int64) Or(mask int64) int64
 
 // ergo:go func (*Int64).Store(val int64)
-extern go sync/atomic.Int64.Store func (x *Int64) Store(val int64) needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.Store func (x *Int64) Store(val int64)
 
 // ergo:go func (*Int64).Swap(new int64) (old int64)
-extern go sync/atomic.Int64.Swap func (x *Int64) Swap(new int64) int64 needs go.Foreign
+// ergo:effect none (vouched: its body is one atomic instruction on x's own word: it touches no memory but x's and never waits)
+extern go sync/atomic.Int64.Swap func (x *Int64) Swap(new int64) int64
 
 // ergo:go func LoadInt32(addr *int32) (val int32)
 // ergo:refused LoadInt32: parameter 1: a pointer to an unnamed type int32

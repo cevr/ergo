@@ -130,6 +130,7 @@ type funcCtx struct {
 	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (drop.go, builtin delete)
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
+	goCompare  []readsCompare       // the test build's compares of reads operands, written after their Go call (gofacts.go)
 	directives bool
 	loops      []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
