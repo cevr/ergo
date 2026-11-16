@@ -79,19 +79,20 @@ func parentDecl(p syntax.Parsed, node int) dense.Opt[syntax.Node] {
 	dense.NoID[syntax.Node]()
 }
 
-// Foreign is a type the package can name that is not its own: a
-// universe or prelude type (Qual "-") or an imported package's (Qual is
-// the import's local name), with its arity and its package's path. It
-// stands in for the frozen interfaces of S3c.
+// Foreign is a type the package can name that is neither its own nor an
+// Ergo import's (those are XRefs into the import's Iface): a universe or
+// prelude type (Qual "-") or a Go import's (Qual is the import's local
+// name), with its arity and its package's path.
 // A non-generic one also has its text and its sort key as the Go
 // checker prints them (an alias's are its target's), and, when it is a
 // union, its variants, as indices of the table.
-type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string, Variants []int }
+type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string }
 
 // Env is what resolving one declaration's type expressions reads: the
 // file, the declaration's bracket parameter names in order, the solved
 // kinds of the package's generic types, the kinds of foreign generic
-// types, and the foreign table.
+// types, the foreign table, and the interfaces of the package's imports
+// in its import list's order (an XRef's import minus one).
 type Env {
 	p       syntax.Parsed,
 	params  []string,
@@ -101,17 +102,18 @@ type Env {
 	ownMap  bool,
 	depth   int,
 	files   []syntax.Parsed,
+	deps    []Iface,
 }
 
 // NewEnv is the environment of one declaration of file p.
-func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []string, kinds Kinds, ext []Ext, foreign []Foreign) Env {
+func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []string, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface) Env {
 	let mut own = false
 	match store.Lookup(s, "Map") {
 	case Some[dense.ID[store.Decl]] as d:
 		own = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
 	case None:
 	}
-	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files}
+	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files, deps: deps}
 }
 
 // The basic types by name, at their ordinals (the Go checker's
@@ -155,7 +157,7 @@ func foreignRef(i int) store.XRef { store.XRef{Import: uint32(store.ForeignBit),
 // parameter, a basic type, a local type declaration or a foreign type.
 type HNone {}
 
-type head = HParam{At int} | HBasic{Ord int} | HLocal{Decl dense.ID[store.Decl], Name string} | HForeign{At int, Text string} | HNone
+type head = HParam{At int} | HBasic{Ord int} | HLocal{Decl dense.ID[store.Decl], Name string} | HImport{Ref store.XRef} | HForeign{At int, Text string} | HNone
 
 func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 	match syntax.ViewOf(e.p.Tree, x) {
@@ -185,6 +187,19 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 		HNone
 	case syntax.SelectorExpr as se:
 		let q = nameText(e.p, se.X)
+		match importDep(s, e.deps, q) {
+		case Some[int] as imp:
+			let sel = nameText(e.p, se.Sel)
+			let i = declOf(e.deps[imp.Value-1], sel)
+			if i >= 0 && e.deps[imp.Value-1].Decls[i].Alias {
+				// An import's alias reads as its target's text
+				// (AliasEntries).
+				let f = foreignIndex(e, q, sel)
+				return if f >= 0 { HForeign{At: f, Text: q + "." + sel} } else { HNone }
+			}
+			return if i >= 0 { HImport{Ref: store.XRef{Import: uint32(imp.Value), Decl: uint32(i)}} } else { HNone }
+		case None:
+		}
 		match store.Lookup(s, q) {
 		case Some[dense.ID[store.Decl]] as d:
 			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) != "pkg" {
@@ -228,6 +243,9 @@ func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) de
 	case HLocal as l:
 		let ks = localKinds(e, l.Name)
 		(store.XRef{Import: uint32(0), Decl: uint32(dense.Index(l.Decl))}, ks, len(ks))
+	case HImport as hi:
+		let ks = importDecl(e.deps, hi.Ref).Kinds
+		(hi.Ref, ks, len(ks))
 	case HForeign as f:
 		(foreignRef(f.At), extKinds(e, f.Text), e.foreign[f.At].Arity)
 	case _:
@@ -432,14 +450,20 @@ func wiredFields(s store.Store, e Env, l dense.ID[syntax.Node]) bool {
 // not expanded yet.
 func members(s *store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
 	let k = store.KindOfType(*s, t)
-	if k == store.KForeign {
-		let f = e.foreign[store.ArgOf(*s, t)]
-		if len(f.Variants) == 0 {
+	// An Ergo import's union is an instance of no arguments whose origin
+	// is an XRef; its variants are in the import's interface.
+	if k == store.KInstance && len(store.OperandsOf(*s, t)) == 0 {
+		let o = store.OriginOfType(*s, t)
+		if o.Import == uint32(0) || int(o.Import) == store.ForeignBit {
+			return []dense.ID[store.TKey]{t}
+		}
+		let vs = importDecl(e.deps, o).Variants
+		if len(vs) == 0 {
 			return []dense.ID[store.TKey]{t}
 		}
 		let mut out = []dense.ID[store.TKey]{}
-		for v in f.Variants {
-			out = out.Append(store.TForeign(s, v))
+		for v in vs {
+			out = out.Append(store.TInstance(s, store.XRef{Import: o.Import, Decl: uint32(v)}, []dense.ID[store.TKey]{}))
 		}
 		return out
 	}
@@ -482,12 +506,14 @@ type UnionOf { p syntax.Parsed, members []dense.ID[syntax.Node] }
 // unionVariants is the members of the local type declaration d when it
 // is a union with no parameters: a declaration whose members are inline
 // variants or types (an alias, one type member, never reaches here).
-func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf] {
+func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf] { unionMembers(s, e.files, d) }
+
+func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) Option[UnionOf] {
 	let row = store.DeclOf(s, d)
-	if int(row.File) >= len(e.files) {
+	if int(row.File) >= len(files) {
 		return None
 	}
-	let p = e.files[int(row.File)]
+	let p = files[int(row.File)]
 	match dense.Unpack(parentDecl(p, int(row.Node))) {
 	case Some[dense.ID[syntax.Node]] as dn:
 		match syntax.ViewOf(p.Tree, dn.Value) {
@@ -602,6 +628,13 @@ func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
 		case None:
 			store.TNamed(s, l.Decl)
 		}
+	case HImport as hi:
+		let d = importDecl(e.deps, hi.Ref)
+		if len(d.Kinds) > 0 {
+			// A generic type needs arguments.
+			return invalidType(s)
+		}
+		store.TInstance(s, hi.Ref, []dense.ID[store.TKey]{})
 	case HForeign as f:
 		if e.foreign[f.At].Arity > 0 {
 			return invalidType(s)
@@ -720,7 +753,10 @@ func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 
 // Names is what printing reads besides the store: the parameter names of
 // the declaration in hand, the foreign table and the package's name.
-type Names { Params []string, Foreign []Foreign, Pkg string }
+type Names { Params []string, Foreign []Foreign, Pkg string, Deps []Iface }
+
+// importDecl is the declaration the import reference x names.
+func importDecl(deps []Iface, x store.XRef) IfaceDecl { deps[int(x.Import)-1].Decls[int(x.Decl)] }
 
 // Text is t's text.
 func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
@@ -775,6 +811,9 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		if int(o.Import) == store.ForeignBit {
 			let f = n.Foreign[int(o.Decl)]
 			name = if f.Qual == "-" { f.Name } else { f.Qual + "." + f.Name }
+		} else if o.Import != uint32(0) {
+			// Another package's type prints with that package's name.
+			name = n.Deps[int(o.Import)-1].Name + "." + importDecl(n.Deps, o).Name
 		} else {
 			name = qualified(n, store.DeclText(s, int(o.Decl)))
 		}
@@ -871,6 +910,8 @@ func sortKey(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		if int(o.Import) == store.ForeignBit {
 			let f = n.Foreign[int(o.Decl)]
 			key = if f.Path == "-" { f.Name } else { f.Path + "." + f.Name }
+		} else if o.Import != uint32(0) {
+			key = n.Deps[int(o.Import)-1].Path + "." + importDecl(n.Deps, o).Name
 		} else {
 			key = store.Path(s) + "." + store.DeclText(s, int(o.Decl))
 		}

@@ -1,15 +1,20 @@
-// typedump resolves the field types of one package's records with
-// compiler/check/types and prints them, one line per written field, and
-// one line "REC [P,…]" per record with its parameters; then the base of
-// each defined type and the signature of each function declaration:
+// typedump resolves the types of one package with compiler/check/types
+// and prints them: one line "REC [P,…]" per record with its parameters and
+// one per written field, then the base of each defined type and the
+// signature of each function declaration; with -kinds, the solved kinds
+// of its generic types and functions instead:
 //
-//	typedump EXT FOREIGN FILE...   "REC.FIELD TYPE", "def NAME TYPE", "func NAME TYPE"
+//	typedump [-std DIR] EXT FOREIGN FILE...          "REC.FIELD TYPE", "def NAME TYPE", "func NAME TYPE"
+//	typedump [-std DIR] -kinds EXT FOREIGN FILE...   "NAME KIND,…", "func NAME KIND,…"
 //
-// EXT is the kinds of foreign generic types ("HEAD KIND,…", as kinddump
-// reads it); FOREIGN is the foreign types ("QUAL NAME ARITY PATH PRINT
-// KEY", PRINT with its spaces as ^). The
-// Go side writes both; they stand in for the frozen interfaces. It is
-// the Ergo side of S3t's type agreement.
+// -std DIR loads the Ergo packages the files import, transitively, as
+// binddump does (the module's folders, its go.mod's local replaces, then
+// DIR/PATH); each import's types are an XRef into its interface
+// (types.Iface), computed in import order. EXT is the kinds of the
+// prelude's generic types and FOREIGN its types and a Go import's ("QUAL
+// NAME ARITY PATH PRINT KEY", PRINT with its spaces as ^;
+// "@pkg NAME PATH QUALIFY", the package's own). The Go
+// side writes both. It is the Ergo side of S3t's type agreement.
 
 import compiler/check/bind
 import compiler/check/store
@@ -19,12 +24,22 @@ import dense
 import fs
 import io
 import os
+import slices
 import strconv
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
 	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func dir(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { "." } else if i == 0 { "/" } else { path[0:i] }
+}
+
+func word(k int) string {
+	if k == 1 { "type" } else if k == 2 { "errors" } else if k == 4 { "uses" } else { "conflict" }
 }
 
 func bit(w string) int {
@@ -68,9 +83,251 @@ func fieldLines(s *store.Store, env types.Env, names types.Names, p syntax.Parse
 	}
 }
 
-func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+// Pkg is one package of the program: its import path and its files.
+type Pkg { Path string, Files []bind.File }
+
+// Module is the module the files are in: its path and folder, and the
+// modules it requires from a local folder (its go.mod's replace lines
+// whose target is a path); none when no ergo.mod is above the first file.
+// (The loader is binddump's; a shared loader is a follow-up.)
+type Module { Path string, Dir string, Replaces []Replace }
+
+// Replace is a required module read from a folder.
+type Replace { Path string, Dir string }
+
+func replacesOf(d string) []Replace needs fs.Files {
+	let text = fs.Files.ReadFile(d + "/go.mod") catch {
+	case _:
+		""
+	}
+	let mut out = []Replace{}
+	for line in strings.Split(text, "\n") {
+		let l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "replace "))
+		let i = strings.Index(l, "=>")
+		if i < 0 {
+			continue
+		}
+		let from = strings.Fields(l[0:i])
+		let to = strings.TrimSpace(l[i+2 : len(l)])
+		if len(from) == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
+			continue
+		}
+		let target = strings.Fields(to)[0]
+		out = out.Append(Replace{Path: from[0], Dir: if strings.HasPrefix(target, "/") { target } else { d + "/" + target }})
+	}
+	out
+}
+
+func moduleOf(d string) Option[Module] needs fs.Files {
+	let mut at = d
+	for {
+		let text = fs.Files.ReadFile(at + "/ergo.mod") catch {
+		case _:
+			""
+		}
+		for line in strings.Split(text, "\n") {
+			let l = strings.TrimSpace(line)
+			if strings.HasPrefix(l, "module ") {
+				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+			}
+		}
+		if at == "/" || at == "." || at == "" {
+			return None
+		}
+		at = dir(at)
+	}
+}
+
+func folderOf(path string, m Option[Module], std string) string {
+	match m {
+	case Some[Module] as mod:
+		if path == mod.Value.Path {
+			return mod.Value.Dir
+		}
+		if strings.HasPrefix(path, mod.Value.Path+"/") {
+			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+		}
+		for r in mod.Value.Replaces {
+			if path == r.Path {
+				return r.Dir
+			}
+			if strings.HasPrefix(path, r.Path+"/") {
+				return r.Dir + path[len(r.Path):len(path)]
+			}
+		}
+	case None:
+	}
+	std + "/" + path
+}
+
+func loadDir(path string, d string) Option[Pkg] needs fs.Files {
+	let names = fs.Files.ReadDir(d) catch {
+	case _:
+		return None
+	}
+	let mut files = []bind.File{}
+	for n in names {
+		if !strings.HasSuffix(n, ".ergo") {
+			continue
+		}
+		let src = fs.Files.ReadFile(d + "/" + n) catch {
+		case _:
+			continue
+		}
+		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
+	}
+	if len(files) == 0 {
+		return None
+	}
+	Some[Pkg]{Value: Pkg{Path: path, Files: files}}
+}
+
+// imported is every package the root's files import, transitively, that
+// the loader finds (none without std).
+func imported(root []bind.File, rootPath string, m Option[Module], std string) []Pkg needs fs.Files {
+	let mut pkgs = []Pkg{}
+	if std == "" {
+		return pkgs
+	}
+	let mut queue = bind.Imports(root)
+	let mut seen = []string{rootPath}
+	let mut i = 0
+	for i < len(queue) {
+		let path = queue[i]
+		i = i + 1
+		if slices.Contains(seen, path) {
+			continue
+		}
+		seen = seen.Append(path)
+		match loadDir(path, folderOf(path, m, std)) {
+		case Some[Pkg] as p:
+			pkgs = pkgs.Append(p.Value)
+			for q in bind.Imports(p.Value.Files) {
+				queue = queue.Append(q)
+			}
+		case None:
+		}
+	}
+	pkgs
+}
+
+func join(a []types.Ext, b []types.Ext) []types.Ext {
+	let mut out = a
+	for x in b {
+		out = out.Append(x)
+	}
+	out
+}
+
+func parsedOf(files []bind.File) []syntax.Parsed {
+	let mut out = []syntax.Parsed{}
+	for f in files {
+		out = out.Append(f.Parsed)
+	}
+	out
+}
+
+// depsOf is the interfaces of s's imports in its import list's order: an
+// import the program does not hold, or has not done, is empty.
+func depsOf(s store.Store, pkgs []Pkg, done []Option[types.Iface]) []types.Iface {
+	let mut out = []types.Iface{}
+	for path in store.ImportPaths(s) {
+		let mut found = types.EmptyIface(path)
+		for i, p in pkgs {
+			if p.Path == path {
+				match done[i] {
+				case Some[types.Iface] as d:
+					found = d.Value
+				case None:
+				}
+			}
+		}
+		out = out.Append(found)
+	}
+	out
+}
+
+// ifaces is each package's interface: a pass does the packages whose
+// imports are all done; a package of an import cycle reads empty
+// interfaces for the imports not done when no pass does more.
+func ifaces(pkgs []Pkg, ext []types.Ext, foreign []types.Foreign) []Option[types.Iface] {
+	let mut done = []Option[types.Iface]{}
+	for _ in pkgs {
+		done = done.Append(None)
+	}
+	let mut stuck = false
+	for !stuck {
+		let mut progress = false
+		let mut left = false
+		for i, p in pkgs {
+			match done[i] {
+			case Some[types.Iface]:
+				continue
+			case None:
+			}
+			let s = bind.Collect(p.Path, p.Files)
+			let mut ready = true
+			for path in store.ImportPaths(s) {
+				for j, q in pkgs {
+					if q.Path == path {
+						match done[j] {
+						case Some[types.Iface]:
+						case None:
+							ready = j == i
+						}
+					}
+				}
+			}
+			if !ready {
+				left = true
+				continue
+			}
+			let deps = depsOf(s, pkgs, done)
+			let parsed = parsedOf(p.Files)
+			let kinds = types.SolveKinds(s, parsed, join(ext, types.ExtOf(s, deps)))
+			done[i] = Some[types.Iface]{Value: types.Interface(s, parsed, kinds, join(ext, types.ExtOf(s, deps)), foreign, deps)}
+			progress = true
+		}
+		if !left {
+			stuck = true
+		} else if !progress {
+			// A cycle: do the first one left against what is done.
+			for i, p in pkgs {
+				match done[i] {
+				case Some[types.Iface]:
+				case None:
+					if !progress {
+						let s = bind.Collect(p.Path, p.Files)
+						let deps = depsOf(s, pkgs, done)
+						let parsed = parsedOf(p.Files)
+						let kinds = types.SolveKinds(s, parsed, join(ext, types.ExtOf(s, deps)))
+						done[i] = Some[types.Iface]{Value: types.Interface(s, parsed, kinds, join(ext, types.ExtOf(s, deps)), foreign, deps)}
+						progress = true
+					}
+				}
+			}
+		}
+	}
+	done
+}
+
+func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut kindsOnly = false
+	let mut args = args0
+	for len(args) > 0 && (args[0] == "-std" || args[0] == "-kinds") {
+		if args[0] == "-kinds" {
+			kindsOnly = true
+			args = args[1:len(args)]
+		} else if len(args) > 1 {
+			std = args[1]
+			args = args[2:len(args)]
+		} else {
+			return os.Exit{Code: 2, Message: "typedump: -std takes a folder"}
+		}
+	}
 	if len(args) < 2 {
-		return os.Exit{Code: 2, Message: "usage: typedump EXT FOREIGN FILE..."}
+		return os.Exit{Code: 2, Message: "usage: typedump [-std DIR] [-kinds] EXT FOREIGN FILE..."}
 	}
 	let mut ext = []types.Ext{}
 	for line in strings.Split(try read(args[0]), "\n") {
@@ -103,33 +360,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
-	}
-	// "@union QUAL NAME VARIANT,…": a foreign union's variants, types of
-	// its package.
-	for line in strings.Split(try read(args[1]), "\n") {
-		let parts = strings.Fields(line)
-		if len(parts) != 4 || parts[0] != "@union" {
-			continue
-		}
-		// The variants keep their declared order (the row sorts them).
-		let mut vs = []int{}
-		let mut at = -1
-		for i, f in foreign {
-			if f.Qual == parts[1] && f.Name == parts[2] {
-				at = i
-			}
-		}
-		for v in strings.Split(parts[3], ",") {
-			for i, f in foreign {
-				if f.Qual == parts[1] && f.Name == v {
-					vs = vs.Append(i)
-				}
-			}
-		}
-		if at >= 0 {
-			foreign[at].Variants = vs
-		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
 	}
 	let mut files = []bind.File{}
 	let mut parsed = []syntax.Parsed{}
@@ -138,16 +369,48 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		files = files.Append(bind.File{Name: base(path), Parsed: p})
 		parsed = parsed.Append(p)
 	}
+	let paths = args[2:len(args)]
+	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
+	let pkgs = imported(files, pkgPath, m, std)
+	let done = ifaces(pkgs, ext, foreign)
 	let mut s = bind.Collect(pkgPath, files)
-	let kinds = types.SolveKinds(s, parsed, ext)
+	let deps = depsOf(s, pkgs, done)
+	let ext2 = join(ext, types.ExtOf(s, deps))
+	let table = types.WithAliases(foreign, s, deps)
+	let kinds = types.SolveKinds(s, parsed, ext2)
 	let mut out = []string{}
+	if kindsOnly {
+		for i, name in kinds.Names {
+			let mut ws = []string{}
+			for x in kinds.Of[i] {
+				ws = ws.Append(word(x))
+			}
+			out = out.Append("\(name) \(strings.Join(ws, ","))")
+		}
+		for fk in types.SolveFuncKinds(s, parsed, ext2, kinds) {
+			if len(fk.Kinds) == 0 {
+				continue
+			}
+			let mut ws = []string{}
+			for x in fk.Kinds {
+				ws = ws.Append(word(x))
+			}
+			out = out.Append("func \(fk.Name) \(strings.Join(ws, ","))")
+		}
+		let mut b = strings.NewBuilder()
+		for l in out {
+			b.WriteString(l + "\n")
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
 	for p in parsed {
 		if p.Failed {
 			continue
 		}
 		for r in types.Records(p, pkgName == "") {
-			let env = types.NewEnv(s, parsed, p, r.Params, kinds, ext, foreign)
-			let names = types.Names{Params: r.Params, Foreign: foreign, Pkg: pkgName}
+			let env = types.NewEnv(s, parsed, p, r.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: r.Params, Foreign: table, Pkg: pkgName, Deps: deps}
 			out = out.Append("\(r.Name) [\(strings.Join(r.Params, ","))]")
 			fieldLines(&s, env, names, p, r.Name, r.Fields, &out)
 		}
@@ -157,8 +420,8 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			continue
 		}
 		for d in types.Defined(p) {
-			let env = types.NewEnv(s, parsed, p, d.Params, kinds, ext, foreign)
-			let names = types.Names{Params: d.Params, Foreign: foreign, Pkg: pkgName}
+			let env = types.NewEnv(s, parsed, p, d.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: d.Params, Foreign: table, Pkg: pkgName, Deps: deps}
 			// Resolve first: it adds to the pool Text reads.
 			let t = types.Resolve(&s, env, d.Base)
 			out = out.Append("def \(d.Name) \(types.Text(s, names, t))")
@@ -169,18 +432,18 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			continue
 		}
 		for r in types.Refined(p) {
-			let env = types.NewEnv(s, parsed, p, []string{}, kinds, ext, foreign)
-			let names = types.Names{Params: []string{}, Foreign: foreign, Pkg: pkgName}
+			let env = types.NewEnv(s, parsed, p, []string{}, kinds, ext2, table, deps)
+			let names = types.Names{Params: []string{}, Foreign: table, Pkg: pkgName, Deps: deps}
 			let t = types.RefinedParse(&s, env, r.Base, r.Name)
 			out = out.Append("func \(r.Parse) \(types.Text(s, names, t))")
 		}
 	}
-	for f in types.SolveFuncKinds(s, parsed, ext, kinds) {
+	for f in types.SolveFuncKinds(s, parsed, ext2, kinds) {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
-			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext, foreign)
-			let names = types.Names{Params: f.Params, Foreign: foreign, Pkg: pkgName}
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: f.Params, Foreign: table, Pkg: pkgName, Deps: deps}
 			if types.WiredOfType(s, env, fd.Type) {
 				// Not resolved yet: the agreement test skips it, by the
 				// same rule on the Go side.
