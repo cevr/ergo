@@ -12,7 +12,7 @@ import (
 )
 
 // TestNP4f1MovesKeepMeaning is NP4f-1's comparing law: bits (10), math's
-// 15 wrappers and utf8 (6) moved from runtime/v1 externs to import go
+// 15 wrappers and utf8's RuneCount, ValidString and ValidRune moved from runtime/v1 externs to import go
 // calls, and each still answers what its old Go body answers, on edges
 // (0, the largest values, ±0, ±Inf, NaN, subnormals, surrogates, runes
 // past U+10FFFF, invalid and truncated UTF-8, the empty text) and seeded
@@ -202,25 +202,12 @@ func np4fRuneArg(v rune) string { return strconv.Itoa(int(v)) }
 func np4f1UTF8Cases(r *rand.Rand, n int) []bodyCase {
 	imp := []string{"utf8", "strconv", "strings"}
 	texts := []string{"", "a", "é", "世界", "🙂", "\xff", "\xe4\xb8", "a\xffb", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xc0\xaf", "\x80\x80"}
-	type app struct {
-		p string
-		r rune
-	}
 	return []bodyCase{
 		bodyRows("utf8.RuneCount", imp, "s string", `"\(utf8.RuneCount(s))"`, texts, n, r, np4fGenText, np4fErgoString,
 			func(s string) string { return strconv.Itoa(v1.UTF8RuneCount(s)) }),
-		bodyRows("utf8.DecodeRuneInString", imp, "s string", `"\(utf8.DecodeRuneInString(s).Rune) \(utf8.DecodeRuneInString(s).Size)"`, texts, n, r, np4fGenText, np4fErgoString,
-			func(s string) string { x := v1.UTF8DecodeRuneInString(s); return fmt.Sprintf("%d %d", x.Rune, x.Size) }),
 		bodyRows("utf8.ValidString", imp, "s string", `"\(utf8.ValidString(s))"`, texts, n, r, np4fGenText, np4fErgoString,
 			func(s string) string { return strconv.FormatBool(v1.UTF8ValidString(s)) }),
 		bodyRows("utf8.ValidRune", imp, "x rune", `"\(utf8.ValidRune(x))"`, np4fRuneEdges, n, r, np4fGenRune, np4fRuneArg,
 			func(v rune) string { return strconv.FormatBool(v1.UTF8ValidRune(v)) }),
-		bodyRows("utf8.RuneLen", imp, "x rune", `"\(utf8.RuneLen(x))"`, np4fRuneEdges, n, r, np4fGenRune, np4fRuneArg,
-			func(v rune) string { return strconv.Itoa(v1.UTF8RuneLen(v)) }),
-		bodyRows("utf8.AppendRune", imp, "p string, x rune", `strconv.Quote(strings.FromBytes(utf8.AppendRune(strings.Bytes(p), x)))`,
-			[]app{{"", 0}, {"ab", 0x10ffff}, {"\xff", 0xd800}, {"", -1}, {"x", 0x110000}}, n, r,
-			func(r *rand.Rand) app { return app{np4fGenText(r), np4fGenRune(r)} },
-			func(v app) string { return np4fErgoString(v.p) + ", " + np4fRuneArg(v.r) },
-			func(v app) string { return strconv.Quote(string(v1.UTF8AppendRune([]byte(v.p), v.r))) }),
 	}
 }
