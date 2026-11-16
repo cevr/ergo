@@ -16,22 +16,24 @@ import (
 // move unit adds the package's cases; the next unit deletes them with the
 // old body.
 
-// bodyCase is one moved function: an Ergo function of one parameter x
-// that prints the new std function's answer, and per input the Ergo literal
-// and the old body's answer, printed the same way.
+// bodyCase is one moved function: an Ergo function of the parameters
+// params that prints the new std function's answer, and per input the
+// Ergo arguments and the old body's answer, printed the same way. decls
+// are Ergo declarations the call needs (a helper), written once per text.
 type bodyCase struct {
 	name    string // the std function, as package.Name
 	imports []string
-	param   string // the Ergo type of x
-	call    string // an Ergo string expression over x
+	params  string // the Ergo parameters, "x int, y int"
+	call    string // an Ergo string expression over the parameters
+	decls   string
 	lits    []string
 	wants   []string
 }
 
 // bodyRows erases a typed case: edges first, then n values of gen from the
-// seeded r; lit is v's Ergo literal of type param, ref the old body's answer.
-func bodyRows[T any](name string, imports []string, param, call string, edges []T, n int, r *rand.Rand, gen func(*rand.Rand) T, lit func(T) string, ref func(T) string) bodyCase {
-	c := bodyCase{name: name, imports: imports, param: param, call: call}
+// seeded r; lit is v's Ergo arguments, ref the old body's answer.
+func bodyRows[T any](name string, imports []string, params, call string, edges []T, n int, r *rand.Rand, gen func(*rand.Rand) T, lit func(T) string, ref func(T) string) bodyCase {
+	c := bodyCase{name: name, imports: imports, params: params, call: call}
 	add := func(v T) {
 		c.lits = append(c.lits, lit(v))
 		c.wants = append(c.wants, ref(v))
@@ -71,8 +73,15 @@ func bodyProgram(cases []bodyCase) string {
 			}
 		}
 	}
+	decls := map[string]bool{}
+	for _, c := range cases {
+		if c.decls != "" && !decls[c.decls] {
+			decls[c.decls] = true
+			b.WriteString("\n" + c.decls + "\n")
+		}
+	}
 	for i, c := range cases {
-		fmt.Fprintf(&b, "\n// %s\nfunc case%d(x %s) string { %s }\n", c.name, i, c.param, c.call)
+		fmt.Fprintf(&b, "\n// %s\nfunc case%d(%s) string { %s }\n", c.name, i, c.params, c.call)
 	}
 	b.WriteString("\nfunc main() needs Console {\n")
 	for i, c := range cases {
@@ -141,8 +150,8 @@ func TestBodyLawFindsADifference(t *testing.T) {
 	r := rand.New(rand.NewPCG(bodySeed(t), 0xb0d1e5))
 	gen := func(r *rand.Rand) int64 { return r.Int64N(1<<20) - 1<<19 }
 	lit := func(v int64) string { return strconv.FormatInt(v, 10) }
-	same := bodyRows("fixture.double", nil, "int", `"\(x * 2)"`, []int64{0, -1}, 8, r, gen, lit, func(v int64) string { return strconv.FormatInt(2*v, 10) })
-	planted := bodyRows("fixture.planted", nil, "int", `"\(x * 2)"`, []int64{0, 7}, 8, r, gen, lit, func(v int64) string {
+	same := bodyRows("fixture.double", nil, "x int", `"\(x * 2)"`, []int64{0, -1}, 8, r, gen, lit, func(v int64) string { return strconv.FormatInt(2*v, 10) })
+	planted := bodyRows("fixture.planted", nil, "x int", `"\(x * 2)"`, []int64{0, 7}, 8, r, gen, lit, func(v int64) string {
 		if v == 7 {
 			return "15"
 		}
