@@ -14,7 +14,7 @@ import (
 
 // TestPureTierActsOnlyValidated is LF2d's admission of a pure row
 // (interop.md, Foreign facts 7): ergo bind go writes strings.ToUpper in
-// the pure tier, with no needs row, exactly when the std ledger holds the
+// the pure tier, with no go.Foreign requirement, exactly when the std ledger holds the
 // guard line of strings' pure row current and validated; with the line
 // missing it binds the function under needs go.Foreign.
 //
