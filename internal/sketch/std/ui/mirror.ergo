@@ -127,7 +127,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
 		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
-		linkChild(m, pr, o.Id, o.Before)
+		attachAt(m, pr, o.Id, o.Before)
 		undoInsert[E]{id: o.Id}
 	case Move[E] as o:
 		let r = try held(m, o.Id)
@@ -137,8 +137,8 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		}
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
-		unlink(m, pr, r)
-		linkChild(m, pr, o.Id, o.Before)
+		detach(m, pr, r)
+		attachAt(m, pr, o.Id, o.Before)
 		undoMove[E]{id: o.Id, before: e.next}
 	case Remove[E] as o:
 		let r = try held(m, o.Id)
@@ -147,7 +147,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		}
 		let e = entry(m, r)
 		let pr = try held(m, e.parent)
-		unlink(m, pr, r)
+		detach(m, pr, r)
 		undoRemove[E]{id: o.Id, before: e.next, dropped: dropTree(m, o.Id, []dropped[E]{})}
 	case Set[E] as o:
 		let r = try held(m, o.Id)
@@ -167,7 +167,7 @@ func rollBack[E](m *Mirror[E], done []undo[E]) {
 		match done[len(done)-1-i] {
 		case undoInsert[E] as x:
 			let r = refOf(m, x.id)
-			unlink(m, refOf(m, entry(m, r).parent), r)
+			detach(m, refOf(m, entry(m, r).parent), r)
 			let _ = arena.Free(&m.store, r) catch {
 			case arena.Stale:
 				Unreachable("ui: the mirror holds a freed entry")
@@ -176,14 +176,14 @@ func rollBack[E](m *Mirror[E], done []undo[E]) {
 		case undoMove[E] as x:
 			let r = refOf(m, x.id)
 			let pr = refOf(m, entry(m, r).parent)
-			unlink(m, pr, r)
-			linkChild(m, pr, x.id, x.before)
+			detach(m, pr, r)
+			attachAt(m, pr, x.id, x.before)
 		case undoRemove[E] as x:
 			for d in x.dropped {
 				m.refs[d.id] = d.ref
 			}
 			let pr = refOf(m, entry(m, refOf(m, x.id)).parent)
-			linkChild(m, pr, x.id, x.before)
+			attachAt(m, pr, x.id, x.before)
 		case undoSet[E] as x:
 			let node = x.node
 			edit(m, refOf(m, x.id), func(n *mirrored[E]) { n.node = node })
@@ -228,9 +228,9 @@ func checkBefore[E](m *Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) 
 	}
 }
 
-// link puts id, which no list holds, in front of before in pr's children,
+// attachAt puts id, which no list holds, in front of before in pr's children,
 // or last for None.
-func linkChild[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
+func attachAt[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
 	let mut prev Option[Id[E]] = None
 	match before {
 	case Some[Id[E]] as b:
@@ -254,8 +254,8 @@ func linkChild[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Opti
 	})
 }
 
-// unlink takes the child r out of pr's children.
-func unlink[E](m *Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]) {
+// detach takes the child r out of pr's children.
+func detach[E](m *Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]) {
 	let e = entry(m, r)
 	match e.prev {
 	case Some[Id[E]] as p:

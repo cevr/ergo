@@ -9,7 +9,8 @@ import arena
 // because a view is pure apart from its writes through the frame (UI 1):
 // equal arguments write equal nodes. A call that read a cell, a load, a
 // key or a frame callback is not kept, since what it writes depends on
-// more than its arguments; it runs every pass. Prior art: Compose skips a
+// more than its arguments; it runs every pass, as does one in which a
+// Same kept its subtree without running. Prior art: Compose skips a
 // composable whose arguments are stable and equal, inferred by its
 // compiler; Elm's Html.Lazy and React's memo leave it to the author.
 
@@ -535,3 +536,95 @@ func Compared[E](f *Frame[E]) int { f.compared }
 // GroupsKept is how many groups f keeps for its next pass, and so how many
 // argument slots it holds: the memo's size.
 func GroupsKept[E](f *Frame[E]) int { argsHeld(f.args) }
+
+// shownTexts is the texts of shapes, in tree order. (a law's helper)
+func shownTexts(shapes []Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case TextNode as x:
+			out = out.Append(x.Value)
+		case _:
+		}
+		for x in shownTexts(s.Kids) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// reorders is the orders of KeyedReorderKeepsRows: 2 to 6 rows, then 3 to
+// 8 drawn permutations of them. (a law's helper)
+func reorders(seed int, steps int) [][]int {
+	let mut r = seeded(seed)
+	let mut order = []int{}
+	for i in 0..draw(&r, 5)+2 {
+		order = order.Append(i)
+	}
+	let mut out = [][]int{order}
+	for _ in 0..(steps%6+6)%6+3 {
+		let mut next = []int{}
+		for x in out[len(out)-1] {
+			next = next.Append(x)
+		}
+		for i in 0..len(next) {
+			let j = i + draw(&r, len(next)-i)
+			let x = next[i]
+			next[i] = next[j]
+			next[j] = x
+		}
+		out = out.Append(next)
+	}
+	out
+}
+
+// reorderTable is the k-th order's rows, each a Same keyed by its row
+// over the component reorderRow: a component itself. (a law's helper)
+func reorderTable(f *Frame[int], seed int, steps int, k int) {
+	Column(f, Plain()) {
+		Each(f, reorders(seed, steps)[k], func(x int) Key { ByInt(x) }) func(x int) {
+			Same(f, ByInt(x)) {
+				reorderRow(f, x)
+			}
+		}
+	}
+}
+
+// reorderRow is row x. (a law's helper)
+func reorderRow(f *Frame[int], x int) {
+	Text(f, "row \(x)")
+}
+
+// KeyedReorderKeepsRows (UC-REORDER): a component that shows keyed rows,
+// each a Same over a component of its own, keeps every row through any
+// reorder. Over drawn permutations of 2 to 6 rows, each committed once or
+// twice (a press that also navigates commits twice, and the second pass
+// writes the component again from the first), the host's copy shows the
+// rows in the model's order after every commit. A program's component
+// call is a group (UI 13); std's are not, so the probe that restates this
+// law in a program is what holds groups to it.
+law KeyedReorderKeepsRows(seed int, steps int) {
+	let orders = reorders(seed, steps)
+	let mut r = seeded(steps)
+	let view = func(f *Frame[int], k int) {
+		reorderTable(f, seed, steps, k)
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for k in 0..len(orders) {
+		let mut want = []string{}
+		for x in orders[k] {
+			want = want.Append("row \(x)")
+		}
+		for _ in 0..draw(&r, 2)+1 {
+			Apply(&m, Render(&f, view, k)) catch {
+			case BadPatch:
+				return false
+			}
+			if shownTexts(MirrorShape(&m)) != want {
+				return false
+			}
+		}
+	}
+	true
+}

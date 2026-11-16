@@ -712,10 +712,14 @@ func (a *actorV) halt(in *interp, fr *frame) *abrupt {
 }
 
 // publish commits s as the actor's state and hands it to each Changes
-// subscription.
+// subscription; a LatestChanges one keeps only s (F-GP4c-1).
 func (a *actorV) publish(s Value) {
 	a.state = s
 	for _, c := range a.subs {
+		if c.latest {
+			c.buf = append(c.buf[:0], s)
+			continue
+		}
 		c.buf = append(c.buf, s)
 	}
 }
@@ -922,6 +926,14 @@ func (a *actorV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		return a.dropped, nil
 	case "Changes":
 		return &changesSeq{a: a}, nil
+	case "LatestChanges":
+		return &changesSeq{a: a, latest: true}, nil
+	case "Held":
+		n := int64(0)
+		for _, c := range a.subs {
+			n += int64(len(c.buf))
+		}
+		return n, nil
 	}
 	ice("the Actor operation %s", name)
 	return nil, nil
@@ -931,18 +943,22 @@ func (a *actorV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 type changesSeq struct {
 	a   *actorV
 	sub *changeSub
+	// latest marks a.LatestChanges(): its subscription holds one state.
+	latest bool
 }
 
 // changeSub is one subscription: the states it has not given yet.
 type changeSub struct {
 	buf   []Value
 	ended bool
+	// latest keeps only the newest state (LatestChanges).
+	latest bool
 }
 
 func (c *changesSeq) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
 	a := c.a
 	if c.sub == nil {
-		c.sub = &changeSub{buf: []Value{a.state}}
+		c.sub = &changeSub{buf: []Value{a.state}, latest: c.latest}
 		if !a.ended {
 			a.subs = append(a.subs, c.sub)
 		}

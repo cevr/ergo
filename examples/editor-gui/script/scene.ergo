@@ -67,6 +67,8 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 			return s
 		case ui.BadPatch as b:
 			return b
+		case ui.Ambiguous as x:
+			io.Stdout.Println("? \(x.Count) nodes match " + x.At)
 		case ui.Mismatch as x:
 			io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 		}

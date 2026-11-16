@@ -55,6 +55,8 @@ func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual
 				return s
 			case ui.BadPatch as b:
 				return b
+			case ui.Ambiguous as x:
+				io.Stdout.Println("? \(x.Count) nodes match " + x.At)
 			case ui.Mismatch as x:
 				io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 			}

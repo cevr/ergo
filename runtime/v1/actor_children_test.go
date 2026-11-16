@@ -457,7 +457,7 @@ func runChildrenCase(seed int64, r *rand.Rand, n int, seen map[string]bool) (ops
 			c := actor(o.id)
 			go func() {
 				defer close(w)
-				for range c.Changes(rt.Root("watcher")) {
+				for range c.Changes(rt.Root("watcher"), everyState) {
 				}
 			}()
 		}

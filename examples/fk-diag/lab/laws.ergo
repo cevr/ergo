@@ -31,7 +31,7 @@ func phaseOf(k int) Phase {
 
 // counters are the Slow counter names a warning may carry: the four
 // phases', in phaseOf's order, and two the lab sets no bound for.
-let counters = []string{"Signals", "Written", "Ops", "Fetches", "Committed", "Painted"}
+let counters = []ui.Counter{ui.SignalsCounter, ui.WrittenCounter, ui.OpsCounter, ui.FetchesCounter, ui.CommittedCounter, ui.PaintedCounter}
 
 // noted is a model's log entry: a warning's id and phase.
 type noted { id int, phase Phase }

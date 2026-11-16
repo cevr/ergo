@@ -144,6 +144,9 @@ type fileOptions struct {
 	command            string
 	target, output     string
 	strict, json, work bool
+	// trace is test's --trace: print the steps of the scene scripts the
+	// tests played (test.go, printSteps).
+	trace bool
 	// locked is build's and run's --locked: a stale or missing law
 	// ledger entry refuses the build (owner q122).
 	locked bool

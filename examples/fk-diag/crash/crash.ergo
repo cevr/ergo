@@ -33,13 +33,12 @@ func View(f *ui.Frame[Signal], s Calm) {
 }
 
 // CrashView is what the window shows once the app crashed: what went
-// wrong, and a Reload button that starts the app afresh. A defect carries
-// no message to the crash view (ui.DefectCrash has no field), so the line
-// under the title names the kind of crash, where upstream shows the
-// thrown error's message (ledger row FK13-g1).
-func CrashView[F](f *ui.Frame[Signal], c ui.Crash[F]) {
+// wrong, and a Reload button that starts the app afresh. The line under
+// the title names the kind of crash; the defect's text, which upstream
+// shows, is the crash's Reason (ui.DefectCrash, FK13-g1).
+func CrashView[F](f *ui.Frame[Signal], c ui.Crash[Calm, Signal, F]) {
 	ui.Text(f, "Something went wrong")
-	match c {
+	match c.Cause {
 	case ui.DefectCrash:
 		ui.Text(f, "A defect ended the app.")
 	case ui.FailureCrash[F]:
@@ -62,27 +61,27 @@ func NewReports() Reports { Reports{log: sync.NewRef([]string{})} }
 func Logged(r Reports) []string { r.log.Get() }
 
 // Crashes is the app's crash view, and a report that logs each crash in r.
-func Crashes(r Reports) ui.Crashes[Signal] {
+func Crashes(r Reports) ui.Crashes[Calm, Signal] {
 	crashes(r)
 }
 
 // crashes is Crashes for a step's failure row F (the app's is empty).
-func crashes[F](r Reports) ui.Crashes[Signal, F] {
-	ui.Crashes[Signal, F]{View: CrashView[F], Report: report[F](r)}
+func crashes[F](r Reports) ui.Crashes[Calm, Signal, F] {
+	ui.Crashes[Calm, Signal, F]{View: CrashView[F], Report: report[F](r)}
 }
 
 // report logs a crash in r.
-func report[F](r Reports) func(c ui.Crash[F]) {
-	func(c ui.Crash[F]) {
+func report[F](r Reports) func(c ui.Crash[Calm, Signal, F]) {
+	func(c ui.Crash[Calm, Signal, F]) {
 		r.log.Update(func(l []string) []string { l.Append("crash report: \(Kind(c))") })
 	}
 }
 
 // State is how the app's crash shows (ui.CrashOf): running, or crashed
 // and how.
-func State[F](c Option[ui.Crash[F]]) string {
+func State[F](c Option[ui.Crash[Calm, Signal, F]]) string {
 	match c {
-	case Some[ui.Crash[F]] as x:
+	case Some[ui.Crash[Calm, Signal, F]] as x:
 		"crashed: \(Kind(x.Value))"
 	case None:
 		"running"
@@ -90,8 +89,8 @@ func State[F](c Option[ui.Crash[F]]) string {
 }
 
 // Kind names a crash.
-func Kind[F](c ui.Crash[F]) string {
-	match c {
+func Kind[F](c ui.Crash[Calm, Signal, F]) string {
+	match c.Cause {
 	case ui.DefectCrash:
 		"a defect"
 	case ui.FailureCrash[F]:
