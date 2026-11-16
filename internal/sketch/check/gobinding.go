@@ -236,6 +236,9 @@ type hostPkg struct {
 	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
+	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
+	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -300,11 +303,15 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
 		h.resolve(o)
+		if fn, ok := o.(*Func); ok {
+			h.misfitReads(fn)
+		}
 		if tn, ok := o.(*TypeName); ok {
 			n := tn.Type.(*Named)
 			under(n)
 			for _, m := range n.mlist {
 				h.c.funcSig(m)
+				h.misfitReads(m)
 			}
 		}
 	}
@@ -450,7 +457,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -470,11 +477,17 @@ func (h *hostPkg) load() {
 		mark := func(fn *Func) {
 			line, _ := f.Position(fn.Decl.Pos())
 			for l := line - 1; markers[l] != ""; l-- {
-				switch markers[l] {
+				switch text := markers[l]; text {
 				case "// ergo:variadic":
 					h.variadic[fn] = true
 				case "// ergo:context":
 					h.context[fn] = true
+				default:
+					if rest, ok := strings.CutPrefix(text, effectMarker); ok {
+						h.effectLine(fn, rest)
+						continue
+					}
+					h.readsLine(fn, strings.TrimPrefix(text, readsMarker))
 				}
 			}
 		}

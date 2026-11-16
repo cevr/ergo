@@ -13,12 +13,15 @@ extern go encoding/base64.CorruptInputError.Error func (e CorruptInputError) Err
 extern go encoding/base64.Encoding type Encoding {}
 
 // ergo:go func (*Encoding).AppendDecode(dst []byte, src []byte) ([]byte, error)
+// ergo:reads src
 extern go encoding/base64.Encoding.AppendDecode func (enc own *Encoding) AppendDecode(dst []byte, src []byte) []byte fails go.Error
 
 // ergo:go func (*Encoding).AppendEncode(dst []byte, src []byte) []byte
+// ergo:reads src
 extern go encoding/base64.Encoding.AppendEncode func (enc own *Encoding) AppendEncode(dst []byte, src []byte) []byte
 
 // ergo:go func (*Encoding).Decode(dst []byte, src []byte) (n int, err error)
+// ergo:reads src
 extern go encoding/base64.Encoding.Decode func (enc own *Encoding) Decode(dst []byte, src []byte) int fails go.Error
 
 // ergo:go func (*Encoding).DecodeString(s string) ([]byte, error)
@@ -28,9 +31,11 @@ extern go encoding/base64.Encoding.DecodeString func (enc own *Encoding) DecodeS
 extern go encoding/base64.Encoding.DecodedLen func (enc own *Encoding) DecodedLen(n int) int
 
 // ergo:go func (*Encoding).Encode(dst []byte, src []byte)
+// ergo:reads src
 extern go encoding/base64.Encoding.Encode func (enc own *Encoding) Encode(dst []byte, src []byte)
 
 // ergo:go func (*Encoding).EncodeToString(src []byte) string
+// ergo:reads src
 extern go encoding/base64.Encoding.EncodeToString func (enc own *Encoding) EncodeToString(src []byte) string
 
 // ergo:go func (*Encoding).EncodedLen(n int) int

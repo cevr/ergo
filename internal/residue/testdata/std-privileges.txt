@@ -22,6 +22,7 @@ seam	internal/sketch/lower/lower.go:Unit.Validate	a std package has no unit: its
 seam	internal/sketch/lower/naming.go:lowerer.nameAll	names a std package's lets and context builders, which have no unit	-
 seam	internal/sketch/lower/sources.go:lowerer.missingImport	a reached user package needs a unit; std ships in the compiler	-
 seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	the std packages whose lets the program initializes	-
+seam	internal/sketch/check/factguard.go:FactLedger	the guard lines of runtime/v1's reviewed tables (sync, pure) ship in the ledger of the module the compiler ships	-
 seam	internal/sketch/lower/sources.go:shippedLedger	std's law ledger ships with its sources: the ledger of the module the compiler ships	-
 seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedded std first	-
 seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-

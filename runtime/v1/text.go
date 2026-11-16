@@ -102,10 +102,12 @@ func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
 	return buf
 }
 
-// StringsBytes is the bytes of s, a copy, as Go's []byte(s).
+// StringsBytes is the bytes of s, a copy, as Go's []byte(s). Its view
+// form shares them, where a Go call only reads them (view.go).
 //
 //ergo:pure
 //ergo:wait none
+//ergo:view BytesView
 func StringsBytes(s string) []byte { return []byte(s) }
 
 // StringsSlice is s[i:j]; a bound out of range panics, a defect.

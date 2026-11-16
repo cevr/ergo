@@ -140,6 +140,7 @@ extern go go/token.File.PositionFor func (f own *File) PositionFor(p Pos, adjust
 extern go go/token.File.SetLines func (f own *File) SetLines(lines []int) bool needs go.Foreign
 
 // ergo:go func (*File).SetLinesForContent(content []byte)
+// ergo:reads content
 extern go go/token.File.SetLinesForContent func (f own *File) SetLinesForContent(content []byte) needs go.Foreign
 
 // ergo:go func (*File).Size() int

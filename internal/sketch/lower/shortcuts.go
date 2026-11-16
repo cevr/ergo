@@ -159,6 +159,32 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		// LF1: a live slice goes to a Go function whose binding says it
+		// only reads the operand with no copy (gofacts.go). The test build
+		// copies it and compares after the call (v1.GoReadsCheck).
+		name:       "host-reads",
+		class:      valueClass,
+		admission:  "readsOK",
+		reference:  "hostCopyAlways=true",
+		agreement:  "TestHostCopyElisionAgrees",
+		mutant:     "ffi-reads-without-fact",
+		referenced: func() bool { return hostCopyAlways },
+	},
+	{
+		// LF2b (owner q193): a Go call that only reads a string's bytes
+		// gets a view of them, not a copy (view.go). The test build passes
+		// a guarded copy that faults at a write, a read past the end and a
+		// late read.
+		name:       "host-view",
+		class:      memoryClass,
+		admission:  "viewOK",
+		reference:  "viewLowering=copy",
+		agreement:  "TestHostViewAgrees",
+		mutant:     "view-on-assumed",
+		unsafe:     []string{"runtime/v1/view.go BytesView"},
+		referenced: func() bool { return viewLowering == "copy" },
+	},
+	{
 		// MONO1: a call of a generic function whose type arguments are
 		// known Go types goes to a plain copy for them (mono.go). The
 		// proof is the checker's instantiation; the test build takes the

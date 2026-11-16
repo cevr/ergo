@@ -41,8 +41,15 @@ func (c *checker) hostClauses(target string, sig *Signature, at syntax.Node) {
 	}
 	for i, p := range sig.Params {
 		if s, ok := under0(p.Type).(*Signature); ok {
-			if s.NonEscaping && v1.GoSyncCallbacks[target] == "" {
-				c.errorf(at, CodeType, "%s declares a non-escaping Go callback without a reviewed clause; regenerate its binding", target)
+			if s.NonEscaping {
+				// The reviewed row acts only on its current, validated
+				// guard line (LF2d, factguard.go).
+				switch ok, refuted, why := SyncActs(target); {
+				case refuted:
+					c.errorf(at, CodeType, "%s declares a non-escaping Go callback, and its reviewed clause does not hold: %s", target, why)
+				case !ok:
+					c.errorf(at, CodeType, "%s declares a non-escaping Go callback without a reviewed clause that acts (%s); regenerate its binding", target, why)
+				}
 			}
 			continue
 		}

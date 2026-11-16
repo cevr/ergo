@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -48,6 +49,20 @@ type Decl struct {
 	// Context: the first parameter is Go's context.Context, hidden in the
 	// Ergo signature; the lowering passes the calling task's context (IG10).
 	Context bool
+	// Reads are the Ergo binders of the parameters (a method's receiver
+	// included) that Go's escape analysis says the function only reads,
+	// on every platform: the binding's `// ergo:reads` line (Derive).
+	Reads []string
+	// Vouched are the parameters the reviewed table (internal/gofacts)
+	// vouches the function only reads where Go's analysis cannot see it:
+	// one `// ergo:reads p (vouched: reason)` line each. A vouched fact
+	// acts only on a current validated line of the ledger (LAWFFI LF2).
+	Vouched []Vouch
+	// Effect is the reason of the function's memory-only row
+	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
+	// binding writes no needs row and an `// ergo:effect none (vouched:
+	// <reason>)` line.
+	Effect  string
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -56,10 +71,15 @@ type Decl struct {
 	// signature, a receiver, a defined type's underlying type); Lines
 	// are a struct's or an interface's members with their own refs.
 	// Close reads them; Render does not.
-	Refs    []string
-	Lines   []Line
-	refPkgs []*types.Package
+	Refs     []string
+	Lines    []Line
+	refPkgs  []*types.Package
+	readable []readable
 }
+
+// Vouch is a vouched `reads` fact: the parameter's Ergo binder and the
+// reviewer's reason.
+type Vouch struct{ Param, Reason string }
 
 // Line is one field or method of a mapped struct or interface.
 type Line struct {
@@ -92,6 +112,7 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 	d := m.decl(obj, recv)
 	if d.Refused == "" {
 		d.Refs = m.refs
+		d.readable = m.readable
 	}
 	d.refPkgs = m.refPkgs
 	return d
@@ -104,6 +125,58 @@ type mapper struct {
 	// ".Map" for a prelude type (Close); refPkgs their packages.
 	refs    []string
 	refPkgs []*types.Package
+	// readable are the parameters of a function that may carry a derived
+	// `reads` fact (readsShape), set by funcDecl.
+	readable []readable
+	// effect is the reason of the memory-only row the last funcDecl
+	// bound by (GBX6), or "".
+	effect string
+}
+
+// readable is a parameter, or a method's receiver, that may carry a
+// derived `reads` fact: its Go name, which Go's escape analysis prints,
+// and its binder in the Ergo signature, which the binding's
+// `// ergo:reads` line names.
+type readable struct{ goName, ergoName string }
+
+// readsShape reports a Go parameter type whose `reads` fact Go's escape
+// analysis can establish: a slice (or a type over one) whose elements
+// reach no map, interface, function or channel. Go's analysis does not
+// count a write into a map as a mutation (`m[k] = v`, `delete(m, k)` and
+// `m[k][0] = v` all print "does not escape, mutate, or call" at go1.27;
+// LF0's fixture), and it cannot follow an interface, a function value or a
+// channel, so a type that reaches one gets no fact.
+func readsShape(t types.Type) bool {
+	s, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok && plainElem(s.Elem(), map[types.Type]bool{})
+}
+
+// plainElem reports a type that reaches no map, interface, function,
+// channel or unsafe pointer through its elements, fields and pointers.
+func plainElem(t types.Type, seen map[types.Type]bool) bool {
+	t = types.Unalias(t)
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		return u.Kind() != types.UnsafePointer
+	case *types.Slice:
+		return plainElem(u.Elem(), seen)
+	case *types.Array:
+		return plainElem(u.Elem(), seen)
+	case *types.Pointer:
+		return plainElem(u.Elem(), seen)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !plainElem(u.Field(i).Type(), seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // prelude records a use of the prelude type name, which a type of the bound
@@ -178,7 +251,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context = text, variadic, ctx
+		d.Ergo, d.Variadic, d.Context, d.Effect = text, variadic, ctx, m.effect
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -234,10 +307,11 @@ func resourceType(t types.Type) bool {
 }
 
 // pure reports whether a member of the bound package is in the reviewed
-// pure tier: a package of v1.PureImports, minus v1.PureImportsExcept.
+// pure tier: a package of v1.PureImports whose guard line acts
+// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept.
 func (m *mapper) pure(name string) bool {
 	path := m.pkg.Path()
-	return slices.Contains(v1.PureImports, path) && !slices.Contains(v1.PureImportsExcept[path], name)
+	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept[path], name)
 }
 
 func (m *mapper) needs(name string) string {
@@ -282,7 +356,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// A first context.Context parameter is hidden (IG10), except in the
 	// context package itself, whose functions take a context as their
 	// subject (context.Cause(ctx)), not as the call's cancellation.
-	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target] != "", method: recv != nil,
+	sm := &sigMapper{mapper: m, subst: subst, sync: syncActs(target), method: recv != nil,
 		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
 		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
@@ -343,6 +417,18 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 			mode = "own "
 		}
 		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
+		if readsShape(r.Type()) && recv.TypeArgs().Len() == 0 && recv.TypeParams().Len() == 0 {
+			m.readable = append(m.readable, readable{r.Name(), name})
+		}
+	}
+	// A generic function's escape verdict is printed per instance shape,
+	// not per declaration, so it gets no fact (LAWFFI risk 3).
+	if sig.TypeParams().Len() == 0 && (recv == nil || recv.TypeParams().Len() == 0) {
+		for i, p := range params {
+			if v := sig.Params().At(i + first); readsShape(v.Type()) {
+				m.readable = append(m.readable, readable{v.Name(), p.name})
+			}
+		}
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
@@ -364,6 +450,12 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// whatever its package (it needs the task, which a pure frame
 		// does not have).
 		needs = " needs go.Foreign"
+	}
+	m.effect = ""
+	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
+		// A memory-only call needs no capability (GBX6): its row is
+		// what is left, and the binding says why.
+		needs, m.effect = "", e.Reason
 	}
 	if sm.usedNeeds {
 		if needs == "" {
@@ -1032,4 +1124,19 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 		return "complex128", nil
 	}
 	return "", refuse("an untyped %s constant", b.Name())
+}
+
+// syncActs reports a function whose callbacks the reviewed table
+// v1.GoSyncCallbacks lists as synchronous, with its guard line acting
+// (check.SyncActs; LAWFFI LF2d).
+func syncActs(target string) bool {
+	ok, _, _ := check.SyncActs(target)
+	return ok
+}
+
+// effectActs reports a function whose memory-only row acts
+// (check.EffectActs; np4f-plan GBX6).
+func effectActs(target string) bool {
+	ok, _, _ := check.EffectActs(target)
+	return ok
 }
