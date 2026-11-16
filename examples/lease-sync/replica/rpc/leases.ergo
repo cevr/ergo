@@ -1,0 +1,63 @@
+import lease-sync/domain
+import lease-sync/lease
+import lease-sync/replica
+import lease-sync/replica/server
+import rpc
+import time
+
+type Frame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
+type Authority = server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
+
+// Codec is the lease pool's JSON form: std rpc's derived JSON of its
+// commands and frames.
+func Codec() server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
+	server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{
+		WritePush:  func(p server.Pushed[lease.Cmd]) string { rpc.Encode(p) },
+		ReadPush:   func(text string) server.Pushed[lease.Cmd] fails rpc.Transport { try rpc.Decode[server.Pushed[lease.Cmd]]("command", text) },
+		WriteFrame: func(f Frame) string { rpc.Encode(f) },
+		ReadFrame:  func(text string) Frame fails rpc.Transport { try rpc.Decode[Frame]("frame", text) },
+	}
+}
+
+// Leases is a lease pool's authority over rpc: the provider of
+// replica.Authority that a client binary chooses for a server it dials.
+type Leases { r Remote[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] }
+
+// Dial is the lease authority at url (lease-server), with long polls.
+func Dial(url string) Leases needs Ambient { Leases{r: NewRemote(rpc.Dial(url), Codec(), true)} }
+
+// Over is the lease authority conn serves; wait asks for long polls.
+func Over(conn rpc.Conn, wait bool) Leases { Leases{r: NewRemote(conn, Codec(), wait)} }
+
+func Push(l Leases, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.Unavailable | replica.Unauthorized | replica.OutOfOrder | replica.IDConflict {
+	try Send(l.r, m)
+}
+
+func Pull(l Leases, by replica.ClientID, from int) Frame fails replica.Unavailable | replica.Unauthorized { try Fetch(l.r, by, from) }
+
+// Serve is the handler of std rpc for the lease authority a: the clients
+// allow takes, a long poll held up to wait, stamped and timed by the
+// clock the caller binds.
+func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait duration) escaping func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+	func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+		try server.Handle(a, Codec(), allow, wait, tag, payload)
+	}
+}
+
+// NewLeases is a fresh lease authority (a capacity of 2, a delta tail of
+// 8) served in this process through std rpc end to end, with no long poll:
+// the provider the Authority laws run on here.
+func NewLeases() Leases {
+	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
+	let serve = Serve(a, everyone, 0s)
+	let clock = time.NewManual(0)
+	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { Scheduler: clock, time.Clock: clock } {
+			try serve(tag, payload)
+		}
+	}), false)
+}
+
+func everyone(_ replica.ClientID) bool { true }
+
+let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}

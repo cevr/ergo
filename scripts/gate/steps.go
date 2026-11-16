@@ -319,13 +319,14 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
-	// runtime/v1 in the explored build (explore_on.go, explore_laws.go):
+	// runtime/v1 and its rpc leaf in the explored build (explore_on.go,
+	// explore_laws.go, rpc explore_rpc_test.go):
 	// the whole package, so a new test cannot skip the controlled
 	// scheduler; its waits go through the scheduler (runtime.md, Explored
 	// schedules). The tagged run has no row of its own, so the step weighs
 	// runtime/v1's record.
 	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
-	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1"}, Weight: v1, Class: classHeavy})
+	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1", "./runtime/v1/rpc"}, Weight: v1, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
