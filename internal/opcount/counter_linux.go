@@ -158,7 +158,7 @@ func Count(cmd *exec.Cmd, limit uint64) (Run, error) {
 		if ru, ok := state.SysUsage().(*syscall.Rusage); ok {
 			r.UserCPU = time.Duration(ru.Utime.Nano())
 			r.SysCPU = time.Duration(ru.Stime.Nano())
-			r.MaxRSSKiB = ru.Maxrss
+			r.MaxRSSKiB = int64(ru.Maxrss) // int32 on 386
 		}
 	} else if waitErr != nil {
 		r.Incomplete = waitErr.Error()
