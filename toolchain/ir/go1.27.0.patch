@@ -590,10 +590,10 @@ index 0000000..1a808a2
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..b8fa6b5
+index 0000000..c3c34df
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,464 @@
+@@ -0,0 +1,466 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -622,6 +622,8 @@ index 0000000..b8fa6b5
 +	switch x.K {
 +	case "result":
 +		return c.resultExpr(x) // ergoir_f7f.go
++	case "recover":
++		return c.recoverExpr(x) // ergoir_f7f.go
 +	case "local":
 +		v := c.local(x.Pos, x.I)
 +		if v == nil {
@@ -1116,10 +1118,10 @@ index 0000000..64823a0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_f7f.go b/src/cmd/compile/internal/noder/ergoir_f7f.go
 new file mode 100644
-index 0000000..53129ee
+index 0000000..54a9b0f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_f7f.go
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,113 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1198,6 +1200,24 @@ index 0000000..53129ee
 +	st := &syntax.CallStmt{Tok: syntax.Defer, Call: call}
 +	st.SetPos(pos)
 +	return st
++}
++
++// recoverExpr is "recover": Go's builtin recover(), of type any. Only a
++// function a frame defers directly reads its frame's panic with it (a
++// static frame's release, FLIP F7 RELEASE-IR).
++func (c *ergoChecker) recoverExpr(x *ergoExpr) (syntax.Expr, types2.Type) {
++	pos := c.pos(x.Pos)
++	any := types2.Universe.Lookup("any").Type()
++	fun := syntax.NewName(pos, "recover")
++	c.info.Uses[fun] = types2.Universe.Lookup("recover")
++	tv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil, nil,
++		types2.NewTuple(types2.NewParam(pos, nil, "", any)), false)}
++	tv.SetIsBuiltin()
++	fun.SetTypeInfo(tv)
++	call := &syntax.CallExpr{Fun: fun}
++	call.SetPos(pos)
++	ergoValue(call, any, nil)
++	return call, any
 +}
 +
 +// resultExpr is "result" I: the function's named result I, which a
