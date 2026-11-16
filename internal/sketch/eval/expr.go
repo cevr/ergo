@@ -342,7 +342,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
 		}
 		n, ok := t.t.(*check.Named)
-		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
+		if !ok || (check.ScriptOf(n) != nil && !ergoProvider(n)) || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
 		base, root, ab := in.peekBase(fr, x.X, path)
@@ -587,6 +587,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	n, ok := t.t.(*check.Named)
 	if _, machine := t.under().t.(*check.MachineType); ok && machine && len(x.Elts) == 0 {
 		return &machinePlan{tn: n.Obj}, nil // machinevalue.go
+	}
+	if ok && len(x.Elts) == 0 && x.Base == nil && ergoProvider(n) {
+		return in.providerLit(fr, x, n, t) // provider.go
 	}
 	if !ok || structOf(n) == nil || check.ScriptOf(n) != nil || check.IsGoError(n) {
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
