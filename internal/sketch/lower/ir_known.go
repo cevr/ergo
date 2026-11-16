@@ -81,17 +81,3 @@ func (b *irBuilder) knownField(x *syntax.CallExpr, c *check.Call) *check.Call {
 	}
 	return &check.Call{Kind: check.CallFunc, Func: g, Fails: c.Fails}
 }
-
-// admitCopyParam admits the type parameter t of a copy's body as the
-// checked type it stands for (typeCtx bound); a body that is no copy has
-// none to admit.
-func (b *irBuilder) admitCopyParam(t *check.TypeParam, depth int) {
-	if !b.fc.mono {
-		return
-	}
-	bt, ok := b.fc.bound[t]
-	if !ok {
-		irNo("type parameter of a copy without its type")
-	}
-	b.admit(bt, depth+1)
-}
