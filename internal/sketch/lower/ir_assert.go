@@ -176,6 +176,19 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 	return append(pre, &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: cond}, Then: []*irStmt{{K: "expr", Pos: p, X: fail}}})
 }
 
+// skip is `skip "reason"`: the harness's $SkipNow with the reason, which
+// ends the run ($Try reads it).
+func (b *irBuilder) skip(s *syntax.SkipStmt) []*irStmt {
+	l := b.l
+	if l.tests == nil {
+		irNo("skip outside the test build")
+	}
+	p := b.pos(s, s.Pos())
+	why, _ := s.Text()
+	call := &irExpr{K: "call", Pos: p, Name: l.helper("SkipNow"), Args: []*irExpr{{K: "const", Pos: p, T: "string", V: why}}}
+	return []*irStmt{{K: "expr", Pos: p, X: call}}
+}
+
 // assertShowFunc is the generated helper that writes a shown assert's
 // operands (assertCompare's failure text after the source text):
 // `: left L, right R`, each an Ergo literal of its type, and the line

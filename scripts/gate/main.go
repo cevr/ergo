@@ -140,6 +140,12 @@ type Step struct {
 	// caller's GOFLAGS, so Go may replay its tests.
 	// TestCachedGatePackagesAreHermetic checks each of its packages.
 	Hermetic bool
+	// Observe, set on a test step that runs its tests uncached (a fast-tier
+	// step, a full-tier package step), says it runs go test -json: the gate
+	// keeps its tests' times for the size rule (observeStep, testSeconds)
+	// and prints plain go test's text. The hermetic step replays Go's test
+	// cache, whose times are not a run's, and observes nothing.
+	Observe bool
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
 	// key (replay.PackageKey) is unchanged, and records a pass under it.
@@ -523,7 +529,7 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	if tier == fastTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
-		g.steps, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
+		g.steps, err = fastStepsSelected(g.root, g.cacheDir, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
 		})
 	} else {
@@ -1087,6 +1093,17 @@ func (g *gate) execute(step *Step) *result {
 	if command.ProcessState != nil {
 		// A reaped child's usage includes the descendants it reaped.
 		r.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
+	}
+	// A fast-tier test step printed go test -json: its times go to the
+	// store, and the text plain go test prints is what the gate shows and
+	// records (gate-speed GS33b).
+	if step.Observe {
+		text, observeErr := observeStep(g.cacheDir, g.spoolDir, spool)
+		r.spool = text
+		if observeErr != nil {
+			r.outcome = failed
+			r.output = fmt.Appendf(r.output, "gate: %s: %v\n", step.Name, observeErr)
+		}
 	}
 	if err != nil || used.verdict != "" || used.processIssue != "" {
 		r.outcome = failed

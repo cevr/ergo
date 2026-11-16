@@ -67,7 +67,7 @@ func printEmitted(opts fileOptions, mode build.Mode) error {
 	if !checked.result.Checked {
 		return refuseUnchecked(checked, opts)
 	}
-	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
+	digest, err := sketchfront.EmittedDigest(checked.analysis, emissionRequest(opts, checked, mode))
 	if err != nil {
 		return err
 	}
@@ -144,19 +144,10 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	stderr := &quiet{w: os.Stderr}
-	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeBuild,
-		Source:    l.source.Admitted(),
-		Output:    output.Path(),
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		IR:        true,
-		Stderr:    stderr,
-		Ledger:    ledgerPath(opts.file),
-		Locked:    opts.locked,
-		Report:    &report,
-		Inputs:    w.fsys(),
-	})
+	req := emissionRequest(opts, l, build.ModeBuild)
+	req.Output, req.Cache, req.Toolchain = output.Path(), build.Cache{Root: root}, tc
+	req.Stderr, req.Report, req.Inputs = stderr, &report, w.fsys()
+	module, err := sketchfront.Build(l.analysis, req)
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
 		fmt.Fprintf(os.Stderr, "LINK=%s\n", report)

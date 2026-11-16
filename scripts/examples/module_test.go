@@ -1,10 +1,13 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
@@ -53,6 +56,40 @@ func TestModuleProgram(t *testing.T) {
 	}
 	if !build {
 		t.Errorf("no build of cmd/walker in\n%q", calls)
+	}
+}
+
+// TestModuleProgramLoadsItsPackagesOnce: the runner reads a program of
+// packages (examples/calc, an example) with one load of its package
+// folders, and gets the same program as with each folder checked alone:
+// sources, targets, main and no problem. A growth guard on the loads
+// sketchfront counts (gate-speed GS31a). It catches gs31a-folders-unshared,
+// which reads every folder alone again; not parallel, so the count is
+// this load's.
+func TestModuleProgramLoadsItsPackagesOnce(t *testing.T) {
+	dir, err := filepath.Abs("../../examples/calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func() (*program, []string, int64) {
+		t.Helper()
+		before := sketchfront.WorkDone().Loads
+		p, problems := loadProgram(dir, "calc", false)
+		return p, problems, sketchfront.WorkDone().Loads - before
+	}
+	shared, sharedProblems, sharedLoads := load()
+	prior := loadPackageFolders
+	loadPackageFolders = func(string, []os.DirEntry) map[string]sketchfront.Analysis { return nil }
+	alone, aloneProblems, aloneLoads := load()
+	loadPackageFolders = prior
+	if shared == nil || alone == nil || len(sharedProblems)+len(aloneProblems) > 0 {
+		t.Fatalf("calc does not load: %q / %q", sharedProblems, aloneProblems)
+	}
+	if !slices.Equal(shared.sources, alone.sources) || !slices.Equal(shared.tests, alone.tests) || shared.main != alone.main {
+		t.Errorf("one load reads another program than a check of each folder:\n%v %v %s\n%v %v %s", shared.sources, shared.tests, shared.main, alone.sources, alone.tests, alone.main)
+	}
+	if sharedLoads != 1 {
+		t.Errorf("calc's load read its packages %d times (each folder alone: %d); want 1", sharedLoads, aloneLoads)
 	}
 }
 
