@@ -70,7 +70,7 @@ func Read(lines []string) []Line fails BadLine {
 func button(label string) ui.Locator { ui.WithRole{Role: ui.Button, Name: label} }
 
 // Host is the lookup on the test host.
-type Host = ui.TestHost[weather.Lookup, weather.Signal, Decision[weather.Lookup, Never]]
+type Host = ui.TestHost[weather.Lookup, weather.Signal, Decision[weather.Lookup, weather.Never]]
 
 // Run reads the script from io.Stdin and plays it on the screen, on std
 // ui's test host over clock, with the Forecast of its context. It shows
@@ -88,7 +88,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | weather.F
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let app = actor.StartMachine(weather.Weather{}, 8, func(o Never) {})
+	let app = actor.StartMachine(weather.Weather{}, 8, func(o weather.Never) {})
 	let status = play(app, clock, script) catch {
 	case actor.Stopped:
 		Console.Println("? the lookup stopped")
@@ -101,7 +101,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | weather.F
 	status
 }
 
-func play(app actor.Actor[weather.Lookup, weather.Signal, Decision[weather.Lookup, Never]], clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
+func play(app actor.Actor[weather.Lookup, weather.Signal, Decision[weather.Lookup, weather.Never]], clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
 	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 8)
 	Console.Println(Shown(&h))
 	for x in script {

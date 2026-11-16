@@ -109,15 +109,15 @@
     {
       "name": "fkg1g5-starting-reads-a-stop", "origin": "wf10/fkg1-g5",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tSome{pressNow(Start)}\n",
-      "to": "\t\tSome{pressNow(Stop)}\n",
+      "from": "\t\tSome{Start}\n",
+      "to": "\t\tSome{Stop}\n",
       "rule": "The work of a Start click sends the press of Start (law ClickThenWorkIsThePress).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
       "name": "fkg1g5-stopping-has-no-work", "origin": "wf10/fkg1-g5",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tSome{pressNow(Stop)}\n",
+      "from": "\t\tSome{Stop}\n",
       "to": "\t\tNone\n",
       "rule": "A click of Stop is answered by a work that reads the clock (law ClickThenWorkIsThePress).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
