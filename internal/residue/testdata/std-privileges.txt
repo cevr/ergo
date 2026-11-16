@@ -35,8 +35,6 @@ language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test'
 language	internal/sketch/check/call.go:checker.collFuncs	the prelude collection functions Append, Get, Delete and Put	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
-language	internal/sketch/check/close.go:checker.closeFacts	Close, the release operation	-
-language	internal/sketch/check/close.go:checker.closeTakes	Close, the release operation	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
 language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
 language	internal/sketch/check/implements.go:checker.recordLegacyReleases	Closer, the release contract (ergo fix)	-
@@ -80,14 +78,12 @@ language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the met
 language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
 language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
 language	internal/sketch/check/footprint.go:preludeCollection	the prelude collection functions	-
-language	internal/sketch/check/hostres.go:checker.hostCloseFunc	Close, the release operation of a host resource	-
 language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
 language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
 language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
 language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the release operation	-
 language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
-language	internal/sketch/check/takes.go:checker.takesPass	Close, the release operation	-
 language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
 language	internal/sketch/eval/arguments.go:interp.argumentType	prelude types are the program's	-
 language	internal/sketch/eval/expr.go:interp.collectionCall	the prelude collection functions	-

@@ -124,7 +124,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		// dread-decode-not-lent).
 		{name: "lent to decode", src: cellReader + "func main() { let r Src = src{at: 0}\n let n = decode[int](r) catch { case _: 0 }\n let _ = n }\n"},
 		{name: "package let", src: cellLib + "let shared Bag = NewBox()\nfunc main() { }\n", line: 18, want: "the package let shared holds the provider cell Bag"},
-		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag has no Close"},
+		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag does not include Closer"},
 		{name: "use after move", src: resource(true) + "func main() { let k = Kept{r: Res{id: 1}, n: 0}\n let c Bag = k\n let n = k.n\n let _ = n\n c.Add(1) }\n", line: 14, want: "k was handed off"},
 	} {
 		t.Run(row.name, func(t *testing.T) {

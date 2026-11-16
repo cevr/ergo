@@ -121,8 +121,8 @@ func TestStepAllocs(t *testing.T) {
 // returned by value (genericunion.go) and the state a flat union. It
 // builds the emitted code with a Go test beside it, because allocation is
 // a fact of Go's escape analysis of the lowered code, which no in-process
-// check sees. It kills the mutants that keep the old lowering (msb1-
-// generic-off, msb1-generic-shape-off) and the step's call (the step is
+// check sees. It kills the mutant that keeps the old lowering
+// (msb1-generic-off) and the step's call (the step is
 // a Go call, not inlined: the guard reads the lowered text).
 func TestMachineStepAllocates(t *testing.T) {
 	needsBuild(t)

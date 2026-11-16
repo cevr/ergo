@@ -149,7 +149,7 @@ func found[S, E, D, F](h *Host[S, E, D, F], label string) ui.Id[E] fails ui.NoNo
 
 // labelledIn is acc and the nodes under id whose label is label, in tree
 // order, none searched below a match.
-func labelledIn[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+func labelledIn[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E], label string, acc own []ui.Id[E]) []ui.Id[E] {
 	let mut out = acc
 	for k in kidsOf(h, id) {
 		match h.nodes.Get(k) {

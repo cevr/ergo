@@ -223,7 +223,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("record key")
 				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				lit.Elems = append(lit.Elems, b.expr(kv.Value))
+				// A field of a generic record's instance may hold a union
+				// its type argument names (failureCase[A | B]{Error: A{}}):
+				// the value goes into it as the emitter's Go assignment
+				// puts it (assignedTo, ir_union.go).
+				val := b.expr(kv.Value)
+				for _, f := range s.Fields {
+					if f.Name == k.Name {
+						val = b.assignedTo(kv.Value, val, f.Type)
+					}
+				}
+				lit.Elems = append(lit.Elems, val)
 			}
 		default:
 			irNo("literal of %T", t)

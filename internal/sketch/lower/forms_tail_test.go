@@ -52,8 +52,8 @@ var tailTrails = []string{"//line main.ergo:9:1", "// done", "", "/* block\n*/",
 // reference, renameTailScan over the whole body, does. It kills the
 // mutants lw1b-tail-two-tokens-refused (a tail split as "res =" then "X"
 // is refused unscanned), lw1b-tail-block-judged (a body with a block comment
-// is judged by its last line) and lw1b-tail-comment-line-read (a comment-only
-// last line is read as the tail). A failing seed prints the body and both
+// is judged by its last line) and lw1b-tail-comment-line-read (a last line
+// of only a comment is read as the tail). A failing seed prints the body and both
 // results; replay with go test -run TestRenameTailTailCheckAgrees.
 func TestRenameTailTailCheckAgrees(t *testing.T) {
 	renamed, skipped := 0, 0

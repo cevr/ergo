@@ -1129,6 +1129,84 @@ func main() {
 	use(Mine)
 }
 `,
+	// std code's operation types (SEMTOOLS SEM2): a program provides each
+	// one; these rows delegate to std code's own providers.
+	"code.Reader": `import code
+
+type Mine { s code.Scan } implements code.Reader
+
+func Describe(m Mine) code.Summary { m.s.Describe() }
+func Symbols(m Mine, q code.SymbolQuery) code.SymbolPage { m.s.Symbols(q) }
+func Symbol(m Mine, a string) code.Decl fails code.NoSymbol | code.Ambiguous { try m.s.Symbol(a) }
+func References(m Mine, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous { try m.s.References(q) }
+func Calls(m Mine, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable { try m.s.Calls(q) }
+func Api(m Mine, q code.ApiQuery) code.ApiView fails code.NoPackage { try m.s.Api(q) }
+func Reach(m Mine, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous { try m.s.Reach(q) }
+func MachineOf(m Mine, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine { try m.s.MachineOf(a) }
+
+func use(r code.Reader) { _ = r.Describe() }
+
+func main() {
+	use(Mine{s: code.NewScan(0)})
+}
+`,
+	"code.Files": `import code
+
+type Mine { d code.Disk } implements code.Files
+
+func Read(m Mine, path string) string fails code.Missing | code.IOFailed { try m.d.Read(path) }
+func Write(m Mine, path string, text string) fails code.IOFailed { try m.d.Write(path, text) }
+func Exchange(m Mine, a string, b string) fails code.Missing | code.IOFailed { try m.d.Exchange(a, b) }
+func Remove(m Mine, path string) fails code.IOFailed { try m.d.Remove(path) }
+func Exists(m Mine, path string) bool fails code.IOFailed { try m.d.Exists(path) }
+func Lock(m Mine) fails code.Busy | code.IOFailed { try m.d.Lock() }
+func Unlock(m Mine) fails code.IOFailed { try m.d.Unlock() }
+
+func use(f code.Files) { _ = f.Exists("a") catch { case code.IOFailed: false } }
+
+func main() {
+	use(Mine{d: code.NewDisk(0)})
+}
+`,
+	"code.Checker": `import code
+
+type Mine {} implements code.Checker
+
+func Check(_ Mine, sources []code.Source) code.Report fails code.CheckFailed { code.CheckFailed{Reason: "none"} }
+func Format(_ Mine, text string) string fails code.CheckFailed { text }
+
+func use(c code.Checker) { _ = c.Format("x") catch { case code.CheckFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"code.Planner": `import code
+
+type Mine { s code.Session } implements code.Planner
+
+func Plan(m Mine, c code.Change) code.Planned fails code.BadChange | code.NameTaken | code.OutsideWorkspace | code.Capture { try m.s.Plan(c) }
+func PlanOf(m Mine, id string) code.Planned fails code.NoPlan { try m.s.PlanOf(id) }
+
+func use(p code.Planner) { _ = p.PlanOf("x") catch { case code.NoPlan: return } }
+
+func main() {
+	use(Mine{s: code.NewSession(0)})
+}
+`,
+	"code.Writer": `import code
+
+type Mine { a code.Applier } implements code.Writer
+
+func Apply(m Mine, id string) code.Receipt fails code.NoPlan | code.NotReady | code.Stale | code.Busy | code.IOFailed { try m.a.Apply(id) }
+func Recover(m Mine) code.Recovered fails code.Busy | code.IOFailed { try m.a.Recover() }
+
+func use(w code.Writer) { _ = w.Recover() catch { case code.Busy, code.IOFailed: return } }
+
+func main() {
+	use(Mine{a: code.NewApplier(0)})
+}
+`,
 	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
 	// runtimeOnly, made only by the composer.
 	"ui.GroupArgs": `import ui
@@ -1206,6 +1284,11 @@ var openStd = map[string]bool{
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
+	"code.Reader":       true,
+	"code.Files":        true,
+	"code.Checker":      true,
+	"code.Planner":      true,
+	"code.Writer":       true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 

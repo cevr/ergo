@@ -1725,8 +1725,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/call.go:checker.collFuncs` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
-| `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
-| `internal/sketch/check/close.go:checker.closeTakes` | `Close` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
@@ -1739,14 +1737,12 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
 | `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
-| `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
 | `internal/sketch/check/match.go:reusableBinderName` | `Decision` |
 | `internal/sketch/check/ownership.go:checker.checkOwnership` | `Close` |
 | `internal/sketch/check/releaseneeds.go:checker.releaseWider` | `Close` |
 | `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
-| `internal/sketch/check/takes.go:checker.takesPass` | `Close` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
 | `internal/sketch/eval/expr.go:interp.collectionCall` | `Append`, `Get`, `Delete`, `Put` |

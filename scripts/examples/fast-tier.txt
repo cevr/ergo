@@ -41,6 +41,7 @@ kvstore
 lease-sync
 logstat
 lookup
+lru
 lzpack
 mdhtml
 metrics

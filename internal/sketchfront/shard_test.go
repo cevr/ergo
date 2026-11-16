@@ -176,7 +176,7 @@ func bodyEdits(src string) []int {
 // program, so every edit changes a package of 144 KB and more. It lowers
 // in process; TestBodyEditCompilesOneShard counts the compiles of a build.
 // A failing seed prints the edit and the replay command
-// (ERGO_SHARD_SEED=n). Mutants: ft9-shard-max-ignored.
+// (ERGO_SHARD_SEED=n).
 func TestBodyEditChangesOneShard(t *testing.T) {
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_SHARD_SEED"); s != "" {

@@ -70,7 +70,7 @@ func codeRunOn(t *testing.T, tables string, args ...string) (int, string, string
 //     asked.
 //
 // Every example program, in an order the seed draws; full tier only. ERGO_CODE_SEED=N replays a seed. Mutants code-root-main,
-// code-short-first, code-site-dropped, code-call-value-dropped
+// code-short-first, code-call-value-dropped
 // (cmd/ergo/testdata/mutants.json).
 func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
 	if testing.Short() {
@@ -858,7 +858,7 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 // generated command line prints a typed failure (its tag and its JSON on
 // standard error, status 1; on standard output with --json). A package
 // that does not check gives the rows the checker resolved, with complete
-// false and its error count. Mutants code-complete-ignores-errors,
+// false and its error count. Mutant
 // code-partial-dropped (cmd/ergo/testdata/mutants.json).
 func TestCodeFailureText(t *testing.T) {
 	dir := t.TempDir()
