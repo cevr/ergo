@@ -2530,6 +2530,7 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
+				f.collOp = collOps[key] // collop.go
 				c.pkg.collFuncs[key] = f
 			}
 		}

@@ -498,7 +498,7 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 		return nil, nil
 	}
 	c := fr.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || c.Func.Name == "Get" {
+	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || check.CollOpOf(c.Func) == check.CollGet {
 		return nil, nil
 	}
 	id, ok := unparen(c.Recv).(*syntax.Ident)

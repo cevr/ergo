@@ -553,6 +553,7 @@ func (e *encoder) encFieldsFunc(v *Func) {
 	e.encPtrNamed(v.owner)
 	e.encT24(v.selfArgs)
 	e.encPtrNamed(v.opOwner)
+	e.encCollOp(v.collOp)
 	e.encT5(v.same)
 	e.encT12(v.overloaded)
 	e.encT1(v.size)
@@ -2113,6 +2114,8 @@ func (e *encoder) encPtrSyntax_FuncDecl(v *syntax.FuncDecl) {
 	}
 	e.uint(e.nodes.ID(v))
 }
+
+func (e *encoder) encCollOp(v CollOp) { e.uint(uint64(v)) }
 
 func (e *encoder) encFieldsGoExtern(v *GoExtern) {
 	e.encGoAdapter(v.Adapter)
@@ -11062,6 +11065,7 @@ func (d *decoder) decFieldsFunc(v *Func) {
 	v.owner = d.decPtrNamed()
 	v.selfArgs = d.decT24()
 	v.opOwner = d.decPtrNamed()
+	v.collOp = d.decCollOp()
 	v.same = d.decT5()
 	v.overloaded = d.decT12()
 	v.size = d.decT1()
@@ -12622,6 +12626,8 @@ func (d *decoder) decPtrSyntax_FuncDecl() *syntax.FuncDecl {
 	}
 	return x.(*syntax.FuncDecl)
 }
+
+func (d *decoder) decCollOp() CollOp { return CollOp(d.uint()) }
 
 func (d *decoder) decFieldsGoExtern(v *GoExtern) {
 	v.Adapter = d.decGoAdapter()

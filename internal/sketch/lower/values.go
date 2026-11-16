@@ -640,19 +640,21 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 	}
 }
 
-// preludeAppend reports the prelude's Append or an extern that binds Go's
-// append (check/builtin.go): a call that may write past its source's length,
-// so its source is clipped where it is not new or dead (V3).
+// preludeAppend reports the slice operation Append (check.CollOpOf) or an
+// extern that binds Go's append (check/builtin.go): a call that may write
+// past its source's length, so its source is clipped where it is not new
+// or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append" || appenderExtern(f)
+	return check.GoBuiltin(f) == "append" || check.CollOpOf(f) == check.CollAppend || appenderExtern(f)
 }
 
-// preludeMapWrite reports the prelude's Delete or Put, or an extern that
-// binds Go's delete (check/builtin.go; the prelude's Delete is one): a call
-// that writes its Map source when it may (V3), and writes a copy of it
-// otherwise.
+// preludeMapWrite reports the Map operation Delete or Put
+// (check.CollOpOf), or an extern that binds Go's delete (check/builtin.go):
+// a call that writes its Map source when it may (V3), and writes a copy of
+// it otherwise.
 func preludeMapWrite(f *check.Func) bool {
-	return check.GoBuiltin(f) == "delete" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
+	op := check.CollOpOf(f)
+	return check.GoBuiltin(f) == "delete" || op == check.CollDelete || op == check.CollPut
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {

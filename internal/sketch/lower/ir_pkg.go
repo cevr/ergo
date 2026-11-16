@@ -14,7 +14,6 @@ package lower
 
 import (
 	"fmt"
-	"go/ast"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -222,53 +221,15 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 }
 
-// builtinAppend reports a call of an intrinsic that the IR writes as Go's
-// builtin append (FLIP F3), not as a call of the intrinsic's Go function:
-// one whose runtime/v1 body is `return append(xs, x)` of its two
-// parameters, in order (goBodyIsAppend), a fact of the body's shape, not
-// of its name. The two are one append, but Go sees the builtin at once,
-// and with it a place appended back to itself. The value rule has already
-// clipped the source of a call that may not write it in place
+// builtinAppend reports the slice operation Append (check.CollOpOf),
+// which the IR writes as Go's builtin append (FLIP F3, PRIM), not as a
+// call of its runtime/v1 body (the Go reference). Go sees the builtin at
+// once, and with it a place appended back to itself. The value rule has
+// already clipped the source of a call that may not write it in place
 // (valueSource), and the builtin takes that clipped source, so an append
 // to a place another value shares still copies.
 func (b *irBuilder) builtinAppend(f *check.Func) bool {
-	if f.Decl == nil || f.Decl.Extern == nil {
-		return false
-	}
-	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyIsAppend(name)
-}
-
-// goBodyIsAppend reports a runtime/v1 function whose body is one return
-// of Go's builtin append of its two parameters, in order, with no spread.
-func goBodyIsAppend(name string) bool {
-	fd := goBodies()[name]
-	if fd == nil || fd.Body == nil || len(fd.Body.List) != 1 || fd.Type.Params == nil {
-		return false
-	}
-	var params []string
-	for _, p := range fd.Type.Params.List {
-		for _, n := range p.Names {
-			params = append(params, n.Name)
-		}
-	}
-	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 || len(params) != 2 {
-		return false
-	}
-	call, ok := ret.Results[0].(*ast.CallExpr)
-	if !ok || call.Ellipsis.IsValid() || len(call.Args) != 2 {
-		return false
-	}
-	if fun, ok := call.Fun.(*ast.Ident); !ok || fun.Name != "append" {
-		return false
-	}
-	for i, a := range call.Args {
-		if id, ok := a.(*ast.Ident); !ok || id.Name != params[i] {
-			return false
-		}
-	}
-	return true
+	return check.CollOpOf(f) == check.CollAppend
 }
 
 // admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
