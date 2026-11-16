@@ -32,8 +32,8 @@ type FuncRewrite struct {
 //     rewriting ends and f(a, b) == f(b, a) is no rewrite;
 //  3. no guard: no parameter takes a where (no given in v1);
 //  4. pure: each function either side calls is an Ergo function with an
-//     empty footprint and no needs row, or a Go body in the reviewed pure
-//     set;
+//     empty footprint and an empty needs clause; else a Go body in the
+//     reviewed pure set;
 //  5. value class: the sides' type has key equality and holds no pointer,
 //     operation type, function, type parameter or Go type;
 //  6. failures: the right side fails nothing the left side does not;
@@ -212,8 +212,9 @@ func unwrapTry(x syntax.Expr) syntax.Expr {
 }
 
 // rewriteImpure is why the function call calls is not pure for a
-// rewrite, "" when it is: an Ergo function with an empty footprint and no
-// needs row, or a Go body that the reviewed pure set holds (pureStd).
+// rewrite, "" when it is: an Ergo function with an empty footprint and an
+// empty needs clause; else a Go body that the reviewed pure set holds
+// (pureStd).
 func rewriteImpure(call *Call) string {
 	f := call.Func
 	if call.Needs != nil && !call.Needs.Empty() {
