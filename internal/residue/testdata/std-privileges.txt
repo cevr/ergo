@@ -146,3 +146,4 @@ debt	internal/sketch/lint/rule_race_for_timeout.go:checkRaceForTimeout	decides b
 debt	internal/sketch/lint/rule_unbounded_collect.go:checkUnboundedCollect	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/rule_with_at_entry.go:checkWithAtEntry	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.stdOpCall	decides by std membership or a std name; came with IRG4b r2 on flip-f1, developed beside the rule (FLIP F7 FORK merge of F1 and F2)	OPC
