@@ -17,6 +17,7 @@ import (
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -70,7 +71,7 @@ func TestCompilerTypesAgreeWithChecker(t *testing.T) {
 		if d := setDiff(kinds, runDump(t, ctx, kd, append([]string{e}, files...)...)); d != "" {
 			t.Errorf("%s: kinds differ (go -, ergo +):\n%s", rel(dir), d)
 		}
-		if d := setDiff(fields, runDump(t, ctx, td, append([]string{e, f}, files...)...)); d != "" {
+		if d := setDiff(fields, dropCharged(runDump(t, ctx, td, append([]string{e, f}, files...)...))); d != "" {
 			t.Errorf("%s: types differ (go -, ergo +):\n%s", rel(dir), d)
 		}
 	}
@@ -160,7 +161,7 @@ func TestCompilerTypesProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		if got := runDump(t, ctx, td, e, f, file); setDiff(want, got) != "" {
+		if got := dropCharged(runDump(t, ctx, td, e, f, file)); setDiff(want, got) != "" {
 			report(seed, src, want, got)
 		}
 	}
@@ -329,6 +330,15 @@ func goKinds(pkg *check.Package) (local, ext []string) {
 			local = append(local, tn.Name+" "+paramKinds(n))
 		}
 	}
+	for _, f := range pkg.Funcs {
+		if f.Decl.Recv == nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+			ws := make([]string, len(f.Sig.TParams))
+			for i, tp := range f.Sig.TParams {
+				ws[i] = kindWord(tp)
+			}
+			local = append(local, "func "+f.Name+" "+strings.Join(ws, ","))
+		}
+	}
 	visible(pkg, func(qual, name string, tn *check.TypeName) {
 		n, ok := tn.Type.(*check.Named)
 		if !ok || len(n.TParams) == 0 {
@@ -358,6 +368,10 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 		if !ok {
 			continue
 		}
+		if def, _ := fieldOf(reflect.ValueOf(n), "def").Interface().(check.Type); def != nil {
+			fields = append(fields, "def "+tn.Name+" "+def.String())
+			continue
+		}
 		u, _ := fieldOf(reflect.ValueOf(n), "under").Interface().(check.Type)
 		s, ok := u.(*check.Struct)
 		if !ok {
@@ -376,6 +390,16 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 			fields = append(fields, tn.Name+"."+f.Name+" "+f.Type.String())
 		}
 	}
+	for _, f := range pkg.Funcs {
+		switch {
+		case f.Decl.Recv != nil || f.Sig == nil:
+		case wiredOfType(f):
+			fields = append(fields, "func "+f.Name+" ?")
+		default:
+			fields = append(fields, "func "+f.Name+" "+f.Sig.String())
+		}
+	}
+	fields = dropCharged(fields)
 	visible(pkg, func(qual, name string, tn *check.TypeName) {
 		arity, path := 0, "-"
 		if n, ok := tn.Type.(*check.Named); ok {
@@ -386,6 +410,25 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 		}
 		foreign = append(foreign, fmt.Sprintf("%s %s %d %s %s", qual, name, arity, path, printKey(tn)))
 	})
+	visible(pkg, func(qual, name string, tn *check.TypeName) {
+		n, ok := tn.Type.(*check.Named)
+		if !ok || len(n.TParams) > 0 {
+			return
+		}
+		u, ok := fieldOf(reflect.ValueOf(n), "under").Interface().(*check.Union)
+		if !ok || u == nil || len(u.Variants) == 0 {
+			return
+		}
+		vs := make([]string, 0, len(u.Variants))
+		for _, v := range u.Variants {
+			vn, ok := v.(*check.Named)
+			if !ok || vn.Obj == nil || vn.Obj.Pkg != tn.Pkg {
+				return
+			}
+			vs = append(vs, vn.Obj.Name)
+		}
+		foreign = append(foreign, "@union "+qual+" "+name+" "+strings.Join(vs, ","))
+	})
 	sort.Strings(fields)
 	sort.Strings(foreign)
 	qual := "1"
@@ -394,6 +437,61 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 	}
 	foreign = append([]string{"@pkg " + pkg.Name + " " + pkg.Path + " " + qual}, foreign...)
 	return fields, foreign
+}
+
+// chargedRe matches go.Foreign in a capability row. The body check
+// charges it to a function whose body calls Go (expr.go charge), so it is
+// S3d's, not the written signature's; both sides drop it.
+func dropCharged(ls []string) []string {
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		if strings.HasPrefix(l, "func ") {
+			for _, c := range []string{"go.Foreign | ", " | go.Foreign", " needs go.Foreign"} {
+				l = strings.ReplaceAll(l, c, "")
+			}
+		}
+		out[i] = l
+	}
+	return out
+}
+
+// wiredOfType reports whether f's signature writes wired[T] of a T that
+// is not one of its bracket parameters: that row is the codec rows of
+// what T reaches (wirecall.go wireRow), which S3t does not resolve yet,
+// so both sides print the signature as "?".
+func wiredOfType(f *check.Func) bool {
+	params := map[string]bool{}
+	if f.Decl.TypeParams != nil {
+		for _, fl := range f.Decl.TypeParams.List {
+			for _, n := range fl.Names {
+				params[n.Name] = true
+			}
+		}
+	}
+	found := false
+	syntax.Inspect(f.Decl.Type, func(n syntax.Node) bool {
+		ix, ok := n.(*syntax.IndexExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := ix.X.(*syntax.Ident); ok && id.Name == "wired" {
+			if a, ok := unparenX(ix.Indices[0]).(*syntax.Ident); !ok || len(ix.Indices) != 1 || !params[a.Name] {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func unparenX(x syntax.Expr) syntax.Expr {
+	for {
+		p, ok := x.(*syntax.ParenExpr)
+		if !ok {
+			return x
+		}
+		x = p.X
+	}
 }
 
 func printKey(tn *check.TypeName) string {
@@ -445,6 +543,7 @@ func genKinds(seed uint32) string {
 		// The package's own Map: Map[K, V] is its instance.
 		decls = append(decls, decl{"Map", []string{"A", "B"}, "record"})
 	}
+	inMap := false
 	var ty func(ps []string, d int) string
 	ty = func(ps []string, d int) string {
 		leaf := func() string {
@@ -470,9 +569,15 @@ func genKinds(seed uint32) string {
 		case 5:
 			return "func(x " + ty(ps, d-1) + ") " + ty(ps, d-1)
 		case 6:
+			if inMap {
+				return leaf()
+			}
 			return "Map[string, " + ty(ps, d-1) + "]"
 		case 7, 8:
 			g := pick(r, decls)
+			if inMap && g.name == "Map" {
+				return leaf()
+			}
 			args := make([]string, len(g.params))
 			for i := range args {
 				switch x := r.next(); {
@@ -502,10 +607,16 @@ func genKinds(seed uint32) string {
 		bracket := strings.Join(bs, ", ")
 		switch g.shape {
 		case "record":
+			// The package's own Map names no instance of itself: the Go
+			// checker does not end on Map[A comparable, B] { f0
+			// Option[Map[B, B]], f1 Map[string, Map[int, A]] } (S3t
+			// follow-up CK-MAPGROW).
+			inMap = g.name == "Map"
 			fs := make([]string, len(g.params))
 			for i := range fs {
 				fs[i] = fmt.Sprintf("f%d %s", i, ty(g.params, 2))
 			}
+			inMap = false
 			lines = append(lines, "type "+g.name+"["+bracket+"] { "+strings.Join(fs, ", ")+" }", "")
 		case "ops":
 			var ms []string
@@ -559,7 +670,12 @@ func genKinds(seed uint32) string {
 				args[j] = "int"
 			}
 		}
-		lines = append(lines, fmt.Sprintf("func use%d[%s](g %s[%s], h %s) int { 0 }", i, strings.Join(own, ", "), g.name, strings.Join(args, ", "), ty(own, 1)), "")
+		bracket := strings.Join(own, ", ")
+		if r.next() < 0.2 {
+			// A constrained parameter is a type, whatever its positions.
+			bracket += " comparable"
+		}
+		lines = append(lines, fmt.Sprintf("func use%d[%s](g %s[%s], h %s) int { 0 }", i, bracket, g.name, strings.Join(args, ", "), ty(own, 1)), "")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -574,7 +690,8 @@ func genTypes(seed uint32) string {
 	errRow := func() string {
 		xs := make([]string, 1+r.n(3))
 		for i := range xs {
-			xs[i] = pick(r, append(append([]string{}, errs...), "fs.NotFound", "fs.Denied", "fs.Failed"))
+			// EU and flag.Failure are unions: a row lists their variants.
+			xs[i] = pick(r, append(append([]string{}, errs...), "fs.NotFound", "fs.Denied", "fs.Failed", "EU", "flag.Failure"))
 		}
 		return strings.Join(xs, " | ")
 	}
@@ -641,13 +758,14 @@ func genTypes(seed uint32) string {
 		}
 		return base()
 	}
-	lines := []string{"import fs", "import sync", "import time", ""}
+	lines := []string{"import flag", "import fs", "import sync", "import time", ""}
 	for _, e := range errs {
 		lines = append(lines, "type "+e+" { Why string }")
 	}
 	lines = append(lines,
-		"type Uses { a fs.NotFound, b sync.Ref[int], c time.Time }",
+		"type Uses { a fs.NotFound, b sync.Ref[int], c time.Time, d flag.Help }",
 		"type Box[T] { v T }",
+		"type EU = EU0{Why string} | EU1{Why string} | E2",
 		"type Job[T, F] { run func() T fails F }",
 		"type Cap[T, F, U] { run func() T fails F needs U }",
 		// A row whose order by package-qualified key ($zz, fs., main.)
@@ -677,6 +795,57 @@ func genTypes(seed uint32) string {
 		}
 		lines = append(lines, "type "+name+" { "+strings.Join(fs, ", ")+" }")
 	}
+	// Defined types, a refined one (its derived ParseD), and functions
+	// whose parameters are marked, whose rows name unions and wired[T].
+	lines = append(lines, "",
+		"type D0 "+pick(r, []string{"[]int", "Map[string, R0]", "func(int) string fails E0", "[3]byte"}),
+		"type D1 int where it > 0",
+		"type d2 string where len(it) > 0")
+	for i := range 1 + r.n(4) {
+		tps := pick(r, []string{"", "[T]", "[T wire]", "[T, F]"})
+		var ps []string
+		if strings.Contains(tps, "T") {
+			ps = []string{"T"}
+		}
+		var params []string
+		for j := range 1 + r.n(3) {
+			switch k := r.next(); {
+			case k < 0.15:
+				params = append(params, fmt.Sprintf("g%d own func(int) int", j))
+			case k < 0.35:
+				params = append(params, fmt.Sprintf("g%d entry func(int)", j))
+			case k < 0.45:
+				params = append(params, fmt.Sprintf("r%d R0", j))
+			default:
+				params = append(params, fmt.Sprintf("p%d %s", j, ty(1, ps)))
+			}
+		}
+		res, body := "", "{}"
+		if r.next() < 0.5 {
+			// Not a function type: a non-escaping one is never returned.
+			params = append([]string{"x " + ty(0, ps)}, params...)
+			res, body = " "+strings.SplitN(params[0], " ", 2)[1], "{ x }"
+		}
+		clauses := ""
+		if r.next() < 0.6 {
+			row := errRow()
+			if tps == "[T, F]" && r.next() < 0.5 {
+				row = "F | " + row
+			}
+			if tps == "[T wire]" && r.next() < 0.6 {
+				row += " | wired[T]"
+			}
+			clauses += " fails " + row
+		}
+		if r.next() < 0.4 {
+			if tps == "[T wire]" && r.next() < 0.6 {
+				clauses += " needs wired[T]"
+			} else {
+				clauses += " needs " + pick(r, []string{"fs.Files", "time.Clock", "fs.Files | time.Clock"})
+			}
+		}
+		lines = append(lines, fmt.Sprintf("func f%d%s(%s)%s%s %s", i, tps, strings.Join(params, ", "), res, clauses, body))
+	}
 	lines = append(lines, "", "func main() {}", "")
 	return strings.Join(lines, "\n")
 }
@@ -701,6 +870,17 @@ func typeForms() map[string]*regexp.Regexp {
 		"empty row":                regexp.MustCompile(`, \]`),
 		"variant":                  regexp.MustCompile(`^R\dV\d \[`),
 		"variant with a parameter": regexp.MustCompile(`^R\dV\d \[T\]`),
+		"func":                     regexp.MustCompile(`^func f\d `),
+		"own param":                regexp.MustCompile(`^func f\d func\(.*own func\(int\) int`),
+		"own record param":         regexp.MustCompile(`^func f\d func\((.*, )?main\.R0`),
+		"def":                      regexp.MustCompile(`^def D0 `),
+		"refined parse":            regexp.MustCompile(`^func ParseD1 func\(int\) main\.D1 fails Unsatisfied$`),
+		"lower refined parse":      regexp.MustCompile(`^func parseD2 `),
+		"local union row":          regexp.MustCompile(`fails .*main\.EU0`),
+		"foreign union row":        regexp.MustCompile(`fails .*flag\.Help`),
+		"wired":                    regexp.MustCompile(`fails .*WireWrongKind.* wired\[T\]`),
+		"wired needs":              regexp.MustCompile(`needs wired\[T\]`),
+		"row param":                regexp.MustCompile(`fails F \| `),
 		"row by key":               regexp.MustCompile(`fails zz \| fs\.Denied \| main\.E\d$`),
 	}
 }
