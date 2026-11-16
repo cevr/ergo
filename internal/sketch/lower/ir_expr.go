@@ -236,6 +236,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				irNo("record literal without every field")
 			}
 			var values []syntax.Expr
+			var fts []check.Type
 			for i, e := range x.Elts {
 				name := ""
 				kv, keyed := e.(*syntax.KeyValueExpr)
@@ -255,18 +256,19 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				default:
 					irNo("unkeyed record literal")
 				}
-				v := values[len(values)-1]
+				var ft check.Type
 				for _, f := range s.Fields {
-					if f.Name == name && b.fc.goType(b.l.info.Types[v]) != b.fc.goType(f.Type) {
-						// Go converts a variant to its row's error field;
-						// the decoder takes identical types only (I-FLIP:
-						// examples/jobs).
-						irNo("record field of a converted value")
+					if f.Name == name {
+						ft = f.Type
 					}
 				}
+				fts = append(fts, ft)
 				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
+			for i, e := range lit.Elems {
+				lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go (B-CONVFIELD)
+			}
 		default:
 			irNo("literal of %T", t)
 		}
