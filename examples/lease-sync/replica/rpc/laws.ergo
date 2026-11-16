@@ -92,7 +92,7 @@ law AgreesWithMemory(ops []int, froms []int) {
 // virtual clock c, for the clients allow takes, with long polls held up
 // to 30s. The request's wait for its call is one the clock sees, so a
 // held pull moves the time (runtime.md, Machines and actors 9.6).
-func loopback(allow escaping func(by replica.ClientID) bool, c testing.VirtualClock) Leases {
+func loopback(allow own func(by replica.ClientID) bool, c testing.VirtualClock) Leases {
 	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
 	let serve = Serve(a, allow, 30s)
 	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
@@ -169,7 +169,7 @@ test IdleCostsOneCallPerWait {
 
 // Flaky is a lease authority whose next Left pushes fail Unavailable
 // before they reach it; it records the id of each push it is given.
-type Flaky { inner Leases, left sync.Ref[int], seen sync.Ref[[]domain.CommandID] }
+type Flaky { inner Leases, left sync.Ref[int], seen sync.Ref[[]domain.CommandID] } implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 
 func NewFlaky() Flaky { Flaky{inner: NewLeases(), left: sync.NewRef(2), seen: sync.NewRef([]domain.CommandID{})} }
 

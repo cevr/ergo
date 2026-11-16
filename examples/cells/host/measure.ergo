@@ -15,7 +15,7 @@ let CellH = float32(16)
 
 // Cells is the Measure of the grid: every rune one cell, every line one
 // row, lines broken at spaces as layout.Monospace breaks them.
-type Cells {}
+type Cells {} implements layout.Measure
 
 // words are the runs of the paragraphs of text, by line feed.
 func paragraphs(text string) [][]string {

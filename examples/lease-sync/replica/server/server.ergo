@@ -54,7 +54,7 @@ type Bells { Next int, Waiting Map[int, queue.Queue[int]] }
 // TODO(lane CK, the unit for types.md Generics 1's Exit[int, Bad]): once a
 // one-type row's value type is that type in a generic argument, Start
 // catches src.Decide's R itself and Facts goes.
-func Start[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide escaping func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
+func Start[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide own func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
 	let empty = memory.Book[replica.Fact[E, F]]{Streams: Map[string, []domain.Recorded[replica.Fact[E, F]]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
 	Server[S, C, E, F, R]{src: src, decide: decide, book: sync.NewRef(Book[S, C, E, F]{Log: empty, State: src.Initial, Commands: Map[domain.CommandID, C]{}}), bells: sync.NewRef(Bells{Next: 0, Waiting: Map[int, queue.Queue[int]]{}}), Tail: tail}
 }

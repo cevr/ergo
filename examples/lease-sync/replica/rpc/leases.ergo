@@ -21,7 +21,7 @@ func Codec() server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
 
 // Leases is a lease pool's authority over rpc: the provider of
 // replica.Authority that a client binary chooses for a server it dials.
-type Leases { r Remote[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] }
+type Leases { r Remote[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] } implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 
 // Dial is the lease authority at url (lease-server), with long polls.
 func Dial(url string) Leases needs Ambient { Leases{r: NewRemote(rpc.Dial(url), Codec(), true)} }
@@ -38,7 +38,7 @@ func Pull(l Leases, by replica.ClientID, from int) Frame fails replica.Unavailab
 // Serve is the handler of std rpc for the lease authority a: the clients
 // allow takes, a long poll held up to wait, stamped and timed by the
 // clock the caller binds.
-func Serve(a Authority, allow escaping func(by replica.ClientID) bool, wait duration) escaping func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+func Serve(a Authority, allow own func(by replica.ClientID) bool, wait duration) func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
 	func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
 		try server.Handle(a, Codec(), allow, wait, tag, payload)
 	}

@@ -66,7 +66,7 @@ type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string, markR int }
 
 // New shows view of a's state on a terminal of cols by rows cells. room is
 // how many fetch results may wait for the host to take them.
-func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view escaping func(f *ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
+func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view own func(f *ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
 	let posted = queue.New[ui.Event[E]](room)
 	let (s, first) = ui.Start(a, view, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {

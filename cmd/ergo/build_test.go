@@ -68,7 +68,13 @@ func TestTestCachesShareTheGoStore(t *testing.T) {
 		// run runs this test too, on the same store, so a fixed text would
 		// find its main compiled already.
 		smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"program "+string(rune('a'+i))+" "+strconv.Itoa(os.Getpid())+"\") }\n")
-		stdout, stderr, code := cachedCLI(t, binary, root, xdg, "build", "main.ergo", "-o", "app", "-work")
+		// Without the caller's GOFLAGS (the gate sets -p): the direct path
+		// it counts refuses to build under any.
+		command := exec.Command(binary, "build", "main.ergo", "-o", "app", "-work")
+		command.Dir = root
+		command.Env = append(slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, "GOFLAGS=") }), "XDG_CACHE_HOME="+xdg)
+		out, errOut, code := runSmokeCommand(t, command)
+		stdout, stderr := string(out), string(errOut)
 		m := report.FindStringSubmatch(stderr)
 		if code != 0 || m == nil {
 			t.Fatalf("build %d: exit %d stdout %q stderr %q", i, code, stdout, stderr)

@@ -85,7 +85,7 @@ func TestFixtureLoopsEndByThemselves(t *testing.T) {
 			if err := os.WriteFile(source, []byte("# TESTTICK\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			return []string{f.ergo, "test", source, "-work"}, filepath.Join(filepath.Dir(f.ergo), "ticks-test")
+			return []string{f.ergo, "test", source}, filepath.Join(filepath.Dir(f.ergo), "ticks-test")
 		}},
 		{"fake ergo build", func(f *fixture, dir string) ([]string, string) {
 			source := filepath.Join(dir, "main.ergo")

@@ -226,7 +226,7 @@ type Logged = Wrote{Text string} | Read{}
 
 // Fake is a terminal for the laws: its keys are a script, its size is
 // fixed, and it keeps every write and read in order (its op log).
-type Fake { keys []term.Key, at sync.Ref[int], log sync.Ref[[]Logged], cols int, rows int }
+type Fake { keys []term.Key, at sync.Ref[int], log sync.Ref[[]Logged], cols int, rows int } implements term.Terminal, io.Stdout
 
 // NewFake is a terminal of cols by rows that plays keys, then ends.
 func NewFake(keys []term.Key, cols int, rows int) Fake {

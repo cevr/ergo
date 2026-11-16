@@ -14,7 +14,7 @@ import time
 type Leases {
 	s     server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal],
 	clock time.Manual,
-}
+} implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 
 let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
 
