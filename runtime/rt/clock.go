@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -65,9 +66,12 @@ func (l liveTimer) Stop() bool        { return l.stop() }
 // which fires each due timer in deadline order, ties in arming order. Tests
 // call AwaitTimers to know a task has armed its deadline before advancing.
 type Virtual struct {
-	mu     sync.Mutex
-	armed  *sync.Cond
-	now    Instant
+	mu    sync.Mutex
+	armed *sync.Cond
+	now   Instant
+	// at is now, written with it under mu (setNow) and read without
+	// it, so a read of the clock takes no lock.
+	at     atomic.Int64
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
 	// A clock with a domain (idle.go: an auto clock or a manual one)
@@ -101,15 +105,18 @@ type virtualTimer struct {
 // NewVirtual returns a virtual clock that reads start.
 func NewVirtual(start time.Time) *Virtual {
 	v := &Virtual{now: Instant(start.UnixNano())}
+	v.at.Store(start.UnixNano())
 	v.armed = sync.NewCond(&v.mu)
 	return v
 }
 
 // Now returns the virtual time.
-func (v *Virtual) Now() Instant {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.now
+func (v *Virtual) Now() Instant { return Instant(v.at.Load()) }
+
+// setNow moves the time to i; v.mu is held.
+func (v *Virtual) setNow(i Instant) {
+	v.now = i
+	v.at.Store(int64(i))
 }
 
 // NewTimer arms a timer d after the virtual now. A deadline at or before now
@@ -160,10 +167,10 @@ func (v *Virtual) Advance(d Span) {
 	for len(v.timers) > 0 && v.timers[0].when <= target {
 		t := v.timers[0]
 		v.timers = v.timers[1:]
-		v.now = t.when
+		v.setNow(t.when)
 		v.fire(t)
 	}
-	v.now = target
+	v.setNow(target)
 	v.armed.Broadcast()
 }
 
@@ -204,14 +211,14 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 		v.mu.Lock()
 		if len(v.timers) == 0 || v.timers[0].when > target {
 			if target > v.now {
-				v.now = target
+				v.setNow(target)
 			}
 			v.armed.Broadcast()
 			v.mu.Unlock()
 			return nil
 		}
 		when := v.timers[0].when
-		v.now = when
+		v.setNow(when)
 		for len(v.timers) > 0 && v.timers[0].when == when {
 			tm := v.timers[0]
 			v.timers = v.timers[1:]

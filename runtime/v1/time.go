@@ -77,11 +77,17 @@ func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
+// It takes no lock and builds no time.Time: the clock's Unix nanoseconds,
+// split by floor division.
 //
 //ergo:wait none
 func (l *Timeline) Read() Reading {
-	n := time.Unix(0, int64(l.v.Now()))
-	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
+	ns := int64(l.v.Now())
+	sec, nsec := ns/1e9, ns%1e9
+	if nsec < 0 {
+		sec, nsec = sec-1, nsec+1e9
+	}
+	return Reading{Sec: sec, Nsec: nsec, Mono: ns - l.start.UnixNano()}
 }
 
 // Wait suspends the caller's task t until Advance moves the time to d past
