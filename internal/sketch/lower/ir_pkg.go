@@ -535,7 +535,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if q.Func != nil || q.Funcs != nil {
 			irNo("std call that adapts a function")
 		}
-		if !b.sameGo(b.l.info.Types[x.Args[i]], q.Type) && !b.sameRT(b.l.info.Types[x.Args[i]], q.Type, subst) {
+		if !b.operandFits(x.Args[i], q.Type, subst) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
@@ -718,7 +718,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 		if q.Func != nil || q.Funcs != nil {
 			irNo("std call that adapts a function")
 		}
-		if !b.sameGo(b.l.info.Types[x.Args[i]], b.recvTypeArgs(n, q.Type)) {
+		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
