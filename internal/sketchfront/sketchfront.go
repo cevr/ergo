@@ -272,12 +272,15 @@ func loweringOf(mode build.Mode) string {
 // of a program, whose cold compile shards would make dearer (each shard
 // pays the compile's start, its imports and its instantiations again;
 // docs/receipts/compile-speed.md, "Declaration shards"), and shards for
-// every build after it, the edit loop, where a body edit then compiles
-// one shard.
+// every build after an edit of it, the edit loop, where a body edit then
+// compiles one shard. An unchanged build after the split one keeps the
+// split, so it names the same module and reuses it (NG-Q8): the module of
+// unchanged inputs does not depend on how many builds came before.
 const lowerAuto = "auto"
 
-// shardsSeen is the cache key that marks a program built before in mode:
-// a test build of it then shards.
+// shardsSeen is the cache key that marks a program built before in mode.
+// The mark holds the emission key of that split build: a later test build
+// of the same inputs keeps the split, and one of other inputs shards.
 func shardsSeen(req BuildRequest) string {
 	sum := sha256.Sum256([]byte("ergo-shards\x00" + string(req.Mode) + "\x00" + req.Source))
 	return "shards-" + hex.EncodeToString(sum[:])
@@ -415,7 +418,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if loweringOf(req.Mode) == lowerAuto && how == lowerSplit && req.Cache.Root != "" {
 		// The next test build of this program shards. A mark that cannot
 		// be written leaves it on the split: the error is not the build's.
-		_ = req.Cache.PutWarmManifest(shardsSeen(req), []byte(req.Source+"\n"))
+		_ = req.Cache.PutWarmManifest(shardsSeen(req), []byte(module.Key+"\n"))
 	}
 	return module, link(module, req)
 }
@@ -575,7 +578,17 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, "", err
 	}
-	how := buildLowering(req)
+	how := buildLowering(req, func() string {
+		in, err := unitInput(unit, analysisDependencies(a), req)
+		if err != nil {
+			return ""
+		}
+		s, err := in.Summarize()
+		if err != nil {
+			return ""
+		}
+		return s.Key()
+	})
 	if how != lowerSingle {
 		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR, how == lowerShards)
 	}
@@ -584,13 +597,17 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 
 // buildLowering is the lowering a build of req uses (loweringOf), with
 // lowerAuto resolved: shards for a program a build of this mode met
-// before (its shardsSeen mark in the cache), else the split.
-func buildLowering(req BuildRequest) string {
+// before (its shardsSeen mark in the cache) with other inputs, else the
+// split. splitKey is the emission key the split build of req would have;
+// it is computed only when the mark is there.
+func buildLowering(req BuildRequest, splitKey func() string) string {
 	how := loweringOf(req.Mode)
 	if how == lowerAuto {
 		how = lowerSplit
-		if _, ok := req.Cache.WarmManifest(shardsSeen(req)); ok && req.Cache.Root != "" {
-			how = lowerShards
+		if mark, ok := req.Cache.WarmManifest(shardsSeen(req)); ok && req.Cache.Root != "" {
+			if key := splitKey(); key == "" || string(mark) != key+"\n" {
+				how = lowerShards
+			}
 		}
 	}
 	return how
