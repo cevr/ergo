@@ -240,13 +240,48 @@ const LanguageRevision = "ergo-v1-2026-10-28"
 const emitterRevision = "lower/2"
 
 // LowerSingleEnv selects the reference lowering, one Go package for the
-// whole program, when it is "single" (compile-speed CS4): the default
-// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
-// The choice is part of the emission key.
+// whole program, when it is "single" (compile-speed CS4), and the package
+// split without shards when it is "split", and shards in every build when
+// it is "shards": the default splits the program
+// into one Go package per Ergo package and per std package
+// (lower.LowerSplit), and in a test build also cuts each big package into
+// declaration shards (lower.LowerShards, test-speed FT9). The choice is
+// part of the emission key.
 const LowerSingleEnv = "ERGO_LOWER"
 
-// splitLowering reports whether builds split the lowered program.
-func splitLowering() bool { return os.Getenv(LowerSingleEnv) != "single" }
+// The lowerings LowerSingleEnv selects.
+const (
+	lowerSingle = "single"
+	lowerSplit  = "split"
+	lowerShards = "shards"
+)
+
+// loweringOf is the lowering a build of mode uses.
+func loweringOf(mode build.Mode) string {
+	switch v := os.Getenv(LowerSingleEnv); v {
+	case lowerSingle, lowerSplit, lowerShards:
+		return v
+	}
+	if mode == build.ModeTest {
+		return lowerAuto
+	}
+	return lowerSplit
+}
+
+// lowerAuto is the default of a test build: the split for the first build
+// of a program, whose cold compile shards would make dearer (each shard
+// pays the compile's start, its imports and its instantiations again;
+// docs/receipts/compile-speed.md, "Declaration shards"), and shards for
+// every build after it, the edit loop, where a body edit then compiles
+// one shard.
+const lowerAuto = "auto"
+
+// shardsSeen is the cache key that marks a program built before in mode:
+// a test build of it then shards.
+func shardsSeen(req BuildRequest) string {
+	sum := sha256.Sum256([]byte("ergo-shards\x00" + string(req.Mode) + "\x00" + req.Source))
+	return "shards-" + hex.EncodeToString(sum[:])
+}
 
 // BuildRequest is one build of a checked analysis.
 type BuildRequest struct {
@@ -327,16 +362,20 @@ func Library(a Analysis, source, module, name string) ([]lower.File, error) {
 // cannot be anchored, or one the lowering refuses is refused before
 // anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
-	unit, lowering, split, err := emission(a, req)
+	unit, lowering, how, err := emission(a, req)
 	if err != nil {
 		return build.Module{}, err
 	}
+	split := how != lowerSingle
 	input, err := unitInput(unit, analysisDependencies(a), req)
 	if err != nil {
 		return build.Module{}, err
 	}
-	if !split {
+	switch how {
+	case lowerSingle:
 		input.Emitter += "+single"
+	case lowerShards:
+		input.Emitter += "+shards"
 	}
 	var ledgered []lower.File
 	if req.Mode == build.ModeBuild {
@@ -372,6 +411,11 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	if module.Reused {
 		stage.Add(stage.ModulesReused, 1)
+	}
+	if loweringOf(req.Mode) == lowerAuto && how == lowerSplit && req.Cache.Root != "" {
+		// The next test build of this program shards. A mark that cannot
+		// be written leaves it on the split: the error is not the build's.
+		_ = req.Cache.PutWarmManifest(shardsSeen(req), []byte(req.Source+"\n"))
 	}
 	return module, link(module, req)
 }
@@ -482,7 +526,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 	unit.Rewrite = ev
 	var files []lower.File
 	if split {
-		files, err = splitLowerer(false, req.IR)(unit)
+		files, err = splitLowerer(false, req.IR, false)(unit)
 	} else {
 		lowering := lower.Lower
 		if req.IR {
@@ -507,12 +551,11 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 }
 
 // emission is the unit a build of req lowers, the lowering it uses and
-// whether that lowering splits the program by package (splitLowering; an
-// IR build too, CS10): Build's and EmittedDigest's one reading of a
-// request.
-func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), bool, error) {
+// which of LowerSingleEnv's lowerings that is (buildLowering; an IR build
+// splits too, CS10): Build's and EmittedDigest's one reading of a request.
+func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), string, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
-		return lower.Unit{}, nil, false, &BuildError{Diagnostics: a.Diagnostics}
+		return lower.Unit{}, nil, "", &BuildError{Diagnostics: a.Diagnostics}
 	}
 	lowering := lower.Lower
 	switch req.Mode {
@@ -526,23 +569,45 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 			lowering = withoutReport(lower.LowerIRTests)
 		}
 	default:
-		return lower.Unit{}, nil, false, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
+		return lower.Unit{}, nil, "", fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
 	unit, err := analysisUnit(a, req.Source)
 	if err != nil {
-		return lower.Unit{}, nil, false, err
+		return lower.Unit{}, nil, "", err
 	}
-	split := splitLowering()
-	if split {
-		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)
+	how := buildLowering(req)
+	if how != lowerSingle {
+		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR, how == lowerShards)
 	}
-	return unit, lowering, split, nil
+	return unit, lowering, how, nil
+}
+
+// buildLowering is the lowering a build of req uses (loweringOf), with
+// lowerAuto resolved: shards for a program a build of this mode met
+// before (its shardsSeen mark in the cache), else the split.
+func buildLowering(req BuildRequest) string {
+	how := loweringOf(req.Mode)
+	if how == lowerAuto {
+		how = lowerSplit
+		if _, ok := req.Cache.WarmManifest(shardsSeen(req)); ok && req.Cache.Root != "" {
+			how = lowerShards
+		}
+	}
+	return how
 }
 
 // splitLowerer is the package split (CS4) of a build or test lowering, of
-// IR bodies when ir (CS10).
-func splitLowerer(test, ir bool) func(lower.Unit) ([]lower.File, error) {
+// IR bodies when ir (CS10), cut into declaration shards when shards (FT9).
+func splitLowerer(test, ir, shards bool) func(lower.Unit) ([]lower.File, error) {
 	return func(u lower.Unit) ([]lower.File, error) {
+		switch {
+		case shards && ir:
+			files, _, _, err := lower.LowerIRShards(u, test)
+			return files, err
+		case shards:
+			files, _, err := lower.LowerShards(u, test)
+			return files, err
+		}
 		if ir {
 			files, _, _, err := lower.LowerIRSplit(u, test)
 			return files, err
@@ -581,10 +646,11 @@ func ledgerLowered(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*
 // change that program's Go (the examples runner, gate-speed GS8). It writes
 // nothing and runs no Go tool.
 func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
-	unit, lowering, split, err := emission(a, req)
+	unit, lowering, how, err := emission(a, req)
 	if err != nil {
 		return "", err
 	}
+	split := how != lowerSingle
 	var files []lower.File
 	if req.Mode == build.ModeBuild {
 		if _, files, err = ledgerLowered(a, unit, req, split); err != nil {

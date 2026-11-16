@@ -12,12 +12,35 @@ index c8f1b2d..dbdb46e 100644
  	GenDwarfInl        int          "help:\"generate DWARF inline info records\"" // 0=disabled, 1=funcs, 2=funcs+formals/locals
  	GoVersion          string       "help:\"required version of the runtime\""
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
+diff --git a/src/cmd/compile/internal/gc/compile.go b/src/cmd/compile/internal/gc/compile.go
+index 3d8974e..12bc3e2 100644
+--- a/src/cmd/compile/internal/gc/compile.go
++++ b/src/cmd/compile/internal/gc/compile.go
+@@ -14,6 +14,7 @@ import (
+ 	"cmd/compile/internal/base"
+ 	"cmd/compile/internal/ir"
+ 	"cmd/compile/internal/liveness"
++	"cmd/compile/internal/noder"
+ 	"cmd/compile/internal/objw"
+ 	"cmd/compile/internal/pgoir"
+ 	"cmd/compile/internal/ssagen"
+@@ -44,6 +45,10 @@ func enqueueFunc(fn *ir.Func, symABIs *ssagen.SymABIs) {
+ 		return // we'll get this as part of its enclosing function
+ 	}
+ 
++	if noder.ErgoShared[fn] {
++		return // another package of the Ergo program compiles it
++	}
++
+ 	if ssagen.CreateWasmImportWrapper(fn) {
+ 		return
+ 	}
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..412efef
+index 0000000..f0ab9bc
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,251 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -52,6 +75,8 @@ index 0000000..412efef
 +	V     int        `json:"v"`
 +	Files []string   `json:"files"`
 +	Funcs []ergoFunc `json:"funcs"`
++	// Shared are the instances another package compiles (ergoshared.go).
++	Shared []string `json:"shared,omitempty"`
 +}
 +
 +// ergoFunc is one body: Name is F, or T.M for a method of T. Locals
@@ -157,6 +182,7 @@ index 0000000..412efef
 +	if f.V != 1 {
 +		base.Fatalf("ergoir: %s: version %d, want 1", base.Flag.ErgoIR, f.V)
 +	}
++	ergoSharedSet(f.Shared)
 +	c := &ergoChecker{m: &m, pkg: pkg, info: info}
 +	for _, name := range f.Files {
 +		c.bases = append(c.bases, syntax.NewFileBase(name))
@@ -3473,11 +3499,258 @@ index 0000000..9a3cbd3
 +	}
 +	return nil, nil, false
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoshared.go b/src/cmd/compile/internal/noder/ergoshared.go
+new file mode 100644
+index 0000000..af15a92
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoshared.go
+@@ -0,0 +1,169 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Experimental (Ergo MONO-SHARED): instances another package compiles.
++//
++// Go compiles a generic instance in every package that uses it (its
++// symbols are DUPOK, and the linker keeps one). An Ergo program emits one
++// package that names each instance of the program once, and the IR file of
++// every other package lists, under "shared", the instances it names, as
++// pkgpath.Name[args] with each type argument's link string.
++//
++// While it reads the package, the reader records what each instance
++// reads: the instances it builds or names (its type arguments' types, its
++// signature, its fields, its shaped form) and the generic bodies it adds
++// (its methods), and what each such body reads. After the bodies, every
++// generic body reachable from a listed instance is still type checked,
++// escape-analysed and offered to the inliner, but gc does not compile it
++// (gc.enqueueFunc): the instance package reads the same instance, reaches
++// the same bodies and compiles them, and the linker takes their symbols
++// from there. A listed instance the package never names is an error, so a
++// list and its compiler cannot drift apart.
++
++package noder
++
++import (
++	"slices"
++
++	"cmd/compile/internal/base"
++	"cmd/compile/internal/ir"
++	"cmd/compile/internal/types"
++)
++
++// ergoSharedKeys are the IR file's shared instances, each with whether
++// the package named it.
++var ergoSharedKeys map[string]bool
++
++// ergoRoots are the listed instances the reader met, ergoStack the
++// instance being built or the generic body being read (innermost last),
++// and ergoEdges what each of them reads: a *types.Sym of an instance, an
++// *ir.Func of a generic body.
++var (
++	ergoRoots []*types.Sym
++	ergoStack []any
++	ergoEdges = map[any][]any{}
++)
++
++// ErgoShared is the generic bodies that another package of the program
++// compiles: gc skips their back end.
++var ErgoShared = map[*ir.Func]bool{}
++
++// ergoSharedSet loads the IR file's list.
++func ergoSharedSet(keys []string) {
++	if len(keys) == 0 {
++		return
++	}
++	ergoSharedKeys = map[string]bool{}
++	for _, k := range keys {
++		ergoSharedKeys[k] = false
++	}
++}
++
++// ergoEdge records that from reads to.
++func ergoEdge(from, to any) {
++	if ergoSharedKeys != nil {
++		ergoEdges[from] = append(ergoEdges[from], to)
++	}
++}
++
++// ergoUse records a use of the instance sym: by what is being built or
++// read, and as a root when the IR file lists it.
++func ergoUse(sym *types.Sym) {
++	if ergoSharedKeys == nil {
++		return
++	}
++	if n := len(ergoStack); n > 0 {
++		ergoEdge(ergoStack[n-1], sym)
++	}
++	if sym.Pkg == nil {
++		return
++	}
++	k := sym.Pkg.Path + "." + sym.Name
++	if used, ok := ergoSharedKeys[k]; ok {
++		if !used {
++			ergoRoots = append(ergoRoots, sym)
++		}
++		ergoSharedKeys[k] = true
++	}
++}
++
++// ergoBuild marks the instance sym as being built until the returned
++// function runs.
++func ergoBuild(sym *types.Sym) func() {
++	if ergoSharedKeys == nil {
++		return func() {}
++	}
++	ergoStack = append(ergoStack, sym)
++	return func() { ergoStack = ergoStack[:len(ergoStack)-1] }
++}
++
++// ergoTag runs a deferred dictionary step of the instance sym as part of
++// building it (its shaped form).
++func ergoTag(sym *types.Sym, f func()) func() {
++	if ergoSharedKeys == nil {
++		return f
++	}
++	return func() {
++		old := ergoStack
++		ergoStack = []any{sym}
++		f()
++		ergoStack = old
++	}
++}
++
++// ergoBody records that the instance sym adds the generic body fn.
++func ergoBody(sym *types.Sym, fn *ir.Func) { ergoEdge(sym, fn) }
++
++// ergoRead marks fn's body as being read, when it is a generic body,
++// until the returned function runs.
++func ergoRead(fn *ir.Func, generic bool) func() {
++	if ergoSharedKeys == nil {
++		return func() {}
++	}
++	old := ergoStack
++	ergoStack = nil
++	if generic {
++		ergoStack = []any{fn}
++	}
++	return func() { ergoStack = old }
++}
++
++// ergoSharedMark marks every generic body reachable from a listed
++// instance, and reports each listed instance the package never named.
++func ergoSharedMark() {
++	if ergoSharedKeys == nil {
++		return
++	}
++	var unused []string
++	for k, used := range ergoSharedKeys {
++		if !used {
++			unused = append(unused, k)
++		}
++	}
++	slices.Sort(unused)
++	for _, k := range unused {
++		base.Errorf("ergoir: shared instance %s is not used by this package", k)
++	}
++	base.ExitIfErrors()
++	seen := map[any]bool{}
++	var work []any
++	for _, s := range ergoRoots {
++		seen[s] = true
++		work = append(work, s)
++	}
++	for len(work) > 0 {
++		n := work[len(work)-1]
++		work = work[:len(work)-1]
++		if fn, ok := n.(*ir.Func); ok {
++			ErgoShared[fn] = true
++		}
++		for _, m := range ergoEdges[n] {
++			if !seen[m] {
++				seen[m] = true
++				work = append(work, m)
++			}
++		}
++	}
++	ergoEdges, ergoSharedKeys = nil, nil
++}
+diff --git a/src/cmd/compile/internal/noder/reader.go b/src/cmd/compile/internal/noder/reader.go
+index fab311e..63cccce 100644
+--- a/src/cmd/compile/internal/noder/reader.go
++++ b/src/cmd/compile/internal/noder/reader.go
+@@ -719,9 +719,15 @@ func (pr *pkgReader) objIdxMayFail(idx index, implicits, explicits []*types.Type
+ 	}
+ 
+ 	sym = dict.baseSym
++	if dict.hasTypeParams() {
++		ergoUse(sym) // ergoshared.go
++	}
+ 	if !sym.IsBlank() && sym.Def != nil {
+ 		return sym.Def.(*ir.Name), nil
+ 	}
++	if dict.hasTypeParams() {
++		defer ergoBuild(sym)()
++	}
+ 
+ 	r := pr.newReader(pkgbits.SectionObj, idx, pkgbits.SyncObject1)
+ 	rext := pr.newReader(pkgbits.SectionObjExt, idx, pkgbits.SyncObject1)
+@@ -827,9 +833,9 @@ func (pr *pkgReader) objIdxMayFail(idx index, implicits, explicits []*types.Type
+ 			if r.dict.shaped {
+ 				setType(name, shapeSig(name.Func, r.dict))
+ 			} else {
+-				todoDicts = append(todoDicts, func() {
++				todoDicts = append(todoDicts, ergoTag(r.dict.baseSym, func() {
+ 					r.dict.shapedObj = pr.objIdx(idx, implicits, explicits, true).(*ir.Name)
+-				})
++				}))
+ 			}
+ 		}
+ 
+@@ -854,9 +860,9 @@ func (pr *pkgReader) objIdxMayFail(idx index, implicits, explicits []*types.Type
+ 		types.ResumeCheckSize()
+ 
+ 		if r.hasTypeParams() && !r.dict.shaped {
+-			todoDicts = append(todoDicts, func() {
++			todoDicts = append(todoDicts, ergoTag(r.dict.baseSym, func() {
+ 				r.dict.shapedObj = pr.objIdx(idx, implicits, explicits, true).(*ir.Name)
+-			})
++			}))
+ 		}
+ 
+ 		methods := make([]*types.Field, r.Len())
+@@ -1368,6 +1374,9 @@ func (r *reader) addBody(fn *ir.Func, method *types.Sym) {
+ 	bodyReader[fn] = pri
+ 
+ 	if r.curfn == nil {
++		if r.hasTypeParams() {
++			ergoBody(r.dict.baseSym, fn)
++		}
+ 		todoBodies = append(todoBodies, fn)
+ 		return
+ 	}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
-index 9ec2e40..e04cee0 100644
+index 9ec2e40..01e3eff 100644
 --- a/src/cmd/compile/internal/noder/unified.go
 +++ b/src/cmd/compile/internal/noder/unified.go
-@@ -320,6 +320,13 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+@@ -206,6 +206,7 @@ func unified(m posMap, noders []*noder) {
+ 	r.pkgInit(types.LocalPkg, target)
+ 
+ 	readBodies(target, false, nil)
++	ergoSharedMark()
+ 
+ 	// Check that nothing snuck past typechecking.
+ 	for _, fn := range target.Funcs {
+@@ -265,7 +266,9 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+ 
+ 			pri, ok := bodyReader[fn]
+ 			assert(ok)
++			done := ergoRead(fn, len(pri.dict.targs) != 0)
+ 			pri.funcBody(fn)
++			done()
+ 
+ 			// Instantiated generic function: add to Decls for typechecking
+ 			// and compilation.
+@@ -320,6 +323,13 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
  // and returns the result.
  func writePkgStub(m posMap, noders []*noder) string {
  	pkg, info, otherInfo := checkFiles(m, noders)

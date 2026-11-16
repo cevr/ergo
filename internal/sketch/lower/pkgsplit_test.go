@@ -76,6 +76,8 @@ func Wrap[T](v T) Box[T] { Box[T]{V: v} }
 
 func Unwrap[T](b Box[T]) T { b.V }
 
+func Count[T](xs []T) Box[int] { Box[int]{V: len(xs)} }
+
 func Label(xs []string) string { strings.Join(xs, "-") }
 
 type S = A{N int}
@@ -115,6 +117,15 @@ func Name() string { strings.Join([]string{"%s", "\(N)"}, ":") + base.Label([]st
 
 func Item() base.Item { base.NewItem(N, "%s") }
 
+func Nest(b base.Box[base.Box[string]]) int { len(b.V.V) }
+
+func Bytes(b byte) int {
+	if (base.Box[byte]{V: b}).V == b {
+		return 0
+	}
+	1
+}
+
 type T = One{N int} | Two{}
 
 func Pick(n int) T {
@@ -135,7 +146,7 @@ func Show(t T) int {
 
 func boxed(n int) base.Box[int] { base.Wrap(n + N) }
 
-func Boxed(n int) int { base.Unwrap(boxed(n)) }
+func Boxed(n int) int { base.Unwrap(boxed(n)) + Nest(base.Wrap(base.Wrap(""))) + Bytes(1) + base.Count([]int{}).V }
 
 func Same(n int) bool { base.Bag{Xs: []int{n}} == base.Bag{Xs: []int{n, N}} }
 
@@ -194,7 +205,13 @@ func (g splitProgram) check(t *testing.T) Unit {
 // packages are extra files below p/NAME. o is its reference.
 func splitLowered(t *testing.T, o *lowered, u Unit, name string, tests bool) (*lowered, SplitReport) {
 	t.Helper()
-	files, rep, err := lowerSplit(u, tests, programModule+"/p/"+name)
+	return shardLowered(t, o, u, name, tests, nil)
+}
+
+// shardLowered is splitLowered with shards of the sizes sh (none when nil).
+func shardLowered(t *testing.T, o *lowered, u Unit, name string, tests bool, sh *shardOpts) (*lowered, SplitReport) {
+	t.Helper()
+	files, rep, err := lowerSplit(u, tests, programModule+"/p/"+name, sh)
 	if err != nil {
 		t.Fatalf("the split lowering fails where the reference lowers: %v", err)
 	}
@@ -218,7 +235,9 @@ func splitLowered(t *testing.T, o *lowered, u Unit, name string, tests bool) (*l
 // the test build; and every program splits (the split is not vacuous). A
 // one-package program does not split (its groups all start in the root,
 // and nothing below the root uses them), so every corpus program agrees by
-// identity.
+// identity. The declaration shards (test-speed FT9) are a third lowering
+// of each program, with every component its own shard (everyShard), and
+// agree with the reference too.
 //
 // It builds Go because the question is the behaviour of the linked program:
 // Go's package initialization order, method sets and reflection of type
@@ -240,6 +259,7 @@ func TestSplitLoweringAgrees(t *testing.T) {
 		tests bool
 		ref   *lowered
 		split *lowered
+		kind  string // "split" or "shards"
 	}
 	var pairs []pair
 	var programs []*lowered
@@ -271,8 +291,17 @@ func TestSplitLoweringAgrees(t *testing.T) {
 					t.Fatalf("seed %d tests=%v: %s has a Go init, which would run before the root's", seed, tests, f.Path)
 				}
 			}
-			pairs = append(pairs, pair{seed, tests, ref, split})
-			programs = append(programs, ref, split)
+			shards, srep := shardLowered(t, ref, u, name+"shards", tests, everyShard)
+			if srep.Shards < 2 || srep.Reason != "" {
+				t.Fatalf("seed %d tests=%v: the program is not cut into shards: %+v\nsource:\n%s", seed, tests, srep, ref.src)
+			}
+			for _, f := range shards.extra {
+				if strings.Contains(string(f.Data), goInit) {
+					t.Fatalf("seed %d tests=%v: %s has a Go init, which would run before the root's", seed, tests, f.Path)
+				}
+			}
+			pairs = append(pairs, pair{seed, tests, ref, split, "split"}, pair{seed, tests, ref, shards, "shards"})
+			programs = append(programs, ref, split, shards)
 		}
 	}
 	exes := buildAll(t, programs, true)
@@ -288,8 +317,8 @@ func TestSplitLoweringAgrees(t *testing.T) {
 			for _, f := range p.split.extra {
 				split.WriteString("// " + f.Path + "\n" + string(f.Data))
 			}
-			t.Errorf("seed %d tests=%v: the split program differs\nsource:\n%s\nreference: exit %d\nstdout:\n%s\nstderr:\n%s\nsplit: exit %d\nstdout:\n%s\nstderr:\n%s\nsplit Go (root):\n%s\n%s\nreplay: ERGO_SPLIT_SEED=%d go test -run TestSplitLoweringAgrees ./internal/sketch/lower",
-				p.seed, p.tests, p.ref.src, c1, o1, e1, c2, o2, e2, p.split.mainGo(), split.String(), p.seed)
+			t.Errorf("seed %d tests=%v: the %s program differs\nsource:\n%s\nreference: exit %d\nstdout:\n%s\nstderr:\n%s\n%s: exit %d\nstdout:\n%s\nstderr:\n%s\n%s Go (root):\n%s\n%s\nreplay: ERGO_SPLIT_SEED=%d go test -run TestSplitLoweringAgrees ./internal/sketch/lower",
+				p.seed, p.tests, p.kind, p.ref.src, c1, o1, e1, p.kind, c2, o2, e2, p.kind, p.split.mainGo(), split.String(), p.seed)
 		}
 	}
 }

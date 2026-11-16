@@ -136,10 +136,15 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 // program the split does not split keeps LowerIR's one package and its
 // one IR file, with the reason in the report.
 func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
-	return lowerIRSplit(u, tests, programModule)
+	return lowerIRSplit(u, tests, programModule, nil)
 }
 
-func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitReport, error) {
+// LowerIRShards is LowerIRSplit with declaration shards (pkgshard.go).
+func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplit(u, tests, programModule, devShards)
+}
+
+func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
@@ -152,7 +157,7 @@ func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitRepor
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out, sh)
 	}
 	res := files
 	if out == nil {
@@ -239,6 +244,8 @@ type irFile struct {
 	V     int      `json:"v"`
 	Files []string `json:"files"`
 	Funcs []irFunc `json:"funcs"`
+	// Shared are the instances another package compiles (pkginst.go).
+	Shared []string `json:"shared,omitempty"`
 }
 
 type irFunc struct {
