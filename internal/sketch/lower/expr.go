@@ -307,25 +307,26 @@ func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Nod
 	if !ok || !ok2 || len(from.Params) != len(to.Params) {
 		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
 	}
-	f, e := fc.scope.alloc("f"), fc.scope.alloc("e")
-	params := []string{e + " *" + fc.l.env()}
-	args := []string{e}
-	for i, p := range to.Params {
-		name := fc.scope.alloc("p")
-		params = append(params, name+" "+fc.goType(p.Type))
-		arg := name
-		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-				arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
+	f := fc.scope.alloc("f")
+	inner := fc.envClosure(callerEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for i, p := range to.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			arg := name
+			if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+				if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+					arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
+				}
 			}
+			args = append(args, arg)
 		}
-		args = append(args, arg)
-	}
-	var result check.Type
-	if len(to.Results) == 1 {
-		result = to.Results[0]
-	}
-	inner := "func(" + strings.Join(params, ", ") + ")" + fc.valueResults(result) + " { return " + f + "(" + strings.Join(args, ", ") + ") }"
+		var result check.Type
+		if len(to.Results) == 1 {
+			result = to.Results[0]
+		}
+		return params, fc.valueResults(result), strings.Repeat("\t", fc.depth+1) + "return " + f + "(" + strings.Join(args, ", ") + ")\n"
+	})
 	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
 }
 
