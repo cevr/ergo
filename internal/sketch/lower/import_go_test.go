@@ -2,8 +2,10 @@ package lower
 
 import (
 	"bytes"
+	"encoding/base64"
 	"flag"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -42,6 +44,19 @@ import go io
 import go text/tabwriter
 import go path/filepath
 import go math
+import go encoding/base64
+import go hash/crc32
+import go time
+import go os
+
+// Go's read-only package variables (GBX3): a go.Ref that is never nil, and
+// a slice whose read is a copy, so an Ergo write never reaches Go's.
+func goVars() string needs go.Foreign {
+	let mut args = os.Args
+	args[0] = "x"
+	let kept = if os.Args[0] == "x" { "aliased" } else { "kept" }
+	"\(base64.StdEncoding.EncodeToString([]byte{104, 105}))|\(base64.RawURLEncoding.EncodeToString([]byte{251, 255}))|\(crc32.Checksum([]byte{104, 105}, crc32.IEEETable))|\(time.Unix(0, 0).In(time.UTC).Year())|\(len(os.Args))|\(kept)"
+}
 
 func urlParts(raw string) string fails go.Error needs go.Foreign {
 	let u = try url.Parse(raw)
@@ -161,6 +176,8 @@ func TestImportGoRuns(t *testing.T) {
 	// Go constants (typed as the binding says) and an error variable.
 	src.WriteString("\tConsole.Println(\"\\(math.MaxInt8 + 1)|\\(io.EOF.Text)|\\(strconv.IntSize)\")\n")
 	want = append(want, fmt.Sprintf("%d|%s|%d", math.MaxInt8+1, io.EOF.Error(), strconv.IntSize))
+	src.WriteString("\tConsole.Println(goVars())\n")
+	want = append(want, fmt.Sprintf("%s|%s|%d|1970|1|kept", base64.StdEncoding.EncodeToString([]byte("hi")), base64.RawURLEncoding.EncodeToString([]byte{251, 255}), crc32.ChecksumIEEE([]byte("hi"))))
 	src.WriteString("}\n")
 	prog := mustLower(t, "import_go_runs", src.String())
 	// A call into the reviewed pure tier is transparent (owner q35): the

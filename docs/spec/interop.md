@@ -25,6 +25,7 @@ Status: **implemented** per section: **Binding files** and **Type mapping** are 
 | constant | `extern go P.C let C T`: a typed constant keeps its type; an untyped one takes Go's default type when its value fits (`math.Pi` is `float64`), and is refused otherwise (`math.MaxUint64`): Ergo has no untyped constants (196u) |
 | variable of type `error` (`io.EOF`) | `extern go P.V let V go.Error`, a sentinel for `go.Is` (IG5) |
 | variable whose type has `Close()` or `Close() error` | a read-only, borrowed resource (Resources 4); a pointer variable is `Option[go.Ref[T]]`, since it may be nil |
+| variable of `runtime/v1.GoReadOnlyVars` (`base64.StdEncoding`, `crc32.IEEETable`, `time.UTC`, `os.Args`) | `extern go P.V let V T`, read-only; a pointer is `go.Ref[T]`, never nil (Go package variables) |
 | any other variable | refused: "a Go variable is host state; call a function" |
 | generic named type | refused, except `iter.Seq[T]`, which is the prelude `Seq[T]` |
 | alias declaration | refused; a use of the alias maps the type it stands for |
@@ -204,6 +205,17 @@ GBX2, 2026-11-16. A Go function that writes its slice argument in place and retu
 4. **Lowering.** `w := <operand>; slices.Sort(w)`, and the value is `w`.
 
 *Prior art:* Gleam's `list.sort`, ReScript's `Array.toSorted` and Elixir's `Enum.sort` return a new sorted collection; ReScript's `Array.sort` sorts in place and returns unit, and Effect's `Array.sort` returns a new array. Ergo keeps the value form at the surface and gets the in-place speed from the value rule's handover, as Swift's copy-on-write `sort()` writes a uniquely held buffer in place and Koka's reuse analysis reuses a dead value.
+
+## Go package variables
+
+GBX3, 2026-11-16. A Go package variable that no Go code writes after its package's init is a read-only `let`: `base64.StdEncoding.EncodeToString(b)`, `crc32.Checksum(b, crc32.IEEETable)`, `t.In(time.UTC)`, `os.Args`.
+
+1. **Fact.** The reviewed table `runtime/v1.GoReadOnlyVars` names each variable with its source reason (go1.27): its package sets it at init (or the runtime does, for `os.Args`) and never assigns it. The table holds no interface variable (`os.Interrupt`, `io.Discard`). `ergo bind go` writes `extern go encoding/base64.StdEncoding let StdEncoding go.Ref[Encoding]` for it; any other variable that is no error and no resource stays refused.
+2. **Never nil.** A pointer variable of the table is `go.Ref[T]`, not the `Option[go.Ref[T]]` of a resource variable (Resources 4): each is set at init to a non-nil value and never written.
+3. **Values.** A read of a variable that holds a slice (`os.Args`) is Go's memory, never fresh: the value rule copies it before an Ergo write (`let mut a = os.Args; a[0] = "x"` leaves Go's `os.Args` as it was), and hands it to a Go function that writes in place as a copy (Go writes in place). No Ergo code assigns the variable (S108 "cannot assign to os.Args"), writes through it or borrows it (`os.Args[0] = s` is S108 "os.Args is another package's variable, read-only in Ergo; copy it into a let mut first", the rule of every package-level let).
+4. **Lowering.** The variable itself, `base64.StdEncoding`; no snapshot, no wrapper. `TestImportGoRuns` (lower) runs each kind against Go's own result.
+
+*Prior art:* Gleam and ReScript reach a host constant through an external function or binding (`@external`, `@val external`), which names a host value with no copy; Elixir reads an Erlang module attribute or calls a zero-arity function. Effect reads ambient values through a service (`Clock`, `Config`), which Ergo keeps for state that changes; a value fixed at init is a binding, as in Gleam.
 
 ## Go any
 
