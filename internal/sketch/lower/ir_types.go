@@ -92,6 +92,12 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.admitNamed(t, depth) // ir_union.go
 			return
 		}
+		if check.IsNever(t) {
+			// The prelude's Never, a union of no variants declared with
+			// a record's braces: Go's struct{}, as the emitter's (decls.go
+			// typeDecl), which no body builds.
+			return
+		}
 		s, ok := t.Underlying().(*check.Struct)
 		if !ok {
 			irNo("record without a struct")
