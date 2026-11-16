@@ -20,7 +20,7 @@ func TestGoConfinedRefs(t *testing.T) {
 		want      string // a part of its message
 	}{
 		{name: "captured by a task", src: "import task\n" + pcg + "func main() {\n\tlet p = pcg()\n\tlet n = task.Go() { p.Uint64() }.Wait()\n\tlet _ = n\n}\n",
-			line: 13, want: "p holds go.Ref[rand.PCG], whose Go value's memory-only methods are not safe for concurrent use"},
+			line: 13, want: "p holds go.Ref[rand.PCG], which reaches a Go value whose memory-only methods are not safe for concurrent use"},
 		{name: "sent through a queue", src: "import queue\n" + pcg + "func main() {\n\tlet q = queue.New[go.Ref[rand.PCG]](1)\n\tlet _ = q\n}\n",
 			line: 12, want: "a type argument may carry it to another task"},
 		{name: "made in the task", src: "import task\n" + pcg + "func main() {\n\tlet n = task.Go() { pcg().Uint64() }.Wait()\n\tlet _ = n\n}\n"},

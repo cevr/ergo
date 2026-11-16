@@ -27,27 +27,78 @@ import (
 // process.
 
 const (
-	goConfinedCaptureText = "%s holds %s, whose Go value's memory-only methods are not safe for concurrent use, so it is confined to the task that made it, and this function literal or block may outlive the call that made it or run on another task; make the Go value inside the literal (interop.md, Go values by address 8)"
-	goConfinedTypeArgText = "%s holds %s, whose Go value's memory-only methods are not safe for concurrent use, so it is confined to the task that made it, and a type argument may carry it to another task (a generic body, a queue, a Ref, a Task) (interop.md, Go values by address 8)"
-	goConfinedLetText     = "the package let %s holds %s, whose Go value's memory-only methods are not safe for concurrent use, so it is confined to one task, and every task reads a package let (interop.md, Go values by address 8)"
-	goConfinedHideText    = "%s holds %s, whose Go value's memory-only methods are not safe for concurrent use, and %s would hide it from the rules that keep it on its task (interop.md, Go values by address 8)"
+	goConfinedCaptureText = "%s holds %s, which reaches a Go value whose memory-only methods are not safe for concurrent use, so it is confined to the task that made it, and this function literal or block may outlive the call that made it or run on another task; make the Go value inside the literal (interop.md, Go values by address 8)"
+	goConfinedTypeArgText = "%s holds %s, which reaches a Go value whose memory-only methods are not safe for concurrent use, so it is confined to the task that made it, and a type argument may carry it to another task (a generic body, a queue, a Ref, a Task) (interop.md, Go values by address 8)"
+	goConfinedLetText     = "the package let %s holds %s, which reaches a Go value whose memory-only methods are not safe for concurrent use, so it is confined to one task, and every task reads a package let (interop.md, Go values by address 8)"
+	goConfinedHideText    = "%s holds %s, which reaches a Go value whose memory-only methods are not safe for concurrent use, and %s would hide it from the rules that keep it on its task (interop.md, Go values by address 8)"
 )
 
-// goConfinedRef reports whether t is a go.Ref to a Go value confined to
-// one task: its Go type has a memory-only method and is not safe for
-// concurrent use. (No Go type of the table's packages holds such a value
-// in a field; a Go struct that did would need the walk cells.go does.)
+// goConfinedRef reports whether t is a confined Go holder: a go.Ref, or a
+// Go type of import go, that reaches a confined Go type (GB-RACE2).
 func goConfinedRef(t *Named) bool {
-	n, ok := refElem(t).(*Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Host() && goMemoryOnly(n.Obj.Pkg.Path+"."+n.Obj.Name)
+	if e := refElem(t); e != nil {
+		return goReaches(e, map[Type]bool{})
+	}
+	return t.Obj != nil && t.Obj.Pkg.Host() && goReaches(t, map[Type]bool{})
+}
+
+// goReaches reports whether t, through the fields (an embedded one is a
+// field too), elements, Map keys, go.Refs and Options its Ergo form shows,
+// reaches a Go type with a memory-only method that v1.GoConcurrentTypes
+// does not list. A listed type stops the walk: its methods are safe for
+// concurrent use. A field the binding refuses is not reached: no Ergo
+// source can name it, and a Go method that reaches it is foreign or is
+// memory-only itself.
+func goReaches(t Type, seen map[Type]bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t := t.(type) {
+	case *Named:
+		if t.Obj != nil && t.Obj.Pkg.Host() && asInterface(t) == nil {
+			name := t.Obj.Pkg.Path + "." + t.Obj.Name
+			if v1.GoConcurrentTypes[name] != "" {
+				return false
+			}
+			if goMemoryOnly(name) {
+				return true
+			}
+		}
+		for _, a := range t.TArgs {
+			if goReaches(a, seen) {
+				return true
+			}
+		}
+		if asInterface(t) != nil {
+			return false // a Go interface's methods are foreign
+		}
+		return goReaches(t.underlying(), seen)
+	case *Struct:
+		for _, f := range t.Fields {
+			if goReaches(f.Type, seen) {
+				return true
+			}
+		}
+	case *Union:
+		for _, v := range t.Variants {
+			if goReaches(v, seen) {
+				return true
+			}
+		}
+	case *Slice:
+		return goReaches(t.Elem, seen)
+	case *Array:
+		return goReaches(t.Elem, seen)
+	case *Map:
+		return goReaches(t.Key, seen) || goReaches(t.Elem, seen)
+	}
+	return false
 }
 
 // goMemoryOnly reports whether the Go type named name (path.Type) has a
-// memory-only method and no entry of v1.GoConcurrentTypes.
+// memory-only method (goReaches asks v1.GoConcurrentTypes first).
 func goMemoryOnly(name string) bool {
-	if v1.GoConcurrentTypes[name] != "" {
-		return false
-	}
 	for _, e := range gofacts.Effects {
 		if strings.HasPrefix(e.Target, name+".") {
 			return true
