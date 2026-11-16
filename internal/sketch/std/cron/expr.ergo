@@ -215,6 +215,46 @@ law FormatParseRoundTrips(seed uint64) {
 	back == e
 }
 
+// MacrosAreTheirFields: each macro, in any case, is the five fields Vixie
+// cron gives it: @yearly and @annually at 00:00 on 1 January, @monthly on
+// the 1st, @weekly on Sunday, @daily and @midnight each day, and @hourly
+// at minute 0.
+law MacrosAreTheirFields() {
+	let pairs = [][]string{
+		[]string{"@yearly", "0 0 1 1 *"},
+		[]string{"@ANNUALLY", "0 0 1 1 *"},
+		[]string{"@monthly", "0 0 1 * *"},
+		[]string{"@Weekly", "0 0 * * 0"},
+		[]string{"@daily", "0 0 * * *"},
+		[]string{"@midnight", "0 0 * * *"},
+		[]string{"@hourly", "0 * * * *"},
+	}
+	let mut ok = true
+	for p in pairs {
+		let m = try Parse(p[0])
+		let f = try Parse(p[1])
+		ok = ok && m == f
+	}
+	ok
+}
+
+// StepsCountFromTheStart: a step counts from its part's first value, so
+// a-b/s holds a, a+s, … up to b, and a/s the same up to the field's last
+// value: 3-59/15 is 3, 18, 33 and 48, not the multiples of 15.
+law StepsCountFromTheStart(seed uint64) {
+	let from = int(seed % 60)
+	let step = 1 + int(seed/60%59)
+	let to = from + int(seed/3540%uint64(60-from))
+	let ranged = try Parse("\(from)-\(to)/\(step) * * * *")
+	let open = try Parse("\(from)/\(step) * * * *")
+	let mut ok = true
+	for v in 0..60 {
+		let on = v >= from && (v-from)%step == 0
+		ok = ok && Has(ranged.Minute, v) == (on && v <= to) && Has(open.Minute, v) == (on && (step > 1 || v == from))
+	}
+	ok
+}
+
 // WeekdaySevenIsSunday: 7 in the day-of-week field is Sunday, as 0 is,
 // and a name of any case is its number.
 law WeekdaySevenIsSunday() {
