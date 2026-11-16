@@ -146,7 +146,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")

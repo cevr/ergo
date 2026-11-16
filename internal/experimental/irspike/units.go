@@ -52,6 +52,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"package type name as a value", "G1"},
 	{"selector that is not a field", "G1"},
 	{"record update or elided literal type", "G1"},
+	// F7 update (ir_update.go): the updates it leaves.
+	{"elided literal type", "G1"},
+	{"record update *", "G1"},
 	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
