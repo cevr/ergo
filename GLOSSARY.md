@@ -327,6 +327,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Overlap**: A wall time a zone shows twice, as 01:30 on the day clocks go back: `tz.Overlap`, with the earlier and the later instant.
 
+**Cron expression**: When a job fires, as five fields of wall time (minute, hour, day of the month, month, day of the week), `cron.Expr`, read by `cron.Parse`. It fires at wall minutes; in a zone, `cron.Next` gives each the instant `tz.Compatible` chooses, so a minute in a gap fires once, a gap late, and a minute in an overlap fires once, at its first showing. See [stdlib](docs/spec/stdlib.md#cron).
+
 ## Earlier `.ef` language
 
 These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
