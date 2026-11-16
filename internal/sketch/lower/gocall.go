@@ -138,7 +138,7 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 		return f.Sig, "." + m, path + "." + typ + "." + m, check.GoVariadic(f)
 	}
 	path, goName := f.Decl.Extern.Split()
-	return f.Sig, fc.l.hostPkg(path, site) + "." + goName, path + "." + goName, check.GoVariadic(f)
+	return f.Sig, fc.hostTarget(site, f), path + "." + goName, check.GoVariadic(f)
 }
 
 // hostFuncRef is the Go function of import go that x names, in any

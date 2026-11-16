@@ -38,7 +38,7 @@ A declaration that does not map is listed in the binding with its reason, so the
 | Go type | Ergo type | Rule |
 | --- | --- | --- |
 | `bool`, `string`, the integer, float and complex types, `byte`, `rune` | the same basic type | direct |
-| `time.Duration` | `duration` | direct |
+| `time.Duration` | `duration` | direct; its methods bind as functions of the receiver, `time.DurationString(d)` (Methods of Ergo's own types) |
 | `uintptr`, `unsafe.Pointer` | none | refused |
 | named type defined over a basic type | the host type, nominal | `extern go io/fs.FileMode type FileMode uint32` |
 | `[]T` | `[]T` | value rule (types.md Values): copied at the call unless fresh or dead (Lowering 2-3) |
@@ -205,6 +205,16 @@ GBX2, 2026-11-16. A Go function that writes its slice argument in place and retu
 4. **Lowering.** `w := <operand>; slices.Sort(w)`, and the value is `w`.
 
 *Prior art:* Gleam's `list.sort`, ReScript's `Array.toSorted` and Elixir's `Enum.sort` return a new sorted collection; ReScript's `Array.sort` sorts in place and returns unit, and Effect's `Array.sort` returns a new array. Ergo keeps the value form at the surface and gets the in-place speed from the value rule's handover, as Swift's copy-on-write `sort()` writes a uniquely held buffer in place and Koka's reuse analysis reuses a dead value.
+
+## Methods of Ergo's own types
+
+GBX4, 2026-11-16. A Go type that is an Ergo type of its own declares no type in its binding (`time.Duration` is `duration`), so its methods have no receiver type to hang on. Each value method binds as a function whose first parameter is the receiver and whose name joins the type's and the method's: `extern go time.Duration.String func DurationString(d duration) string`, and likewise `DurationAbs`, `Hours`, `Microseconds`, `Milliseconds`, `Minutes`, `Nanoseconds`, `Round`, `Seconds` and `Truncate`.
+
+1. **Calls and values.** `time.DurationString(d)` is a call of `import go`. `time.DurationString` is also a function value. Each charges what the package's other functions charge: `go.Foreign`, since `time` is not in the pure tier.
+2. **Lowering.** The call is Go's method expression `time.Duration.String(d)`, and so is the value passed to Go. No adapter is involved, because a `duration` is Go's `time.Duration`. `TestImportGoRuns` (lower) runs each kind, called and as a value, against Go's own methods.
+3. **Pointer methods.** Only the value method set binds. A method only a pointer has would write its receiver, and an Ergo value is never one. `time.Duration` has none.
+
+*Prior art:* ReScript binds a JS method as a function of its receiver (`@send external toFixed: (float, int) => string`), and Gleam's externals take the receiver as their first argument too. Elixir calls Erlang functions with the value first, as `Duration.to_string(d)` would. Effect's `Duration.format(d)` is likewise a function of the value, not a method. Go's method expression `T.M(x)` is that same form on the host side, so the lowering adds nothing.
 
 ## Go package variables
 

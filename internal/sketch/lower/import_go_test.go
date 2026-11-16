@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 	"text/tabwriter"
+	"time"
 )
 
 var importGoSeed = flag.Uint64("importgo.seed", 0, "run TestImportGoRuns and TestHostCopyElisionAgrees on this seed alone")
@@ -48,6 +49,13 @@ import go encoding/base64
 import go hash/crc32
 import go time
 import go os
+
+// time.Duration's methods (GBX4): functions of their receiver, called and
+// passed as a value, both Go's method expression.
+func goDurations(d duration) string needs go.Foreign {
+	let text = time.DurationString
+	"\(text(d))|\(time.DurationSeconds(d))|\(time.DurationMilliseconds(d))|\(text(time.DurationRound(d, 1s)))|\(text(time.DurationTruncate(d, 1m)))|\(text(time.DurationAbs(-d)))"
+}
 
 // Go's read-only package variables (GBX3): a go.Ref that is never nil, and
 // a slice whose read is a copy, so an Ergo write never reaches Go's.
@@ -176,6 +184,9 @@ func TestImportGoRuns(t *testing.T) {
 	// Go constants (typed as the binding says) and an error variable.
 	src.WriteString("\tConsole.Println(\"\\(math.MaxInt8 + 1)|\\(io.EOF.Text)|\\(strconv.IntSize)\")\n")
 	want = append(want, fmt.Sprintf("%d|%s|%d", math.MaxInt8+1, io.EOF.Error(), strconv.IntSize))
+	src.WriteString("\tConsole.Println(goDurations(90s + 500ms))\n")
+	d := 90*time.Second + 500*time.Millisecond
+	want = append(want, fmt.Sprintf("%s|%v|%d|%s|%s|%s", d, d.Seconds(), d.Milliseconds(), d.Round(time.Second), d.Truncate(time.Minute), (-d).Abs()))
 	src.WriteString("\tConsole.Println(goVars())\n")
 	want = append(want, fmt.Sprintf("%s|%s|%d|1970|1|kept", base64.StdEncoding.EncodeToString([]byte("hi")), base64.RawURLEncoding.EncodeToString([]byte{251, 255}), crc32.ChecksumIEEE([]byte("hi"))))
 	src.WriteString("}\n")
