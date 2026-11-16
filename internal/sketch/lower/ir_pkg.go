@@ -588,7 +588,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name) // bodycontract.go: the facts of the body the binding names
 	if err != nil || len(body.Params) != len(x.Args) {
 		irNo("std operation without its runtime method")
 	}
