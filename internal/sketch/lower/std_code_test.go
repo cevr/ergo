@@ -7,7 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -92,7 +92,7 @@ var codeLawLines = map[string][]string{
 // (internal/sketch/lower/testdata/mutants.json).
 func TestStdCodeLawsRun(t *testing.T) {
 	needsBuild(t)
-	sources, ok := std.Package("code")
+	sources, ok := stdlib.Package("code")
 	if !ok {
 		t.Fatal("no std code")
 	}

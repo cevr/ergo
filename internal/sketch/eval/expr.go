@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -1089,7 +1089,7 @@ func (c *closure) callerCaps(fr *frame) *capEnv {
 // which the evaluator runs as value operations, never by their Go bodies
 // (plan section 4: pure prelude collection operations).
 func preludeCollection(f *check.Func) bool {
-	if f == nil || f.Pkg == nil || f.Pkg.Path != std.PreludePath || f.Decl == nil || f.Decl.Extern == nil {
+	if f == nil || f.Pkg == nil || f.Pkg.Path != stdlib.PreludePath || f.Decl == nil || f.Decl.Extern == nil {
 		return false
 	}
 	switch f.Name {

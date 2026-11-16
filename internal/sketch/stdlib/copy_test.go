@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"bufio"
@@ -20,7 +20,7 @@ import (
 	"ergo.local/prototype/internal/sketch/api"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -66,7 +66,7 @@ func TestStdCopyAgrees(t *testing.T) {
 		seeds = []uint64{n}
 	}
 	only := os.Getenv("ERGO_STD_COPY_PKG")
-	pkgs := append([]string{copyFixturePath}, std.Packages()...)
+	pkgs := append([]string{copyFixturePath}, stdlib.Packages()...)
 	seen := map[string]bool{}
 	for _, path := range pkgs {
 		if only != "" && path != only {
@@ -291,7 +291,7 @@ func copySources(t *testing.T, path string) []copySource {
 	if path == copyFixturePath {
 		return []copySource{{"fixture.ergo", copyFixture}}
 	}
-	srcs, ok := std.Package(path)
+	srcs, ok := stdlib.Package(path)
 	if !ok {
 		t.Fatalf("std.Package(%q): not embedded", path)
 	}

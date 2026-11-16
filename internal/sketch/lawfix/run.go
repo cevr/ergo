@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -99,7 +99,7 @@ func Run(opts Options) (Report, error) {
 		return rep, err
 	}
 	if opts.StdRoot != "" {
-		for _, p := range std.Packages() {
+		for _, p := range stdlib.Packages() {
 			dir, err := filepath.Abs(filepath.Join(opts.StdRoot, filepath.FromSlash(p)))
 			if err != nil {
 				return rep, err

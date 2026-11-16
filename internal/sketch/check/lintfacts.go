@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -198,7 +198,7 @@ var stdRoles = []struct {
 	{"tasks", "Race", RoleRace},
 	{"slices", "Collect", RoleCollect},
 	{"slices", "Sorted", RoleCollect},
-	{std.PreludePath, "Append", RoleAppend},
+	{stdlib.PreludePath, "Append", RoleAppend},
 	{"timeout", "After", RoleAfter},
 }
 
@@ -228,7 +228,7 @@ func IsSchedulerSleep(info *Info, x *syntax.CallExpr) bool {
 		return false
 	}
 	n, ok := info.Types[sel.X].(*Named)
-	return ok && isStdObj(n.origin().Obj, std.PreludePath, "Scheduler") && call.Op.Name == "Sleep"
+	return ok && isStdObj(n.origin().Obj, stdlib.PreludePath, "Scheduler") && call.Op.Name == "Sleep"
 }
 
 // IsTimeoutExpired reports std timeout.Expired, the failure of a deadline.

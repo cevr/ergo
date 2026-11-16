@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -43,7 +43,7 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 	}
 	for _, x := range d.Implements {
 		var t Type
-		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != std.PreludePath {
+		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != stdlib.PreludePath {
 			// A type named like a prelude type hides it in its package
 			// (types.md, Scope 2), and no type implements itself: its
 			// own name in its clause is the prelude's type it hides
@@ -161,7 +161,7 @@ func (c *checker) closer() *Named { return c.preludeContract("Closer") }
 // preludeContract is the prelude's operation type name, a contract the
 // language gives a meaning (Closer, R1; Keeping, R13), or nil.
 func (c *checker) preludeContract(name string) *Named {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath {
 		// The prelude's own check reads its scope: prelude() is not
 		// done yet.
 		tn, _ := c.pkg.Scope.names[name].(*TypeName)
@@ -685,7 +685,7 @@ func (c *checker) opAtOwnParams(n *Named, op *Named) Type {
 // name), and an operation type that lists a Close() of the contract's
 // shape, where neither declares the contract.
 func (c *checker) recordLegacyReleases() {
-	if legacyRecord == nil || c.pkg.Path == std.PreludePath {
+	if legacyRecord == nil || c.pkg.Path == stdlib.PreludePath {
 		return
 	}
 	cl := c.closer()

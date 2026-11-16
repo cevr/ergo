@@ -1,6 +1,6 @@
 package lint
 
-import "ergo.local/prototype/internal/sketch/std"
+import "ergo.local/prototype/internal/sketch/stdlib"
 
 // foreignWhereStd is the justifier rule for raw Go where std has the
 // package (plan §3; tsgo nodeBuiltinImport and preferSchemaOverJson,
@@ -23,7 +23,7 @@ func checkForeignWhereStd(p *Pass) {
 		if !im.Pkg.Host() {
 			continue
 		}
-		if covering, ok := std.CoveredBy(im.Pkg.Path); ok {
+		if covering, ok := stdlib.CoveredBy(im.Pkg.Path); ok {
 			p.Report(im.Spec.Pos(), im.Spec.End(), "import go "+im.Pkg.Path+" runs unreviewed Go where std covers it: import "+covering+" (docs/spec/stdlib.md)")
 		}
 	}

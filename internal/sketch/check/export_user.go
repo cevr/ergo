@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // CrossRef is one reference that a user package's segment makes to an
@@ -63,7 +63,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	prelude()
 	// Every std package is in std's segments, so a user segment names std
 	// objects there and never writes one (the std snapshot holds them all).
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		if _, err := Std.Import(path); err != nil {
 			return nil, err
 		}

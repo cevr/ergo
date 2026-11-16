@@ -136,7 +136,7 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 var ergoSuites = map[string]string{
 	"check": "internal/sketch/check",
 	"lower": "internal/sketch/lower",
-	"std":   "internal/sketch/std",
+	"std":   "internal/sketch/stdlib", // the std tests (GS25)
 	"api":   "internal/sketch/api",
 	"ergo":  "cmd/ergo",
 }

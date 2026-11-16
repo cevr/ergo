@@ -1748,7 +1748,7 @@
     "TestSlotDriverAgrees": 1.34,
     "TestTaggedConstructionAgrees": 1.26
   },
-  "ergo.local/prototype/internal/sketch/std": {
+  "ergo.local/prototype/internal/sketch/stdlib": {
     "TestCallsLedgerRun": 0,
     "TestCallsToEachFunctionCheck": 0,
     "TestContextPackagesSurface": 0,
@@ -2511,10 +2511,17 @@
   "ergo.local/prototype/scripts/migrate196": {
     "TestWriteKeepsRowComments": 0
   },
+  "ergo.local/prototype/scripts/gs25-move-std-api": {
+    "TestCheckoutKeepsStdALeaf": 0.49,
+    "TestMoveAppliesToTheOldLayout": 0.4
+  },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
   },
   "internal/sketchfront": {
     "TestStatSumsReadOnlyWhatChanged": 0.01
+  },
+  "ergo.local/prototype/scripts/specrefs": {
+    "TestWrappedReferencesMove": 0
   }
 }

@@ -186,6 +186,15 @@ type Inputs struct {
 	// selects every file.
 	Paths   []string
 	Exclude []string
+	// Bases selects, beside Paths, every file whose base name matches one
+	// of these path.Match patterns ("*.go"): the files of one kind in
+	// every folder.
+	Bases []string
+	// Listed keys the name of every file the inputs do not select, though
+	// not its content: adding, removing or renaming any file runs the step
+	// again, and editing one it does not read replays it. go vet reads the
+	// Go files' content, and the embed patterns' matches only by name.
+	Listed bool
 	// Tools names executables whose fingerprint (toolVersion) is an input.
 	Tools []string
 	// Env names environment variables whose values are inputs.
@@ -267,10 +276,13 @@ type gate struct {
 	// recordCPU: -record-durations -cpu (writeTestCPU).
 	recordCPU bool
 	steps     []*Step
-	files     []string
-	digests   map[string]string
-	tools     map[string]*toolFact
-	toolsMu   sync.Mutex
+	// dropped are the fast tier's lines for the packages whose every fast
+	// test the selection skipped, which have no step (fastStepsSelected).
+	dropped []string
+	files   []string
+	digests map[string]string
+	tools   map[string]*toolFact
+	toolsMu sync.Mutex
 
 	// roots are the paths the tool fingerprints cover (installationRoots).
 	roots []string
@@ -291,6 +303,11 @@ type gate struct {
 	// whole, when set, keys the whole gate: run replays a recorded pass at
 	// the key, records a passed run and withdraws the record on a failure.
 	whole *wholeGate
+	// startFacts, when set, are the start key main collected for the
+	// whole-gate replay, after the limiter and before the steps were
+	// declared (replayWhole); run keys with them rather than collecting
+	// the same facts again (gate-speed GS28).
+	startFacts *replay.Facts
 	// verdicts are each step's verdict after run, for the merge tier.
 	verdicts map[string]replay.Verdict
 	// programs replaces hostPrograms in a test of the collector.
@@ -347,7 +364,7 @@ func (g *gate) collect() (*replay.Facts, error) {
 }
 
 // collectTier is collectFacts with the gate's tier among the settings
-// (replay.WithTier). The replay before the scope (replayWholeGate), a
+// (replay.WithTier). The replay before the steps (replayWholeGate), a
 // run's record and its package keys all key their facts through it, so
 // they agree on the tier.
 func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
@@ -367,6 +384,7 @@ func main() {
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
 	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
+	sweeps := flag.Bool("sweeps", false, "with -record-durations: run the closure sweep of the named package directories (every swept package when none is named) one at a time and rewrite their real costs in "+sweepCostFile)
 	flag.Parse()
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
@@ -376,6 +394,9 @@ func main() {
 	}
 	if *cpu && (!*recordDurations || *fast) {
 		fatal(errors.New("-cpu goes with -record-durations only, without -fast"))
+	}
+	if *sweeps && (!*recordDurations || *fast || *cpu || *coverage) {
+		fatal(errors.New("-sweeps goes with -record-durations only, without -fast, -cpu or -coverage"))
 	}
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
@@ -430,27 +451,38 @@ func main() {
 		}
 		command, reason := scopeProbe(budget, cpus)
 		probed = command != ""
-		if !*noCache && !*merge && !*recordDurations {
-			// The replay path starts no step but the cached go build of
-			// bin/ergo (rebuildOutputs), so it enters no scope.
-			root, err := repositoryRoot()
-			if err != nil {
-				fatal(err)
-			}
-			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), tier, os.Stdout); replayed {
-				exitGate(code)
-			}
-		}
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
-	g, err := setUpRun(scope, scopeNote, tier, *recordDurations)
+	// The whole-gate replay keys the checkout once the limiter is open and
+	// before the steps are declared: a replay declares none, and a miss
+	// keeps the facts as the run's start key (gate.startFacts). It ran
+	// before the scope, and a miss collected the facts twice, the first
+	// time at the caller's CPU share: 3.1 of the 6.8 s before a std edit's
+	// gate clock started, at 4 CPUs, against 0.8 here (gate-speed GS28).
+	var replayFirst func(*gate)
+	if !*noCache && !*merge {
+		replayFirst = func(g *gate) {
+			code, replayed, facts := g.replayWhole(mechanismFact(scope, probed, scopeNote), os.Stdout)
+			if replayed {
+				exitGate(code)
+			}
+			g.startFacts = facts
+		}
+	}
+	g, err := setUpRun(scope, scopeNote, tier, *recordDurations, replayFirst)
 	if err != nil {
 		fmt.Println("gate:", err)
 		exitGate(2)
 	}
 	if *recordDurations {
 		g.recordCPU = *cpu
+		if *sweeps {
+			if err := writeSweepCosts(g.root, g.limit, os.Stdout, flag.Args()); err != nil {
+				fatal(err)
+			}
+			return
+		}
 		if *coverage {
 			if err := writeCoverage(g.root, g.cacheDir, g.limit, flag.Args(), os.Stdout); err != nil {
 				fatal(err)
@@ -495,26 +527,28 @@ func setUp(scope, scopeNote string, declare bool) (*gate, error) {
 	if declare {
 		tier = fullTier
 	}
-	return setUpTier(scope, scopeNote, tier)
+	return setUpTier(scope, scopeNote, tier, nil)
 }
 
 // setUpRun sets up the gate of a run of tier, the one value main computes
-// (tierFor) and also gives the replay before the scope (replayWholeGate):
-// the gate declares that tier's steps and keys its record with it
-// (gate.tier, collectTier). -record-durations declares no step and records
-// no whole gate, so its gate has no tier. Before, main set gate.tier apart
-// from the steps, and a run that lost it recorded under no tier with every
-// test green (gate-shard round 1, mutant v3).
-func setUpRun(scope, scopeNote, tier string, recordDurations bool) (*gate, error) {
+// (tierFor) and also gives the whole-gate replay (replayWhole): the gate
+// declares that tier's steps and keys its record with it (gate.tier,
+// collectTier). -record-durations declares no step and records no whole
+// gate, so its gate has no tier. Before, main set gate.tier apart from the
+// steps, and a run that lost it recorded under no tier with every test
+// green (gate-shard round 1, mutant v3). beforeSteps, when set, runs on the
+// gate of a tier after its limiter and before its steps are declared (main's
+// replay, which then needs no step).
+func setUpRun(scope, scopeNote, tier string, recordDurations bool, beforeSteps func(*gate)) (*gate, error) {
 	if recordDurations {
 		tier = ""
 	}
-	return setUpTier(scope, scopeNote, tier)
+	return setUpTier(scope, scopeNote, tier, beforeSteps)
 }
 
 // setUpTier is setUp declaring the steps of the tier (stepsFor) and
 // naming it (gate.tier), or no step and no tier when the tier is empty.
-func setUpTier(scope, scopeNote, tier string) (*gate, error) {
+func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, error) {
 	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory(), tier: tier}
 	budget, err := currentBudget()
 	if err == nil {
@@ -529,10 +563,13 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	if tier == "" {
 		return g, nil
 	}
+	if beforeSteps != nil {
+		beforeSteps(g)
+	}
 	if tier == fastTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
-		g.steps, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
+		g.steps, g.dropped, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
 		})
 	} else {
@@ -550,46 +587,55 @@ var replayBuild = buildCLI
 
 // replayWholeGate replays the whole-gate record of the checkout's key, if
 // one replays (replay.Store.TryReplay): the identity line, then the
-// recorded run. It reports whether it replayed, and the exit code. It runs
-// before the gate enters its scope, and starts no step but the build of
-// bin/ergo, so the binary matches the tree (rebuildOutputs). It replays
-// only a record of the run's tier.
+// recorded run. It reports whether it replayed, and the exit code. It
+// starts no step but the build of bin/ergo, so the binary matches the tree
+// (rebuildOutputs). It replays only a record of the run's tier.
 func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	g := &gate{root: root, cacheDir: cacheDirectory(), tier: tier}
+	code, replayed, _ := g.replayWhole(mechanism, out)
+	return code, replayed
+}
+
+// replayWhole is replayWholeGate for the gate main sets up (setUpRun's
+// beforeSteps, after the limiter). When
+// it does not replay, it returns the facts it keyed, the run's start key,
+// so the run does not collect them again (gate.startFacts); nil when it
+// could not collect them.
+func (g *gate) replayWhole(mechanism string, out *os.File) (int, bool, *replay.Facts) {
 	if g.cacheDir == "" {
-		return 0, false
+		return 0, false, nil
 	}
 	facts, err := g.collectTier(mechanism)
 	if err != nil {
-		return 0, false
+		return 0, false, nil
 	}
 	spoolDir, err := outputSpoolDir(g.cacheDir)
 	if err != nil {
-		return 0, false
+		return 0, false, facts
 	}
 	recorded, _ := replay.Open(g.cacheDir).TryReplay(facts, func() (*os.File, error) { return newOutputSpool(spoolDir) })
 	if recorded == nil {
 		// The gate runs, and says there why it did not replay.
-		return 0, false
+		return 0, false, facts
 	}
 	defer recorded.Close()
 	if err := outputDestination(out); err != nil {
-		return 0, false
+		return 0, false, facts
 	}
-	state, err := checkoutStateOf(root)
+	state, err := checkoutStateOf(g.root)
 	if err != nil {
-		return 0, false
+		return 0, false, facts
 	}
 	fmt.Fprintln(out, state)
-	fmt.Fprintf(out, "gate: tier: %s\n", tier)
+	fmt.Fprintf(out, "gate: tier: %s\n", g.tier)
 	if err := recorded.Print(out); err != nil {
 		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
-		return 2, true
+		return 2, true, nil
 	}
-	if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {
-		return 1, true
+	if !rebuildOutputs(g.root, []*Step{replayBuild(g.root)}, out) {
+		return 1, true, nil
 	}
-	return 0, true
+	return 0, true, nil
 }
 
 // mergeTier runs the merge tier (replay.MergeTier): the inner tier first
@@ -843,6 +889,9 @@ func (g *gate) run(out io.Writer) int {
 			fmt.Fprintf(out, "gate: %s: %s\n", step.Name, step.Note)
 		}
 	}
+	for _, line := range g.dropped {
+		fmt.Fprintf(out, "gate: %s\n", line)
+	}
 	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
@@ -852,7 +901,10 @@ func (g *gate) run(out io.Writer) int {
 	var recording *replay.Run
 	if g.whole != nil {
 		store := replay.Open(g.cacheDir)
-		facts, err := g.collect()
+		facts, err := g.startFacts, error(nil)
+		if facts == nil {
+			facts, err = g.collect()
+		}
 		switch {
 		case err != nil:
 			fmt.Fprintf(out, "gate: no whole-gate key: %v\n", err)
@@ -909,6 +961,24 @@ func (g *gate) run(out io.Writer) int {
 	first := writerPath(g.steps, index)
 	times := readStepTimes(g.cacheDir)
 	priority := stepPriorities(g.steps, index, times)
+	// The steps that wait for nothing ask for a slot at once; the pool
+	// hands the first slots out by priority once they all have.
+	ready := 0
+	for i, step := range g.steps {
+		if len(step.Needs) == 0 && len(after[i]) == 0 {
+			ready++
+		}
+	}
+	slots.holdFor(ready)
+	// A sweep's real run is checked against its record (sweepCostStale).
+	sweepCosts, err := readSweepCosts(g.root)
+	if err != nil {
+		fmt.Fprintf(out, "gate: %v\n", err)
+	}
+	// The sweeps whose record this run found stale, by directory: the
+	// seconds they ran (rewriteStaleSweeps, at the end of the run).
+	var staleMu sync.Mutex
+	stale := map[string]float64{}
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -931,6 +1001,12 @@ func (g *gate) run(out io.Writer) int {
 			slots.acquireN(first[i], priority[i], held)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
+				if note := sweepCostStale(step.Sweep, sweepCosts[step.Sweep], results[i].duration.Seconds()); note != "" {
+					results[i].output = fmt.Appendf(results[i].output, "%s\n", note)
+					staleMu.Lock()
+					stale[step.Sweep] = results[i].duration.Seconds()
+					staleMu.Unlock()
+				}
 			} else {
 				results[i] = g.execute(step)
 			}
@@ -1003,6 +1079,13 @@ func (g *gate) run(out io.Writer) int {
 		if line != "" {
 			fmt.Fprintln(out, line)
 		}
+	}
+	// A stale sweep record corrects itself: every step has ended and the
+	// records are written, so no sweep sees the checkout change.
+	if dirs, err := rewriteStaleSweeps(g.root, stale); err != nil {
+		fmt.Fprintf(out, "gate: %s: %v\n", sweepCostFile, err)
+	} else if len(dirs) > 0 {
+		fmt.Fprintf(out, "gate: rewrote the rows of %s in %s from this run; commit them\n", strings.Join(dirs, ", "), sweepCostFile)
 	}
 	elapsed := time.Since(started).Seconds()
 	if len(failures) > 0 {
@@ -1557,7 +1640,15 @@ func selected(name string, inputs *Inputs) bool {
 		}
 		return false
 	}
-	if len(inputs.Paths) > 0 && !match(inputs.Paths) {
+	base := func() bool {
+		for _, pattern := range inputs.Bases {
+			if ok, _ := path.Match(pattern, path.Base(name)); ok {
+				return true
+			}
+		}
+		return false
+	}
+	if (len(inputs.Paths) > 0 || len(inputs.Bases) > 0) && !match(inputs.Paths) && !base() {
 		return false
 	}
 	return !match(inputs.Exclude)
@@ -1586,6 +1677,8 @@ func (g *gate) key(step *Step) (string, error) {
 			}
 			fmt.Fprintf(hash, "file\x00%s\x00%s\x00", name, digest)
 			files++
+		} else if inputs.Listed {
+			fmt.Fprintf(hash, "listed\x00%s\x00", name)
 		}
 	}
 	if files == 0 {

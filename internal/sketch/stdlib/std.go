@@ -1,4 +1,4 @@
-// Package std holds the Ergo source of the language's prelude and
+// Package stdlib holds the Ergo source of the language's prelude and
 // standard-library root (docs/spec/stdlib.md). The sources are ordinary
 // Ergo code: internal/sketch/check checks them with the same rules as user
 // packages, so no library item is a compiler branch (owner, 2026-10-12;
@@ -8,10 +8,10 @@
 // Prior art: MoonBit and OCaml ship their standard library as source that
 // the same compiler checks; Gleam keeps its prelude in the compiler
 // (compiler-core/src/type_/prelude.rs), which Ergo does not copy.
-package std
+package stdlib
 
 import (
-	"embed"
+	"ergo.local/prototype/internal/sketch/std"
 	"io/fs"
 	"os"
 	"path"
@@ -20,48 +20,11 @@ import (
 	"strings"
 )
 
-//go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
-//go:embed os/*.ergo
-//go:embed fs/*.ergo fstest/*.ergo
-//go:embed io/*.ergo term/*.ergo prompt/*.ergo
-//go:embed utf8/*.ergo
-//go:embed flag/*.ergo
-//go:embed maps/*.ergo cmp/*.ergo
-//go:embed time/*.ergo cache/*.ergo
-//go:embed rand/*.ergo
-//go:embed sync/*.ergo
-//go:embed embed/*.ergo
-//go:embed atomic/*.ergo
-//go:embed arena/*.ergo dense/*.ergo
-//go:embed ui/*.ergo
-//go:embed text/*.ergo
-//go:embed filepath/*.ergo
-//go:embed exec/*.ergo
-//go:embed math/*.ergo bits/*.ergo
-//go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
-//go:embed machines/*.ergo
-//go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
-//go:embed testing/*.ergo explore/*.ergo
-//go:embed tasks/*.ergo
-//go:embed schedule/*.ergo
-//go:embed http/*.ergo
-//go:embed actor/*.ergo
-//go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
-//go:embed lint/*.ergo
-//go:embed bench/*.ergo
-//go:embed ui/layout/*.ergo
-//go:embed code/*.ergo
-var sources embed.FS
-
-// ledger is the std law ledger (runtime.md, Tests 10): the verdicts of
+// Ledger is the std law ledger (runtime.md, Tests 10): the verdicts of
 // std's rewrite laws, written by `go run ./scripts/stdlaws` and read by
-// every build like a module's ergo.laws.
-//
-//go:embed ergo.laws
-var ledger string
-
-// Ledger is the std law ledger's text.
-func Ledger() string { return ledger }
+// every build like a module's ergo.laws (std.LedgerText, embedded beside
+// the sources).
+func Ledger() string { return std.LedgerText }
 
 // PreludePath is the package path of the prelude. No import names it: its
 // exported declarations are in scope in every package.
@@ -93,7 +56,7 @@ var observe = func(name string) {
 // Prelude returns the prelude's source files, by file name.
 func Prelude() map[string]string {
 	observe("prelude.ergo")
-	data, err := sources.ReadFile("prelude.ergo")
+	data, err := std.Sources.ReadFile("prelude.ergo")
 	if err != nil {
 		panic("std: the prelude is not embedded: " + err.Error())
 	}
@@ -107,7 +70,7 @@ func Package(importPath string) (map[string]string, bool) {
 	if importPath == "" || importPath == PreludePath || importPath == "." || strings.Contains(importPath, "..") {
 		return nil, false
 	}
-	entries, err := fs.ReadDir(sources, importPath)
+	entries, err := fs.ReadDir(std.Sources, importPath)
 	if err != nil {
 		return nil, false
 	}
@@ -117,7 +80,7 @@ func Package(importPath string) (map[string]string, bool) {
 			continue
 		}
 		observe(path.Join(importPath, entry.Name()))
-		data, err := sources.ReadFile(path.Join(importPath, entry.Name()))
+		data, err := std.Sources.ReadFile(path.Join(importPath, entry.Name()))
 		if err != nil {
 			return nil, false
 		}
@@ -132,7 +95,7 @@ func Package(importPath string) (map[string]string, bool) {
 // Packages lists the importable standard-library paths, sorted.
 func Packages() []string {
 	var out []string
-	_ = fs.WalkDir(sources, ".", func(p string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(std.Sources, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() || p == "." {
 			return nil
 		}

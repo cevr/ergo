@@ -113,7 +113,7 @@ internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wir
 internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\tcase json.Present[Span] as p:
 internal/sketch/lower/std_lint_test.go	*
 internal/sketch/lower/catch_wired_test.go	*
-internal/sketch/std/laws_test.go	*
+internal/sketch/stdlib/laws_test.go	*
 internal/sketch/std/lint/facts.ergo	*
 internal/sketch/std/lint/laws.ergo	*
 internal/sketch/std/lint/pack.ergo	*

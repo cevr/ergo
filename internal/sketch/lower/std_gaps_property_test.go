@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -414,7 +414,7 @@ func TestStdGapRealStd(t *testing.T) {
 			want[name] = out
 		}
 	}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		p, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("std %s: %v", path, err)

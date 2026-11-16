@@ -247,7 +247,7 @@ func fileImports(f *ast.File) map[string]string {
 }
 
 const (
-	stdImportPath = "ergo.local/prototype/internal/sketch/std"
+	stdImportPath = "ergo.local/prototype/internal/sketch/stdlib" // std's API (GS25)
 	v1ImportPath  = "ergo.local/prototype/runtime/v1"
 	// bodyContractFile reads the facts of the body an extern names, for
 	// an extern of any package (check.BodyOf): its reads of runtime/v1's

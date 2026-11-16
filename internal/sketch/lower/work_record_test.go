@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // workCopyNames renames std machines' work declarations to a program's
@@ -20,7 +20,7 @@ var workCopyNames = [][2]string{
 // Attempt and outcome, read from the std source (each from its doc
 // comment's end to the closing brace at column 0, or the one-line type).
 func workDecls(t *testing.T) string {
-	files, ok := std.Package("machines")
+	files, ok := stdlib.Package("machines")
 	if !ok {
 		t.Fatal("no std machines")
 	}

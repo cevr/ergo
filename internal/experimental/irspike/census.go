@@ -10,7 +10,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -148,7 +148,7 @@ func corpusFiles(root string) ([]string, error) {
 // StdFuncs are the std functions with an Ergo body, in a fixed order.
 func StdFuncs() ([]*check.Func, error) {
 	var out []*check.Func
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		p, err := check.Std.Import(path)
 		if err != nil {
 			return nil, err

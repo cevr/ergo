@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -898,7 +898,7 @@ var pureCollections string
 
 // preludeCollection reports the prelude's Append, Get, Delete or Put.
 func preludeCollection(f *Func) bool {
-	if f.Pkg == nil || f.Pkg.Path != std.PreludePath {
+	if f.Pkg == nil || f.Pkg.Path != stdlib.PreludePath {
 		return false
 	}
 	switch f.Name {

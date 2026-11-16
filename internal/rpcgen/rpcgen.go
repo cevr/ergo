@@ -29,7 +29,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // Files is the generated package: its folder name, relative to the
@@ -241,7 +241,7 @@ func (g *gen) fail(format string, args ...any) {
 
 // importOf records p's import and is the name source uses for it.
 func (g *gen) importOf(p *check.Package) string {
-	if p == nil || p.Path == std.PreludePath {
+	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
 	if p == g.pkg {

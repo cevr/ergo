@@ -1,6 +1,6 @@
 //go:build unix
 
-package std
+package stdlib
 
 import (
 	"os"

@@ -41,8 +41,8 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -463,7 +463,7 @@ func modulePathProblem(module string) string {
 		return fmt.Sprintf("the module path %s is not an import path: its elements are not empty", module)
 	}
 	first, _, _ := strings.Cut(module, "/")
-	if _, isStd := std.Package(first); isStd || first == std.PreludePath {
+	if _, isStd := stdlib.Package(first); isStd || first == stdlib.PreludePath {
 		return fmt.Sprintf("the module path %s starts with the std package %s, which a std import always names; choose another module name", module, first)
 	}
 	return ""
@@ -922,7 +922,7 @@ func (l *loader) testOf(p *loadedPackage) *check.Package {
 // first, so no module package shadows it. The loader and the law ledger's
 // pruning (ledgerSource) find a package by its path through it.
 func shippedImport(path string) (*check.Package, bool, error) {
-	if _, isStd := std.Package(path); !isStd {
+	if _, isStd := stdlib.Package(path); !isStd {
 		return nil, false, nil
 	}
 	p, err := check.Std.Import(path)
@@ -932,8 +932,8 @@ func shippedImport(path string) (*check.Package, bool, error) {
 // isStdPath reports whether path names std, which every module imports
 // and no module may shadow.
 func isStdPath(path string) bool {
-	_, ok := std.Package(path)
-	return ok || path == std.PreludePath
+	_, ok := stdlib.Package(path)
+	return ok || path == stdlib.PreludePath
 }
 
 // TrustsGo is the loader's check.GoTrust for the packages it checks with

@@ -1,4 +1,4 @@
-package std
+package stdlib
 
 // ArgClause is the reviewed fact of one parameter of a std declaration
 // whose body is Go: what the callee does with a function or resource

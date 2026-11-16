@@ -33,7 +33,7 @@ import (
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // Files is the generated package: its folder name, relative to the
@@ -128,7 +128,7 @@ func (g *gen) fail(format string, args ...any) {
 
 // importOf records p's import and is the name source uses for it.
 func (g *gen) importOf(p *check.Package) string {
-	if p == nil || p.Path == std.PreludePath {
+	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
 	if p == g.pkg {
@@ -237,7 +237,7 @@ func convert(kind, conv, e string) string {
 // optionOf is T when t is the prelude's Option[T].
 func optionOf(t check.Type) (check.Type, bool) {
 	n, ok := unalias(t).(*check.Named)
-	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != std.PreludePath || len(n.TArgs) != 1 {
+	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	return n.TArgs[0], true

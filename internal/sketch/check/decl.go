@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -598,7 +598,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		return
 	}
 	imp := c.imp
-	if _, isStd := std.Package(path); isStd {
+	if _, isStd := stdlib.Package(path); isStd {
 		// A std path always names std, whatever importer Check was given:
 		// a program package cannot shadow log or queue (C30).
 		imp = Std
@@ -2528,7 +2528,7 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath {
 		for _, f := range c.funcs {
 			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file

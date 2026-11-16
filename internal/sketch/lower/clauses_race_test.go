@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // The std callback property of ESC1 (lang audit B, F1). A std function
@@ -373,7 +373,7 @@ func clauseAdmitted(t *testing.T) ([]clauseCase, []uint64) {
 		}
 	}
 	clauseOf := map[string]string{}
-	for _, c := range std.ArgClauses {
+	for _, c := range stdlib.ArgClauses {
 		key := c.Func + "." + c.Param
 		clauseOf[key] = c.Clause
 		if !covered[key] && clauseUnreached[key] == "" {

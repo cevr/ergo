@@ -15,7 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -83,7 +83,7 @@ func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
 		seen[keys[i]] = true
 	}
 	prelude()
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		if _, err := Std.Import(path); err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
 	// package that declared a plan function or a derive would lose it.
 	for i, pkg := range append([]*Package{preludeOnce.r.pkg}, s.packages...) {
 		if pkg != nil && !pkg.Derive.Empty() {
-			name := std.PreludePath
+			name := stdlib.PreludePath
 			if i > 0 {
 				name = s.paths[i-1]
 			}

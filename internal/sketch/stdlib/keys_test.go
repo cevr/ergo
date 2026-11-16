@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"go/ast"
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -22,7 +22,7 @@ import (
 // return, is named by a record, so a catch arm can name it.
 func TestStdRecordTable(t *testing.T) {
 	owner := map[string]string{}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)

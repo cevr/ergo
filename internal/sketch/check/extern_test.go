@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -1298,9 +1298,9 @@ var openStd = map[string]bool{
 // the checker.
 func stdOperationTypes(t *testing.T) []string {
 	t.Helper()
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		files, ok := std.Package(path)
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, path := range stdlib.Packages() {
+		files, ok := stdlib.Package(path)
 		if !ok {
 			t.Fatalf("std lists %s but does not serve it", path)
 		}
@@ -1704,7 +1704,7 @@ func main() { with W { A.Use() } }
 		if len(pkgs) != 1 || !pkgs[0].Std() {
 			t.Fatalf("the prelude package: %v", pkgs)
 		}
-		for _, path := range std.Packages() {
+		for _, path := range stdlib.Packages() {
 			pkg, err := check.Std.Import(path)
 			if err != nil {
 				t.Fatalf("%s: %v", path, err)

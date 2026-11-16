@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ import (
 
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -74,13 +74,13 @@ func stdLawPackages(t *testing.T) []stdLawPackage {
 		}
 		return out
 	}
-	out := []stdLawPackage{{path: std.PreludePath, pkg: prelude, files: parse(std.PreludePath, std.Prelude())}}
-	for _, path := range std.Packages() {
+	out := []stdLawPackage{{path: stdlib.PreludePath, pkg: prelude, files: parse(stdlib.PreludePath, stdlib.Prelude())}}
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)
 		}
-		sources, _ := std.Package(path)
+		sources, _ := stdlib.Package(path)
 		out = append(out, stdLawPackage{path: path, pkg: pkg, files: parse(path, sources)})
 	}
 	return out
@@ -446,7 +446,7 @@ func TestStdLawLedger(t *testing.T) {
 // tree: a runner in another package is "no func Test… of the runner
 // packages" until its directory is added here and to the sweep's grants
 // (internal/closure declared; batch-10 gate 1).
-var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/rand"}
+var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/stdlib", "runtime/v1", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/rand"}
 
 // repoTests are the names of the top-level func Test… declarations of the
 // _test.go files of runnerPackages, each with whether its body calls

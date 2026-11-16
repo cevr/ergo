@@ -10,7 +10,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/testinputs/genprogram"
 )
@@ -63,7 +63,7 @@ func countReference(t *testing.T, root, module, main string) referenceCount {
 	seen, stdSeen := map[string]bool{}, map[string]bool{}
 	var visitStd func(path string)
 	visitStd = func(path string) {
-		files, ok := std.Package(path)
+		files, ok := stdlib.Package(path)
 		if !ok || stdSeen[path] {
 			return
 		}

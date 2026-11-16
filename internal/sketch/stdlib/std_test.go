@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -30,7 +30,7 @@ var unbound = map[string]string{
 // checks user code, so no std declaration is a compiler branch.
 func TestEachModuleChecks(t *testing.T) {
 	for _, path := range v1Packages {
-		if _, ok := std.Package(path); !ok {
+		if _, ok := stdlib.Package(path); !ok {
 			t.Errorf("std.Package(%q): not embedded", path)
 			continue
 		}
@@ -532,7 +532,7 @@ func hasHidden(b v1.Body, h v1.Hidden) bool {
 // isTask reports the prelude's Task.
 func isTask(t check.Type) bool {
 	n, ok := t.(*check.Named)
-	return ok && n.Obj.Name == "Task" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == std.PreludePath
+	return ok && n.Obj.Name == "Task" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == stdlib.PreludePath
 }
 
 // operations is the operation set of an operations type.
@@ -617,7 +617,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 		t.Fatal("no prelude package behind LiveScheduler")
 	}
 	pkgs := []*check.Package{prelude}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)

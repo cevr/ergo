@@ -14,7 +14,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // ledgerProgram is a generated program with one rewrite law, Counter.Joins,
@@ -638,7 +638,7 @@ func TestStdLedgerFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh != std.Ledger() {
-		t.Fatalf("internal/sketch/std/ergo.laws is not a fresh run's: run go run ./scripts/stdlaws\nfresh:\n%s\nfile:\n%s", fresh, std.Ledger())
+	if fresh != stdlib.Ledger() {
+		t.Fatalf("internal/sketch/std/ergo.laws is not a fresh run's: run go run ./scripts/stdlaws\nfresh:\n%s\nfile:\n%s", fresh, stdlib.Ledger())
 	}
 }

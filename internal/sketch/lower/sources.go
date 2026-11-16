@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -205,7 +205,7 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 						continue
 					}
 					sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-					if p.Path == std.PreludePath {
+					if p.Path == stdlib.PreludePath {
 						sf.path = "std/" + f.Name
 					}
 					if l.stdSrc == nil {
@@ -290,7 +290,7 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 // the compiler ships (std's ergo.laws), as their sources do: the evidence
 // for the laws of the providers they declare (evidenceFor). A test swaps it
 // for a fixture's ledger.
-var shippedLedger = std.Ledger
+var shippedLedger = stdlib.Ledger
 
 // stdLetPkgs are the reached std packages that declare a top-level let,
 // in initialization order (importOrder). A std package imports no user

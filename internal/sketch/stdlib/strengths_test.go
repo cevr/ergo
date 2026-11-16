@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // The std strengths rule (docs/spec/stdlib.md, Std strengths over Effect;
@@ -44,13 +44,15 @@ var (
 // TestStdStrengthsTable: the table has one row per std package, found on
 // disk and in the embedded set, and each row's cells keep the rule.
 func TestStdStrengthsTable(t *testing.T) {
-	disk, err := stdPackageDirs(".")
+	// The std sources are in internal/sketch/std, beside this package (GS25).
+	sources := filepath.Join("..", "std")
+	disk, err := stdPackageDirs(sources)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The packages on disk are the packages the std embeds, so the table
 	// cannot miss a package that std.Packages() serves.
-	embedded := append([]string{std.PreludePath}, std.Packages()...)
+	embedded := append([]string{stdlib.PreludePath}, stdlib.Packages()...)
 	slices.Sort(embedded)
 	if !slices.Equal(disk, embedded) {
 		t.Fatalf("the std packages on disk are %v; std.Packages() and the prelude are %v", disk, embedded)
@@ -63,7 +65,7 @@ func TestStdStrengthsTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the std count receipt (go run ./scripts/stdcount writes it): %v", err)
 	}
-	for _, problem := range strengthsProblems(t, ".", doc, string(counts)) {
+	for _, problem := range strengthsProblems(t, sources, doc, string(counts)) {
 		t.Error(problem)
 	}
 }
@@ -172,7 +174,7 @@ func moduleRootDir(t *testing.T) string {
 func stdPackageDirs(root string) ([]string, error) {
 	var out []string
 	if _, err := os.Stat(filepath.Join(root, "prelude.ergo")); err == nil {
-		out = append(out, std.PreludePath)
+		out = append(out, stdlib.PreludePath)
 	}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() || p == root {

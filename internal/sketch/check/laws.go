@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -696,7 +696,7 @@ func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 // sees: itself, the prelude and its imports at any depth (rule 7).
 func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	pre := pkg
-	if pkg.Path != std.PreludePath {
+	if pkg.Path != stdlib.PreludePath {
 		pre = prelude().pkg
 	}
 	out := map[*Package]map[*Package]bool{}

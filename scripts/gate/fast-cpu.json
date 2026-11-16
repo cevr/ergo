@@ -16,7 +16,7 @@
   "ergo.local/prototype/internal/sketch/lint": 12.9,
   "ergo.local/prototype/internal/sketch/lower": 38.8,
   "ergo.local/prototype/internal/sketch/machinegraph": 0.9,
-  "ergo.local/prototype/internal/sketch/std": 4.5,
+  "ergo.local/prototype/internal/sketch/stdlib": 4.5,
   "ergo.local/prototype/internal/sketch/syntax": 3.4,
   "ergo.local/prototype/internal/sketchfront": 8.4,
   "ergo.local/prototype/internal/testinputs/guard": 0.7,

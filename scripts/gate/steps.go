@@ -293,7 +293,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", testTimeout, "-run", "^$", "./..."}, Class: classHeavy})
-	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
+	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Inputs: vetInputs(), Class: classFast})
 	// The CLI and the runtime it embeds also build for a 32-bit target,
 	// where int is 32 bits: a constant that overflows it fails here
 	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
@@ -314,6 +314,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	cpu, err := readTestCPU(root)
+	if err != nil {
+		return nil, err
+	}
+	sweepCosts, err := readSweepCosts(root)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +400,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 				continue
 			}
-			sweep := sweepStep(dir, sweepWeight(durations, pkg))
+			sweep := sweepStep(dir, sweepWeight(durations, pkg, sweepCosts[dir]))
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
 			add(sweep)
@@ -562,6 +566,24 @@ func provenanceAnalyzer(root string) []string {
 // (it imports only the standard library) and the Go toolchain. The check never
 // reads GitHub, so a stale snapshot passes; the command's fixture tests run
 // with the other Go packages.
+// vetInputs are go vet's: the content of the files the go command and its
+// analyzers read (Go and assembly sources, go.mod and go.sum, which pin
+// the module cache's dependencies), the name of every other file, and Go
+// (its version and settings). Go's own vet cache keys a package on its
+// dependencies' build IDs, and a package's build ID holds the files it
+// embeds, so an edit of one std .ergo file vets every package that
+// imports std again: 38–41 CPU-s of the fast tier's std edit at 4 CPUs
+// (gate-speed GS21). No analyzer reads an embedded file's content; the
+// embed patterns match by name, which Listed keys.
+func vetInputs() *Inputs {
+	return &Inputs{
+		Bases:  []string{"*.go", "*.s", "go.mod", "go.sum", "go.work"},
+		Listed: true,
+		Tools:  []string{"go"},
+		Env:    []string{"GOFLAGS", "GOEXPERIMENT"},
+	}
+}
+
 func wayfinderSnapshotInputs() *Inputs {
 	return &Inputs{
 		Paths:   []string{"docs/wayfinder/snapshot.json", "cmd/wayfinder/", "go.mod"},
@@ -810,14 +832,16 @@ const sweepWeightFactor = 4
 // importPath, or 0 (unrecordedWeight) when durations.json has no row for
 // it. A host package's sweep weighs 0 too: the sweep does not run its tests
 // (internal/closure's unsweepable: they start bwrap), so their recorded
-// time, hundreds of seconds for scripts/gate, does not predict the step.
-func sweepWeight(durations map[string]map[string]float64, importPath string) float64 {
+// time, hundreds of seconds for scripts/gate, does not predict the step. A
+// package whose sweep was recorded (sweepCostFile) weighs at least what it
+// took (GS23).
+func sweepWeight(durations map[string]map[string]float64, importPath string, recorded sweepCost) float64 {
 	for _, host := range hostTestPackages {
 		if strings.HasSuffix(importPath, "/"+host) {
 			return 0
 		}
 	}
-	return sweepWeightFactor * packageSeconds(durations[importPath])
+	return max(sweepWeightFactor*packageSeconds(durations[importPath]), recorded.Sweep)
 }
 
 // packageSeconds is the recorded time of every test of a package's rows

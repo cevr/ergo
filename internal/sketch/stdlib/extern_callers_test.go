@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"math/rand/v2"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -60,7 +60,7 @@ func stdSurface(t *testing.T) ([]*check.Package, *check.Package) {
 		t.Fatal("no prelude package behind LiveScheduler")
 	}
 	pkgs := []*check.Package{prelude}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)

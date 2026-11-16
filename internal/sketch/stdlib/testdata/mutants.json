@@ -1,10 +1,10 @@
 {
-  "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
+  "about": "The mutant ledger of internal/sketch/stdlib: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
     {"name":"type-binding-read-by-name","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\treturn name, v1.Owns(path)","to":"\treturn n.origin().Obj.Name + name[:0], v1.Owns(path)","rule":"stdlib.md The body contract: a type's Go type is the one its declaration names, never one read from its Ergo name.","killers":["std:TestStdRecordTable"]},
-    {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f own func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","internal/sketch/std:TestExternArgumentClauses"]},
-    {"name":"esc1-transform-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/tasks/tasks.ergo","from":"f own func(x A) B","to":"f func(x A) B","rule":"types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).","anchor":{"tests":["internal/sketch/std:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},"killers":["internal/sketch/std:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},
-    {"name":"esc1-feed-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/actor/actor.ergo","from":"run own func(send func(e E))) fails Stopped","to":"run func(send func(e E))) fails Stopped","rule":"std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.","anchor":{"tests":["internal/sketch/std:TestExternArgumentClauses"]},"killers":["internal/sketch/std:TestExternArgumentClauses"]},
+    {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f own func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","internal/sketch/stdlib:TestExternArgumentClauses"]},
+    {"name":"esc1-transform-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/tasks/tasks.ergo","from":"f own func(x A) B","to":"f func(x A) B","rule":"types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).","anchor":{"tests":["internal/sketch/stdlib:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},"killers":["internal/sketch/stdlib:TestExternArgumentClauses","lower:TestStdCallbackClausesAdmit"]},
+    {"name":"esc1-feed-nonescaping","origin":"wf10 ESC1","file":"internal/sketch/std/actor/actor.ergo","from":"run own func(send func(e E))) fails Stopped","to":"run func(send func(e E))) fails Stopped","rule":"std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.","anchor":{"tests":["internal/sketch/stdlib:TestExternArgumentClauses"]},"killers":["internal/sketch/stdlib:TestExternArgumentClauses"]},
     {"name":"dense-optof-drops-id","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"Opt[K]{n: id.n + uint32(1)} }","to":"Opt[K]{n: uint32(0)} }","rule":"OptOf holds the id it was made of.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
     {"name":"dense-or-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == uint32(0) { or }","to":"if o.n == limit { or }","rule":"Or gives the default only for none, never for the first id.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
     {"name":"dense-unpack-misreads-none","origin":"wf10 DN1","file":"internal/sketch/std/dense/dense.ergo","from":"if o.n == uint32(0) {\n\t\treturn None","to":"if o.n == limit {\n\t\treturn None","rule":"Unpack is None only for none.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun","std:TestDenseAgreesWithModel"]},
@@ -103,7 +103,7 @@
     },
     {
       "name": "lint4-ledger-pair-sliced", "origin": "wf10 LINT4 r2",
-      "file": "internal/sketch/std/laws_test.go",
+      "file": "internal/sketch/stdlib/laws_test.go",
       "from": "\tif d.Pair != nil {\n\t\treturn pairStatement(f, d)\n\t}\n", "to": "",
       "rule": "The ledger reads a derived pair law's statement as pair.go derives it, never as a slice of its source (bug: a std file with a by-name pair panics the ledger).",
       "anchor": {"tests": ["std:TestPairLawStatement"]},
@@ -133,12 +133,12 @@
     },
     {
       "name": "strengths-bench-dir-undeclared", "origin": "wf10 fu-std-closure",
-      "file": "internal/sketch/std/strengths_test.go",
+      "file": "internal/sketch/stdlib/strengths_test.go",
       "from": "\t\tif !slices.Contains(benchmarkPackages, dir) {\n",
       "to": "\t\tif false {\n",
       "rule": "The strengths table's benchmark reads stay in the declared closure: a Lowering cell that names a benchmark outside benchmarkPackages is refused by the test, not found later by the closure sweep.",
-      "anchor": {"tests": ["internal/sketch/std:TestStdStrengthsFixtures"]},
-      "killers": ["internal/sketch/std:TestStdStrengthsFixtures"]
+      "anchor": {"tests": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]},
+      "killers": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]
     },
     {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"subMono(hostMono(), t.mono)","to":"subMono(t.mono, hostMono())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
     {"name":"ss1-host-elapsed-wall","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"\t\th.Now().Sub(t)","to":"\t\tt.Sub(h.Now())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with no monotonic reading is Now().Sub(t) by the wall.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
@@ -294,7 +294,7 @@
     },
     {
       "name": "copy-normalise-too-much", "origin": "wf10 STD-NOPRIV NP1",
-      "file": "internal/sketch/std/copy_test.go",
+      "file": "internal/sketch/stdlib/copy_test.go",
       "from": "\t\t\tif to, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = to\n",
       "to": "\t\t\tif _, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = \"_\"\n",
       "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
@@ -303,24 +303,24 @@
     },
     {
       "name": "gs9-observe-never", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\tif root == \"\" {\n\t\treturn\n\t}\n", "to": "\tif root == \"\" || true {\n\t\treturn\n\t}\n",
       "rule": "Under a coverage record each embedded std file read is opened at its checkout path, so the gate's selection knows its readers.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
     {
       "name": "gs9-package-unobserved", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\t\tobserve(path.Join(importPath, entry.Name()))\n", "to": "",
       "rule": "Package observes every file it reads.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
     {
       "name": "gs9-prelude-unobserved", "origin": "wf10 GS9",
-      "file": "internal/sketch/std/std.go",
+      "file": "internal/sketch/stdlib/std.go",
       "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
-      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+      "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
     {"name":"th1b-ergo-run-host","origin":"wf10 TH1b","file":"internal/sketch/std/exec/confined.ergo","from":"try hostRunIn(h.root, c.Name,","to":"try hostRun(c.Name,","rule":"exec.NewTestHost's Run goes through the folder's sandbox (ExecRunIn).","killers":["examples:modules/work"]},
     {"name":"th1-os-getwd","origin":"wf10 TH1","file":"internal/sketch/std/os/os.ergo","from":"\tif h.root != \"\" {\n\t\treturn h.root\n\t}","to":"","rule":"os.NewTestHost's Getwd is the folder.","killers":["examples:modules/work"]},
