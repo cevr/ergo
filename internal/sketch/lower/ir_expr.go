@@ -125,7 +125,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.SelectorExpr:
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type

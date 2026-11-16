@@ -44,6 +44,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"unary *", "G1"},
 	{"expression *syntax.StarExpr", "G1"},
 	{"selector on a non-record", "G1"},
+	// F7 select (ir_select.go): the qualified names it leaves.
+	{"package function as a value", "G6"},
+	{"Go package variable", "G4"},
+	{"package let without a Go name", "G1"},
+	{"package type name as a value", "G1"},
 	{"selector that is not a field", "G1"},
 	{"record update or elided literal type", "G1"},
 	{"unkeyed record literal", "G1"},
