@@ -98,8 +98,14 @@ func (w *valueWalk) useFact(a syntax.Expr, use string) {
 // else why not.
 func (w *valueWalk) readsWhy(a syntax.Expr) string {
 	op, ok := w.goOps[a]
-	if !ok || op.fn == nil || !check.GoReads(op.fn, op.index) {
+	if !ok || op.fn == nil {
 		return "no reads fact"
+	}
+	if ok, why := goReads(op.call, op.fn, op.index); !ok {
+		if why == "" {
+			why = "no reads fact"
+		}
+		return why
 	}
 	s, ok := underEqual(w.typeOf(a)).(*check.Slice)
 	if !ok {
@@ -136,7 +142,7 @@ func (w *valueWalk) readsWhy(a syntax.Expr) string {
 		if _, ok := underEqual(t).(*check.Signature); ok {
 			return "a callback of the call may reach it"
 		}
-		if i != op.index && goShared(t) && !check.GoReads(op.fn, i) {
+		if ok, _ := goReads(op.call, op.fn, i); i != op.index && goShared(t) && !ok {
 			return "Go may write another operand of the call, which may share its memory"
 		}
 	}
@@ -239,6 +245,7 @@ func (w *valueWalk) goOperandReport(a syntax.Expr, form, why string) {
 		use = "not used: " + form + ", " + why
 	}
 	for _, f := range facts {
+		f.Level, _ = factLevel(op.call, op.fn, f)
 		why += "; " + goTarget(op.fn) + " " + f.Kind + " " + f.Param + " (" + f.Level + ": " + f.Source + "): " + use
 		l.foreign = append(l.foreign, placedFact{Fact: Fact{
 			Kind:     "fact-go-" + f.Kind,
