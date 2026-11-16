@@ -86,8 +86,8 @@
       "name": "bs3-virtual-time",
       "origin": "wf10 binsize BS3",
       "file": "runtime/rt/clock.go",
-      "from": "\tnow    Instant\n",
-      "to": "\tnow    Instant\n\tstart  time.Time\n",
+      "from": "\tnow   Instant\n",
+      "to": "\tnow   Instant\n\tstart time.Time\n",
       "rule": "stdlib.md Types 4 (binsize BS3): no type of package time is reachable from rt.Task through fields, elements and method signatures.",
       "killers": [
         "runtime:TestTaskTypeGraphHasNoTime"

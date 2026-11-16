@@ -50,6 +50,7 @@ import (
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
+//go:embed code/*.ergo
 var sources embed.FS
 
 // ledger is the std law ledger (runtime.md, Tests 10): the verdicts of

@@ -420,10 +420,11 @@ func firstDiff(a, b string) (string, string) {
 }
 
 // copySurface is the checker's summary of p's exported declarations: its
-// functions (api.Text), its types with their shapes, and its laws.
+// functions (copyAPIText, api.Text's view, which moved to std code's
+// ApiText in SEM2a), its types with their shapes, and its laws.
 func copySurface(p *check.Package) string {
 	var b strings.Builder
-	b.WriteString(api.Text(api.Functions(p)))
+	b.WriteString(copyAPIText(api.Functions(p)))
 	var types []string
 	for _, tn := range p.Types {
 		if !isExportedName(tn.Name) {
@@ -770,4 +771,37 @@ func mapsKeys[V any](m map[string]V) func(func(string) bool) {
 			}
 		}
 	}
+}
+
+// copyAPIText is the text of fs as api.Text printed it before SEM2a moved
+// the view to std code's ApiText: each function's name, signature, type
+// parameters, what it takes and the copies it makes.
+func copyAPIText(fs []api.Function) string {
+	var b strings.Builder
+	for _, f := range fs {
+		fmt.Fprintf(&b, "%s %s", f.Name, f.Signature)
+		if len(f.TypeParameters) > 0 {
+			fmt.Fprintf(&b, " [%s]", strings.Join(f.TypeParameters, ", "))
+		}
+		takes := "nothing"
+		if len(f.Takes) > 0 {
+			takes = strings.Join(f.Takes, ", ")
+		}
+		origin := "written"
+		if f.TakesInferred {
+			origin = "inferred"
+		}
+		fmt.Fprintf(&b, "\n  takes %s (%s)\n", takes, origin)
+		for _, c := range f.Copies {
+			where := c.Where
+			if where == "" {
+				where = "foreign body"
+			}
+			fmt.Fprintf(&b, "  copies %s at %s (plain data only): %s\n", c.Parameter, where, c.What)
+		}
+	}
+	if len(fs) == 0 {
+		b.WriteString("no exported function\n")
+	}
+	return b.String()
 }

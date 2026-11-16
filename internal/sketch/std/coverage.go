@@ -43,7 +43,7 @@ var coverage = map[string][]string{
 // package: Ergo constructs (machines, actors, rows, schedules), or a Go
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
-	"actor", "arena", "bench", "cache", "codec", "config", "dense", "explore", "io", "journal", "journal/file",
+	"actor", "arena", "bench", "cache", "code", "codec", "config", "dense", "explore", "io", "journal", "journal/file",
 	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "ui", "ui/layout",
 }

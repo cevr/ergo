@@ -348,8 +348,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics" && command != "lint":
 		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
-	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run and test")
+	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":

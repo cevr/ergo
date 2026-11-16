@@ -562,6 +562,28 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **`ergo fix`**: The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
 
+**Fact table**: What the checker knows about one package, as rows that tools read instead of walking typed trees: its symbols, its sites, their positions, and relations (union to variant, caller to callee, operation to its provider, machines). A table names a symbol of another package by its handle, never by a pointer. Std `code` answers from them, and `ergo code` is its command line ([code](docs/spec/code.md)).
+
+**Site**: One place in source that names a symbol, with a kind: `def`, `read`, `write`, `call`, `typeuse`, `construct`, `match`, `import`, `needs`, `fails`, `provides`, `binds` or `handles`. References, type uses and the uses in a signature are one question with a kind filter.
+
+**Handle**: The printable, stable name of a declaration: its package's import path, a dot and its name (`calc/ast.Parse`), with a member after its type (`calc/ast.Token.Kind`) and a parameter after its function (`calc/ast.Parse.src`). One declaration has one handle, and the declaration at a handle prints that handle back. A local that its declaration binds more than once has none and is named by its position.
+
+**Address**: How a question names a declaration: a handle, a position (`file:line:column`) or a short name (`Parse`, `Token.Kind`). A short name that fits two declarations is `Ambiguous` with every candidate; the reader never picks one.
+
+**Linked Ergo package**: An Ergo module that the `ergo` binary runs as checked-in Go: `go run ./scripts/linked` lowers it, as `ergo lib` does, into `internal/linked/<name>`, and a test fails when the Go is stale. It stands in for the mixed binary of capstone stage S1 ([tooling](docs/tooling.md)).
+
+**Plan**: A computed change to source that writes nothing: its edits, the files and revisions it read, the check of the changed packages in an overlay, its proof class, and the contracts it changes. Only `Apply` of a plan writes, and only against the revisions the plan read.
+
+**Proof class**: What a plan claims about behaviour: `Alpha` (a rename: the fact tables after equal those before under the name map), `SameCode` (the lowered program is equal), `Law` (a rewrite that is a law, with its last run), or `Checked` (the result checks; nothing is claimed about behaviour).
+
+**Name capture**: A rename whose result resolves differently: a use of the renamed declaration now resolves to another one (a local that shadows the new name), or a word now names the renamed declaration. It shows as a fact-table row that differs from the tables before under the name map, and the plan is refused `Capture` ([code](docs/spec/code.md#rename)). Not a pattern's named capture.
+
+**Pattern**: Code to find, written as an Ergo function and checked by the ordinary checker. Its body is the code; a name in it matches a use of the same symbol, whatever the qualifier at the site.
+
+**Hole**: A parameter of a pattern. It matches an expression of its type; used twice, it matches equal code both times.
+
+**Codemod**: A program that changes code through plans: an ordinary Ergo program that imports std `code`, asks a `Reader` for sites, and applies plans with a `Writer`.
+
 **Lint advice**: Optional guidance about an admitted program, distinct from diagnostics that determine whether its contracts are valid.
 
 **Justifier rule**: A default-preset lint rule that flags a legal but reviewable choice, such as an `unbounded` budget, until a suppression records the reason.
