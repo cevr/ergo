@@ -519,7 +519,16 @@ func main() needs Console | go.Foreign {
 `)
 	body := goFunc(t, prog.mainGo(), "sorted")
 	call := regexp.MustCompile(`sort\.Ints\(([^\n]*)\)`).FindStringSubmatch(body)
-	if call == nil || !strings.Contains(call[1], "Clone(") {
+	operand := ""
+	if call != nil {
+		operand = call[1]
+		// sort.Ints writes its slice (GBX2): Go gets the temporary that
+		// holds the value rule's operand, and the call's value is it.
+		if m := regexp.MustCompile(`\b` + regexp.QuoteMeta(operand) + ` := ([^\n]*)`).FindStringSubmatch(body); m != nil {
+			operand = m[1]
+		}
+	}
+	if !strings.Contains(operand, "Clone(") {
 		t.Errorf("sort.Ints takes the live let xs uncopied:\n%s", body)
 	}
 }
