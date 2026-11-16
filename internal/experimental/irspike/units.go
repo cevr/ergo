@@ -34,6 +34,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.TupleExpr", "G1"},
 	{"let without a variable", "G1"},
 	{"let pattern*", "G1"},
+	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
 	{"index of a non-slice", "G1"},

@@ -217,6 +217,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.DeclStmt:
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {
+			if spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 0 {
+				out = append(out, b.letDefault(s.Decl, spec)...) // ir_letpat.go
+				continue
+			}
 			if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
 				irNo("let pattern")
 			}
