@@ -17,7 +17,13 @@ func (b *irBuilder) valueCopy(x syntax.Expr, e *irExpr) *irExpr {
 	if b.l.vals == nil || !b.l.vals.clone[x] {
 		return e
 	}
-	t := b.fc.typeOf(x)
+	return b.copyOf(b.fc.typeOf(x), x, e)
+}
+
+// copyOf is e, a value of t, copied as cloneValue copies it; x is the
+// site its types are spelled at (an owned-parameter wrapper's copy,
+// ir_own.go, as valueCopy's).
+func (b *irBuilder) copyOf(t check.Type, x syntax.Node, e *irExpr) *irExpr {
 	if !b.l.holdsValue(t) {
 		return e
 	}

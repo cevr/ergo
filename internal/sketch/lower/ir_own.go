@@ -12,22 +12,24 @@ package lower
 // (v1.OwnStatic), a hand-off clears its bit (v1.HandStatic), a returned
 // value moves it to the kept set (v1.ReturnStatic).
 //
-// The release helper is Go text in the generated part, written from the
-// emitter's own release primitives (providerRelease, runtimeCall): the
-// IR has no function literals for a frame's release, and Go's recover
-// reads the frame's panic only in the deferred function itself. The
-// helper takes the frame's state by pointer and reads it when it runs.
-// Debt: RELEASE-IR makes the helper a named IR function (no Go text),
-// queued before F8; self-hosting does not port this writer.
+// The release helper is a named IR function (RELEASE-IR, releaseFuncs):
+// Go's recover reads the frame's panic only in the deferred function
+// itself, so the helper is that function, and it takes the frame's state
+// by pointer and reads it when it runs. Only its header is Go text, as
+// every IR body's. Each value's release is a function literal of the IR
+// that Static.Part runs. A slot whose Close the IR does not call (a host
+// value's, an operation's, a generic one; closeCall) keeps the helpers
+// Go text, written from the emitter's release primitives
+// (providerRelease, runtimeCall): the rest of the RELEASE-IR debt, before
+// F8; self-hosting does not port this writer.
 //
 // A frame with an error row hands its helper the error result's address
 // (the derivative's "result" expression), as the emitter's End(&err)
-// does. A release inside the body (a
-// scope's end, a let's or a statement's planned releases, a break or a
-// continue; the emitter's releaseAt and scoped) is the emitter's
-// staticRelease: the value's bit is tested and cleared, then a helper
-// of the generated part releases it (the slot's Go text, the same
-// RELEASE-IR debt). A planned release at a place the builder does not
+// does. A release inside the body (a scope's end, a let's or a
+// statement's planned releases, a break or a continue; the emitter's
+// releaseAt and scoped) is the emitter's staticRelease: the value's bit
+// is tested and cleared, then the slot's Free helper releases it (an IR
+// function too, or Go text beside a Go-text release). A planned release at a place the builder does not
 // reach (a condition's temporaries, a match subject) stops the body.
 
 import (
@@ -128,6 +130,128 @@ func (b *irBuilder) closeMasked(f *check.Func, body []*irStmt) []*irStmt {
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	b.keepImport("var _ = " + b.l.rt() + "." + name)
 	return []*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: []*irExpr{task, lit}}}}
+}
+
+// releaseFuncs writes the static frame's release helpers as IR functions
+// (RELEASE-IR): helper, the deferred release whose Go parameters are
+// params (env, live, kept, err, the slots, as ownDone passes them), and
+// each slot's in-body release (slotRelease's helper). Only their
+// declarations are Go text, a header with no body, as every IR body's.
+// It reports false, and writes nothing, when a slot's Close is one the IR
+// does not call (closeCall); the helpers are then Go text.
+func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
+	o, l := b.own, b.l
+	for _, s := range o.slots {
+		if _, ok := b.closeCall(s, 0, 0, o.p); !ok {
+			return false
+		}
+	}
+	p := o.p
+	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
+	deref := func(i int) *irExpr { return &irExpr{K: "deref", Pos: p, X: local(i)} }
+	// The deferred release: env, live, kept, err, then the slots.
+	h := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, result: nil}
+	h.fn = &irFunc{Name: helper, Pos: p, End: p}
+	liveL, keptL, errL := 1, -1, -1
+	h.next = 2
+	if o.kept >= 0 {
+		keptL = h.next
+		h.next++
+	}
+	if b.fc.frame.fallible {
+		errL = h.next
+		h.next++
+	}
+	slot0 := h.next
+	h.next += len(o.slots)
+	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
+	if errL >= 0 {
+		errArg = local(errL)
+	}
+	rel := h.temp("rel", h.spelling(l.rt()+".Static"), p)
+	h.keepImport("var _ = " + l.rt() + ".StaticBegin")
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: local(0)}
+	relCall := func(m string, args ...*irExpr) *irExpr {
+		return &irExpr{K: "mcall", Pos: p, Name: m, X: h.addrOf(rel, p), Args: args}
+	}
+	set := func(set *irExpr, k int) *irExpr {
+		return &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: set, Y: h.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
+	}
+	part := func(setOf func() *irExpr, k int) *irStmt {
+		c, _ := h.closeCall(o.slots[k], 0, slot0+k, p)
+		end := p
+		lit := &irExpr{K: "func", Pos: p, T: "func()", Body: []*irStmt{{K: "expr", Pos: p, X: c}}, End: &end}
+		return &irStmt{K: "if", Pos: p, X: set(setOf(), k), End: p, Then: []*irStmt{{K: "expr", Pos: p, X: relCall("Part", lit)}}}
+	}
+	body := []*irStmt{
+		{K: "var", Pos: p, Local: rel},
+		{K: "set", Pos: p, Local: rel, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "StaticBegin", Args: []*irExpr{task, errArg, {K: "recover", Pos: p}}}},
+	}
+	for k := len(o.slots) - 1; k >= 0; k-- {
+		body = append(body, part(func() *irExpr { return deref(liveL) }, k))
+	}
+	if keptL >= 0 {
+		var failed []*irStmt
+		for k := len(o.slots) - 1; k >= 0; k-- {
+			failed = append(failed, part(func() *irExpr { return deref(keptL) }, k))
+		}
+		// *kept != 0 && rel.Failed(): Failed runs only when a value is kept.
+		body = append(body, &irStmt{K: "if", Pos: p, End: p,
+			X:    &irExpr{K: "bin", Pos: p, Op: "!=", X: deref(keptL), Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}},
+			Then: []*irStmt{{K: "if", Pos: p, End: p, X: relCall("Failed"), Then: failed}}})
+	}
+	body = append(body, &irStmt{K: "expr", Pos: p, X: relCall("End", errArg)})
+	h.fn.Body = irUseLocals(body)
+	b.st.out.Funcs = append(b.st.out.Funcs, *h.fn)
+	var t strings.Builder
+	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame; its body is IR (FLIP F7, RELEASE-IR).\n")
+	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ")\n\n")
+	// A slot released inside the body (slotRelease): its release alone,
+	// whose defect leaves at once (the emitter's staticRelease).
+	for _, s := range o.slots {
+		if s.helper == "" {
+			continue
+		}
+		f := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, next: 2}
+		c, _ := f.closeCall(s, 0, 1, p)
+		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
+		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
+		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body; its body is IR (FLIP F7, RELEASE-IR).\n")
+		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + l.names.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
+	}
+	l.gen.WriteString(t.String())
+	return true
+}
+
+// closeCall is the call of slot s's checked Close on the value the local
+// slot points at, with the environment the local env (the emitter's
+// providerRelease of a program's Close): a method call or a function
+// call, the receiver taken by address or through a pointer as Close's
+// parameter needs. ok is false for a Close the IR does not call: Go's own
+// (a host value's), an operation's, a generic or a std one.
+func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
+	cl := s.d.Close
+	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 || len(cl.Func.Sig.TParams) > 0 {
+		return nil, false
+	}
+	fd := b.l.useFunc(cl.Func, b.fc.site)
+	if _, _, std := b.l.stdBody(fd); std || fd.extern != "" {
+		return nil, false
+	}
+	_, byPtr := cl.Func.Sig.Params[0].Type.(*check.Pointer)
+	_, ptrValue := cl.Receiver.(*check.Pointer)
+	recv := &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}
+	switch {
+	case byPtr && !ptrValue:
+		recv = &irExpr{K: "local", Pos: p, I: slot}
+	case !byPtr && ptrValue:
+		recv = &irExpr{K: "deref", Pos: p, X: recv}
+	}
+	e := &irExpr{K: "local", Pos: p, I: env}
+	if fd.method != nil {
+		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: recv, Args: []*irExpr{e}}, true
+	}
+	return &irExpr{K: "call", Pos: p, Name: fd.name, Args: []*irExpr{e, recv}}, true
 }
 
 // ownBodyChecks stops a static frame this form does not build: a try's
@@ -401,6 +525,79 @@ func (b *irBuilder) ownedBodyName(fd *funcDecl, name string, drop bool) string {
 	return b.l.pkgName(ownedKey(f), f.Name+"Owned")
 }
 
+// ownedWrapper writes the wrapper of fd's owned body as an IR function
+// (OWNED-WRAP-IR): under f's own name, it copies each owned argument as
+// cloneValue copies it (copyOf) and calls the owned body bodyName, as the
+// emitter's ownedWrapper writes it. head, params and results are its Go
+// header, args its parameters' names after the receiver recv, typeArgs
+// the body's type arguments. Only the header is Go text. It reports false
+// when the IR does not build a copy (a defined Map or slice type): the
+// caller then writes the wrapper as Go text.
+func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results, bodyName string, typeArgs, args []string, recv string, site syntax.Node) (ok bool) {
+	f := fd.fn
+	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, fn: &irFunc{}}
+	keep := st.keep
+	defer func() {
+		if r := recover(); r != nil {
+			if _, no := r.(irUnsupported); !no {
+				panic(r)
+			}
+			st.keep, ok = keep, false
+		}
+	}()
+	if keep != nil {
+		// A refused wrapper keeps no import of its own.
+		st.keep = map[string]bool{}
+		for k := range keep {
+			st.keep[k] = true
+		}
+	}
+	p := b.pos(site, site.Pos())
+	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
+	owned := map[int]bool{}
+	for _, o := range b.l.ownedParams(f) {
+		owned[o.index] = true
+	}
+	first := 0
+	var recvE *irExpr
+	if recv != "" {
+		first = 1
+		recvE = local(0)
+		if owned[0] {
+			recvE = b.copyOf(f.Sig.Params[0].Type, site, recvE)
+		}
+	}
+	lead := len(args) - (len(f.Sig.Params) - first)
+	ops := make([]*irExpr, len(args))
+	for i := range args {
+		ops[i] = local(first + i)
+		if j := i - lead + first; i >= lead && owned[j] {
+			ops[i] = b.copyOf(f.Sig.Params[j].Type, site, ops[i])
+		}
+	}
+	var call *irExpr
+	if recvE != nil {
+		call = &irExpr{K: "mcall", Pos: p, Name: bodyName, X: recvE, Args: ops}
+	} else {
+		ts := make([]string, len(typeArgs))
+		for i, t := range typeArgs {
+			ts[i] = b.spelling(t)
+		}
+		call = &irExpr{K: "call", Pos: p, Name: bodyName, T: strings.Join(ts, ", "), Args: ops}
+	}
+	stmt := &irStmt{K: "expr", Pos: p, X: call}
+	if strings.TrimSpace(results) != "" {
+		stmt = &irStmt{K: "ret", Pos: p, X: call}
+	}
+	name := fd.name
+	if fd.method != nil {
+		name = fd.method.name + "." + name
+	}
+	st.out.Funcs = append(st.out.Funcs, irFunc{Name: name, Pos: p, End: p, Body: []*irStmt{stmt}})
+	fc.l.gen.WriteString("// " + fd.name + " copies its owned arguments into " + bodyName + "; its body is IR (FLIP F7, OWNED-WRAP-IR).\n" + head + params + results + "\n\n")
+	return true
+}
+
 // ownedCallName is the Go name a call x of f names: the owned body when
 // the value analysis decided the call passes its owned arguments
 // unshared (vals.ownCall; an argument that must be copied is a value copy
@@ -477,6 +674,9 @@ func (b *irBuilder) ownDone(name string) {
 		decls = append(decls, &irStmt{K: "var", Pos: o.p, Local: s.local})
 	}
 	b.fn.Body = append(decls, b.fn.Body...)
+	if b.releaseFuncs(name, helper, params) {
+		return
+	}
 	release := func(k int) string {
 		s := o.slots[k]
 		return fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slots[k]+")", site)

@@ -1267,7 +1267,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
-			if owned { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
+			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
 				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 			}
 			return
