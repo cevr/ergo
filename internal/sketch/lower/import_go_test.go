@@ -394,6 +394,8 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 	}
 	wrote := fmt.Sprintf("%d,%d,%d", written[0], written[1], written[2])
 	show := func(v string) string { return "\\(" + v + "[0]),\\(" + v + "[1]),\\(" + v + "[2])" }
+	sorted := []int{a, b, c}
+	slices.Sort(sorted)
 	head := fmt.Sprintf("func case%d() string needs go.Foreign {\n", k)
 	// The reads shapes (LF1): sort.SearchInts and bytes.IndexFunc only
 	// read their slice (a checked fact), so the run build passes a live
