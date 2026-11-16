@@ -227,16 +227,21 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // slot points at, with the environment the local env (the emitter's
 // providerRelease of a program's Close): a method call or a function
 // call, the receiver taken by address or through a pointer as Close's
-// parameter needs; a std operation type's Close is stdCloseCall's. ok is
-// false for a Close the IR does not call: Go's own (a host value's; no
-// static frame of a program owns one yet), a generic or a std function.
+// parameter needs, a generic one with the provider's type arguments; a
+// std operation type's Close is stdCloseCall's. ok is false for a Close
+// the IR does not call: Go's own (a host value's: no IR body owns one,
+// while a Go package's calls and types are not IR), a std or extern
+// function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {
 		return b.stdCloseCall(cl, s, slot, p)
 	}
-	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 || len(cl.Func.Sig.TParams) > 0 {
+	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		return nil, false
+	}
+	if len(cl.Func.Sig.TParams) > 0 && len(witnessParams(cl.Func.Sig)) > 0 {
+		return nil, false // the checker refuses it (S109, closeWitnessed)
 	}
 	fd := b.l.useFunc(cl.Func, b.fc.site)
 	if _, _, std := b.l.stdBody(fd); std || fd.extern != "" {
@@ -255,7 +260,19 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 	if fd.method != nil {
 		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: recv, Args: []*irExpr{e}}, true
 	}
-	return &irExpr{K: "call", Pos: p, Name: fd.name, Args: []*irExpr{e, recv}}, true
+	// A generic Close function takes the provider's type arguments
+	// (closeTypeArgs), as providerRelease writes them; a generic type's
+	// Close method takes them from its receiver.
+	var targs []string
+	if len(cl.Func.Sig.TParams) > 0 {
+		args := closeTypeArgs(cl, b.own.site)
+		for i, tp := range cl.Func.Sig.TParams {
+			if b.l.goParam(tp) {
+				targs = append(targs, b.spelling(b.fc.goArg(tp, args[i])))
+			}
+		}
+	}
+	return &irExpr{K: "call", Pos: p, Name: fd.name, T: strings.Join(targs, ", "), Args: []*irExpr{e, recv}}, true
 }
 
 // stdCloseCall is the release of a value of a std operation type at slot
@@ -559,6 +576,9 @@ func (b *irBuilder) ownedBodyName(fd *funcDecl, name string, drop bool) string {
 // when the IR does not build a copy (a defined Map or slice type): the
 // caller then writes the wrapper as Go text.
 func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results, bodyName string, typeArgs, args []string, recv string, site syntax.Node) (ok bool) {
+	if st.census != nil {
+		return false // a census counts bodies; a wrapper is not one
+	}
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, fn: &irFunc{}}
 	keep := st.keep
