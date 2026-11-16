@@ -39,15 +39,15 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 		var state string
 		switch {
 		case !found:
-			state = "has no entry"
+			state = "ergo.laws has no entry for it"
 		case prev.Digest != want.Digest:
-			state = "is stale: a body the law reaches, or a Go function's key, changed since it was " + prev.Verdict
+			state = "its ergo.laws entry is stale: a body the law reaches, or a Go function's key, changed since it was " + prev.Verdict
 		case prev.Verdict == "validated" && prev.By != "", prev.Verdict == "proved":
 			continue
 		default:
-			state = "is " + prev.Verdict
+			state = "its ergo.laws entry is " + prev.Verdict
 		}
-		advice := "law " + law.Name + " is a rewrite in scope, and its ergo.laws entry " + state + ": it changes no code until ergo test's licence run validates it"
+		advice := "law " + law.Name + " is a rewrite in scope, and " + state + ": it changes no code until ergo test's licence run validates it"
 		for i := range e.Obligations {
 			if e.Obligations[i].Name == "law "+law.Name {
 				e.Obligations[i].Advice = advice

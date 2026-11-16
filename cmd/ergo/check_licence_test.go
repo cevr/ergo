@@ -49,7 +49,7 @@ func TestCheckAdviceFollowsLedger(t *testing.T) {
 		t.Fatalf("%s: no obligation of law IdOnce\n%s", step, stdout)
 		return ""
 	}
-	if got := advice("no ledger"); !strings.Contains(got, "has no entry") {
+	if got := advice("no ledger"); !strings.Contains(got, "has no entry for it") {
 		t.Fatalf("no ledger: advice %q, want one that says it has no entry", got)
 	}
 	l, err := loadThrough(nil, folder, "", gobind.Platform{})

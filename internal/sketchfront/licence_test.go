@@ -58,7 +58,7 @@ func TestCheckAdvisesUnlicensedRewrite(t *testing.T) {
 		}
 	}
 	base := id + other + law
-	want("no ledger", base, "has no entry")
+	want("no ledger", base, "has no entry for it")
 	if n, err := UpdateLedger(checked(t, base), BuildRequest{Source: "/ergo-test/licence.ergo", Ledger: path}); err != nil || n != 1 {
 		t.Fatalf("ergo test's writer: %d entries changed, %v; want 1", n, err)
 	}
