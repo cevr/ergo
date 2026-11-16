@@ -1114,10 +1114,10 @@ index 0000000..64823a0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
-index 0000000..79650fa
+index 0000000..cb40902
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_fail.go
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,338 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1167,6 +1167,12 @@ index 0000000..79650fa
 +// nilOf is the zero value of t, spelled as the untyped nil the writer
 +// encodes as a typed zero (exprZero).
 +func (c *ergoChecker) nilOf(p ergoPos, t types2.Type) syntax.Expr {
++	if tp, ok := t.(*types2.TypeParam); ok {
++		// A type parameter's zero (F1): the reader's zero of its shape
++		// is the untypechecked composite literal above, so spell *new(T)
++		// (I-FLIP: std/arena's generic Free).
++		return c.newZero(p, tp)
++	}
 +	switch t.Underlying().(type) {
 +	case *types2.Struct, *types2.Array:
 +		// The reader's zero of a struct or an array (ir.NewZero) is a
@@ -1186,6 +1192,33 @@ index 0000000..79650fa
 +	tv.SetIsNil()
 +	n.SetTypeInfo(tv)
 +	return n
++}
++
++// newZero is *new(T), T a type parameter of the function.
++func (c *ergoChecker) newZero(p ergoPos, tp *types2.TypeParam) syntax.Expr {
++	pos := c.pos(p)
++	tn := syntax.NewName(pos, tp.Obj().Name())
++	c.info.Uses[tn] = tp.Obj()
++	ttv := syntax.TypeAndValue{Type: tp}
++	ttv.SetIsType()
++	tn.SetTypeInfo(ttv)
++	fn := syntax.NewName(pos, "new")
++	c.info.Uses[fn] = types2.Universe.Lookup("new")
++	ftv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil, nil, types2.NewTuple(types2.NewParam(pos, nil, "", types2.NewPointer(tp))), false)}
++	ftv.SetIsBuiltin()
++	fn.SetTypeInfo(ftv)
++	call := &syntax.CallExpr{Fun: fn, ArgList: []syntax.Expr{tn}}
++	call.SetPos(pos)
++	ctv := syntax.TypeAndValue{Type: types2.NewPointer(tp)}
++	ctv.SetIsValue()
++	call.SetTypeInfo(ctv)
++	star := &syntax.Operation{Op: syntax.Mul, X: call}
++	star.SetPos(pos)
++	stv := syntax.TypeAndValue{Type: tp}
++	stv.SetIsValue()
++	stv.SetAddressable()
++	star.SetTypeInfo(stv)
++	return star
 +}
 +
 +// typeNameExpr is the type spelled s used as an expression (a case or an
@@ -3281,10 +3314,10 @@ index 0000000..07c7de5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..3fc47e7
+index 0000000..7529fd8
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,385 @@
+@@ -0,0 +1,394 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3651,7 +3684,16 @@ index 0000000..3fc47e7
 +	case *syntax.Operation:
 +		ok = e.Op == syntax.Mul && e.Y == nil
 +	case *syntax.IndexExpr:
-+		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Slice)
++		// A slice's element, an element of an array place or of the
++		// array a pointer points at (FLIP F7 arrays x F2 places).
++		switch t := types2.CoreType(e.X.GetTypeInfo().Type).(type) {
++		case *types2.Slice:
++			ok = true
++		case *types2.Array:
++			ok = ergoPlace(e.X)
++		case *types2.Pointer:
++			_, ok = types2.CoreType(t.Elem()).(*types2.Array)
++		}
 +	case *syntax.SelectorExpr:
 +		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Pointer)
 +		ok = ok || ergoPlace(e.X)
