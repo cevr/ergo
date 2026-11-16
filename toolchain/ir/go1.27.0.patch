@@ -590,10 +590,10 @@ index 0000000..1a808a2
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..b8520e5
+index 0000000..b8fa6b5
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,462 @@
+@@ -0,0 +1,464 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -620,6 +620,8 @@ index 0000000..b8520e5
 +	}
 +	pos := c.pos(x.Pos)
 +	switch x.K {
++	case "result":
++		return c.resultExpr(x) // ergoir_f7f.go
 +	case "local":
 +		v := c.local(x.Pos, x.I)
 +		if v == nil {
@@ -1114,10 +1116,10 @@ index 0000000..64823a0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_f7f.go b/src/cmd/compile/internal/noder/ergoir_f7f.go
 new file mode 100644
-index 0000000..bc1c180
+index 0000000..8013c09
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_f7f.go
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,67 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1128,6 +1130,7 @@ index 0000000..bc1c180
 +
 +import (
 +	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
 +)
 +
 +// deferStmt is defer X, X a call of a function of the package with no
@@ -1135,9 +1138,13 @@ index 0000000..bc1c180
 +// deferred function releases the values the frame still owns and reads
 +// the frame's panic with recover). Go runs it on every exit of the
 +// function, a panic's included.
++//
++// X may also be an "mcall" with no result: a frame scope's End, deferred
++// directly so that its recover sees the frame's panic (runtime/v1
++// Scope.End).
 +func (c *ergoChecker) deferStmt(s *ergoStmt, pos syntax.Pos) syntax.Stmt {
-+	if s.X == nil || s.X.K != "call" {
-+		c.errorf(s.Pos, "ergoir: a deferred statement is a call of a function of the package")
++	if s.X == nil || s.X.K != "call" && s.X.K != "mcall" {
++		c.errorf(s.Pos, "ergoir: a deferred statement is a call of a function of the package or a method")
 +		return nil
 +	}
 +	if len(c.loops) > 0 {
@@ -1163,6 +1170,22 @@ index 0000000..bc1c180
 +	st := &syntax.CallStmt{Tok: syntax.Defer, Call: call}
 +	st.SetPos(pos)
 +	return st
++}
++
++// resultExpr is "result" I: the function's named result I, which a
++// frame's deferred End settles (End(&err): the frame's named error
++// result, a Go function's only way to set its result after return).
++func (c *ergoChecker) resultExpr(x *ergoExpr) (syntax.Expr, types2.Type) {
++	if x.I < 0 || x.I >= c.sig.Results().Len() {
++		c.errorf(x.Pos, "ergoir: result %d out of range", x.I)
++		return nil, nil
++	}
++	v := c.sig.Results().At(x.I)
++	if v.Name() == "" || v.Name() == "_" {
++		c.errorf(x.Pos, "ergoir: result %d has no name", x.I)
++		return nil, nil
++	}
++	return c.name(x.Pos, v, false), v.Type()
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
