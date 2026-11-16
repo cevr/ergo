@@ -119,6 +119,10 @@ func TestIROrderMatchesSource(t *testing.T) {
 		if strings.Contains(text, "settled(tr(") && (!slices.Contains(rep.IR, "settle") || !slices.Contains(rep.IR, "settled")) {
 			t.Fatalf("seed %d: settle and settled are not IR bodies (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
 		}
+		// tagged's body takes len and an index of a named string.
+		if strings.Contains(text, "tagged(tr(") && !slices.Contains(rep.IR, "tagged") {
+			t.Fatalf("seed %d: tagged is not an IR body (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
+		}
 		// calm's body names a type whose argument is its error row.
 		if strings.Contains(text, "calm(tr(") && !slices.Contains(rep.IR, "calm") {
 			t.Fatalf("seed %d: calm is not an IR body (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
@@ -156,6 +160,7 @@ var orderFormRes = map[string]*regexp.Regexp{
 	"call inside an expression":                regexp.MustCompile(`[ (-]tr\(`),
 	"short-circuit operand with a call":        regexp.MustCompile(` > 0 && tr\(`),
 	"step that gives no output":                regexp.MustCompile(`settled\(tr\(`),
+	"len and index of a named string":          regexp.MustCompile(`tagged\(tr\(`),
 	"call with a call site":                    regexp.MustCompile(`here\(tr\(`),
 	"error row as a type argument":             regexp.MustCompile(`calm\(tr\(`),
 	"for-in over a call":                       regexp.MustCompile(`in span\(`),

@@ -39,6 +39,7 @@ var orderForms = []orderForm{
 	{"step that gives no output", 2, map[string]int{"calls2": 3, "expr": 9}},
 	{"error row as a type argument", 2, map[string]int{"calls2": 3, "expr": 10}},
 	{"call with a call site", 2, map[string]int{"calls2": 3, "expr": 11}},
+	{"len and index of a named string", 2, map[string]int{"calls2": 3, "expr": 12}},
 	{"for-in over a call", 5, nil},
 	{"loop condition with a call", 4, nil},
 	{"try of a non-call", 7, map[string]int{"try7": 1}},
@@ -115,6 +116,9 @@ func (g *fgen) orderDecls() {
 	// the error row E: the row's Go error, no Go type parameter.
 	g.b.WriteString("type Calm {}\n\ntype Failed[F] { Failure F }\n\ntype Crash[F] = Calm | Failed[F]\n\n")
 	g.b.WriteString("func calm[E](n int, f func(int) int fails E) int fails E {\n\tlet c Crash[E] = Calm\n\tmatch c {\n\tcase Calm:\n\t\t(try f(n)) + 4\n\tcase Failed[E]:\n\t\tn\n\t}\n}\n\n")
+	// tagged takes the length and a byte of a named type over string
+	// (std fs.Text's form).
+	g.b.WriteString("type Tag string\n\nfunc tagged(n int) int {\n\tlet t = Tag(\"ab\\(n)c\")\n\tlen(t)*100 + int(t[len(t)-2])\n}\n\n")
 	// here's last parameter is the call's site, which a call leaves out.
 	g.b.WriteString("func here(n int, at CallSite) int {\n\tn + at.Line*1000 + at.Column*7 + len(at.File) % 5\n}\n\n")
 	g.b.WriteString("func settled(n int) int {\n\tmatch settle(n) {\n\tcase Enter[Pt] as d:\n\t\td.Next.A * 3\n\tcase Stay[Pt] as d:\n\t\td.Next.B - 7\n\tcase Ignore:\n\t\t5\n\tcase Reject:\n\t\t11\n\t}\n}\n\n")
@@ -128,7 +132,9 @@ func (g *fgen) traced() string { return "tr(" + g.expr(1) + ")" }
 // literal, a short-circuit operand; an earlier operand may be a defect
 // (indexed) that must come before a later call's effect.
 func (g *fgen) orderExpr() string {
-	switch g.sub("expr", 12) {
+	switch g.sub("expr", 13) {
+	case 12:
+		return "tagged(" + g.traced() + ")"
 	case 11:
 		return "here(" + g.traced() + ")"
 	case 9:
