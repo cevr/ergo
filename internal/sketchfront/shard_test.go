@@ -98,27 +98,35 @@ func TestShardsLeaveTheRootUnimported(t *testing.T) {
 }
 
 // TestShardsAfterTheFirstBuild: a test build shards only a program built
-// before (lowerAuto). The first build of a program is cold, and shards
-// would make it dearer (each shard compiles its imports and
-// instantiations again); every later build is the edit loop. With one
-// cache: the first test build of examples/deps/graph emits no shard, the
-// second emits shards, and ERGO_LOWER=split keeps the split. It lowers in
+// before with other inputs (lowerAuto). The first build of a program is
+// cold, and shards would make it dearer (each shard compiles its imports
+// and instantiations again); a build after an edit is the edit loop. An
+// unchanged build names the module the one before it did (NG-Q8: an
+// unchanged second `ergo test -work` landed in another module). With one
+// cache, on a copy of examples/deps/graph: the first test build emits no
+// shard, an unchanged second one reuses its module, a build after a body
+// edit emits shards, and ERGO_LOWER=split keeps the split. It lowers in
 // process and stops before Go compiles (BuildRequest.Reuse). Mutants:
-// ft9-auto-shards-cold, ft9-auto-never-marks.
+// ft9-auto-shards-cold, ft9-auto-never-marks, q8-auto-shards-unchanged.
 func TestShardsAfterTheFirstBuild(t *testing.T) {
-	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", "deps", "graph"))
+	src, err := filepath.Abs(filepath.Join("..", "..", "examples", "deps"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := CheckDir(dir)
-	if err != nil || len(a.Diagnostics) > 0 {
-		t.Fatalf("%s does not check: %v %v", dir, err, a.Diagnostics)
+	work := filepath.Join(t.TempDir(), "deps")
+	if err := os.CopyFS(work, os.DirFS(src)); err != nil {
+		t.Fatal(err)
 	}
+	dir := filepath.Join(work, "graph")
 	cache := build.Cache{Root: t.TempDir()}
-	sharded := func() bool {
+	build1 := func() (string, bool) {
 		t.Helper()
+		a, err := CheckDir(dir)
+		if err != nil || len(a.Diagnostics) > 0 {
+			t.Fatalf("%s does not check: %v %v", dir, err, a.Diagnostics)
+		}
 		var has bool
-		_, err := Build(a, BuildRequest{Mode: build.ModeTest, Source: dir, Output: filepath.Join(t.TempDir(), "t"),
+		m, err := Build(a, BuildRequest{Mode: build.ModeTest, Source: dir, Output: filepath.Join(t.TempDir(), "t"),
 			Cache: cache, Toolchain: build.Toolchain{Go: "go"}, Reuse: func(m build.Module) bool {
 				_, err := os.Stat(filepath.Join(m.Dir, "shard"))
 				has = err == nil
@@ -127,16 +135,34 @@ func TestShardsAfterTheFirstBuild(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the test build does not lower: %v", err)
 		}
-		return has
+		return m.Dir, has
 	}
-	if sharded() {
+	first, has := build1()
+	if has {
 		t.Fatal("the first test build of the program shards: its cold compile pays every shard's imports")
 	}
-	if !sharded() {
-		t.Fatal("the second test build of the program does not shard: a body edit compiles the whole package")
+	if again, _ := build1(); again != first {
+		t.Fatalf("an unchanged second test build names the module %s, not the first build's %s", again, first)
+	}
+	file := filepath.Join(dir, "graph.ergo")
+	text, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := bodyEdits(string(text))
+	if len(at) == 0 {
+		t.Fatal("graph.ergo has no integer literal in a body to edit")
+	}
+	d := text[at[0]]
+	text[at[0]] = '0' + (d-'0'+1)%10
+	if err := os.WriteFile(file, text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := build1(); !has {
+		t.Fatal("the test build after a body edit does not shard: a body edit compiles the whole package")
 	}
 	t.Setenv(LowerSingleEnv, "split")
-	if sharded() {
+	if _, has := build1(); has {
 		t.Fatal("ERGO_LOWER=split shards")
 	}
 }
