@@ -30,11 +30,17 @@ func Decls(pkg *types.Package) []Decl {
 		d := Map(obj, nil, q)
 		out = append(out, d)
 		tn, ok := obj.(*types.TypeName)
-		if !ok || d.Refused != "" {
+		if !ok {
 			continue
 		}
 		n, ok := tn.Type().(*types.Named)
 		if !ok {
+			continue
+		}
+		if d.Refused != "" {
+			if ergoOwn(tn) {
+				out = append(out, ownTypeMethods(n, q)...)
+			}
 			continue
 		}
 		if _, iface := n.Underlying().(*types.Interface); iface {
@@ -52,6 +58,47 @@ func Decls(pkg *types.Package) []Decl {
 			out = append(out, Map(f, n, q))
 		}
 	}
+	return out
+}
+
+// ergoOwn reports a Go type that is an Ergo type of its own, so its binding
+// declares no type: time.Duration is Ergo's duration.
+func ergoOwn(tn *types.TypeName) bool {
+	return tn.Pkg().Path() == "time" && tn.Name() == "Duration"
+}
+
+// ownTypeMethods binds the value methods of n, a Go type that is an Ergo
+// type of its own (ergoOwn), as functions whose first parameter is the
+// receiver (GBX4): `extern go time.Duration.String func DurationString(d
+// duration) string`. Ergo declares no method on its own types, so the
+// function's name is the type's and the method's; the target is the
+// method, and the lowering calls Go's method expression
+// (time.Duration.String(d)). A method only a pointer has would write the
+// receiver, which an Ergo value never is, so the value method set is all.
+func ownTypeMethods(n *types.Named, q Qualifier) []Decl {
+	ms := types.NewMethodSet(n)
+	var out []Decl
+	for i := 0; i < ms.Len(); i++ {
+		f, ok := ms.At(i).Obj().(*types.Func)
+		if !ok || !f.Exported() {
+			continue
+		}
+		sig := f.Type().(*types.Signature)
+		recv := sig.Recv().Name()
+		if recv == "" || recv == "_" {
+			recv = "r"
+		}
+		params := []*types.Var{types.NewParam(sig.Recv().Pos(), f.Pkg(), recv, n)}
+		for j := 0; j < sig.Params().Len(); j++ {
+			params = append(params, sig.Params().At(j))
+		}
+		fn := types.NewFunc(f.Pos(), f.Pkg(), n.Obj().Name()+f.Name(), types.NewSignatureType(nil, nil, nil, types.NewTuple(params...), sig.Results(), sig.Variadic()))
+		d := Map(fn, nil, q)
+		d.Name = n.Obj().Name() + "." + f.Name()
+		d.Go = (&mapper{pkg: f.Pkg()}).goText(f)
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

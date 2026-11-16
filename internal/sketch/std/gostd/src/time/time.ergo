@@ -31,6 +31,36 @@ extern go time.December let December Month
 // ergo:go type Duration int64
 // ergo:refused Duration: time.Duration is Ergo's duration
 
+// ergo:go func (Duration).Abs() Duration
+extern go time.Duration.Abs func DurationAbs(d duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Hours() float64
+extern go time.Duration.Hours func DurationHours(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Microseconds() int64
+extern go time.Duration.Microseconds func DurationMicroseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Milliseconds() int64
+extern go time.Duration.Milliseconds func DurationMilliseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Minutes() float64
+extern go time.Duration.Minutes func DurationMinutes(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Nanoseconds() int64
+extern go time.Duration.Nanoseconds func DurationNanoseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Round(m Duration) Duration
+extern go time.Duration.Round func DurationRound(d duration, m duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Seconds() float64
+extern go time.Duration.Seconds func DurationSeconds(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).String() string
+extern go time.Duration.String func DurationString(d duration) string needs go.Foreign
+
+// ergo:go func (Duration).Truncate(m Duration) Duration
+extern go time.Duration.Truncate func DurationTruncate(d duration, m duration) duration needs go.Foreign
+
 // ergo:go const February Month
 extern go time.February let February Month
 
