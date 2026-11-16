@@ -44,7 +44,11 @@ func readStageReport(t *testing.T, path string) map[string]int64 {
 // A run that differs in what it reads (a --run name, a GO* variable) is no
 // hit; a go wrapper of the same release links with the same patched go,
 // so it is one. It kills the g-b2 cache mutants (cache-*), which no
-// other test reaches: none runs a package twice.
+// other test reaches: none runs a package twice. It kills the obligation
+// counters' mutants (ft0-native-not-counted, ft0-stored-not-counted,
+// ft0-evaluated-not-counted): the cold run decides 2 obligations per
+// passing package and 1 for the failing one natively, the warm run answers
+// the passing ones from the store, and a check evaluates them.
 // It builds Go because the claim is about the compiles, links and
 // processes of real test builds.
 func TestTestResultCache(t *testing.T) {
@@ -63,6 +67,7 @@ func TestTestResultCache(t *testing.T) {
 		stdout                             string
 		code, notes                        int
 		links, reused, compiles, processes int64
+		native, stored, evaluated, steps   int64
 	}
 	run := func(env []string, args ...string) outcome {
 		t.Helper()
@@ -78,14 +83,15 @@ func TestTestResultCache(t *testing.T) {
 			stdout: string(out), code: code,
 			notes: strings.Count(string(stderr), cachedNote),
 			links: counts["links"], reused: counts["links_reused"], compiles: counts["go_compiles"], processes: counts["processes"],
+			native: counts["obligations_native"], stored: counts["obligations_stored"], evaluated: counts["obligations_evaluated"], steps: counts["eval_steps"],
 		}
 	}
 	cold := run(nil, "./...")
-	if cold.code != 1 || cold.links != passing+1 || cold.notes != 0 || strings.Count(cold.stdout, "PASS (2 tests)") != passing {
+	if cold.code != 1 || cold.links != passing+1 || cold.notes != 0 || strings.Count(cold.stdout, "PASS (2 tests)") != passing || cold.native != 2*passing+1 || cold.stored != 0 {
 		t.Fatalf("cold run: %+v", cold)
 	}
 	warm := run(nil, "./...")
-	if warm.links != 0 || warm.reused != 1 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing {
+	if warm.links != 0 || warm.reused != 1 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing || warm.native != 1 || warm.stored != 2*passing {
 		t.Fatalf("warm run: %+v; want no link, 1 reused link and 1 process (the failing package: a result is found before the link), no compile, %d replays", warm, passing)
 	}
 	// --count 1 keeps no warm answer, so it tests the module with one test
@@ -104,6 +110,12 @@ func TestTestResultCache(t *testing.T) {
 		if o.stdout != cold.stdout || o.code != cold.code {
 			t.Fatalf("a cached verdict differs from a run:\nexit %d\n%s\nwant exit %d\n%s", o.code, o.stdout, cold.code, cold.stdout)
 		}
+	}
+
+	// The obligation counters (test-speed FT0): a check evaluates the
+	// package's two tests at check time.
+	if c := runWarm(t, bin, root, physicalTempDir(t), nil, "check", "./p0"); c.code != 0 || c.counts["obligations_evaluated"] != 2 || c.counts["eval_steps"] == 0 {
+		t.Fatalf("ergo check ./p0: exit %d, %v", c.code, c.counts)
 	}
 
 	// What the run reads keys its result.

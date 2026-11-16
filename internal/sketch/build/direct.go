@@ -469,6 +469,25 @@ func buildID(key string, parts int) string {
 	return strings.Join(ids, "/")
 }
 
+// compileFlags are the profile's compile flags for p (Toolchain.CompileFlags)
+// when p's directory is in the module's directory, which is where go build
+// applies the profile's -gcflags=./...=…; none otherwise.
+func (d *direct) compileFlags(p *goPackage) []string {
+	flags := d.t.CompileFlags()
+	if len(flags) == 0 {
+		return nil
+	}
+	root, err := filepath.Abs(d.module.Dir)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(root, p.Dir)
+	if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		return nil
+	}
+	return flags
+}
+
 // compileKey is the action key of a package's compile: every input of the
 // object it writes. The package's IR file (-ergoir, in its folder) is
 // one, by its content; the patched compile that reads it is one through
@@ -486,6 +505,11 @@ func (d *direct) packageKey(p *goPackage, kind string, tool func(*keyer)) (strin
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
+	if flags := d.compileFlags(p); len(flags) > 0 {
+		// Only a profile with flags adds them: a release key, and so a
+		// release executable's build IDs, are the ones before FT5.
+		k.add("flags", strings.Join(flags, " "))
+	}
 	for _, f := range p.Files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -732,31 +756,11 @@ func (d *direct) compile(p *goPackage) error {
 		return err
 	}
 	out := filepath.Join(objdir, "_pkg_.a")
-	args := []string{"-o", out, "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
-		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
-		"-goversion", d.plan.Version}
-	if c := min(4, runtime.GOMAXPROCS(0)); c > 1 {
-		args = append(args, "-c="+strconv.Itoa(c))
+	args, release, err := d.compileArgs(p, pkgPath, key, objdir)
+	if err != nil {
+		return err
 	}
-	if d.plan.pie() {
-		args = append(args, "-shared")
-	}
-	// Where go build puts -gcflags: the package's IR bodies, for the
-	// patched compile (ergoIR).
-	args = append(args, ergoIR(p.Dir)...)
-	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
-	if p.Embed != nil {
-		cfg, err := embedConfig(p)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644); err != nil {
-			return err
-		}
-		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
-	}
-	args = append(args, "-pack")
-	args = append(args, p.Files...)
+	defer release()
 	cmd := exec.Command(d.plan.Compile.Path, args...)
 	cmd.Dir = d.module.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
@@ -775,6 +779,41 @@ func (d *direct) compile(p *goPackage) error {
 	d.digests[p.ImportPath] = a
 	d.report.Compiled++
 	return d.record(key, a.Digest, a.Export)
+}
+
+// compileArgs is the argument list of p's compile into objdir (which holds
+// its import config), as package pkgPath of action key, with the
+// back-end concurrency of a compile slot (slot.go) that the caller
+// releases when the compile ends.
+func (d *direct) compileArgs(p *goPackage, pkgPath, key, objdir string) (args []string, release func(), err error) {
+	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
+		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
+		"-goversion", d.plan.Version}
+	c, release := compileSlot(d.c.Root)
+	if c > 1 {
+		args = append(args, "-c="+strconv.Itoa(c))
+	}
+	if d.plan.pie() {
+		args = append(args, "-shared")
+	}
+	args = append(args, d.compileFlags(p)...)
+	// Where go build puts -gcflags: the package's IR bodies, for the
+	// patched compile (ergoIR).
+	args = append(args, ergoIR(p.Dir)...)
+	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
+	if p.Embed != nil {
+		cfg, err := embedConfig(p)
+		if err == nil {
+			err = os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644)
+		}
+		if err != nil {
+			release()
+			return nil, nil, err
+		}
+		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
+	}
+	args = append(args, "-pack")
+	return append(args, p.Files...), release, nil
 }
 
 // storeArchive moves a package archive into the blob store.
@@ -815,6 +854,9 @@ func (d *direct) modinfo(tg *target) string {
 	set := func(k, v string) { info.Settings = append(info.Settings, debug.BuildSetting{Key: k, Value: v}) }
 	set("-buildmode", "exe")
 	set("-compiler", "gc")
+	if d.t.Profile == Dev {
+		set("-gcflags", devGcflags) // go build records the flag's text
+	}
 	if len(d.t.Tags) > 0 {
 		set("-tags", strings.Join(d.t.Tags, ","))
 	}

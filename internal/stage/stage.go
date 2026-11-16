@@ -60,6 +60,15 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// ObligationsEvaluated counts the tests and law runs check-time
+	// evaluation decided (skipped and not-run ones aside), and EvalSteps
+	// the evaluator steps they used; ObligationsNative counts those a test
+	// binary ran, and ObligationsStored those a stored verdict answered
+	// (test-speed FT0).
+	ObligationsEvaluated
+	EvalSteps
+	ObligationsNative
+	ObligationsStored
 	numCounters
 )
 
@@ -71,6 +80,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored",
 }
 
 var counts [numCounters]atomic.Int64

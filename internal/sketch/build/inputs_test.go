@@ -227,6 +227,21 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("stripped executable prints %q, want %q", got, want)
 			}
 		})
+		t.Run("Profile", func(t *testing.T) {
+			// The dev profile's compile flags are the action's too: the
+			// module is reused, and the executable prints the same.
+			covered["Toolchain.Profile"] = true
+			tc := hostToolchain()
+			tc.Profile = Dev
+			data := reuse(t, tc)
+			binary := filepath.Join(t.TempDir(), "dev")
+			if err := os.WriteFile(binary, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("dev executable prints %q, want %q", got, want)
+			}
+		})
 		t.Run("GOARCH", func(t *testing.T) {
 			covered["Toolchain.GOARCH"] = true
 			tc := hostToolchain()

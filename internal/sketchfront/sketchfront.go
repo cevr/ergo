@@ -455,6 +455,21 @@ func withoutReport(lowering func(lower.Unit) ([]lower.File, lower.IRReport, erro
 	}
 }
 
+// buildInput is the unit of a checked analysis and its emission key's
+// input for req's mode, as Build lowers and keys it (emission, unitInput).
+func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
+	unit, _, _, err := emission(a, req)
+	if err != nil {
+		return lower.Unit{}, build.Input{}, err
+	}
+	input, err := unitInput(unit, analysisDependencies(a), req)
+	return unit, input, err
+}
+
+// rawFlag is the emission flag of a module lowered without go/format
+// (lower.Unit.Raw), the dev profile's.
+const rawFlag = "go/format=off"
+
 // analysisUnit is the validated unit of a checked analysis; source
 // anchors a program of one source text.
 func analysisUnit(a Analysis, source string) (lower.Unit, error) {
@@ -503,6 +518,11 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	}
 	for _, s := range unit.Sources {
 		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
+	}
+	if req.Toolchain.Profile == build.Dev {
+		// The dev profile's module is emitted without go/format: other
+		// bytes, so another emission key (test-speed FT5).
+		input.Flags = append(input.Flags, rawFlag)
 	}
 	return input, nil
 }
@@ -578,6 +598,9 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, "", err
 	}
+	// The dev profile's module skips go/format (test-speed FT5); unitInput
+	// keys it apart.
+	unit.Raw = req.Toolchain.Profile == build.Dev
 	how := buildLowering(req, func() string {
 		in, err := unitInput(unit, analysisDependencies(a), req)
 		if err != nil {
