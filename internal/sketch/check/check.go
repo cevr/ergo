@@ -303,6 +303,10 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
+	// cellSteps counts holdsCell's walk steps, the cost the tests bound;
+	// cellBudget, set only by a test, stops the walk past that many steps
+	// (cellWalk; CK-MAPGROW).
+	cellSteps, cellBudget int
 	// encodeLend is set while encode's writer operand, or decode's reader
 	// operand, is converted to the Writer or the Reader: neither keeps
 	// it, so a value that holds a cell may cross to it there (types.md,
