@@ -181,7 +181,7 @@ func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
 	}
 	cur := syntax.Expr(id)
 	for {
-		sel, ok := w.parent[cur].(*syntax.SelectorExpr)
+		sel, ok := w.parentOf(cur).(*syntax.SelectorExpr)
 		if !ok || syntax.Expr(sel.X) != cur || w.dotCall(cur) != nil {
 			break
 		}
@@ -222,13 +222,13 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 			// no other use runs after it (GP2b's Make).
 			continue
 		}
-		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
+		sel, ok := w.parentOf(o.id).(*syntax.SelectorExpr)
 		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
 			return false
 		}
 		cur := syntax.Expr(sel)
 		for {
-			up, ok := w.parent[cur].(*syntax.SelectorExpr)
+			up, ok := w.parentOf(cur).(*syntax.SelectorExpr)
 			if !ok || syntax.Expr(up.X) != cur || w.dotCall(cur) != nil {
 				break
 			}
@@ -355,7 +355,7 @@ func (w *valueWalk) freshCall(x *syntax.CallExpr, c *check.Call) bool {
 // returned value, or in one arm's last value), or nil: once it runs the
 // frame ends, so a use outside it (in another arm) never runs after o.
 func (w *valueWalk) endingReturn(o *vocc) syntax.Node {
-	for n := w.parent[o.id]; n != nil; n = w.parent[n] {
+	for n := w.parentOf(o.id); n != nil; n = w.parentOf(n) {
 		if f := w.frameOf[n]; f != nil {
 			return nil
 		}

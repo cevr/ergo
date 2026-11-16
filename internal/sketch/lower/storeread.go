@@ -56,7 +56,7 @@ func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
 		return false
 	}
 	for _, o := range vv.occs {
-		if o.kind == occWrite && w.pre[s] <= o.pre && o.pre < w.post[s] {
+		if o.kind == occWrite && w.preOf(s) <= o.pre && o.pre < w.postOf(s) {
 			return false
 		}
 	}
@@ -72,13 +72,13 @@ func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
 // written through the root's own name.
 func (w *valueWalk) reslicesRoot(e syntax.Expr, s *syntax.SliceExpr, vv *vvar) bool {
 	for {
-		p, ok := w.parent[e].(*syntax.ParenExpr)
+		p, ok := w.parentOf(e).(*syntax.ParenExpr)
 		if !ok {
 			break
 		}
 		e = p
 	}
-	as, ok := w.parent[e].(*syntax.AssignStmt)
+	as, ok := w.parentOf(e).(*syntax.AssignStmt)
 	if !ok || as.Tok != syntax.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 || as.Rhs[0] != e {
 		return false
 	}

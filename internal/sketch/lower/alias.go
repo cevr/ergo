@@ -119,6 +119,7 @@ type flow struct {
 
 func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 	fl := &flow{l: l, info: info, parent: map[syntax.Node]syntax.Node{}, uses: map[*check.Var][]*syntax.Ident{}, inLit: map[*syntax.Ident]bool{}}
+	var kids []syntax.Node // the walk's stack of children (appendChildren)
 	var visit func(n syntax.Node, lit bool)
 	visit = func(n syntax.Node, lit bool) {
 		switch x := n.(type) {
@@ -135,13 +136,18 @@ func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 				fl.inLit[x] = lit
 			}
 		}
-		for _, c := range children(n) {
+		start := len(kids)
+		kids = appendChildren(kids, n)
+		end := len(kids)
+		for i := start; i < end; i++ {
+			c := kids[i]
 			if call, ok := n.(*syntax.CallExpr); ok && c == syntax.Node(call.Trailing) {
 				continue
 			}
 			fl.parent[c] = n
 			visit(c, lit)
 		}
+		kids = kids[:start]
 	}
 	visit(d.Body, false)
 	return fl

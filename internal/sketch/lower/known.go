@@ -174,6 +174,12 @@ type knownStats struct {
 	Copies []CopySite
 	// Layouts is the layout report: a row per record emitted (layout.go).
 	Layouts []LayoutRow
+	// TupleLets is the lets of a tuple pattern whose if or match arms
+	// write the names straight, with no tuple value (tuplelet.go).
+	TupleLets int
+	// TupleInlines is the inlined calls of such an arm whose returns write
+	// the names (inline.go, inlineRet.tuple).
+	TupleInlines int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

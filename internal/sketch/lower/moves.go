@@ -90,19 +90,19 @@ func (w *valueWalk) takeOf(vv *vvar, o *vocc) bool {
 	if !w.placeOf(o.path, vv.v) {
 		return false
 	}
-	spec, ok := w.parent[o.path].(*syntax.VarSpec)
+	spec, ok := w.parentOf(o.path).(*syntax.VarSpec)
 	if !ok || spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 || spec.Values[0] != o.path {
 		return false
 	}
-	decl, ok := w.parent[spec].(*syntax.VarDecl)
+	decl, ok := w.parentOf(spec).(*syntax.VarDecl)
 	if !ok || len(decl.Specs) != 1 {
 		return false
 	}
-	stmt, ok := w.parent[decl].(*syntax.DeclStmt)
+	stmt, ok := w.parentOf(decl).(*syntax.DeclStmt)
 	if !ok {
 		return false
 	}
-	block, ok := w.parent[stmt].(*syntax.BlockStmt)
+	block, ok := w.parentOf(stmt).(*syntax.BlockStmt)
 	if !ok {
 		return false
 	}

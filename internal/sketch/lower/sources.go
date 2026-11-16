@@ -171,38 +171,66 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 		return path, line, column
 	}
 	sf, ok := l.stdFileOf(n)
-	if !ok {
+	if !ok || n == nil {
 		ice(n, "a location of a node that no source file holds")
 	}
 	line, column = sf.file.Position(pos)
 	return sf.path, line, column
 }
 
-// stdFileOf is the embedded std file that holds n, of a std package the
-// program reaches (locate).
+// stdFileOf is the embedded file of a reached std package that holds n.
+// Offsets count from the start of each file, so a declaration whose span
+// holds n's is only a candidate: the node is looked for inside it by
+// identity. Only the candidates are walked, and an answer is kept in
+// stdSrc, so a lowering builds no map of every std node (SL9b: that map
+// was 13 % of the lowering's bytes).
 func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
-	if l.stdSrc == nil {
-		l.stdSrc = map[syntax.Node]stdFile{}
+	if isNilNode(n) {
+		return stdFile{}, false
+	}
+	if sf, ok := l.stdSrc[n]; ok {
+		return sf, true
+	}
+	// The first pass walks the declarations whose span holds n's; a node
+	// whose span is not its declaration's (a synthesized one) is found by
+	// the second, which walks every declaration.
+	for _, bySpan := range []bool{true, false} {
 		for _, p := range l.libraries() {
 			if !p.Std() {
 				continue
 			}
 			for _, f := range p.Files() {
-				sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-				if p.Path == std.PreludePath {
-					sf.path = "std/" + f.Name
-				}
-				syntax.Inspect(f, func(m syntax.Node) bool {
-					if m != nil {
-						l.stdSrc[m] = sf
+				for _, d := range f.Decls {
+					if bySpan && (d.Pos() > n.Pos() || n.End() > d.End()) || !holds(d, n) {
+						continue
 					}
-					return true
-				})
+					sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
+					if p.Path == std.PreludePath {
+						sf.path = "std/" + f.Name
+					}
+					if l.stdSrc == nil {
+						l.stdSrc = map[syntax.Node]stdFile{}
+					}
+					l.stdSrc[n] = sf
+					return sf, true
+				}
 			}
 		}
 	}
-	sf, ok := l.stdSrc[n]
-	return sf, ok && n != nil
+	return stdFile{}, false
+}
+
+// holds reports whether the tree of root has the node n.
+func holds(root, n syntax.Node) bool {
+	found := false
+	syntax.Inspect(root, func(m syntax.Node) bool {
+		if found || m == nil {
+			return false
+		}
+		found = m == n
+		return !found
+	})
+	return found
 }
 
 // eachDecl runs f on each top-level declaration of p's files, in file

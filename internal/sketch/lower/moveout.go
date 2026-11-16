@@ -257,7 +257,7 @@ func (w *valueWalk) matchedGet(get *syntax.CallExpr) bool {
 	if !ok || unparen(g.X) != syntax.Expr(get) {
 		return false
 	}
-	m, ok := w.parent[g].(*syntax.TypeSwitchStmt)
+	m, ok := w.parentOf(g).(*syntax.TypeSwitchStmt)
 	if !ok || len(m.Subjects) != 1 {
 		return false
 	}
@@ -269,7 +269,7 @@ func (w *valueWalk) matchedGet(get *syntax.CallExpr) bool {
 // Some's value: `Some[V] as v` and `Some{x}`.
 func (w *valueWalk) matchBinds(get *syntax.CallExpr) []*check.Var {
 	parent, _ := w.unparenParent(get)
-	m, ok := w.parent[parent].(*syntax.TypeSwitchStmt)
+	m, ok := w.parentOf(parent).(*syntax.TypeSwitchStmt)
 	if !ok {
 		return nil
 	}
@@ -396,8 +396,8 @@ func (w *valueWalk) moveOutHolds(mo moveOut, occ map[*syntax.Ident]*vocc) bool {
 	if len(w.varOf(mo.some).occs) != 1 {
 		return false
 	}
-	lo, hi := w.post[mo.match], w.pre[mo.store]
-	end := w.post[mo.store]
+	lo, hi := w.postOf(mo.match), w.preOf(mo.store)
+	end := w.postOf(mo.store)
 	for _, o := range root.occs {
 		if o.pre >= lo && o.pre < hi {
 			return false // the root is named between the read and the store

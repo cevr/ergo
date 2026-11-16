@@ -250,12 +250,13 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 	if w, ok := vf.roots[root]; ok {
 		return w
 	}
-	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
-	w.handed = map[*syntax.CallExpr]bool{}
-	vf.roots[root] = w
 	if !valueRule() || isNilNode(root) {
+		w := newValueWalk(l, info, vf, nil)
+		vf.roots[root] = w
 		return w
 	}
+	w := newValueWalk(l, info, vf, root)
+	vf.roots[root] = w
 	w.root = &vframe{node: root, tails: map[syntax.Expr]bool{}}
 	if d, ok := root.(*syntax.FuncDecl); ok && d.Body != nil {
 		tailsOf(d.Body.List, w.root.tails)
@@ -265,6 +266,49 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 	w.decide()
 	w.done = true
 	return w
+}
+
+// vnode is a node's place in the walk: its order numbers on entry and
+// exit, and its parent (nil for the root).
+type vnode struct {
+	pre, post int
+	parent    syntax.Node
+}
+
+func (w *valueWalk) preOf(n syntax.Node) int            { return w.nodes[n].pre }
+func (w *valueWalk) postOf(n syntax.Node) int           { return w.nodes[n].post }
+func (w *valueWalk) parentOf(n syntax.Node) syntax.Node { return w.nodes[n].parent }
+
+// setParent records n's parent before n is visited; the visit keeps it.
+func (w *valueWalk) setParent(n, parent syntax.Node) { w.nodes[n] = vnode{parent: parent} }
+
+func (w *valueWalk) setPre(n syntax.Node, pre int) {
+	v := w.nodes[n]
+	v.pre = pre
+	w.nodes[n] = v
+}
+
+func (w *valueWalk) setPost(n syntax.Node, post int) {
+	v := w.nodes[n]
+	v.post = post
+	w.nodes[n] = v
+}
+
+// newValueWalk is an empty walk whose node map holds the nodes of root
+// (nil: none) without growing: the walk puts every node in it, and a
+// map that grows copies itself (SL9b: these maps are most of
+// the lowering's bytes).
+func newValueWalk(l *lowerer, info *check.Info, vf *valueFacts, root syntax.Node) *valueWalk {
+	n := 0
+	if root != nil {
+		syntax.Inspect(root, func(m syntax.Node) bool {
+			if m != nil {
+				n++
+			}
+			return true
+		})
+	}
+	return &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, nodes: make(map[syntax.Node]vnode, n), frameOf: map[syntax.Node]*vframe{}, handed: map[*syntax.CallExpr]bool{}}
 }
 
 func isNilNode(n syntax.Node) bool {
@@ -355,16 +399,17 @@ type owning struct {
 }
 
 type valueWalk struct {
-	l        *lowerer
-	info     *check.Info
-	vf       *valueFacts
-	root     *vframe
-	vars     map[*check.Var]*vvar
-	order    []*vvar
-	count    int
-	pre      map[syntax.Node]int
-	post     map[syntax.Node]int
-	parent   map[syntax.Node]syntax.Node
+	l     *lowerer
+	info  *check.Info
+	vf    *valueFacts
+	root  *vframe
+	vars  map[*check.Var]*vvar
+	order []*vvar
+	count int
+	// nodes holds each node's pre and post order numbers and its parent
+	// in one map (preOf, postOf, parentOf): three maps keyed by every node
+	// were most of the lowering's bytes (SL9b).
+	nodes    map[syntax.Node]vnode
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
@@ -381,19 +426,24 @@ type valueWalk struct {
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool  // their literals
 	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
+	// kids is the walk's stack of children (appendChildren).
+	kids []syntax.Node
 }
 
-// children are n's direct children, in Inspect's order.
-func children(n syntax.Node) []syntax.Node {
-	var out []syntax.Node
+// appendChildren appends n's direct children to buf, in Inspect's order.
+// A recursive walk keeps one buffer as a stack: a visit appends its
+// children, reads them by index (a deeper visit may move the array), and
+// cuts the buffer back to where it started, so no visit allocates a slice
+// of its own (SL9b: a slice per visit was 17 % of the lowering's objects).
+func appendChildren(buf []syntax.Node, n syntax.Node) []syntax.Node {
 	syntax.Inspect(n, func(c syntax.Node) bool {
 		if c == n {
 			return true
 		}
-		out = append(out, c)
+		buf = append(buf, c)
 		return false
 	})
-	return out
+	return buf
 }
 
 func (w *valueWalk) varOf(v *check.Var) *vvar {
@@ -409,7 +459,7 @@ func (w *valueWalk) varOf(v *check.Var) *vvar {
 
 // walk visits n with the frame and loops that hold it.
 func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
-	w.pre[n] = w.count
+	w.setPre(n, w.count)
 	w.count++
 	frame := w.root
 	if len(w.frames) > 0 {
@@ -429,7 +479,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.Ident:
 		if v, ok := w.info.Uses[n].(*check.Var); ok {
 			vv := w.varOf(v)
-			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: w.pre[n]})
+			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: w.preOf(n)})
 		}
 	case *syntax.DeclStmt:
 		for _, spec := range n.Decl.Specs {
@@ -503,8 +553,12 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.ForStmt:
 		inner = append(append([]syntax.Node{}, loops...), n)
 	}
-	for _, c := range children(n) {
-		w.parent[c] = n
+	start := len(w.kids)
+	w.kids = appendChildren(w.kids, n)
+	end := len(w.kids)
+	for i := start; i < end; i++ {
+		c := w.kids[i]
+		w.setParent(c, n)
 		cl := inner
 		if r, ok := n.(*syntax.RangeStmt); ok && c != syntax.Node(r.X) {
 			cl = append(append([]syntax.Node{}, loops...), n)
@@ -514,7 +568,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		}
 		w.walk(c, cl)
 	}
-	w.post[n] = w.count
+	w.kids = w.kids[:start]
+	w.setPost(n, w.count)
 	w.count++
 }
 
@@ -586,7 +641,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 		}
 		return true, true
 	case *syntax.BlockStmt:
-		call, ok := w.parent[n].(*syntax.CallExpr)
+		call, ok := w.parentOf(n).(*syntax.CallExpr)
 		if !ok || call.Trailing != n {
 			return false, false
 		}
@@ -603,7 +658,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 func (w *valueWalk) unparenParent(n syntax.Node) (parent, child syntax.Node) {
 	child = n
 	for {
-		p := w.parent[child]
+		p := w.parentOf(child)
 		if _, ok := p.(*syntax.ParenExpr); ok {
 			child = p
 			continue
@@ -1152,7 +1207,7 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			}
 			return false
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+		if o.id != lid && o.id != aid && o.pre > w.preOf(s) && o.pre < w.postOf(s) {
 			return false
 		}
 	}
@@ -1257,7 +1312,7 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 		if o.frame != frame {
 			return nil
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+		if o.id != lid && o.id != aid && o.pre > w.preOf(s) && o.pre < w.postOf(s) {
 			return nil
 		}
 	}
@@ -1302,7 +1357,7 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 	saved := l.info
 	l.info = info
 	defer func() { l.info = saved }()
-	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w := newValueWalk(l, info, vf, d)
 	w.root = &vframe{node: d, tails: map[syntax.Expr]bool{}}
 	tailsOf(d.Body.List, w.root.tails)
 	w.walk(d, nil)
@@ -1389,14 +1444,14 @@ func (w *valueWalk) consumedUse(f *check.Func, vv *vvar) syntax.Expr {
 	x := syntax.Expr(o.id)
 	var use syntax.Expr
 	for use == nil {
-		switch p := w.parent[x].(type) {
+		switch p := w.parentOf(x).(type) {
 		case *syntax.ParenExpr:
 			x = p
 		case *syntax.SelectorExpr:
 			if p.X != x {
 				return nil
 			}
-			if call, ok := w.parent[p].(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
+			if call, ok := w.parentOf(p).(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
 				// A dot call: x is its receiver.
 				use = w.consumedAt(call, x)
 				if use == nil {
@@ -1520,7 +1575,7 @@ func (w *valueWalk) failsAfter(f *check.Func, at int) bool {
 		result = f.Sig.Results[0]
 	}
 	returned := func(x syntax.Expr) {
-		if w.pre[x] <= at {
+		if w.preOf(x) <= at {
 			return
 		}
 		switch t := w.typeOf(x); t.(type) {
@@ -1537,7 +1592,7 @@ func (w *valueWalk) failsAfter(f *check.Func, at int) bool {
 	syntax.Inspect(w.root.node, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.CallExpr:
-			if c := w.info.Calls[n]; c != nil && w.pre[n] > at && failsHere(c) {
+			if c := w.info.Calls[n]; c != nil && w.preOf(n) > at && failsHere(c) {
 				fails = true
 			}
 		case *syntax.ReturnStmt:
@@ -1657,7 +1712,7 @@ func (w *valueWalk) slicesOf(e syntax.Expr, root *vvar) bool {
 func (w *valueWalk) classify(vv *vvar, o *vocc) {
 	cur := syntax.Node(o.id)
 	for {
-		p := w.parent[cur]
+		p := w.parentOf(cur)
 		switch p := p.(type) {
 		case *syntax.ParenExpr:
 			cur = p
@@ -1701,20 +1756,20 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 	case *syntax.AssignStmt:
 		for _, l := range p.Lhs {
 			if l == child {
-				o.kind, o.at = occWrite, w.post[p]
+				o.kind, o.at = occWrite, w.postOf(p)
 				return
 			}
 		}
 	case *syntax.UnaryExpr:
 		if p.Op == syntax.AND {
-			o.kind, o.at = occWrite, w.post[w.enclosingCall(p)]
+			o.kind, o.at = occWrite, w.postOf(w.enclosingCall(p))
 			return
 		}
 	case *syntax.CallExpr:
 		c := w.info.Calls[p]
 		if c != nil && c.Kind == check.CallFunc && c.Recv == child && c.Func.Ptr {
 			if _, isPtr := w.typeOf(o.path).(*check.Pointer); !isPtr {
-				o.kind, o.at = occWrite, w.post[p]
+				o.kind, o.at = occWrite, w.postOf(p)
 				return
 			}
 		}
@@ -1967,7 +2022,7 @@ func copyCoversSeen(t check.Type, seen map[check.Type]bool) bool {
 // dotCall is the call whose receiver is x, a dot call x.f(…) or an
 // operation call, or nil.
 func (w *valueWalk) dotCall(x syntax.Node) *syntax.CallExpr {
-	sel, ok := w.parent[x].(*syntax.SelectorExpr)
+	sel, ok := w.parentOf(x).(*syntax.SelectorExpr)
 	if !ok || syntax.Node(sel.X) != x {
 		return nil
 	}
@@ -2002,7 +2057,7 @@ func basicResult(t check.Type) bool {
 
 // enclosingCall is the nearest call that holds n, or n.
 func (w *valueWalk) enclosingCall(n syntax.Node) syntax.Node {
-	for p := w.parent[n]; p != nil; p = w.parent[p] {
+	for p := w.parentOf(n); p != nil; p = w.parentOf(p) {
 		if _, ok := p.(*syntax.CallExpr); ok {
 			return p
 		}
@@ -2012,7 +2067,7 @@ func (w *valueWalk) enclosingCall(n syntax.Node) syntax.Node {
 
 // frameOfReturn is the frame a return statement leaves.
 func (w *valueWalk) frameOfReturn(n syntax.Node) *vframe {
-	for p := n; p != nil; p = w.parent[p] {
+	for p := n; p != nil; p = w.parentOf(p) {
 		if f := w.frameOf[p]; f != nil {
 			return f
 		}
@@ -2035,7 +2090,7 @@ func (w *valueWalk) frameOfTail(x syntax.Expr) *vframe {
 // writes c). A read of c that keeps nothing past the call still must not
 // share c with the callee then: the callee would see the write.
 func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
-	end := w.post[o.call]
+	end := w.postOf(o.call)
 	for _, wr := range vv.writes {
 		if wr.pre > o.pre && wr.pre < end {
 			return true
@@ -2048,7 +2103,7 @@ func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
 	if vv.ptr {
 		for _, oc := range vv.occs {
 			if oc != o && oc.pre > o.pre && oc.pre < end && oc.path == syntax.Expr(oc.id) {
-				if _, isCall := w.parent[oc.id].(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
+				if _, isCall := w.parentOf(oc.id).(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
 					return true
 				}
 			}
@@ -2531,19 +2586,19 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		// An earlier use in a returned value that does not hold use ends
 		// the frame when it runs, so use does not run after it.
 		if other := w.returnNode(o, o.id); other != nil && o.pre < use.pre {
-			if !(w.pre[other] <= use.pre && use.pre < w.post[other]) || valueMutant == "return-blind" {
+			if !(w.preOf(other) <= use.pre && use.pre < w.postOf(other)) || valueMutant == "return-blind" {
 				continue
 			}
 		}
 		if o.pre < use.pre && valueOwned() {
-			if end := w.endingReturn(o); end != nil && !(w.pre[end] <= use.pre && use.pre < w.post[end]) {
+			if end := w.endingReturn(o); end != nil && !(w.preOf(end) <= use.pre && use.pre < w.postOf(end)) {
 				// So does one anywhere in a return statement or a last
 				// value that does not hold use (handover.go).
 				continue
 			}
 		}
 		if returning {
-			inRet := w.pre[ret] <= o.pre && o.pre < w.post[ret]
+			inRet := w.preOf(ret) <= o.pre && o.pre < w.postOf(ret)
 			if !inRet && o.pre > use.pre || valueMutant == "return-blind" && inRet {
 				continue
 			}
@@ -2551,7 +2606,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 				return false
 			}
 		} else if o.pre > use.pre && !(o.kind == occRead && stored) {
-			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
+			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.preOf(end) || o.pre >= w.postOf(end)) {
 				// The use's return statement ends the frame: o, outside
 				// it, never runs after the use (handover.go).
 				continue

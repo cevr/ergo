@@ -225,6 +225,9 @@ type inlineRet struct {
 	join *scalarLocal
 	// known is the fold whose arms the returns jump to (knownmatch.go).
 	known *knownMatch
+	// tuple is the Go variables of a tuple let the returns write, element
+	// by element, instead of res: the call is an arm's tail (tuplelet.go).
+	tuple []string
 	// resType is the Go type of res, and iface whether it is an interface
 	// (renameTail, forms.go).
 	resType string
@@ -698,7 +701,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if len(f.Sig.Results) == 1 {
 		result = f.Sig.Results[0]
 	}
-	if result != nil {
+	if ti := fc.tupleInto; result != nil && ti != nil && ti.call == x && !(fd.fallible && failsHere(c)) {
+		// No result variable: the returns write the names.
+		ret.tuple, ti.taken = ti.names, true
+		fc.l.stats.TupleInlines++
+	}
+	if result != nil && ret.tuple == nil {
 		if ret.join = fc.joinSite(x); ret.join == nil {
 			ret.res = fc.temp("v")
 			ret.resType, ret.iface = ic.goType(result), ic.isInterface(result)
@@ -803,6 +811,9 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
+	if ret.tuple != nil {
+		return operand{}
+	}
 	o := operand{val: ret.res, err: ret.err, fail: ret.fail}
 	if ret.join != nil {
 		o.val = ret.join.name
@@ -871,6 +882,13 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 			fc.l.stats.Renamed++
 		}
 	}
+	// A tuple let's inlined arm (inlineRet.tuple) writes nothing after its
+	// label, which Go accepts only before a block's end, not before a case.
+	wrap := ret.tuple != nil && strings.Contains(body, jump)
+	if wrap {
+		fc.line("{")
+		fc.depth++
+	}
 	fc.line("{")
 	ind := strings.Repeat("\t", fc.depth)
 	for _, ln := range strings.SplitAfter(body, "\n") {
@@ -892,6 +910,10 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	}
 	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
 		ret.fail = "" // no return fails: the site has no label to place
+	}
+	if wrap {
+		fc.depth--
+		fc.line("}")
 	}
 	if ret.err != "" {
 		fc.line("_ = " + ret.err)
@@ -982,6 +1004,11 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 	in := fc.frame.inline
 	if in.known != nil {
 		in.known.general = true // the union value is written (knownmatch.go)
+	}
+	if in.tuple != nil && len(vals) > 0 {
+		fc.tupleWrite(in.tuple, vals[0])
+		fc.line("goto " + in.label)
+		return
 	}
 	if in.join != nil && len(vals) > 0 {
 		// A join local (scalar.go): a failure writes only the error,

@@ -111,6 +111,9 @@ type loopCtx struct {
 
 // funcCtx writes one Go function body.
 type funcCtx struct {
+	// tupleInto is the tuple let whose arm tail is the call being lowered
+	// (tuplelet.go): an inlined body of that call writes its names.
+	tupleInto *tupleInto
 	typeCtx
 	// inGroup is the component call whose own call is being written
 	// inside its group (uigroup.go), so that call is not a group again.
@@ -751,6 +754,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	}
 	if f.inline != nil && f.inline.known != nil && fc.acquiring == nil && !f.law {
 		fc.knownReturn(f.inline.known, x) // knownmatch.go
+		return
+	}
+	if f.inline != nil && f.inline.tuple != nil && fc.acquiring == nil && !f.law && !f.fallible {
+		fc.tupleReturn(f.inline.tuple, x, f.result) // tuplelet.go
 		return
 	}
 	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
