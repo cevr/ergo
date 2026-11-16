@@ -180,7 +180,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"copy for a known record", "G4"},
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
-	{"value copy", "G4"}, // the value rule's copy (values.go)
+	{"value copy of a *", "G4"}, // a value rule copy at a defined slice or Map type (ir_copy.go)
 	// G5: std bodies.
 	{"library body", "G5"},
 	{"intrinsic body", "G5"},
