@@ -111,10 +111,13 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	inner.env = "env"
 	inner.frame = newFrame(result, true, framePolls(l.info, n))
 	inner.frame.unit = result == nil
-	fc, env, res, loops, tries, switches, label, law := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law
+	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
 	defer func() {
-		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, env, res, loops, tries, switches, label, law
+		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
 	}()
+	// The literal's body is a frame of its own: no loop of the maker's
+	// memoizes a call of it (ir_hoist.go).
+	b.memos = nil
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
