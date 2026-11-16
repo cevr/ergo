@@ -173,11 +173,13 @@ func Subst(p *Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 		ts = ts.Append(Subst(p, o, args))
 	}
 	if kind == tRow {
-		// A row parameter bound to a row splices its elements in: rows do
-		// not nest (the Go checker's subst flattens them).
+		// A row parameter bound to a row splices its elements in (the Go
+		// checker's subst flattens them); a row written inside the row
+		// stays one element.
+		let ops = Operands(*p, t)
 		let mut flat = []dense.ID[TKey]{}
-		for o in ts {
-			if int(Key(*p, o).k) == tRow {
+		for i, o in ts {
+			if int(Key(*p, ops[i]).k) == tParam && int(Key(*p, o).k) == tRow {
 				for e in Operands(*p, o) {
 					flat = flat.Append(e)
 				}
