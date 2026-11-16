@@ -41,7 +41,7 @@ var goNewTargets = []goNewTarget{
 func TestGoNew(t *testing.T) {
 	type ncase struct {
 		name, src, code, want string // code, want: the refusal ("" when admitted)
-		new                         string // a fact of the lowered Go when admitted
+		new                   string // a fact of the lowered Go when admitted
 	}
 	var cases []ncase
 	for _, g := range goNewTargets {
