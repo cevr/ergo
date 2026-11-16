@@ -262,6 +262,24 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	return append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x}), v, e
 }
 
+// bindMatch evaluates x, the match m whose arms' tails are fallible calls,
+// into a value local (-1: none) and an error local, nil unless an arm's
+// call fails: each arm's tail puts its call's value and error in them, as
+// a fallible with's block does (failYield, ir_with.go), the emitter's
+// catch of an expression (asked).
+func (b *irBuilder) bindMatch(x syntax.Expr, m syntax.Stmt) (pre []*irStmt, v, e int) {
+	p := b.pos(x, x.Pos())
+	e = b.temp("err", "error", p)
+	pre = []*irStmt{{K: "var", Pos: p, Local: e}}
+	v = -1
+	t := b.l.info.Types[x]
+	if t != nil && !isNoValue(t) {
+		v = b.temp("v", b.goType(t, x), p)
+		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
+	}
+	return append(pre, b.matchStmt(m, true, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e // ir_match.go
+}
+
 // isNoValue reports the type of a call with no value.
 func isNoValue(t check.Type) bool {
 	if tu, ok := t.(*check.Tuple); ok && len(tu.Types) == 0 {
@@ -291,9 +309,23 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if m == nil || m.Partial != partial {
 		irNo("catch without its Matches entry")
 	}
+	// The caught value: a fallible call, or a match whose arms' tails
+	// fail (bindMatch).
 	call := b.fallibleCall(x.X)
+	var src syntax.Expr = call
+	bindSrc := func() ([]*irStmt, int, int) { return b.bind(call) }
 	if call == nil {
-		irNo("catch of a non-call")
+		m, ok := unparen(x.X).(syntax.Stmt)
+		switch m.(type) {
+		case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		default:
+			ok = false
+		}
+		if _, conv := b.l.info.Implicit[x.X]; !ok || conv {
+			irNo("catch of a non-call")
+		}
+		src = x.X
+		bindSrc = func() ([]*irStmt, int, int) { return b.bindMatch(x.X, m) }
 	}
 	type arm struct {
 		types []string
@@ -330,13 +362,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		arms = append(arms, ar)
 		alts = append(alts, as)
 	}
-	pre, v, e := b.bind(call)
+	pre, v, e := bindSrc()
 	p := b.pos(x, x.Catch)
 	result := -1
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
-		if v >= 0 && b.l.info.Types[call] == nil {
+		if v >= 0 && b.l.info.Types[src] == nil {
 			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
@@ -379,7 +411,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		// The call's value joins the union of the arms' (ir_union.go).
-		val := b.variantInto(b.l.info.Types[call], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, call)
+		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
 	}
 	pre = append(pre, ifs)
