@@ -47,6 +47,11 @@ func (b *irBuilder) selectOther(x *syntax.SelectorExpr, p irPos) *irExpr {
 			if pn.Pkg.Host() {
 				irNo("Go package variable")
 			}
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				// A package let lowered as a Go constant (constLet), as
+				// for a name of the package itself (ir_expr.go).
+				return b.constant(o.Type, val, x, p)
+			}
 			name, ok := b.l.vars[o]
 			if !ok {
 				irNo("package let without a Go name")
