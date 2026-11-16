@@ -331,3 +331,10 @@ func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 // SessionAnimates is whether s's last pass made an Animate: whether its
 // host should send frames (Run's Host.Frames).
 func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }
+
+// SessionFocus is the node the keyboard is on in s's frame (Focused),
+// for a host that draws the focus.
+func SessionFocus[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
+
+// FocusSession puts the focus of s's frame on id, or nowhere (FocusOn).
+func FocusSession[S, E, D, F](s *Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }

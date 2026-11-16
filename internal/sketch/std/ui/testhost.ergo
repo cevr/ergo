@@ -351,6 +351,10 @@ func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails 
 // Now is the clock's time.
 func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 
+// FocusOf is the node the keyboard is on (Focused): the last one pressed
+// or typed into, or the one Tab moved to.
+func FocusOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
+
 // Screen is what the host shows, built only from the patches.
 func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
 

@@ -511,6 +511,17 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
+		// Tab's default (UC-TAB): with no key function taking it, Tab moves
+		// the focus to the next focusable node and Shift+Tab to the one
+		// before, as a browser's does after an unprevented keydown.
+		let m = k.Press.Mods
+		match out.Signal {
+		case None:
+			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
+				f.focus = nextFocus(f, m.Shift)
+			}
+		case Some[E]:
+		}
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
 	case Committed:

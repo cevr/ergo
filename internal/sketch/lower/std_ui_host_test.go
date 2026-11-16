@@ -4466,6 +4466,101 @@ func modelPick(n int, at int, key string, wrap bool) int {
 	at
 }
 
+func lawTabWalksTheFocusables(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut kinds = []int{}
+		let mut order = []string{}
+		for i in 0..draw(&r, 6)+3 {
+			let k = draw(&r, 7)
+			kinds = kinds.Append(k)
+			if k >= 1 && k <= 4 {
+				order = order.Append("f\(i)")
+			}
+		}
+		let ks = kinds
+		let view = func(f *ui.Frame[int], s int) { tabScreen(f, s, ks) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let n = len(order)
+		let mut at = -1
+		for _ in 0..(steps%10+10)%10+4 {
+			let act = draw(&r, 4)
+			if act == 3 && n > 0 {
+				let j = draw(&r, n)
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: order[j]}}}) catch {
+				case _:
+					return false
+				}
+				at = j
+			} else {
+				let back = act == 2
+				if !tabKey(&h, back) {
+					return false
+				}
+				if n > 0 {
+					at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n }
+				}
+			}
+			match ui.FocusOf(&h) {
+			case Some[ui.Id[int]] as id:
+				if at < 0 || ui.AccessAt(&h, id.Value).Name != order[at] {
+					return false
+				}
+			case None:
+				if at >= 0 {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+func tabScreen(f *ui.Frame[int], s int, kinds []int) {
+	ui.Column(f, ui.Plain()) {
+		for i, k in kinds {
+			if k == 0 {
+				ui.Text(f, "n\(i)")
+			} else if k == 1 {
+				ui.Pressable(f, "f\(i)", s) {
+					ui.Text(f, "p\(i)")
+				}
+			} else if k == 2 {
+				ui.LabelledInput(f, ui.FieldLabel{Text: "f\(i)", Description: "", Invalid: false}, "", "", func(t string) int { s })
+			} else if k == 3 {
+				ui.Check(f, "f\(i)", false, s)
+			} else if k == 4 {
+				ui.Semantic(f, ui.Named(ui.Button, "f\(i)"), Some{Value: s}, ui.Plain()) {
+					ui.Text(f, "b\(i)")
+				}
+			} else if k == 5 {
+				ui.Semantic(f, ui.Named(ui.Heading, "n\(i)"), None, ui.Plain()) {
+					ui.Text(f, "h\(i)")
+				}
+			} else {
+				ui.Fieldset(f, true, "") {
+					ui.Pressable(f, "n\(i)", s) {
+						ui.Text(f, "q\(i)")
+					}
+				}
+			}
+		}
+	}
+}
+
+func tabKey[S, D, F](h *ui.TestHost[S, int, D, F], back bool) bool {
+	ui.PressKey(h, ui.KeyPress{Name: "Tab", Mods: ui.Mods{Shift: back, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case _:
+		return false
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -4634,6 +4729,10 @@ test UiChoicesTakeKeysWhenFocused(seed int, steps int) {
 	assert lawChoicesTakeKeysWhenFocused(seed, steps)
 }
 
+test UiTabWalksTheFocusables(seed int, steps int) {
+	assert lawTabWalksTheFocusables(seed, steps)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -4713,6 +4812,7 @@ var stdUIHostStatements = map[string]string{
 	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
 	"ui ChoiceIsAnnouncedAndReachable": `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) { return false } // The keys reach the choice once the focus is in it: a press on its // selected option (UC-FOCUS). Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch { case _: return false } if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
 	"ui ChoicesTakeKeysWhenFocused":    `ChoicesTakeKeysWhenFocused(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let oa = namedOptions("a", draw(&r, 4)+3) let ob = namedOptions("b", draw(&r, 4)+3) let ra = draw(&r, 2) == 0 let rb = draw(&r, 2) == 0 let mut a = draw(&r, len(oa)) let mut b = draw(&r, len(ob)) let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) } let start = a*10 + b let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(app, view, m, 4) catch { case BadPatch: return false } // focus: 0 none, 1 the first choice, 2 the second. let mut focus = 0 let keys = choiceKeys() let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))} for _ in 0..(steps%8+8)%8+6 { acts = acts.Append(draw(&r, 3+len(keys))) } for i, act in acts { if act == 0 || act == 1 { let opts = if act == 0 { oa } else { ob } // The run's first press is on the second choice's selected option. let j = if i == 1 { b } else { draw(&r, len(opts)) } Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch { case _: return false } if act == 0 { a = j focus = 1 } else { b = j focus = 2 } } else if act == 2 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch { case _: return false } focus = 0 } else { let key = keys[act-3] if !choiceKey(&h, key) { return false } if focus == 1 { a = modelPick(len(oa), a, key, ra) } else if focus == 2 { b = modelPick(len(ob), b, key, rb) } } if StateOf(&h) != a*10+b { return false } } true } }`,
+	"ui TabWalksTheFocusables":         `TabWalksTheFocusables(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut order = []string{} for i in 0..draw(&r, 6)+3 { let k = draw(&r, 7) kinds = kinds.Append(k) if k >= 1 && k <= 4 { order = order.Append("f\(i)") } } let ks = kinds let view = func(f *Frame[int], s int) { tabScreen(f, s, ks) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let n = len(order) let mut at = -1 for _ in 0..(steps%10+10)%10+4 { let act = draw(&r, 4) if act == 3 && n > 0 { let j = draw(&r, n) Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch { case _: return false } at = j } else { let back = act == 2 if !tabKey(&h, back) { return false } if n > 0 { at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n } } } match FocusOf(&h) { case Some[Id[int]] as id: if at < 0 || AccessAt(&h, id.Value).Name != order[at] { return false } case None: if at >= 0 { return false } } } true } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
