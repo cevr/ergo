@@ -363,17 +363,31 @@ func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	// slowpoke burns CPU (a shell loop; at least 10 ms on any host); dozer
-	// sleeps a second and does almost nothing.
+	// slowpoke burns CPU (a shell loop of 200,000 steps); dozer sleeps a
+	// second and does almost nothing. No bound sits near what a case uses:
+	// a budget of 1ns fails any case that ran on a CPU, and dozer's few
+	// milliseconds of CPU stay far under 500ms while its second of wall
+	// time is over it (ert-budget-wall-time); 1h selects without judging.
+	// Each run names only the programs whose verdict it reads, so no
+	// verdict rests on how long the loop takes. A 10ms budget failed dozer
+	// once at load 80+, where sh and sleep alone took more (GT-CPUBUDGET).
 	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
 	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "10ms")
-	oks, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
-		t.Fatalf("default selection: want FAIL slowpoke/basic budget, ok dozer/basic and no lazy; exit %d\n%s", code, out)
+	code, out := f.run("-budget", "1ns", "slowpoke")
+	if _, fails := verdicts(out); code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") {
+		t.Fatalf("a budget of 1ns: want FAIL slowpoke/basic budget; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "10ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	code, out = f.run("-budget", "500ms", "dozer")
+	if oks, _ := verdicts(out); code != 0 || !oks["dozer/basic"] {
+		t.Fatalf("a budget of 500ms: want ok dozer/basic; exit %d\n%s", code, out)
+	}
+	code, out = f.run("-budget", "1h")
+	oks, _ := verdicts(out)
+	if code != 0 || !oks["slowpoke/basic"] || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
+		t.Fatalf("default selection: want ok slowpoke/basic and dozer/basic and no lazy; exit %d\n%s", code, out)
+	}
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "1ns"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
 		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {
