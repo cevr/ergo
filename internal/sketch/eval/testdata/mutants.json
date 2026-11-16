@@ -1584,6 +1584,7 @@
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"
       ]
-    }
+    },
+    {"name":"i22-eval-pair-wire-one-arg","origin":"wf10 batch-22 I22 (tip 113 x codecwalk: the evaluator's encode calls an append-form pair's Wire with its buffer)","file":"internal/sketch/eval/codecwalk.go","from":"\tif !p.Append {\n\t\treturn w.callFunc(p.Wire, v)\n\t}\n","to":"\tif true {\n\t\treturn w.callFunc(p.Wire, v)\n\t}\n","rule":"types.md Codecs 1: an append-form pair Wire(x, into []byte) []byte encodes as the string of its bytes (GX10).","killers":["examples:jobs"]}
   ]
 }

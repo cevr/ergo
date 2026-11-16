@@ -7,7 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/testinputs"
 )
+
+func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
 // TestZonesBinIsEncoded holds the checked-in runtime/tzdata/zones.bin to
 // Encode: read back by the format the package comment states, its zones

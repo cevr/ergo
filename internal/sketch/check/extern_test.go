@@ -665,6 +665,43 @@ func main() {
 	use(Mine)
 }
 `,
+	"log.Sink": `import log
+
+type Mine {} implements log.Sink
+
+func Enabled(_ Mine, l log.Level) bool { true }
+func Write(_ Mine, e log.Entry) {}
+
+func use(s log.Sink) { s.Write(log.Entry{Level: log.LevelInfo, Message: "x", Attrs: []log.Attr{}}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Zones": `import tz
+
+type Mine {} implements tz.Zones
+
+func Load(_ Mine, name string) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(z tz.Zones) { _ = z.Load("UTC") catch { case tz.UnknownZone: tz.UTC() } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Local": `import tz
+
+type Mine {} implements tz.Local
+
+func Zone(_ Mine) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(l tz.Local) { _ = l.Zone() catch { case tz.UnknownZone: tz.UTC() } }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Random": `type Mine {} implements Random
 
 func Uint64(_ Mine) uint64 { 0 }
@@ -1294,6 +1331,9 @@ var openStd = map[string]bool{
 	"code.Checker":      true,
 	"code.Planner":      true,
 	"code.Writer":       true,
+	"log.Sink":          true,
+	"tz.Zones":          true,
+	"tz.Local":          true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 
