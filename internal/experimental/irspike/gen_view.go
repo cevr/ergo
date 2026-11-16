@@ -3,20 +3,24 @@ package irspike
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 )
 
-// GenerateView writes the view program of seed (VW1): a union View of 2 to
-// 7 variants (records of zero, one or two int fields), a view function
-// view(kinds, vals, i) that reads row i of two columns as a variant (lets,
-// then a match on the kind whose every arm builds one variant), and three
-// matches on a view call: walk's statement in a loop, pick's in a value
-// position and code's as the function's result. The matches' arms come in
-// any order: `V as v` reading the fields, a bare type test, two variants
-// in one arm, a wildcard. Some seeds build one variant from two of the
-// view's arms (its match arm is copied), and some put a zero in vals, so a
-// variant whose field divides by it panics where the matching arm binds no
-// local. main prints walk over the rows, then pick and code of each row.
+// GenerateView writes the view program of seed (VW1, VW1b): a union View of
+// 2 to 7 variants (records of zero, one or two int fields), a record Cols
+// of five fields (three columns), a view function view(c, i) that reads row
+// i as a variant (lets, then a match on the kind whose every arm builds one
+// variant), and three matches on a view call: walk's statement in a loop
+// over c, pick's in a value position and code's as the function's result.
+// The lets sink into the arms that read them, except the kind and, in some
+// seeds, a let that divides (it stays). The matches' arms come in any
+// order: `V as v` reading the fields, a bare type test, two variants in one
+// arm, a wildcard. Some seeds build one variant from two of the view's arms
+// (its match arm is copied); some put a zero in vals, so a variant whose
+// field divides by it panics where the matching arm binds no local; some
+// make the extra column short, so a row past it fails in a sunk let's index
+// before the switch. main prints pick and code of each row, then walk.
 func GenerateView(seed uint64) string {
 	g := &vgen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
 	return g.program()
@@ -37,6 +41,9 @@ func (g *vgen) program() string {
 	names := make([]string, k)
 	for i := range k {
 		g.fields[i] = g.n(3)
+		if i == 0 {
+			g.fields[i] = 2 // case _ builds V0 and reads every let
+		}
 		names[i] = fmt.Sprintf("V%d", i)
 		switch g.fields[i] {
 		case 0:
@@ -48,6 +55,9 @@ func (g *vgen) program() string {
 		}
 	}
 	fmt.Fprintf(&g.b, "type View = %s\n\n", strings.Join(names, " | "))
+	// Cols has five fields: Go keeps it in memory, so walk's loop reads
+	// its columns from the fields its entry hoists (ir_hoist.go).
+	g.b.WriteString("type Cols { kinds []int, vals []int, extra []int, w int, tag string }\n\n")
 	g.view(k)
 	g.walk(k)
 	g.main(k)
@@ -57,14 +67,22 @@ func (g *vgen) program() string {
 // view writes the view function: an arm per kind 0..k-1 (or k-2 with a
 // variant built twice), then case _.
 func (g *vgen) view(k int) {
-	g.b.WriteString("func view(kinds []int, vals []int, i int) View {\n\tlet kind = kinds[i]\n\tlet x = vals[i]\n")
+	g.b.WriteString("func view(c Cols, i int) View {\n\tlet kind = c.kinds[i]\n\tlet x = c.vals[i]\n\tlet z = c.extra[i] + c.w\n")
 	if g.n(2) == 0 {
 		g.b.WriteString("\tlet y = x * 3 + kind\n")
 	} else {
 		g.b.WriteString("\tlet y = kind - x\n")
 	}
+	if g.n(3) == 0 {
+		// A let that cannot sink: it may divide by zero before the switch.
+		g.b.WriteString("\tlet q = 1000 / (x + 1)\n")
+	} else {
+		g.b.WriteString("\tlet q = z * 2\n")
+	}
 	g.b.WriteString("\tmatch kind {\n")
 	order := g.r.Perm(k)
+	z0 := slices.Index(order, 0)
+	order[z0], order[k-1] = order[k-1], order[z0]
 	twice := g.n(4) == 0
 	for kind, v := range order[:k-1] {
 		if twice && kind == 1 {
@@ -72,13 +90,13 @@ func (g *vgen) view(k int) {
 		}
 		fmt.Fprintf(&g.b, "\tcase %d:\n\t\t%s\n", kind, g.lit(v))
 	}
-	fmt.Fprintf(&g.b, "\tcase _:\n\t\t%s\n\t}\n}\n\n", g.lit(order[k-1]))
+	fmt.Fprintf(&g.b, "\tcase _:\n\t\tV0{A: x + y + z + q, B: %s}\n\t}\n}\n\n", []string{"i", "kind", "100 / x"}[g.n(3)])
 }
 
 // lit is a literal of variant v over the view's locals; a two-field
 // variant may divide by x.
 func (g *vgen) lit(v int) string {
-	operand := []string{"x", "y", "kind", "x + y", "i"}
+	operand := []string{"x", "y", "kind", "x + y", "i", "z", "q", "c.w"}
 	switch g.fields[v] {
 	case 0:
 		return fmt.Sprintf("V%d", v)
@@ -133,13 +151,13 @@ func (g *vgen) arms(k int, tail func(string) string) string {
 // walk writes walk (a statement in a loop), pick (a value) and code (the
 // result).
 func (g *vgen) walk(k int) {
-	g.b.WriteString("func walk(kinds []int, vals []int) int {\n\tlet mut s = 0\n\tlet mut i = 0\n\tfor i < len(kinds) {\n\t\tmatch view(kinds, vals, i) {\n")
+	g.b.WriteString("func walk(c Cols) int {\n\tlet mut s = 0\n\tlet mut i = 0\n\tfor i < len(c.kinds) {\n\t\tmatch view(c, i) {\n")
 	g.b.WriteString(g.arms(k, func(e string) string { return "\ts = s * 31 + " + e }))
 	g.b.WriteString("\t\t}\n\t\ti = i + 1\n\t}\n\ts\n}\n\n")
-	g.b.WriteString("func pick(kinds []int, vals []int, i int) int {\n\tlet r = match view(kinds, vals, i) {\n")
+	g.b.WriteString("func pick(c Cols, i int) int {\n\tlet r = match view(c, i) {\n")
 	g.b.WriteString(g.arms(k, func(e string) string { return "\t" + e }))
 	g.b.WriteString("\t}\n\tr + 1\n}\n\n")
-	g.b.WriteString("func code(kinds []int, vals []int, i int) int {\n\tmatch view(kinds, vals, i) {\n")
+	g.b.WriteString("func code(c Cols, i int) int {\n\tmatch view(c, i) {\n")
 	g.b.WriteString(g.arms(k, func(e string) string { return "\t" + e }))
 	g.b.WriteString("\t}\n}\n\n")
 }
@@ -156,8 +174,18 @@ func (g *vgen) main(k int) {
 			vals[i] = "0"
 		}
 	}
+	// extra is shorter than the rows in some seeds: a row past it fails
+	// in the view's lets, before its switch.
+	short := rows
+	if g.n(3) == 0 {
+		short = rows - 1 - g.n(rows)
+	}
+	extra := make([]string, short)
+	for i := range extra {
+		extra[i] = fmt.Sprint(g.n(20))
+	}
 	g.b.WriteString("func main() needs Console {\n")
-	fmt.Fprintf(&g.b, "\tlet kinds = []int{%s}\n\tlet vals = []int{%s}\n", strings.Join(kinds, ", "), strings.Join(vals, ", "))
-	g.b.WriteString("\tConsole.Println(\"walk \\(walk(kinds, vals))\")\n")
-	g.b.WriteString("\tlet mut i = 0\n\tfor i < len(kinds) {\n\t\tConsole.Println(\"row \\(i) \\(pick(kinds, vals, i)) \\(code(kinds, vals, i))\")\n\t\ti = i + 1\n\t}\n}\n")
+	fmt.Fprintf(&g.b, "\tlet c = Cols{kinds: []int{%s}, vals: []int{%s}, extra: []int{%s}, w: %d, tag: \"t\"}\n", strings.Join(kinds, ", "), strings.Join(vals, ", "), strings.Join(extra, ", "), g.n(9))
+	g.b.WriteString("\tlet mut i = 0\n\tfor i < len(c.kinds) {\n\t\tConsole.Println(\"row \\(i) \\(pick(c, i)) \\(code(c, i))\")\n\t\ti = i + 1\n\t}\n")
+	g.b.WriteString("\tConsole.Println(\"walk \\(walk(c))\")\n}\n")
 }
