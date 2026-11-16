@@ -70,8 +70,9 @@ type Unit struct {
 	// Rewrites is ergo build's -rewrites switch for the rewrites over
 	// functions of the IR path (ir_rewrite.go): "" or "on" (proved and
 	// validated laws), "proved" (proved laws only), "off" (the reference:
-	// every site keeps its left side). The test build ignores it: it
-	// shadows every matched site.
+	// every site keeps its left side), "canary[=N]" (on, and each N-th
+	// call at a rewritten site checks the left side too; ParseRewrites).
+	// The test build ignores it: it shadows every matched site.
 	Rewrites string
 	// AllLaws asks RewriteChecks for every rewrite and post law of the
 	// unit, not only those its run build's sites use: std's ledger
@@ -91,10 +92,8 @@ type Unit struct {
 // source paths cannot be anchored or are admitted twice, or whose imports
 // are not distinct user packages with flat units.
 func (u Unit) Validate() error {
-	switch u.Rewrites {
-	case "", "on", "proved", "off":
-	default:
-		return fmt.Errorf("lower: -rewrites=%s; want on, proved or off", u.Rewrites)
+	if _, _, err := ParseRewrites(u.Rewrites); err != nil {
+		return fmt.Errorf("lower: %w", err)
 	}
 	seen := map[string]bool{}
 	if err := u.validateFiles(seen); err != nil {

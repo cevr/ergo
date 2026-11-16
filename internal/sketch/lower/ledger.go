@@ -1051,6 +1051,10 @@ func (e *LedgerEvidence) record(l *lowerer, applied int, levels map[string]int) 
 	if byLevel != "" {
 		byLevel = " (over functions" + byLevel + ")"
 	}
+	if r := l.canon.funcRw; r != nil && r.every > 0 && !r.test {
+		// The canary's mode (LAWFFI r2 §3.7): the record names it.
+		byLevel += fmt.Sprintf("; -rewrites=canary=%d", r.every)
+	}
 	e.applied = applied
 	sum := sha256.Sum256([]byte(e.Read()))
 	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d%s", LedgerFile, sum, applied, byLevel)

@@ -48,11 +48,27 @@ law PickDrops(a string, b string) { Pick(Enc(a), b) } == { Enc(a) }
 
 func P(t string) string { Pick(Enc(t), Read(t)) }
 
+func Neg(b bool) bool { !b }
+
+law NegNeg(b bool) { Neg(Neg(b)) } == { b }
+
+func Q(b bool) bool { Neg(Neg(b)) }
+
+func Half(x float64) float64 { x / 2.0 }
+
+func Dbl(x float64) float64 { x * 2.0 }
+
+law HalfDbl(x float64) { Half(Dbl(x)) } == { x }
+
+func R(x float64) float64 { Half(Dbl(x)) }
+
 func main() {
 	let _ = F("a")
 	let _ = G("b")
 	let _ = H("c")
 	let _ = P("d")
+	let _ = Q(true)
+	let _ = R(1.5)
 }
 `
 	keys := func(string) ForeignKey { return ForeignKey{} }
@@ -133,6 +149,144 @@ func main() {
 	if count(shadow["F"], "Shadow") != 1 || count(shadow["G"], "Shadow") != 0 {
 		t.Errorf("test build: F calls %v, G calls %v; want F shadowed and G not", shadow["F"], shadow["G"])
 	}
+	// The shadow passes the law's arguments and whether each has a corpus
+	// text: a string has one, a bool (listable: its text is a class
+	// index) none.
+	if enc := shadowEnc(t, shadowFiles(t, src), "F"); enc != "true" {
+		t.Errorf("test build: F's shadow says enc %s; want true (string s)", enc)
+	}
+	if enc := shadowEnc(t, shadowFiles(t, src), "Q"); enc != "false" {
+		t.Errorf("test build: Q's shadow says enc %s; want false (bool b)", enc)
+	}
+	// The canary (LF6d): an applied site lowers its right side and, on a
+	// tick of its own counter, the left side at the same operands; an
+	// unapplied site has no canary.
+	canary := lowerWith("canary", "canary=8", "validated", false)
+	if count(canary["F"], "Tick") != 1 || count(canary["F"], "CanaryFail") != 1 || count(canary["F"], "Canary") != 0 || count(canary["F"], "Enc") != 1 {
+		t.Errorf("canary: F calls %v; want Tick, then the left side's Enc, compared at the site (a string's == is key equality) with CanaryFail", canary["F"])
+	}
+	if count(canary["R"], "Canary") != 1 || count(canary["R"], "CanaryFail") != 0 {
+		t.Errorf("canary: R calls %v; want Canary, key equality, since a float's == is not", canary["R"])
+	}
+	if count(canary["H"], "Read") != 1 {
+		t.Errorf("canary: H calls %v; want Read once: the left side reads the bound operand", canary["H"])
+	}
+	if count(canary["G"], "Tick") != 0 {
+		t.Errorf("canary: G calls %v; want no canary at a site kept as written", canary["G"])
+	}
+	fTick, hTick := canaryTick(t, src, "F"), canaryTick(t, src, "H")
+	if fTick[1] != "8" || hTick[1] != "8" || fTick[0] == hTick[0] {
+		t.Errorf("canary: F ticks %v, H ticks %v; want every 8, and a counter per site", fTick, hTick)
+	}
+	if count(lowerWith("canary, missing entry", "canary", "", false)["F"], "Tick") != 0 {
+		t.Errorf("canary: an unapplied site has a canary")
+	}
+	for in, want := range map[string]uint32{"canary": CanaryEvery, "canary=1": 1, "on": 0} {
+		if _, every, err := ParseRewrites(in); err != nil || every != want {
+			t.Errorf("ParseRewrites(%q) = %d, %v; want %d", in, every, err, want)
+		}
+	}
+	if _, _, err := ParseRewrites("canary=0"); err == nil {
+		t.Errorf("ParseRewrites(canary=0) holds; want an error")
+	}
+}
+
+// shadowFiles is src's test build, every law's entry missing.
+func shadowFiles(t *testing.T, src string) []File {
+	t.Helper()
+	u := factsUnit(t, src)
+	u.Rewrite = NewLedgerEvidence(u.Package, LedgerNames{}, map[string]LedgerEntry{}, func(string) ForeignKey { return ForeignKey{} })
+	files, _, err := LowerIRTests(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// shadowEnc is the enc argument of fn's Shadow call.
+func shadowEnc(t *testing.T, files []File, fn string) string {
+	t.Helper()
+	c := irPcall(t, files, fn, "Shadow")
+	if c == nil || len(c.Args) < 7 {
+		t.Fatalf("%s has no Shadow call of eight arguments", fn)
+	}
+	return c.Args[6].V
+}
+
+// canaryTick is the site index and N of fn's Tick call in src's run build
+// under -rewrites=canary=8, the laws validated.
+func canaryTick(t *testing.T, src, fn string) [2]string {
+	t.Helper()
+	u := factsUnit(t, src)
+	u.Rewrites = "canary=8"
+	keys := func(string) ForeignKey { return ForeignKey{} }
+	entries := map[string]LedgerEntry{}
+	for _, law := range u.Package.Laws {
+		e := FuncLawEntry(law, LedgerNames{}, "validated", keys)
+		entries[e.Key()] = e
+	}
+	u.Rewrite = NewLedgerEvidence(u.Package, LedgerNames{}, entries, keys)
+	files, _, err := LowerIR(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := irPcall(t, files, fn, "Tick")
+	if c == nil || len(c.Args) != 2 {
+		t.Fatalf("%s has no Tick call", fn)
+	}
+	return [2]string{c.Args[0].V, c.Args[1].V}
+}
+
+// irPcall is the first pcall named name in the IR function fn.
+func irPcall(t *testing.T, files []File, fn, name string) *irExpr {
+	t.Helper()
+	var ir irFile
+	for _, f := range files {
+		if f.Path == IRFileName {
+			if err := json.Unmarshal(f.Data, &ir); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var found *irExpr
+	var expr func(e *irExpr)
+	var stmts func(list []*irStmt)
+	expr = func(e *irExpr) {
+		if e == nil || found != nil {
+			return
+		}
+		if e.K == "pcall" && e.Name == name {
+			found = e
+			return
+		}
+		expr(e.X)
+		expr(e.Y)
+		for _, a := range e.Args {
+			expr(a)
+		}
+		for _, a := range e.Elems {
+			expr(a)
+		}
+		stmts(e.Body)
+	}
+	stmts = func(list []*irStmt) {
+		for _, s := range list {
+			expr(s.X)
+			expr(s.Y)
+			stmts(s.Then)
+			stmts(s.Else)
+			stmts(s.Body)
+			for _, c := range s.Cases {
+				stmts(c.Body)
+			}
+		}
+	}
+	for _, f := range ir.Funcs {
+		if f.Name == fn || strings.HasSuffix(f.Name, "."+fn) {
+			stmts(f.Body)
+		}
+	}
+	return found
 }
 
 // irCalls are the names each IR function calls (call and pcall), by its

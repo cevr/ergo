@@ -16,7 +16,9 @@ package lower
 //     proved one);
 //   - the reference (rewriteLowering=reference) and -rewrites=off lower
 //     the left side, as written;
-//   - the test build lowers v1.Shadow(left, right, …) at every matched
+//   - under -rewrites=canary[=N] the run build's rewritten site also
+//     evaluates its left side on each N-th call and compares (canary);
+//   - the test build lowers shadow.Shadow(left, right, …) at every matched
 //     site, admitted or not, a stale entry's and a dependency's site too:
 //     the site's value is its left side's, and a right side that key
 //     equality tells apart raises a defect naming the law and the site.
@@ -34,33 +36,63 @@ package lower
 // text emitter is frozen, IR-ONLY), and its sites say so.
 
 import (
+	"fmt"
 	"go/constant"
 	"go/token"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // funcRewrites is a lowering's rewrites over functions.
 type funcRewrites struct {
-	// mode is -rewrites (on, proved, off); test shadows every site.
-	mode string
-	test bool
-	ev   RewriteEvidence
+	// mode is -rewrites (on, proved, off, canary); test shadows every
+	// site. every is the canary's N: a check on each N-th call at a site.
+	mode  string
+	every uint32
+	test  bool
+	ev    RewriteEvidence
 	// laws are the laws in the rewrite's scope by root function, read
 	// once; shipped the shipped ledger's evidence by package.
 	laws    map[*check.Func][]*check.Law
 	shipped map[*check.Package]*shippedEvidence
+	// canarySites are the canary's site indexes by position: a lowering
+	// that runs again from the start (lowerAgain) meets a site again.
+	canarySites map[string]int
 }
 
 func newFuncRewrites(u Unit, test bool) *funcRewrites {
-	mode := u.Rewrites
-	if mode == "" {
-		mode = "on"
+	mode, every, _ := ParseRewrites(u.Rewrites) // Validate checked it
+	return &funcRewrites{mode: mode, every: every, test: test, ev: u.Rewrite}
+}
+
+// CanaryEvery is the canary's N when -rewrites=canary names none (LAWFFI
+// r2 §3.7).
+const CanaryEvery = 1024
+
+// ParseRewrites reads ergo build's -rewrites value: "" or on, proved,
+// off, or canary[=N] (N from 1 to 2^31, CanaryEvery when not given). It
+// returns the mode and the canary's N, 0 for any other mode.
+func ParseRewrites(s string) (string, uint32, error) {
+	switch s {
+	case "", "on":
+		return "on", 0, nil
+	case "proved", "off":
+		return s, 0, nil
+	case "canary":
+		return "canary", CanaryEvery, nil
 	}
-	return &funcRewrites{mode: mode, test: test, ev: u.Rewrite}
+	if n, ok := strings.CutPrefix(s, "canary="); ok {
+		v, err := strconv.ParseUint(n, 10, 32)
+		if err == nil && v >= 1 && v <= 1<<31 {
+			return "canary", uint32(v), nil
+		}
+	}
+	return "", 0, fmt.Errorf("-rewrites takes on, proved, off or canary[=N] (N from 1 to 2147483648), not %q", s)
 }
 
 // funcLaws are the laws in the rewrite's scope whose root is f: of the
@@ -185,8 +217,89 @@ func (b *irBuilder) rewriteAt(x *syntax.CallExpr) (pre []*irStmt, e *irExpr, ok 
 	}
 	pre, temps := b.bindOperands(m)
 	rpre, rv := b.lawSide(m.law, m.law.FuncRewrite.Rhs, temps)
+	pre = append(pre, rpre...)
+	if r.every > 0 {
+		cpre, cv, ok := b.canary(x, m, at, v.Key, temps, rv)
+		if !ok {
+			return nil, nil, false
+		}
+		pre, rv = append(pre, cpre...), cv
+	}
 	b.rwLevel(v.Verdict)
-	return append(pre, rpre...), rv, true
+	return pre, rv, true
+}
+
+// canary is a run build's rewritten site x under -rewrites=canary=N
+// (LAWFFI r2 §3.7): right, the right side's value, is the site's, held in
+// a temporary; on each N-th call at the site (shadow.Tick, a counter per
+// site) the left side is evaluated too, at the same operands, and
+// shadow.Canary compares the two, a defect that names the law and the
+// site when key equality tells them apart.
+func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals map[*check.Var]*irExpr, right *irExpr) ([]*irStmt, *irExpr, bool) {
+	p := b.pos(x, x.Pos())
+	t := b.l.info.Types[x]
+	if t == nil {
+		return nil, nil, false
+	}
+	gt := b.goType(t, x)
+	if b.namesTypeParam(gt) {
+		irNo("rewrite canary in a generic body")
+	}
+	r := b.l.canon.funcRw
+	if r.canarySites == nil {
+		r.canarySites = map[string]int{}
+	}
+	site, seen := r.canarySites[at]
+	if !seen {
+		site = len(r.canarySites)
+		r.canarySites[at] = site
+	}
+	rt := b.temp("right", gt, p)
+	pre := []*irStmt{{K: "def", Pos: p, Local: rt, X: right}}
+	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals)
+	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
+	b.keepImport("var _ = " + b.l.rtRef("Tick"))
+	var check *irStmt
+	if goEqualIsKey(t) {
+		// Go's == is key equality here (no float in it): the site
+		// compares, and a failure calls CanaryFail, so the check keeps
+		// the site's function small enough for Go to inline it (a
+		// generic call would not).
+		b.keepImport("var _ = " + b.l.rtRef("CanaryFail"))
+		check = &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "bin", Pos: p, Op: "!=", X: left, Y: &irExpr{K: "local", Pos: p, I: rt}},
+			Then: []*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: v1.PackageOf("CanaryFail"), Name: "CanaryFail", Args: []*irExpr{str(key), str(at)}}}}}
+	} else {
+		b.keepImport("var _ = " + b.l.rtRef("Canary") + "[" + gt + "]")
+		check = &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: v1.PackageOf("Canary"), Name: "Canary", V: gt, Args: []*irExpr{
+			left, {K: "local", Pos: p, I: rt}, str(key), str(at),
+		}}}
+	}
+	tick := &irExpr{K: "pcall", Pos: p, T: v1.PackageOf("Tick"), Name: "Tick", Args: []*irExpr{
+		{K: "const", Pos: p, T: "int", V: strconv.Itoa(site)},
+		{K: "const", Pos: p, T: "uint32", V: strconv.FormatUint(uint64(r.every), 10)},
+	}}
+	pre = append(pre, &irStmt{K: "if", Pos: p, End: p, X: tick, Then: append(lpre, check)})
+	return pre, &irExpr{K: "local", Pos: p, I: rt}, true
+}
+
+// goEqualIsKey reports a type whose Go == is key equality: a bool, an
+// integer or a string, through its definitions. A float's == is not (a NaN
+// is not equal to itself, and -0 equals +0), and a composite's needs its
+// parts compared.
+func goEqualIsKey(t check.Type) bool {
+	for n, ok := t.(*check.Named); ok; n, ok = t.(*check.Named) {
+		t = n.Underlying()
+	}
+	u, ok := t.(*check.Basic)
+	if !ok {
+		return false
+	}
+	switch u.Kind {
+	case check.Bool, check.String, check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Duration,
+		check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64, check.Uintptr:
+		return true
+	}
+	return false
 }
 
 // siteText is x's position, file:line:column.
@@ -446,10 +559,46 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string) ([]*irStmt,
 		irNo("rewrite shadow in a generic body")
 	}
 	b.keepImport("var _ = " + b.l.rtRef("Shadow") + "[" + gt + "]")
+	// The law's arguments at the site, for the defect's "for s = …" and
+	// the refutation's corpus case (ergo test writes it, Tests 10).
+	var names []string
+	args := &irExpr{K: "lit", Pos: p, T: "[]any"}
+	enc := true
+	for _, v := range m.law.Params {
+		names = append(names, v.Name)
+		args.Elems = append(args.Elems, &irExpr{K: "toiface", Pos: p, T: "any", X: vals[v]})
+		enc = enc && caseEncodable(v.Type)
+	}
 	call := &irExpr{K: "pcall", Pos: p, T: v1.PackageOf("Shadow"), Name: "Shadow", V: gt, Args: []*irExpr{
 		{K: "local", Pos: p, I: lt}, right, str(key), str(at), str(b.l.nodeText(m.law.FuncRewrite.Lhs)),
+		str(strings.Join(names, ",")), {K: "const", Pos: p, T: "bool", V: strconv.FormatBool(enc)}, args,
 	}}
 	return pre, call, true
+}
+
+// caseEncodable reports a type whose values have an exact corpus text at
+// run time (ergo.cases; eval's encodeValue): a string, an integer, a
+// float, or a slice of one. A listable type's text is its index in the
+// class table (testplan.Domain), which a run-time value does not tell.
+func caseEncodable(t check.Type) bool {
+	if vs, ok := testplan.Domain(t); ok && len(vs) > 0 {
+		return false
+	}
+	for n, ok := t.(*check.Named); ok; n, ok = t.(*check.Named) {
+		t = n.Underlying()
+	}
+	switch u := t.(type) {
+	case *check.Basic:
+		switch u.Kind {
+		case check.String, check.Float32, check.Float64, check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Duration,
+			check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64, check.Uintptr:
+			return true
+		}
+		return false
+	case *check.Slice:
+		return caseEncodable(u.Elem)
+	}
+	return false
 }
 
 // nodeText is n's source text, from the program's sources or std's.
