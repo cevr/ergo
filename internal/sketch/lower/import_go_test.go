@@ -49,6 +49,18 @@ import go encoding/base64
 import go hash/crc32
 import go time
 import go os
+import go syscall
+
+// A Go struct whose fields differ by platform binds its common fields
+// (GBX5: syscall.SysProcAttr), so os.ProcAttr's Sys maps, and
+// os.StartProcess borrows the ProcAttr for the call.
+func goProcess() string fails go.Error needs go.Foreign {
+	let sys = go.New[syscall.SysProcAttr]()
+	let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
+	let p = try os.StartProcess("/bin/sh", []string{"sh", "-c", "exit 3"}, &attr)
+	let state = try p.Wait()
+	"\(state.ExitCode())|\(sys.Setpgid)"
+}
 
 // time.Duration's methods (GBX4): functions of their receiver, called and
 // passed as a value, both Go's method expression.
@@ -184,6 +196,8 @@ func TestImportGoRuns(t *testing.T) {
 	// Go constants (typed as the binding says) and an error variable.
 	src.WriteString("\tConsole.Println(\"\\(math.MaxInt8 + 1)|\\(io.EOF.Text)|\\(strconv.IntSize)\")\n")
 	want = append(want, fmt.Sprintf("%d|%s|%d", math.MaxInt8+1, io.EOF.Error(), strconv.IntSize))
+	src.WriteString("\tConsole.Println(goProcess() catch { case go.Error as e: e.Text })\n")
+	want = append(want, "3|false")
 	src.WriteString("\tConsole.Println(goDurations(90s + 500ms))\n")
 	d := 90*time.Second + 500*time.Millisecond
 	want = append(want, fmt.Sprintf("%s|%v|%d|%s|%s|%s", d, d.Seconds(), d.Milliseconds(), d.Round(time.Second), d.Truncate(time.Minute), (-d).Abs()))
