@@ -274,7 +274,9 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 }
 
 // judge sends the Slow signals of the pass just rendered, when the view
-// asked for them (OnSlow).
+// asked for them (OnSlow). Each is a signal the actor steps, so it counts
+// in the Signals of the pass that shows it (UC-SIGNALS0), as an input's
+// signal does.
 func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
@@ -284,6 +286,7 @@ func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 			case actor.Stopped:
 				return
 			}
+			s.signals = s.signals + 1
 		}
 	case None:
 	}

@@ -2258,7 +2258,8 @@ func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
 // budget of written nodes gets one Slow per pass of its input over it,
 // with the count and the bound, none for a pass whose view asked for
 // nothing (an OnSlow holds for its pass), and none for a pass of a commit
-// it did not cause (the one that shows the log).
+// it did not cause (the one that shows the log). The pass that shows a
+// Slow counts its signal (Signals 1, UC-SIGNALS0).
 law SlowAboveTheBudget(seed int, bound int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2322,6 +2323,9 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 						shown = shown || x.Node == TextNode{Value: "log \(len(want))", Style: Plain()}
 					case _:
 					}
+				}
+				if shown && SessionStats(&session).Signals != 1 {
+					return false
 				}
 			}
 		}

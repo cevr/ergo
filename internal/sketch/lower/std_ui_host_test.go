@@ -2894,6 +2894,9 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 					case _:
 					}
 				}
+				if shown && ui.SessionStats(&session).Signals != 1 {
+					return false
+				}
 			}
 		}
 	}
