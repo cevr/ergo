@@ -496,6 +496,9 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	product := op == "*" && floatLowering != "fuse" && isFloatType(fc.typeOf(s.Lhs[0]))
 	target := fc.target(s.Lhs[0], rhsEmits || product)
 	if op == "" {
+		if fc.updateSelf(s, target) {
+			return
+		}
 		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {

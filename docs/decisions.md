@@ -4,6 +4,12 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-15
 
+- **In-place update for user code by one ownership rule: the three REUSE questions (2026-11-15, q178 to q180).** The owner asked whether Append, Put and Delete could get their in-place advantage "as a function of laws", so that any user code gets it, with one rule and no std special case. The plan (REUSE, the wf10 run's `reuse/plan.md`) answers that the licence is ownership, which the compiler checks, not a law (a law that passed its cases is *tested*, and tested evidence never changes code, q115); its three questions were answered as assumed:
+  - **Q1 (q178): No.** A user's Go-bound function may not name an owned twin, as `runtime/v1` bodies do with `//ergo:owned`. A trust fact comes from a reviewed table (q36); a user who wants reuse writes the body in Ergo, where the compiler derives the owned form, or takes `*T` and writes in place.
+  - **Q2 (q179): Yes, built last.** A function may state that it owns a parameter: `takes p` on a parameter of plain data is a claim the checker proves against the one ownership analysis, and refuses with the use that breaks it (REUSE RU7).
+  - **Q3 (q180): Yes.** The run-time token (`own-lineage`) is deleted once the static rule covers its sites (REUSE RU5); the unit stops, and the token stays, if a counted receipt gets worse.
+  Prior art: Koka's `fip` and Swift's `consuming` are checked claims of Q2's kind; Lean 4 and Koka reuse a value whose reference count is one at run time, where Ergo decides at compile time and copies when it cannot (`reuse/plan.md` §7).
+
 - **Std carries its own zone database (2026-11-15, std-spike q184).** Told that following the host's zone files, with Go's `time/tzdata` as a fallback, cannot promise the same rules on every host or that the valid names are the database's, the owner answered: "Okay, then just make our own time zone host then."
   - Std `tz/iana` is std's own copy of one IANA release, written by a checked generator (`go run ./scripts/tzdata`, `-check`) and linked only into a program that uses it. It is the default `tz.Zones` provider.
   - A reader written in Ergo reads its TZif bytes; Go's reader of the same bytes is the test oracle (`TestStdTzMatchesGo`).

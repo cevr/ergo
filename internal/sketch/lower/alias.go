@@ -425,8 +425,13 @@ func hides(t check.Type, seen map[check.Type]bool) bool {
 			}
 		}
 	case *check.Union:
+		// A union holds its variant behind a match, so the value copy
+		// copies none of it (holdsValue): a variant that reaches a Map or
+		// a slice is hidden from a copy of the result, which then must be
+		// a copy of the argument (wf10 OWN1 arms: `let o = optS(cur)`
+		// then `cur[0] = k` reached o's slice, under every lowering).
 		for _, v := range u.Variants {
-			if hides(v, seen) {
+			if hides(v, seen) || holdsValueSeen(v, map[check.Type]bool{}) {
 				return true
 			}
 		}

@@ -39,7 +39,43 @@ import (
 //   - testdata/ownwindow, lane PA's DF1 (flattree's scratch stack) on n
 //     steps: the stack grows to n, and each step closes a two-item window
 //     of it, kept and read, so the elements copied per step are the
-//     window's, independent of the stack's length (gobody.go, goBodyView).
+//     window's, independent of the stack's length (gobody.go, goBodyView);
+//   - testdata/ownshrink, the self-layout plan's SL3 (the tree builder of
+//     toktree-ergo-naive) on n groups: a scratch stack cut back to a mark,
+//     stack = stack[0:mark], then appended to (own-reslice), which main
+//     e02194103 cloned at each cut;
+//   - testdata/reuse, the REUSE plan's shapes (§1) on one user type
+//     Set { xs []int } whose Insert owns its argument, each a = f(a, …)
+//     n times: g1 (Insert, in place since V5), g4 (an early return of the
+//     whole parameter), f2 and f3 (a = InsertCapped(a, …) catch { … }), r1
+//     and r2 (a part moved into a literal and an update), r3 (the prelude's
+//     Append in an update), u1 (a union's payload), fv (Insert through a
+//     function value); st (examples/jobs' settle in place, ST's gx9 item
+//     1), whose copy of the operation's result is linear and which the
+//     report must name; uc (std ui's old mirror, UC's g8): a Get on a Map of
+//     records that hold a slice, through a pointer, which main e02194103
+//     copied whole at each read (ergoCloneMap(m.nodes)[id]), quadratic in
+//     n, and which MAPCOPY's entry rule (V8) reads in place; x1 (OWN1
+//     st-x1's X1b): a plain Get of a let mut Map written later, which
+//     main e02194103 also copied whole and V8 copies as the element read;
+//     kc (OWN1 arms round 1, keepCard's Bump): an entry of a Map behind a
+//     borrow replaced by keepCard(v.Value, k) in Some's arm, which RU8's
+//     arm form of the entry move-out (moveout.go) hands the entry with no
+//     copy; gm and gs (LWR-ELEM-APPEND, D1's naive GroupBy): n values into
+//     16 groups grown in place, in a Map's entry (the arm form) and in an
+//     element of a [][]int (sameElem).
+//
+// A row marked red names the unit that turns it green: the test skips its
+// count (the build and the report's site still run) until that unit
+// deletes the mark; OWN_GROWTH_KNOWN_RED=1 counts it too, so a unit shows
+// its rows red at its base. Measured at RU0's head (2026-11-15): g4, f2,
+// f3, r1, r2, r3, u1 and fv copy the Set at each step. A unit that turns
+// a row green also gives it 200,000 steps: linear, a step costs a few
+// instructions, and at 2,000 or 20,000 steps the runtime's own work (a
+// collection, a heap growth) is as large as the difference counted.
+//
+// SL3's mutant mapcopy-sl3-reslice-never (the reslice shortcut never taken) is
+// caught here as a growth and in TestHandoverAgrees by trim's copy.
 //
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
@@ -71,7 +107,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	if cli == "" {
 		cli = buildTestCLI(t)
 	}
-	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownwindow")
+	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownshrink", "cmd/ergo/testdata/ownwindow", "cmd/ergo/testdata/reuse")
 	dir := t.TempDir()
 	type program struct {
 		name string
@@ -81,6 +117,14 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		site string
 		// run is the command and the stdin of the program at size n.
 		run func(bin string, n int) (*exec.Cmd, string)
+		// red, when set, is the unit that turns a known-red row green.
+		red string
+	}
+	reuse := filepath.Join(ws, "cmd", "ergo", "testdata", "reuse", "reuse.ergo")
+	shape := func(name string) func(bin string, n int) (*exec.Cmd, string) {
+		return func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, name, strconv.Itoa(n)), ""
+		}
 	}
 	programs := []program{
 		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:155:10 in place", func(bin string, n int) (*exec.Cmd, string) {
@@ -89,7 +133,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 				fmt.Fprintf(&b, "Paragraph %d with *em* and `code`.\n\n", i)
 			}
 			return exec.Command(bin), b.String()
-		}},
+		}, ""},
 		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:289:38 one extender", func(bin string, n int) (*exec.Cmd, string) {
 			lines := []string{"route 1 logs disk", "route 2 metrics socket", "route 3 alerts stdout"}
 			topics := []string{"logs", "metrics", "alerts"}
@@ -97,32 +141,62 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 				lines = append(lines, "send "+topics[i%3]+" hello")
 			}
 			return exec.Command(bin), strings.Join(lines, "\n") + "\n"
-		}},
+		}, ""},
 		{"ownring", filepath.Join(ws, "cmd", "ergo", "testdata", "ownring", "ring.ergo"), 1000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n), strconv.Itoa(20*n)), ""
-		}},
+		}, ""},
 		{"ownvt", filepath.Join(ws, "cmd", "ergo", "testdata", "ownvt", "vt.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
-		}},
+		}, ""},
 		{"ownedit", filepath.Join(ws, "cmd", "ergo", "testdata", "ownedit", "edit.ergo"), 40000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
-		}},
+		}, ""},
+		{"ownshrink", filepath.Join(ws, "cmd", "ergo", "testdata", "ownshrink", "shrink.ergo"), 10000, "", func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, strconv.Itoa(n)), ""
+		}, ""},
 		{"ownwindow", filepath.Join(ws, "cmd", "ergo", "testdata", "ownwindow", "window.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
-		}},
+		}, ""},
+		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
+		{"reuse-g4", reuse, 200000, "", shape("g4"), ""},
+		{"reuse-f2", reuse, 2000, "", shape("f2"), "RU2"},
+		{"reuse-f3", reuse, 2000, "", shape("f3"), "RU2"},
+		{"reuse-r1", reuse, 200000, "", shape("r1"), ""},
+		{"reuse-r2", reuse, 200000, "", shape("r2"), ""},
+		{"reuse-r3", reuse, 200000, "", shape("r3"), ""},
+		{"reuse-u1", reuse, 2000, "", shape("u1"), "RU3"},
+		{"reuse-fv", reuse, 2000, "", shape("fv"), "RU4 (a known callback takes the owning form; plan §2, Indirect calls)"},
+		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
+		{"reuse-uc", reuse, 5000, "", shape("uc"), ""},
+		{"reuse-x1", reuse, 5000, "reuse.ergo:207:16 copy deep: ", shape("x1"), ""},
+		{"reuse-kc", reuse, 200000, "", shape("kc"), ""},
+		{"reuse-gm", reuse, 200000, "", shape("gm"), ""},
+		{"reuse-gs", reuse, 200000, "", shape("gs"), ""},
 	}
+	knownRed := os.Getenv("OWN_GROWTH_KNOWN_RED") == "1"
+	built := map[string]string{}
+	reports := map[string]string{}
 	for _, p := range programs {
-		bin := filepath.Join(dir, p.name)
-		build := exec.Command(cli, "build", "-report", "copies", "-o", bin, p.path)
-		var out bytes.Buffer
-		build.Stdout, build.Stderr = &out, &out
-		if err := proclimit.Run(build, 4<<30); err != nil {
-			t.Fatalf("ergo build %s: %v\n%s", p.path, err, out.Bytes())
+		bin, ok := built[p.path]
+		if !ok {
+			bin = filepath.Join(dir, p.name)
+			build := exec.Command(cli, "build", "-report", "copies", "-o", bin, p.path)
+			var out bytes.Buffer
+			build.Stdout, build.Stderr = &out, &out
+			if err := proclimit.Run(build, 4<<30); err != nil {
+				t.Fatalf("ergo build %s: %v\n%s", p.path, err, out.Bytes())
+			}
+			built[p.path], reports[p.path] = bin, out.String()
 		}
+		out := bytes.NewBufferString(reports[p.path])
 		// The copy report names the growing site's form (a report that
 		// lists no site, or the wrong form, fails here).
 		if p.site != "" && !strings.Contains(out.String(), p.site) {
 			t.Errorf("ergo build -report copies %s: no line with %q in\n%s", p.name, p.site, out.Bytes())
+		}
+		if p.red != "" && !knownRed {
+			t.Logf("%s: known red until %s (OWN_GROWTH_KNOWN_RED=1 counts it)", p.name, p.red)
+			continue
 		}
 		const rounds = 3
 		var d1s, d2s []float64

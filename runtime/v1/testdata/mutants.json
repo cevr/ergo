@@ -148,6 +148,39 @@
       ]
     },
     {
+      "name": "done-answered-before-close",
+      "origin": "wf10 ACT-CH (FK1 flake: actor.DoneIsFinal)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif k == decideDone {\n\t\t// Admission closes before the answer (rule 8)",
+      "to": "\tif false {\n\t\t// Admission closes before the answer (rule 8)",
+      "rule": "DoneIsFinal: once an Ask has its Done, a Send fails ActorStopped; admission closes before the answer.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestDoneIsFinalExplored"
+      ]
+    },
+    {
+      "name": "changes-spare-dropped",
+      "origin": "wf10 ACT-CH",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\t\tc.reset()\n\t\t\ta.spareSub = c\n",
+      "to": "\t\t\tc.reset()\n\t\t\ta.spareSub = nil\n",
+      "rule": "An ended Changes subscription leaves its buffer and wake channel to the next one.",
+      "killers": [
+        "runtime/v1:TestActorChangesReuse"
+      ]
+    },
+    {
+      "name": "changes-buf-not-rewound",
+      "origin": "wf10 ACT-CH",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\t\tif c.head == len(c.buf) {\n\t\t\t\tc.buf, c.head = c.buf[:0], 0\n\t\t\t}\n",
+      "to": "",
+      "rule": "A subscription that gave every state empties its buffer in place, so the next state takes the same array.",
+      "killers": [
+        "runtime/v1:TestActorChangesReuse"
+      ]
+    },
+    {
       "name": "x7-parent-first",
       "origin": "wf10/explorer/x7 (MU5 parentFirst; models/children ParentFirst)",
       "file": "runtime/v1/actor.go",

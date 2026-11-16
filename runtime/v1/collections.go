@@ -168,6 +168,21 @@ func AppendPoison[T any](xs []T, x T) []T {
 //ergo:wait none
 func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
 
+// SlicesFill is slices.Repeat(xs, n) written into out, which the caller
+// makes with length len(xs)*n, a constant (wf10 OWN1 PA3): the caller's
+// make of constant length stays on its stack when the result does not
+// escape, as hand Go's `var a [12]int` does. xs is not kept. It returns
+// out.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesFill[T any](out []T, xs []T) []T {
+	for i := 0; i < len(out); i += len(xs) {
+		copy(out[i:], xs)
+	}
+	return out
+}
+
 // SlicesSlice is xs[i:j:j], the full slice expression: no room after j,
 // so an append to the result copies and never writes xs[j]. A bound out
 // of range panics: a defect, as an index out of range is.

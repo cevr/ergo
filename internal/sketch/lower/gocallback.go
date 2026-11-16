@@ -108,7 +108,7 @@ func (fc *funcCtx) goCallbackIn(t check.Type, p string, site syntax.Node) string
 		return fc.l.goErrorFrom() + "(" + p + ")"
 	}
 	if fc.l.holdsValue(t) && valueRule() {
-		return fc.cloneDeep(t, p, site) // Go may still write an entry (V8)
+		return fc.reportCopy(site, fc.cloneDeep(t, p, site), whyGoIn) // Go may still write an entry (V8)
 	}
 	return p
 }
@@ -119,7 +119,7 @@ func (fc *funcCtx) goCallbackOut(t check.Type, r string, site syntax.Node) strin
 		return "(" + r + ").Native()"
 	}
 	if fc.l.holdsValue(t) && valueRule() {
-		return fc.cloneDeep(t, r, site) // Go may write an entry (V8)
+		return fc.reportCopy(site, fc.cloneDeep(t, r, site), whyGoOut) // Go may write an entry (V8)
 	}
 	return r
 }

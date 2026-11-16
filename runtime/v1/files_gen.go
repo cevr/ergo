@@ -444,6 +444,7 @@ var bodyTable = []bodyRow{
 	{"SlicesConcatPoison", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}, Wait: "none", Package: Path}}},
 	{"SlicesContains", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesEqual", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
+	{"SlicesFill", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesIndex", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "comparable"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"int"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesMax", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "ordered"}}, Params: []Param{{Type: "[]T"}}, Results: []string{"T"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesMin", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "ordered"}}, Params: []Param{{Type: "[]T"}}, Results: []string{"T"}, Pure: true, Wait: "none", Package: Path}}},
@@ -637,7 +638,7 @@ var bodyTable = []bodyRow{
 // typeTable is goDecls.goType of every exported type of Source, by name.
 // TypeOf reads it (CHK1). Sorted by name, a slice, as bodyTable is.
 var typeTable = []typeRow{
-	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "doneWait", "exit", "subs", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "limit", "restarts", "cur", "curEnv", "timer", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound"}, Package: Path}},
+	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "doneWait", "exit", "subs", "spareSub", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "limit", "restarts", "cur", "curEnv", "timer", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound"}, Package: Path}},
 	{"ActorChildDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},
 	{"ActorFreshDefect", GoType{Struct: true, Fields: []string{"Reason"}, Package: Path}},
 	{"ActorHostDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},

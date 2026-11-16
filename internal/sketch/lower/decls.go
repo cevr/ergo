@@ -1753,6 +1753,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	if l.holdsRows() {
 		b.WriteString("\t" + envWith + " *" + l.rt() + ".Scope\n") // inforce.go
 	}
+	if l.envFrom {
+		b.WriteString("\t" + envFrom + " *" + l.envName + "\n") // closures.go, envMemoText
+	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}

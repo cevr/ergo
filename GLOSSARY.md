@@ -168,6 +168,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Consume**: Ending a resource early by calling `Close()`, a task's `Wait()`, or a function whose `takes` clause names it. Nothing runs for it at scope end, and a later use is an error. A task's `Stop()` lends; it does not consume ([resources](docs/spec/resources.md#early-release) R19).
 
+**Consume (a value)**: Take a slice, `Map` or record that holds one at a position that may keep or write its storage: the value of a `let mut`, an owned parameter, an owned form's first operand, the source of an `Append`. A consumed value or path is taken in place only when no other use of it can see the write; otherwise the lowering copies it first. A record is consumed by parts when its body consumes its fields on paths that do not overlap ([types](docs/spec/types.md#bindings), *own-parts*). Not the resource sense above: nothing ends early, and a later read is legal, so it is copied.
+
+**Owned parameter**: A parameter whose function's body may write or keep its storage, because every use consumes it or keeps nothing ([types](docs/spec/types.md#bindings) 2). Its caller passes it unshared: a copy only when the argument is shared, none for a dead local, a fresh value or a rebinding `p = f(p, …)`, which hands the old value over.
+
 **Generated Close**: The `Close` the compiler gives a struct with resource fields. It closes those fields in reverse declaration order.
 
 **Task**: A unit of concurrent work started by `task.Go`, of type `Task[T, E]`. It is a resource (it declares `Close()`): one owner, moved by a hand-off, taken by `Wait`, which returns its result; `Stop` interrupts it and waits for it; its owner's end releases it when nothing took it.

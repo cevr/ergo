@@ -127,6 +127,7 @@ func Lower(u Unit) ([]File, error) {
 	code, err := l.program()
 	if u.Copies != nil {
 		u.Copies.Sites = copyReport(l.stats.Copies)
+		u.Copies.Owned = l.ownedFuncs()
 	}
 	if err != nil {
 		return nil, err
@@ -306,6 +307,7 @@ type lowerer struct {
 	heldFacts   *heldInfo
 	heldEmitted map[string]bool
 	envOrder    []envCap
+	envFrom     bool // a host callback reuses a task's copy (closures.go, envMemoText)
 
 	rtName, timeName, taskName string
 	// lineages numbers the one-extender sites, each a Lineage of the
